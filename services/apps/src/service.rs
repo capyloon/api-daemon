@@ -3,7 +3,8 @@ use super::shared_state::*;
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::tasks::{
-    CheckForUpdateTask, InstallPackageTask, SetEnabledTask, UninstallTask, UpdateTask,
+    CheckForUpdateTask, InstallPackageTask, InstallPwaTask, SetEnabledTask,
+    UninstallTask, UpdateTask,
 };
 use common::core::BaseMessage;
 use common::traits::{
@@ -76,6 +77,12 @@ impl AppsEngineMethods for AppsService {
             apps_option,
             responder.clone(),
         );
+        self.shared_data.lock().registry.queue_task(task);
+    }
+
+    fn install_pwa(&mut self, responder: &AppsEngineInstallPwaResponder, update_url: String) {
+        info!("install_pwa: {}", &update_url);
+        let task = InstallPwaTask(self.shared_data.clone(), update_url, responder.clone());
         self.shared_data.lock().registry.queue_task(task);
     }
 

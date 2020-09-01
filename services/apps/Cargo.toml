@@ -18,6 +18,7 @@ serde = { version = "1.0", features = ["derive"] }
 sqlite-utils = { path = "../../support/sqlite-utils" }
 threadpool = "1.7"
 thiserror = "1.0"
+url = "2.1"
 zip = { git = "ssh://git@git.kaiostech.com/rust-forks/zip-rs.git", branch="omni-ja", default-features = false, features = ["deflate", "omnija"]}
 zip_utils = { git = "ssh://git@git.kaiostech.com/KaiOS/zip_utils.git", branch="master" }
 reqwest = { version = "0.10", default-features = false, features = ["blocking", "json", "rustls-tls"] }

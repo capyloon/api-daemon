@@ -75,16 +75,20 @@ interface AppsEngine {
   fn get_state() -> AppsServiceState
 
   // In: the URL of a app in store server
-  // Return: the app object or an error string.
+  // Return: the app object or an error
   fn install_package(update_url: str) -> AppsObject, AppsServiceError
 
   // In: the URL of a app in store server
-  // Return: the app object or an error string.
+  // Return: the app object or an error
   fn uninstall(manifest_url: str) -> str, AppsServiceError
 
   // In: the URL of a app in store server
   // Return: the app update available or an error string.
   fn check_for_update(update_url:str, appsOption: AppsOptions) -> bool, AppsServiceError
+
+  // In: The URL of a PWA manifest from the host server
+  // Return: the app object or an error
+  fn install_pwa(manifest_url: str) -> AppsObject, AppsServiceError
 
   // In: the URL of a app in store server
   // Return: the app object or an error string.

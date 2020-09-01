@@ -87,9 +87,7 @@
           install_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_handler, install_expected(1));
-        on_installing_handler.stop();
         await tester.assert_event_eq("on installed event", on_installed_handler, install_expected(0));
-        on_installed_handler.stop();
 
         // check_for_update
         let on_update_available = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
@@ -127,6 +125,18 @@
           },
           get_all_expected1.sort(sort_result)
         );
+
+// Install PWA
+        await tester.assert_eq(
+          "install pwa app",
+          service => service.installPwa("https://seinlin.github.io/tests/pwa/manifest.webapp"),
+          install_pwa_expected(0)
+        );
+        await tester.assert_event_eq("on installing event", on_installing_handler, install_pwa_expected(1));
+        await tester.assert_event_eq("on install event", on_installed_handler, install_pwa_expected(0));
+        // finish all install test, stop event handler.
+        on_installing_handler.stop();
+        on_installed_handler.stop();
 
 // Update event
 // - Idle

@@ -9,7 +9,7 @@ use crate::apps_utils;
 use crate::config::Config;
 use crate::downloader::{DownloadError, Downloader};
 use crate::generated::common::*;
-use crate::manifest::{Manifest, ManifestError};
+use crate::manifest::{Icons, Manifest, ManifestError};
 use crate::registry_db::RegistryDb;
 use crate::shared_state::AppsSharedData;
 use crate::update_manifest::UpdateManifest;
@@ -37,6 +37,8 @@ use thiserror::Error;
 use threadpool::ThreadPool;
 use version_compare::{CompOp, Version};
 use zip::ZipArchive;
+use url::Url;
+use zip_utils::verify_zip;
 
 // Relay the request to Gecko using the bridge.
 use common::traits::Service;
@@ -203,6 +205,15 @@ impl AppsRegistry {
             return Err(AppsError::AppsConfigError);
         }
 
+        let cached_dir = data_dir.join("cached");
+        if !AppsStorage::ensure_dir(&cached_dir) {
+            error!(
+                "Failed to ensure that the {} directory exists.",
+                cached_dir.display()
+            );
+            return Err(AppsError::AppsConfigError);
+        }
+
         let db_dir = data_dir.join("db");
         if !AppsStorage::ensure_dir(db_dir.as_path()) {
             error!(
@@ -324,7 +335,7 @@ impl AppsRegistry {
         path: &Path,
     ) -> Result<(PathBuf, PathBuf), AppsMgmtError> {
         let base_path = path.join("downloading");
-        let available_dir = AppsStorage::get_app_dir(&base_path, &format!("{}", hash(url)))?;
+        let available_dir = AppsStorage::get_app_dir(&base_path, &hash(url).to_string())?;
 
         let update_manifest = available_dir.join("update.manifest");
         debug!("dowload {} to {}", url, available_dir.display());
@@ -423,10 +434,7 @@ impl AppsRegistry {
             };
 
         info!("available_zip: {}", available_zip.display());
-        if let Err(err) = self
-            .downloader
-            .verify_zip(available_zip.as_path(), &self.cert_type)
-        {
+        if let Err(err) = verify_zip(available_zip.as_path(), &self.cert_type) {
             error!("Verify zip error: {:?}", err);
             apps_item.set_install_state(AppsInstallState::Pending);
             let _ = self.save_app(is_update, &apps_item, &manifest);
@@ -550,6 +558,107 @@ impl AppsRegistry {
                     .lock()
                     .apps_service_on_install(manifest_url, features);
             }
+        }
+        Ok(())
+    }
+
+    pub fn download_and_apply_pwa(
+        &mut self,
+        webapp_path: &str,
+        update_url: &str,
+    ) -> Result<AppsObject, AppsServiceError> {
+        let path = Path::new(&webapp_path);
+        let download_dir =
+            AppsStorage::get_app_dir(&path.join("downloading"), &hash(update_url).to_string())
+                .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
+        let download_manifest = download_dir.join("manifest.webapp");
+        let downloader = Downloader::default();
+
+        // 1. download manfiest to cache dir.
+        debug!("dowload {} to {}", update_url, download_manifest.display());
+        if let Err(err) = downloader.download(update_url, download_manifest.as_path()) {
+            error!(
+                "Downloading {} to {} failed: {:?}",
+                update_url,
+                download_manifest.as_path().display(),
+                err
+            );
+            return Err(AppsServiceError::DownloadManifestFailed);
+        }
+        let manifest = Manifest::read_from(&download_manifest)
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        let app_name = self.get_unique_name(&manifest.get_name(), &update_url)?;
+        let manifest_url = format!(
+            "https://cached.local/{}/manifest.webapp",
+            &app_name
+        );
+        let mut apps_item = AppsItem::default(&app_name, &manifest_url);
+        apps_item.set_install_state(AppsInstallState::Installing);
+        apps_item.set_update_url(&update_url);
+        self.event_broadcaster
+            .broadcast_app_installing(AppsObject::from(&apps_item));
+
+        // 2. download icons to cached dir.
+        if let Some(icons_value) = manifest.get_icons() {
+            let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+            let base_url = Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
+
+            for icon in icons {
+                let icon_path = download_dir.join(&icon.get_src());
+                let icon_dir = icon_path.parent().unwrap();
+                let icon_url = base_url
+                    .join(&icon.get_src())
+                    .map_err(|_| AppsServiceError::InvalidManifest)?;
+                let _ = AppsStorage::ensure_dir(&icon_dir);
+                let _ = downloader.download(icon_url.as_str(), icon_path.as_path());
+            }
+        }
+
+        // 3. finish installation and reigster the pwa app.
+        self.apply_pwa(&mut apps_item, &download_dir.as_path(), &manifest, &path)?;
+
+        Ok(AppsObject::from(&apps_item))
+    }
+
+    pub fn apply_pwa(
+        &mut self,
+        apps_item: &mut AppsItem,
+        download_dir: &Path,
+        manifest: &Manifest,
+        path: &Path,
+    ) -> Result<(), AppsServiceError> {
+
+        let cached_dir = path.join("cached").join(apps_item.get_name());
+
+        // We can now replace the installed one with new version.
+        let _ = fs::remove_dir_all(&cached_dir);
+        if let Err(err) = fs::rename(&download_dir, &cached_dir) {
+            error!(
+                "Rename installed dir failed: {} -> {} : {:?}",
+                download_dir.display(),
+                cached_dir.display(),
+                err
+            );
+            return Err(AppsServiceError::FilesystemFailure);
+        }
+
+        apps_item.set_install_state(AppsInstallState::Installed);
+        let _ = self
+            .register_app(apps_item, manifest)
+            .map_err(|_| AppsServiceError::RegistrationError)?;
+
+        // Relay the request to Gecko using the bridge.
+        if let Some(b2g_features) = manifest.get_b2g_features() {
+            let bridge = GeckoBridgeService::shared_state();
+            let b2g_features =
+                JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)));
+            // for pwa app, the permission need to be applied to the host origin
+            bridge
+                .lock()
+                .apps_service_on_install(
+                    apps_item.get_update_url(),
+                    b2g_features
+                );
         }
         Ok(())
     }
@@ -1470,5 +1579,97 @@ fn test_compare_version_hash() {
         apps_item.set_manifest_hash("6bfc26d201fd94a431bdd31b63f4aa54");
 
         assert!(!compare_version_hash(&apps_item, &manifest_path));
+    }
+}
+
+#[test]
+fn test_apply_pwa() {
+    use crate::config;
+    use config::Config;
+
+    let _ = env_logger::try_init();
+
+    // Init apps from test-fixtures/webapps and verify in test-apps-dir-pwa.
+    let current = env::current_dir().unwrap();
+    let _root_dir = format!("{}/test-fixtures/webapps", current.display());
+    let _test_dir = format!("{}/test-fixtures/test-apps-dir-pwa", current.display());
+    let test_path = Path::new(&_test_dir);
+
+    // This dir is created during the test.
+    // Tring to remove it at the beginning to make the test at local easy.
+    let _ = fs::remove_dir_all(&test_path);
+
+    println!("Register from: {}", &_root_dir);
+    let config = Config {
+        root_path: _root_dir.clone(),
+        data_path: _test_dir.clone(),
+        uds_path: String::from("uds_path"),
+        cert_type: String::from("test"),
+    };
+
+    let mut registry = match AppsRegistry::initialize(&config) {
+        Ok(v) => v,
+        Err(err) => {
+            panic!("err: {:?}", err);
+        }
+    };
+
+    println!("registry.count(): {}", registry.count());
+    assert_eq!(4, registry.count());
+
+    let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webapp");
+    let update_url = "https://pwa1.test/manifest.webapp";
+    let download_dir = AppsStorage::get_app_dir(
+        &test_path.join("downloading"),
+        &format!("{}", hash(update_url)),
+    )
+    .unwrap();
+    let download_manifest = download_dir.join("manifest.webapp");
+
+    if let Err(err) = fs::create_dir_all(download_dir.as_path()) {
+        println!("{:?}", err);
+    }
+
+    let _ = fs::copy(&src_manifest, &download_manifest).unwrap();
+    let manifest = Manifest::read_from(&download_manifest).unwrap();
+    if let Some(icons_value) = manifest.get_icons() {
+        let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+        assert_eq!(4, icons.len());
+    } else {
+        assert!(false);
+    }
+
+    let manifest_url = format!("https://{}.local/manifest.webapp", &manifest.get_name());
+    let mut apps_item = AppsItem::default(&manifest.get_name(), &manifest_url);
+    apps_item.set_install_state(AppsInstallState::Installing);
+    apps_item.set_update_url(&update_url);
+
+    // Test 1: apply from a local dir
+    match registry.apply_pwa(
+        &mut apps_item,
+        &download_dir.as_path(),
+        &manifest,
+        &test_path
+    ) {
+        Ok(_) => {
+            assert_eq!(apps_item.get_name(), "helloworld");
+            assert_eq!(apps_item.get_install_state(), AppsInstallState::Installed);
+        }
+        Err(err) => {
+            println!("err: {:?}", err);
+            assert!(false);
+        }
+    }
+
+    // Test 2: download and apply from a remote url
+    let app_url = "https://seinlin.github.io/tests/pwa/manifest.webapp";
+    match registry.download_and_apply_pwa(&_test_dir, app_url) {
+        Ok(app) => {
+            assert_eq!(app.name, "hellopwa");
+        }
+        Err(err) => {
+            println!("err: {:?}", err);
+            assert!(false);
+        }
     }
 }

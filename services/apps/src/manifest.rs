@@ -77,6 +77,13 @@ impl B2GFeatures {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Icons {
+    src: String,
+    sizes: String,
+    r#type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Manifest {
     name: String,
     #[serde(default = "String::new")]
@@ -85,11 +92,26 @@ pub struct Manifest {
     start_url: String,
     #[serde(default = "String::new")]
     version: String,
+    icons: Option<Value>, // to backward compatible with icons object
     b2g_features: Option<B2GFeatures>,
 }
 
 fn default_as_start_url() -> String {
     "/index.html".into()
+}
+
+impl Icons {
+    pub fn get_src(&self) -> String {
+        self.src.clone()
+    }
+
+    pub fn get_sizes(&self) -> String {
+        self.sizes.clone()
+    }
+
+    pub fn get_type(&self) -> Option<String> {
+        self.r#type.clone()
+    }
 }
 
 impl Manifest {
@@ -99,6 +121,7 @@ impl Manifest {
             launch_path: launch_path.to_string(),
             start_url: default_as_start_url(),
             version: version.to_string(),
+            icons: None,
             b2g_features: None,
         }
     }
@@ -178,6 +201,10 @@ impl Manifest {
 
     pub fn get_b2g_features(&self) -> Option<B2GFeatures> {
         self.b2g_features.clone()
+    }
+
+    pub fn get_icons(&self) -> Option<Value> {
+        self.icons.clone()
     }
 
     pub fn read_from<P: AsRef<Path>>(manifest_file: P) -> Result<Manifest, AppsMgmtError> {

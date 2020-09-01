@@ -448,7 +448,7 @@ fn test_manifest() {
                 }
                 Err(err) => {
                     assert_eq!(format!("{}", err),
-                        String::from("Package Manifest Error, Json Error missing field `name` at line 16 column 1"));
+                        String::from("Package Manifest Error, Json Error missing field `name` at line 26 column 1"));
                 }
             }
         }

@@ -62,6 +62,38 @@ impl AppMgmtTask for InstallPackageTask {
     }
 }
 
+pub struct InstallPwaTask(
+    pub Shared<AppsSharedData>,
+    pub String,                        // Update url
+    pub AppsEngineInstallPwaResponder, // responder
+);
+
+impl AppMgmtTask for InstallPwaTask {
+    fn run(&self) {
+        // Actually run the installation.
+        let mut shared = self.0.lock();
+        let url = &self.1;
+        let responder = &self.2;
+
+        if shared.registry.get_by_update_url(&url).is_some() {
+            return responder.reject(AppsServiceError::ReinstallForbidden);
+        }
+        let data_path = shared.config.data_path.clone();
+        match shared.registry.download_and_apply_pwa(&data_path, &url) {
+            Ok(app) => {
+                info!("broadcast event: app_installed");
+                responder.resolve(app.clone());
+                shared.registry
+                      .event_broadcaster
+                      .broadcast_app_installed(app);
+            }
+            Err(err) => {
+                responder.reject(err);
+            }
+        }
+    }
+}
+
 pub struct UninstallTask(
     pub Shared<AppsSharedData>,
     pub String,                       // Manifest url

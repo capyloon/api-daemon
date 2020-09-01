@@ -2,7 +2,7 @@
 
 use crate::apps_registry::AppsMgmtError;
 use crate::manifest::{Manifest, ManifestError};
-use log::debug;
+use log::{debug, error};
 use nix::sys::statvfs;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -78,11 +78,13 @@ pub fn validate_package<P: AsRef<Path>>(path: P) -> Result<Manifest, PackageErro
     let manifest: Manifest = match serde_json::from_reader(manifest) {
         Ok(manifest) => manifest,
         Err(err) => {
+            error!("validate_package WrongManifest json error: {:?}", err);
             return Err(PackageError::WrongManifest(ManifestError::Json(err)));
         }
     };
 
     if let Err(err) = manifest.is_valid() {
+        error!("validate_package WrongManifest error: {:?}", err);
         return Err(PackageError::WrongManifest(err));
     }
 

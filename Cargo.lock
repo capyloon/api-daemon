@@ -437,6 +437,7 @@ dependencies = [
  "sqlite-utils",
  "thiserror",
  "threadpool",
+ "url",
  "version-compare",
  "vhost_server",
  "zip",

@@ -15,9 +15,10 @@
       "description":"自動測試"
     }
   },
-  "icons":{
-    "64":"/style/icons/Default.png"
-  },
+  "icons":[{
+    "src":"/style/icons/Default.png",
+    "sizes":"66x64"
+  }],
   "chrome":{"statusbar":"overlap"},
   "developer":{
     "name": "Seinlin",

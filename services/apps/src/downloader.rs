@@ -3,7 +3,6 @@ use log::{debug, error};
 use std::fs;
 use std::io;
 use std::path::Path;
-use zip_utils::{verify_zip, ZipVerificationError};
 
 #[derive(Debug)]
 pub enum DownloadError {
@@ -48,14 +47,6 @@ impl Downloader {
             .map_err(DownloadError::Request)?;
 
         Ok(())
-    }
-
-    pub fn verify_zip<P: AsRef<Path>>(
-        &self,
-        path: P,
-        ca_root: &str,
-    ) -> Result<(), ZipVerificationError> {
-        verify_zip(path, ca_root)
     }
 }
 
