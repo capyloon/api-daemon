@@ -3,4 +3,5 @@ interface DeviceCapabilityFactory {
   fn get(feature: str) -> json
 }
 
+#[permission=feature-detection]
 service DeviceCapabilityManager: DeviceCapabilityFactory
