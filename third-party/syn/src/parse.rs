@@ -620,17 +620,36 @@ impl<'a> ParseBuffer<'a> {
     /// }
     /// ```
     pub fn peek2<T: Peek>(&self, token: T) -> bool {
+        fn peek2(buffer: &ParseBuffer, peek: fn(Cursor) -> bool) -> bool {
+            if let Some(group) = buffer.cursor().group(Delimiter::None) {
+                if group.0.skip().map_or(false, peek) {
+                    return true;
+                }
+            }
+            buffer.cursor().skip().map_or(false, peek)
+        }
+
         let _ = token;
-        self.cursor().skip().map_or(false, T::Token::peek)
+        peek2(self, T::Token::peek)
     }
 
     /// Looks at the third-next token in the parse stream.
     pub fn peek3<T: Peek>(&self, token: T) -> bool {
+        fn peek3(buffer: &ParseBuffer, peek: fn(Cursor) -> bool) -> bool {
+            if let Some(group) = buffer.cursor().group(Delimiter::None) {
+                if group.0.skip().and_then(Cursor::skip).map_or(false, peek) {
+                    return true;
+                }
+            }
+            buffer
+                .cursor()
+                .skip()
+                .and_then(Cursor::skip)
+                .map_or(false, peek)
+        }
+
         let _ = token;
-        self.cursor()
-            .skip()
-            .and_then(Cursor::skip)
-            .map_or(false, T::Token::peek)
+        peek3(self, T::Token::peek)
     }
 
     /// Parses zero or more occurrences of `T` separated by punctuation of type
@@ -1043,12 +1062,14 @@ impl<'a> ParseBuffer<'a> {
     }
 }
 
+#[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
 impl<T: Parse> Parse for Box<T> {
     fn parse(input: ParseStream) -> Result<Self> {
         input.parse().map(Box::new)
     }
 }
 
+#[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
 impl<T: Parse + Token> Parse for Option<T> {
     fn parse(input: ParseStream) -> Result<Self> {
         if T::peek(input.cursor()) {
@@ -1059,12 +1080,14 @@ impl<T: Parse + Token> Parse for Option<T> {
     }
 }
 
+#[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
 impl Parse for TokenStream {
     fn parse(input: ParseStream) -> Result<Self> {
         input.step(|cursor| Ok((cursor.token_stream(), Cursor::empty())))
     }
 }
 
+#[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
 impl Parse for TokenTree {
     fn parse(input: ParseStream) -> Result<Self> {
         input.step(|cursor| match cursor.token_tree() {
@@ -1074,6 +1097,7 @@ impl Parse for TokenTree {
     }
 }
 
+#[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
 impl Parse for Group {
     fn parse(input: ParseStream) -> Result<Self> {
         input.step(|cursor| {
@@ -1089,6 +1113,7 @@ impl Parse for Group {
     }
 }
 
+#[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
 impl Parse for Punct {
     fn parse(input: ParseStream) -> Result<Self> {
         input.step(|cursor| match cursor.punct() {
@@ -1098,6 +1123,7 @@ impl Parse for Punct {
     }
 }
 
+#[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
 impl Parse for Literal {
     fn parse(input: ParseStream) -> Result<Self> {
         input.step(|cursor| match cursor.literal() {

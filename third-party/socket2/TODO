@@ -1,6 +1,13 @@
 # TODO
 
 
+
+Cleanup of https://github.com/rust-lang/socket2-rs/pull/117
+
+Refactor part 5: https://github.com/rust-lang/socket2-rs/compare/master...Thomasdezeeuw:refactor-p5?expand=1.
+
+
+
 impl_debug macro:
 
     // Same as above, but the flags are bit OR-ed.

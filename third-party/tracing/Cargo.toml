@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "tracing"
-version = "0.1.21"
+version = "0.1.22"
 authors = ["Eliza Weisman <eliza@buoyant.io>", "Tokio Contributors <team@tokio.rs>"]
 description = "Application-level tracing for Rust.\n"
 homepage = "https://tokio.rs"
@@ -34,14 +34,14 @@ harness = false
 name = "no_subscriber"
 harness = false
 [dependencies.cfg-if]
-version = "0.1.10"
+version = "1.0.0"
 
 [dependencies.log]
 version = "0.4"
 optional = true
 
 [dependencies.pin-project-lite]
-version = "0.1"
+version = "0.2"
 
 [dependencies.tracing-attributes]
 version = "0.1.10"

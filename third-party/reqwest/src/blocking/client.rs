@@ -1,6 +1,6 @@
 #[cfg(any(
     feature = "native-tls",
-    feature = "rustls-tls",
+    feature = "__rustls",
 ))]
 use std::any::Any;
 use std::convert::TryInto;
@@ -206,6 +206,25 @@ impl ClientBuilder {
         self.with_inner(|inner| inner.gzip(enable))
     }
 
+    /// Enable auto brotli decompression by checking the `Content-Encoding` response header.
+    ///
+    /// If auto brotli decompression is turned on:
+    ///
+    /// - When sending a request and if the request's headers do not already contain
+    ///   an `Accept-Encoding` **and** `Range` values, the `Accept-Encoding` header is set to `br`.
+    ///   The request body is **not** automatically compressed.
+    /// - When receiving a response, if it's headers contain a `Content-Encoding` value that
+    ///   equals to `br`, both values `Content-Encoding` and `Content-Length` are removed from the
+    ///   headers' set. The response body is automatically decompressed.
+    ///
+    /// If the `brotli` feature is turned on, the default option is enabled.
+    ///
+    /// # Optional
+    ///
+    /// This requires the optional `brotli` feature to be enabled
+    #[cfg(feature = "brotli")]
+    pub fn brotli(self, enable: bool) -> ClientBuilder { self.with_inner(|inner| inner.brotli(enable)) }
+
     /// Disable auto response body gzip decompression.
     ///
     /// This method exists even if the optional `gzip` feature is not enabled.
@@ -214,6 +233,13 @@ impl ClientBuilder {
     pub fn no_gzip(self) -> ClientBuilder {
         self.with_inner(|inner| inner.no_gzip())
     }
+
+    /// Disable auto response body brotli decompression.
+    ///
+    /// This method exists even if the optional `brotli` feature is not enabled.
+    /// This can be used to ensure a `Client` doesn't use brotli decompression
+    /// even if another dependency were to enable the optional `brotli` feature.
+    pub fn no_brotli(self) -> ClientBuilder { self.with_inner(|inner| inner.no_brotli()) }
 
     // Redirect options
 
@@ -414,7 +440,7 @@ impl ClientBuilder {
     ///
     /// # Optional
     ///
-    /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls`
+    /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls(-...)`
     /// feature to be enabled.
     #[cfg(feature = "__tls")]
     pub fn add_root_certificate(self, cert: Certificate) -> ClientBuilder {
@@ -482,8 +508,8 @@ impl ClientBuilder {
     ///
     /// # Optional
     ///
-    /// This requires the optional `rustls-tls` feature to be enabled.
-    #[cfg(feature = "rustls-tls")]
+    /// This requires the optional `rustls-tls(-...)` feature to be enabled.
+    #[cfg(feature = "__rustls")]
     pub fn use_rustls_tls(self) -> ClientBuilder {
         self.with_inner(move |inner| inner.use_rustls_tls())
     }
@@ -505,10 +531,10 @@ impl ClientBuilder {
     /// # Optional
     ///
     /// This requires one of the optional features `native-tls` or
-    /// `rustls-tls` to be enabled.
+    /// `rustls-tls(-...)` to be enabled.
     #[cfg(any(
         feature = "native-tls",
-        feature = "rustls-tls",
+        feature = "__rustls",
     ))]
     pub fn use_preconfigured_tls(self, tls: impl Any) -> ClientBuilder {
         self.with_inner(move |inner| inner.use_preconfigured_tls(tls))

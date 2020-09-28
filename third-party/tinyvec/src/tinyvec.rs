@@ -50,10 +50,13 @@ macro_rules! tiny_vec {
     }
   };
   ($array_type:ty) => {
-    $crate::tiny_vec!($array_type =>)
+    $crate::TinyVec::<$array_type>::default()
   };
   ($($elem:expr),*) => {
     $crate::tiny_vec!(_ => $($elem),*)
+  };
+  ($elem:expr; $n:expr) => {
+    $crate::TinyVec::from([$elem; $n])
   };
   () => {
     $crate::tiny_vec!(_)
@@ -551,8 +554,7 @@ impl<A: Array> TinyVec<A> {
   /// ```
   #[inline]
   pub fn drain<R: RangeBounds<usize>>(
-    &mut self,
-    range: R,
+    &mut self, range: R,
   ) -> TinyVecDrain<'_, A> {
     match self {
       TinyVec::Inline(i) => TinyVecDrain::Inline(i.drain(range)),
@@ -800,9 +802,7 @@ impl<A: Array> TinyVec<A> {
   /// ```
   #[inline]
   pub fn splice<R, I>(
-    &mut self,
-    range: R,
-    replacement: I,
+    &mut self, range: R, replacement: I,
   ) -> TinyVecSplice<'_, A, core::iter::Fuse<I::IntoIter>>
   where
     R: RangeBounds<usize>,
@@ -859,6 +859,7 @@ impl<A: Array> TinyVec<A> {
 /// Draining iterator for `TinyVecDrain`
 ///
 /// See [`TinyVecDrain::drain`](TinyVecDrain::<A>::drain)
+#[cfg_attr(docs_rs, doc(cfg(feature = "alloc")))]
 pub enum TinyVecDrain<'p, A: Array> {
   #[allow(missing_docs)]
   Inline(ArrayVecDrain<'p, A::Item>),
@@ -908,6 +909,7 @@ impl<'p, A: Array> DoubleEndedIterator for TinyVecDrain<'p, A> {
 
 /// Splicing iterator for `TinyVec`
 /// See [`TinyVec::splice`](TinyVec::<A>::splice)
+#[cfg_attr(docs_rs, doc(cfg(feature = "alloc")))]
 pub struct TinyVecSplice<'p, A: Array, I: Iterator<Item = A::Item>> {
   parent: &'p mut TinyVec<A>,
   removal_start: usize,
@@ -1130,6 +1132,7 @@ impl<A: Array> FromIterator<A::Item> for TinyVec<A> {
 }
 
 /// Iterator for consuming an `TinyVec` and returning owned elements.
+#[cfg_attr(docs_rs, doc(cfg(feature = "alloc")))]
 pub enum TinyVecIterator<A: Array> {
   #[allow(missing_docs)]
   Inline(ArrayVecIterator<A>),
@@ -1439,6 +1442,7 @@ where
 }
 
 #[cfg(feature = "serde")]
+#[cfg_attr(docs_rs, doc(cfg(feature = "alloc")))]
 struct TinyVecVisitor<A: Array>(PhantomData<A>);
 
 #[cfg(feature = "serde")]
@@ -1449,8 +1453,7 @@ where
   type Value = TinyVec<A>;
 
   fn expecting(
-    &self,
-    formatter: &mut core::fmt::Formatter,
+    &self, formatter: &mut core::fmt::Formatter,
   ) -> core::fmt::Result {
     formatter.write_str("a sequence")
   }

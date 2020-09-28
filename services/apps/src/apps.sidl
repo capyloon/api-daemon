@@ -38,6 +38,7 @@ enum AppsServiceError {
   InvalidManifest         // Error in the manifest file
   InvalidPackage          // Error in the package file
   InvalidSignature        // Failed to verify the signature
+  InvalidCertificate      // Failed to parse certificate
   NetworkFailure          // Error in the Network
   FilesystemFailure       // Error in app stroage filesystem
   PackageCorrupt          // Can't open the downloaded package
@@ -133,6 +134,15 @@ interface AppsEngine {
   event appstatusChanged -> AppsObject
 
   fn setEnabled(manifest_url: str, status: AppsStatus) -> AppsObject, AppsServiceError
+  // Verify the signature of an application.
+  // manifestUrl, the manifest url of the app to be verified
+  // cert_type, the certificate to verify against, possible values are:
+  // "production" ,"stage", "ven1", "ven2"
+  // folder_name, the name of the folder that contains signed data.
+  // Possible values are(case insensitive): "INF", "VEN", etc.
+  // Return: the fingerprint of the certificate in rsa or AppsServiceError
+  fn verify(manifestUrl: str, cert_type: str, folder_name: str) -> str, AppsServiceError
+
 }
 
 #[permission=webapps-manage]

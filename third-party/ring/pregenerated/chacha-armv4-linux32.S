@@ -36,6 +36,8 @@
 .Lone:
 .long	1,0,0,0
 #if __ARM_MAX_ARCH__>=7
+
+.hidden	GFp_armcap_P
 .LOPENSSL_armcap:
 .word	GFp_armcap_P-.LChaCha20_ctr32
 #else
@@ -1483,7 +1485,6 @@ ChaCha20_neon:
 	add	sp,sp,#4*(16+3)
 	ldmia	sp!,{r4,r5,r6,r7,r8,r9,r10,r11,pc}
 .size	ChaCha20_neon,.-ChaCha20_neon
-.comm	GFp_armcap_P,4,4
 #endif
 #endif
 #endif  // !OPENSSL_NO_ASM

@@ -18,6 +18,7 @@
 
 .align	4
 _GFp_gcm_init_clmul:
+	AARCH64_VALID_CALL_TARGET
 	ld1	{v17.2d},[x1]		//load input H
 	movi	v19.16b,#0xe1
 	shl	v19.2d,v19.2d,#57		//0xc2.0
@@ -69,6 +70,7 @@ _GFp_gcm_init_clmul:
 
 .align	4
 _GFp_gcm_gmult_clmul:
+	AARCH64_VALID_CALL_TARGET
 	ld1	{v17.2d},[x0]		//load Xi
 	movi	v19.16b,#0xe1
 	ld1	{v20.2d,v21.2d},[x1]	//load twisted H, ...
@@ -111,6 +113,7 @@ _GFp_gcm_gmult_clmul:
 
 .align	4
 _GFp_gcm_ghash_clmul:
+	AARCH64_VALID_CALL_TARGET
 	ld1	{v0.2d},[x0]		//load [rotated] Xi
 						//"[rotated]" means that
 						//loaded value would have

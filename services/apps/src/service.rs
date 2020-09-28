@@ -12,7 +12,8 @@ use common::traits::{
     DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
     TrackerId,
 };
-use log::info;
+use log::{debug, info};
+use zip_utils::verify_zip;
 
 #[derive(Clone)]
 pub struct AppsService {
@@ -156,6 +157,34 @@ impl AppsEngineMethods for AppsService {
             responder.clone(),
         );
         self.shared_data.lock().registry.queue_task(task);
+    }
+
+    fn verify(
+        &mut self,
+        responder: &AppsEngineVerifyResponder,
+        manifest_url: String,
+        cert_type: String,
+        folder_name: String,
+    ) {
+        info!("verify {}, {}, {}", manifest_url, cert_type, folder_name);
+        let shared = self.shared_data.lock();
+        let data_path = shared.config.data_path.clone();
+        let package_path = match shared.registry.get_pacakge_path(&data_path, &manifest_url) {
+            Ok(path) => path,
+            Err(err) => {
+                return responder.reject(err);
+            }
+        };
+
+        match verify_zip(package_path, &cert_type, &folder_name) {
+            Ok(fingerprint) => {
+                debug!("verify success rsa cert fingerprint sha1 {}", &fingerprint);
+                responder.resolve(fingerprint);
+            }
+            Err(_) => {
+                responder.reject(AppsServiceError::InvalidSignature);
+            }
+        }
     }
 }
 

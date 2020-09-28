@@ -1,6 +1,4 @@
-extern crate serde_urlencoded;
-#[macro_use]
-extern crate serde_derive;
+use serde_derive::Serialize;
 
 #[derive(Serialize)]
 struct NewType<T>(T);
@@ -80,4 +78,9 @@ struct Unit;
 #[test]
 fn serialize_unit_struct() {
     assert_eq!(serde_urlencoded::to_string(Unit), Ok("".to_owned()));
+}
+
+#[test]
+fn serialize_unit_type() {
+    assert_eq!(serde_urlencoded::to_string(()), Ok("".to_owned()));
 }

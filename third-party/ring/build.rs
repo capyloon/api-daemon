@@ -193,6 +193,7 @@ fn cpp_flags(target: &Target) -> &'static [&'static str] {
             "-Wshadow",
             "-Wsign-compare",
             "-Wsign-conversion",
+            "-Wundef",
             "-Wuninitialized",
             "-Wwrite-strings",
             "-fno-strict-aliasing",
@@ -232,12 +233,12 @@ const LD_FLAGS: &[&str] = &[];
 const ASM_TARGETS: &[(&str, Option<&str>, Option<&str>)] = &[
     ("x86_64", Some("ios"), Some("macosx")),
     ("x86_64", Some("macos"), Some("macosx")),
-    // ("x86_64", Some(WINDOWS), Some("nasm")),
+    ("x86_64", Some(WINDOWS), Some("nasm")),
     ("x86_64", None, Some("elf")),
     ("aarch64", Some("ios"), Some("ios64")),
     ("aarch64", Some("macos"), Some("ios64")),
     ("aarch64", None, Some("linux64")),
-    // ("x86", Some(WINDOWS), Some("win32n")),
+    ("x86", Some(WINDOWS), Some("win32n")),
     ("x86", Some("ios"), Some("macosx")),
     ("x86", None, Some("elf")),
     ("arm", Some("ios"), Some("ios32")),
@@ -321,7 +322,7 @@ fn pregenerate_asm_main() {
                 let srcs = asm_srcs(perlasm_src_dsts);
                 for src in srcs {
                     let obj_path = obj_path(&pregenerated, &src, MSVC_OBJ_EXT);
-                    run_command(yasm(&src, target_arch, &obj_path));
+                    run_command(nasm(&src, target_arch, &obj_path));
                 }
             }
         }
@@ -522,7 +523,7 @@ fn compile(
             let cmd = if target.os != WINDOWS || ext != "asm" {
                 cc(p, ext, target, warnings_are_errors, &out_path)
             } else {
-                yasm(p, &target.arch, &out_path)
+                nasm(p, &target.arch, &out_path)
             };
 
             run_command(cmd);
@@ -544,6 +545,8 @@ fn cc(
     warnings_are_errors: bool,
     out_dir: &Path,
 ) -> Command {
+    let is_musl = target.env.starts_with("musl");
+
     let mut c = cc::Build::new();
     let _ = c.include("include");
     match ext {
@@ -590,8 +593,19 @@ fn cc(
         }
     }
 
-    if (target.arch.as_str(), target.os.as_str()) == ("wasm32", "unknown") {
-        let _ = c.flag("--no-standard-libraries");
+    // Allow cross-compiling without a target sysroot for these targets.
+    //
+    // poly1305_vec.c requires <emmintrin.h> which requires <stdlib.h>.
+    if (target.arch == "wasm32" && target.os == "unknown")
+        || (target.os == "linux" && is_musl && target.arch != "x86_64")
+    {
+        if let Ok(compiler) = c.try_get_compiler() {
+            // TODO: Expand this to non-clang compilers in 0.17.0 if practical.
+            if compiler.is_like_clang() {
+                let _ = c.flag("-nostdlibinc");
+                let _ = c.define("GFp_NOSTDLIBINC", "1");
+            }
+        }
     }
 
     if warnings_are_errors {
@@ -602,7 +616,7 @@ fn cc(
         };
         let _ = c.flag(flag);
     }
-    if &target.env == "musl" {
+    if is_musl {
         // Some platforms enable _FORTIFY_SOURCE by default, but musl
         // libc doesn't support it yet. See
         // http://wiki.musl-libc.org/wiki/Future_Ideas#Fortify
@@ -623,21 +637,20 @@ fn cc(
     c
 }
 
-fn yasm(file: &Path, arch: &str, out_file: &Path) -> Command {
-    let (oformat, machine) = match arch {
-        "x86_64" => ("--oformat=win64", "--machine=amd64"),
-        "x86" => ("--oformat=win32", "--machine=x86"),
+fn nasm(file: &Path, arch: &str, out_file: &Path) -> Command {
+    let oformat = match arch {
+        "x86_64" => ("win64"),
+        "x86" => ("win32"),
         _ => panic!("unsupported arch: {}", arch),
     };
-    let mut c = Command::new("yasm.exe");
+    let mut c = Command::new("./target/tools/nasm");
     let _ = c
-        .arg("-X")
-        .arg("vc")
-        .arg("--dformat=cv8")
-        .arg(oformat)
-        .arg(machine)
         .arg("-o")
         .arg(out_file.to_str().expect("Invalid path"))
+        .arg("-f")
+        .arg(oformat)
+        .arg("-Xgnu")
+        .arg("-gcv8")
         .arg(file);
     c
 }

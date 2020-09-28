@@ -69,6 +69,7 @@ ast_struct! {
     ///         ),
     /// ...
     /// ```
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
     pub struct File {
         pub shebang: Option<String>,
         pub attrs: Vec<Attribute>,
@@ -81,6 +82,7 @@ pub mod parsing {
     use super::*;
     use crate::parse::{Parse, ParseStream, Result};
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for File {
         fn parse(input: ParseStream) -> Result<Self> {
             Ok(File {
@@ -105,6 +107,7 @@ mod printing {
     use proc_macro2::TokenStream;
     use quote::{ToTokens, TokenStreamExt};
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for File {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             tokens.append_all(self.attrs.inner());

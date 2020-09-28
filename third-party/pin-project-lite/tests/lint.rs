@@ -55,6 +55,20 @@ pub mod box_pointers {
             pub u: Box<isize>,
         }
     }
+
+    pin_project! {
+        #[project = EnumProj]
+        #[project_ref = EnumProjRef]
+        #[derive(Debug)]
+        pub enum Enum {
+            Struct {
+                #[pin]
+                p: Box<isize>,
+                u: Box<isize>,
+            },
+            Unit,
+        }
+    }
 }
 
 pub mod explicit_outlives_requirements {
@@ -72,6 +86,40 @@ pub mod explicit_outlives_requirements {
             pub unpinned: &'a mut U,
         }
     }
+
+    pin_project! {
+        #[project = EnumProj]
+        #[project_ref = EnumProjRef]
+        #[derive(Debug)]
+        pub enum Enum<'a, T, U>
+        where
+            T: ?Sized,
+            U: ?Sized,
+        {
+            Struct {
+                #[pin]
+                pinned: &'a mut T,
+                unpinned: &'a mut U,
+            },
+            Unit,
+        }
+    }
+}
+
+pub mod variant_size_differences {
+    use pin_project_lite::pin_project;
+
+    pin_project! {
+        #[project = EnumProj]
+        #[project_ref = EnumProjRef]
+        #[allow(missing_debug_implementations, missing_copy_implementations)] // https://github.com/rust-lang/rust/pull/74060
+        #[allow(variant_size_differences)] // for the type itself
+        #[allow(clippy::large_enum_variant)] // for the type itself
+        pub enum Enum {
+            V1 { f: u8 },
+            V2 { f: [u8; 1024] },
+        }
+    }
 }
 
 pub mod clippy_mut_mut {
@@ -83,6 +131,20 @@ pub mod clippy_mut_mut {
             #[pin]
             pub pinned: &'a mut T,
             pub unpinned: &'a mut U,
+        }
+    }
+
+    pin_project! {
+        #[project = EnumProj]
+        #[project_ref = EnumProjRef]
+        #[derive(Debug)]
+        pub enum Enum<'a, T, U> {
+            Struct {
+                #[pin]
+                pinned: &'a mut T,
+                unpinned: &'a mut U,
+            },
+            Unit,
         }
     }
 }
@@ -97,6 +159,21 @@ mod clippy_redundant_pub_crate {
             #[pin]
             pub pinned: T,
             pub unpinned: U,
+        }
+    }
+
+    #[allow(dead_code)]
+    pin_project! {
+        #[project = EnumProj]
+        #[project_ref = EnumProjRef]
+        #[derive(Debug)]
+        pub enum Enum<T, U> {
+            Struct {
+                #[pin]
+                pinned: T,
+                unpinned: U,
+            },
+            Unit,
         }
     }
 }
@@ -115,6 +192,23 @@ pub mod clippy_type_repetition_in_bounds {
             pub unpinned: U,
         }
     }
+
+    pin_project! {
+        #[project = EnumProj]
+        #[project_ref = EnumProjRef]
+        #[derive(Debug)]
+        pub enum Enum<T, U>
+        where
+            Enum<T, U>: Sized,
+        {
+            Struct {
+                #[pin]
+                pinned: T,
+                unpinned: U,
+            },
+            Unit,
+        }
+    }
 }
 
 pub mod clippy_used_underscore_binding {
@@ -128,33 +222,47 @@ pub mod clippy_used_underscore_binding {
             pub _unpinned: U,
         }
     }
+
+    pin_project! {
+        #[project = EnumProj]
+        #[project_ref = EnumProjRef]
+        #[derive(Debug)]
+        pub enum Enum<T, U> {
+            Struct {
+                #[pin]
+                _pinned: T,
+                _unpinned: U,
+            },
+        }
+    }
 }
 
 #[allow(box_pointers)]
 #[allow(clippy::restriction)]
-#[rustversion::attr(not(nightly), ignore)]
+#[rustversion::attr(before(2020-11-08), ignore)] // Note: This date is commit-date and the day before the toolchain date.
 #[test]
 fn check_lint_list() {
-    use std::{env, fs, path::PathBuf, process::Command, str};
+    use std::{env, fs, path::Path, process::Command, str};
 
     type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
     fn assert_eq(expected_path: &str, actual: &str) -> Result<()> {
-        let manifest_dir = env::var_os("CARGO_MANIFEST_DIR")
-            .map(PathBuf::from)
-            .expect("CARGO_MANIFEST_DIR not set");
-        let expected_path = manifest_dir.join(expected_path);
-        let expected = fs::read_to_string(&expected_path)?;
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let expected_path = &manifest_dir.join(expected_path);
+        let expected = fs::read_to_string(expected_path)?;
         if expected != actual {
-            if env::var_os("CI").map_or(false, |v| v == "true") {
-                panic!(
-                    "assertion failed:\n\nEXPECTED:\n{0}\n{1}\n{0}\n\nACTUAL:\n{0}\n{2}\n{0}\n",
-                    "-".repeat(60),
-                    expected,
-                    actual,
-                );
+            if env::var_os("CI").is_some() {
+                let actual_path =
+                    &manifest_dir.join("target").join(expected_path.file_name().unwrap());
+                fs::write(actual_path, actual)?;
+                let status = Command::new("git")
+                    .args(&["--no-pager", "diff", "--no-index", "--"])
+                    .args(&[expected_path, actual_path])
+                    .status()?;
+                assert!(!status.success());
+                panic!("assertion failed");
             } else {
-                fs::write(&expected_path, actual)?;
+                fs::write(expected_path, actual)?;
             }
         }
         Ok(())

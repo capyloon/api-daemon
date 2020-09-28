@@ -24,9 +24,11 @@
 #endif
 
 #if __ARM_MAX_ARCH__>=7
+
+.private_extern	_GFp_armcap_P
 .align	5
 LOPENSSL_armcap:
-.word	GFp_armcap_P-Lbn_mul_mont
+.word	_GFp_armcap_P-Lbn_mul_mont
 #endif
 
 .globl	_GFp_bn_mul_mont
@@ -967,13 +969,4 @@ LNEON_copy_n_zap:
 #endif
 .byte	77,111,110,116,103,111,109,101,114,121,32,109,117,108,116,105,112,108,105,99,97,116,105,111,110,32,102,111,114,32,65,82,77,118,52,47,78,69,79,78,44,32,67,82,89,80,84,79,71,65,77,83,32,98,121,32,60,97,112,112,114,111,64,111,112,101,110,115,115,108,46,111,114,103,62,0
 .align	2
-.align	2
-#if __ARM_MAX_ARCH__>=7
-.comm	_GFp_armcap_P,4
-.non_lazy_symbol_pointer
-GFp_armcap_P:
-.indirect_symbol	_GFp_armcap_P
-.long	0
-.private_extern	_GFp_armcap_P
-#endif
 #endif  // !OPENSSL_NO_ASM

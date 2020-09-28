@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "actix-http"
-version = "2.1.0"
+version = "2.2.0"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
 description = "HTTP primitives for the Actix ecosystem"
 homepage = "https://actix.rs"
@@ -161,7 +161,7 @@ version = "1.0"
 version = "1.0"
 
 [dependencies.serde_urlencoded]
-version = "0.6.1"
+version = "0.7"
 
 [dependencies.sha-1]
 version = "0.9"

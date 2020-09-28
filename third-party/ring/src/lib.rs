@@ -15,8 +15,6 @@
 //! Safe, fast, small crypto using Rust with BoringSSL's cryptography
 //! primitives.
 //!
-//! <code>git clone https://github.com/briansmith/ring</code>
-//!
 //! # Feature Flags
 //!
 //! <table>
@@ -33,16 +31,16 @@
 //!         fallbacks will not occur. See the documentation for
 //!         <code>rand::SystemRandom</code> for more details.
 //! <tr><td><code>std</code>
-//!     <td>Enable features that use libstd, in particular `std::error::Error`
-//!         integration.
+//!     <td>Enable features that use libstd, in particular
+//!         <code>std::error::Error</code> integration.
 //! <tr><td><code>wasm32_c</code>
 //!     <td>Enables features that require a C compiler on wasm32 targets, such as
 //!        the <code>constant_time</code> module, HMAC verification, and PBKDF2
 //!        verification. Without this feature, only a subset of functionality
 //!        is provided to wasm32 targets so that a C compiler isn't needed. A
 //!        typical invocation would be:
-//!        <code>TARGET_AR=llvm-ar cargo test --target=wasm32-unknown-unknown --features=wasm32_c</code>
-//!        with <code>llvm-ar</code> and <code>clang</code> in <code>$PATH</code>.
+//!        <code>TARGET_CC=clang-10 TARGET_AR=llvm-ar-10 cargo test --target=wasm32-unknown-unknown --features=wasm32_c</code>
+//!        with <code>llvm-ar-10</code> and <code>clang-10</code> in <code>$PATH</code>.
 //!        (Going forward more functionality should be enabled by default, without
 //!        requiring these hacks, and without requiring a C compiler.)
 //! </table>

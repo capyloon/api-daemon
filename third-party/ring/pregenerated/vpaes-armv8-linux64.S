@@ -10,6 +10,8 @@
 
 #if !defined(OPENSSL_NO_ASM)
 #if defined(__aarch64__)
+#include <GFp/arm_arch.h>
+
 .section	.rodata
 
 .type	_vpaes_consts,%object
@@ -190,6 +192,7 @@ _vpaes_encrypt_core:
 .type	GFp_vpaes_encrypt,%function
 .align	4
 GFp_vpaes_encrypt:
+	AARCH64_SIGN_LINK_REGISTER
 	stp	x29,x30,[sp,#-16]!
 	add	x29,sp,#0
 
@@ -199,6 +202,7 @@ GFp_vpaes_encrypt:
 	st1	{v0.16b}, [x1]
 
 	ldp	x29,x30,[sp],#16
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
 .size	GFp_vpaes_encrypt,.-GFp_vpaes_encrypt
 
@@ -337,6 +341,7 @@ _vpaes_key_preheat:
 .type	_vpaes_schedule_core,%function
 .align	4
 _vpaes_schedule_core:
+	AARCH64_SIGN_LINK_REGISTER
 	stp	x29, x30, [sp,#-16]!
 	add	x29,sp,#0
 
@@ -496,6 +501,7 @@ _vpaes_schedule_core:
 	eor	v6.16b, v6.16b, v6.16b		// vpxor	%xmm6,	%xmm6,	%xmm6
 	eor	v7.16b, v7.16b, v7.16b		// vpxor	%xmm7,	%xmm7,	%xmm7
 	ldp	x29, x30, [sp],#16
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
 .size	_vpaes_schedule_core,.-_vpaes_schedule_core
 
@@ -667,6 +673,7 @@ _vpaes_schedule_mangle:
 .type	GFp_vpaes_set_encrypt_key,%function
 .align	4
 GFp_vpaes_set_encrypt_key:
+	AARCH64_SIGN_LINK_REGISTER
 	stp	x29,x30,[sp,#-16]!
 	add	x29,sp,#0
 	stp	d8,d9,[sp,#-16]!	// ABI spec says so
@@ -682,6 +689,7 @@ GFp_vpaes_set_encrypt_key:
 
 	ldp	d8,d9,[sp],#16
 	ldp	x29,x30,[sp],#16
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
 .size	GFp_vpaes_set_encrypt_key,.-GFp_vpaes_set_encrypt_key
 .globl	GFp_vpaes_ctr32_encrypt_blocks
@@ -689,6 +697,7 @@ GFp_vpaes_set_encrypt_key:
 .type	GFp_vpaes_ctr32_encrypt_blocks,%function
 .align	4
 GFp_vpaes_ctr32_encrypt_blocks:
+	AARCH64_SIGN_LINK_REGISTER
 	stp	x29,x30,[sp,#-16]!
 	add	x29,sp,#0
 	stp	d8,d9,[sp,#-16]!	// ABI spec says so
@@ -756,6 +765,7 @@ GFp_vpaes_ctr32_encrypt_blocks:
 	ldp	d10,d11,[sp],#16
 	ldp	d8,d9,[sp],#16
 	ldp	x29,x30,[sp],#16
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
 .size	GFp_vpaes_ctr32_encrypt_blocks,.-GFp_vpaes_ctr32_encrypt_blocks
 #endif

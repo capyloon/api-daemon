@@ -96,8 +96,10 @@ K256:
 
 .word	0				@ terminator
 #if __ARM_MAX_ARCH__>=7 && !defined(__KERNEL__)
+
+.private_extern	_GFp_armcap_P
 LOPENSSL_armcap:
-.word	GFp_armcap_P-Lsha256_block_data_order
+.word	_GFp_armcap_P-Lsha256_block_data_order
 #endif
 .align	5
 
@@ -115,7 +117,7 @@ Lsha256_block_data_order:
 #endif
 #if __ARM_MAX_ARCH__>=7 && !defined(__KERNEL__)
 	ldr	r12,LOPENSSL_armcap
-	ldr	r12,[r3,r12]		@ GFp_armcap_P
+	ldr	r12,[r3,r12]		@ _GFp_armcap_P
 #ifdef	__APPLE__
 	ldr	r12,[r12]
 #endif
@@ -2829,13 +2831,4 @@ Loop_v8:
 #endif
 .byte	83,72,65,50,53,54,32,98,108,111,99,107,32,116,114,97,110,115,102,111,114,109,32,102,111,114,32,65,82,77,118,52,47,78,69,79,78,47,65,82,77,118,56,44,32,67,82,89,80,84,79,71,65,77,83,32,98,121,32,60,97,112,112,114,111,64,111,112,101,110,115,115,108,46,111,114,103,62,0
 .align	2
-.align	2
-#if __ARM_MAX_ARCH__>=7 && !defined(__KERNEL__)
-.comm	_GFp_armcap_P,4
-.non_lazy_symbol_pointer
-GFp_armcap_P:
-.indirect_symbol	_GFp_armcap_P
-.long	0
-.private_extern	_GFp_armcap_P
-#endif
 #endif  // !OPENSSL_NO_ASM

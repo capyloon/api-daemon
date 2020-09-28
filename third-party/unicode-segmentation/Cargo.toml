@@ -12,7 +12,7 @@
 
 [package]
 name = "unicode-segmentation"
-version = "1.7.0"
+version = "1.7.1"
 authors = ["kwantam <kwantam@gmail.com>", "Manish Goregaokar <manishsmail@gmail.com>"]
 exclude = ["target/*", "Cargo.lock", "scripts/tmp", "benches/texts/*", "*.txt"]
 description = "This crate provides Grapheme Cluster, Word and Sentence boundaries\naccording to Unicode Standard Annex #29 rules.\n"

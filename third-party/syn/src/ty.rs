@@ -16,6 +16,7 @@ ast_enum_of_structs! {
     //
     // TODO: change syntax-tree-enum link to an intra rustdoc link, currently
     // blocked on https://github.com/rust-lang/rust/issues/62833
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub enum Type {
         /// A fixed size array type: `[T; n]`.
         Array(TypeArray),
@@ -75,6 +76,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeArray {
         pub bracket_token: token::Bracket,
         pub elem: Box<Type>,
@@ -88,6 +90,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeBareFn {
         pub lifetimes: Option<BoundLifetimes>,
         pub unsafety: Option<Token![unsafe]>,
@@ -105,6 +108,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeGroup {
         pub group_token: token::Group,
         pub elem: Box<Type>,
@@ -117,6 +121,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeImplTrait {
         pub impl_token: Token![impl],
         pub bounds: Punctuated<TypeParamBound, Token![+]>,
@@ -128,6 +133,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeInfer {
         pub underscore_token: Token![_],
     }
@@ -138,6 +144,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeMacro {
         pub mac: Macro,
     }
@@ -148,6 +155,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeNever {
         pub bang_token: Token![!],
     }
@@ -158,6 +166,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeParen {
         pub paren_token: token::Paren,
         pub elem: Box<Type>,
@@ -170,6 +179,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypePath {
         pub qself: Option<QSelf>,
         pub path: Path,
@@ -181,6 +191,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypePtr {
         pub star_token: Token![*],
         pub const_token: Option<Token![const]>,
@@ -194,6 +205,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeReference {
         pub and_token: Token![&],
         pub lifetime: Option<Lifetime>,
@@ -207,6 +219,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeSlice {
         pub bracket_token: token::Bracket,
         pub elem: Box<Type>,
@@ -219,6 +232,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeTraitObject {
         pub dyn_token: Option<Token![dyn]>,
         pub bounds: Punctuated<TypeParamBound, Token![+]>,
@@ -230,6 +244,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or
     /// `"full"` feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct TypeTuple {
         pub paren_token: token::Paren,
         pub elems: Punctuated<Type, Token![,]>,
@@ -241,6 +256,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or `"full"`
     /// feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct Abi {
         pub extern_token: Token![extern],
         pub name: Option<LitStr>,
@@ -252,6 +268,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or `"full"`
     /// feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct BareFnArg {
         pub attrs: Vec<Attribute>,
         pub name: Option<(Ident, Token![:])>,
@@ -274,6 +291,7 @@ ast_struct! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or `"full"`
     /// feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub struct Variadic {
         pub attrs: Vec<Attribute>,
         pub dots: Token![...],
@@ -285,6 +303,7 @@ ast_enum! {
     ///
     /// *This type is available only if Syn is built with the `"derive"` or `"full"`
     /// feature.*
+    #[cfg_attr(doc_cfg, doc(cfg(any(feature = "full", feature = "derive"))))]
     pub enum ReturnType {
         /// Return type is not specified.
         ///
@@ -304,6 +323,7 @@ pub mod parsing {
     use proc_macro2::{Punct, Spacing, TokenTree};
     use std::iter::FromIterator;
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for Type {
         fn parse(input: ParseStream) -> Result<Self> {
             let allow_plus = true;
@@ -317,6 +337,7 @@ pub mod parsing {
         /// contain a `+` character.
         ///
         /// This parser does not allow a `+`, while the default parser does.
+        #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
         pub fn without_plus(input: ParseStream) -> Result<Self> {
             let allow_plus = false;
             ambig_ty(input, allow_plus)
@@ -566,6 +587,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeSlice {
         fn parse(input: ParseStream) -> Result<Self> {
             let content;
@@ -576,6 +598,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeArray {
         fn parse(input: ParseStream) -> Result<Self> {
             let content;
@@ -588,6 +611,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypePtr {
         fn parse(input: ParseStream) -> Result<Self> {
             let star_token: Token![*] = input.parse()?;
@@ -610,6 +634,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeReference {
         fn parse(input: ParseStream) -> Result<Self> {
             Ok(TypeReference {
@@ -622,6 +647,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeBareFn {
         fn parse(input: ParseStream) -> Result<Self> {
             let allow_mut_self = false;
@@ -679,6 +705,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeNever {
         fn parse(input: ParseStream) -> Result<Self> {
             Ok(TypeNever {
@@ -687,6 +714,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeInfer {
         fn parse(input: ParseStream) -> Result<Self> {
             Ok(TypeInfer {
@@ -695,6 +723,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeTuple {
         fn parse(input: ParseStream) -> Result<Self> {
             let content;
@@ -723,6 +752,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeMacro {
         fn parse(input: ParseStream) -> Result<Self> {
             Ok(TypeMacro {
@@ -731,6 +761,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypePath {
         fn parse(input: ParseStream) -> Result<Self> {
             let (qself, mut path) = path::parsing::qpath(input, false)?;
@@ -763,12 +794,14 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for ReturnType {
         fn parse(input: ParseStream) -> Result<Self> {
             Self::parse(input, true)
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeTraitObject {
         fn parse(input: ParseStream) -> Result<Self> {
             Self::parse(input, true)
@@ -821,6 +854,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeImplTrait {
         fn parse(input: ParseStream) -> Result<Self> {
             Ok(TypeImplTrait {
@@ -842,6 +876,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeGroup {
         fn parse(input: ParseStream) -> Result<Self> {
             let group = crate::group::parse_group(input)?;
@@ -852,6 +887,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for TypeParen {
         fn parse(input: ParseStream) -> Result<Self> {
             let allow_plus = false;
@@ -869,6 +905,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for BareFnArg {
         fn parse(input: ParseStream) -> Result<Self> {
             let allow_mut_self = false;
@@ -940,6 +977,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for Abi {
         fn parse(input: ParseStream) -> Result<Self> {
             Ok(Abi {
@@ -949,6 +987,7 @@ pub mod parsing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for Option<Abi> {
         fn parse(input: ParseStream) -> Result<Self> {
             if input.peek(Token![extern]) {
@@ -968,6 +1007,7 @@ mod printing {
     use proc_macro2::TokenStream;
     use quote::{ToTokens, TokenStreamExt};
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeSlice {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.bracket_token.surround(tokens, |tokens| {
@@ -976,6 +1016,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeArray {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.bracket_token.surround(tokens, |tokens| {
@@ -986,6 +1027,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypePtr {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.star_token.to_tokens(tokens);
@@ -999,6 +1041,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeReference {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.and_token.to_tokens(tokens);
@@ -1008,6 +1051,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeBareFn {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.lifetimes.to_tokens(tokens);
@@ -1028,12 +1072,14 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeNever {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.bang_token.to_tokens(tokens);
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeTuple {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.paren_token.surround(tokens, |tokens| {
@@ -1042,12 +1088,14 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypePath {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             private::print_path(tokens, &self.qself, &self.path);
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeTraitObject {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.dyn_token.to_tokens(tokens);
@@ -1055,6 +1103,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeImplTrait {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.impl_token.to_tokens(tokens);
@@ -1062,6 +1111,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeGroup {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.group_token.surround(tokens, |tokens| {
@@ -1070,6 +1120,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeParen {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.paren_token.surround(tokens, |tokens| {
@@ -1078,18 +1129,21 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeInfer {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.underscore_token.to_tokens(tokens);
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for TypeMacro {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.mac.to_tokens(tokens);
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for ReturnType {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             match self {
@@ -1102,6 +1156,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for BareFnArg {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             tokens.append_all(self.attrs.outer());
@@ -1113,6 +1168,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for Variadic {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             tokens.append_all(self.attrs.outer());
@@ -1120,6 +1176,7 @@ mod printing {
         }
     }
 
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "printing")))]
     impl ToTokens for Abi {
         fn to_tokens(&self, tokens: &mut TokenStream) {
             self.extern_token.to_tokens(tokens);

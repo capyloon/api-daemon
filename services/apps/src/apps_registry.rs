@@ -406,6 +406,26 @@ impl AppsRegistry {
             .map_err(|_| AppsServiceError::ClearDataError)?)
     }
 
+    pub fn get_pacakge_path(
+        &self,
+        webapp_dir: &str,
+        manifest_url: &str,
+    ) -> Result<PathBuf, AppsServiceError> {
+        if let Some(app) = self.get_by_manifest_url(manifest_url) {
+            let webapp_path = Path::new(&webapp_dir);
+            let app_path = webapp_path.join(&app.get_name());
+            let package_path = app_path.join("application.zip");
+
+            if File::open(&package_path).is_ok() {
+                Ok(package_path)
+            } else {
+                Err(AppsServiceError::AppNotFound)
+            }
+        } else {
+            Err(AppsServiceError::AppNotFound)
+        }
+    }
+
     pub fn download_and_apply(
         &mut self,
         webapp_path: &str,
@@ -468,7 +488,7 @@ impl AppsRegistry {
             };
 
         info!("available_zip: {}", available_zip.display());
-        if let Err(err) = verify_zip(available_zip.as_path(), &self.cert_type) {
+        if let Err(err) = verify_zip(available_zip.as_path(), &self.cert_type, "inf") {
             error!("Verify zip error: {:?}", err);
             apps_item.set_install_state(AppsInstallState::Pending);
             let _ = self.save_app(is_update, &apps_item, &manifest);

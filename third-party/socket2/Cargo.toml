@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "socket2"
-version = "0.3.16"
+version = "0.3.17"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 description = "Utilities for handling networking sockets with a maximal amount of configuration\npossible intended.\n"
 homepage = "https://github.com/alexcrichton/socket2-rs"
@@ -30,7 +30,7 @@ pair = []
 reuseport = []
 unix = []
 [target."cfg(any(unix, target_os = \"redox\"))".dependencies.cfg-if]
-version = "0.1.6"
+version = "1.0"
 
 [target."cfg(any(unix, target_os = \"redox\"))".dependencies.libc]
 version = "0.2.66"

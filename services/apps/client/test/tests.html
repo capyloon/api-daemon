@@ -192,6 +192,14 @@
           service => service.setEnabled("http://launcher.localhost:8081/manifest.webapp", lib_apps.AppsStatus.ENABLED),
           launcher_status_expected(0)
         );
+        await tester.assert_eq(
+          "verify ciautotest",
+          service => service.verify("http://ciautotest.localhost:8081/manifest.webapp", "production", "inf"),
+          true,
+          result => {
+            return result === expected_sha1;
+          }
+        )
 
 // Test uninstall
         let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);

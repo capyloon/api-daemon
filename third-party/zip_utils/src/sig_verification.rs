@@ -1,4 +1,5 @@
 use crate::ZipVerificationError;
+use hex_slice::AsHex;
 use ring::digest;
 use simple_asn1::*;
 use std::time::SystemTime;
@@ -201,12 +202,71 @@ pub fn verify(
     rsa_raw: &[u8],
     sf_raw: &[u8],
     root_cert_raw: &[u8],
-) -> Result<(), ZipVerificationError> {
+) -> Result<String, ZipVerificationError> {
     let rsa_info = parse_rsa(rsa_raw)?;
     let _ = verify_cert_sig(&rsa_info.certs_rsa, root_cert_raw)?;
     let _ = verify_sf_sig(rsa_info.sf_dig, &rsa_info.sf_alg, sf_raw.to_vec())?;
 
-    Ok(())
+    Ok(fingerprint(&rsa_info.certs_rsa[0])?)
+}
+
+pub fn fingerprint(cert: &[u8]) -> Result<String, ZipVerificationError> {
+    let sha1_cert = digest::digest(&digest::SHA1_FOR_LEGACY_USE_ONLY, cert);
+
+    Ok(format!("{:02X}", sha1_cert.as_ref().plain_hex(true)))
+}
+
+// Return base64 format of the public key
+pub fn get_public_key(cert_raw: &[u8]) -> Result<String, ZipVerificationError> {
+    let cert = parse_certificate(cert_raw).map_err(ZipVerificationError::X509Signature)?;
+    let pub_key_info = cert.subject_public_key_info();
+    // 1.2.840.113549.1.1.1 rsaEncryption (PKCS #1)
+    // [6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 1]
+    // Null
+    //[5, 0]
+    let rsa_encryption_oid_bin = vec![6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 1, 5, 0];
+    let is_rsa_alg = pub_key_info.algorithm() == &rsa_encryption_oid_bin[..];
+    let public_key_base64_header = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A";
+
+    let key = if is_rsa_alg {
+        public_key_base64_header.to_owned() + &base64::encode(pub_key_info.key().to_vec())
+    } else {
+        base64::encode(pub_key_info.key().to_vec())
+    };
+
+    Ok(key)
+}
+
+#[test]
+fn test_get_public_key() {
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut crt_file = File::open("test-fixtures/service-center-test.crt").unwrap();
+    let mut crt_raw: Vec<u8> = Vec::new();
+    crt_file.read_to_end(&mut crt_raw).unwrap();
+    let key = get_public_key(&crt_raw).unwrap();
+
+    let expected = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArzFR6AwskHwATJ0BUZEW6fnYD7mXHmsmx0/ejPcPloDrZZ/YZQeBRHSZrwyA6M/w0bSCgVZyPJi+Dcy+koGuxLrPv28QLCFXBVmVnSt7bMoPLrgea1ooNBISxXklHCSCS/fZpGKJ3aXgGoYpV4KOdIGW5OGtOuumQFm/58GTUQKhEthVVU3dXZtjiob4PsgINSpTQAln53yHVI789tPwTQiBIXTHPwpymeQTSCX0XSmcJ8AddMKXghVHX3PBG6Rcq+aQGyGE9ADIS1PFLyDBOzgCPi5tkJ9XQI5QQR1Sqz1406JwZTJoqcr06BcFzxrtCU1cl9INUJeQXqIaadibIQIDAQAB";
+
+    assert_eq!(key, expected);
+}
+
+#[test]
+fn test_fingerprint() {
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut crt_file = File::open("test-fixtures/zigbert.rsa").unwrap();
+    let mut rsa_raw: Vec<u8> = Vec::new();
+    crt_file.read_to_end(&mut rsa_raw).unwrap();
+    let rsa_info = parse_rsa(&rsa_raw).unwrap();
+    let key = fingerprint(&rsa_info.certs_rsa[0]).unwrap();
+
+    assert_eq!(
+        key,
+        "B2 95 1A FD 74 7F 40 B7 E9 D2 E6 37 A3 5D 12 F3 B8 5B 0E 4A"
+    );
 }
 
 #[test]

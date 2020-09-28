@@ -1,6 +1,6 @@
 #[cfg(any(
     feature = "native-tls",
-    feature = "rustls-tls",
+    feature = "__rustls",
 ))]
 use std::any::Any;
 use std::convert::TryInto;
@@ -21,10 +21,13 @@ use http::Uri;
 use hyper::client::ResponseFuture;
 #[cfg(feature = "native-tls-crate")]
 use native_tls_crate::TlsConnector;
+#[cfg(feature = "rustls-tls-native-roots")]
+use rustls::RootCertStore;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::time::Delay;
+use pin_project_lite::pin_project;
 
 use log::debug;
 
@@ -80,6 +83,7 @@ struct Config {
     connection_verbose: bool,
     pool_idle_timeout: Option<Duration>,
     pool_max_idle_per_host: usize,
+    tcp_keepalive: Option<Duration>,
     #[cfg(feature = "__tls")]
     identity: Option<Identity>,
     proxies: Vec<Proxy>,
@@ -92,6 +96,7 @@ struct Config {
     #[cfg(feature = "__tls")]
     tls: TlsBackend,
     http2_only: bool,
+    http1_writev: Option<bool>,
     http1_title_case_headers: bool,
     http2_initial_stream_window_size: Option<u32>,
     http2_initial_connection_window_size: Option<u32>,
@@ -130,6 +135,7 @@ impl ClientBuilder {
                 connection_verbose: false,
                 pool_idle_timeout: Some(Duration::from_secs(90)),
                 pool_max_idle_per_host: std::usize::MAX,
+                tcp_keepalive: Some(Duration::from_secs(60)),
                 proxies: Vec::new(),
                 auto_sys_proxy: true,
                 redirect_policy: redirect::Policy::default(),
@@ -142,6 +148,7 @@ impl ClientBuilder {
                 #[cfg(feature = "__tls")]
                 tls: TlsBackend::default(),
                 http2_only: false,
+                http1_writev: None,
                 http1_title_case_headers: false,
                 http2_initial_stream_window_size: None,
                 http2_initial_connection_window_size: None,
@@ -231,7 +238,7 @@ impl ClientBuilder {
                         config.local_address,
                         config.nodelay)
                 },
-                #[cfg(feature = "rustls-tls")]
+                #[cfg(feature = "__rustls")]
                 TlsBackend::BuiltRustls(conn) => {
                     Connector::new_rustls_tls(
                         http,
@@ -241,7 +248,7 @@ impl ClientBuilder {
                         config.local_address,
                         config.nodelay)
                 },
-                #[cfg(feature = "rustls-tls")]
+                #[cfg(feature = "__rustls")]
                 TlsBackend::Rustls => {
                     use crate::tls::NoVerifier;
 
@@ -251,8 +258,14 @@ impl ClientBuilder {
                     } else {
                         tls.set_protocols(&["h2".into(), "http/1.1".into()]);
                     }
+                    #[cfg(feature = "rustls-tls-webpki-roots")]
                     tls.root_store
                         .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+                    #[cfg(feature = "rustls-tls-native-roots")]
+                    {
+                        let roots_slice = NATIVE_ROOTS.as_ref().unwrap().roots.as_slice();
+                        tls.root_store.roots.extend_from_slice(roots_slice);
+                    }
 
                     if !config.certs_verification {
                         tls.dangerous()
@@ -278,7 +291,7 @@ impl ClientBuilder {
                 },
                 #[cfg(any(
                     feature = "native-tls",
-                    feature = "rustls-tls",
+                    feature = "__rustls",
                 ))]
                 TlsBackend::UnknownPreconfigured => {
                     return Err(crate::error::builder(
@@ -299,6 +312,10 @@ impl ClientBuilder {
             builder.http2_only(true);
         }
 
+        if let Some(http1_writev) = config.http1_writev {
+            builder.http1_writev(http1_writev);
+        }
+
         if let Some(http2_initial_stream_window_size) = config.http2_initial_stream_window_size {
             builder.http2_initial_stream_window_size(http2_initial_stream_window_size);
         }
@@ -310,6 +327,7 @@ impl ClientBuilder {
 
         builder.pool_idle_timeout(config.pool_idle_timeout);
         builder.pool_max_idle_per_host(config.pool_max_idle_per_host);
+        connector.set_keepalive(config.tcp_keepalive);
 
         if config.http1_title_case_headers {
             builder.http1_title_case_headers(true);
@@ -566,8 +584,8 @@ impl ClientBuilder {
 
     /// Enables a request timeout.
     ///
-    /// The timeout is applied from the when the request starts connecting
-    /// until the response body has finished.
+    /// The timeout is applied from when the request starts connecting until the
+    /// response body has finished.
     ///
     /// Default is no timeout.
     pub fn timeout(mut self, timeout: Duration) -> ClientBuilder {
@@ -629,6 +647,14 @@ impl ClientBuilder {
     /// Enable case sensitive headers.
     pub fn http1_title_case_headers(mut self) -> ClientBuilder {
         self.config.http1_title_case_headers = true;
+        self
+    }
+
+    /// Force hyper to use either queued(if true), or flattened(if false) write strategy
+    /// This may eliminate unnecessary cloning of buffers for some TLS backends
+    /// By default hyper will try to guess which strategy to use
+    pub fn http1_writev(mut self, writev: bool) -> ClientBuilder {
+        self.config.http1_writev = Some(writev);
         self
     }
 
@@ -698,6 +724,19 @@ impl ClientBuilder {
         self
     }
 
+    /// Set that all sockets have `SO_KEEPALIVE` set with the supplied duration.
+    ///
+    /// If `None`, the option will not be set.
+    ///
+    /// Default is 60 seconds.
+    pub fn tcp_keepalive<D>(mut self, val: D) -> ClientBuilder
+        where
+            D: Into<Option<Duration>>,
+    {
+        self.config.tcp_keepalive = val.into();
+        self
+    }
+
     // TLS options
 
     /// Add a custom root certificate.
@@ -707,7 +746,7 @@ impl ClientBuilder {
     ///
     /// # Optional
     ///
-    /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls`
+    /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls(-...)`
     /// feature to be enabled.
     #[cfg(feature = "__tls")]
     pub fn add_root_certificate(mut self, cert: Certificate) -> ClientBuilder {
@@ -719,7 +758,7 @@ impl ClientBuilder {
     ///
     /// # Optional
     ///
-    /// This requires the optional `native-tls` or `rustls-tls` feature to be
+    /// This requires the optional `native-tls` or `rustls-tls(-...)` feature to be
     /// enabled.
     #[cfg(feature = "__tls")]
     pub fn identity(mut self, identity: Identity) -> ClientBuilder {
@@ -764,7 +803,7 @@ impl ClientBuilder {
     ///
     /// # Optional
     ///
-    /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls`
+    /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls(-...)`
     /// feature to be enabled.
     #[cfg(feature = "__tls")]
     pub fn danger_accept_invalid_certs(mut self, accept_invalid_certs: bool) -> ClientBuilder {
@@ -793,8 +832,8 @@ impl ClientBuilder {
     ///
     /// # Optional
     ///
-    /// This requires the optional `rustls-tls` feature to be enabled.
-    #[cfg(feature = "rustls-tls")]
+    /// This requires the optional `rustls-tls(-...)` feature to be enabled.
+    #[cfg(feature = "__rustls")]
     pub fn use_rustls_tls(mut self) -> ClientBuilder {
         self.config.tls = TlsBackend::Rustls;
         self
@@ -817,10 +856,10 @@ impl ClientBuilder {
     /// # Optional
     ///
     /// This requires one of the optional features `native-tls` or
-    /// `rustls-tls` to be enabled.
+    /// `rustls-tls(-...)` to be enabled.
     #[cfg(any(
         feature = "native-tls",
-        feature = "rustls-tls",
+        feature = "__rustls",
     ))]
     pub fn use_preconfigured_tls(mut self, tls: impl Any) -> ClientBuilder {
         let mut tls = Some(tls);
@@ -833,7 +872,7 @@ impl ClientBuilder {
                 return self;
             }
         }
-        #[cfg(feature = "rustls-tls")]
+        #[cfg(feature = "__rustls")]
         {
             if let Some(conn) = (&mut tls as &mut dyn Any).downcast_mut::<Option<rustls::ClientConfig>>() {
 
@@ -1181,7 +1220,7 @@ impl Config {
             }
         }
 
-        #[cfg(all(feature = "native-tls-crate", feature = "rustls-tls"))]
+        #[cfg(all(feature = "native-tls-crate", feature = "__rustls"))]
         {
             f.field("tls_backend", &self.tls);
         }
@@ -1235,8 +1274,11 @@ impl ClientRef {
     }
 }
 
-pub(super) struct Pending {
-    inner: PendingInner,
+pin_project! {
+    pub(super) struct Pending {
+        #[pin]
+        inner: PendingInner,
+    }
 }
 
 enum PendingInner {
@@ -1244,35 +1286,39 @@ enum PendingInner {
     Error(Option<crate::Error>),
 }
 
-struct PendingRequest {
-    method: Method,
-    url: Url,
-    headers: HeaderMap,
-    body: Option<Option<Bytes>>,
+pin_project! {
+    struct PendingRequest {
+        method: Method,
+        url: Url,
+        headers: HeaderMap,
+        body: Option<Option<Bytes>>,
 
-    urls: Vec<Url>,
+        urls: Vec<Url>,
 
-    client: Arc<ClientRef>,
+        client: Arc<ClientRef>,
 
-    in_flight: ResponseFuture,
-    timeout: Option<Delay>,
+        #[pin]
+        in_flight: ResponseFuture,
+        #[pin]
+        timeout: Option<Delay>,
+    }
 }
 
 impl PendingRequest {
     fn in_flight(self: Pin<&mut Self>) -> Pin<&mut ResponseFuture> {
-        unsafe { Pin::map_unchecked_mut(self, |x| &mut x.in_flight) }
+        self.project().in_flight
     }
 
     fn timeout(self: Pin<&mut Self>) -> Pin<&mut Option<Delay>> {
-        unsafe { Pin::map_unchecked_mut(self, |x| &mut x.timeout) }
+        self.project().timeout
     }
 
     fn urls(self: Pin<&mut Self>) -> &mut Vec<Url> {
-        unsafe { &mut Pin::get_unchecked_mut(self).urls }
+        self.project().urls
     }
 
     fn headers(self: Pin<&mut Self>) -> &mut HeaderMap {
-        unsafe { &mut Pin::get_unchecked_mut(self).headers }
+        self.project().headers
     }
 }
 
@@ -1284,7 +1330,7 @@ impl Pending {
     }
 
     fn inner(self: Pin<&mut Self>) -> Pin<&mut PendingInner> {
-        unsafe { Pin::map_unchecked_mut(self, |x| &mut x.inner) }
+        self.project().inner
     }
 }
 
@@ -1499,6 +1545,11 @@ fn add_cookie_header(headers: &mut HeaderMap, cookie_store: &cookie::CookieStore
             HeaderValue::from_bytes(header.as_bytes()).unwrap(),
         );
     }
+}
+
+#[cfg(feature = "rustls-tls-native-roots")]
+lazy_static! {
+    static ref NATIVE_ROOTS: std::io::Result<RootCertStore> = rustls_native_certs::load_native_certs().map_err(|e| e.1);
 }
 
 #[cfg(test)]

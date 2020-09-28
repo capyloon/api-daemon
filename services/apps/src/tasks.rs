@@ -34,7 +34,12 @@ impl AppMgmtTask for InstallPackageTask {
         }
 
         let data_path = shared.config.data_path.clone();
-        match shared.registry.download_and_apply(&data_path, &url, false) {
+        let current = env::current_dir().unwrap();
+        let data_dir = current.join(data_path);
+        match shared
+            .registry
+            .download_and_apply(data_dir.to_str().unwrap(), &url, false)
+        {
             Ok(app) => {
                 info!("broadcast event: app_installed");
                 shared.vhost_api.app_installed(&app.name);
@@ -116,9 +121,12 @@ impl AppMgmtTask for UninstallTask {
         };
 
         let data_path = shared.config.data_path.clone();
-        if let Err(err) = shared
-            .registry
-            .uninstall_app(&app.name, &app.update_url, &data_path)
+        let current = env::current_dir().unwrap();
+        let data_dir = current.join(data_path);
+        if let Err(err) =
+            shared
+                .registry
+                .uninstall_app(&app.name, &app.update_url, data_dir.to_str().unwrap())
         {
             error!("Unregister app failed: {:?}", err);
             return responder.reject(err);
@@ -156,9 +164,11 @@ impl AppMgmtTask for UpdateTask {
         let update_url = &old_app.update_url;
 
         let data_path = shared.config.data_path.clone();
+        let current = env::current_dir().unwrap();
+        let data_dir = current.join(data_path);
         match shared
             .registry
-            .download_and_apply(&data_path, &update_url, true)
+            .download_and_apply(data_dir.to_str().unwrap(), &update_url, true)
         {
             Ok(app) => {
                 info!("broadcast event: app_updated");

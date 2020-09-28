@@ -6,16 +6,6 @@ git = "https://github.com/fabricedesre/actix.git"
 branch = "0.10-bump-crossbeam"
 replace-with = "vendored-sources"
 
-[source."https://github.com/fabricedesre/reqwest.git"]
-git = "https://github.com/fabricedesre/reqwest.git"
-branch = "patch-1"
-replace-with = "vendored-sources"
-
-[source."https://github.com/kaiostech/ring.git"]
-git = "https://github.com/kaiostech/ring.git"
-branch = "gonk-0.16.16"
-replace-with = "vendored-sources"
-
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
 replace-with = "vendored-sources"

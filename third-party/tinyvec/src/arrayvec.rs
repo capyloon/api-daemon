@@ -36,10 +36,13 @@ macro_rules! array_vec {
     }
   };
   ($array_type:ty) => {
-    $crate::array_vec!($array_type =>)
+    $crate::ArrayVec::<$array_type>::default()
   };
   ($($elem:expr),*) => {
     $crate::array_vec!(_ => $($elem),*)
+  };
+  ($elem:expr; $n:expr) => {
+    $crate::ArrayVec::from([$elem; $n])
   };
   () => {
     $crate::array_vec!(_)
@@ -61,9 +64,9 @@ macro_rules! array_vec {
 ///
 /// ## Construction
 ///
-/// You can use the `array_vec!` macro similarly to how you might use the `vec!` macro.
-/// Specify the array type, then optionally give all the initial values you want
-/// to have.
+/// You can use the `array_vec!` macro similarly to how you might use the `vec!`
+/// macro. Specify the array type, then optionally give all the initial values
+/// you want to have.
 /// ```rust
 /// # use tinyvec::*;
 /// let some_ints = array_vec!([i32; 4] => 1, 2, 3);
@@ -103,10 +106,7 @@ pub struct ArrayVec<A: Array> {
 
 impl<A: Array> Default for ArrayVec<A> {
   fn default() -> Self {
-    Self {
-      len: 0,
-      data: A::default(),
-    }
+    Self { len: 0, data: A::default() }
   }
 }
 
@@ -220,8 +220,7 @@ impl<A: Array> ArrayVec<A> {
   /// ```
   #[inline]
   pub fn try_append<'other>(
-    &mut self,
-    other: &'other mut Self,
+    &mut self, other: &'other mut Self,
   ) -> Option<&'other mut Self> {
     let new_len = self.len() + other.len();
     if new_len > A::CAPACITY {
@@ -319,6 +318,36 @@ impl<A: Array> ArrayVec<A> {
     ArrayVecDrain::new(self, range)
   }
 
+  /// Returns the inner array of the `ArrayVec`.
+  ///
+  /// This returns the full array, even if the `ArrayVec` length is currently
+  /// less than that.
+  ///
+  /// ## Example
+  ///
+  /// ```rust
+  /// # use tinyvec::{array_vec, ArrayVec};
+  /// let mut favorite_numbers = array_vec!([i32; 5] => 87, 48, 33, 9, 26);
+  /// assert_eq!(favorite_numbers.clone().into_inner(), [87, 48, 33, 9, 26]);
+  ///
+  /// favorite_numbers.pop();
+  /// assert_eq!(favorite_numbers.into_inner(), [87, 48, 33, 9, 0]);
+  /// ```
+  ///
+  /// A use for this function is to build an array from an iterator by first
+  /// collecting it into an `ArrayVec`.
+  ///
+  /// ```rust
+  /// # use tinyvec::ArrayVec;
+  /// let arr_vec: ArrayVec<[i32; 10]> = (1..=3).cycle().take(10).collect();
+  /// let inner = arr_vec.into_inner();
+  /// assert_eq!(inner, [1, 2, 3, 1, 2, 3, 1, 2, 3, 1]);
+  /// ```
+  #[inline]
+  pub fn into_inner(self) -> A {
+    self.data
+  }
+
   /// Clone each element of the slice into this `ArrayVec`.
   ///
   /// ## Panics
@@ -372,8 +401,7 @@ impl<A: Array> ArrayVec<A> {
   /// ```
   #[inline]
   pub fn fill<I: IntoIterator<Item = A::Item>>(
-    &mut self,
-    iter: I,
+    &mut self, iter: I,
   ) -> I::IntoIter {
     let mut iter = iter.into_iter();
     for element in iter.by_ref().take(self.capacity() - self.len()) {
@@ -626,9 +654,7 @@ impl<A: Array> ArrayVec<A> {
   /// ```
   #[inline]
   pub fn resize_with<F: FnMut() -> A::Item>(
-    &mut self,
-    new_len: usize,
-    mut f: F,
+    &mut self, new_len: usize, mut f: F,
   ) {
     match new_len.checked_sub(self.len as usize) {
       None => self.truncate(new_len),
@@ -784,9 +810,7 @@ impl<A: Array> ArrayVec<A> {
   /// ```
   #[inline]
   pub fn splice<R, I>(
-    &mut self,
-    range: R,
-    replacement: I,
+    &mut self, range: R, replacement: I,
   ) -> ArrayVecSplice<'_, A, core::iter::Fuse<I::IntoIter>>
   where
     R: RangeBounds<usize>,
@@ -1555,8 +1579,7 @@ where
   type Value = ArrayVec<A>;
 
   fn expecting(
-    &self,
-    formatter: &mut core::fmt::Formatter,
+    &self, formatter: &mut core::fmt::Formatter,
   ) -> core::fmt::Result {
     formatter.write_str("a sequence")
   }
