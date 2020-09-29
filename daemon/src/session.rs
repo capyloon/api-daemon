@@ -3,7 +3,6 @@ use crate::shared_state::{
     enabled_services, format_request_helper, on_create_service_helper, on_release_object_helper,
     process_base_message_helper, SharedStateMap, TrackableServices,
 };
-use crate::tokens::SharedTokensManager;
 use bincode::{self, Options};
 use common::core::{
     BaseMessage, BaseMessageKind, CoreRequest, CoreResponse, DisableEventListenerRequest,
@@ -13,6 +12,7 @@ use common::core::{
 };
 use common::object_tracker::ObjectTracker;
 use common::remote_service::{RemoteService, SharedRemoteServiceManager};
+use common::tokens::SharedTokensManager;
 use common::traits::{
     EventMapKey, IdFactory, MessageSender, ObjectTrackerMethods, OriginAttributes, Service,
     SessionSupport, SessionTrackerId, Shared, SharedEventMap, SharedSessionContext, TrackerId,
@@ -308,8 +308,7 @@ impl Session {
 
     /// Receives and process a handshake message.
     fn on_handshake(&mut self, message: &[u8]) {
-        let req: Result<SessionHandshake, bincode::Error> =
-            common::deserialize_bincode(message);
+        let req: Result<SessionHandshake, bincode::Error> = common::deserialize_bincode(message);
         match req {
             Ok(handshake) => {
                 info!("Got client version {}", handshake.version);
@@ -454,15 +453,15 @@ mod test {
     use super::Session;
     use super::SessionState;
     use crate::config::Config;
-    use crate::tokens::TokensManager;
+    use bincode::Options;
     use common::core::{
         BaseMessage, CoreRequest, DisableEventListenerRequest, EnableEventListenerRequest,
         SessionHandshake,
     };
-    use bincode::Options;
     use common::is_event_in_map;
     use common::remote_service::RemoteServiceManager;
     use common::remote_services_registrar::RemoteServicesRegistrar;
+    use common::tokens::TokensManager;
     use common::traits::{
         MessageKind, MessageSender, OriginAttributes, SessionContext, SessionTrackerId, Shared,
         StdSender,

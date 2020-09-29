@@ -5,7 +5,8 @@ use crate::generated::common::{
     AppsServiceDelegateProxy, CardInfoType, MobileManagerDelegateProxy, NetworkInfo,
     NetworkManagerDelegateProxy, NetworkOperator, PowerManagerDelegateProxy,
 };
-use common::traits::Shared;
+use common::tokens::SharedTokensManager;
+use common::traits::{OriginAttributes, Shared};
 use common::JsonValue;
 use log::{debug, error};
 use std::collections::HashMap;
@@ -41,6 +42,7 @@ pub struct GeckoBridgeState {
     mobilemanager: Option<MobileManagerDelegateProxy>,
     networkmanager: Option<NetworkManagerDelegateProxy>,
     observers: Vec<Sender<()>>,
+    tokens: SharedTokensManager,
 }
 
 impl GeckoBridgeState {
@@ -263,5 +265,13 @@ impl GeckoBridgeState {
         } else {
             Err(DelegatorError::InvalidDelegator)
         }
+    }
+
+    pub fn register_token(&mut self, token: &str, origin_attribute: OriginAttributes) -> bool {
+        self.tokens.lock().register(token, origin_attribute)
+    }
+
+    pub fn get_tokens_manager(&self) -> SharedTokensManager {
+        self.tokens.clone()
     }
 }

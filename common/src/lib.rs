@@ -17,6 +17,7 @@ pub mod remote_service;
 pub mod remote_services_registrar;
 mod selinux;
 pub mod socket_pair;
+pub mod tokens;
 pub mod traits;
 
 pub use bincode::Error as BincodeError;

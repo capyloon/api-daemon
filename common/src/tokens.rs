@@ -7,7 +7,7 @@
 /// identifier that can be used for stateful operations
 /// across sessions.
 /// For web clients, the identifier is the caller origin.
-use common::traits::{Shared, OriginAttributes};
+use crate::traits::{OriginAttributes, Shared};
 use std::collections::HashMap;
 
 pub type SharedTokensManager = Shared<TokensManager>;

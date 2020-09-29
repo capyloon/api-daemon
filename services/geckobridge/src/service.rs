@@ -8,7 +8,7 @@ use common::traits::{
     OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, TrackerId,
 };
 use log::{error, info};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct GeckoBridgeService {
     id: TrackerId,
@@ -130,6 +130,33 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
                 error!("Failed to get tracked networkmanager delegate.");
                 responder.reject();
             }
+        }
+    }
+
+    fn register_token(
+        &mut self,
+        responder: &GeckoFeaturesRegisterTokenResponder,
+        token: String,
+        url: String,
+        permissions: Option<Vec<String>>,
+    ) {
+        let permissions_set = match permissions {
+            Some(permissions) => {
+                // Turn the Vec<String> into a HashSet<String>
+                let mut set = HashSet::new();
+                for perm in permissions {
+                    set.insert(perm);
+                }
+                set
+            }
+            None => HashSet::new(),
+        };
+        let origin_attributes = OriginAttributes::new(&url, permissions_set);
+        let mut state = self.state.lock();
+        if state.register_token(&token, origin_attributes) {
+            responder.resolve()
+        } else {
+            responder.reject();
         }
     }
 }

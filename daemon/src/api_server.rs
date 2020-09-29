@@ -1,7 +1,6 @@
 /// Actix WebSocket and HTTP server
 use crate::global_context::GlobalContext;
 use crate::session::Session;
-use crate::webruntime_connection::*;
 use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler};
 use actix_cors::Cors;
 use actix_web::http::header;
@@ -273,10 +272,6 @@ pub fn start(global_context: &GlobalContext) {
                     .finish(),
             )
             .route("*", web::post().to(|| HttpResponse::MethodNotAllowed()))
-            .route(
-                "/{runtime}",
-                web::get().to(WebRuntimeConnection::runtime_index),
-            )
             .route("/", web::get().to(ws_index))
             .route("/*", web::get().to(http_index))
     })

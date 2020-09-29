@@ -83,6 +83,9 @@ interface GeckoFeatures {
   fn char_pref_changed(pref_name: str, value: str)
   fn int_pref_changed(pref_name: str, value: int)
   fn bool_pref_changed(pref_name: str, value: bool)
+
+  // Registers a single use token for this url and permissions.
+  fn register_token(token: str, url: str, permissions: str*)
 }
 
 service GeckoBridge: GeckoFeatures

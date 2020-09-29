@@ -2,10 +2,10 @@
 /// run a transport and hook up a session.
 use crate::config::Config;
 use crate::shared_state::create_shared_state;
-use crate::shared_state::SharedStateMap;
-use crate::tokens::{SharedTokensManager, TokensManager};
+use crate::shared_state::{SharedStateKind, SharedStateMap};
 use common::remote_service::{RemoteServiceManager, SharedRemoteServiceManager};
 use common::remote_services_registrar::RemoteServicesRegistrar;
+use common::tokens::SharedTokensManager;
 use common::traits::{SessionContext, Shared, SharedSessionContext};
 
 #[derive(Clone)]
@@ -28,11 +28,24 @@ impl GlobalContext {
             registrar,
         ));
 
+        // Get the shared tokens manager from the GeckoBridge shared state.
+        let service_state = create_shared_state();
+
+        let tokens_manager = {
+            let lock = service_state.lock();
+            let shared_data = match lock.get(&"GeckoBridge".to_string()) {
+                Some(SharedStateKind::GeckoBridgeService(data)) => data,
+                _ => panic!("Missing shared state for GeckoBridge!!"),
+            };
+            let tokens_manager = shared_data.lock().get_tokens_manager();
+            tokens_manager
+        };
+
         Self {
             config: config.clone(),
-            tokens_manager: TokensManager::new_shareable(),
+            tokens_manager,
             remote_service_manager,
-            service_state: create_shared_state(),
+            service_state,
             session_context: Shared::adopt(SessionContext::default()),
         }
     }
