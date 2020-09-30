@@ -1,0 +1,31 @@
+[package]
+name = "procfs"
+version = "0.8.1"
+authors = ["Andrew Chin <achin@eminence32.net>"]
+repository = "https://github.com/eminence/procfs"
+documentation = "https://docs.rs/procfs/"
+description = "Interface to the linux procfs pseudo-filesystem"
+readme = "README.md"
+keywords = ["procfs", "proc", "linux", "process"]
+categories = ["os::unix-apis", "filesystem"]
+license = "MIT OR Apache-2.0"
+edition = "2018"
+
+[features]
+default = ["chrono"]
+
+[dependencies]
+libc = "0.2"
+bitflags = "1"
+lazy_static = "1"
+chrono = {version = "0.4", optional = true }
+byteorder = {version="1", features=["i128"]}
+hex = "0.4"
+libflate = "1"
+backtrace = { version = "0.3", optional = true }
+
+[dev-dependencies]
+procinfo = "0.4.2"
+
+[package.metadata.docs.rs]
+all-features = true

@@ -1,0 +1,11 @@
+[package]
+name = "breakpad_sys"
+version = "0.1.0"
+authors = ["Fei Gao (fei.gao@kaiostech.com)"]
+
+[build-dependencies]
+cc = "1.0"
+bindgen = "0.33"
+
+[dependencies]
+log = "0.3"

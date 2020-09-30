@@ -1,0 +1,20 @@
+[package]
+name = "fota_test_server"
+version = "0.1.0"
+authors = ["Cliff Han(Xian) <cliff.han@kaiostech.com>"]
+description = "KaiOS Fota Test Server for web-driver test"
+edition = "2018"
+
+[dependencies]
+# clap 3.0 is not officially published, but seems it's almost ready
+clap = "3.0.0-beta.2"
+actix-web = "3.0"
+actix-rt = "1.1"
+actix-files = "0.3"
+actix-cors = "0.3"
+parking_lot = "0.11"
+log = "0.4"
+env_logger = "0.7"
+sha-1 = "0.9"
+rand = "0.7"
+serde = { version = "1.0", features = ["derive"] }

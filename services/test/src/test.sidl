@@ -1,0 +1,131 @@
+// SIDL for testing
+
+dictionary BagOfThings {
+	one: int
+	two: str
+}
+
+enum Possibilities {
+	One
+	Two
+	Three
+}
+
+dictionary ArityDict {
+	optional: int?
+	zero_or_more: int*
+	one_or_more: int+
+	zero_or_more_bags: BagOfThings*
+	one_or_more_bags: BagOfThings+
+	enums: Possibilities+
+}
+
+#[rust:shared-tracked]
+interface FooProvider {
+	fn do_it(what: str) -> int
+
+	amount: float
+	
+	event signal -> str
+}
+
+#[rust:shared]
+interface SharedFooProvider {
+	fn do_it(what: str) -> int
+
+	amount: float
+	
+	event signal -> str
+}
+
+#[rust:shared,rust:trait=PrivateTestTrait]
+interface SharedCustomProvider {
+	fn do_it(what: str) -> int
+
+	amount: float
+	
+	event signal -> str
+}
+
+dictionary ConfigureOptionDictionary {
+    enabled: bool?
+}
+
+callback Callback {
+	fn handle(input: str) -> bool
+	fn run_command(arg1: bool, arg2: int) -> str
+	fn no_param()
+}
+
+dictionary TimeoutEvent {
+	status: bool
+	things: BagOfThings
+}
+
+#[rust:not-tracked]
+interface TestFactory {
+	// Calling this function won't trigger a response until specified interval, which defined by timeout (unit: ms)
+	// then the client will receive true as success.
+	fn postpone(timeout: int) -> bool
+
+	// Trigger sigill to terminate the whole process
+	fn crash()
+
+    // Returns a binary object of the given size.
+	fn get_blob(size: int) -> binary
+
+    // Echo back a json data type.
+	fn echo_json(input: json) -> json
+
+	// Returns an updated version of the parameter.
+	fn update_bag(index: int, bag: BagOfThings) -> Possibilities
+
+	// Returns a dictionary or an error string.
+	fn default_bag() -> BagOfThings, str
+	fn zero_or_more_bags(zero: bool) -> BagOfThings*, str
+	fn one_or_more_bags(one: bool) -> BagOfThings+, str
+
+	// Return an instance of a "FooProvider" object.
+	fn get_provider() -> FooProvider
+
+	// Return an instance of a "SharedFooProvider" object.
+	fn get_shared_provider() -> SharedFooProvider
+
+	// Return an instance of a "SharedCustomProvider" object.
+	fn get_shared_custom_provider() -> SharedCustomProvider
+
+	// Test string arrays.
+	fn test_string_arrays(input: str+) -> int
+
+	fn optional(optional: bool) -> int?
+	fn zero_or_more(zero: bool) -> int*
+	fn one_or_more(one: bool) -> int+
+
+	fn arity_dict(optional: bool, zero: bool, one: bool) -> ArityDict
+	// Test interface objects
+	fn add_observer(name: str, observer: Callback)
+	fn remove_observer(name: str, observer: Callback)
+
+	fn echo_arg_optional(arg: int?) -> int?
+	fn echo_arg_zero_or_more(arg: int*) -> int*
+	fn echo_arg_one_or_more(arg: int+) -> int+
+
+	fn configure_option(option: ConfigureOptionDictionary) -> str
+
+	// Adds `seconds` to the starting date.
+	fn add_time(start: date, seconds: int) -> date
+
+	state: bool
+
+	fn generate_timeout_event() -> TimeoutEvent
+
+	event timeout -> TimeoutEvent
+
+	event noop
+
+	// This call will fail because of a missing permission check.
+	fn missing_permission()
+}
+
+#[rust:use=crate::private_traits::*,rust:shared-tracker]
+service TestService: TestFactory

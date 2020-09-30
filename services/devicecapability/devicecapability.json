@@ -1,0 +1,122 @@
+{
+    "hardware.memory": {
+        "default": 0,
+        "method": "hardware-memory"
+    },
+    "kaios.api-daemon.version": {
+        "default": "",
+        "method": "android-property"
+    },
+    "ro.build.characteristics": {
+        "default": "",
+        "method": "android-property"
+    },
+    "ro.build.type": {
+        "default": "",
+        "method": "android-property"
+    },
+    "ro.product.brand": {
+        "default": "",
+        "method": "android-property"
+    },
+    "ro.product.name": {
+        "default": "",
+        "method": "android-property"
+    },
+    "ro.teereader.enabled": {
+        "default": false,
+        "method": "android-property"
+    },
+    "app.update.custom": {
+        "default": "",
+        "method": "preference"
+    },
+    "device.bt": {
+        "default": true,
+        "method": "preference"
+    },
+    "device.cdma-apn": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.flip": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.fm.recorder": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.gps": {
+        "default": true,
+        "method": "preference"
+    },
+    "device.group-message": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.key.camera": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.key.endcall": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.key.volume": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.parental-control": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.qwerty": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.readout": {
+        "default": true,
+        "method": "preference"
+    },
+    "device.rtt": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.sim-hotswap": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.storage.size": {
+        "default": 0,
+        "method": "preference"
+    },
+    "device.tethering": {
+        "default": true,
+        "method": "preference"
+    },
+    "device.torch": {
+        "default": true,
+        "method": "preference"
+    },
+    "device.vilte": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.volte": {
+        "default": true,
+        "method": "preference"
+    },
+    "device.vowifi": {
+        "default": true,
+        "method": "preference"
+    },
+    "device.wifi": {
+        "default": true,
+        "method": "preference"
+    },
+    "ril.support.primarysim.switch": {
+        "default": false,
+        "method": "preference"
+    }
+}

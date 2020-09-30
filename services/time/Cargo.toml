@@ -1,0 +1,18 @@
+[package]
+name = "time_service"
+version = "0.1.0"
+authors = ["Jeff Lin <jeff.lin@kaiostech.com> "]
+edition = "2018"
+
+[dependencies]
+android_utils = { path = "../../support/android-utils" }
+common = { path = "../../common" }
+libc = "0.2.70"
+log = "0.4"
+nix = "0.17.0"
+serde = "1.0"
+threadpool = "1.7"
+time = "0.1"
+
+[build-dependencies]
+common = { path = "../../common" }

@@ -1,0 +1,74 @@
+{
+ "name": "Sample1",
+ "icons": {
+  "64": "https://seinlin.org/apps/packages/sample1/sample1.png"
+ },
+ "default_locale":"en-US",
+ "locales":{
+  "en-US":{"name":"Sample1","description":"Sample1"},
+  "zh-TW":{"name":"測試一","description":"測試一"}
+ },
+ "version": "1.00",
+ "size": 10022,
+ "release_notes": null,
+ "developer": {
+  "url": "http://sample.com",
+  "name": "Hello"
+ },
+ "dependencies" :{
+  "api-daemon": "1.4.16",
+  "wavoip-daemon": "0.9.6",
+  "ads-sdk": "1.1.0"
+ },
+ "type": "web",
+"b2g_features": {
+		"permissions": {
+			"flashlight": {},
+			"webapps-manage": {}
+		},
+		"locales": {
+			"ar": {
+				"name": "System",
+				"description": "Main System"
+			},
+			"en-US": {
+				"name": "System",
+				"description": "Main System"
+			},
+			"en-GB": {
+				"name": "System",
+				"description": "Main System"
+			}
+		},
+		"default_locale": "en-US",
+		"icons": {
+			"84": "/style/icons/system_84.png"
+		},
+		"activities": {
+			"reboot-device": {
+				"disposition": "inline",
+				"returnValue": true
+			},
+			"offline-dialog": {
+				"disposition": "inline"
+			}
+		},
+		"messages": [{
+				"alarm": "/index.html"
+			},
+			{
+				"ussd-received": "/index.html"
+			}
+		],
+		"connections": {
+			"spell-dialog": {
+				"description": "Communicate between keyboard app and system app",
+				"rules": {}
+			},
+			"keyevent": {
+				"description": "Communication with virtual keypad",
+				"rules": {}
+			}
+		}
+	}
+}

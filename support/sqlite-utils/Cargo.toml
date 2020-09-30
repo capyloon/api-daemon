@@ -1,0 +1,9 @@
+[package]
+name = "sqlite-utils"
+version = "0.1.0"
+authors = ["Fabrice Desré <fabrice@desre.org>"]
+edition = "2018"
+
+[dependencies]
+rusqlite = { version = "0.23", features = ["bundled"] }
+thiserror = "1.0"

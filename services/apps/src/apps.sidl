@@ -1,0 +1,107 @@
+// SIDL for Apps service
+
+enum AppsInstallState {
+  Installed   // App is installed
+  Installing  // Installing the app
+  Pending     // The installing get suspensed
+}
+
+enum AppsUpdateState {
+  Idle        // No update is on going
+  Available   // Newer versoin is available
+  Downloading // Downloading the new version
+  Updating    // Updating to the new version
+  Pending     // The updating get suspensed
+}
+
+enum AppsStatus {
+  Enabled    // App is installed and available to the users
+  Disabled   // App is installed but not available to the users
+}
+
+enum AppsServiceState {
+  Initializing  // The service is not ready
+  Running       // The service is ready
+  Terminating   // Shutting down the service
+}
+
+enum AppsServiceError {
+  AppNotFound             // App is not in the list
+  DiskSpaceNotEnough      // Do not have enough disk space
+  DownloadManifestFailed  // Can't download the meta manifest
+  DownloadPackageFailed   // Can't download the app package
+  DuplicatedAction        // Requested action is duplicated
+  InvalidAppName          // App name is not allowed to use
+  InvalidState            // The service is not ready
+  InvalidManifest         // Error in the manifest file
+  InvalidPackage          // Error in the package file
+  InvalidSignature        // Failed to verify the signature
+  NetworkFailure          // Error in the Network
+  FilesystemFailure       // Error in app stroage filesystem
+  PackageCorrupt          // Can't open the downloaded package
+  RegistrationError       // Can't register the app webapps json
+  ReinstallForbidden      // Do not allow reinstall an existing app
+  UpdateError             // Error durint update
+  UnknownError            // Other undefined error
+}
+
+dictionary AppsObject {
+  name: str
+  installState: AppsInstallState
+  manifestURL: str
+  status: AppsStatus
+  updateState: AppsUpdateState
+  updateURL: str
+  allowedAutoDownload: bool
+}
+
+dictionary AppsOptions {
+  autoInstall: bool?
+}
+
+#[rust:not-tracked]
+interface AppsEngine {
+
+  // In: None
+  // Return: a list of apps or an error string.
+  fn get_all() -> AppsObject*, AppsServiceError
+
+  // In: the manifest URL of a app
+  // Return: the app object or an error string.
+  fn get_app(manifest_url: str) -> AppsObject, AppsServiceError
+
+  // In: None
+  // Return: the runtime state for the appservice
+  fn get_state() -> AppsServiceState
+
+  // In: the URL of a app in store server
+  // Return: the app object or an error string.
+  fn install_package(update_url: str) -> AppsObject, AppsServiceError
+
+  // In: the URL of a app in store server
+  // Return: the app object or an error string.
+  fn uninstall(manifest_url: str) -> str, AppsServiceError
+
+  // In: the URL of a app in store server
+  // Return: the app update available or an error string.
+  fn check_for_update(update_url:str, appsOption: AppsOptions) -> bool, AppsServiceError
+
+  // In: the URL of a app in store server
+  // Return: the app object or an error string.
+  fn update(manifest_url: str) -> AppsObject, AppsServiceError
+
+  // Report the app object which is updated successfully
+  event appUpdated -> AppsObject
+  // Report the app object which is installed successfully
+  event appInstalled -> AppsObject
+  // Report the app object which is being installed
+  event appInstalling -> AppsObject
+  // Report AppsObject when app failed to download
+  event appDownloadFailed -> AppsObject
+  // Report AppsObject when an update is available
+  event appUpdateAvailable -> AppsObject
+  // Report the manifest URL which is uninstalled successfully.
+  event appUninstalled -> str
+}
+
+service AppsManager: AppsEngine

@@ -1,0 +1,17 @@
+# Start with a rustup image providing the stable release.
+image: "vigakaios/sidl_test"
+
+variables:
+    CARGO_HOME: $CI_PROJECT_DIR/cargo
+stages:
+    - build
+    - tests
+build:breakpad:
+    stage: build
+    script:
+    - cargo build
+test:cargo:
+    stage: tests
+    script: 
+    - rustc --version && cargo --version
+    - cargo test -- --nocapture

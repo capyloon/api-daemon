@@ -1,0 +1,16 @@
+[package]
+name = "geckobridge"
+version = "0.1.0"
+authors = ["Fabrice Desré <fabrice@desre.org>"]
+edition = "2018"
+
+[dependencies]
+common = { path = "../../common" }
+lazy_static = "1.4"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+
+
+[build-dependencies]
+common = { path = "../../common" }

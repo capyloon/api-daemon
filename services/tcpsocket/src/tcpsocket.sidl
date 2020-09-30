@@ -1,0 +1,25 @@
+// SIDL for libTCPSocket primitives.
+dictionary SocketAddress {
+	host : str
+	port : int
+}
+
+#[rust:shared,rust:trait=PrivateTrait]
+interface TcpSocket {
+	fn suspend()
+	fn resume()
+	fn close()
+	fn send(data : binary) -> bool
+	event data -> binary
+	event drain -> bool
+	event error -> str
+	event close
+}
+
+#[rust:not-tracked]
+interface TcpSocketFactory {
+	fn open(addr : SocketAddress) -> TcpSocket
+}
+
+#[rust:use=crate::private_traits::*,rust:shared-tracker]
+service TcpSocketManager: TcpSocketFactory

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>TestService Tests</title>
+
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css"></link>
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/powermanager/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+
+    <script>
+      async function run_tests() {
+        let tester = await test_service(lib_powermanager.PowermanagerService, "client");
+
+        tester.service.screenEnabled = false;
+        await tester.assert_eq("SetScreenEnabled disabled", service => service.screenEnabled, false);
+        tester.service.screenEnabled = true;
+        await tester.assert_eq("SetScreenEnabled enabled", service => service.screenEnabled, true);
+
+        tester.service.screenBrightness = 50;
+        await tester.assert_eq("SetScreenBrightness to 50", service => service.screenBrightness, 50);
+        tester.service.screenBrightness = 100;
+        await tester.assert_eq("SetScreenBrightness to 100", service => service.screenBrightness, 100);
+
+        tester.service.keyLightEnabled = false;
+        await tester.assert_eq("SetKeyLightEnabled disabled", service => service.keyLightEnabled, false);
+        tester.service.keyLightEnabled = true;
+        await tester.assert_eq("SetKeyLightEnabled enabled", service => service.keyLightEnabled, true);
+
+        tester.service.keyLightBrightness = 50;
+        await tester.assert_eq("SetKeyLightBrightness to 50", service => service.keyLightBrightness, 50);
+        tester.service.keyLightBrightness = 100;
+        await tester.assert_eq("SetKeyLightBrightness to 100", service => service.keyLightBrightness, 100);
+
+        tester.service.extScreenEnabled = false;
+        await tester.assert_eq("SetExtScreenEnabled disabled", service => service.extScreenEnabled, false);
+        tester.service.extScreenEnabled = true;
+        await tester.assert_eq("SetExtScreenEnabled enabled", service => service.extScreenEnabled, true);
+
+        tester.service.extScreenBrightness = 50;
+        await tester.assert_eq("SetExtScreenBrightness to 50", service => service.extScreenBrightness, 50);
+        tester.service.extScreenBrightness = 100;
+        await tester.assert_eq("SetExtScreenBrightness to 100", service => service.extScreenBrightness, 100);
+
+        tester.service.cpuSleepAllowed = false;
+        await tester.assert_eq("SetCpuSleepAllowed disabled", service => service.cpuSleepAllowed, false);
+        tester.service.cpuSleepAllowed = true;
+        await tester.assert_eq("SetCpuSleepAllowed enabled", service => service.cpuSleepAllowed, true);
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+      }
+      run_tests();
+    </script>
+  </body>
+</html>
+
+
+

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<!-- This file is generated. Do not edit. -->
+
+<head>
+    <meta charset="utf8">
+    <title>{{services.[0].name}} service</title>
+    <style>
+        {{!-- include our style.css by its template name in doc_javascript.rs --}}
+        {{>style_css }}
+    </style>
+    <link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.18.1/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.18.1/highlight.min.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+</head>
+
+<body>
+    <h1>{{services.[0].name}} service</h1>
+    <section>
+        <h2>Instanciating the service</h2>
+        Load the following scripts:
+        <pre><code class="html">&lt;script src="http://127.0.0.1:8081/api/v1/shared/core.js"&gt;&lt;/script&gt;
+&lt;script src="http://127.0.0.1:8081/api/v1/shared/session.js"&gt;&lt;/script&gt;
+&lt;script src="http://127.0.0.1:8081/api/v1/{{sidl-name}}/service.js"&gt;&lt;/script&gt;</code></pre>
+
+        You can then get an instance of the service with code similar to:
+        <pre><code class="javascript">function getService() {
+    return new Promise((resolve, reject) => {
+        let session = new lib_session.Session();
+        let sessionstate = {
+        onsessionconnected() {
+            lib_{{sidl-name}}.{{services.[0].name}}.get(session).then(resolve, reject);
+        },
+
+        onsessiondisconnected() {
+            reject("Session Disconnected");
+        }
+        };
+
+        // On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken when running the api-daemon.
+        session.open("websocket", "localhost:8081", "secrettoken", sessionstate);
+    });
+}
+
+let instance = getService().then({{sidl-name}} => {
+    ...
+});</code></pre>
+
+        <div>This service implements the <a href="#interface_{{services.[0].interface}}">{{services.[0].interface}}</a>
+            interface.</div>
+    </section>
+
+    {{#each enumerations}}
+    <section id="enumeration_{{name}}">
+        <h2>{{name}} enumeration</h2>
+        <ul class="enumeration-list">
+        {{#each members}}
+        <li><span class="member-name">{{name}}</span></li>
+        {{/each}}
+        </ul>
+    </section>
+    {{/each}} {{!-- enumerations --}}
+
+    {{#each dictionaries}}
+    <section id="dictionary_{{name}}">
+        <h2>{{name}} dictionnary</h2>
+        <ul class="dictionary-list">
+        {{#each members}}
+        <li><span class="member-name">{{name}}</span>: <span class="param-type">{{maybe-link typ.extra.[0] typ.extra.[1]}}</span></li>
+        {{/each}}
+        </ul>
+    </section>
+    {{/each}} {{!-- dictionaries --}}
+
+    {{#each callbacks}}
+    <section id="callback_{{name}}">
+        <h2>{{name}} callback object</h2>
+        
+        <h3>Creating a {{name}} object</h3>
+        Use code similar to:
+        <pre><code class="javascript">class MyCallbackObject extends lib_{{sidl-name}}.{{name}}Base {
+    constructor(service, session) {
+        super(service.id, session);
+    }
+{{#each methods}}
+    {{name}}(...) {
+        ...
+    }
+{{/each}}
+}</code></pre>
+
+        <h3>Methods</h3>
+        <ul class="method-list">
+        {{#each methods}}
+        <li><a href="#callback_{{../name}}_method_{{name}}">{{name}}</a></li>
+        {{/each}}
+        </ul>
+
+        {{#each methods}}
+        <section class="method" id="callback_{{../name}}_method_{{name}}">
+            <div class="method-signature">{{name}}(
+                {{~#if params.[0] ~}}
+                <span class="param-list">
+                    {{~#each params ~}}
+                    <span><span class="param-name">/* {{name}} */</span> <span class="param-type">{{maybe-link typ.extra.[0] typ.extra.[1]}}</span></span>
+                    {{~/each ~}}
+                </span>{{~/if}})
+            </div>
+            <div>Resolves with <span class="param-type">{{maybe-link returns.success.extra.[0] returns.success.extra.[1]}}</span></div>
+            <div>Rejects with <span class="param-type">{{maybe-link returns.error.extra.[0] returns.error.extra.[1]}}</span></div>
+        </section>
+        {{/each}} {{!-- methods --}}
+    </section>
+    {{/each}} {{!-- dictionaries --}}
+
+    {{#each interfaces}}
+    <section id="interface_{{name}}">
+        <h2>{{name}} Interface</h2>
+
+        {{#if members}}
+        <h3>Members</h3>
+        <ul class="member-list">
+        {{#each members}}
+        <li><a href="#interface_{{../name}}_member_{{name}}">{{name}}</a></li>
+        {{/each}}
+        </ul>
+
+        {{#each members}}
+        <section class="member" id="interface_{{../name}}_member_{{name}}">
+            <div><span class="member-name">{{name}}</span> is of type <span class="param-type">{{maybe-link typ.extra.[0] typ.extra.[1]}}</span></div>
+            To get <span class="member-name">{{amount}}</span> value, use code similar to:
+            <pre><code class="javascript">target.{{name}}().then(value => { ... });</code></pre>
+            To set <span class="member-name">{{amount}}</span> value, use code similar to:
+            <pre><code class="javascript">target.{{name}} = &lt;value&gt;;</code></pre>
+        </section>
+        {{/each}} {{!-- members --}}
+        {{/if}}
+
+        {{#if methods}}
+        <h3>Methods</h3>
+        <ul class="method-list">
+        {{#each methods}}
+        <li><a href="#interface_{{../name}}_method_{{name}}">{{name}}</a></li>
+        {{/each}}
+        </ul>
+
+        {{#each methods}}
+        <section class="method" id="interface_{{../name}}_method_{{name}}">
+            <div class="method-signature">{{name}}(
+                {{~#if params.[0] ~}}
+                <span class="param-list">
+                    {{~#each params ~}}
+                    <span><span class="param-name">/* {{name}} */</span> <span class="param-type">{{maybe-link typ.extra.[0] typ.extra.[1]}}</span></span>
+                    {{~/each ~}}
+                </span>{{~/if}})
+            </div>
+            <div>Resolves with <span class="param-type">{{maybe-link returns.success.extra.[0] returns.success.extra.[1]}}</span></div>
+            <div>Rejects with <span class="param-type">{{maybe-link returns.error.extra.[0] returns.error.extra.[1]}}</span></div>
+        </section>
+        {{/each}} {{!-- methods --}}
+        {{/if}}
+
+        {{#if events}}
+        <h3>Events</h3>
+        <ul class="event-list">
+        {{#each events}}
+        <li><a href="#interface_{{../name}}_event_{{name}}">{{name}}</a></li>
+        {{/each}}
+        </ul>
+
+        {{#each events}}
+        <section class="event" id="interface_{{../name}}_event_{{name}}">
+        
+        <div>The <span class="event-name">{{name}}</span> event emits a <span class="param-type">{{maybe-link returns.extra.[0] returns.extra.[1]}}</span></div>
+        To manage this event, use code similar to:
+        <pre><code class="javascript">function handleEvent(value) {
+    ...
+}
+target.addEventListener(target.{{upper-snake-case name}}_EVENT, handleEvent);
+target.removeEventListener(target.{{upper-snake-case name}}_EVENT, handleEvent);</code></pre>        
+        </section>
+        {{/each}} {{!-- events --}}
+        {{/if}}
+    </section>
+    {{/each}} {{!-- interfaces --}}
+</body>
+
+</html>

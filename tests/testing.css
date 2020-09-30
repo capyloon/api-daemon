@@ -1,0 +1,36 @@
+body {
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+#header, #footer {
+    border: 2px solid gray;
+    padding: 0.5em;
+    margin-bottom: 0.5em;
+    margin-top: 0.5em;
+    font-size: larger;
+}
+
+#footer {
+    background-color: orange;
+}
+
+#footer.success {
+    background-color: lightgreen;
+}
+
+.success {
+    color: darkgreen;
+}
+
+.failure {
+    color: red;
+    font-weight: bold;
+}
+
+.failure div {
+    margin-left: 1em;
+}
+
+.json {
+    color: white;
+}

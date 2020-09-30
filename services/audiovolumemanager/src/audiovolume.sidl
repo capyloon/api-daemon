@@ -1,0 +1,22 @@
+enum AudioVolumeState {
+  none
+  volumeUp
+  volumeDown
+  volumeShow
+}
+
+#[rust:not-tracked]
+interface AudioVolume {
+  // request volume up
+  fn requestVolumeUp()
+
+  // request volume down
+  fn requestVolumeDown()
+
+  // request system app to show the volume State
+  fn requestVolumeShow()
+
+  event audio_volume_changed -> AudioVolumeState
+}
+
+service AudioVolumeManager: AudioVolume

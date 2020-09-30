@@ -1,0 +1,188 @@
+[package]
+name = "reqwest"
+version = "0.10.8" # remember to update html_root_url
+description = "higher level HTTP client library"
+keywords = ["http", "request", "client"]
+categories = ["web-programming::http-client", "wasm"]
+repository = "https://github.com/seanmonstar/reqwest"
+documentation = "https://docs.rs/reqwest"
+authors = ["Sean McArthur <sean@seanmonstar.com>"]
+readme = "README.md"
+license = "MIT/Apache-2.0"
+edition = "2018"
+autotests = true
+
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
+[package.metadata.playground]
+features = [
+    "blocking",
+    "cookies",
+    "json",
+]
+
+[features]
+default = ["default-tls"]
+
+# Note: this doesn't enable the 'native-tls' feature, which adds specific
+# functionality for it.
+default-tls = ["hyper-tls", "native-tls-crate", "__tls", "tokio-tls"]
+
+# Enables native-tls specific functionality not available by default.
+native-tls = ["default-tls"]
+native-tls-vendored = ["native-tls", "native-tls-crate/vendored"]
+
+rustls-tls = ["hyper-rustls", "tokio-rustls", "webpki-roots", "rustls", "__tls"]
+
+blocking = ["futures-util/io", "tokio/rt-threaded", "tokio/rt-core", "tokio/sync"]
+
+cookies = ["cookie_crate", "cookie_store", "time"]
+
+gzip = ["async-compression", "async-compression/gzip"]
+
+brotli = ["async-compression", "async-compression/brotli"]
+
+json = ["serde_json"]
+
+trust-dns = ["trust-dns-resolver"]
+
+stream = []
+
+socks = ["tokio-socks"]
+
+# Internal (PRIVATE!) features used to aid testing.
+# Don't rely on these whatsoever. They may disappear at anytime.
+
+# Enables common types used for TLS. Useless on its own.
+__tls = []
+
+# When enabled, disable using the cached SYS_PROXIES.
+__internal_proxy_sys_no_cache = []
+
+[dependencies]
+http = "0.2"
+url = "2.1"
+bytes = "0.5"
+serde = "1.0"
+serde_urlencoded = "0.6.1"
+mime_guess = "2.0"
+## json
+serde_json = { version = "1.0", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+base64 = "0.12"
+encoding_rs = "0.8"
+futures-core = { version = "0.3.0", default-features = false }
+futures-util = { version = "0.3.0", default-features = false }
+http-body = "0.3.0"
+hyper = { version = "0.13.4", default-features = false, features = ["tcp"] }
+lazy_static = "1.4"
+log = "0.4"
+mime = "0.3.7"
+percent-encoding = "2.1"
+tokio = { version = "0.2.5", default-features = false, features = ["tcp", "time"] }
+pin-project-lite = "0.1.1"
+ipnet = "2.3"
+
+# Optional deps...
+
+## default-tls
+hyper-tls = { version = "0.4", optional = true }
+native-tls-crate = { version = "0.2", optional = true, package = "native-tls" }
+tokio-tls = { version = "0.3.0", optional = true }
+
+# rustls-tls
+hyper-rustls = { version = "0.21", default-features = false, optional = true }
+rustls = { version = "0.18", features = ["dangerous_configuration"], optional = true }
+tokio-rustls = { version = "0.14", optional = true }
+webpki-roots = { version = "0.20", optional = true }
+
+## cookies
+cookie_crate = { version = "0.14", package = "cookie", optional = true }
+cookie_store = { version = "0.12", optional = true }
+time = { version = "0.2.11", optional = true }
+
+## compression
+async-compression = { version = "0.3.0", default-features = false, features = ["stream"], optional = true }
+
+
+## socks
+tokio-socks = { version = "0.2", optional = true }
+
+## trust-dns
+trust-dns-resolver = { version = "0.19", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+env_logger = "0.7"
+hyper = { version = "0.13", default-features = false, features = ["tcp", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+libflate = "1.0"
+brotli_crate = { package = "brotli", version = "3.3.0" }
+doc-comment = "0.3"
+tokio = { version = "0.2.0", default-features = false, features = ["macros"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.7"
+
+# wasm
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.28"
+wasm-bindgen = { version = "0.2.51", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
+version = "0.3.25"
+features = [
+    "Headers",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Window",
+    "FormData",
+    "Blob",
+    "BlobPropertyBag",
+]
+
+[[example]]
+name = "blocking"
+path = "examples/blocking.rs"
+required-features = ["blocking"]
+
+[[example]]
+name = "json_dynamic"
+path = "examples/json_dynamic.rs"
+required-features = ["json"]
+
+[[example]]
+name = "json_typed"
+path = "examples/json_typed.rs"
+required-features = ["json"]
+
+[[example]]
+name = "tor_socks"
+path = "examples/tor_socks.rs"
+required-features = ["socks"]
+
+[[test]]
+name = "blocking"
+path = "tests/blocking.rs"
+required-features = ["blocking"]
+
+[[test]]
+name = "cookie"
+path = "tests/cookie.rs"
+required-features = ["cookies"]
+
+[[test]]
+name = "gzip"
+path = "tests/gzip.rs"
+required-features = ["gzip"]
+
+[[test]]
+name = "brotli"
+path = "tests/brotli.rs"
+required-features = ["brotli"]

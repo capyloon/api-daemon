@@ -1,0 +1,25 @@
+Manifest-Version: 1.0
+
+Name: index.html
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: iUWtv5hMIDJgcxuch3MVnQ==
+SHA1-Digest: HyEG55l3oKhy/9n12J9pdXxJldo=
+SHA256-Digest: MibzowBZALsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+Name: manifest.webapp
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: 8iaw2gCOEminCl4IOpD1pw==
+SHA1-Digest: tAPNf5G+Au1PwtTpEHzAjU/qnKM=
+SHA256-Digest: MibzowBZALsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+Name: style/icons/Default.png
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: N1hvEgqooWMhkExYssOV7A==
+SHA1-Digest: EEfSxfvlizAhlsfcnqZZwimA38A=
+SHA256-Digest: MibzowBZALsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+Name: META-INF/ids.json
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: gOfLk5YOBhHQtfCbRI9S0Q==
+SHA1-Digest: 39qQ1Dgk17FAgsf52PpmRO6l5NU=
+SHA256-Digest: QFevAwEAAAAyJvOjAFkAuzIm86MAWQC7AAAAAAAAAAA=

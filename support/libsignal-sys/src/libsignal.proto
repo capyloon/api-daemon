@@ -1,0 +1,15 @@
+package libsignal;
+
+message PreKeyRecordStructure {
+    optional uint32 id        = 1;
+    optional bytes  publicKey = 2;
+    optional bytes  privateKey = 3;
+}
+
+message SignedPreKeyRecordStructure {
+    optional uint32  id         = 1;
+    optional bytes   publicKey  = 2;
+    optional bytes   privateKey = 3;
+    optional bytes   signature  = 4;
+    optional fixed64 timestamp  = 5;
+}

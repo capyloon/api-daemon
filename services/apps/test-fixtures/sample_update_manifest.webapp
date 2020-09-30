@@ -1,0 +1,26 @@
+{
+ "name": "Sample1",
+ "icons": {
+  "64": "https://seinlin.org/apps/packages/sample1/sample1.png"
+ },
+ "default_locale":"en-US",
+ "locales":{
+  "en-US":{"name":"Sample1","description":"Sample1"},
+  "zh-TW":{"name":"測試一","description":"測試一"}
+ },
+ "version": "1.00",
+ "size": 10022,
+ "release_notes": null,
+ "developer": {
+  "url": "http://sample.com",
+  "name": "Hello"
+ },
+ "dependencies" :{
+  "api-daemon": "1.4.16",
+  "wavoip-daemon": "0.9.6",
+  "ads-sdk": "1.1.0"
+ },
+ "package_path": "https://seinlin.org/apps/packages/sample/sample-signed.zip",
+ "packaged_size": 12345,
+ "type": "web"
+}

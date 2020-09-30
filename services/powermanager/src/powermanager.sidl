@@ -1,0 +1,59 @@
+// The reason for the factory reset.
+// "normal" : simple factory reset.
+// "wipe"   : will also attempt to wipe all user storage areas.
+// "root"   : simple factory reset that also root the phone to get more
+//            privileges when using devtools.
+enum FactoryResetReason {
+  normal
+  wipe
+  root
+}
+
+// SIDL for powermanager
+#[rust:not-tracked]
+interface Powermanager {
+  fn powerOff()
+
+  fn reboot()
+
+  factoryReset: FactoryResetReason
+
+  // Is the device's screen currently enabled?  This attribute controls the
+  // device's screen, so setting it to false will turn off the screen.
+  screenEnabled: bool
+
+  // Is the device's external screen currently enabled?
+  // Setting this attribute to false will turn off the external screen.
+  extScreenEnabled: bool
+
+  // Is the device's keypad/button backlight enabled? Setting it to false will
+  // turn off the device's keypad/button backlight. And the brightness level
+  // is the same as |screenBrightness|.
+  keyLightEnabled: bool
+
+  // How bright is the screen's backlight, on a scale from 0 (very dim) to 100
+  // (full brightness)?  Setting this attribute modifies the screen's
+  // brightness.
+  //
+  // You can read and write this attribute even when the screen is disabled,
+  // but the backlight is off while the screen is disabled.
+  screenBrightness: int
+
+  // How bright is the external screen's backlight, on a scale
+  // from 0 (very dim) to 100 (full brightness)?
+  // Setting this attribute modifies the external screen's brightness.
+  extScreenBrightness: int
+
+  // How bright is the keypad's backlight, on a scale
+  // from 0 (very dim) to 100 (full brightness)
+  // Setting this attribute modifies keypad's brightness.
+  keyLightBrightness: int
+
+  // Is it possible that the device's CPU will sleep after the screen is
+  // disabled?  Setting this attribute to false will prevent the device
+  // entering suspend state.
+  cpuSleepAllowed: bool
+}
+
+#[permission=power]
+service PowermanagerService: Powermanager

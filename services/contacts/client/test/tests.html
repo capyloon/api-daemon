@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Contacts Service Tests</title>
+  <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+</head>
+
+<body>
+  <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+  <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+  <script src="http://127.0.0.1:8081/api/v1/contacts/service.js"></script>
+  <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+  <script src="contact_data.js"></script>
+
+  <script>
+    async function run_tests() {
+      let tester = await test_service(
+        lib_contacts.ContactsManager,
+        "client-1"
+      );
+
+      // Clear the contacts storage.
+      await tester.assert_eq(
+        "clear contacts db",
+        (service) => service.clearContacts(),
+        {}
+      );
+
+      // No contacts available after clear.
+      await tester.assert_eq(
+        "check that the contacts db is empty",
+        (service) => service.getCount(),
+        0
+      );
+
+      // Clear all groups first.
+      let group_array = await tester.service.getAllGroups();
+      group_array.forEach(async function (group) {
+        await tester.service.removeGroup(group.id);
+      });
+
+      // Add group colleague to verify contact with group.
+      await tester.assert_eq(
+        "add a group colleague",
+        (service) => service.addGroup("colleague"),
+        {}
+      );
+
+      let group_colleague;
+      await tester.assert_eq(
+        "verify group colleague add sucess by getAllGroups result",
+        service => {
+          return new Promise((resolve, reject) => {
+            service.getAllGroups().then(
+              groups => {
+                if (groups.length > 0) {
+                  console.log("groups count :" + groups.length);
+                  let names = [];
+                  groups.forEach(function (group) {
+                    names.push(group.name);
+                  })
+                  group_colleague = groups[0];
+                  resolve(names);
+                } else {
+                  reject("groups count : 0");
+                }
+              }
+            );
+          });
+        },
+        ["colleague"]
+      );
+
+      // Add contact.
+      let contact_1 = {
+        id: "",
+        published: new Date(),
+        updated: new Date(),
+        bday: new Date(),
+        anniversary: new Date(),
+        sex: "man",
+        genderIdentity: "456",
+        ringtone: "789",
+        photoType: "jpeg",
+        photoBlob: [],
+        addresses: [{ streetAddress: "TIAN WANG GAI DIHU", countryName: "China" }],
+        email: [{ atype: "office", value: "test@mail.com", pref: false }],
+        url: [{ atype: "home", value: "www.kaiostech.com", pref: true }],
+        name: "Ted",
+        tel: [{ atype: "student", value: "6666666", pref: true, carrier: "china mobile" },
+        { atype: "student", value: "181777777", pref: true, carrier: "china mobile" },
+        { atype: "student", value: "9999181", pref: true, carrier: "china mobile" }],
+        honorificPrefix: ["Great", "WALL"],
+        givenName: "LTed",
+        phoneticGivenName: "test",
+        additionalName: ["d", "ffffffffff"],
+        familyName: "Big",
+        phoneticFamilyName: "HAHAHAHAHAHA",
+        honorificSuffix: ["x"],
+        nickname: ["zxzxzxzxzxzxzx"],
+        category: ["device", "favorite"],
+        org: ["kaios"],
+        jobTitle: ["engineer"],
+        note: ["hello world", "JK"],
+        groups: [group_colleague.id]
+      };
+
+      let contact_2 = {
+        id: "",
+        published: new Date(),
+        updated: new Date(),
+        bday: new Date(),
+        anniversary: new Date(),
+        sex: "man",
+        genderIdentity: "gender",
+        ringtone: "000",
+        photoType: "jpeg",
+        photoBlob: [],
+        addresses: [{ streetAddress: "", countryName: "Uk" }],
+        email: [{ atype: "office", value: "hp@mail.com", pref: false }],
+        url: [{ atype: "home", value: "www.os.com", pref: true }],
+        name: "HP",
+        tel: [{ atype: "student", value: "999999", pref: true, carrier: "china unicom" },
+        { atype: "test", value: "6666666", pref: true, carrier: "china telecom" }
+        ],
+        honorificPrefix: ["honour", "KAIOS"],
+        givenName: "bob",
+        phoneticGivenName: "given",
+        additionalName: ["bbd", "00000000000000000000000"],
+        familyName: "Wang",
+        phoneticFamilyName: "SSS",
+        honorificSuffix: ["ss"],
+        nickname: ["w"],
+        category: ["device", "sim", "favorite"],
+        org: ["kaiorg"],
+        jobTitle: ["pm", "engineer"],
+        note: ["hello", "world"],
+        groups: [group_colleague.id]
+      };
+
+      await tester.assert_eq(
+        "add contact_1",
+        (service) => service.add([contact_1]),
+        {}
+      );
+
+      await tester.assert_eq(
+        "add contact_2",
+        (service) => service.add([contact_2]),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify after add contact_1, contact_2 ,contact count is 2",
+        (service) => service.getCount(),
+        2
+      );
+
+      let cursor = await tester.service.getAll({
+        sortBy: lib_contacts.SortOption.FAMILY_NAME,
+        sortOrder: lib_contacts.Order.DESCENDING
+      }, 2, false);
+
+      let contacts = await cursor.next();
+      console.log(contacts);
+
+      await tester.assert_eq(
+        "verify contact_1 contact_2 add sucessful by getAll result'",
+        service => {
+          return new Promise((resolve, reject) => {
+            let names = [];
+            contacts.forEach(function (contact) {
+              names.push(contact.name);
+              console.log(contact);
+            })
+            resolve(names);
+          });
+        },
+        [contact_2.name, contact_1.name]
+      );
+
+      cursor.release();
+
+      let favorite_cursor = await tester.service.find({
+        filterValue: "favorite",
+        filterOption: lib_contacts.FilterOption.CONTAINS,
+        filterBy: lib_contacts.FilterByOption.CATEGORY,
+        onlyMainData: false
+      }, 20);
+
+      let favorite_contacts = await favorite_cursor.next();
+      console.log(favorite_contacts);
+
+      favorite_cursor.release();
+
+      await tester.assert_eq(
+        "verify find favorite contact result",
+        service => {
+          return new Promise((resolve, reject) => {
+            let names = [];
+            favorite_contacts.forEach(function (contact) {
+              names.push(contact.name);
+              console.log(contact);
+            })
+            resolve(names);
+          });
+        },
+        [contact_1.name, contact_2.name]
+      );
+
+      await tester.assert_eq(
+        "verify get contact id from group",
+        (service) => service.getContactidsFromGroup(group_colleague.id),
+        [contacts[1].id, contacts[0].id]
+      );
+
+      contact_2.name = "David";
+      // Db side will ignore the contact without id when update.
+      await tester.assert_eq(
+        "verify update a contact_2 without contact id",
+        (service) => service.update([contact_2]),
+        {}
+      );
+
+      contact_2.id = contacts[0].id;
+
+      await tester.assert_eq(
+        "verify update a contact_2 's name to David with id",
+        (service) => service.update([contact_2]),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify contact_2 name update to David",
+        service => {
+          return new Promise((resolve, reject) => {
+            service.get(contact_2.id, false).then(
+              contact => {
+                console.log(contact);
+                resolve(contact.name);
+              }
+            );
+          });
+        },
+        "David"
+      );
+
+      await tester.assert_eq(
+        "verify remove group colleague ",
+        (service) => service.removeGroup(group_colleague.id),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify get api and contact's group is undefined after remove colleague",
+        service => {
+          return new Promise((resolve, reject) => {
+            service.get(contacts[0].id, false).then(
+              contact => {
+                console.log(contact);
+                resolve(contact.groups);
+              }
+            );
+          });
+        },
+        undefined
+      );
+
+      // Db side will remove nothing when provide a none exist contact id.
+      await tester.assert_rej_eq(
+        "verify remove a none exist contact ",
+        (service) => service.remove(["99999999", "6666666666"]),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify contact count is 2 after remvoe a none exist contact ",
+        (service) => service.getCount(),
+        2
+      );
+
+      contacts.forEach(async function (element) {
+        await tester.assert_eq(
+          "verify remove contact id:" + element.id,
+          (service) => service.remove([element.id]),
+          {}
+        );
+      });
+
+      await tester.assert_eq(
+        "import 200 contacts from vcf",
+        (service) => service.importVcf(contacts_vcf),
+        200
+      );
+
+      await tester.assert_eq(
+        "contact count is 200",
+        (service) => service.getCount(),
+        200
+      );
+
+      let find_contain_name_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "wil",
+        filterOption: lib_contacts.FilterOption.CONTAINS,
+        filterBy: lib_contacts.FilterByOption.NAME,
+        onlyMainData: false
+      }, 20);
+
+      let expected_contain_wil = [
+        "Eric L. Williams",
+        "Sharon D. Williams",
+        "Steven L. Wilkins",
+        "William E. Betancourt",
+        "William P. McMillan",
+        "William S. Burns",
+        "Willie A. Christopher",
+        "Willie J. Mitchell",
+      ];
+      let find_contain_name_result = await find_contain_name_cursor.next();
+      for (let i = 0; i < expected_contain_wil.length; i++) {
+        await tester.assert_eq(
+          `find contains wil asc item #${i + 1}/8`,
+          () => Promise.resolve(find_contain_name_result[i].name),
+          expected_contain_wil[i]
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items contain wil`,
+        () => find_contain_name_cursor.next(),
+        []
+      );
+
+      find_contain_name_cursor.release();
+
+      let find_stratwith_name_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "wil",
+        filterOption: lib_contacts.FilterOption.STARTS_WITH,
+        filterBy: lib_contacts.FilterByOption.NAME,
+        onlyMainData: false
+      }, 20);
+
+      let expected_startwith_wil = [
+        "William E. Betancourt",
+        "William P. McMillan",
+        "William S. Burns",
+        "Willie A. Christopher",
+        "Willie J. Mitchell",
+      ];
+      let find_startwith_name_result = await find_stratwith_name_cursor.next();
+      for (let i = 0; i < expected_startwith_wil.length; i++) {
+        await tester.assert_eq(
+          `find start with wil asc item #${i + 1}/5`,
+          () => Promise.resolve(find_startwith_name_result[i].name),
+          expected_startwith_wil[i]
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items start with  wil`,
+        () => find_stratwith_name_cursor.next(),
+        []
+      );
+
+      find_stratwith_name_cursor.release();
+
+      let expected_equal = "William E. Betancourt";
+      let find_equal_name_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "William E. Betancourt",
+        filterOption: lib_contacts.FilterOption.EQUALS,
+        filterBy: lib_contacts.FilterByOption.NAME,
+        onlyMainData: false
+      }, 20);
+
+      let equal_result = await find_equal_name_cursor.next();
+
+      await tester.assert_eq(
+        `find contact name equal William E. Betancourt asc`,
+        () => Promise.resolve(equal_result[0].name),
+        expected_equal
+      );
+
+      await tester.assert_eq(
+        `no more items equal to William E. Betancourt`,
+        () => find_equal_name_cursor.next(),
+        []
+      );
+
+      find_equal_name_cursor.release();
+
+      let contact_number_start_with_181 = [
+        // This item is used to verify the contact with mutil tels,
+        // The first tel can be sucessful serch by start with 181.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Alex",
+          tel: [{ value: "181999999" }, { value: "0456723" }, { value: "2341456" }]
+        },
+
+        // This item is used to verify the contact with mutil tels,
+        // The middle tel can be sucessful serch by start with 181.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Bob",
+          tel: [{ value: "123456788" }, { value: "18192507320" }, { value: "788997879" }]
+        },
+
+        // This item is used to verify the contact with mutil tels,
+        // THe last tel can be sucessful serch by start with 181.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "zhangsan",
+          tel: [{ value: "453323" }, { value: "23452135" }, { value: "1813435544" }]
+        }
+      ];
+
+      await tester.assert_eq(
+        "add contact_number_start_with_181",
+        (service) => service.add(contact_number_start_with_181),
+        {}
+      );
+
+      // A contact tel contain 181, to verify it can't be serch by start with 181.
+      // And to verify it can be sucessful serch with contains 181.
+      let contact_number_contain_181 = {
+        published: new Date(),
+        updated: new Date(),
+        bday: new Date(),
+        anniversary: new Date(),
+        photoBlob: [],
+        name: "Harry",
+        // The number 92518107320 will also be used to verify tel equals when find.
+        tel: [{ value: "123456788" }, { value: "3459495049" }, { value: "92518107320" }]
+      };
+
+      await tester.assert_eq(
+        "add contact_number_contain_181 data",
+        (service) => service.add([contact_number_contain_181]),
+        {}
+      );
+
+      // Find contact who's tel start with 181 order by name asc.
+      let find_strarwith_181_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "181",
+        filterOption: lib_contacts.FilterOption.STARTS_WITH,
+        filterBy: lib_contacts.FilterByOption.TEL,
+        onlyMainData: false
+      }, 20);
+
+      let find_startwith_181_result = await find_strarwith_181_cursor.next();
+
+      console.log(find_startwith_181_result);
+
+      let expect_strat_with_181 = ["Alex", "Bob", "zhangsan"];
+
+      // To verify contact's name who's tel start with 181 order by name asc.
+      for (let i = 0; i < expect_strat_with_181.length; i++) {
+        await tester.assert_eq(
+          `find tel start with 181 asc item #${i + 1}/3`,
+          () => Promise.resolve(find_startwith_181_result[i].name),
+          expect_strat_with_181[i]
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items start with 181`,
+        () => find_strarwith_181_cursor.next(),
+        []
+      );
+
+      find_strarwith_181_cursor.release();
+
+      // Find contact who's tel contain 181 order by name desc.
+      let find_contain_181_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.DESCENDING,
+        filterValue: "181",
+        filterOption: lib_contacts.FilterOption.CONTAINS,
+        filterBy: lib_contacts.FilterByOption.TEL,
+        onlyMainData: false
+      }, 20);
+
+      let find_contains_181_result = await find_contain_181_cursor.next();
+
+      let expect_contain_181_names = ["zhangsan", "Harry", "Bob", "Alex"];
+
+      // To verify contact's name who's tel contain 181 order by name desc.
+      for (let i = 0; i < expect_contain_181_names.length; i++) {
+        await tester.assert_eq(
+          `find tel contain 181 item #${i + 1}/4 by order desc`,
+          () => Promise.resolve(find_contains_181_result[i].name),
+          expect_contain_181_names[i]
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items contains with 181`,
+        () => find_contain_181_cursor.next(),
+        []
+      );
+
+      find_contain_181_cursor.release();
+
+      // Find contact who's tel equals to 92518107320.
+      let find_equal_92518107320_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "92518107320",
+        filterOption: lib_contacts.FilterOption.EQUALS,
+        filterBy: lib_contacts.FilterByOption.TEL,
+        onlyMainData: false
+      }, 20);
+
+      let find_equal_92518107320_result = await find_equal_92518107320_cursor.next();
+
+      console.log(find_equal_92518107320_result);
+
+      // Verify contact'name who's tel equals to 92518107320.
+      await tester.assert_eq(
+        `verify find tel equal to 92518107320`,
+        () => Promise.resolve(find_equal_92518107320_result[0].name),
+        "Harry"
+      );
+
+      await tester.assert_eq(
+        `no more items equals 92518107320`,
+        () => find_equal_92518107320_cursor.next(),
+        []
+      );
+
+      find_equal_92518107320_cursor.release();
+
+      let contact_number_fuzzy_match = [
+        // This item is used to verify the contact with mutil tels,
+        // The first tel can be sucessful serch by fuzzy_match.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Lili",
+          tel: [{ value: "12348885555" }, { value: "0456723" }, { value: "2341456" }]
+        },
+
+        // This item is used to verify the contact with mutil tels,
+        // The middle tel can be sucessful serch by fuzzy_match.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Tom",
+          tel: [{ value: "123456788" }, { value: "4348885555" }, { value: "788997879" }]
+        },
+
+        // This item is used to verify the contact with mutil tels,
+        // THe last tel can be sucessful serch by fuzzy_match.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Rich",
+          tel: [{ value: "453323" }, { value: "23452135" }, { value: "864348885555" }]
+        }
+      ];
+
+      // Add fuzzy_match contact data to db.
+      await tester.assert_eq(
+        "add contact_number_fuzzy_match data",
+        (service) => service.add(contact_number_fuzzy_match),
+        {}
+      );
+
+      let find_fuzzy_match_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "48885555",
+        filterOption: lib_contacts.FilterOption.FUZZY_MATCH,
+        filterBy: lib_contacts.FilterByOption.TEL,
+        onlyMainData: false
+      }, 20);
+
+      let fuzzy_match_result = await find_fuzzy_match_cursor.next();
+
+      let expect_fuzzy_match = ["Lili", "Rich", "Tom"];
+
+      // To verify contact's name who's tel fuzzy match 48885555 order by name asc.
+      for (let i = 0; i < expect_fuzzy_match.length; i++) {
+        await tester.assert_eq(
+          `find tel fuzzy match 48885555 item #${i + 1}/3 by order asc`,
+          () => Promise.resolve(fuzzy_match_result[i].name),
+          expect_fuzzy_match[i]
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items fuzzy match 48885555`,
+        () => find_fuzzy_match_cursor.next(),
+        []
+      );
+
+      find_fuzzy_match_cursor.release();
+
+      let contact_email_data = [
+        // This item is used to verify the contact with mutil emails,
+        // The first email can be sucessful serch by start with Tony.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Tonya",
+          email: [{ value: "Tonya@163.com" }, { value: "mbz@kaiostech.com" }, { value: "qwert@test.com" }]
+        },
+
+        // This item is used to verify the contact with mutil emails,
+        // The middle email can be sucessful serch by start with Tony.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Tonyb",
+          email: [{ value: "data@163.com" }, { value: "Tonyb@kaiostech.com" }, { value: "qwert@test.com" }]
+        },
+
+        // This item is used to verify the contact with mutil emails,
+        // The last email can be sucessful serch by start with Tony.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Tonyc",
+          email: [{ value: "test@163.com" }, { value: "test2@kaiostech.com" }, { value: "Tonyc@test.com" }]
+        },
+
+        // This item is used to verify the contact with mutil emails,
+        // The abcTonyd@test.com can' be find by start with Tony, but can be find by contain Tony.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "abcTonyd",
+          email: [{ value: "test1@163.com" }, { value: "abcTonyd@kaiostech.com" }, { value: "reee@test.com" }]
+        }
+      ];
+
+      // Add email start with tony data to db.
+      await tester.assert_eq(
+        "add email start with tony data",
+        (service) => service.add(contact_email_data),
+        {}
+      );
+
+      let find_email_startwith_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "Tony",
+        filterOption: lib_contacts.FilterOption.STARTS_WITH,
+        filterBy: lib_contacts.FilterByOption.EMAIL,
+        onlyMainData: false
+      }, 20);
+
+      let email_start_with_result = await find_email_startwith_cursor.next();
+
+      let expect_email_start_with_result = ["Tonya", "Tonyb", "Tonyc"];
+
+      // To verify contact's name who's email start with Tony order by name asc.
+      for (let i = 0; i < expect_email_start_with_result.length; i++) {
+        await tester.assert_eq(
+          `find email start with Tony item #${i + 1}/3 by order asc`,
+          () => Promise.resolve(email_start_with_result[i].name),
+          expect_email_start_with_result[i]
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items email start with Tony`,
+        () => find_email_startwith_cursor.next(),
+        []
+      );
+
+      find_email_startwith_cursor.release();
+
+      let find_email_contain_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "Tony",
+        filterOption: lib_contacts.FilterOption.CONTAINS,
+        filterBy: lib_contacts.FilterByOption.EMAIL,
+        onlyMainData: false
+      }, 20);
+
+      let email_contain_result = await find_email_contain_cursor.next();
+
+      let expect_email_contain_result = ["abcTonyd", "Tonya", "Tonyb", "Tonyc"];
+
+      // To verify contact's name who's email contain Tony order by name asc.
+      for (let i = 0; i < expect_email_contain_result.length; i++) {
+        await tester.assert_eq(
+          `find email contain Tony item #${i + 1}/4 by order asc`,
+          () => Promise.resolve(email_contain_result[i].name),
+          expect_email_contain_result[i]
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items email contain Tony`,
+        () => find_email_contain_cursor.next(),
+        []
+      );
+
+      find_email_contain_cursor.release();
+
+      let find_email_equal_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "abcTonyd@kaiostech.com",
+        filterOption: lib_contacts.FilterOption.EQUALS,
+        filterBy: lib_contacts.FilterByOption.EMAIL,
+        onlyMainData: false
+      }, 20);
+
+      let email_equal_result = await find_email_equal_cursor.next();
+
+      await tester.assert_eq(
+        `verify find email equal to abcTonyd@kaiostech.com`,
+        () => Promise.resolve(email_equal_result[0].name),
+        "abcTonyd"
+      );
+
+      await tester.assert_eq(
+        `no more items email equal abcTonyd@kaiostech.com`,
+        () => find_email_equal_cursor.next(),
+        []
+      );
+
+      find_email_equal_cursor.release();
+
+      let testBlockedNumbers = [
+        "1111111111",
+        "2226662222",
+        "3333333333",
+        "4444444444",
+        "4448885555",
+        "4348885555",
+        "4446666666",
+      ];
+
+      // Clear blocked numbers
+      let blockNumbers = await tester.service.getAllBlockedNumbers();
+
+      blockNumbers.forEach(async function (element) {
+        console.log(String(element));
+        await tester.service.removeBlockedNumber(String(element));
+      });
+
+      let blockednumber_change_handler = tester.setup_event(tester.service.BLOCKEDNUMBER_CHANGE_EVENT);
+
+      // Add virtual blocked number data
+      testBlockedNumbers.forEach(async function (element) {
+        console.log(element);
+        await tester.service.addBlockedNumber(element);
+        await tester.assert_event_eq("waiting for add success event", blockednumber_change_handler, {
+          reason: lib_contacts.ChangeReason.CREATE,
+          number: element,
+        });
+      });
+
+      await tester.assert_eq(
+        "get all blocked numbers",
+        (service) => {
+          return new Promise((resolve, reject) => {
+            service.getAllBlockedNumbers().then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("get all blocked numbers:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  reject("get all blocked numbers got none");
+                }
+              }
+            );
+          });
+        },
+        testBlockedNumbers
+      );
+
+      await tester.assert_eq(
+        "remove a exist blocked number",
+        (service) => service.removeBlockedNumber("1111111111"),
+        {}
+      );
+
+      await tester.assert_event_eq("waiting for remove success event", blockednumber_change_handler, {
+        reason: lib_contacts.ChangeReason.REMOVE,
+        number: "1111111111",
+      });
+
+      await tester.assert_eq(
+        "remove a non-existing blocked number",
+        (service) => service.removeBlockedNumber("9999999999"),
+        {}
+      );
+
+      await tester.assert_eq(
+        `verify blocked numbers count after removal`,
+        service => {
+          return new Promise((resolve, reject) => {
+            service.getAllBlockedNumbers().then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("blocked numbers count after removal:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  reject("blocked numbers count after removal: 0");
+                }
+              }
+            );
+          });
+        },
+        ["2226662222",
+          "3333333333",
+          "4444444444",
+          "4448885555",
+          "4348885555",
+          "4446666666",]
+      );
+
+      await tester.assert_eq(
+        `find blocked numbers use FUZZY_MATCH filterOption`,
+        service => {
+          return new Promise((resolve, reject) => {
+            service.findBlockedNumbers({ filterValue: "48885555", filterOption: lib_contacts.FilterOption.FUZZY_MATCH }).then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("found blocked numbers length use FUZZY_MATCH:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  console.log("found blocked numbers length use FUZZY_MATCH: none");
+                  reject("found blocked numbers length use FUZZY_MATCH: none");
+                }
+              },
+            );
+          });
+        },
+        ["4448885555", "4348885555"]
+      );
+
+      await tester.assert_eq(
+        `find blocked numbers use EQUALS filterOption`,
+        service => {
+          return new Promise((resolve, reject) => {
+            service.findBlockedNumbers({ filterValue: "4348885555", filterOption: lib_contacts.FilterOption.EQUALS }).then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("found blocked numbers length use EQUALS:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  console.log("found blocked numbers length use EQUALS: none");
+                  reject("found blocked numbers length use EQUALS: none");
+                }
+              },
+            );
+          });
+        },
+        ["4348885555"]
+      );
+
+      await tester.assert_eq(
+        `find blocked numbers use CONTAINS filterOption`,
+        service => {
+          return new Promise((resolve, reject) => {
+            service.findBlockedNumbers({ filterValue: "666", filterOption: lib_contacts.FilterOption.CONTAINS }).then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("found blocked numbers length use CONTAINS:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  console.log("found blocked numbers length use CONTAINS: none");
+                  reject("found blocked numbers length use CONTAINS: none");
+                }
+              },
+            );
+          });
+        },
+        ["2226662222", "4446666666"]
+      );
+
+      await tester.assert_eq(
+        `find blocked numbers use STARTS_WITH filterOption`,
+        service => {
+          return new Promise((resolve, reject) => {
+            service.findBlockedNumbers({ filterValue: "444", filterOption: lib_contacts.FilterOption.STARTS_WITH }).then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("found blocked numbers length use STARTS_WITH:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  console.log("found blocked numbers length use STARTS_WITH: none");
+                  reject("found blocked numbers length use STARTS_WITH: none");
+                }
+              },
+            );
+          });
+        },
+        ["4444444444", "4448885555", "4446666666"]
+      );
+
+      let get_all_cursor = await tester.service.getAll({
+        sortBy: lib_contacts.SortOption.FAMILY_NAME,
+        sortOrder: lib_contacts.Order.DESCENDING
+      }, 4, false);
+
+      let contacts_speed = await get_all_cursor.next();
+      console.log(contacts_speed);
+
+      get_all_cursor.release();
+
+      let testSpeedDials = [
+        { "dialKey": "2", "tel": "13600000000", "contactId": "10" },
+        { "dialKey": "3", "tel": "18712345678", "contactId": "11" },
+        { "dialKey": "4", "tel": "19900000000", "contactId": "12" },
+      ]
+
+      // Clear speed dials
+      let speedDials = await tester.service.getSpeedDials();
+      speedDials.forEach(async function (element) {
+        console.log("get exist SpeedDial dialKey:" + element.dialKey + ", tel:" + element.tel + ", contactId:" + element.contactId);
+        await tester.service.removeSpeedDial(element.dialKey);
+      });
+
+      let speeddial_change_handler = tester.setup_event(tester.service.SPEEDDIAL_CHANGE_EVENT);
+
+      // Add speed dial
+      testSpeedDials.forEach(async function (element) {
+        console.log("addSpeedDial dialKey:" + element.dialKey + ", tel:" + element.tel + ", contactId:" + element.contactId);
+        await tester.service.addSpeedDial(element.dialKey, element.tel, element.contactId);
+        await tester.assert_event_eq(
+          "waiting for add success event",
+          speeddial_change_handler,
+          {
+            reason: lib_contacts.ChangeReason.CREATE,
+            speeddial: element
+          });
+      });
+
+      // Get all data in speed dials
+      await tester.assert_eq(
+        "get all speed dials",
+        (service) => {
+          return new Promise((resolve, reject) => {
+            service.getSpeedDials().then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("get all speed dials:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  reject("get all speed dials got none");
+                }
+              }
+            );
+          });
+        },
+        testSpeedDials
+      );
+
+      // Remove speed dial
+      await tester.assert_eq(
+        "remove a exist speed dial number 2",
+        (service) => service.removeSpeedDial("2"),
+        {}
+      );
+
+      await tester.assert_event_eq(
+        "waiting for remove success event",
+        speeddial_change_handler,
+        {
+          reason: lib_contacts.ChangeReason.REMOVE,
+          speeddial: {
+            dialKey: "2",
+            tel: "",
+            contactId: "",
+          },
+        }
+      );
+
+      // Update speed dial
+      let tel = "18787654321";
+      let contactid = "13";
+
+      await tester.assert_eq(
+        "update a exist speed dial number 3",
+        (service) => service.updateSpeedDial("3", tel, contactid),
+        {}
+      );
+
+      await tester.assert_event_eq(
+        "waiting for update success event",
+        speeddial_change_handler,
+        {
+          reason: lib_contacts.ChangeReason.UPDATE,
+          speeddial: {
+            dialKey: "3",
+            tel: tel,
+            contactId: contactid,
+          },
+        }
+      );
+
+      // Clear all groups
+      let groups = await tester.service.getAllGroups();
+      groups.forEach(async function (group) {
+        await tester.service.removeGroup(group.id);
+      });
+
+      let group_names = [
+        "current",
+        "home",
+        "office",
+      ];
+
+      let group_change_handler = tester.setup_event(tester.service.GROUP_CHANGE_EVENT);
+
+      group_names.forEach(async function (element) {
+        console.log(element);
+        await tester.assert_eq(
+          "add a gruop",
+          (service) => service.addGroup(element),
+          {}
+        );
+      });
+
+      let all_groups;
+      await tester.assert_eq(
+        "get all groups verify group names",
+        service => {
+          return new Promise((resolve, reject) => {
+            service.getAllGroups().then(
+              groups => {
+                if (groups.length > 0) {
+                  console.log("groups count :" + groups.length);
+                  let names = [];
+                  groups.forEach(function (group) {
+                    names.push(group.name);
+                  })
+                  all_groups = groups;
+                  resolve(names);
+                } else {
+                  reject("groups count : 0");
+                }
+              }
+            );
+          });
+        },
+        group_names
+      );
+
+      all_groups.forEach(function (group) {
+        tester.assert_event_eq("waiting for add group success event", group_change_handler, {
+          reason: lib_contacts.ChangeReason.CREATE,
+          group: group,
+        });
+      });
+
+      await tester.assert_eq(
+        "update a gruop",
+        (service) => service.updateGroup(all_groups[0].id, "student"),
+        {}
+      );
+
+      await tester.assert_event_eq(
+        "waiting for update group success event", group_change_handler, {
+        reason: lib_contacts.ChangeReason.UPDATE,
+        group: {
+          id: all_groups[0].id,
+          name: "student",
+        }
+      });
+
+      // Update a none exist group
+      await tester.assert_eq(
+        "update a none exist gruop",
+        (service) => service.updateGroup("9999", "teachers"),
+        {}
+      );
+
+      await tester.assert_eq(
+        "remove a exist gruop",
+        (service) => service.removeGroup(all_groups[0].id),
+        {}
+      );
+
+      await tester.assert_event_eq(
+        "waiting for remove group success event", group_change_handler, {
+        reason: lib_contacts.ChangeReason.REMOVE,
+        group: {
+          id: all_groups[0].id,
+          name: "",
+        }
+      }
+      );
+
+      await tester.assert_eq(
+        "remove a none exist gruop",
+        (service) => service.removeGroup("9999"),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify group names after remove",
+        service => {
+          return new Promise((resolve, reject) => {
+            service.getAllGroups().then(
+              groups => {
+                if (groups.length > 0) {
+                  console.log("groups count :" + groups.length);
+                  let names = [];
+                  groups.forEach(function (group) {
+                    names.push(group.name);
+                  }
+                  )
+                  resolve(names);
+                  all_groups = groups;
+                } else {
+                  reject("groups count : 0");
+                }
+              }
+            );
+          });
+        },
+        ["home", "office"]
+      );
+
+      let reporter = new TestReporter([tester]);
+      reporter.output();
+    }
+
+    run_tests();
+  </script>
+</body>
+
+</html>

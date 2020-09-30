@@ -1,0 +1,27 @@
+# Start with a rustup image providing the stable release.
+image: "kaiostech/sidl-new:latest"
+
+# Environment variables
+variables:
+  GIT_SUBMODULE_STRATEGY: normal
+  CARGO_HOME: $CI_PROJECT_DIR/cargo
+
+# Setup SSH key to access git
+before_script:
+  - eval $(ssh-agent -s)
+  - ssh-add <(echo "$SSH_PRIVATE_KEY")
+  - mkdir -p ~/.ssh
+  - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+
+stages:
+  - build_and_test
+
+# Use cargo to test the project
+test:cargo:
+  stage: build_and_test
+  script:
+  - export PATH=$CARGO_HOME/bin:$PATH
+  - rustc --version && cargo --version
+  - cargo build --release
+  - RUST_BACKTRACE=1 cargo test --release -- --nocapture
+

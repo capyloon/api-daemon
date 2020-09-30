@@ -1,0 +1,248 @@
+// Contacts API.
+
+dictionary Address {
+  atype: str
+  streetAddress: str?
+  locality: str?
+  region: str?
+  postalCode: str?
+  countryName: str?
+  pref: bool?
+}
+
+dictionary ContactField {
+  atype: str
+  value: str
+  pref: bool
+}
+
+dictionary ContactTelField {
+  atype: str
+  value: str
+  pref: bool
+  carrier: str
+}
+
+dictionary ContactInfo {
+  // An opaque contact id: uuid.
+  id: str
+
+  published: date
+
+  updated: date
+
+  // Birthday.
+  bday: date
+
+  anniversary: date
+
+  sex: str
+
+  genderIdentity: str
+
+  ringtone: str
+
+  // To do: to support blob type.
+  photoType: str
+
+  photoBlob: binary
+
+  // The set of possible addresses.
+  addresses: Address*
+
+  email: ContactField*
+
+  url: ContactField*
+
+  // Consist of familyName and givenName.
+  name: str
+
+  tel: ContactTelField*
+
+  honorificPrefix: str*
+
+  givenName: str
+
+  phoneticGivenName: str
+
+  additionalName: str*
+
+  familyName: str
+
+  phoneticFamilyName: str
+
+  honorificSuffix: str*
+
+  nickname: str*
+
+  category: str*
+
+  org: str*
+
+  jobTitle: str*
+
+  note: str*
+
+  groups: str*
+}
+
+interface ContactCursor {
+  // Returns the next available batch of contacts, or rejects if no
+  // more contact is available.
+  fn next() -> ContactInfo+
+}
+
+enum SortOption {
+  givenName
+  familyName
+  // Consist of familyName and givenName.
+  name
+}
+
+enum Order {
+  ascending
+  descending
+}
+
+enum FilterOption {
+  equals
+  contains
+  match
+  startsWith
+  fuzzyMatch
+}
+
+enum FilterByOption {
+  name
+  givenName
+  familyName
+  tel
+  email
+  category
+}
+
+dictionary ContactSortOptions {
+  sortBy: SortOption
+  sortOrder: Order
+
+  // e.g. "de", "zh-Hant-TW".
+  sortLanguage: str
+}
+
+dictionary ContactFindSortOptions {
+  sortBy: SortOption
+
+  sortOrder: Order
+
+  // e.g. "de", "zh-Hant-TW".
+  sortLanguage: str
+  
+  // e.g. "Tom".
+  filterValue: str
+
+  filterOption: FilterOption
+
+  filterBy: FilterByOption
+
+  // Only return the main data of a contact or not.
+  onlyMainData: bool
+}
+
+dictionary BlockedNumberFindOptions {
+  filterValue: str
+  filterOption: FilterOption
+}
+
+enum ChangeReason {
+  create
+  update
+  remove
+}
+
+dictionary BlockedNumberChangeEvent {
+  reason: ChangeReason
+  number: str
+}
+
+dictionary SpeedDialInfo {
+  dialKey: str
+  tel: str
+  contactId: str
+}
+
+dictionary SpeedDialChangeEvent {
+  reason: ChangeReason
+  speeddial: SpeedDialInfo
+}
+
+dictionary GroupInfo {
+  id: str
+  name: str
+}
+
+dictionary GroupChangeEvent {
+  reason: ChangeReason
+  group: GroupInfo
+}
+
+dictionary ContactsChangeEvent {
+  reason: ChangeReason
+  contacts: ContactInfo*
+}
+
+#[rust:not-tracked]
+interface ContactsFactory {
+
+  fn clear_contacts()
+
+  // Returns the number of contacts currently in the database.
+  fn get_count() -> int
+
+  // Add a collection of contacts.
+  fn add(contacts: ContactInfo+)
+
+  fn update(contacts: ContactInfo+)
+
+  fn remove(contactIds: str+)
+
+  // Resolve to the value for this contact, 
+  // Or rejects if it doesn't exist.
+  fn get(id: str, only_main_data : bool) -> ContactInfo
+
+  // Returns a cursor giving access to all the contacts by specifyid order.
+  fn get_all(options: ContactSortOptions, batch_size: int, only_main_data: bool) -> ContactCursor
+
+  // Returns a cursor that will iterate over contacts matching the query.
+  fn find(params: ContactFindSortOptions, batch_size: int) -> ContactCursor
+
+  // Imports all the contacts from a vcf document.
+  // Returns the number of contacts found.
+  fn import_vcf(vcf: str) -> int
+
+  // Block numbers API.
+  fn add_blocked_number(number: str)
+  fn remove_blocked_number(number: str)
+  fn get_all_blocked_numbers()-> str*
+  fn find_blocked_numbers(options: BlockedNumberFindOptions) -> str*
+
+  // Speed dial API.
+  fn get_speed_dials() -> SpeedDialInfo*
+  fn add_speed_dial(dialKey: str, tel: str, contactId: str)
+  fn update_speed_dial(dialKey: str, tel: str, contactId: str)
+  fn remove_speed_dial(dialKey: str)
+
+  // Group API.
+  fn remove_group(id: str)
+  fn add_group(name: str)
+  fn update_group(id: str, name: str)
+  fn get_contactids_from_group(group_id: str) -> str*
+  fn get_all_groups() -> GroupInfo*
+
+  // This event handler will receive all contacts changes.
+  event contacts_change -> ContactsChangeEvent
+  event blockednumber_change -> BlockedNumberChangeEvent
+  event speeddial_change -> SpeedDialChangeEvent
+  event group_change -> GroupChangeEvent
+}
+
+service ContactsManager: ContactsFactory

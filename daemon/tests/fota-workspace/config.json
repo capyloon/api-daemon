@@ -1,0 +1,22 @@
+{
+  "condition": {
+    "function_enabled": false
+  },
+  "necessary": {
+    "check": true,
+    "download": false,
+    "install": false
+  },
+  "suspend": {
+    "pre_checking": false,
+    "post_checking": false,
+    "pre_downloading": false,
+    "post_downloading": false,
+    "pre_installing": true,
+    "post_installing": true
+  },
+  "user": {
+    "auto_update_interval": 86400,
+    "wifi_only": false
+  }
+}

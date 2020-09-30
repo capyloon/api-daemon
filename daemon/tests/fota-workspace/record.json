@@ -1,0 +1,16 @@
+{
+  "check": {
+    "timestamp": 0,
+    "success": false,
+    "last_valid_result": null,
+    "last_error": null
+  },
+  "download_reported": false,
+  "install": {
+    "timestamp": 0,
+    "code": 0,
+    "reported": false,
+    "from_version": "",
+    "to_version": ""
+  }
+}

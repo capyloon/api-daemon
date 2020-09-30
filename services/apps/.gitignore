@@ -1,0 +1,13 @@
+client/node_modules/
+client/dist/
+client/distRelease/
+client/generated/
+client/yarn-error.log
+src/generated
+test-fixtures/test_root
+test-fixtures/test-apps-dir-actor/
+test-fixtures/test-apps-dir-install/
+test-fixtures/test-apps-dir/
+test-fixtures/test-unregister-apps-dir/
+test-fixtures/test-apps-dir-get-all/
+test-fixtures/sample.webapp

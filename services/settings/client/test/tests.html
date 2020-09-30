@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Settings Service Tests</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/settings/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+
+    <script>
+      async function run_tests() {
+        let tester = await test_service(
+          lib_settings.SettingsManager,
+          "client-1"
+        );
+
+        // Clear the settings storage
+        await tester.assert_eq(
+          "clear settings db",
+          (service) => service.clear(),
+          {}
+        );
+
+        // No settings available at startup.
+        await tester.assert_rej_eq(
+          "no testing.setting1 in empty db",
+          (service) => service.get("testing.setting1"),
+          {
+            name: "testing.setting1",
+            reason: lib_settings.GetErrorReason.NON_EXISTING_SETTING,
+          }
+        );
+
+        // Add a setting.
+        await tester.assert_eq(
+          "set new setting",
+          (service) => service.set([{ name: "testing.setting1", value: 42 }]),
+          {}
+        );
+
+        // Verify value.
+        await tester.assert_eq(
+          "verify new setting",
+          (service) => service.get("testing.setting1"),
+          { name: "testing.setting1", value: 42 }
+        );
+
+        let onchange_handler = tester.setup_event(tester.service.CHANGE_EVENT);
+
+        // Change the value and get an event.
+        await tester.assert_eq(
+          "set new setting",
+          (service) => service.set([{ name: "testing.setting1", value: 44 }]),
+          {}
+        );
+        await tester.assert_event_eq(
+          "change event 42 -> 44",
+          onchange_handler,
+          { name: "testing.setting1", value: 44 }
+        );
+
+        // Create an observer
+        let promise = new Promise((resolve) => {
+          called_me = resolve;
+        });
+
+        class MyObserver extends lib_settings.SettingObserverBase {
+          constructor(service, session) {
+            super(service.id, session);
+          }
+
+          display() {
+            return "Setting observer";
+          }
+
+          callback(setting) {
+            console.log(`MyObserver::callback(${setting})`);
+            called_me(setting);
+            return Promise.resolve();
+          }
+        }
+
+        let observer = new MyObserver(tester.service, tester.session);
+        await tester.assert_eq(
+          "add observer",
+          (service) => service.addObserver("testing.observed", observer),
+          {}
+        );
+
+        // Change the observed setting.
+        let observed_setting = { name: "testing.observed", value: "hello!" };
+        await tester.assert_eq(
+          "set observed setting",
+          (service) => service.set([observed_setting]),
+          {}
+        );
+
+        await tester.assert_eq(
+          "wait for observer",
+          (service) => promise,
+          observed_setting
+        );
+
+        // We also receive an event for this change.
+        await tester.assert_event_eq(
+          "event observed setting",
+          onchange_handler,
+          observed_setting
+        );
+
+        // Now include another client to verify observer and event dispatching accros windows.
+
+        let tester2 = await test_service(
+          lib_settings.SettingsManager,
+          "client-2"
+        );
+
+        let onchange_handler2 = tester2.setup_event(
+          tester2.service.CHANGE_EVENT
+        );
+
+        let json_setting = {
+          name: "setting:json",
+          value: { foo: "bar", success: true, amount: 42 },
+        };
+        await tester.assert_eq(
+          "set new json setting",
+          (service) => service.set([json_setting]),
+          {}
+        );
+
+        await tester.assert_event_eq(
+          "event json setting",
+          onchange_handler,
+          json_setting
+        );
+
+        await tester2.assert_event_eq(
+          "event json setting",
+          onchange_handler2,
+          json_setting
+        );
+
+        // Change the observed setting from the second client.
+        let promise2 = new Promise((resolve) => {
+          called_me = resolve;
+        });
+
+        let observed_setting2 = {
+          name: "testing.observed",
+          value: "bonjour !",
+        };
+        await tester.assert_eq(
+          "change observed setting",
+          (service) => service.set([observed_setting2]),
+          {}
+        );
+
+        await tester.assert_eq(
+          "wait for observer",
+          (service) => promise2,
+          observed_setting2
+        );
+
+        // We also receive an event for this change in each client.
+        await tester.assert_event_eq(
+          "event observed setting",
+          onchange_handler,
+          observed_setting2
+        );
+
+        await tester2.assert_event_eq(
+          "event observed setting",
+          onchange_handler2,
+          observed_setting2
+        );
+
+        onchange_handler.stop();
+        onchange_handler2.stop();
+
+        // Verify get batch
+        // TODO: ensure the order of the returned settings.
+        await tester.assert_eq(
+          "verify get batch",
+          (service) => service.getBatch(["testing.setting1", "testing.observed"]),
+          [{ name: "testing.observed", value: "bonjour !"},
+           { name: "testing.setting1", value: 44 },]
+        );
+
+        let reporter = new TestReporter([tester, tester2]);
+        reporter.output();
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AudioVolume Service Tests</title>
+
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css"></link>
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/audiovolumemanager/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+
+    <script>
+      async function run_tests() {
+        let tester = await test_service(lib_audiovolume.AudioVolumeManager, "client-1");
+
+        let volumestate_handler = tester.setup_event(tester.service.AUDIO_VOLUME_CHANGED_EVENT);
+
+        tester.service.requestVolumeUp();
+        await tester.assert_event_eq("callback volumeup event", volumestate_handler,
+          lib_audiovolume.AudioVolumeState.VOLUME_UP);
+
+        tester.service.requestVolumeDown();
+        await tester.assert_event_eq("callback volumedown event", volumestate_handler,
+          lib_audiovolume.AudioVolumeState.VOLUME_DOWN);
+
+        tester.service.requestVolumeShow();
+        await tester.assert_event_eq("callback volumeshow event", volumestate_handler,
+          lib_audiovolume.AudioVolumeState.VOLUME_SHOW);
+
+        volumestate_handler.stop();
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>
+

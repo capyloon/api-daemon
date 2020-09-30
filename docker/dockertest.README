@@ -1,0 +1,24 @@
+Pre:
+On host machine, run
+docker pull vigakaios/sidl_test
+docker run -it --name sidltest -v ~/workspace/sidl_service/sidl_1213:/home vigakaios/sidl_test
+docker run -it --name sidltest -v $YOURSIDLROOT:/home vigakaios/sidl_test
+in which $YOURSIDLROOT is your sidl root dir on host machine.
+
+
+In Docker machine, run
+
+export DISPLAY=:99 
+Xvfb :99 > /dev/null 2>&1 &
+
+cd daemon
+cargo build --features=fake-tokens
+cd ..
+
+./release_libs.sh
+
+cd daemon
+../target/debug/api-daemon &
+
+cd ../libsignal-service/client/
+yarn ci-test

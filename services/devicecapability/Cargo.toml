@@ -1,0 +1,17 @@
+[package]
+name = "devicecapability_service"
+version = "0.1.0"
+authors = ["The KaiOS Team"]
+edition = "2018"
+
+[dependencies]
+android_utils = { path = "../../support/android-utils" }
+common = { path = "../../common" }
+geckobridge = { path = "../geckobridge" }
+log = "0.4"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+
+[build-dependencies]
+common = { path = "../../common" }

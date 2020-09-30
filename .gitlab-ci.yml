@@ -1,0 +1,146 @@
+# Start with a rustup image providing the nightly release.
+image: "kaiostech/sidl-new:latest"
+
+# Environment variables
+variables:
+  GIT_SUBMODULE_STRATEGY: normal
+  CARGO_HOME: $CI_PROJECT_DIR/cargo
+
+before_script:
+  - eval $(ssh-agent -s)
+  - ssh-add <(echo "$SSH_PRIVATE_KEY")
+  - mkdir -p ~/.ssh
+  - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+
+stages:
+  - buildDaemon
+  - tests
+  - xbuild
+
+build:daemon:
+  stage: buildDaemon
+  tags:
+    - sidl
+  script:
+    - rustc --version && cargo --version
+    - cd $CI_PROJECT_DIR/daemon
+    - cargo build --release --features=fake-tokens
+    - cd $CI_PROJECT_DIR/child-test-daemon
+    - cargo build --release
+    - cd $CI_PROJECT_DIR/tests/driver
+    - cargo build --release
+    - cargo build --release
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - target/release/api-daemon
+      - target/release/driver
+      # Needed to run the services/test tests.
+      - target/release/child-test-daemon
+      - services/apps/client/generated/apps_service.js
+      - services/audiovolumemanager/client/generated/audiovolume_service.js
+      - services/contacts/client/generated/contacts_service.js
+      - services/devicecapability/client/generated/devicecapability_service.js
+      - services/powermanager/client/generated/powermanager_service.js
+      - services/procmanager/client/generated/procmanager_service.js
+      - services/settings/client/generated/settings_service.js
+      - services/test/client/generated/test_service.js
+      - services/tcpsocket/client/generated/tcpsocket_service.js
+      - services/time/client/generated/time_service.js
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /xbuild-only/
+
+# Use cargo to test the project
+test:cargo:
+  stage: tests
+  tags:
+    - sidl
+  script:
+    - rustc --version && cargo --version
+# Force build.rs to run despite the cache.
+    - touch ./services/test/build.rs
+    - cd $CI_PROJECT_DIR/services/apps && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/daemon && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/common && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/support/android-utils && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/support/sqlite-utils && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/codegen && cargo test -- --nocapture
+    # - cd $CI_PROJECT_DIR/libsignal-service && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/support/libsignal-sys && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/parser && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/services/devicecapability && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/tcpsocket-service && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/services/settings && cargo test -- --nocapture
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /skip-test/
+
+test:js-clients:
+  stage: tests
+  tags:
+    - sidl
+  script:
+    - cd $CI_PROJECT_DIR
+    - git clone git@git.kaiostech.com:vincent.chang/echo-server.git
+    - cd echo-server
+    - cargo build
+    - ./target/debug/echo-server 7878&
+    - ./target/debug/echo-server 7879&
+    - ./target/debug/echo-server 7880&
+    - cd $CI_PROJECT_DIR
+    - WITH_TEST_SERVICE=1 ./release_libs.sh
+    - mkdir -p ./daemon/remote/TestService
+    - cp ./target/release/child-test-daemon $CI_PROJECT_DIR/daemon/remote/TestService/daemon
+    # FIXME: For some reason the first webdriver test is often very slow and times out, so instead
+    # we run a dummy one to warm things up.
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/tests/dummy.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/apps/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/audiovolumemanager/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/contacts/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/devicecapability/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/powermanager/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/settings/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/tcpsocket/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/test/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/time/client/test/tests.html
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /skip-test/
+
+# test-libsignal:
+#   stage: tests
+#   tags:
+#     - sidl
+#   script:
+#     - cd $CI_PROJECT_DIR
+#     - ./release_libs.sh
+#     - cp $CI_PROJECT_DIR/libsignal-service/test-fixtures/example3 $CI_PROJECT_DIR/prebuilts/http_root/war_and_peace.enc
+#     - cd $CI_PROJECT_DIR/daemon
+#     - export WS_RUNTIME_TOKEN=secrettoken
+#     - RUST_LOG=info ../target/debug/api-daemon &
+#     - cd $CI_PROJECT_DIR/libsignal-service/client/
+#     - export DISPLAY=:99
+#     - Xvfb :99 > /dev/null 2>&1 &
+#     - export RESTART_DAEMON_FLAG_FILE=restart_daemon_flag_file
+#     - ./test/restartDaemon.sh &
+#     - export KILL_DAEMON_FLAG_FILE=kill_daemon_flag_file
+#     - ./test/killDaemon.sh &
+#     - yarn ci-test
+#     - rm $CI_PROJECT_DIR/prebuilts/http_root/war_and_peace.enc
+# # the last test kills api-daemon
+
+
+build:targets:
+  stage: xbuild
+  tags:
+    - sidl
+  script:
+    - cd $CI_PROJECT_DIR
+    - git clone git@git.kaiostech.com:kaios/build-sidl.git -b multi-arch
+    - cd build-sidl
+    - ./build_api-daemon.sh
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - production

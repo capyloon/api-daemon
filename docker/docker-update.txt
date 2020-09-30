@@ -1,0 +1,2 @@
+docker build -t kaiostech/sidl .
+docker push kaiostech/sidl

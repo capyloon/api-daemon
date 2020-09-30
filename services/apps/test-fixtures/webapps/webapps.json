@@ -1,0 +1,33 @@
+[
+{
+  "name": "calculator",
+  "manifest_url": "https://calculator.local/manifest.webapp",
+  "update_url": "https://store.server/calculator/manifest.webapp",
+  "install_time": 1584670494752,
+  "manifest_hash": "ae92e12e309b11eaef4992bb9b238310",
+  "package_hash": "8ce7eb8382f5bffb7c3a62ba93b83ed4"
+},
+{
+  "name": "system",
+  "manifest_url": "https://system.local/manifest.webapp",
+  "update_url": "https://store.server/system/manifest.webapp",
+  "install_time": 1584670494752,
+  "manifest_hash": "cce24c3687d93c1ee00815d575bf4e6d",
+  "package_hash": "fe16801bcceb73d135fbd4ac297edc2d"
+},
+{
+  "name": "gallery",
+  "manifest_url": "https://gallery.local/manifest.webapp",
+  "update_url": "https://store.server/gallery/manifest.webapp",
+  "install_time": 1584670494752,
+  "manifest_hash": "64a6dc4c342bbf1805f6c324ebc82b09",
+  "package_hash": "bf93bd0348cab5a5df8c135878a00db4"
+},
+{
+  "name": "launcher",
+  "manifest_url": "https://launcher.local/manifest.webapp",
+  "install_time": 1584670494752,
+  "manifest_hash": "7c6d3e6640e2218e5b1b085c00dd2715",
+  "package_hash": "5f39914539ac9479327b2813751e4b83"
+}
+]

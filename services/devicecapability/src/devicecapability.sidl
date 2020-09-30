@@ -1,0 +1,6 @@
+#[rust:not-tracked]
+interface DeviceCapabilityFactory {
+  fn get(feature: str) -> json
+}
+
+service DeviceCapabilityManager: DeviceCapabilityFactory

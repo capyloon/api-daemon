@@ -1,0 +1,27 @@
+# Configuration file usable for desktop builds.
+
+[general]
+host = "0.0.0.0"
+port = 8081
+message_max_time = 10 # In ms.
+verbose_log = true
+log_path = "/tmp"
+remote_services_config = "./remote/config.toml"
+remote_services_path = "./remote"
+socket_path = "/tmp/api-daemon-socket"
+
+[http]
+root_path = "../prebuilts/http_root"
+
+[vhost]
+port = 4443
+root_path = "../prebuilts/http_root/webapps"
+cert_path = "../vhost/cert.pem"
+key_path = "../vhost/key.pem"
+csp = "default-src * data: blob:; script-src 'self' http://127.0.0.1 https://shared.local; object-src 'none'; style-src 'self' 'unsafe-inline' https://lighttheme.local https://darktheme.local https://shared.local"
+
+[apps_service]
+root_path = "../services/apps/test-fixtures/webapps"
+data_path = "../prebuilts/http_root/webapps"
+uds_path = "/tmp/apps_service_uds.sock"
+cert_type = "production"

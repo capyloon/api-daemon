@@ -1,0 +1,15 @@
+**/target/
+**/kcov/
+**/*.rs.bk
+**/generated/
+**/dist/
+**/node_modules/
+.vscode
+prebuilts
+./api-daemon*.zip
+./api-daemon*.toml
+*~
+.DS_Store
+daemon/settings.sqlite*
+services/**/service.json
+

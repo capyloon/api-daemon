@@ -1,0 +1,67 @@
+{
+  "name": "Launcher",
+  "description": "Gaia Launcher",
+  "launch_path": "/index.html",
+  "type": "certified",
+  "role": "homescreen",
+  "developer": {
+    "name": "The Gaia Team",
+    "url": "https://github.com/mozilla-b2g/gaia"
+  },
+  "permissions": {
+    "audio-channel-notification": {},
+    "bluetooth": {},
+    "feature-detection": {},
+    "flashlight": {},
+    "themeable": {},
+    "mobileconnection": {},
+    "open-remote-window": {},
+    "storage": {},
+    "webapps-manage": {},
+    "wifi-manage": {},
+    "contacts": { "access": "readwrite" },
+    "telephony": {},
+    "voicemail": {},
+    "sms": {},
+    "softkey": {},
+    "systemXHR": {},
+    "serviceworker": {},
+    "settings": { "access": "readwrite" },
+    "power": {}
+  },
+  "default_locale": "en-US",
+  "locales": {
+    "ar": {
+      "name": "الشاشة الرئيسية",
+      "description": "Gaia الشاشة الرئيسية"
+    },
+    "en-US": {
+      "name": "Homescreen",
+      "description": "Gaia Homescreen"
+    },
+    "es-US": {
+      "name": "Pantalla de inicio",
+      "description": "Pantalla de inicio"
+    },
+    "fr": {
+      "name": "Écran d'accueil",
+      "description": "Écran d'accueil Gaia"
+    },
+    "zh-TW": {
+      "name": "主畫面",
+      "description": "Gaia 主畫面"
+    }
+  },
+  "orientation": "default",
+  "activities": {},
+  "messages": [],
+  "chrome": {
+    "statusbar": "overlap"
+  },
+  "datastores-owned": {
+    "bookmarks": {
+      "access": "readwrite"
+    }
+  },
+  "datastores-access": {}
+}

@@ -1,0 +1,15 @@
+
+
+ws session 1 ----- RemoteService(test) 1 -----------------| RemoteProcessManager |----------| Child Daemon (test) |
+               |                                 |
+               +-- RemoteService(test) 2 --------+
+                                                 |
+ws session 2 ----- RemoteService(test) 3 --------+             
+               |                                 |
+               +-- RemoteService(test) 4 --------+
+
+
+Each message is annotated with a SessionTrackerId which identifies the (ws sesssion, service id) tuple.
+
+Since the RemoteProcessManager is the only one receiving data from the child, it needs to know for each
+SessionTrackerId how to send data back to the right ws session.

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Apps Service Tests</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/apps/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="results.js"></script>
+
+    <script>
+      async function run_tests() {
+        console.log(`Apps Test started!`);
+
+        let tester = await test_service(lib_apps.AppsManager, "apps-client");
+
+        let AppsServiceState = lib_apps.AppsServiceState;
+        let AppsServiceError = lib_apps.AppsServiceError;
+
+        await tester.assert_eq(
+          "get state",
+          service => service.getState(),
+          AppsServiceState.RUNNING
+        );
+
+        function sort_result(a, b) {
+          return a.name > b.name;
+        }
+
+        await tester.assert_eq(
+          "get all 0",
+          service => {
+            return new Promise((resolve, reject) => {
+              service.getAll().then(
+                observed => {
+                  resolve(observed ? observed.sort(sort_result) : null);
+                },
+                err => {
+                  reject(err);
+                }
+              );
+            });
+          },
+          get_all_expected0.sort(sort_result)
+        );
+
+        await tester.assert_eq(
+          "get app 1",
+          service =>
+            service.getApp("https://calculator.local/manifest.webapp"),
+          calculator_expected
+        );
+
+        await tester.assert_eq(
+          "get app 2",
+          service => service.getApp("https://gallery.local/manifest.webapp"),
+          gallery_expected
+        );
+
+        await tester.assert_eq(
+          "get app 3",
+          service => service.getApp("https://launcher.local/manifest.webapp"),
+          launcher_expected
+        );
+
+        await tester.assert_eq(
+          "get app 4",
+          service => service.getApp("https://system.local/manifest.webapp"),
+          system_expected
+        );
+
+// install event
+// - Installed
+// - Installing
+// - Pending
+        let on_installing_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
+        let on_installed_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
+
+        await tester.assert_eq(
+          "install app",
+          service => service.installPackage("http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json"),
+          install_expected(0)
+        );
+        await tester.assert_event_eq("on installing event", on_installing_handler, install_expected(1));
+        on_installing_handler.stop();
+        await tester.assert_event_eq("on installed event", on_installed_handler, install_expected(0));
+        on_installed_handler.stop();
+
+        // check_for_update
+        let on_update_available = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
+
+        await tester.assert_eq(
+          "check for update",
+          service => service.checkForUpdate("http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json", {autoInstall: false}),
+          false
+        );
+
+        //await tester.assert_event_eq("on check for update event", on_update_available, update_expected(1));
+
+        let on_download_failed = tester.setup_event(tester.service.APP_DOWNLOAD_FAILED_EVENT);
+        await tester.assert_rej_eq(
+          "reinstall forbidden",
+          service => service.installPackage("http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json"),
+          AppsServiceError.REINSTALL_FORBIDDEN
+        );
+        await tester.assert_event_eq("download failed event", on_download_failed, download_failed_response_expected);
+        on_download_failed.stop();
+
+        await tester.assert_eq(
+          "get all 1",
+          service => {
+            return new Promise((resolve, reject) => {
+              service.getAll().then(
+                observed => {
+                  resolve(observed ? observed.sort(sort_result) : null);
+                },
+                err => {
+                  reject(err);
+                }
+              );
+            });
+          },
+          get_all_expected1.sort(sort_result)
+        );
+
+// Update event
+// - Idle
+// - Available
+// - Downloading
+// - Updating
+// - Pending
+        let on_updated_handler = tester.setup_event(tester.service.APP_UPDATED_EVENT);
+        await tester.assert_eq(
+          "update app",
+          service => service.update("https://ciautotest.local/manifest.webapp"),
+          update_expected(0)
+        );
+        await tester.assert_event_eq("on update event", on_updated_handler, update_expected(0));
+        on_updated_handler.stop();
+
+        await tester.assert_rej_eq(
+          "update invalid app",
+          service => service.update("invalid-app"),
+          AppsServiceError.APP_NOT_FOUND
+        );
+
+        await tester.assert_rej_eq(
+          "uninstall invalid app",
+          service => service.uninstall("invalid-app"),
+          AppsServiceError.APP_NOT_FOUND
+        );
+
+// Test uninstall
+        let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);
+        await tester.assert_eq(
+          "uninstall app",
+          service => service.uninstall("https://ciautotest.local/manifest.webapp"),
+          "https://ciautotest.local/manifest.webapp"
+        );
+        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, "https://ciautotest.local/manifest.webapp");
+        on_uninstall1_handler.stop();
+
+        await tester.assert_eq(
+          "get all 2",
+          service => {
+            return new Promise((resolve, reject) => {
+              service.getAll().then(
+                observed => {
+                  resolve(observed ? observed.sort(sort_result) : null);
+                },
+                err => {
+                  reject(err);
+                }
+              );
+            });
+          },
+          get_all_expected2.sort(sort_result)
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

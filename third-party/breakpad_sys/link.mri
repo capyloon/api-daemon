@@ -1,0 +1,5 @@
+create librust_breakpad_client.a
+addmod rust_breakpad_linux.o
+addlib breakpad/src/client/linux/libbreakpad_client.a
+save
+end

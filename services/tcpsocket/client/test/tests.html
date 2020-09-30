@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>TcpSocket Service Tests</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/tcpsocket/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+
+    <script>
+      async function run_tests() {
+        let tester = await test_service(
+          lib_tcpsocket.TcpSocketManager,
+          "client"
+        );
+
+        let addr = [
+          {
+            host: '127.0.0.1',
+            port: 7878
+          },
+          {
+            host: '127.0.0.1',
+            port: 7879
+          },
+          {
+            host: '127.0.0.1',
+            port: 7880
+          },
+        ];
+        let socket = [];
+        let data_handler = [];
+        let close_handler = [];
+        let test_str = ["Hello", "KaiOS", "close"];
+        let encoder = new TextEncoder()
+        let data;
+
+        for (let i = 0; i < addr.length; i++) {
+          socket.push(await tester.service.open(addr[i]));
+          data_handler[i] = tester.setup_event_on(
+            socket[i],
+            socket[i].DATA_EVENT
+          );
+          close_handler[i] = tester.setup_event_on(
+            socket[i],
+            socket[i].CLOSE_EVENT
+          );
+
+          data = encoder.encode(test_str[i]);
+          await tester.assert_eq(
+            "Sending Data",
+            () => socket[i].send(data),
+            true
+          );
+
+          await tester.assert_event_eq("Waitting for data event", data_handler[i], data);
+          data_handler[i].stop();
+        }
+
+        for (let i = 0; i < addr.length; i++) {
+          socket[i].close();
+          await tester.assert_event_eq("Waitting for close event", close_handler[i], {});
+          close_handler[i].stop();
+        }
+
+        let bad_ip = {
+          host: '127.0.0',
+          port: 7870
+        };
+
+        await tester.assert_rej_eq(
+          "Invalid ip address",
+          (service) => service.open(bad_ip),
+          {}
+        );
+
+        let bad_port = {
+          host: '127.0.0.1',
+          port: 'abc'
+        };
+
+        await tester.assert_rej_eq(
+          "Invalid port number",
+          (service) => service.open(bad_port),
+          {}
+        );
+
+        let remote_not_available = {
+          host: '123.234.1.1',
+          port: 12345
+        };
+
+        // This might wait for a while until tcp connection retry timeout.
+        await tester.assert_rej_eq(
+          "Remote not available",
+          (service) => service.open(remote_not_available),
+          {}
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

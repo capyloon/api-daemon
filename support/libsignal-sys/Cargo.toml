@@ -1,0 +1,17 @@
+[package]
+name = "libsignal-sys"
+version = "0.1.0"
+authors = ["Fabrice Desré <fabrice@desre.org>"]
+edition = "2018"
+
+[dependencies]
+arrayref = "0.3"
+log = "0.4"
+prost = "0.6"
+prost-derive = "0.6"
+ring = "0.16"
+rust-crypto = "0.2"
+
+[build-dependencies]
+cc = "1.0"
+prost-build = "0.6"

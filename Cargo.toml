@@ -1,0 +1,48 @@
+
+[workspace]
+members = [
+  "child-test-daemon/",
+  "codegen/",
+  "common/",
+  "daemon/",
+  "parser/",
+  "services/apps",
+  "services/audiovolumemanager",
+  "services/contacts",
+  "services/devicecapability",
+  "services/geckobridge",
+  # "services/libsignal",
+  "services/powermanager",
+  "services/procmanager",
+  "services/settings",
+  "services/tcpsocket",
+  "services/test",
+  "services/time",
+  "support/android-utils/",
+  "support/hidl-utils/",
+  "support/libsignal-sys/",
+  "support/light/",
+  "support/sqlite-utils",
+  "tests/driver",
+  "vhost/",
+]
+
+[patch.crates-io]
+# This disables http/2.0 support when connecting on https. For some unknown reason
+# actix-web returns 400 errors while things work fine using http/1.1
+actix-http = { git = "https://github.com/fabricedesre/actix-web.git", branch = "no-h2" }
+# Unbreak build on Gonk.
+ring = { git = "https://github.com/kaiostech/ring.git", branch = "gonk-0.16.15" }
+# Pick up a version that doesn't depend on time 0.1
+reqwest = { git = "https://github.com/fabricedesre/reqwest.git", branch = "patch-1" }
+# Android support
+procfs = { git = "https://github.com/fabricedesre/procfs.git", branch = "android" }
+
+[profile.release]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
+panic = "abort"

@@ -1,0 +1,5 @@
+# The file contains a set of name=id entries.
+wavoip=1
+otherservice=2
+# This entry is simply ignored
+bogusvalue="hello world!"

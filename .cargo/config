@@ -1,0 +1,40 @@
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source."https://github.com/fabricedesre/actix-web.git"]
+git = "https://github.com/fabricedesre/actix-web.git"
+branch = "no-h2"
+replace-with = "vendored-sources"
+
+[source."https://github.com/fabricedesre/procfs.git"]
+git = "https://github.com/fabricedesre/procfs.git"
+branch = "android"
+replace-with = "vendored-sources"
+
+[source."https://github.com/fabricedesre/reqwest.git"]
+git = "https://github.com/fabricedesre/reqwest.git"
+branch = "patch-1"
+replace-with = "vendored-sources"
+
+[source."https://github.com/kaiostech/ring.git"]
+git = "https://github.com/kaiostech/ring.git"
+branch = "gonk-0.16.15"
+replace-with = "vendored-sources"
+
+[source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
+git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
+branch = "master"
+replace-with = "vendored-sources"
+
+[source."ssh://git@git.kaiostech.com/KaiOS/zip_utils.git"]
+git = "ssh://git@git.kaiostech.com/KaiOS/zip_utils.git"
+branch = "master"
+replace-with = "vendored-sources"
+
+[source."ssh://git@git.kaiostech.com/rust-forks/zip-rs.git"]
+git = "ssh://git@git.kaiostech.com/rust-forks/zip-rs.git"
+branch = "omni-ja"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "third-party"

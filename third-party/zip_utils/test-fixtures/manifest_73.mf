@@ -1,0 +1,26 @@
+Manifest-Version: 1.0
+
+Name: FileNamelengthis66xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: jnBlDrffffflGVaaIBywOA==
+SHA1-Digest: oKozUfffffUMKSFS6MLwgr7gFMQ=
+
+Name: index.js
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: Xex2hOYQl0Xvufq4n1rIkw==
+SHA1-Digest: ltWPbFLx8ffPk9Cbh+ZAjVfLHjM=
+
+Name: manifest.webapp
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: 3MStA6T0E4HjvY2WqW6l2g==
+SHA1-Digest: Dq0S0487Lc0Z2ER9UUMzGMDP0dA=
+
+Name: logo.png_bk
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: jnBlDraQJuplGVaaIBywOA==
+SHA1-Digest: oKozUUs4mGUMKSFS6MLwgr7gFMQ=
+
+Name: icons/whatsapp_84.png
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: Q9oB4jQ0YAlzZT2slbHjIQ==
+SHA1-Digest: 6AyKpF2Q8R/rqg7yBV5OYTa9c4o=

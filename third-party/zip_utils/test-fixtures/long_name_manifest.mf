@@ -1,0 +1,32 @@
+Manifest-Version: 1.0
+
+Name: licenses.js
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: /l/z/SVJmYk2BfhebGlFGQ==
+SHA1-Digest: JFDqRTaWHVqdbTvXNLhuEZ24EBs=
+SHA256-Digest: cN6OAlcZ01WfJCU3s60SnvZETj9EWvPNykk8fWQV2BM=
+
+Name: backendRoot~backend_content~frontendLoadMsgRange~migrations~page_s
+ tage2.js
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: ny0KbHnNPwhav0UCh8Sp5Q==
+SHA1-Digest: 390u+VjvTxVbaDN2bVFeUKFjCHo=
+SHA256-Digest: tuSksDWa95SrPjnCMJbkPis9JK2qdWAqeta6/ThkWOQ=
+
+Name: 8.css
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: R9jdIh3q22huU7RpUVgn5g==
+SHA1-Digest: 83LPb2R7mYwK9jHG3izI45h4KvI=
+SHA256-Digest: TSiCLGHLvefOTnuhk0Kha0Xx9AA2Wqg+cptlloJfvXw=
+
+Name: youtube.js
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: gCH60pBlbg25bccP8CGQEQ==
+SHA1-Digest: kBAUx8AQdMeInrkfe9FFAHW1ZcE=
+SHA256-Digest: F0HPE6TFwCez2Ga449yA7BN37NP193v76t2GuvhMjQ8=
+
+Name: META-INF/ids.json
+Digest-Algorithms: MD5 SHA1 SHA256
+MD5-Digest: J7Ulo1FkjC77Xds2p3bBfQ==
+SHA1-Digest: Pmoei6klZHpqE1XOVpqWOLDiYqg=
+SHA256-Digest: YBTvmRJip92njQ/lqzasCcsyyNT8rD4FdNxL8Q0E2Ew=

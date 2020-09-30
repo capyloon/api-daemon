@@ -1,0 +1,4 @@
+interface ImportedType {
+    group: int
+    timestamp: int
+}

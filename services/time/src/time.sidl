@@ -1,0 +1,10 @@
+// SIDL for time service
+#[rust:not-tracked]
+interface Time {
+
+    fn set(time : date)
+
+    fn get() -> date
+}
+
+service TimeService: Time

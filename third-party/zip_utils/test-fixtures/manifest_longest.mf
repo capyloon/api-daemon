@@ -1,0 +1,28 @@
+Manifest-Version: 1.0
+
+Name: index.js
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: Xex2hOYQl0Xvufq4n1rIkw==
+SHA1-Digest: ltWPbFLx8ffPk9Cbh+ZAjVfLHjM=
+
+Name: index.html
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: DUWHJ/aBmhL3WN5Vit8rlQ==
+SHA1-Digest: JCh76iB7mz1ZnLMBiLhRAlm+4lQ=
+
+Name: Longest_file_name_is_138_as_signing_tool_xxxxxxxxxxxxxxxxxxxxxxxxx
+ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx138
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: j9WEfQvShYCMV+H1VUAbBg==
+SHA1-Digest: 82ZW7CrVoMdttYe07aJJkHr7tPk=
+
+Name: File_name_length_is_67_just_one_more_line_xxxxxxxxxxxxxxxxxxxxxxxx
+ 3
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: jnBlDraQJuplGVaaIBywOA==
+SHA1-Digest: oKozUUs4mGUMKSFS6MLwgr7gFMQ=
+
+Name: manifest.webapp
+Digest-Algorithms: MD5 SHA1
+MD5-Digest: 3MStA6T0E4HjvY2WqW6l2g==
+SHA1-Digest: Dq0S0487Lc0Z2ER9UUMzGMDP0dA=

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DeviceCapability Service Tests</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/devicecapability/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+
+    <script>
+      async function run_tests() {
+        let tester = await test_service(
+          lib_devicecapability.DeviceCapabilityManager,
+          "client-1"
+        );
+
+        await tester.assert_eq(
+          "get device.bt from pref",
+          (service) => service.get("device.bt"),
+          true
+        );
+
+        await tester.assert_eq(
+          "get ro.teereader.enabled from android property",
+          (service) => service.get("ro.teereader.enabled"),
+          false
+        );
+
+        await tester.assert_rej_eq(
+          "get non-existing name",
+          (service) => service.get("this-name-does-not-exist"),
+          {}
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,57 @@
+{
+  "name":"CIAutoTest",
+  "userAgentInfo":"ci-auto-test",
+  "description":"Test app for CI. DO NOT DELETE.",
+  "launch_path":"/index.html",
+  "default_locale":"en-US",
+  "type": "privileged",
+  "locales":{
+    "en-US":{
+      "name":"CIAutoTest",
+      "description":"CIAutoTest1"
+    },
+    "zh-TW":{
+      "name":"自動測試",
+      "description":"自動測試"
+    }
+  },
+  "icons":{
+    "64":"/style/icons/Default.png"
+  },
+  "chrome":{"statusbar":"overlap"},
+  "developer":{
+    "name": "Seinlin",
+    "url": "https://seinlin.org"
+  },
+  "b2g_features": {
+    "permissions": {
+      "bluetooth": {},
+      "camera": {},
+      "desktop-notification": {
+        "description": "Required for creating system notifications."
+      },
+      "flashlight": {},
+      "contacts": {
+        "access": "readwrite",
+        "description": "Required for contact viewer app"
+      },
+      "geolocation": {}
+    },
+    "activities": {
+      "sample-1": {
+        "disposition": "inline",
+        "href": "/index.html?i=1"
+      },
+      "sample-2": {
+        "disposition": "inline",
+        "href": "/index.html?i=2"
+      }
+    },
+    "messages": [
+      { "alarm": "/index.html" },
+      { "test-message": "/index.html" }
+    ]
+  },
+  "orientation":"default",
+  "version":"0.1"
+}

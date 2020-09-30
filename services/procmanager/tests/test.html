@@ -1,0 +1,65 @@
+<html>
+<script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+<script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+<script src="http://127.0.0.1:8081/api/v1/procmanager/service.js"></script>
+<script>
+
+function getService() {
+    return new Promise((resolve, reject) => {
+        let session = new lib_session.Session();
+        let sessionstate = {
+        onsessionconnected() {
+            lib_procmanager.ProcManager.get(session).then(resolve, reject);
+        },
+
+        onsessiondisconnected() {
+            reject("Session Disconnected");
+        }
+        };
+
+        // On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken when running the api-daemon.
+        session.open("websocket", "localhost:8081", "secrettoken", sessionstate);
+    });
+}
+
+function add(pid) {
+  var procmanager = null;
+  console.log("pid=" + pid);
+  let instance = getService().then(procmanager => {
+    return procmanager.begin("test").then(ok => {
+      console.log("begin");
+      return procmanager.add(pid, lib_procmanager.GroupType.FOREGROUND);
+    }).then(ok => {
+      console.log("add");
+      return procmanager.commit();
+    }).then(ok => {
+      console.log("commit");
+    });
+  }, () => {console.log("fail to getService");});
+}
+
+function reset() {
+  var procmanager = null;
+  console.log("Reset the API");
+  let instance = getService().then(procmanager => {
+    return procmanager.begin("test").then(ok => {
+      console.log("begin");
+      return procmanager.reset();
+    }).then(ok => {
+      console.log("reset");
+      return procmanager.commit();
+    }).then(ok => {
+      console.log("commit");
+    });
+  }, () => {console.log("fail to getService");});
+}
+
+reset();
+
+</script>
+<body>
+  <form action="javascript:add(parseInt(document.getElementById('pid').value))">
+    PID <input name="pid" id="pid" label="PID of a process" type="number" max="99999" maxlength="5" size="5"><input type="submit" value="Add to FOREGROUND">
+  </form>
+</body>
+</html>

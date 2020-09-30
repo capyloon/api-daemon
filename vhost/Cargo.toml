@@ -1,0 +1,20 @@
+[package]
+name = "vhost_server"
+version = "0.1.0"
+authors = ["Fabrice Desré <fabrice@desre.org>"]
+edition = "2018"
+
+[dependencies]
+actix-cors = "0.3"
+actix-web = { version = "3.0", features = ["rustls"] }
+actix-rt = "1.1"
+log = "0.4"
+mime_guess = "2.0"
+rustls = "0.18" # To match actix
+serde =  { version = "1.0", features = ["derive"] }
+zip = { git = "ssh://git@git.kaiostech.com/rust-forks/zip-rs.git", branch="omni-ja", default-features = false, features = ["deflate", "omnija"]}
+
+[dev-dependencies]
+env_logger = "0.7"
+futures = "0.3"
+webpki = "0.21"

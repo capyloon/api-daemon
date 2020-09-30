@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>TestService Tests</title>
+
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/test/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+
+    <script>
+      async function run_tests() {
+        let tester = await test_service(lib_test.TestService, "test-client");
+
+        let timeout_handler = tester.setup_event(tester.service.TIMEOUT_EVENT);
+
+        await tester.assert_eq(
+          "postpone(1000)",
+          (service) => service.postpone(1000),
+          true
+        );
+
+        await tester.assert_event_eq("timeout event", timeout_handler, {
+          status: true,
+          things: { one: 1, two: "two" },
+        });
+
+        timeout_handler.stop();
+
+        let echo_obj = { foo: "bar", json: true, magic: 42 };
+        await tester.assert_eq(
+          "echo_json",
+          (service) => service.echoJson(echo_obj),
+          echo_obj
+        );
+
+        await tester.assert_eq("get state", (service) => service.state, true);
+
+        await tester.assert_eq(
+          "string arrays",
+          (service) => service.testStringArrays(["one", "two", "three"]),
+          3
+        );
+
+        let provider = await tester.service.getProvider();
+
+        let signal_handler = tester.setup_event_on(
+          provider,
+          provider.SIGNAL_EVENT
+        );
+
+        let input = "Hello World!";
+        await tester.assert_eq(
+          "provider do_it",
+          () => provider.doIt(input),
+          input.length
+        );
+
+        await tester.assert_event_eq("signal event", signal_handler, input);
+
+        signal_handler.stop();
+
+        let custom_provider = await tester.service.getSharedCustomProvider();
+        input = "Hello Custom Shared Provider!";
+        await tester.assert_eq(
+          "custom provider do_it",
+          () => custom_provider.doIt(input),
+          input.length
+        );
+
+        await tester.assert_eq(
+          "10k blob",
+          (service) => service.getBlob(10 * 1024),
+          10240,
+          (blob) => blob.length
+        );
+
+        await tester.assert_eq(
+          "optional absent",
+          (service) => service.optional(false),
+          null
+        );
+        await tester.assert_eq(
+          "optional present",
+          (service) => service.optional(true),
+          42
+        );
+
+        await tester.assert_eq(
+          "zero or more, zero",
+          (service) => service.zeroOrMore(true),
+          null
+        );
+        await tester.assert_eq(
+          "zero or more, more",
+          (service) => service.zeroOrMore(false),
+          [42, 32, 22]
+        );
+
+        await tester.assert_eq(
+          "zero or more bags, zero",
+          (service) => service.zeroOrMoreBags(true),
+          null
+        );
+
+        await tester.assert_eq(
+          "zero or more bags, more",
+          (service) => service.zeroOrMoreBags(false),
+          [
+            { one: 1, two: "a" },
+            { one: 2, two: "b" },
+            { one: 3, two: "c" },
+          ]
+        );
+
+        await tester.assert_eq(
+          "one or more bags, one",
+          (service) => service.oneOrMoreBags(true),
+          [{ one: 1, two: "a" }]
+        );
+
+        await tester.assert_eq(
+          "one or more bags, more",
+          (service) => service.oneOrMoreBags(false),
+          [
+            { one: 1, two: "a" },
+            { one: 2, two: "b" },
+            { one: 3, two: "c" },
+          ]
+        );
+
+        await tester.assert_eq(
+          "one or more, zero",
+          (service) => service.oneOrMore(true),
+          [42]
+        );
+        await tester.assert_eq(
+          "one or more, more",
+          (service) => service.oneOrMore(false),
+          [42, 32, 22]
+        );
+
+        await tester.assert_eq(
+          "arity dict all false",
+          (service) => service.arityDict(false, false, false),
+          {
+            zeroOrMore: [42, 32, 22],
+            oneOrMore: [42, 32, 22],
+            zeroOrMoreBags: [
+              { one: 1, two: "a" },
+              { one: 2, two: "b" },
+              { one: 3, two: "c" },
+            ],
+            oneOrMoreBags: [
+              { one: 1, two: "a" },
+              { one: 2, two: "b" },
+              { one: 3, two: "c" },
+            ],
+            enums: [0, 1, 2],
+          }
+        );
+
+        await tester.assert_eq(
+          "arity dict all true",
+          (service) => service.arityDict(true, true, true),
+          {
+            optional: 42,
+            oneOrMore: [42],
+            oneOrMoreBags: [{ one: 1, two: "a" }],
+            enums: [0],
+          }
+        );
+
+        await tester.assert_eq(
+          "echo optional arg present",
+          (service) => service.echoArgOptional(42),
+          42
+        );
+        await tester.assert_eq(
+          "echo optional arg absent",
+          (service) => service.echoArgOptional(),
+          null
+        );
+
+        await tester.assert_eq(
+          "echo one or more arg",
+          (service) => service.echoArgOneOrMore([42, 32,0x1234567890]),
+          [42, 32, 0x1234567890]
+        );
+
+        await tester.assert_eq(
+          "echo zero or more arg present",
+          (service) => service.echoArgZeroOrMore([42, 32]),
+          [42, 32]
+        );
+        await tester.assert_eq(
+          "echo zero or more arg absent",
+          (service) => service.echoArgZeroOrMore(),
+          null
+        );
+
+        let option = {
+          enabled: true,
+        };
+        await tester.assert_eq(
+          "configure option true",
+          (service) => service.configureOption(option),
+          "true"
+        );
+
+        option = {
+          enabled: false,
+        };
+        await tester.assert_eq(
+          "configure option false",
+          (service) => service.configureOption(option),
+          "false"
+        );
+
+        option = {};
+        await tester.assert_eq(
+          "configure option no value",
+          (service) => service.configureOption(option),
+          "unknown"
+        );
+
+        // Testing the callbacks.
+        let called_me = null;
+        let promise = new Promise((resolve) => {
+          called_me = resolve;
+        });
+
+        class MyCallback extends lib_test.CallbackBase {
+          constructor(service, session) {
+            super(service.id, session);
+          }
+
+          display() {
+            return "MyCallback !";
+          }
+
+          handle(input) {
+            console.log(`MyCallback::handle(${input})`);
+            called_me(true);
+            return Promise.resolve(true);
+          }
+        }
+
+        let callback = new MyCallback(tester.service, tester.session);
+        await tester.assert_eq(
+          "add observer",
+          (service) => service.addObserver("foo", callback),
+          {}
+        );
+
+        await tester.assert_eq("wait for callback", (service) => promise, true);
+
+        // Test Date data type.
+        let start = new Date();
+        let expected_date = new Date();
+        expected_date.setTime(start.getTime() + 3600);
+        await tester.assert_eq(
+          "date type",
+          (service) => service.addTime(start, 3600 /* one hour */),
+          expected_date
+        );
+
+        // Test nested dictionary
+        await tester.assert_eq(
+          "nested dictionary",
+          (service) => service.generateTimeoutEvent(),
+          { status: true, things: { one: 1, two: "two" } }
+        );
+
+        await tester.assert_rej_eq(
+          "missing permission error",
+          (service) => service.missingPermission(),
+          {
+            permission: "test-permission",
+            message: "The missing_permission() function needs a permission!",
+          }
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

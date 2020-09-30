@@ -1,0 +1,11 @@
+[package]
+name = "android_utils"
+version = "0.1.0"
+authors = ["Fabrice Desré <fabrice@desre.org>"]
+edition = "2018"
+
+[dependencies]
+libc = "0.2"
+log = "0.4"
+procfs = "0.8"
+thiserror = "1.0"

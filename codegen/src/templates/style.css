@@ -1,0 +1,77 @@
+body {
+  font-family: sans-serif;
+  padding: 3em;
+}
+
+.pre {
+  background-color: lightgray;
+  border: 1px solid gray;
+  padding: 1em;
+}
+
+.method {
+  border-bottom: 1px solid gray;
+  padding-bottom: 1em;
+}
+
+.param-list > span:not(:last-child)::after {
+  content: ", ";
+}
+
+.method-list,
+.event-list,
+.member-list {
+  list-style: none;
+}
+
+.method-list > li,
+.event-list > li {
+  display: inline-block;
+}
+
+.method-signature {
+  font-size: larger;
+  font-family: monospace;
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+}
+
+.param-name {
+  color: gray;
+}
+
+.param-type {
+  font-style: italic;
+  color: salmon;
+}
+
+.event-name,
+.member-name {
+  font-style: italic;
+}
+
+.dictionary-list,
+.enumeration-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.dictionary-list::before,
+.enumeration-list::before {
+  content: "{";
+}
+
+.dictionary-list::after,
+.enumeration-list::after {
+  content: "}";
+}
+
+.dictionary-list > li,
+.enumeration-list > li {
+  padding-left: 0.5em;
+}
+
+.dictionary-list > li:not(:last-child)::after,
+.enumeration-list > li:not(:last-child)::after {
+  content: ", ";
+}

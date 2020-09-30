@@ -1,0 +1,25 @@
+[general]
+host = "0.0.0.0"
+port = 8081
+message_max_time = 10
+verbose_log = false
+log_path = "/tmp"
+remote_services_config = "remote_config.toml"
+remote_services_path = "./remote/"
+socket_path = "/dev/socket/api-daemon"
+
+[http]
+root_path = "/tmp"
+
+[vhost]
+port = 8080
+root_path = "/tmp/apps"
+cert_path = "/tmp/cert.pem"
+key_path = "/tmp/key.pem"
+csp = "default-src * data: blob:; script-src 'self' http://127.0.0.1 https://shared.local; object-src 'none'; style-src 'self' 'unsafe-inline' https://lighttheme.local https://darktheme.local https://shared.local"
+
+[apps_service]
+root_path = "/tmp/test-fixtures/webapps"
+data_path = "/tmp/apps"
+uds_path = "/tmp/uds_tmp.sock"
+cert_type = "test"

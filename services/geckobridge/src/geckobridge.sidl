@@ -1,0 +1,88 @@
+// A service that provides api-daemon <-> Gecko integration
+// by letting Gecko install delegates for some features.
+
+callback AppsServiceDelegate {
+  fn on_boot(manifest_url: str, value: json)
+  fn on_install(manifest_url: str, value: json)
+  fn on_update(manifest_url: str, value: json)
+  fn on_uninstall(manifest_url: str)
+}
+
+callback PowerManagerDelegate {
+  fn set_screen_enabled(enabled: bool, is_external_screen: bool)
+}
+
+enum CardInfoType {
+  IMEI
+  IMSI
+  MSISDN
+}
+
+dictionary NetworkOperator {
+  mnc: str
+  mcc: str
+}
+
+callback MobileManagerDelegate {
+  // Get IMEI, IMSI and MSISDN.
+  fn get_card_info(serviceId: int, info_type: CardInfoType) -> str
+
+  // Get mobile operator code.
+  // serviceId is started from 0 to nsIMobileConnectionService.numItems - 1.
+  fn get_mnc_mcc(serviceId: int, isSim: bool) -> NetworkOperator
+}
+
+// Refer to nsINetworkInfo defined in nsINetworkInterface.idl.
+enum NetworkState {
+  NetworkStateUnknown
+  NetworkStateConnecting
+  NetworkStateConnected
+  NetworkStateDisconnecting
+  NetworkStateDisconnected
+  NetworkStateEnabled
+  NetworkStateDisabled
+  NetworkStateSuspended
+}
+
+enum NetworkType {
+  NetworkTypeUnknown
+  NetworkTypeWifi
+  NetworkTypeMobile
+  NetworkTypeMobileMms
+  NetworkTypeMobileSupl
+  NetworkTypeWifiP2p
+  NetworkTypeMobileIms
+  NetworkTypeMobileDun
+  NetworkTypeMobileFota
+  NetworkTypeEthernet
+  NetworkTypeMobileHipri
+  NetworkTypeMobileCbs
+  NetworkTypeMobileIa
+  NetworkTypeMobileEcc
+  NetworkTypeMobileXcap
+}
+
+dictionary NetworkInfo {
+  network_state: NetworkState
+  network_type: NetworkType
+}
+
+callback NetworkManagerDelegate {
+  // Get active network state and type.
+  fn get_network_info() -> NetworkInfo
+}
+
+#[rust:not-tracked]
+interface GeckoFeatures {
+  fn set_apps_service_delegate(delegate: AppsServiceDelegate)
+
+  fn set_power_manager_delegate(delegate: PowerManagerDelegate)
+  fn set_mobile_manager_delegate(delegate: MobileManagerDelegate)
+  fn set_network_manager_delegate(delegate: NetworkManagerDelegate)
+
+  fn char_pref_changed(pref_name: str, value: str)
+  fn int_pref_changed(pref_name: str, value: int)
+  fn bool_pref_changed(pref_name: str, value: bool)
+}
+
+service GeckoBridge: GeckoFeatures

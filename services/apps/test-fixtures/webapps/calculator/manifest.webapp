@@ -1,0 +1,25 @@
+{
+  "name": "Calculator",
+  "description": "Calculator",
+  "launch_path": "/index.html",
+  "permissions": {
+    "themeable":{}
+  },
+  "type": "certified",
+  "default_locale": "en-US",
+  "theme_color": "#fbba32",
+  "locales": {
+    "en-US": {
+      "name": "Calculator",
+      "description": "Calculator"
+    }
+  },
+  "icons": {
+    "56": "/style/icons/calculator_56.png",
+    "112": "/style/icons/calculator_112.png"
+  },
+  "chrome": {
+    "statusbar": "overlap"
+  },
+  "orientation": "default"
+}

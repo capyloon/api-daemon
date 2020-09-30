@@ -1,0 +1,45 @@
+dictionary SettingInfo {
+  name: str
+  value: json
+}
+
+callback SettingObserver {
+  fn callback(setting: SettingInfo)
+}
+
+enum GetErrorReason {
+  UnknownError
+  NonExistingSetting
+}
+
+dictionary GetError {
+  name: str
+  reason: GetErrorReason
+}
+
+#[rust:not-tracked]
+interface SettingsFactory {
+  // Clears the whole settings database. Use with care!
+  fn clear()
+
+  // Set the values for a collection of settings.
+  fn set(settings: SettingInfo+)
+
+  // Resolve to the named setting, or rejects if it doesn't exist.
+  fn get(name: str) -> SettingInfo, GetError
+
+  // Resolve to the named settings
+  fn get_batch(name: str+) -> SettingInfo+
+
+  // Adds an observer for a given setting name.
+  fn add_observer(name: str, observer: SettingObserver)
+
+  // Removes an observer for a given setting name.
+  fn remove_observer(name: str, observer: SettingObserver)
+
+  // This event handler will receive all settings changes.
+  event change -> SettingInfo
+}
+
+#[permission=settings:read]
+service SettingsManager: SettingsFactory

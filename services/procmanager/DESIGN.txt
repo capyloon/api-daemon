@@ -1,0 +1,45 @@
+** Make Changes Only
+
+This service provides a way to move processes around groups, but it
+doesn't provide any features to read what group a process is in.  So,
+the client should keep the track of groups and processes.
+
+If a client loses the track of groups for any reason; like the
+recovery after a crash, it should reset the API and assign a group for
+each known process again to make sure every processes are in a right
+group.
+
+** Transactions
+
+All changes should be made in transactions.  Transactions are started
+by calling |begin()|, and stopped by calling |end()|.  No any pair of
+transactions are overlaid in a session.
+
+** Groups
+
+All groups and their attributes should be defined with a separated API
+or initialized at bootstrap.  This API will be used only to move
+processes among groups.
+
+** Inconsistent
+
+Sometime, the process of this API may be not consistent with the
+client.  For example, a process is crashed before committing a
+transaction.  When it happens, the API would skip changes against the
+process crashed.
+
+** Monitor Processes
+
+The client it-self should aware crashed processes, and ask the API
+to remove them.
+
+** Process Killer
+
+We will implement a killer to kill process when APPs need more memory.
+Why is wrong with LMK?  The problem of lmk is basing on current memory
+usage while we want to consider more heuristics.  For example, we want
+to kill background processes before a big APP we known exhausting out
+the available memory.
+
+The process killer will behave basing on the information of
+groups(cgroups) and heuristics to archieve a better performanace.

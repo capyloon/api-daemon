@@ -1,0 +1,57 @@
+enum GroupType {
+  foreground
+  background
+
+  // background processes, but the system will try to keep them in
+  // memory as long as possible.
+  try_to_keep
+}
+
+// The client should know all processes and their groups, so this
+// interface doesn't provide any way to enumerate them.
+//
+// To change process groups, you should begin a new generation at first.
+// And, make changes on the generation and commit the genration to
+// finish and apply changing.
+//
+// Generations can be aborted to keep the older generation not
+// touched.
+//
+#[rust:not-tracked]
+interface ProcessService {
+  // Reset all groups.  All processes are moved to the root group, out
+  // of foreground, background and try_to_keep.
+  fn reset()
+
+  // Create and begin to work on a new generation.
+  //
+  // @caller is only used to identify clients for trouble shooting.
+  //
+  fn begin(caller: str)
+
+  // Make the current uncommitted generation active.
+  fn commit()
+
+  // Drop the current uncommitted generation.
+  fn abort()
+
+  // remove() is always called before add().
+  fn remove(pid: int) -> bool
+
+  // Adding a process to a group will remove it from the current group
+  // if there is.
+  fn add(pid: int, group: GroupType) -> bool
+
+  // Test if there is a uncommitted generation.
+  //
+  // Without this function, clients can not tell if there is an
+  // existing uncommitted generation with an instance of the service.
+  // For error recovering, clients may abort the existing
+  // uncommited generation before start a new one if they don't want
+  // to reuse it.
+  //
+  fn pending() -> bool
+}
+
+#[permission=process-manager]
+service ProcManager: ProcessService
