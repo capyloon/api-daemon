@@ -120,14 +120,6 @@ rustflags = [
 ]
 EOF
 
-    # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
-    unset CFLAGS
-
-    # for `libcurl``
-    export PKG_CONFIG_ALLOW_CROSS=1
-
-    cargo build --verbose --target=${TARGET_TRIPLE} ${OPT} -p backtrace -p ring
-
     export CC=${TOOLCHAIN_CC}
     export CXX=${TOOLCHAIN_CXX}
     export LD=${TOOLCHAIN_CC}
