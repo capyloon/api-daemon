@@ -144,7 +144,10 @@ macro_rules! declare_services {
                     let origin_attributes = session.origin_attributes.clone().unwrap();
 
                     if !$crate_name::generated::service::check_service_permission(&origin_attributes) {
-                        error!("Could not create service {}: required permission not present.", stringify!(service));
+                        error!(
+                            "Could not create service {}: required permission not present.",
+                            $crate_name::generated::service::SERVICE_NAME
+                        );
                     } else if let Some(s) = $service::create(
                         &origin_attributes,
                         session.context.clone(),
@@ -158,7 +161,10 @@ macro_rules! declare_services {
                             service: id,
                         });
                     } else {
-                        error!("Could not create service {} !", stringify!(service));
+                        error!(
+                            "Could not create service {} !",
+                            $crate_name::generated::service::SERVICE_NAME
+                        );
                     }
                 }
             )*
