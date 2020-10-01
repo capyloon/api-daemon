@@ -87,5 +87,5 @@ $(LOCAL_INSTALLED_MODULE):
 ifneq ($(PREBUILT_CA_BUNDLE),)
 	@cp $(PREBUILT_CA_BUNDLE) -f $@
 else
-	@perl $(MK_CA_BUNDLE) -d $(CERTDATA_FILE) -n -f $@
+	@perl $(MK_CA_BUNDLE) -d $(CERTDATA_FILE) -f $@
 endif
