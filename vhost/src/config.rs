@@ -45,4 +45,8 @@ impl VhostApi {
     pub fn app_uninstalled(&mut self, name: &str) {
         self.remove_from_cache(name);
     }
+
+    pub fn app_disabled(&mut self, name: &str) {
+        self.remove_from_cache(name);
+    }
 }

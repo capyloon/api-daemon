@@ -5,6 +5,7 @@ use crate::generated::common::*;
 use crate::shared_state::AppsSharedData;
 use common::traits::Shared;
 use log::{error, info};
+use std::env;
 
 pub struct InstallPackageTask(
     pub Shared<AppsSharedData>,
@@ -184,5 +185,42 @@ impl AppMgmtTask for CheckForUpdateTask {
                 responder.reject(err);
             }
         }
+    }
+}
+
+pub struct SetEnabledTask(
+    pub Shared<AppsSharedData>,
+    pub String,                        // manifest url
+    pub AppsStatus,                    // App status
+    pub AppsEngineSetEnabledResponder, // responder
+);
+
+impl AppMgmtTask for SetEnabledTask {
+    fn run(&self) {
+        let mut shared = self.0.lock();
+        let manifest_url = &self.1;
+        let status = self.2;
+        let responder = &self.3;
+        let current = env::current_dir().unwrap();
+        let root_path = current.join(shared.config.root_path.clone());
+        let data_path = current.join(shared.config.data_path.clone());
+        match shared
+            .registry
+            .set_enabled(&manifest_url, status, &data_path, &root_path)
+        {
+            Ok((app, changed)) => {
+                if changed {
+                    if status == AppsStatus::Disabled {
+                        shared.vhost_api.app_disabled(&app.name);
+                    }
+                    shared
+                        .registry
+                        .event_broadcaster
+                        .broadcast_appstatus_changed(app.clone());
+                }
+                responder.resolve(app);
+            }
+            Err(err) => responder.reject(err),
+        };
     }
 }

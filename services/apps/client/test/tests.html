@@ -155,6 +155,34 @@
           AppsServiceError.APP_NOT_FOUND
         );
 
+        let on_status_chaged_handler = tester.setup_event(tester.service.APPSTATUS_CHANGED_EVENT);
+        await tester.assert_eq(
+          "set disable",
+          service => service.setEnabled("https://ciautotest.local/manifest.webapp", lib_apps.AppsStatus.DISABLED),
+          status_expected(1)
+        );
+        await tester.assert_event_eq("on status changed event", on_status_chaged_handler, status_expected(1));
+
+        await tester.assert_eq(
+          "set enabled",
+          service => service.setEnabled("https://ciautotest.local/manifest.webapp", lib_apps.AppsStatus.ENABLED),
+          status_expected(0)
+        );
+        await tester.assert_event_eq("on status changed event", on_status_chaged_handler, status_expected(0));
+        on_status_chaged_handler.stop();
+
+        await tester.assert_eq(
+          "set disable launcher",
+          service => service.setEnabled("https://launcher.local/manifest.webapp", lib_apps.AppsStatus.DISABLED),
+          launcher_status_expected(1)
+        );
+
+        await tester.assert_eq(
+          "set enabled launcher",
+          service => service.setEnabled("https://launcher.local/manifest.webapp", lib_apps.AppsStatus.ENABLED),
+          launcher_status_expected(0)
+        );
+
 // Test uninstall
         let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);
         await tester.assert_eq(

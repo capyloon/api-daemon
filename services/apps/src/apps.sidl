@@ -102,6 +102,10 @@ interface AppsEngine {
   event appUpdateAvailable -> AppsObject
   // Report the manifest URL which is uninstalled successfully.
   event appUninstalled -> str
+
+  event appstatusChanged -> AppsObject
+
+  fn setEnabled(manifest_url: str, status: AppsStatus) -> AppsObject, AppsServiceError
 }
 
 #[permission=webapps-manage]

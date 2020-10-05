@@ -15,6 +15,14 @@ function update_expected(updateState) {
   return {"name":"ciautotest","installState":0,"manifestUrl":"https://ciautotest.local/manifest.webapp","status":0,"updateState":updateState,"updateUrl":"http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json","allowedAutoDownload":false};
 }
 
+function status_expected(status) {
+  return {"name":"ciautotest","installState":0,"manifestUrl":"https://ciautotest.local/manifest.webapp","status":status,"updateState":0,"updateUrl":"https://api.kaiostech.com/apps/manifest/RZzvAt4g1Je76j4CycaM","allowedAutoDownload":false};
+}
+
+function launcher_status_expected(status) {
+    return {"name":"launcher","installState":0,"manifestUrl":"https://launcher.local/manifest.webapp","status":status,"updateState":0,"updateUrl":"","allowedAutoDownload":false};
+}
+
 var get_all_expected0 = [ calculator_expected, gallery_expected, system_expected, launcher_expected ];
 
 var get_all_expected1 = [ calculator_expected, gallery_expected, system_expected, launcher_expected, install_expected(0) ];

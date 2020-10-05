@@ -2,7 +2,9 @@
 use super::shared_state::*;
 use crate::generated::common::*;
 use crate::generated::service::*;
-use crate::tasks::{CheckForUpdateTask, InstallPackageTask, UninstallTask, UpdateTask};
+use crate::tasks::{
+    CheckForUpdateTask, InstallPackageTask, SetEnabledTask, UninstallTask, UpdateTask,
+};
 use common::core::BaseMessage;
 use common::traits::{
     DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
@@ -86,6 +88,22 @@ impl AppsEngineMethods for AppsService {
     fn uninstall(&mut self, responder: &AppsEngineUninstallResponder, manifest_url: String) {
         info!("uninstall: {}", &manifest_url);
         let task = UninstallTask(self.shared_data.clone(), manifest_url, responder.clone());
+        self.shared_data.lock().registry.queue_task(task);
+    }
+
+    fn set_enabled(
+        &mut self,
+        responder: &AppsEngineSetEnabledResponder,
+        manifest_url: String,
+        status: AppsStatus,
+    ) {
+        info!("set_enabled: {:?}, for {}", &status, &manifest_url);
+        let task = SetEnabledTask(
+            self.shared_data.clone(),
+            manifest_url,
+            status,
+            responder.clone(),
+        );
         self.shared_data.lock().registry.queue_task(task);
     }
 }

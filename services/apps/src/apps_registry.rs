@@ -680,14 +680,10 @@ impl AppsRegistry {
                 let path = Path::new(&data_path);
                 let installed_dir = path.join("installed").join(app_name);
                 let webapp_dir = path.join(app_name);
-                if let Err(err) = remove_file(&webapp_dir) {
-                    error!("Uninstall remove webapp dir failed: {:?}", err);
-                    return Err(AppsServiceError::FilesystemFailure);
-                }
-                if let Err(err) = remove_dir_all(&installed_dir) {
-                    error!("Uninstall remove installed dir failed: {:?}", err);
-                    return Err(AppsServiceError::FilesystemFailure);
-                }
+
+                let _ = remove_file(&webapp_dir);
+                let _ = remove_dir_all(&installed_dir);
+
                 Ok(manifest_url)
             }
             Err(err) => {
@@ -741,6 +737,49 @@ impl AppsRegistry {
             }
         }
         Ok(())
+    }
+
+    pub fn set_enabled(
+        &mut self,
+        manifest_url: &str,
+        status: AppsStatus,
+        data_dir: &Path,
+        root_dir: &Path,
+    ) -> Result<(AppsObject, bool), AppsServiceError> {
+        if let Some(mut app) = self.get_by_manifest_url(manifest_url) {
+            let mut status_changed = false;
+            if app.get_status() == status {
+                return Ok((AppsObject::from(&app), status_changed));
+            }
+
+            status_changed = true;
+            if let Some(ref mut db) = &mut self.db {
+                let _ = db
+                    .update_status(manifest_url, status)
+                    .map_err(|_| AppsServiceError::FilesystemFailure)?;
+
+                if status == AppsStatus::Disabled {
+                    let app_data_dir = data_dir.join(&app.get_name());
+                    let _ = remove_file(&app_data_dir);
+                } else if status == AppsStatus::Enabled {
+                    let installed_dir = data_dir.join("installed").join(&app.get_name());
+                    let app_data_dir = data_dir.join(&app.get_name());
+                    let app_root_dir = root_dir.join(&app.get_name());
+                    if installed_dir.exists() {
+                        let _ = symlink(&installed_dir, &app_data_dir);
+                    } else if app_root_dir.exists() {
+                        let _ = symlink(&app_root_dir, &app_data_dir);
+                    }
+                }
+                app.set_status(status);
+
+                return Ok((AppsObject::from(&app), status_changed));
+            } else {
+                Err(AppsServiceError::InvalidState)
+            }
+        } else {
+            return Err(AppsServiceError::AppNotFound);
+        }
     }
 }
 
@@ -1191,6 +1230,7 @@ fn test_apply_download() {
     let _root_dir = format!("{}/test-fixtures/webapps", current.display());
     let _test_dir = format!("{}/test-fixtures/test-apps-dir-apply", current.display());
     let test_path = Path::new(&_test_dir);
+    let root_path = Path::new(&_root_dir);
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
@@ -1320,6 +1360,56 @@ fn test_apply_download() {
         assert_eq!(app_name, "helloworld");
     } else {
         assert!(false);
+    }
+
+    {
+        match registry.get_by_manifest_url(&manifest_url) {
+            Some(app) => {
+                assert_eq!(app.get_status(), AppsStatus::Enabled);
+            }
+            None => assert!(false),
+        }
+
+        if let Ok((app, changed)) =
+            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path, &root_path)
+        {
+            assert_eq!(app.status, AppsStatus::Enabled);
+            assert!(!changed);
+        } else {
+            assert!(false);
+        }
+
+        if let Ok((app, changed)) =
+            registry.set_enabled(&manifest_url, AppsStatus::Disabled, &test_path, &root_path)
+        {
+            assert_eq!(app.status, AppsStatus::Disabled);
+            assert!(changed);
+        } else {
+            assert!(false);
+        }
+
+        match registry.get_by_manifest_url(&manifest_url) {
+            Some(app) => {
+                assert_eq!(app.get_status(), AppsStatus::Disabled);
+            }
+            None => assert!(false),
+        }
+
+        if let Ok((app, changed)) =
+            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path, &root_path)
+        {
+            assert_eq!(app.status, AppsStatus::Enabled);
+            assert!(changed);
+        } else {
+            assert!(false);
+        }
+
+        match registry.get_by_manifest_url(&manifest_url) {
+            Some(app) => {
+                assert_eq!(app.get_status(), AppsStatus::Enabled);
+            }
+            None => assert!(false),
+        }
     }
 }
 

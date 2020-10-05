@@ -331,4 +331,17 @@ impl RegistryDb {
         tx.commit()?;
         Ok(())
     }
+
+    pub fn update_status(&mut self, manifest_url: &str, status: AppsStatus) -> Result<(), Error> {
+        let status: String = status.into();
+        debug!("RegistryDb::update_status {} for {}", status, manifest_url);
+        let connection = self.db.mut_connection();
+        let tx = connection.transaction()?;
+        {
+            let mut stmt = tx.prepare("UPDATE apps SET status = ?1 WHERE manifest_url = ?2")?;
+            stmt.execute(&[&status, manifest_url])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
