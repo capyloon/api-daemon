@@ -14,6 +14,7 @@ pub struct GeckoBridgeService {
     id: TrackerId,
     proxy_tracker: GeckoBridgeProxyTracker,
     state: Shared<GeckoBridgeState>,
+    only_register_token: bool,
 }
 
 impl GeckoBridge for GeckoBridgeService {
@@ -29,6 +30,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         pref_name: String,
         value: bool,
     ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
         self.state.lock().set_bool_pref(pref_name, value);
         responder.resolve();
     }
@@ -39,6 +44,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         pref_name: String,
         value: String,
     ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
         self.state.lock().set_char_pref(pref_name, value);
         responder.resolve();
     }
@@ -49,6 +58,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         pref_name: String,
         value: i64,
     ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
         self.state.lock().set_int_pref(pref_name, value);
         responder.resolve();
     }
@@ -58,6 +71,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         responder: &GeckoFeaturesSetPowerManagerDelegateResponder,
         delegate: ObjectRef,
     ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
         // Get the proxy and update our state.
         match self.proxy_tracker.get(&delegate) {
             Some(GeckoBridgeProxy::PowerManagerDelegate(delegate)) => {
@@ -78,6 +95,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         responder: &GeckoFeaturesSetAppsServiceDelegateResponder,
         delegate: ObjectRef,
     ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
         // Get the proxy and update our state.
         match self.proxy_tracker.get(&delegate) {
             Some(GeckoBridgeProxy::AppsServiceDelegate(delegate)) => {
@@ -98,6 +119,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         responder: &GeckoFeaturesSetMobileManagerDelegateResponder,
         delegate: ObjectRef,
     ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
         // Get the proxy and update our state.
         match self.proxy_tracker.get(&delegate) {
             Some(GeckoBridgeProxy::MobileManagerDelegate(delegate)) => {
@@ -118,6 +143,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         responder: &GeckoFeaturesSetNetworkManagerDelegateResponder,
         delegate: ObjectRef,
     ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
         // Get the proxy and update our state.
         match self.proxy_tracker.get(&delegate) {
             Some(GeckoBridgeProxy::NetworkManagerDelegate(delegate)) => {
@@ -184,17 +213,17 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
             return None;
         }
 
-        // We only allow a single instance of this service.
-        if state.lock().is_ready() {
-            error!("Creating several instances of the GeckoBridge service is forbidden!");
-            return None;
-        }
+        // We only allow a single instance of this service to change delegates.
+        // Content processes that will connect afterwards can still use it
+        // to register tokens.
+        let only_register_token = state.lock().is_ready();
 
         let service_id = helper.session_tracker_id().service();
         Some(GeckoBridgeService {
             id: service_id,
             proxy_tracker: HashMap::new(),
             state,
+            only_register_token,
         })
     }
 
