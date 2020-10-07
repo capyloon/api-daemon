@@ -1,14 +1,15 @@
 /// A simple vhost http server.
+use crate::config::VhostApi;
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
+use common::traits::Shared;
 use log::info;
 use rustls::{
     internal::pemfile::{certs, pkcs8_private_keys},
     NoClientAuth, ServerConfig as RustlsServerConfig,
 };
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::thread;
 
 pub mod config;
@@ -35,8 +36,16 @@ fn get_tls_server_config(config: &config::Config) -> Result<RustlsServerConfig, 
 }
 
 // Starts the server in its own thread.
-pub fn start_server(config: &config::Config) {
+pub fn start_server(config: &config::Config) -> config::VhostApi {
     let config = config.clone();
+    let app_data = Shared::adopt(AppData {
+        root_path: config.root_path.clone(),
+        csp: config.csp.clone(),
+        zips: HashMap::new(),
+    });
+
+    let vhost_api = VhostApi::new(app_data.clone());
+
     thread::Builder::new()
         .name("virtual host server".into())
         .spawn(move || {
@@ -52,15 +61,9 @@ pub fn start_server(config: &config::Config) {
                 Err(_) => return,
             };
 
-            let app_data = AppData {
-                root_path: config.root_path.clone(),
-                csp: config.csp.clone(),
-                zips: HashMap::new(),
-            };
-
             HttpServer::new(move || {
                 App::new()
-                    .data(RwLock::new(app_data.clone()))
+                    .data(app_data.clone())
                     .wrap(Logger::new("\"%r\" %{Host}i %s %b %D")) // Custom log to display the vhost
                     .wrap(Cors::new().send_wildcard().finish())
                     .route("/{filename:.*}", web::get().to(vhost))
@@ -73,6 +76,8 @@ pub fn start_server(config: &config::Config) {
             let _ = sys.run();
         })
         .expect("Failed to start vhost server thread");
+
+    vhost_api
 }
 
 // Testing need the client to have host names configured properly:

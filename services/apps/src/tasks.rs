@@ -36,6 +36,7 @@ impl AppMgmtTask for InstallPackageTask {
         match shared.registry.download_and_apply(&data_path, &url, false) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
+                shared.vhost_api.app_installed(&app.name);
                 responder.resolve(app.clone());
                 shared
                     .registry
@@ -89,6 +90,7 @@ impl AppMgmtTask for UninstallTask {
             return responder.reject(err);
         }
 
+        shared.vhost_api.app_uninstalled(&app.name);
         responder.resolve(app.manifest_url.clone());
         shared
             .registry
@@ -126,6 +128,7 @@ impl AppMgmtTask for UpdateTask {
         {
             Ok(app) => {
                 info!("broadcast event: app_updated");
+                shared.vhost_api.app_updated(&app.name);
                 responder.resolve(app.clone());
                 shared.registry.event_broadcaster.broadcast_app_updated(app);
             }

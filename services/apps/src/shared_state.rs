@@ -4,6 +4,7 @@ use crate::apps_registry::AppsRegistry;
 use crate::config::Config;
 use crate::generated::common::*;
 use common::traits::Shared;
+use vhost_server::config::VhostApi;
 
 lazy_static! {
     pub(crate) static ref APPS_SHARED_SHARED_DATA: Shared<AppsSharedData> =
@@ -12,6 +13,7 @@ lazy_static! {
 
 pub struct AppsSharedData {
     pub config: Config,
+    pub vhost_api: VhostApi,
     pub state: AppsServiceState,
     pub registry: AppsRegistry,
 }
@@ -20,6 +22,7 @@ impl AppsSharedData {
     pub fn default() -> Self {
         AppsSharedData {
             config: Config::default(),
+            vhost_api: VhostApi::default(),
             state: AppsServiceState::Initializing,
             registry: AppsRegistry::default(),
         }

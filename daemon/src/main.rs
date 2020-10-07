@@ -125,6 +125,10 @@ fn main() {
 
         let global_context = GlobalContext::new(&config);
 
+        // Start the vhost server
+        #[cfg(feature = "virtual-host")]
+        let vhost_api = vhost_server::start_server(&config.vhost);
+
         #[cfg(feature = "apps-service")]
         {
             let service_state = global_context.service_state();
@@ -135,12 +139,12 @@ fn main() {
             };
             let mut shared = shared_data.lock();
             shared.config = config.apps_service;
+            #[cfg(feature = "virtual-host")]
+            {
+                shared.vhost_api = vhost_api;
+            }
             apps_service::start_registry(shared_data.clone());
         }
-
-        // Start the vhost server
-        #[cfg(feature = "virtual-host")]
-        vhost_server::start_server(&config.vhost);
 
         // Starts the web socket server in its own thread.
         let ws_context = global_context.clone();

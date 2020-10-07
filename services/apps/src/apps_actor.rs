@@ -277,6 +277,8 @@ pub fn install_package(
         .event_broadcaster
         .broadcast_app_installed(AppsObject::from(&apps_item));
 
+    shared.vhost_api.app_installed(&app_name);
+
     Ok(())
 }
 
@@ -306,6 +308,8 @@ pub fn uninstall_package(
         .registry
         .event_broadcaster
         .broadcast_app_uninstalled(manifest_url);
+
+    shared.vhost_api.app_uninstalled(&app_name);
 
     Ok(())
 }

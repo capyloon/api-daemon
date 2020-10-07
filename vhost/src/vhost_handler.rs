@@ -1,20 +1,21 @@
 /// A actix-web vhost handler
 use actix_web::http::header::{self, Header};
 use actix_web::{web, Error, HttpRequest, HttpResponse};
+use common::traits::Shared;
 use log::{debug, error};
 use mime_guess::{Mime, MimeGuess};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use zip::read::{ZipArchive, ZipFile};
 
-#[derive(Clone)]
-pub(crate) struct AppData {
-    pub(crate) root_path: String,
-    pub(crate) csp: String,
-    pub(crate) zips: HashMap<String, Arc<ZipArchive<File>>>,
+#[derive(Default)]
+pub struct AppData {
+    pub root_path: String,
+    pub csp: String,
+    pub zips: HashMap<String, Arc<ZipArchive<File>>>,
 }
 
 #[inline]
@@ -110,7 +111,7 @@ where
 // When using a Gaia debug profile, applications are not packaged so if application.zip doesn't
 // exist we try to map to $root_path/host/path/to/file.ext instead.
 pub(crate) async fn vhost(
-    data: web::Data<RwLock<AppData>>,
+    data: web::Data<Shared<AppData>>,
     req: HttpRequest,
 ) -> Result<HttpResponse, Error> {
     if let Some(host) = req.headers().get(header::HOST) {
@@ -133,7 +134,7 @@ pub(crate) async fn vhost(
             .ok_or_else(|| HttpResponse::BadRequest().finish())?;
 
         let (root_path, csp, has_zip) = {
-            let data = data.read().map_err(|_| internal_server_error())?;
+            let data = data.lock();
             (
                 data.root_path.clone(),
                 data.csp.clone(),
@@ -164,7 +165,7 @@ pub(crate) async fn vhost(
             if let Ok(file) = File::open(path) {
                 // Now add it to the map.
                 let archive = ZipArchive::new(file).map_err(|_| ())?;
-                let mut data = data.write().map_err(|_| internal_server_error())?;
+                let mut data = data.lock();
                 data.zips.insert(host.into(), Arc::new(archive));
             } else {
                 // No application.zip found, try a direct path mapping.
@@ -197,7 +198,7 @@ pub(crate) async fn vhost(
 
         // Now we are sure the zip archive is in our hashmap.
         // We still need a write lock because ZipFile.by_name()takes a `&mut self` parameter :(
-        let mut readlock = data.write().map_err(|_| internal_server_error())?;
+        let mut readlock = data.lock();
 
         match readlock.zips.get_mut(host) {
             Some(archive) => {

@@ -438,6 +438,7 @@ dependencies = [
  "thiserror",
  "threadpool",
  "version-compare",
+ "vhost_server",
  "zip",
  "zip_utils",
 ]
@@ -4147,6 +4148,7 @@ dependencies = [
  "actix-cors",
  "actix-rt",
  "actix-web",
+ "common",
  "env_logger 0.7.1",
  "futures 0.3.5",
  "log 0.4.11",
