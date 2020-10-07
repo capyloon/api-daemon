@@ -272,12 +272,21 @@ pub fn install_package(
         .apply_download(&mut apps_item, &download_dir, &manifest, &path, is_update)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
-    shared
-        .registry
-        .event_broadcaster
-        .broadcast_app_installed(AppsObject::from(&apps_item));
+    if is_update {
+        shared
+            .registry
+            .event_broadcaster
+            .broadcast_app_updated(AppsObject::from(&apps_item));
 
-    shared.vhost_api.app_installed(&app_name);
+        shared.vhost_api.app_updated(&app_name);
+    } else {
+        shared
+            .registry
+            .event_broadcaster
+            .broadcast_app_installed(AppsObject::from(&apps_item));
+
+        shared.vhost_api.app_installed(&app_name);
+    }
 
     Ok(())
 }
