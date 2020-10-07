@@ -32,10 +32,19 @@ pub struct EnumWriter;
 
 impl EnumWriter {
     pub fn declare<'a, W: Write>(enumeration: &'a Enumeration, sink: &'a mut W) -> Result<()> {
+        // whether we need to derive more modules.
+        let mut more_derived: String = Default::default();
+        if let Some(annotation) = &enumeration.annotation {
+            for derive in annotation.get_values("derive") {
+                more_derived += ", ";
+                more_derived += derive;
+            }
+        }
+
         // TODO: figure out if we have to serialize and deserialize based on usage.
         writeln!(
             sink,
-            "#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]"
+            "#[derive(Clone, PartialEq, Deserialize, Serialize, Debug{})]", more_derived
         )?;
         writeln!(sink, "pub enum {} {{", enumeration.name)?;
 
