@@ -104,4 +104,5 @@ interface AppsEngine {
   event appUninstalled -> str
 }
 
+#[permission=webapps-manage]
 service AppsManager: AppsEngine
