@@ -4,60 +4,66 @@
   feature = "nightly_slice_partition_dedup",
   feature(slice_partition_dedup)
 )]
-#![cfg_attr(feature = "nightly_const_generics", allow(incomplete_features))]
-#![cfg_attr(feature = "nightly_const_generics", feature(const_generics))]
+#![cfg_attr(feature = "nightly_const_generics", feature(min_const_generics, array_map))]
+#![cfg_attr(docs_rs, feature(doc_cfg))]
 #![warn(clippy::missing_inline_in_public_items)]
 #![warn(clippy::must_use_candidate)]
 #![warn(missing_docs)]
 
-//! Programmers can have a little vec, as a treat.
+//! `tinyvec` provides 100% safe vec-like data structures.
 //!
-//! ## What This Is
+//! ## Provided Types
+//! With no features enabled, this crate provides the [`ArrayVec`] type, which
+//! is an array-backed storage. You can push values into the array and pop them
+//! out of the array and so on. If the array is made to overflow it will panic.
 //!
-//! This crate provides 100% safe code alternatives to both
-//! [arrayvec](https://docs.rs/arrayvec) and
-//! [smallvec](https://docs.rs/smallvec).
+//! Similarly, there is also a [`SliceVec`] type available, which is a vec-like
+//! that's backed by a slice you provide. You can add and remove elements, but
+//! if you overflow the slice it will panic.
 //!
-//! Being 100% safe means that you have to have some sort of compromise compared
-//! to the versions using `unsafe`. In this case, the compromise is that the
-//! element type must implement `Default` to be usable in these vecs. However,
-//! that still allows you to use [quite a few
-//! types](https://doc.rust-lang.org/std/default/trait.Default.html#implementors),
-//! so I think that you'll find these vecs useful in many cases.
+//! With the `alloc` feature enabled, the crate also has a [`TinyVec`] type.
+//! This is an enum type which is either an `Inline(ArrayVec)` or a `Heap(Vec)`.
+//! If a `TinyVec` is `Inline` and would overflow it automatically transitions
+//! itself into being `Heap` mode instead of a panic.
 //!
-//! * [`ArrayVec`](ArrayVec) is an array-backed vec-like structure with a fixed
-//!   capacity. If you try to grow the length past the array's capacity it will
-//!   error or panic (depending on the method used).
-//! * (`alloc` feature) [`TinyVec`](TinyVec) is an enum that's either an
-//!   "Inline" `ArrayVec` or a "Heap" `Vec`. If it's Inline and you try to grow
-//!   the `ArrayVec` beyond its array capacity it will quietly transition into
-//!   Heap mode and then continue the operation.
+//! All of this is done with no `unsafe` code within the crate. Technically the
+//! `Vec` type from the standard library uses `unsafe` internally, but *this
+//! crate* introduces no new `unsafe` code into your project.
 //!
-//! ## Crate Goals
+//! The limitation is that the element type of a vec from this crate must
+//! support the [`Default`] trait. This means that this crate isn't suitable for
+//! all situations, but a very surprising number of types do support `Default`.
 //!
-//! 1) The crate is 100% safe code. Not just a safe API, there are also no
-//!    `unsafe` internals. `#![forbid(unsafe_code)]`.
-//! 2) No required dependencies.
-//!    * We might provide optional dependencies for extra functionality (eg:
-//!      `serde` compatibility).
-//! 3) The intended API is that, _as much as possible_, these types are
-//!    essentially a "drop-in" replacement for the standard [`Vec`](Vec::<T>)
-//!    type.
-//!    * Stable `Vec` methods that the vecs here also have should be the same
-//!      general signature.
-//!    * Unstable `Vec` methods are sometimes provided via a crate feature, but
-//!      if so they also require a Nightly compiler.
-//!    * Some methods are provided that _are not_ part of the `Vec` type, such
-//!      as additional constructor methods. In this case, the names are rather
-//!      long and whimsical in the hopes that they don't clash with any
-//!      possible future methods of `Vec`.
-//!    * If, in the future, `Vec` stabilizes a method that clashes with an
-//!      existing extra method here then we'll simply be forced to release a
-//!      2.y.z version. Not the end of the world.
-//!    * Some methods of `Vec` are simply inappropriate and will not be
-//!      implemented here. For example, `ArrayVec` cannot possibly implement
-//!      [`from_raw_parts`](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.from_raw_parts).
+//! ## Other Features
+//! * `grab_spare_slice` lets you get access to the "inactive" portions of an
+//!   ArrayVec.
+//! * `rustc_1_40` makes the crate assume a minimum rust version of `1.40.0`,
+//!   which allows some better internal optimizations.
+//! * `serde` provides a `Serialize` and `Deserialize` implementation for
+//!   [`TinyVec`] and [`ArrayVec`] types, provided the inner item also
+//!   has an implementation.
+//!
+//! ## API
+//! The general goal of the crate is that, as much as possible, the vecs here
+//! should be a "drop in" replacement for the standard library `Vec` type. We
+//! strive to provide all of the `Vec` methods with the same names and
+//! signatures. The exception is that the element type of some methods will have
+//! a `Default` bound that's not part of the normal `Vec` type.
+//!
+//! The vecs here also have a few additional methods that aren't on the `Vec`
+//! type. In this case, the names tend to be fairly long so that they are
+//! unlikely to clash with any future methods added to `Vec`.
+//!
+//! ## Stability
+//! * The `1.0` series of the crate works with Rustc `1.34.0` or later, though
+//!   you still need to have Rustc `1.36.0` to use the `alloc` feature.
+//! * The `2.0` version of the crate is planned for some time after the
+//!   `min_const_generics` stuff becomes stable. This would greatly raise the
+//!   minimum rust version and also allow us to totally eliminate the need for
+//!   the `Array` trait. The actual usage of the crate is not expected to break
+//!   significantly in this transition.
 
+#[allow(unused_imports)]
 use core::{
   borrow::{Borrow, BorrowMut},
   cmp::PartialEq,
@@ -83,6 +89,12 @@ pub use array::*;
 
 mod arrayvec;
 pub use arrayvec::*;
+
+mod arrayvec_drain;
+pub use arrayvec_drain::*;
+
+mod slicevec;
+pub use slicevec::*;
 
 #[cfg(feature = "alloc")]
 mod tinyvec;

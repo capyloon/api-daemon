@@ -30,12 +30,13 @@ impl Poller {
         let (read_stream, write_stream) = UnixStream::pair()?;
         read_stream.set_nonblocking(true)?;
         write_stream.set_nonblocking(true)?;
+
         let poller = Poller {
             kqueue_fd,
             read_stream,
             write_stream,
         };
-        poller.interest(
+        poller.add(
             poller.read_stream.as_raw_fd(),
             Event {
                 key: crate::NOTIFY_KEY,
@@ -52,48 +53,35 @@ impl Poller {
         Ok(poller)
     }
 
-    /// Inserts a file descriptor.
-    pub fn insert(&self, fd: RawFd) -> io::Result<()> {
-        if fd != self.read_stream.as_raw_fd() {
-            log::trace!("insert: fd={}", fd);
-        }
-
-        // Put the file descriptor in non-blocking mode.
-        let flags = syscall!(fcntl(fd, libc::F_GETFL))?;
-        syscall!(fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK))?;
-        Ok(())
+    /// Adds a new file descriptor.
+    pub fn add(&self, fd: RawFd, ev: Event) -> io::Result<()> {
+        // File descriptors don't need to be added explicitly, so just modify the interest.
+        self.modify(fd, ev)
     }
 
-    /// Sets interest in a read/write event on a file descriptor and associates a key with it.
-    pub fn interest(&self, fd: RawFd, ev: Event) -> io::Result<()> {
+    /// Modifies an existing file descriptor.
+    pub fn modify(&self, fd: RawFd, ev: Event) -> io::Result<()> {
         if fd != self.read_stream.as_raw_fd() {
-            log::trace!(
-                "interest: kqueue_fd={}, fd={}, ev={:?}",
-                self.kqueue_fd,
-                fd,
-                ev
-            );
+            log::trace!("add: kqueue_fd={}, fd={}, ev={:?}", self.kqueue_fd, fd, ev);
         }
 
-        let mut read_flags = libc::EV_ONESHOT | libc::EV_RECEIPT;
-        let mut write_flags = libc::EV_ONESHOT | libc::EV_RECEIPT;
-        if ev.readable {
-            read_flags |= libc::EV_ADD;
+        let read_flags = if ev.readable {
+            libc::EV_ADD | libc::EV_ONESHOT
         } else {
-            read_flags |= libc::EV_DELETE;
-        }
-        if ev.writable {
-            write_flags |= libc::EV_ADD;
+            libc::EV_DELETE
+        };
+        let write_flags = if ev.writable {
+            libc::EV_ADD | libc::EV_ONESHOT
         } else {
-            write_flags |= libc::EV_DELETE;
-        }
+            libc::EV_DELETE
+        };
 
         // A list of changes for kqueue.
         let changelist = [
             libc::kevent {
                 ident: fd as _,
                 filter: libc::EVFILT_READ,
-                flags: read_flags,
+                flags: read_flags | libc::EV_RECEIPT,
                 fflags: 0,
                 data: 0,
                 udata: ev.key as _,
@@ -101,7 +89,7 @@ impl Poller {
             libc::kevent {
                 ident: fd as _,
                 filter: libc::EVFILT_WRITE,
-                flags: write_flags,
+                flags: write_flags | libc::EV_RECEIPT,
                 fflags: 0,
                 data: 0,
                 udata: ev.key as _,
@@ -134,51 +122,10 @@ impl Poller {
         Ok(())
     }
 
-    /// Removes a file descriptor.
-    pub fn remove(&self, fd: RawFd) -> io::Result<()> {
-        if fd != self.read_stream.as_raw_fd() {
-            log::trace!("remove: kqueue_fd={}, fd={}", self.kqueue_fd, fd);
-        }
-
-        // A list of changes for kqueue.
-        let changelist = [
-            libc::kevent {
-                ident: fd as _,
-                filter: libc::EVFILT_READ,
-                flags: libc::EV_DELETE | libc::EV_RECEIPT,
-                fflags: 0,
-                data: 0,
-                udata: 0 as _,
-            },
-            libc::kevent {
-                ident: fd as _,
-                filter: libc::EVFILT_WRITE,
-                flags: libc::EV_DELETE | libc::EV_RECEIPT,
-                fflags: 0,
-                data: 0,
-                udata: 0 as _,
-            },
-        ];
-
-        // Apply changes.
-        let mut eventlist = changelist;
-        syscall!(kevent(
-            self.kqueue_fd,
-            changelist.as_ptr() as *const libc::kevent,
-            changelist.len() as _,
-            eventlist.as_mut_ptr() as *mut libc::kevent,
-            eventlist.len() as _,
-            ptr::null(),
-        ))?;
-
-        // Check for errors.
-        for ev in &eventlist {
-            if (ev.flags & libc::EV_ERROR) != 0 && ev.data != 0 && ev.data != libc::ENOENT as _ {
-                return Err(io::Error::from_raw_os_error(ev.data as _));
-            }
-        }
-
-        Ok(())
+    /// Deletes a file descriptor.
+    pub fn delete(&self, fd: RawFd) -> io::Result<()> {
+        // Simply delete interest in the file descriptor.
+        self.modify(fd, Event::none(0))
     }
 
     /// Waits for I/O events with an optional timeout.
@@ -210,7 +157,7 @@ impl Poller {
 
         // Clear the notification (if received) and re-register interest in it.
         while (&self.read_stream).read(&mut [0; 64]).is_ok() {}
-        self.interest(
+        self.modify(
             self.read_stream.as_raw_fd(),
             Event {
                 key: crate::NOTIFY_KEY,
@@ -233,7 +180,7 @@ impl Poller {
 impl Drop for Poller {
     fn drop(&mut self) {
         log::trace!("drop: kqueue_fd={}", self.kqueue_fd);
-        let _ = self.remove(self.read_stream.as_raw_fd());
+        let _ = self.delete(self.read_stream.as_raw_fd());
         let _ = syscall!(close(self.kqueue_fd));
     }
 }

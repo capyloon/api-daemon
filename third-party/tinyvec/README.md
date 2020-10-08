@@ -1,7 +1,5 @@
 [![License:Zlib](https://img.shields.io/badge/License-Zlib-brightgreen.svg)](https://opensource.org/licenses/Zlib)
-![Minimum Rust Version](https://img.shields.io/badge/Min%20Rust-1.36-green.svg)
-[![travis.ci](https://travis-ci.org/Lokathor/tinyvec.svg?branch=master)](https://travis-ci.org/Lokathor/tinyvec)
-[![AppVeyor](https://ci.appveyor.com/api/projects/status/wfnu1tyudka6jbk1/branch/master?svg=true)](https://ci.appveyor.com/project/Lokathor/tinyvec/branch/master)
+![Minimum Rust Version](https://img.shields.io/badge/Min%20Rust-1.34-green.svg)
 [![crates.io](https://img.shields.io/crates/v/tinyvec.svg)](https://crates.io/crates/tinyvec)
 [![docs.rs](https://docs.rs/tinyvec/badge.svg)](https://docs.rs/tinyvec/)
 
@@ -9,6 +7,13 @@
 
 # tinyvec
 
-A 100% safe crate of vec-like types.
+A 100% safe crate of vec-like types. `#![forbid(unsafe_code)]`
 
-For details, please see [the docs.rs documentation](https://docs.rs/tinyvec/)
+Main types are as follows:
+* `ArrayVec` is an array-backed vec-like data structure. It panics on overflow.
+* `SliceVec` is the same deal, but using a `&mut [T]`.
+* `TinyVec` (`alloc` feature) is an enum that's either an `Inline(ArrayVec)` or a `Heap(Vec)`. If a `TinyVec` is `Inline` and would overflow it automatically transitions to `Heap` and continues whatever it was doing.
+
+To attain this "100% safe code" status there is one compromise: the element type of the vecs must implement `Default`.
+
+For more details, please see [the docs.rs documentation](https://docs.rs/tinyvec/)

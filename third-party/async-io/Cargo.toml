@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "async-io"
-version = "1.1.5"
+version = "1.1.9"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "Async I/O and timers"
 homepage = "https://github.com/stjepang/async-io"
@@ -45,7 +45,7 @@ version = "1.4.1"
 version = "2.0.0"
 
 [dependencies.polling]
-version = "1.0.1"
+version = "2.0.0"
 
 [dependencies.vec-arena]
 version = "1.0.0"
@@ -75,5 +75,10 @@ version = "0.18.0"
 
 [target."cfg(target_os = \"linux\")".dev-dependencies.timerfd]
 version = "1.1.1"
+[target."cfg(unix)".dependencies.libc]
+version = "0.2.77"
+[target."cfg(windows)".dependencies.winapi]
+version = "0.3.9"
+features = ["winsock2"]
 [target."cfg(windows)".dev-dependencies.uds_windows]
 version = "0.1.5"

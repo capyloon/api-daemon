@@ -1,5 +1,6 @@
 /// A actix-web vhost handler
-use actix_web::http::header::{self, Header};
+use crate::etag::Etag;
+use actix_web::http::header::{self, Header, HeaderValue};
 use actix_web::{web, Error, HttpRequest, HttpResponse};
 use common::traits::Shared;
 use log::{debug, error};
@@ -34,38 +35,76 @@ fn mime_type_for(file_name: &str) -> Mime {
     }
 }
 
+fn maybe_not_modified(
+    if_none_match: Option<&HeaderValue>,
+    etag: &str,
+    mime: &Mime,
+) -> Option<HttpResponse> {
+    // Check if we have an etag from the If-None-Match header.
+    if let Some(if_none_match) = if_none_match {
+        if let Ok(value) = if_none_match.to_str() {
+            if etag.to_string() == value {
+                return Some(
+                    HttpResponse::NotModified()
+                        .content_type(mime.as_ref())
+                        .set_header("ETag", etag.to_string())
+                        .finish(),
+                );
+            }
+        }
+    }
+    None
+}
+
 // Naive conversion of a ZipFile into an HttpResponse.
 // TODO: streaming version.
-fn response_from_zip<'a>(zip: &mut ZipFile<'a>, csp: &str) -> HttpResponse {
+fn response_from_zip<'a>(
+    zip: &mut ZipFile<'a>,
+    csp: &str,
+    if_none_match: Option<&HeaderValue>,
+) -> HttpResponse {
+    // Check if we can return NotModified without reading the file content.
+    let etag = Etag::for_zip(&zip);
+    let mime = mime_type_for(zip.name());
+    if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime) {
+        return response;
+    }
+
     let mut buf = vec![];
     let _ = zip.read_to_end(&mut buf);
 
-    let mime = mime_type_for(zip.name());
-
     HttpResponse::Ok()
         .set_header("Content-Security-Policy", csp)
+        .set_header("ETag", etag.to_string())
         .content_type(mime.as_ref())
         .body(buf)
 }
 
 // Returns a http response for a given file path.
 // TODO: streaming version.
-fn response_from_file(path: &Path, csp: &str) -> HttpResponse {
+fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue>) -> HttpResponse {
     if let Ok(mut file) = File::open(path) {
+        // Check if we can return NotModified without reading the file content.
+        let etag = Etag::for_file(&file);
+        let file_name = path
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new(""))
+            .to_string_lossy();
+        let mime = mime_type_for(&file_name);
+        if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime) {
+            return response;
+        }
+
         let mut buf = vec![];
         if let Err(err) = file.read_to_end(&mut buf) {
             error!("Failed to read {} : {}", path.to_string_lossy(), err);
             return internal_server_error();
         }
 
-        let file_name = path
-            .file_name()
-            .unwrap_or_else(|| std::ffi::OsStr::new(""))
-            .to_string_lossy();
-        let mime = mime_type_for(&file_name);
         HttpResponse::Ok()
             .set_header("Content-Security-Policy", csp)
             .content_type(mime.as_ref())
+            .set_header("ETag", etag.to_string())
             .body(buf)
     } else {
         HttpResponse::NotFound().finish()
@@ -114,6 +153,8 @@ pub(crate) async fn vhost(
     data: web::Data<Shared<AppData>>,
     req: HttpRequest,
 ) -> Result<HttpResponse, Error> {
+    let if_none_match = req.headers().get(header::IF_NONE_MATCH);
+
     if let Some(host) = req.headers().get(header::HOST) {
         let host = host
             .to_str()
@@ -176,7 +217,7 @@ pub(crate) async fn vhost(
                     let full_path = Path::new(&path);
                     if full_path.exists() {
                         debug!("Direct Opening of {}", lang_file);
-                        return Some(response_from_file(&full_path, &csp));
+                        return Some(response_from_file(&full_path, &csp, if_none_match));
                     }
                     None
                 }) {
@@ -187,7 +228,7 @@ pub(crate) async fn vhost(
                         let full_path = Path::new(&path);
                         if full_path.exists() {
                             debug!("Direct Opening of {}", filename);
-                            Ok(response_from_file(&full_path, &csp))
+                            Ok(response_from_file(&full_path, &csp, if_none_match))
                         } else {
                             Ok(HttpResponse::NotFound().finish())
                         }
@@ -208,7 +249,7 @@ pub(crate) async fn vhost(
                 match check_lang_files(&languages, filename, &mut |lang_file| {
                     if let Ok(mut zip) = archive.by_name(&lang_file) {
                         debug!("Opening {}", lang_file);
-                        return Some(response_from_zip(&mut zip, &csp));
+                        return Some(response_from_zip(&mut zip, &csp, if_none_match));
                     }
                     None
                 }) {
@@ -216,7 +257,7 @@ pub(crate) async fn vhost(
                     Err(_) => {
                         // Default fallback
                         match archive.by_name(filename) {
-                            Ok(mut zip) => Ok(response_from_zip(&mut zip, &csp)),
+                            Ok(mut zip) => Ok(response_from_zip(&mut zip, &csp, if_none_match)),
                             Err(_) => Ok(HttpResponse::NotFound().finish()),
                         }
                     }

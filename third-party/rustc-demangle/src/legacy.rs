@@ -70,7 +70,7 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), ()> {
 
     let mut elements = 0;
     let mut chars = inner.chars();
-    let mut c = try!(chars.next().ok_or(()));
+    let mut c = chars.next().ok_or(())?;
     while c != 'E' {
         // Decode an identifier element's length.
         if !c.is_digit(10) {
@@ -78,25 +78,23 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), ()> {
         }
         let mut len = 0usize;
         while let Some(d) = c.to_digit(10) {
-            len = try!(len.checked_mul(10)
+            len = len
+                .checked_mul(10)
                 .and_then(|len| len.checked_add(d as usize))
-                .ok_or(()));
-            c = try!(chars.next().ok_or(()));
+                .ok_or(())?;
+            c = chars.next().ok_or(())?;
         }
 
         // `c` already contains the first character of this identifier, skip it and
         // all the other characters of this identifier, to reach the next element.
         for _ in 0..len {
-            c = try!(chars.next().ok_or(()));
+            c = chars.next().ok_or(())?;
         }
 
         elements += 1;
     }
 
-    Ok((Demangle {
-        inner: inner,
-        elements: elements,
-    }, chars.as_str()))
+    Ok((Demangle { inner, elements }, chars.as_str()))
 }
 
 // Rust hashes are hex digits with an `h` prepended.
@@ -118,11 +116,11 @@ impl<'a> fmt::Display for Demangle<'a> {
             rest = &rest[..i];
             // Skip printing the hash if alternate formatting
             // was requested.
-            if f.alternate() && element+1 == self.elements && is_rust_hash(&rest) {
+            if f.alternate() && element + 1 == self.elements && is_rust_hash(&rest) {
                 break;
             }
             if element != 0 {
-                try!(f.write_str("::"));
+                f.write_str("::")?;
             }
             if rest.starts_with("_$") {
                 rest = &rest[1..];
@@ -130,15 +128,15 @@ impl<'a> fmt::Display for Demangle<'a> {
             loop {
                 if rest.starts_with('.') {
                     if let Some('.') = rest[1..].chars().next() {
-                        try!(f.write_str("::"));
+                        f.write_str("::")?;
                         rest = &rest[2..];
                     } else {
-                        try!(f.write_str("."));
+                        f.write_str(".")?;
                         rest = &rest[1..];
                     }
                 } else if rest.starts_with('$') {
                     let (escape, after_escape) = if let Some(end) = rest[1..].find('$') {
-                        (&rest[1..end + 1], &rest[end + 2..])
+                        (&rest[1..=end], &rest[end + 2..])
                     } else {
                         break;
                     };
@@ -158,15 +156,16 @@ impl<'a> fmt::Display for Demangle<'a> {
                             if escape.starts_with('u') {
                                 let digits = &escape[1..];
                                 let all_lower_hex = digits.chars().all(|c| match c {
-                                    '0'...'9' | 'a'...'f' => true,
+                                    '0'..='9' | 'a'..='f' => true,
                                     _ => false,
                                 });
-                                let c = u32::from_str_radix(digits, 16).ok()
+                                let c = u32::from_str_radix(digits, 16)
+                                    .ok()
                                     .and_then(char::from_u32);
                                 if let (true, Some(c)) = (all_lower_hex, c) {
                                     // FIXME(eddyb) do we need to filter out control codepoints?
                                     if !c.is_control() {
-                                        try!(c.fmt(f));
+                                        c.fmt(f)?;
                                         rest = after_escape;
                                         continue;
                                     }
@@ -175,16 +174,16 @@ impl<'a> fmt::Display for Demangle<'a> {
                             break;
                         }
                     };
-                    try!(f.write_str(unescaped));
+                    f.write_str(unescaped)?;
                     rest = after_escape;
                 } else if let Some(i) = rest.find(|c| c == '$' || c == '.') {
-                    try!(f.write_str(&rest[..i]));
+                    f.write_str(&rest[..i])?;
                     rest = &rest[i..];
                 } else {
                     break;
                 }
             }
-            try!(f.write_str(rest));
+            f.write_str(rest)?;
         }
 
         Ok(())
@@ -196,23 +195,27 @@ mod tests {
     use std::prelude::v1::*;
 
     macro_rules! t {
-        ($a:expr, $b:expr) => (assert!(ok($a, $b)))
+        ($a:expr, $b:expr) => {
+            assert!(ok($a, $b))
+        };
     }
 
     macro_rules! t_err {
-        ($a:expr) => (assert!(ok_err($a)))
+        ($a:expr) => {
+            assert!(ok_err($a))
+        };
     }
 
     macro_rules! t_nohash {
-        ($a:expr, $b:expr) => ({
+        ($a:expr, $b:expr) => {{
             assert_eq!(format!("{:#}", ::demangle($a)), $b);
-        })
+        }};
     }
 
     fn ok(sym: &str, expected: &str) -> bool {
         match ::try_demangle(sym) {
             Ok(s) => {
-                if s.to_string() == expected  {
+                if s.to_string() == expected {
                     true
                 } else {
                     println!("\n{}\n!=\n{}\n", s, expected);
@@ -259,10 +262,12 @@ mod tests {
         t!("_ZN12test$BP$test4foobE", "test*test::foob");
     }
 
-
     #[test]
     fn demangle_osx() {
-        t!("__ZN5alloc9allocator6Layout9for_value17h02a996811f781011E", "alloc::allocator::Layout::for_value::h02a996811f781011");
+        t!(
+            "__ZN5alloc9allocator6Layout9for_value17h02a996811f781011E",
+            "alloc::allocator::Layout::for_value::h02a996811f781011"
+        );
         t!("__ZN38_$LT$core..option..Option$LT$T$GT$$GT$6unwrap18_MSG_FILE_LINE_COL17haf7cb8d5824ee659E", "<core::option::Option<T>>::unwrap::_MSG_FILE_LINE_COL::haf7cb8d5824ee659");
         t!("__ZN4core5slice89_$LT$impl$u20$core..iter..traits..IntoIterator$u20$for$u20$$RF$$u27$a$u20$$u5b$T$u5d$$GT$9into_iter17h450e234d27262170E", "core::slice::<impl core::iter::traits::IntoIterator for &'a [T]>::into_iter::h450e234d27262170");
     }
@@ -283,8 +288,10 @@ mod tests {
 
     #[test]
     fn demangle_trait_impls() {
-        t!("_ZN71_$LT$Test$u20$$u2b$$u20$$u27$static$u20$as$u20$foo..Bar$LT$Test$GT$$GT$3barE",
-           "<Test + 'static as foo::Bar<Test>>::bar");
+        t!(
+            "_ZN71_$LT$Test$u20$$u2b$$u20$$u27$static$u20$as$u20$foo..Bar$LT$Test$GT$$GT$3barE",
+            "<Test + 'static as foo::Bar<Test>>::bar"
+        );
     }
 
     #[test]
@@ -317,7 +324,10 @@ mod tests {
         // One element, no hash.
         t!("_ZN3fooE.llvm.9D1C9369", "foo");
         t!("_ZN3fooE.llvm.9D1C9369@@16", "foo");
-        t_nohash!("_ZN9backtrace3foo17hbb467fcdaea5d79bE.llvm.A5310EB9", "backtrace::foo");
+        t_nohash!(
+            "_ZN9backtrace3foo17hbb467fcdaea5d79bE.llvm.A5310EB9",
+            "backtrace::foo"
+        );
     }
 
     #[test]
@@ -336,11 +346,14 @@ mod tests {
         ::demangle("_ZN2222222222222222222222EE").to_string();
         ::demangle("_ZN5*70527e27.ll34csaғE").to_string();
         ::demangle("_ZN5*70527a54.ll34_$b.1E").to_string();
-        ::demangle("\
-            _ZN5~saäb4e\n\
-            2734cOsbE\n\
-            5usage20h)3\0\0\0\0\0\0\07e2734cOsbE\
-        ").to_string();
+        ::demangle(
+            "\
+             _ZN5~saäb4e\n\
+             2734cOsbE\n\
+             5usage20h)3\0\0\0\0\0\0\07e2734cOsbE\
+             ",
+        )
+        .to_string();
     }
 
     #[test]

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "nb-connect"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["Stjepan Glavina <stjepang@gmail.com>", "Jayce Fayne <jayce.fayne@mailbox.org>"]
 description = "Non-blocking TCP or Unix connect"
 homepage = "https://github.com/stjepang/nb-connect"
@@ -24,7 +24,7 @@ categories = ["asynchronous", "network-programming", "os"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/stjepang/nb-connect"
 [dev-dependencies.polling]
-version = "1.0.2"
+version = "2.0.0"
 [target."cfg(unix)".dependencies.libc]
 version = "0.2.77"
 [target."cfg(windows)".dependencies.winapi]

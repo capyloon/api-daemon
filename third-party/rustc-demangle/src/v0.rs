@@ -19,7 +19,7 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), Invalid> {
     let inner;
     if s.len() > 2 && s.starts_with("_R") {
         inner = &s[2..];
-    } else if s.len() > 1 && s.starts_with("R") {
+    } else if s.len() > 1 && s.starts_with('R') {
         // On Windows, dbghelp strips leading underscores, so we accept "R..."
         // form too.
         inner = &s[1..];
@@ -32,7 +32,7 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), Invalid> {
 
     // Paths always start with uppercase characters.
     match inner.as_bytes()[0] {
-        b'A'...b'Z' => {}
+        b'A'..=b'Z' => {}
         _ => return Err(Invalid),
     }
 
@@ -46,19 +46,29 @@ pub fn demangle(s: &str) -> Result<(Demangle, &str), Invalid> {
         sym: inner,
         next: 0,
     };
-    try!(parser.skip_path());
+    parser.skip_path()?;
 
     // Instantiating crate (paths always start with uppercase characters).
-    match parser.sym.as_bytes().get(parser.next) {
-        Some(&b'A'...b'Z') => {
-            try!(parser.skip_path());
-        }
-        _ => {}
+    if let Some(&(b'A'..=b'Z')) = parser.sym.as_bytes().get(parser.next) {
+        parser.skip_path()?;
     }
 
-    Ok((Demangle {
-        inner: inner,
-    }, &parser.sym[parser.next..]))
+    Ok((Demangle { inner }, &parser.sym[parser.next..]))
+}
+
+fn supported_const_generic_type(ty_tag: u8) -> bool {
+    match ty_tag {
+        // Unsigned integer types.
+        b'h' | b't' | b'm' | b'y' | b'o' | b'j' |
+        // Signed integer types.
+        b'a' | b's' | b'l' | b'x' | b'n' | b'i' |
+        // Bool.
+        b'b' |
+        // Char.
+        b'c' => true,
+
+        _ => false,
+    }
 }
 
 impl<'s> Display for Demangle<'s> {
@@ -91,15 +101,12 @@ impl<'s> Ident<'s> {
     /// Attempt to decode punycode on the stack (allocation-free),
     /// and pass the char slice to the closure, if successful.
     /// This supports up to `SMALL_PUNYCODE_LEN` characters.
-    fn try_small_punycode_decode<F: FnOnce(&[char]) -> R, R>(
-        &self,
-        f: F,
-    ) -> Option<R> {
+    fn try_small_punycode_decode<F: FnOnce(&[char]) -> R, R>(&self, f: F) -> Option<R> {
         let mut out = ['\0'; SMALL_PUNYCODE_LEN];
         let mut out_len = 0;
         let r = self.punycode_decode(|i, c| {
             // Check there's space left for another character.
-            try!(out.get(out_len).ok_or(()));
+            out.get(out_len).ok_or(())?;
 
             // Move the characters after the insert position.
             let mut j = out_len;
@@ -138,7 +145,7 @@ impl<'s> Ident<'s> {
 
         // Populate initial output from ASCII fragment.
         for c in self.ascii.chars() {
-            try!(insert(len, c));
+            insert(len, c)?;
             len += 1;
         }
 
@@ -158,41 +165,39 @@ impl<'s> Ident<'s> {
             let mut w = 1;
             let mut k: usize = 0;
             loop {
-                use core::cmp::{min, max};
+                use core::cmp::{max, min};
 
                 k += base;
                 let t = min(max(k.saturating_sub(bias), t_min), t_max);
 
                 let d = match punycode_bytes.next() {
-                    Some(d @ b'a'...b'z') => d - b'a',
-                    Some(d @ b'0'...b'9') => 26 + (d - b'0'),
+                    Some(d @ b'a'..=b'z') => d - b'a',
+                    Some(d @ b'0'..=b'9') => 26 + (d - b'0'),
                     _ => return Err(()),
                 };
                 let d = d as usize;
-                delta = try!(delta.checked_add(
-                    try!(d.checked_mul(w).ok_or(()))
-                ).ok_or(()));
+                delta = delta.checked_add(d.checked_mul(w).ok_or(())?).ok_or(())?;
                 if d < t {
                     break;
                 }
-                w = try!(w.checked_mul(base - t).ok_or(()));
+                w = w.checked_mul(base - t).ok_or(())?;
             }
 
             // Compute the new insert position and character.
             len += 1;
-            i = try!(i.checked_add(delta).ok_or(()));
-            n = try!(n.checked_add(i / len).ok_or(()));
+            i = i.checked_add(delta).ok_or(())?;
+            n = n.checked_add(i / len).ok_or(())?;
             i %= len;
 
             let n_u32 = n as u32;
             let c = if n_u32 as usize == n {
-                try!(char::from_u32(n_u32).ok_or(()))
+                char::from_u32(n_u32).ok_or(())?
             } else {
                 return Err(());
             };
 
             // Insert the new character and increment the insert position.
-            try!(insert(i, c));
+            insert(i, c)?;
             i += 1;
 
             // If there are no more deltas, decoding is complete.
@@ -219,20 +224,21 @@ impl<'s> Display for Ident<'s> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.try_small_punycode_decode(|chars| {
             for &c in chars {
-                try!(c.fmt(f));
+                c.fmt(f)?;
             }
             Ok(())
-        }).unwrap_or_else(|| {
+        })
+        .unwrap_or_else(|| {
             if !self.punycode.is_empty() {
-                try!(f.write_str("punycode{"));
+                f.write_str("punycode{")?;
 
                 // Reconstruct a standard Punycode encoding,
                 // by using `-` as the separator.
                 if !self.ascii.is_empty() {
-                    try!(f.write_str(self.ascii));
-                    try!(f.write_str("-"));
+                    f.write_str(self.ascii)?;
+                    f.write_str("-")?;
                 }
-                try!(f.write_str(self.punycode));
+                f.write_str(self.punycode)?;
 
                 f.write_str("}")
             } else {
@@ -290,7 +296,7 @@ impl<'s> Parser<'s> {
     }
 
     fn next(&mut self) -> Result<u8, Invalid> {
-        let b = try!(self.peek().ok_or(Invalid));
+        let b = self.peek().ok_or(Invalid)?;
         self.next += 1;
         Ok(b)
     }
@@ -298,8 +304,8 @@ impl<'s> Parser<'s> {
     fn hex_nibbles(&mut self) -> Result<&'s str, Invalid> {
         let start = self.next;
         loop {
-            match try!(self.next()) {
-                b'0'...b'9' | b'a'...b'f' => {}
+            match self.next()? {
+                b'0'..=b'9' | b'a'..=b'f' => {}
                 b'_' => break,
                 _ => return Err(Invalid),
             }
@@ -309,7 +315,7 @@ impl<'s> Parser<'s> {
 
     fn digit_10(&mut self) -> Result<u8, Invalid> {
         let d = match self.peek() {
-            Some(d @ b'0'...b'9') => d - b'0',
+            Some(d @ b'0'..=b'9') => d - b'0',
             _ => return Err(Invalid),
         };
         self.next += 1;
@@ -318,9 +324,9 @@ impl<'s> Parser<'s> {
 
     fn digit_62(&mut self) -> Result<u8, Invalid> {
         let d = match self.peek() {
-            Some(d @ b'0'...b'9') => d - b'0',
-            Some(d @ b'a'...b'z') => 10 + (d - b'a'),
-            Some(d @ b'A'...b'Z') => 10 + 26 + (d - b'A'),
+            Some(d @ b'0'..=b'9') => d - b'0',
+            Some(d @ b'a'..=b'z') => 10 + (d - b'a'),
+            Some(d @ b'A'..=b'Z') => 10 + 26 + (d - b'A'),
             _ => return Err(Invalid),
         };
         self.next += 1;
@@ -334,9 +340,9 @@ impl<'s> Parser<'s> {
 
         let mut x: u64 = 0;
         while !self.eat(b'_') {
-            let d = try!(self.digit_62()) as u64;
-            x = try!(x.checked_mul(62).ok_or(Invalid));
-            x = try!(x.checked_add(d).ok_or(Invalid));
+            let d = self.digit_62()? as u64;
+            x = x.checked_mul(62).ok_or(Invalid)?;
+            x = x.checked_add(d).ok_or(Invalid)?;
         }
         x.checked_add(1).ok_or(Invalid)
     }
@@ -345,7 +351,7 @@ impl<'s> Parser<'s> {
         if !self.eat(tag) {
             return Ok(0);
         }
-        try!(self.integer_62()).checked_add(1).ok_or(Invalid)
+        self.integer_62()?.checked_add(1).ok_or(Invalid)
     }
 
     fn disambiguator(&mut self) -> Result<u64, Invalid> {
@@ -353,12 +359,12 @@ impl<'s> Parser<'s> {
     }
 
     fn namespace(&mut self) -> Result<Option<char>, Invalid> {
-        match try!(self.next()) {
+        match self.next()? {
             // Special namespaces, like closures and shims.
-            ns @ b'A'...b'Z' => Ok(Some(ns as char)),
+            ns @ b'A'..=b'Z' => Ok(Some(ns as char)),
 
             // Implementation-specific/unspecified namespaces.
-            b'a'...b'z' => Ok(None),
+            b'a'..=b'z' => Ok(None),
 
             _ => Err(Invalid),
         }
@@ -366,7 +372,7 @@ impl<'s> Parser<'s> {
 
     fn backref(&mut self) -> Result<Parser<'s>, Invalid> {
         let s_start = self.next - 1;
-        let i = try!(self.integer_62());
+        let i = self.integer_62()?;
         if i >= s_start as u64 {
             return Err(Invalid);
         }
@@ -378,16 +384,11 @@ impl<'s> Parser<'s> {
 
     fn ident(&mut self) -> Result<Ident<'s>, Invalid> {
         let is_punycode = self.eat(b'u');
-        let mut len = try!(self.digit_10()) as usize;
+        let mut len = self.digit_10()? as usize;
         if len != 0 {
-            loop {
-                match self.digit_10() {
-                    Ok(d) => {
-                        len = try!(len.checked_mul(10).ok_or(Invalid));
-                        len = try!(len.checked_add(d as usize).ok_or(Invalid));
-                    }
-                    Err(Invalid) => break,
-                }
+            while let Ok(d) = self.digit_10() {
+                len = len.checked_mul(10).ok_or(Invalid)?;
+                len = len.checked_add(d as usize).ok_or(Invalid)?;
             }
         }
 
@@ -395,7 +396,7 @@ impl<'s> Parser<'s> {
         self.eat(b'_');
 
         let start = self.next;
-        self.next = try!(self.next.checked_add(len).ok_or(Invalid));
+        self.next = self.next.checked_add(len).ok_or(Invalid)?;
         if self.next > self.sym.len() {
             return Err(Invalid);
         }
@@ -426,40 +427,40 @@ impl<'s> Parser<'s> {
     }
 
     fn skip_path(&mut self) -> Result<(), Invalid> {
-        match try!(self.next()) {
+        match self.next()? {
             b'C' => {
-                try!(self.disambiguator());
-                try!(self.ident());
+                self.disambiguator()?;
+                self.ident()?;
             }
             b'N' => {
-                try!(self.namespace());
-                try!(self.skip_path());
-                try!(self.disambiguator());
-                try!(self.ident());
+                self.namespace()?;
+                self.skip_path()?;
+                self.disambiguator()?;
+                self.ident()?;
             }
             b'M' => {
-                try!(self.disambiguator());
-                try!(self.skip_path());
-                try!(self.skip_type());
+                self.disambiguator()?;
+                self.skip_path()?;
+                self.skip_type()?;
             }
             b'X' => {
-                try!(self.disambiguator());
-                try!(self.skip_path());
-                try!(self.skip_type());
-                try!(self.skip_path());
+                self.disambiguator()?;
+                self.skip_path()?;
+                self.skip_type()?;
+                self.skip_path()?;
             }
             b'Y' => {
-                try!(self.skip_type());
-                try!(self.skip_path());
+                self.skip_type()?;
+                self.skip_path()?;
             }
             b'I' => {
-                try!(self.skip_path());
+                self.skip_path()?;
                 while !self.eat(b'E') {
-                    try!(self.skip_generic_arg());
+                    self.skip_generic_arg()?;
                 }
             }
             b'B' => {
-                try!(self.backref());
+                self.backref()?;
             }
             _ => return Err(Invalid),
         }
@@ -468,7 +469,7 @@ impl<'s> Parser<'s> {
 
     fn skip_generic_arg(&mut self) -> Result<(), Invalid> {
         if self.eat(b'L') {
-            try!(self.integer_62());
+            self.integer_62()?;
             Ok(())
         } else if self.eat(b'K') {
             self.skip_const()
@@ -478,61 +479,63 @@ impl<'s> Parser<'s> {
     }
 
     fn skip_type(&mut self) -> Result<(), Invalid> {
-        match try!(self.next()) {
+        match self.next()? {
             tag if basic_type(tag).is_some() => {}
 
             b'R' | b'Q' => {
                 if self.eat(b'L') {
-                    try!(self.integer_62());
+                    self.integer_62()?;
                 }
-                try!(self.skip_type());
+                self.skip_type()?;
             }
-            b'P' | b'O' | b'S' => try!(self.skip_type()),
+            b'P' | b'O' | b'S' => self.skip_type()?,
             b'A' => {
-                try!(self.skip_type());
-                try!(self.skip_const());
+                self.skip_type()?;
+                self.skip_const()?;
             }
-            b'T' => while !self.eat(b'E') {
-                try!(self.skip_type());
-            },
+            b'T' => {
+                while !self.eat(b'E') {
+                    self.skip_type()?;
+                }
+            }
             b'F' => {
-                let _binder = try!(self.opt_integer_62(b'G'));
+                let _binder = self.opt_integer_62(b'G')?;
                 let _is_unsafe = self.eat(b'U');
                 if self.eat(b'K') {
                     let c_abi = self.eat(b'C');
                     if !c_abi {
-                        let abi = try!(self.ident());
+                        let abi = self.ident()?;
                         if abi.ascii.is_empty() || !abi.punycode.is_empty() {
                             return Err(Invalid);
                         }
                     }
                 }
                 while !self.eat(b'E') {
-                    try!(self.skip_type());
+                    self.skip_type()?;
                 }
-                try!(self.skip_type());
+                self.skip_type()?;
             }
             b'D' => {
-                let _binder = try!(self.opt_integer_62(b'G'));
+                let _binder = self.opt_integer_62(b'G')?;
                 while !self.eat(b'E') {
-                    try!(self.skip_path());
+                    self.skip_path()?;
                     while self.eat(b'p') {
-                        try!(self.ident());
-                        try!(self.skip_type());
+                        self.ident()?;
+                        self.skip_type()?;
                     }
                 }
                 if !self.eat(b'L') {
                     return Err(Invalid);
                 }
-                try!(self.integer_62());
+                self.integer_62()?;
             }
             b'B' => {
-                try!(self.backref());
+                self.backref()?;
             }
             _ => {
                 // Go back to the tag, so `skip_path` also sees it.
                 self.next -= 1;
-                try!(self.skip_path());
+                self.skip_path()?;
             }
         }
         Ok(())
@@ -540,21 +543,26 @@ impl<'s> Parser<'s> {
 
     fn skip_const(&mut self) -> Result<(), Invalid> {
         if self.eat(b'B') {
-            try!(self.backref());
+            self.backref()?;
             return Ok(());
         }
 
-        match try!(self.next()) {
-            // Unsigned integer types.
-            b'h' | b't' | b'm' | b'y' | b'o' | b'j' => {}
+        let ty_tag = self.next()?;
 
-            _ => return Err(Invalid),
-        }
-
-        if self.eat(b'p') {
+        if ty_tag == b'p' {
+            // We don't encode the type if the value is a placeholder.
             return Ok(());
         }
-        try!(self.hex_nibbles());
+
+        if !supported_const_generic_type(ty_tag) {
+            return Err(Invalid);
+        }
+
+        // Negation on signed integers.
+        if let b'a' | b's' | b'l' | b'x' | b'n' | b'i' = ty_tag {
+            let _ = self.eat(b'n');
+        }
+        self.hex_nibbles()?;
         Ok(())
     }
 }
@@ -573,7 +581,7 @@ macro_rules! invalid {
     ($printer:ident) => {{
         $printer.parser = Err(Invalid);
         return $printer.out.write_str("?");
-    }}
+    }};
 }
 
 /// Call a parser method (if the parser hasn't errored yet),
@@ -614,7 +622,7 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
     /// An index of `0` always refers to `'_`, but starting with `1`,
     /// indices refer to late-bound lifetimes introduced by a binder.
     fn print_lifetime_from_index(&mut self, lt: u64) -> fmt::Result {
-        try!(self.out.write_str("'"));
+        self.out.write_str("'")?;
         if lt == 0 {
             return self.out.write_str("_");
         }
@@ -626,7 +634,7 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
                     c.fmt(self.out)
                 } else {
                     // Use `'_123` after running out of letters.
-                    try!(self.out.write_str("_"));
+                    self.out.write_str("_")?;
                     depth.fmt(self.out)
                 }
             }
@@ -638,20 +646,21 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
     /// printing e.g. `for<'a, 'b> ` before calling the closure,
     /// and make those lifetimes visible to it (via depth level).
     fn in_binder<F>(&mut self, f: F) -> fmt::Result
-        where F: FnOnce(&mut Self) -> fmt::Result,
+    where
+        F: FnOnce(&mut Self) -> fmt::Result,
     {
         let bound_lifetimes = parse!(self, opt_integer_62(b'G'));
 
         if bound_lifetimes > 0 {
-            try!(self.out.write_str("for<"));
+            self.out.write_str("for<")?;
             for i in 0..bound_lifetimes {
                 if i > 0 {
-                    try!(self.out.write_str(", "));
+                    self.out.write_str(", ")?;
                 }
                 self.bound_lifetime_depth += 1;
-                try!(self.print_lifetime_from_index(1));
+                self.print_lifetime_from_index(1)?;
             }
-            try!(self.out.write_str("> "));
+            self.out.write_str("> ")?;
         }
 
         let r = f(self);
@@ -666,14 +675,15 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
     /// until the end of the list ('E') is found, or the parser errors.
     /// Returns the number of elements printed.
     fn print_sep_list<F>(&mut self, f: F, sep: &str) -> Result<usize, fmt::Error>
-        where F: Fn(&mut Self) -> fmt::Result,
+    where
+        F: Fn(&mut Self) -> fmt::Result,
     {
         let mut i = 0;
         while self.parser.is_ok() && !self.eat(b'E') {
             if i > 0 {
-                try!(self.out.write_str(sep));
+                self.out.write_str(sep)?;
             }
-            try!(f(self));
+            f(self)?;
             i += 1;
         }
         Ok(i)
@@ -686,17 +696,17 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
                 let dis = parse!(self, disambiguator);
                 let name = parse!(self, ident);
 
-                try!(name.fmt(self.out));
+                name.fmt(self.out)?;
                 if !self.out.alternate() {
-                    try!(self.out.write_str("["));
-                    try!(fmt::LowerHex::fmt(&dis, self.out));
-                    try!(self.out.write_str("]"));
+                    self.out.write_str("[")?;
+                    fmt::LowerHex::fmt(&dis, self.out)?;
+                    self.out.write_str("]")?;
                 }
             }
             b'N' => {
                 let ns = parse!(self, namespace);
 
-                try!(self.print_path(in_value));
+                self.print_path(in_value)?;
 
                 let dis = parse!(self, disambiguator);
                 let name = parse!(self, ident);
@@ -704,26 +714,26 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
                 match ns {
                     // Special namespaces, like closures and shims.
                     Some(ns) => {
-                        try!(self.out.write_str("::{"));
+                        self.out.write_str("::{")?;
                         match ns {
-                            'C' => try!(self.out.write_str("closure")),
-                            'S' => try!(self.out.write_str("shim")),
-                            _ => try!(ns.fmt(self.out)),
+                            'C' => self.out.write_str("closure")?,
+                            'S' => self.out.write_str("shim")?,
+                            _ => ns.fmt(self.out)?,
                         }
                         if !name.ascii.is_empty() || !name.punycode.is_empty() {
-                            try!(self.out.write_str(":"));
-                            try!(name.fmt(self.out));
+                            self.out.write_str(":")?;
+                            name.fmt(self.out)?;
                         }
-                        try!(self.out.write_str("#"));
-                        try!(dis.fmt(self.out));
-                        try!(self.out.write_str("}"));
+                        self.out.write_str("#")?;
+                        dis.fmt(self.out)?;
+                        self.out.write_str("}")?;
                     }
 
                     // Implementation-specific/unspecified namespaces.
                     None => {
                         if !name.ascii.is_empty() || !name.punycode.is_empty() {
-                            try!(self.out.write_str("::"));
-                            try!(name.fmt(self.out));
+                            self.out.write_str("::")?;
+                            name.fmt(self.out)?;
                         }
                     }
                 }
@@ -735,25 +745,25 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
                     parse!(self, skip_path);
                 }
 
-                try!(self.out.write_str("<"));
-                try!(self.print_type());
+                self.out.write_str("<")?;
+                self.print_type()?;
                 if tag != b'M' {
-                    try!(self.out.write_str(" as "));
-                    try!(self.print_path(false));
+                    self.out.write_str(" as ")?;
+                    self.print_path(false)?;
                 }
-                try!(self.out.write_str(">"));
+                self.out.write_str(">")?;
             }
             b'I' => {
-                try!(self.print_path(in_value));
+                self.print_path(in_value)?;
                 if in_value {
-                    try!(self.out.write_str("::"));
+                    self.out.write_str("::")?;
                 }
-                try!(self.out.write_str("<"));
-                try!(self.print_sep_list(Self::print_generic_arg, ", "));
-                try!(self.out.write_str(">"));
+                self.out.write_str("<")?;
+                self.print_sep_list(Self::print_generic_arg, ", ")?;
+                self.out.write_str(">")?;
             }
             b'B' => {
-                try!(self.backref_printer().print_path(in_value));
+                self.backref_printer().print_path(in_value)?;
             }
             _ => invalid!(self),
         }
@@ -774,55 +784,54 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
     fn print_type(&mut self) -> fmt::Result {
         let tag = parse!(self, next);
 
-        match basic_type(tag) {
-            Some(ty) => return self.out.write_str(ty),
-            None => {}
+        if let Some(ty) = basic_type(tag) {
+            return self.out.write_str(ty);
         }
 
         match tag {
             b'R' | b'Q' => {
-                try!(self.out.write_str("&"));
+                self.out.write_str("&")?;
                 if self.eat(b'L') {
                     let lt = parse!(self, integer_62);
                     if lt != 0 {
-                        try!(self.print_lifetime_from_index(lt));
-                        try!(self.out.write_str(" "));
+                        self.print_lifetime_from_index(lt)?;
+                        self.out.write_str(" ")?;
                     }
                 }
                 if tag != b'R' {
-                    try!(self.out.write_str("mut "));
+                    self.out.write_str("mut ")?;
                 }
-                try!(self.print_type());
+                self.print_type()?;
             }
 
             b'P' | b'O' => {
-                try!(self.out.write_str("*"));
+                self.out.write_str("*")?;
                 if tag != b'P' {
-                    try!(self.out.write_str("mut "));
+                    self.out.write_str("mut ")?;
                 } else {
-                    try!(self.out.write_str("const "));
+                    self.out.write_str("const ")?;
                 }
-                try!(self.print_type());
+                self.print_type()?;
             }
 
             b'A' | b'S' => {
-                try!(self.out.write_str("["));
-                try!(self.print_type());
+                self.out.write_str("[")?;
+                self.print_type()?;
                 if tag == b'A' {
-                    try!(self.out.write_str("; "));
-                    try!(self.print_const());
+                    self.out.write_str("; ")?;
+                    self.print_const()?;
                 }
-                try!(self.out.write_str("]"));
+                self.out.write_str("]")?;
             }
             b'T' => {
-                try!(self.out.write_str("("));
-                let count = try!(self.print_sep_list(Self::print_type, ", "));
+                self.out.write_str("(")?;
+                let count = self.print_sep_list(Self::print_type, ", ")?;
                 if count == 1 {
-                    try!(self.out.write_str(","));
+                    self.out.write_str(",")?;
                 }
-                try!(self.out.write_str(")"));
+                self.out.write_str(")")?;
             }
-            b'F' => try!(self.in_binder(|this| {
+            b'F' => self.in_binder(|this| {
                 let is_unsafe = this.eat(b'U');
                 let abi = if this.eat(b'K') {
                     if this.eat(b'C') {
@@ -839,63 +848,60 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
                 };
 
                 if is_unsafe {
-                    try!(this.out.write_str("unsafe "));
+                    this.out.write_str("unsafe ")?;
                 }
 
-                match abi {
-                    Some(abi) => {
-                        try!(this.out.write_str("extern \""));
+                if let Some(abi) = abi {
+                    this.out.write_str("extern \"")?;
 
-                        // If the ABI had any `-`, they were replaced with `_`,
-                        // so the parts between `_` have to be re-joined with `-`.
-                        let mut parts = abi.split('_');
-                        try!(this.out.write_str(parts.next().unwrap()));
-                        for part in parts {
-                            try!(this.out.write_str("-"));
-                            try!(this.out.write_str(part));
-                        }
-
-                        try!(this.out.write_str("\" "));
+                    // If the ABI had any `-`, they were replaced with `_`,
+                    // so the parts between `_` have to be re-joined with `-`.
+                    let mut parts = abi.split('_');
+                    this.out.write_str(parts.next().unwrap())?;
+                    for part in parts {
+                        this.out.write_str("-")?;
+                        this.out.write_str(part)?;
                     }
-                    None => {}
+
+                    this.out.write_str("\" ")?;
                 }
 
-                try!(this.out.write_str("fn("));
-                try!(this.print_sep_list(Self::print_type, ", "));
-                try!(this.out.write_str(")"));
+                this.out.write_str("fn(")?;
+                this.print_sep_list(Self::print_type, ", ")?;
+                this.out.write_str(")")?;
 
                 if this.eat(b'u') {
                     // Skip printing the return type if it's 'u', i.e. `()`.
                 } else {
-                    try!(this.out.write_str(" -> "));
-                    try!(this.print_type());
+                    this.out.write_str(" -> ")?;
+                    this.print_type()?;
                 }
 
                 Ok(())
-            })),
+            })?,
             b'D' => {
-                try!(self.out.write_str("dyn "));
-                try!(self.in_binder(|this| {
-                    try!(this.print_sep_list(Self::print_dyn_trait, " + "));
+                self.out.write_str("dyn ")?;
+                self.in_binder(|this| {
+                    this.print_sep_list(Self::print_dyn_trait, " + ")?;
                     Ok(())
-                }));
+                })?;
 
                 if !self.eat(b'L') {
                     invalid!(self);
                 }
                 let lt = parse!(self, integer_62);
                 if lt != 0 {
-                    try!(self.out.write_str(" + "));
-                    try!(self.print_lifetime_from_index(lt));
+                    self.out.write_str(" + ")?;
+                    self.print_lifetime_from_index(lt)?;
                 }
             }
             b'B' => {
-                try!(self.backref_printer().print_type());
+                self.backref_printer().print_type()?;
             }
             _ => {
                 // Go back to the tag, so `print_path` also sees it.
                 let _ = self.parser_mut().map(|p| p.next -= 1);
-                try!(self.print_path(false));
+                self.print_path(false)?;
             }
         }
         Ok(())
@@ -910,35 +916,35 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
         if self.eat(b'B') {
             self.backref_printer().print_path_maybe_open_generics()
         } else if self.eat(b'I') {
-            try!(self.print_path(false));
-            try!(self.out.write_str("<"));
-            try!(self.print_sep_list(Self::print_generic_arg, ", "));
+            self.print_path(false)?;
+            self.out.write_str("<")?;
+            self.print_sep_list(Self::print_generic_arg, ", ")?;
             Ok(true)
         } else {
-            try!(self.print_path(false));
+            self.print_path(false)?;
             Ok(false)
         }
     }
 
     fn print_dyn_trait(&mut self) -> fmt::Result {
-        let mut open = try!(self.print_path_maybe_open_generics());
+        let mut open = self.print_path_maybe_open_generics()?;
 
         while self.eat(b'p') {
             if !open {
-                try!(self.out.write_str("<"));
+                self.out.write_str("<")?;
                 open = true;
             } else {
-                try!(self.out.write_str(", "));
+                self.out.write_str(", ")?;
             }
 
             let name = parse!(self, ident);
-            try!(name.fmt(self.out));
-            try!(self.out.write_str(" = "));
-            try!(self.print_type());
+            name.fmt(self.out)?;
+            self.out.write_str(" = ")?;
+            self.print_type()?;
         }
 
         if open {
-            try!(self.out.write_str(">"));
+            self.out.write_str(">")?;
         }
 
         Ok(())
@@ -950,25 +956,35 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
         }
 
         let ty_tag = parse!(self, next);
-        let ty = match ty_tag {
-            // Unsigned integer types.
-            b'h' | b't' | b'm' | b'y' | b'o' | b'j' => {
-                basic_type(ty_tag).unwrap()
-            }
 
+        if ty_tag == b'p' {
+            // We don't encode the type if the value is a placeholder.
+            self.out.write_str("_")?;
+            return Ok(());
+        }
+
+        if !supported_const_generic_type(ty_tag) {
+            invalid!(self);
+        }
+
+        match ty_tag {
+            // Unsigned integer types.
+            b'h' | b't' | b'm' | b'y' | b'o' | b'j' => self.print_const_uint()?,
+            // Signed integer types.
+            b'a' | b's' | b'l' | b'x' | b'n' | b'i' => self.print_const_int()?,
+            // Bool.
+            b'b' => self.print_const_bool()?,
+            // Char.
+            b'c' => self.print_const_char()?,
+
+            // This branch ought to be unreachable.
             _ => invalid!(self),
         };
 
-
-        if self.eat(b'p') {
-            try!(self.out.write_str("_"));
-        } else {
-            try!(self.print_const_uint());
-        }
-
         if !self.out.alternate() {
-            try!(self.out.write_str(": "));
-            try!(self.out.write_str(ty));
+            self.out.write_str(": ")?;
+            let ty = basic_type(ty_tag).unwrap();
+            self.out.write_str(ty)?;
         }
 
         Ok(())
@@ -979,7 +995,7 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
 
         // Print anything that doesn't fit in `u64` verbatim.
         if hex.len() > 16 {
-            try!(self.out.write_str("0x"));
+            self.out.write_str("0x")?;
             return self.out.write_str(hex);
         }
 
@@ -989,27 +1005,59 @@ impl<'a, 'b, 's> Printer<'a, 'b, 's> {
         }
         v.fmt(self.out)
     }
+
+    fn print_const_int(&mut self) -> fmt::Result {
+        if self.eat(b'n') {
+            self.out.write_str("-")?;
+        }
+
+        self.print_const_uint()
+    }
+
+    fn print_const_bool(&mut self) -> fmt::Result {
+        match parse!(self, hex_nibbles).as_bytes() {
+            b"0" => self.out.write_str("false"),
+            b"1" => self.out.write_str("true"),
+            _ => invalid!(self),
+        }
+    }
+
+    fn print_const_char(&mut self) -> fmt::Result {
+        let hex = parse!(self, hex_nibbles);
+
+        // Valid `char`s fit in `u32`.
+        if hex.len() > 8 {
+            invalid!(self);
+        }
+
+        let mut v = 0;
+        for c in hex.chars() {
+            v = (v << 4) | (c.to_digit(16).unwrap() as u32);
+        }
+        if let Some(c) = char::from_u32(v) {
+            write!(self.out, "'{}'", c)
+        } else {
+            invalid!(self)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     macro_rules! t_nohash {
-        ($a:expr, $b:expr) => ({
+        ($a:expr, $b:expr) => {{
             assert_eq!(format!("{:#}", ::demangle($a)), $b);
-        })
+        }};
     }
     macro_rules! t_nohash_type {
-        ($a:expr, $b:expr) => (
+        ($a:expr, $b:expr) => {
             t_nohash!(concat!("_RMC0", $a), concat!("<", $b, ">"))
-        )
+        };
     }
 
     #[test]
     fn demangle_crate_with_leading_digit() {
-        t_nohash!(
-            "_RNvC6_123foo3bar",
-            "123foo::bar"
-        );
+        t_nohash!("_RNvC6_123foo3bar", "123foo::bar");
     }
 
     #[test]
@@ -1048,6 +1096,38 @@ mod tests {
             "INtC8arrayvec8ArrayVechKj7b_E",
             "arrayvec::ArrayVec<u8, 123>"
         );
+        t_nohash!(
+            "_RMCs4fqI2P2rA04_13const_genericINtB0_8UnsignedKhb_E",
+            "<const_generic::Unsigned<11>>"
+        );
+        t_nohash!(
+            "_RMCs4fqI2P2rA04_13const_genericINtB0_6SignedKs98_E",
+            "<const_generic::Signed<152>>"
+        );
+        t_nohash!(
+            "_RMCs4fqI2P2rA04_13const_genericINtB0_6SignedKanb_E",
+            "<const_generic::Signed<-11>>"
+        );
+        t_nohash!(
+            "_RMCs4fqI2P2rA04_13const_genericINtB0_4BoolKb0_E",
+            "<const_generic::Bool<false>>"
+        );
+        t_nohash!(
+            "_RMCs4fqI2P2rA04_13const_genericINtB0_4BoolKb1_E",
+            "<const_generic::Bool<true>>"
+        );
+        t_nohash!(
+            "_RMCs4fqI2P2rA04_13const_genericINtB0_4CharKc76_E",
+            "<const_generic::Char<'v'>>"
+        );
+        t_nohash!(
+            "_RMCs4fqI2P2rA04_13const_genericINtB0_4CharKc2202_E",
+            "<const_generic::Char<'∂'>>"
+        );
+        t_nohash!(
+            "_RNvNvMCs4fqI2P2rA04_13const_genericINtB4_3FooKpE3foo3FOO",
+            "<const_generic::Foo<_>>::foo::FOO"
+        );
     }
 
     #[test]
@@ -1060,9 +1140,9 @@ mod tests {
         t_nohash_type!(
             concat!("TTTTTT", "p", "B8_E", "B7_E", "B6_E", "B5_E", "B4_E", "B3_E"),
             "((((((_, _), (_, _)), ((_, _), (_, _))), (((_, _), (_, _)), ((_, _), (_, _)))), \
-               ((((_, _), (_, _)), ((_, _), (_, _))), (((_, _), (_, _)), ((_, _), (_, _))))), \
-              (((((_, _), (_, _)), ((_, _), (_, _))), (((_, _), (_, _)), ((_, _), (_, _)))), \
-               ((((_, _), (_, _)), ((_, _), (_, _))), (((_, _), (_, _)), ((_, _), (_, _))))))"
+             ((((_, _), (_, _)), ((_, _), (_, _))), (((_, _), (_, _)), ((_, _), (_, _))))), \
+             (((((_, _), (_, _)), ((_, _), (_, _))), (((_, _), (_, _)), ((_, _), (_, _)))), \
+             ((((_, _), (_, _)), ((_, _), (_, _))), (((_, _), (_, _)), ((_, _), (_, _))))))"
         );
     }
 

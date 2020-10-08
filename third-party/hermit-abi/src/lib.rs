@@ -65,10 +65,16 @@ extern "C" {
 	fn sys_open(name: *const i8, flags: i32, mode: i32) -> i32;
 	fn sys_unlink(name: *const i8) -> i32;
 	fn sys_network_init() -> i32;
+	fn sys_block_current_task();
+	fn sys_wakeup_task(tid: Tid);
+	fn sys_get_priority() -> u8;
 }
 
 /// A thread handle type
 pub type Tid = u32;
+
+/// Maximum number of priorities
+pub const NO_PRIORITIES: usize = 31;
 
 /// Priority of a thread
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
@@ -460,4 +466,23 @@ pub unsafe fn secure_rand32() -> Option<u32> {
 #[inline(always)]
 pub unsafe fn secure_rand64() -> Option<u64> {
 	sys_secure_rand64()
+}
+
+/// Add current task to the queue of blocked tasl. After calling `block_current_task`,
+/// call `yield_now` to switch to another task.
+#[inline(always)]
+pub unsafe fn block_current_task() {
+	sys_block_current_task();
+}
+
+/// Wakeup task with the thread id `tid`
+#[inline(always)]
+pub unsafe fn wakeup_task(tid: Tid) {
+	sys_wakeup_task(tid);
+}
+
+/// Determine the priority of the current thread
+#[inline(always)]
+pub unsafe fn get_priority() -> Priority {
+	Priority::from(sys_get_priority())
 }

@@ -1,3 +1,19 @@
+# Version 1.1.9
+
+- Only require `libc` on Unix platforms.
+
+# Version 1.1.8
+
+- Re-enable `async-net` dependency and fix CI.
+
+# Version 1.1.7
+
+- Update `polling` to v2.0.0
+
+# Version 1.1.6
+
+- Remove randomized yielding everywhere.
+
 # Version 1.1.5
 
 - Remove randomized yielding in write operations.

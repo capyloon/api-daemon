@@ -17,8 +17,7 @@
 //!
 //! // Create a poller that waits for the stream to become writable.
 //! let poller = Poller::new()?;
-//! poller.insert(&stream);
-//! poller.interest(&stream, Event::writable(0))?;
+//! poller.add(&stream, Event::writable(0))?;
 //!
 //! // Wait for at most 1 second.
 //! if poller.wait(&mut Vec::new(), Some(Duration::from_secs(1)))? == 0 {
@@ -173,8 +172,7 @@ fn connect(addr: Addr, family: libc::c_int, protocol: libc::c_int) -> io::Result
 ///
 /// // Create a poller that waits for the stream to become writable.
 /// let poller = Poller::new()?;
-/// poller.insert(&stream);
-/// poller.interest(&stream, Event::writable(0))?;
+/// poller.add(&stream, Event::writable(0))?;
 ///
 /// // Wait for at most 1 second.
 /// if poller.wait(&mut Vec::new(), Some(Duration::from_secs(1)))? == 0 {
@@ -252,8 +250,7 @@ pub fn unix<P: AsRef<Path>>(path: P) -> io::Result<UnixStream> {
 ///
 /// // Create a poller that waits for the stream to become writable.
 /// let poller = Poller::new()?;
-/// poller.insert(&stream);
-/// poller.interest(&stream, Event::writable(0))?;
+/// poller.add(&stream, Event::writable(0))?;
 ///
 /// // Wait for at most 1 second.
 /// if poller.wait(&mut Vec::new(), Some(Duration::from_secs(1)))? == 0 {

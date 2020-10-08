@@ -7,9 +7,8 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use wepoll_sys_stjepang as we;
+use wepoll_sys as we;
 use winapi::ctypes;
-use winapi::um::winsock2;
 
 use crate::Event;
 
@@ -47,81 +46,27 @@ impl Poller {
         Ok(Poller { handle, notified })
     }
 
-    /// Inserts a socket.
-    pub fn insert(&self, sock: RawSocket) -> io::Result<()> {
-        log::trace!("insert: handle={:?}, sock={}", self.handle, sock);
-
-        // Put the socket in non-blocking mode.
-        unsafe {
-            let mut nonblocking = true as ctypes::c_ulong;
-            let res = winsock2::ioctlsocket(
-                sock as winsock2::SOCKET,
-                winsock2::FIONBIO,
-                &mut nonblocking,
-            );
-            if res != 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-
-        // Register the socket in wepoll.
-        let mut ev = we::epoll_event {
-            events: we::EPOLLONESHOT,
-            data: we::epoll_data {
-                u64: crate::NOTIFY_KEY as u64,
-            },
-        };
-        wepoll!(epoll_ctl(
-            self.handle,
-            we::EPOLL_CTL_ADD as ctypes::c_int,
-            sock as we::SOCKET,
-            &mut ev,
-        ))?;
-
-        Ok(())
+    /// Adds a socket.
+    pub fn add(&self, sock: RawSocket, ev: Event) -> io::Result<()> {
+        log::trace!("add: handle={:?}, sock={}, ev={:?}", self.handle, sock, ev);
+        self.ctl(we::EPOLL_CTL_ADD, sock, Some(ev))
     }
 
-    /// Sets interest in a read/write event on a socket and associates a key with it.
-    pub fn interest(&self, sock: RawSocket, ev: Event) -> io::Result<()> {
+    /// Modifies a socket.
+    pub fn modify(&self, sock: RawSocket, ev: Event) -> io::Result<()> {
         log::trace!(
-            "interest: handle={:?}, sock={}, ev={:?}",
+            "modify: handle={:?}, sock={}, ev={:?}",
             self.handle,
             sock,
             ev
         );
-
-        let mut flags = we::EPOLLONESHOT;
-        if ev.readable {
-            flags |= READ_FLAGS;
-        }
-        if ev.writable {
-            flags |= WRITE_FLAGS;
-        }
-
-        let mut ev = we::epoll_event {
-            events: flags as u32,
-            data: we::epoll_data { u64: ev.key as u64 },
-        };
-        wepoll!(epoll_ctl(
-            self.handle,
-            we::EPOLL_CTL_MOD as ctypes::c_int,
-            sock as we::SOCKET,
-            &mut ev,
-        ))?;
-
-        Ok(())
+        self.ctl(we::EPOLL_CTL_MOD, sock, Some(ev))
     }
 
-    /// Removes a socket.
-    pub fn remove(&self, sock: RawSocket) -> io::Result<()> {
+    /// Deletes a socket.
+    pub fn delete(&self, sock: RawSocket) -> io::Result<()> {
         log::trace!("remove: handle={:?}, sock={}", self.handle, sock);
-        wepoll!(epoll_ctl(
-            self.handle,
-            we::EPOLL_CTL_DEL as ctypes::c_int,
-            sock as we::SOCKET,
-            ptr::null_mut(),
-        ))?;
-        Ok(())
+        self.ctl(we::EPOLL_CTL_DEL, sock, None)
     }
 
     /// Waits for I/O events with an optional timeout.
@@ -179,7 +124,7 @@ impl Poller {
                 // can just ignore the error.
                 //
                 // The original wepoll does not support notifications triggered this way, which is
-                // why this crate depends on a patched version of wepoll, wepoll-sys-stjepang.
+                // why wepoll-sys includes a small patch to support them.
                 winapi::um::ioapiset::PostQueuedCompletionStatus(
                     self.handle as winapi::um::winnt::HANDLE,
                     0,
@@ -188,6 +133,32 @@ impl Poller {
                 );
             }
         }
+        Ok(())
+    }
+
+    /// Passes arguments to `epoll_ctl`.
+    fn ctl(&self, op: u32, sock: RawSocket, ev: Option<Event>) -> io::Result<()> {
+        let mut ev = ev.map(|ev| {
+            let mut flags = we::EPOLLONESHOT;
+            if ev.readable {
+                flags |= READ_FLAGS;
+            }
+            if ev.writable {
+                flags |= WRITE_FLAGS;
+            }
+            we::epoll_event {
+                events: flags as u32,
+                data: we::epoll_data { u64: ev.key as u64 },
+            }
+        });
+        wepoll!(epoll_ctl(
+            self.handle,
+            op as ctypes::c_int,
+            sock as we::SOCKET,
+            ev.as_mut()
+                .map(|ev| ev as *mut we::epoll_event)
+                .unwrap_or(ptr::null_mut()),
+        ))?;
         Ok(())
     }
 }

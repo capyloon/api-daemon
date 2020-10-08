@@ -26,6 +26,7 @@ use std::future::Future;
 use std::io::{IoSlice, IoSliceMut};
 use std::mem;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use futures_core::stream::Stream;
@@ -1300,6 +1301,64 @@ impl AsyncWrite for Sink {
 
 /// Extension trait for [`AsyncBufRead`].
 pub trait AsyncBufReadExt: AsyncBufRead {
+    /// Returns the contents of the internal buffer, filling it with more data if empty.
+    ///
+    /// If the stream has reached EOF, an empty buffer will be returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use futures_lite::*;
+    /// use std::pin::Pin;
+    ///
+    /// # spin_on::spin_on(async {
+    /// let input: &[u8] = b"hello world";
+    /// let mut reader = io::BufReader::with_capacity(5, input);
+    ///
+    /// assert_eq!(reader.fill_buf().await?, b"hello");
+    /// reader.consume(2);
+    /// assert_eq!(reader.fill_buf().await?, b"llo");
+    /// reader.consume(3);
+    /// assert_eq!(reader.fill_buf().await?, b" worl");
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    fn fill_buf(&mut self) -> FillBuf<'_, Self>
+    where
+        Self: Unpin,
+    {
+        FillBuf { reader: Some(self) }
+    }
+
+    /// Consumes `amt` buffered bytes.
+    ///
+    /// This method does not perform any I/O, it simply consumes some amount of bytes from the
+    /// internal buffer.
+    ///
+    /// The `amt` must be <= the number of bytes in the buffer returned by
+    /// [`fill_buf()`][`AsyncBufReadExt::fill_buf()`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use futures_lite::*;
+    /// use std::pin::Pin;
+    ///
+    /// # spin_on::spin_on(async {
+    /// let input: &[u8] = b"hello";
+    /// let mut reader = io::BufReader::with_capacity(4, input);
+    ///
+    /// assert_eq!(reader.fill_buf().await?, b"hell");
+    /// reader.consume(2);
+    /// assert_eq!(reader.fill_buf().await?, b"ll");
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    fn consume(&mut self, amt: usize)
+    where
+        Self: Unpin,
+    {
+        AsyncBufRead::consume(Pin::new(self), amt);
+    }
+
     /// Reads all bytes and appends them into `buf` until the delimiter `byte` or EOF is found.
     ///
     /// This method will read bytes from the underlying stream until the delimiter or EOF is
@@ -1434,6 +1493,42 @@ pub trait AsyncBufReadExt: AsyncBufRead {
 }
 
 impl<R: AsyncBufRead + ?Sized> AsyncBufReadExt for R {}
+
+/// Future for the [`AsyncBufReadExt::fill_buf()`] method.
+#[derive(Debug)]
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct FillBuf<'a, R: ?Sized> {
+    reader: Option<&'a mut R>,
+}
+
+impl<R: ?Sized> Unpin for FillBuf<'_, R> {}
+
+impl<'a, R> Future for FillBuf<'a, R>
+where
+    R: AsyncBufRead + Unpin + ?Sized,
+{
+    type Output = Result<&'a [u8]>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = &mut *self;
+        let reader = this
+            .reader
+            .take()
+            .expect("polled `FillBuf` after completion");
+
+        match Pin::new(&mut *reader).poll_fill_buf(cx) {
+            Poll::Ready(Ok(_)) => match Pin::new(reader).poll_fill_buf(cx) {
+                Poll::Ready(Ok(slice)) => Poll::Ready(Ok(slice)),
+                poll => panic!("`poll_fill_buf()` was ready but now it isn't: {:?}", poll),
+            },
+            Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+            Poll::Pending => {
+                this.reader = Some(reader);
+                Poll::Pending
+            }
+        }
+    }
+}
 
 /// Future for the [`AsyncBufReadExt::read_until()`] method.
 #[derive(Debug)]
@@ -2686,3 +2781,68 @@ pub type BoxedReader = Pin<Box<dyn AsyncRead + Send + 'static>>;
 /// ```
 #[cfg(feature = "alloc")]
 pub type BoxedWriter = Pin<Box<dyn AsyncWrite + Send + 'static>>;
+
+/// Splits a stream into [`AsyncRead`] and [`AsyncWrite`] halves.
+///
+/// # Examples
+///
+/// ```
+/// use futures_lite::*;
+///
+/// # spin_on::spin_on(async {
+/// let stream = io::Cursor::new(vec![]);
+/// let (mut reader, mut writer) = io::split(stream);
+/// # std::io::Result::Ok(()) });
+/// ```
+pub fn split<T>(stream: T) -> (ReadHalf<T>, WriteHalf<T>)
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    let inner = Arc::new(Mutex::new(stream));
+    (ReadHalf(inner.clone()), WriteHalf(inner))
+}
+
+/// The read half returned by [`split()`].
+#[derive(Debug)]
+pub struct ReadHalf<T>(Arc<Mutex<T>>);
+
+/// The write half returned by [`split()`].
+#[derive(Debug)]
+pub struct WriteHalf<T>(Arc<Mutex<T>>);
+
+impl<T: AsyncRead + Unpin> AsyncRead for ReadHalf<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize>> {
+        let mut inner = self.0.lock().unwrap();
+        Pin::new(&mut *inner).poll_read(cx, buf)
+    }
+
+    fn poll_read_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &mut [IoSliceMut<'_>],
+    ) -> Poll<Result<usize>> {
+        let mut inner = self.0.lock().unwrap();
+        Pin::new(&mut *inner).poll_read_vectored(cx, bufs)
+    }
+}
+
+impl<T: AsyncWrite + Unpin> AsyncWrite for WriteHalf<T> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
+        let mut inner = self.0.lock().unwrap();
+        Pin::new(&mut *inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let mut inner = self.0.lock().unwrap();
+        Pin::new(&mut *inner).poll_flush(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let mut inner = self.0.lock().unwrap();
+        Pin::new(&mut *inner).poll_close(cx)
+    }
+}

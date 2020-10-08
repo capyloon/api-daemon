@@ -69,7 +69,7 @@
 //! [unsafe-unpin]: https://docs.rs/pin-project/0.4/pin_project/attr.pin_project.html#unsafeunpin
 
 #![no_std]
-#![doc(html_root_url = "https://docs.rs/pin-project-lite/0.1.9")]
+#![doc(html_root_url = "https://docs.rs/pin-project-lite/0.1.10")]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms, single_use_lifetimes), allow(dead_code))
@@ -403,7 +403,7 @@ macro_rules! __pin_project_internal {
         // which will then comflict with the explicit MustNotImplDrop impl below.
         // This will result in a compilation error, which is exactly what we want.
         trait MustNotImplDrop {}
-        #[allow(clippy::drop_bounds)]
+        #[allow(clippy::drop_bounds, drop_bounds)]
         impl<T: $crate::__private::Drop> MustNotImplDrop for T {}
         impl <$($impl_generics)*> MustNotImplDrop for $ident <$($ty_generics)*>
         $(where

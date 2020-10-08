@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "blocking"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "A thread pool for isolating blocking I/O in async programs"
 homepage = "https://github.com/stjepang/blocking"
@@ -26,6 +26,9 @@ repository = "https://github.com/stjepang/blocking"
 [dependencies.async-channel]
 version = "1.4.0"
 
+[dependencies.async-task]
+version = "4.0.2"
+
 [dependencies.atomic-waker]
 version = "1.0.0"
 
@@ -37,6 +40,3 @@ version = "1.0.0"
 
 [dependencies.once_cell]
 version = "1.4.1"
-
-[dependencies.waker-fn]
-version = "1.0.0"

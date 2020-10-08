@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "anyhow"
-version = "1.0.32"
+version = "1.0.33"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 description = "Flexible concrete Error type built on std::error::Error"
 documentation = "https://docs.rs/anyhow"

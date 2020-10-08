@@ -90,56 +90,10 @@ use std::thread;
 use std::time::Duration;
 
 use async_channel::{bounded, Receiver};
+use async_task::{Runnable, Task};
 use atomic_waker::AtomicWaker;
 use futures_lite::*;
 use once_cell::sync::Lazy;
-use waker_fn::waker_fn;
-
-/// Retrieves the output of a spawned future.
-type Task<T> = Receiver<T>;
-
-/// A spawned future and its current state.
-///
-/// How this works was explained in a [blog post].
-///
-/// [blog post]: https://stjepang.github.io/2020/01/31/build-your-own-executor.html
-struct Runnable {
-    /// Current state of the task.
-    state: AtomicUsize,
-
-    /// The inner future.
-    future: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>,
-}
-
-impl Runnable {
-    /// Runs the task.
-    fn run(self: Arc<Runnable>) {
-        // Set if the task has been woken.
-        const WOKEN: usize = 0b01;
-        // Set if the task is currently running.
-        const RUNNING: usize = 0b10;
-
-        // The state is now "not woken" and "running".
-        self.state.store(RUNNING, Ordering::SeqCst);
-
-        // Poll the future.
-        let this = self.clone();
-        let waker = waker_fn(move || {
-            if this.state.fetch_or(WOKEN, Ordering::SeqCst) == 0 {
-                EXECUTOR.schedule(this.clone());
-            }
-        });
-        let cx = &mut Context::from_waker(&waker);
-        let poll = self.future.try_lock().unwrap().as_mut().poll(cx);
-
-        // If the future hasn't completed and was woken while running, then reschedule it.
-        if poll.is_pending() {
-            if self.state.fetch_and(!RUNNING, Ordering::SeqCst) == WOKEN | RUNNING {
-                EXECUTOR.schedule(self);
-            }
-        }
-    }
-}
 
 /// Lazily initialized global executor.
 static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
@@ -173,7 +127,7 @@ struct Inner {
     thread_count: usize,
 
     /// The queue of blocking tasks.
-    queue: VecDeque<Arc<Runnable>>,
+    queue: VecDeque<Runnable>,
 }
 
 impl Executor {
@@ -181,20 +135,9 @@ impl Executor {
     ///
     /// Returns a [`Task`] handle for the spawned task.
     fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> Task<T> {
-        // Wrap the future into one that sends the output into a channel.
-        let (s, r) = bounded(1);
-        let future = async move {
-            let _ = s.send(future.await).await;
-        };
-
-        // Create a task and schedule it for execution.
-        let runnable = Arc::new(Runnable {
-            state: AtomicUsize::new(0),
-            future: Mutex::new(Box::pin(future)),
-        });
-        EXECUTOR.schedule(runnable);
-
-        r
+        let (runnable, task) = async_task::spawn(future, |r| EXECUTOR.schedule(r));
+        runnable.schedule();
+        task
     }
 
     /// Runs the main loop on the current thread.
@@ -212,7 +155,7 @@ impl Executor {
                 self.grow_pool(inner);
 
                 // Run the task.
-                let _ = panic::catch_unwind(|| runnable.run());
+                panic::catch_unwind(|| runnable.run()).ok();
 
                 // Re-lock the inner state and continue.
                 inner = self.inner.lock().unwrap();
@@ -236,7 +179,7 @@ impl Executor {
     }
 
     /// Schedules a runnable task for execution.
-    fn schedule(&'static self, runnable: Arc<Runnable>) {
+    fn schedule(&'static self, runnable: Runnable) {
         let mut inner = self.inner.lock().unwrap();
         inner.queue.push_back(runnable);
 
@@ -300,10 +243,7 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    Executor::spawn(async move { f() })
-        .recv()
-        .await
-        .expect("`unblock()` operation has panicked")
+    Executor::spawn(async move { f() }).await
 }
 
 /// Runs blocking I/O on a thread pool.
@@ -314,22 +254,43 @@ where
 /// This type implements traits [`Stream`], [`AsyncRead`], [`AsyncWrite`], or [`AsyncSeek`] if the
 /// inner type implements [`Iterator`], [`Read`], [`Write`], or [`Seek`], respectively.
 ///
-/// # Notes
+/// # Caveats
+///
+/// [`Unblock`] is a low-level primitive, and as such it comes with some caveats.
+///
+/// For higher-level primitives built on top of [`Unblock`], look into [`async-fs`] or
+/// [`async-process`] (on Windows).
+///
+/// [`async-fs`]: https://github.com/stjepang/async-fs
+/// [`async-process`]: https://github.com/stjepang/async-process
+///
+/// [`Unblock`] communicates with I/O operations on the thread pool through a pipe. That means an
+/// async read/write operation simply receives/sends some bytes from/into the pipe. When in reading
+/// mode, the thread pool reads bytes from the I/O handle and forwards them into the pipe until it
+/// becomes full. When in writing mode, the thread pool reads bytes from the pipe and forwards them
+/// into the I/O handle.
+///
+/// Use [`Unblock::with_capacity()`] to configure the capacity of the pipe.
+///
+/// ### Reading
+///
+/// If you create an [`Unblock`]`<`[`Stdin`][`std::io::Stdin`]`>`, read some bytes from it,
+/// and then drop it, a blocked read operation may keep hanging on the thread pool. The next
+/// attempt to read from stdin will lose bytes read by the hanging operation. This is a difficult
+/// problem to solve, so make sure you only use a single stdin handle for the duration of the
+/// entire program.
+///
+/// ### Writing
 ///
 /// If writing data through the [`AsyncWrite`] trait, make sure to flush before dropping the
 /// [`Unblock`] handle or some buffered data might get lost.
 ///
-/// [`Unblock`] communicates with I/O operations on the thread pool through a pipe. That means an
-/// async read/write operation simply receives/sends some bytes from/into the pipe. On the other
-/// side of the pipe, the inner I/O handle reads bytes in advance until the pipe is full, and it
-/// writes all bytes received through the pipe.
+/// ### Seeking
 ///
-/// This kind of buffering has some interesting consequences. If [`Unblock`] wraps a
-/// [`File`][`std::fs::File`], note that a single read operation may move the file cursor farther
-/// than is the span of the operation! That's because reading happens in the background until the
-/// pipe gets full - blocking reads do not follow async reads byte-for-byte.
-///
-/// Use [`Unblock::with_capacity()`] to configure the capacity of the pipe.
+/// Because of buffering in the pipe, if [`Unblock`] wraps a [`File`][`std::fs::File`], a single
+/// read operation may move the file cursor farther than is the span of the operation. In fact,
+/// reading just keeps going in the background until the pipe gets full. Keep this mind when
+/// using [`AsyncSeek`] with [relative][`SeekFrom::Current`] offsets.
 ///
 /// # Examples
 ///
@@ -376,6 +337,14 @@ impl<T> Unblock<T> {
     ///
     /// * For [`Iterator`] types: 8192 items.
     /// * For [`Read`]/[`Write`] types: 8 MB.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use blocking::Unblock;
+    ///
+    /// let stdout = Unblock::with_capacity(64 * 1024, std::io::stdout());
+    /// ```
     pub fn with_capacity(cap: usize, io: T) -> Unblock<T> {
         Unblock {
             state: State::Idle(Some(Box::new(io))),
@@ -403,7 +372,7 @@ impl<T> Unblock<T> {
     /// ```
     pub async fn get_mut(&mut self) -> &mut T {
         // Wait for the running task to stop and ignore I/O errors if there are any.
-        let _ = future::poll_fn(|cx| self.poll_stop(cx)).await;
+        future::poll_fn(|cx| self.poll_stop(cx)).await.ok();
 
         // Assume idle state and get a reference to the inner value.
         match &mut self.state {
@@ -440,7 +409,7 @@ impl<T> Unblock<T> {
         T: Send + 'static,
     {
         // Wait for the running task to stop and ignore I/O errors if there are any.
-        let _ = future::poll_fn(|cx| self.poll_stop(cx)).await;
+        future::poll_fn(|cx| self.poll_stop(cx)).await.ok();
 
         // Assume idle state and take out the inner value.
         let mut t = match &mut self.state {
@@ -456,7 +425,7 @@ impl<T> Unblock<T> {
 
         let (sender, receiver) = bounded(1);
         let task = Executor::spawn(async move {
-            let _ = sender.try_send(op(&mut t));
+            sender.try_send(op(&mut t)).ok();
             t
         });
         self.state = State::WithMut(task);
@@ -492,7 +461,7 @@ impl<T> Unblock<T> {
         let mut this = self;
 
         // Wait for the running task to stop and ignore I/O errors if there are any.
-        let _ = future::poll_fn(|cx| this.poll_stop(cx)).await;
+        future::poll_fn(|cx| this.poll_stop(cx)).await.ok();
 
         // Assume idle state and extract the inner value.
         match &mut this.state {
@@ -517,8 +486,7 @@ impl<T> Unblock<T> {
 
                 State::WithMut(task) => {
                     // Poll the task to wait for it to finish.
-                    let io = ready!(Pin::new(task).poll_next(cx))
-                        .expect("`Unblock::with_mut()` operation has panicked");
+                    let io = ready!(Pin::new(task).poll(cx));
                     self.state = State::Idle(Some(io));
                 }
 
@@ -528,8 +496,7 @@ impl<T> Unblock<T> {
                     any.take();
 
                     // Poll the task to retrieve the iterator.
-                    let iter = ready!(Pin::new(task).poll_next(cx))
-                        .expect("`Unblock` stream operation has panicked");
+                    let iter = ready!(Pin::new(task).poll(cx));
                     self.state = State::Idle(Some(iter));
                 }
 
@@ -539,8 +506,7 @@ impl<T> Unblock<T> {
                     reader.take();
 
                     // Poll the task to retrieve the I/O handle.
-                    let (res, io) = ready!(Pin::new(task).poll_next(cx))
-                        .expect("`Unblock` read operation has panicked");
+                    let (res, io) = ready!(Pin::new(task).poll(cx));
                     // Make sure to move into the idle state before reporting errors.
                     self.state = State::Idle(Some(io));
                     res?;
@@ -552,8 +518,7 @@ impl<T> Unblock<T> {
                     writer.take();
 
                     // Poll the task to retrieve the I/O handle.
-                    let (res, io) = ready!(Pin::new(task).poll_next(cx))
-                        .expect("`Unblock` write operation has panicked");
+                    let (res, io) = ready!(Pin::new(task).poll(cx));
                     // Make sure to move into the idle state before reporting errors.
                     self.state = State::Idle(Some(io));
                     res?;
@@ -561,8 +526,7 @@ impl<T> Unblock<T> {
 
                 State::Seeking(task) => {
                     // Poll the task to wait for it to finish.
-                    let (_, res, io) = ready!(Pin::new(task).poll_next(cx))
-                        .expect("`Unblock` seek operation has panicked");
+                    let (_, res, io) = ready!(Pin::new(task).poll(cx));
                     // Make sure to move into the idle state before reporting errors.
                     self.state = State::Idle(Some(io));
                     res?;
@@ -646,7 +610,7 @@ where
                 | State::Writing(..)
                 | State::Seeking(..) => {
                     // Wait for the running task to stop.
-                    let _ = ready!(self.poll_stop(cx));
+                    ready!(self.poll_stop(cx)).ok();
                 }
 
                 // If idle, start a streaming task.
@@ -685,8 +649,7 @@ where
                     // the same thread that created it.
                     if opt.is_none() {
                         // Poll the task to retrieve the iterator.
-                        let iter = ready!(Pin::new(task).poll_next(cx))
-                            .expect("`Unblock` stream operation has panicked");
+                        let iter = ready!(Pin::new(task).poll(cx));
                         self.state = State::Idle(Some(iter));
                     }
 
@@ -752,8 +715,7 @@ impl<T: Read + Send + 'static> AsyncRead for Unblock<T> {
                     // the same thread that created it.
                     if n == 0 {
                         // Poll the task to retrieve the I/O handle.
-                        let (res, io) = ready!(Pin::new(task).poll_next(cx))
-                            .expect("`Unblock` read operation has panicked");
+                        let (res, io) = ready!(Pin::new(task).poll(cx));
                         // Make sure to move into the idle state before reporting errors.
                         self.state = State::Idle(Some(io));
                         res?;
@@ -803,7 +765,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
                                 Ok(0) => return (io.flush(), io),
                                 Ok(_) => {}
                                 Err(err) => {
-                                    let _ = io.flush();
+                                    io.flush().ok();
                                     return (Err(err), io);
                                 }
                             }
@@ -879,8 +841,7 @@ impl<T: Seek + Send + 'static> AsyncSeek for Unblock<T> {
 
                 State::Seeking(task) => {
                     // Poll the task to wait for it to finish.
-                    let (original_pos, res, io) = ready!(Pin::new(task).poll_next(cx))
-                        .expect("`Unblock` seek operation has panicked");
+                    let (original_pos, res, io) = ready!(Pin::new(task).poll(cx));
                     // Make sure to move into the idle state before reporting errors.
                     self.state = State::Idle(Some(io));
                     let current = res?;

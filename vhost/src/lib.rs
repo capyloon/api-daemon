@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::thread;
 
 pub mod config;
+mod etag;
 mod vhost_handler;
 
 use vhost_handler::{vhost, AppData};
@@ -130,7 +131,7 @@ mod test {
 
     // Creates a client configured to ignore errors when checking the
     // self-signed certificate.
-    fn ssl_client(lang: Option<&str>) -> Client {
+    fn ssl_client(lang: Option<&str>, if_none_match: Option<&str>) -> Client {
         use std::sync::Arc;
 
         let mut config = ClientConfig::new();
@@ -145,37 +146,62 @@ mod test {
         if let Some(lang) = lang {
             builder = builder.header(actix_web::http::header::ACCEPT_LANGUAGE, lang);
         }
+        if let Some(if_none_match) = if_none_match {
+            builder = builder.header(actix_web::http::header::IF_NONE_MATCH, if_none_match);
+        }
 
         builder.connector(connector).finish()
     }
 
-    fn lang_request(url: &str, expected: StatusCode, mime: &str, lang: Option<&'static str>) {
+    // Returns the ETag of the request.
+    fn lang_request(
+        url: &str,
+        expected: StatusCode,
+        mime: &str,
+        lang: Option<&'static str>,
+        if_none_match: Option<&'static str>,
+    ) -> Result<String, ()> {
         use actix_web::HttpMessage;
         use log::error;
 
         let url = url.to_owned();
         let mime = mime.to_owned();
+
         let fut = async move {
             let url2 = url.clone();
-            let response = ssl_client(lang).get(url).send().await;
+            let response = ssl_client(lang, if_none_match).get(url).send().await;
             response
                 .map_err(move |err| {
                     error!("HTTP Request failed: {}", err);
-                    panic!("Failed to retrieve {}", url2);
+                    panic!("Failed to retrieve {}", url2.clone());
                 })
                 .and_then(|response| {
                     assert_eq!(response.status(), expected);
                     if response.status() == StatusCode::OK {
                         assert_eq!(response.content_type(), mime);
                     }
-                    Ok(())
+                    // ETag is not set on responses that are 4xx or 5xx.
+                    let etag = match response.headers().get("ETag") {
+                        Some(etag) => etag.to_str().unwrap(),
+                        None => "",
+                    };
+                    Ok(etag.to_string())
                 })
         };
-        let _ = System::new("test").block_on(fut);
+        System::new("test").block_on(fut)
     }
 
-    fn request(url: &str, expected: StatusCode, mime: &str) {
-        lang_request(url, expected, mime, None)
+    fn request(url: &str, expected: StatusCode, mime: &str) -> Result<String, ()> {
+        lang_request(url, expected, mime, None, None)
+    }
+
+    fn request_if_none_match(
+        url: &str,
+        expected: StatusCode,
+        mime: &str,
+        if_none_match: &'static str,
+    ) -> Result<String, ()> {
+        lang_request(url, expected, mime, None, Some(if_none_match))
     }
 
     #[test]
@@ -184,100 +210,142 @@ mod test {
 
         start_server(7443);
 
-        request(
+        let _ = request(
             "https://valid.localhost:7443/index.html",
             StatusCode::OK,
             "text/html",
         );
 
-        lang_request(
+        let _ = lang_request(
             "https://valid.localhost:7443/index.html",
             StatusCode::OK,
             "text/html",
             Some("en-US"),
+            None,
         );
 
-        lang_request(
+        let _ = lang_request(
             "https://valid.localhost:7443/localized.html",
             StatusCode::OK,
             "text/html",
             Some("en-US"),
+            None,
         );
 
-        lang_request(
+        let _ = lang_request(
             "https://valid.localhost:7443/localized.html",
             StatusCode::OK,
             "text/html",
             Some("fr-FR"),
+            None,
         );
 
-        lang_request(
+        let _ = lang_request(
             "https://valid.localhost:7443/localized.html",
             StatusCode::NOT_FOUND,
             "text/html",
             Some("es-SP"),
+            None,
         );
 
-        lang_request(
+        let _ = lang_request(
             "https://valid.localhost:7443/localized.html",
             StatusCode::OK,
             "text/html",
             Some("en-US,en;q=0.5"),
+            None,
         );
 
-        request(
+        let _ = request(
             "https://valid.localhost:7443/css/style.css",
             StatusCode::OK,
             "text/css",
         );
 
-        request(
+        let _ = request(
             "https://valid.localhost:7443/index2.html",
             StatusCode::NOT_FOUND,
             "text/html",
         );
 
-        request(
+        let _ = request(
             "https://valid.localhost:7443/some/file.txt",
             StatusCode::NOT_FOUND,
             "text/plain",
         );
 
-        request(
+        let _ = request(
             "https://valid.localhost:7443/manifest.webapp",
             StatusCode::OK,
             "application/json",
         );
 
-        request(
+        let _ = request(
             "https://valid2.localhost:7443/manifest.webmanifest",
             StatusCode::OK,
             "application/manifest+json",
         );
 
-        request(
+        let _ = request(
             "https://unknown.localhost:7443/index.html",
             StatusCode::NOT_FOUND,
             "text/html",
         );
 
-        request(
+        let _ = request(
             "https://missing-zip.localhost:7443/index.html",
             StatusCode::OK,
             "text/html",
         );
 
-        request(
+        let _ = request(
             "https://missing-zip.localhost:7443/js/main.js",
             StatusCode::OK,
             "application/javascript",
         );
 
-        lang_request(
+        let _ = lang_request(
             "https://missing-zip.localhost:7443/localized.html",
             StatusCode::OK,
             "text/html",
             Some("en-US,en;q=0.5"),
+            None,
         );
+
+        // Testing etag from file.
+        let etag = request(
+            "https://missing-zip.localhost:7443/index.html",
+            StatusCode::OK,
+            "text/html",
+        )
+        .unwrap();
+        assert_eq!(&etag, "W/\"1600817409.49581208-0\"");
+
+        let etag = request_if_none_match(
+            "https://missing-zip.localhost:7443/index.html",
+            StatusCode::NOT_MODIFIED,
+            "text/html",
+            "W/\"1600817409.49581208-0\"",
+        )
+        .unwrap();
+        assert_eq!(&etag, "W/\"1600817409.49581208-0\"");
+
+        // Testing etag from zip.
+        let etag = request(
+            "https://valid.localhost:7443/css/style.css",
+            StatusCode::OK,
+            "text/css",
+        )
+        .unwrap();
+        assert_eq!(&etag, "W/\"2927261257-87\"");
+
+        let etag = request_if_none_match(
+            "https://valid.localhost:7443/css/style.css",
+            StatusCode::NOT_MODIFIED,
+            "text/css",
+            "W/\"2927261257-87\"",
+        )
+        .unwrap();
+        assert_eq!(&etag, "W/\"2927261257-87\"");
     }
 }

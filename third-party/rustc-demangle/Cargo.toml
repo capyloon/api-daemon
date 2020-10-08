@@ -12,7 +12,7 @@
 
 [package]
 name = "rustc-demangle"
-version = "0.1.16"
+version = "0.1.17"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 description = "Rust compiler symbol demangling.\n"
 homepage = "https://github.com/alexcrichton/rustc-demangle"
@@ -20,6 +20,8 @@ documentation = "https://docs.rs/rustc-demangle"
 readme = "README.md"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/alexcrichton/rustc-demangle"
+[profile.release]
+lto = true
 [dependencies.compiler_builtins]
 version = "0.1.2"
 optional = true

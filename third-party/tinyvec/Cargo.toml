@@ -13,15 +13,21 @@
 [package]
 edition = "2018"
 name = "tinyvec"
-version = "0.3.4"
+version = "1.0.1"
 authors = ["Lokathor <zefria@gmail.com>"]
-description = "Just, really the littlest Vec you could need. So smol."
-keywords = ["vec", "no_std", "no-std", "smol"]
+description = "`tinyvec` provides 100% safe vec-like data structures."
+keywords = ["vec", "no_std", "no-std"]
 categories = ["data-structures", "no-std"]
 license = "Zlib OR Apache-2.0 OR MIT"
 repository = "https://github.com/Lokathor/tinyvec"
 [package.metadata.docs.rs]
-all-features = true
+features = ["alloc", "grab_spare_slice", "rustc_1_40", "serde"]
+rustdoc-args = ["--cfg", "docs_rs"]
+
+[package.metadata.playground]
+features = ["alloc", "grab_spare_slice", "rustc_1_40", "serde"]
+[profile.test]
+opt-level = 3
 
 [[test]]
 name = "tinyvec"
@@ -31,20 +37,25 @@ required-features = ["alloc"]
 name = "macros"
 harness = false
 required-features = ["alloc"]
+[dependencies.serde]
+version = "1.0"
+optional = true
+default-features = false
 
-[dependencies]
+[dependencies.tinyvec_macros]
+version = "0.1"
+optional = true
 [dev-dependencies.criterion]
 version = "0.3.0"
 
+[dev-dependencies.serde_test]
+version = "1.0"
+
 [features]
-alloc = []
+alloc = ["tinyvec_macros"]
 default = []
 experimental_write_impl = []
 grab_spare_slice = []
 nightly_const_generics = []
 nightly_slice_partition_dedup = []
-[badges.appveyor]
-repository = "Lokathor/tinyvec"
-
-[badges.travis-ci]
-repository = "Lokathor/tinyvec"
+rustc_1_40 = []

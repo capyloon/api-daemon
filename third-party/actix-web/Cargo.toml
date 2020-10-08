@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "actix-web"
-version = "3.0.2"
+version = "3.1.0"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
 description = "Actix web is a powerful, pragmatic, and extremely fast web framework for Rust."
 homepage = "https://actix.rs"
@@ -162,7 +162,7 @@ features = ["std"]
 default-features = false
 
 [dependencies.tinyvec]
-version = "0.3"
+version = "1"
 features = ["alloc"]
 
 [dependencies.url]
