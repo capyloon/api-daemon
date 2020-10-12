@@ -28,6 +28,8 @@ pub enum Error {
     InvalidFilterOption(String),
     #[error("Invalid contact id error")]
     InvalidContactId(String),
+    #[error("Ice position already used")]
+    IcePositionUsed(String),
 }
 
 pub struct ContactsSchemaManager {}
@@ -174,6 +176,7 @@ impl Default for ContactInfo {
             job_title: None,
             note: None,
             groups: None,
+            ice_position: 0,
         }
     }
 }
@@ -324,6 +327,8 @@ impl ContactInfo {
                 }
             } else if row.data_type == "groups" {
                 fillVecField!(self.groups, row.value);
+            } else if row.data_type == "ice_position" {
+                self.ice_position = row.value.parse().unwrap_or(0);
             } else {
                 error!("Unknown type in addtional :{}", row.data_type);
             }
@@ -426,6 +431,10 @@ impl ContactInfo {
             "phonetic_family_name",
             self.phonetic_family_name
         );
+
+        if self.ice_position != 0 {
+            saveStrField!(stmt, self.id, "ice_position", self.ice_position.to_string());
+        }
 
         if let Some(addresses) = &self.addresses {
             let json = serde_json::to_string(addresses)?;
@@ -919,6 +928,102 @@ impl ContactsDb {
                 Some(statement)
             },
         ))
+    }
+
+    pub fn set_ice(&mut self, contact_id: &str, position: i64) -> Result<(), Error> {
+        let conn = self.db.connection();
+        let contact_id_count: i32 = {
+            let sql = String::from("SELECT COUNT(*) FROM contact_main WHERE contact_id = ?");
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_row(&[&contact_id], |r| Ok(r.get_unwrap(0)))?
+        };
+
+        if contact_id_count != 1 {
+            return Err(Error::InvalidContactId(
+                "Try to set_ice with invalid contact id".to_string(),
+            ));
+        }
+
+        let position_count: i32 = {
+            let sql = String::from(
+                "SELECT COUNT(*) FROM contact_additional WHERE data_type = 'ice_position' AND value = ?",
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_row(&[&position], |r| Ok(r.get_unwrap(0)))?
+        };
+
+        if position_count != 0 {
+            return Err(Error::IcePositionUsed(
+                "Try to set_ice with position already used".to_string(),
+            ));
+        }
+
+        let item_count: i32 = {
+            let sql = String::from(
+                "SELECT COUNT(*) FROM contact_additional WHERE data_type = 'ice_position' AND contact_id = ?",
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_row(&[&contact_id], |r| Ok(r.get_unwrap(0)))?
+        };
+
+        if item_count != 0 {
+            conn.execute_named(
+                "UPDATE contact_additional SET value = :position WHERE contact_id = :contact_id
+                AND data_type = 'ice_position'",
+                &[(":position", &position), (":contact_id", &contact_id)],
+            )?;
+        } else {
+            conn.execute_named(
+                "INSERT INTO contact_additional (contact_id, data_type, value) 
+                VALUES (:contact_id, 'ice_position', :position)",
+                &[(":contact_id", &contact_id), (":position", &position)],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub fn remove_ice(&mut self, contact_id: &str) -> Result<(), Error> {
+        let conn = self.db.connection();
+        let count: i32 = {
+            let sql = String::from("SELECT COUNT(*) FROM contact_main WHERE contact_id = ?");
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_row(&[&contact_id], |r| Ok(r.get_unwrap(0)))?
+        };
+
+        if count != 1 {
+            return Err(Error::InvalidContactId(
+                "Try to remove_ice with invalid contact id".to_string(),
+            ));
+        }
+
+        conn.execute(
+            "DELETE FROM contact_additional WHERE contact_id = ? AND data_type = 'ice_position'",
+            &[contact_id],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_all_ice(&mut self) -> Result<Vec<IceInfo>, Error> {
+        debug!("ContactsDb::get_all_ice");
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(
+            "SELECT value, contact_id FROM contact_additional WHERE
+            data_type = 'ice_position' AND value != '0' ORDER BY value ASC",
+        )?;
+
+        let rows = stmt.query_map(NO_PARAMS, |row| {
+            Ok(IceInfo {
+                position: {
+                    let value: String = row.get(0)?;
+                    value.parse().unwrap_or(0)
+                },
+                contact_id: row.get(1)?,
+            })
+        })?;
+
+        rows_to_vec(rows)
     }
 
     pub fn import_vcf(&mut self, vcf: &str) -> Result<usize, Error> {

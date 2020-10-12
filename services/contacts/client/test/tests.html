@@ -183,6 +183,80 @@
 
       cursor.release();
 
+      await tester.assert_rej_eq(
+        "verify can't setIce with invalid contact id",
+        (service) => service.setIce("", 1),
+        {}
+      );
+
+      await tester.assert_rej_eq(
+        "verify can't setIce with invalid position 0",
+        (service) => service.setIce(contacts[0].id, 0),
+        {}
+      );
+
+      await tester.assert_rej_eq(
+        "verify can't setIce with invalid position -1",
+        (service) => service.setIce(contacts[0].id, -1),
+        {}
+      );
+
+      await tester.assert_eq(
+        "setIce on position 1 with contact id:" + contacts[0].id,
+        (service) => service.setIce(contacts[0].id, 1),
+        {}
+      );
+
+      await tester.assert_rej_eq(
+        "verify can't setIce with already used position 1",
+        (service) => service.setIce(contacts[1].id, 1),
+        {}
+      );
+
+      await tester.assert_eq(
+        "setIce on position 5 with contact id:" + contacts[1].id,
+        (service) => service.setIce(contacts[1].id, 5),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify getAllIce result",
+        service => service.getAllIce(),
+        [{ position: 1, contactId: contacts[0].id },
+        { position: 5, contactId: contacts[1].id }]
+      );
+
+      await tester.assert_rej_eq(
+        "verify can't removeIce with invalid contact id",
+        (service) => service.removeIce(""),
+        {}
+      );
+
+      await tester.assert_eq(
+        "removeIce with contact id:" + contacts[1].id,
+        (service) => service.removeIce(contacts[1].id),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify getAllIce result after removeIce with contact id:" + contacts[1].id,
+        service => service.getAllIce(),
+        [{ position: 1, contactId: contacts[0].id }]
+      );
+
+      await tester.assert_eq(
+        "verify can setIce after removeIce for contact with id:" + contacts[1].id,
+        (service) => service.setIce(contacts[1].id, 5),
+        {}
+      );
+
+      await tester.assert_eq(
+        "verify getAllIce result after removeIce and then setIce",
+        service => service.getAllIce(),
+        [{ position: 1, contactId: contacts[0].id },
+        { position: 5, contactId: contacts[1].id }]
+      );
+
       let favorite_cursor = await tester.service.find({
         filterValue: "favorite",
         filterOption: lib_contacts.FilterOption.CONTAINS,
@@ -288,6 +362,12 @@
           {}
         );
       });
+
+      await tester.assert_eq(
+        "verify getAllIce result is empty after remove contacts",
+        service => service.getAllIce(),
+        []
+      );
 
       await tester.assert_eq(
         "import 200 contacts from vcf",

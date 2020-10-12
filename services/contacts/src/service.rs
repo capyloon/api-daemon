@@ -175,6 +175,48 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
+    fn set_ice(
+        &mut self,
+        responder: &ContactsFactorySetIceResponder,
+        contact_id: String,
+        position: i64,
+    ) {
+        if position <= 0 {
+            info!("set_ice with invalid position:{}, reject", position);
+            return responder.reject();
+        }
+        match self.state.lock().db.set_ice(&contact_id, position) {
+            Ok(()) => responder.resolve(),
+            Err(err) => {
+                info!("set_ice error:{}", err);
+                responder.reject()
+            }
+        }
+    }
+
+    fn remove_ice(&mut self, responder: &ContactsFactoryRemoveIceResponder, contact_id: String) {
+        match self.state.lock().db.remove_ice(&contact_id) {
+            Ok(()) => responder.resolve(),
+            Err(err) => {
+                info!("remove_ice error:{}", err);
+                responder.reject()
+            }
+        }
+    }
+
+    fn get_all_ice(&mut self, responder: &ContactsFactoryGetAllIceResponder) {
+        match self.state.lock().db.get_all_ice() {
+            Ok(value) => {
+                info!("get_all_ice Ok {:#?}", value);
+                responder.resolve(Some(value))
+            }
+            Err(err) => {
+                info!("get_all_ice error: {}", err);
+                responder.reject();
+            }
+        }
+    }
+
     fn get_count(&mut self, responder: &ContactsFactoryGetCountResponder) {
         let state = self.state.lock();
         let db = &state.db;
