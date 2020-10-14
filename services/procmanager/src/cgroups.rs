@@ -150,7 +150,15 @@ fn get_all_pids() -> impl Iterator<Item = i32> {
         })
 }
 
+#[cfg(target_os = "android")]
 pub struct DefaultCGroupsWorker();
+
+#[cfg(target_os = "android")]
+impl DefaultCGroupsWorker {
+    fn new() -> DefaultCGroupsWorker {
+        DefaultCGroupsWorker()
+    }
+}
 
 //
 // Add & remove processes to cgroups.
@@ -159,6 +167,7 @@ pub struct DefaultCGroupsWorker();
 // all cgroups are pre-created.  Attribute changing are not supported
 // yet, too.
 //
+#[cfg(target_os = "android")]
 impl GenerationWorker for DefaultCGroupsWorker {
     fn remove_group(&mut self, _group_path: &str) -> Result<(), CGroupError> {
         // Not support yet!
@@ -236,6 +245,54 @@ impl GenerationWorker for DefaultCGroupsWorker {
                 return self.move_processes(removings, movings);
             }
         }
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub struct DummyCGroupsWorker();
+
+#[cfg(not(target_os = "android"))]
+impl DummyCGroupsWorker {
+    fn new() -> DummyCGroupsWorker {
+        DummyCGroupsWorker()
+    }
+}
+
+//
+// Dummy implementation fo GenerationWorker
+//
+// Just do nothing as a fallback for the platforms that doesn't
+// support CGroup.
+//
+#[cfg(not(target_os = "android"))]
+impl GenerationWorker for DummyCGroupsWorker {
+    fn remove_group(&mut self, _group_path: &str) -> Result<(), CGroupError> {
+        // Not support yet!
+        Ok(())
+    }
+
+    fn add_group(&mut self, _group_name: &str, _parent: &str) -> Result<(), CGroupError> {
+        // Not support yet!
+        Ok(())
+    }
+
+    fn update_group_attrs(
+        &mut self,
+        _group_path: &str,
+        _to_set: &mut [(String, String)],
+        _to_remove: &mut [String],
+    ) -> Result<(), CGroupError> {
+        // Not support yet!
+        Ok(())
+    }
+
+    fn move_processes(
+        &mut self,
+        removings: &mut [i32],
+        movings: &mut [(i32, String)],
+    ) -> Result<(), CGroupError> {
+        // Not supported!
         Ok(())
     }
 }
@@ -423,7 +480,13 @@ impl CGService {
     // changes from several generations.
     //
     pub fn commit(&mut self, generation: GenID) -> Result<GenID, CGroupError> {
-        self.commit_apply(generation, &mut DefaultCGroupsWorker())
+        #[cfg(target_os = "android")]
+        type WorkerType = DefaultCGroupsWorker;
+
+        #[cfg(not(target_os = "android"))]
+        type WorkerType = DummyCGroupsWorker;
+
+        self.commit_apply(generation, &mut WorkerType::new())
     }
     //
     // Drop a generation.
