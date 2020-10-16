@@ -27,6 +27,7 @@ enum AppsServiceState {
 
 enum AppsServiceError {
   AppNotFound             // App is not in the list
+  ClearDataError          // Failed to clear app data
   DiskSpaceNotEnough      // Do not have enough disk space
   DownloadManifestFailed  // Can't download the meta manifest
   DownloadPackageFailed   // Can't download the app package
@@ -49,6 +50,12 @@ enum AppsServiceError {
 enum ConnectionType {
     WiFiOnly
     Any
+}
+
+enum ClearType {
+  Browser                 // Clear cookie and data registered to different service.
+                          //   Such as, alarm, push, and sync etc ...
+  Storage                 // Clear Apps local storage, such as indexDB.
 }
 
 dictionary AppsObject {
@@ -95,6 +102,10 @@ interface AppsEngine {
   // In: The URL of a PWA manifest from the host server
   // Return: the app object or an error
   fn install_pwa(manifest_url: str) -> AppsObject, AppsServiceError
+
+  // In: the manifest URL of a app and data type to be cleared.
+  // Return: resolve or an error string.
+  fn clear(manifest_url: str, data_type: ClearType) -> bool, AppsServiceError
 
   // In: the URL of a app in store server
   // Return: the app object or an error string.

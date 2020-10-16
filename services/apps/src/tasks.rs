@@ -262,3 +262,28 @@ impl AppMgmtTask for SetEnabledTask {
         };
     }
 }
+
+pub struct ClearTask(
+    pub Shared<AppsSharedData>,
+    pub String,                   // manifest url
+    pub ClearType,                // App status
+    pub AppsEngineClearResponder, // responder
+);
+
+impl AppMgmtTask for ClearTask {
+    fn run(&self) {
+        let mut shared = self.0.lock();
+        let manifest_url = &self.1;
+        let datatype = self.2;
+        let responder = &self.3;
+
+        if shared.registry.get_by_manifest_url(&manifest_url).is_none() {
+            return responder.reject(AppsServiceError::AppNotFound);
+        }
+
+        match shared.registry.clear(manifest_url, datatype) {
+            Ok(_) => responder.resolve(true),
+            Err(err) => responder.reject(err),
+        };
+    }
+}

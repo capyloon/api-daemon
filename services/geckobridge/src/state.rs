@@ -163,6 +163,29 @@ impl GeckoBridgeState {
         self.notify_readyness_observers();
     }
 
+    pub fn apps_service_on_clear(
+        &mut self,
+        manifest_url: String,
+        data_type: String
+    ) -> Result<(), DelegatorError> {
+        debug!("apps_service_on_clear: {}", &manifest_url);
+        if let Some(service) = &mut self.appsservice {
+            let rx = service.on_clear(manifest_url, data_type);
+            if let Ok(result) = rx.recv() {
+                match result {
+                    Ok(_) => Ok(()),
+                    Err(_) => Err(DelegatorError::InvalidWebRuntimeService),
+                }
+            } else {
+                error!("The apps service delegate rx channel error!");
+                Err(DelegatorError::InvalidChannel)
+            }
+        } else {
+            error!("The apps service delegate is not set!");
+            Err(DelegatorError::InvalidDelegator)
+        }
+    }
+
     pub fn apps_service_on_boot(&mut self, manifest_url: String, value: JsonValue) {
         debug!("apps_service_on_boot: {} - {:?}", &manifest_url, value);
         if let Some(service) = &mut self.appsservice {

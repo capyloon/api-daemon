@@ -3,8 +3,8 @@ use super::shared_state::*;
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::tasks::{
-    CheckForUpdateTask, InstallPackageTask, InstallPwaTask, SetEnabledTask, UninstallTask,
-    UpdateTask,
+    CheckForUpdateTask, ClearTask, InstallPackageTask, InstallPwaTask, SetEnabledTask,
+    UninstallTask, UpdateTask,
 };
 use crate::update_scheduler::{Config, SchedulerMessage};
 use common::core::BaseMessage;
@@ -140,6 +140,22 @@ impl AppsEngineMethods for AppsService {
         } else {
             responder.resolve(false);
         }
+    }
+
+    fn clear(
+        &mut self,
+        responder: &AppsEngineClearResponder,
+        manifest_url: String,
+        data_type: ClearType,
+    ) {
+        info!("clear: {}", &manifest_url);
+        let task = ClearTask(
+            self.shared_data.clone(),
+            manifest_url,
+            data_type,
+            responder.clone(),
+        );
+        self.shared_data.lock().registry.queue_task(task);
     }
 }
 

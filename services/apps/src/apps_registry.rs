@@ -390,6 +390,22 @@ impl AppsRegistry {
         Ok(())
     }
 
+    pub fn clear(
+        &mut self,
+        manifest_url: &str,
+        data_type: ClearType,
+    ) -> Result<(), AppsServiceError> {
+        let type_str = match data_type {
+            ClearType::Browser => "Browser",
+            ClearType::Storage => "Storage",
+        };
+
+        Ok(GeckoBridgeService::shared_state()
+            .lock()
+            .apps_service_on_clear(manifest_url.to_string(), type_str.to_string())
+            .map_err(|_| AppsServiceError::ClearDataError)?)
+    }
+
     pub fn download_and_apply(
         &mut self,
         webapp_path: &str,
