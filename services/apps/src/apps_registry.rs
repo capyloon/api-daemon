@@ -13,6 +13,7 @@ use crate::manifest::{Icons, Manifest, ManifestError};
 use crate::registry_db::RegistryDb;
 use crate::shared_state::AppsSharedData;
 use crate::update_manifest::UpdateManifest;
+use crate::update_scheduler;
 use common::traits::DispatcherId;
 use common::traits::Shared;
 use common::JsonValue;
@@ -1015,8 +1016,15 @@ pub fn start(shared_data: Shared<AppsSharedData>, vhost_port: u16) {
             let shared_with_observer = shared_data.clone();
             thread::spawn(move || observe_bridge(shared_with_observer, &config));
 
-            let shared_with_actor = shared_data;
+            let shared_with_actor = shared_data.clone();
             thread::spawn(move || apps_actor::start_webapp_actor(shared_with_actor));
+
+            let shared_with_scheduler = shared_data.clone();
+            let sender = update_scheduler::start(shared_with_scheduler);
+            {
+                let mut shared = shared_data.lock();
+                shared.scheduler = Some(sender);
+            }
         }
         Err(err) => {
             error!("Error initializing apps registry: {}", err);

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "socket2"
-version = "0.3.15"
+version = "0.3.16"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 description = "Utilities for handling networking sockets with a maximal amount of configuration\npossible intended.\n"
 homepage = "https://github.com/alexcrichton/socket2-rs"
@@ -34,6 +34,7 @@ version = "0.1.6"
 
 [target."cfg(any(unix, target_os = \"redox\"))".dependencies.libc]
 version = "0.2.66"
+features = ["align"]
 [target."cfg(target_os = \"redox\")".dependencies.redox_syscall]
 version = "0.1.38"
 [target."cfg(windows)".dependencies.winapi]

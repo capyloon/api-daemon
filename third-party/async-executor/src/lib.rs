@@ -30,7 +30,7 @@ use std::task::{Poll, Waker};
 
 use async_task::Runnable;
 use concurrent_queue::ConcurrentQueue;
-use futures_lite::{future, FutureExt};
+use futures_lite::{future, prelude::*};
 use vec_arena::Arena;
 
 #[doc(no_inline)]
@@ -90,6 +90,28 @@ impl<'a> Executor<'a> {
             state: once_cell::sync::OnceCell::new(),
             _marker: PhantomData,
         }
+    }
+
+    /// Returns `true` if there are no unfinished tasks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_executor::Executor;
+    ///
+    /// let ex = Executor::new();
+    /// assert!(ex.is_empty());
+    ///
+    /// let task = ex.spawn(async {
+    ///     println!("Hello world");
+    /// });
+    /// assert!(!ex.is_empty());
+    ///
+    /// assert!(ex.try_tick());
+    /// assert!(ex.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.state().active.lock().unwrap().is_empty()
     }
 
     /// Spawns a task onto the executor.
@@ -156,7 +178,7 @@ impl<'a> Executor<'a> {
         }
     }
 
-    /// Run a single task.
+    /// Runs a single task.
     ///
     /// Running a task means simply polling its future once.
     ///
@@ -298,6 +320,28 @@ impl<'a> LocalExecutor<'a> {
         }
     }
 
+    /// Returns `true` if there are no unfinished tasks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_executor::LocalExecutor;
+    ///
+    /// let local_ex = LocalExecutor::new();
+    /// assert!(local_ex.is_empty());
+    ///
+    /// let task = local_ex.spawn(async {
+    ///     println!("Hello world");
+    /// });
+    /// assert!(!local_ex.is_empty());
+    ///
+    /// assert!(local_ex.try_tick());
+    /// assert!(local_ex.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.inner().is_empty()
+    }
+
     /// Spawns a task onto the executor.
     ///
     /// # Examples
@@ -351,7 +395,7 @@ impl<'a> LocalExecutor<'a> {
         self.inner().try_tick()
     }
 
-    /// Run a single task.
+    /// Runs a single task.
     ///
     /// Running a task means simply polling its future once.
     ///

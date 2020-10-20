@@ -18,6 +18,7 @@ replace-with = "vendored-sources"
 
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
+branch = "master"
 replace-with = "vendored-sources"
 
 [source."ssh://git@git.kaiostech.com/KaiOS/zip_utils.git"]

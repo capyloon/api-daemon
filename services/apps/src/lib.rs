@@ -16,6 +16,7 @@ pub mod registry_db;
 pub mod shared_state;
 pub mod tasks;
 pub mod update_manifest;
+pub mod update_scheduler;
 
 use crate::shared_state::AppsSharedData;
 use common::traits::Shared;

@@ -1,0 +1,39 @@
+diff --git a/src/socket.rs b/src/socket.rs
+index f4c04bb..3bbaf0e 100644
+--- a/src/socket.rs
++++ b/src/socket.rs
+@@ -62,7 +62,7 @@ use crate::{Domain, Protocol, SockAddr, Type};
+ /// ```
+ pub struct Socket {
+     // The `sys` module most have access to the socket.
+-    pub(crate) inner: sys::Socket,
++    pub(crate) inner: sys::socket_t,
+ }
+ 
+ impl Socket {
+diff --git a/src/sys/unix.rs b/src/sys/unix.rs
+index baec76f..598d75d 100644
+--- a/src/sys/unix.rs
++++ b/src/sys/unix.rs
+@@ -26,6 +26,8 @@ use crate::{Domain, Type};
+ 
+ pub use libc::c_int;
+ 
++// Used in `Socket`.
++pub(crate) use libc::c_int as socket_t;
+ // Used in `Domain`.
+ pub(crate) use libc::{AF_INET, AF_INET6};
+ // Used in `Type`.
+diff --git a/src/sys/windows.rs b/src/sys/windows.rs
+index 72466ec..9598aca 100644
+--- a/src/sys/windows.rs
++++ b/src/sys/windows.rs
+@@ -44,6 +44,8 @@ const WSA_FLAG_OVERLAPPED: DWORD = 0x01;
+ 
+ pub use winapi::ctypes::c_int;
+ 
++// Used in `Socket`.
++pub(crate) use sock::SOCKET as socket_t;
+ // Used in `Domain`.
+ pub(crate) use winapi::shared::ws2def::{AF_INET, AF_INET6};
+ // Used in `Type`.

@@ -3,7 +3,9 @@
 use crate::apps_registry::AppsRegistry;
 use crate::config::Config;
 use crate::generated::common::*;
+use crate::update_scheduler::SchedulerMessage;
 use common::traits::Shared;
+use std::sync::mpsc::Sender;
 use vhost_server::config::VhostApi;
 
 lazy_static! {
@@ -16,6 +18,7 @@ pub struct AppsSharedData {
     pub vhost_api: VhostApi,
     pub state: AppsServiceState,
     pub registry: AppsRegistry,
+    pub scheduler: Option<Sender<SchedulerMessage>>,
 }
 
 impl AppsSharedData {
@@ -25,6 +28,7 @@ impl AppsSharedData {
             vhost_api: VhostApi::default(),
             state: AppsServiceState::Initializing,
             registry: AppsRegistry::default(),
+            scheduler: None,
         }
     }
 

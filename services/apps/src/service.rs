@@ -6,6 +6,7 @@ use crate::tasks::{
     CheckForUpdateTask, InstallPackageTask, InstallPwaTask, SetEnabledTask, UninstallTask,
     UpdateTask,
 };
+use crate::update_scheduler::{Config, SchedulerMessage};
 use common::core::BaseMessage;
 use common::traits::{
     DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
@@ -75,7 +76,7 @@ impl AppsEngineMethods for AppsService {
             self.shared_data.clone(),
             update_url,
             apps_option,
-            responder.clone(),
+            Some(responder.clone()),
         );
         self.shared_data.lock().registry.queue_task(task);
     }
@@ -112,6 +113,33 @@ impl AppsEngineMethods for AppsService {
             responder.clone(),
         );
         self.shared_data.lock().registry.queue_task(task);
+    }
+
+    fn set_update_policy(
+        &mut self,
+        responder: &AppsEngineSetUpdatePolicyResponder,
+        enabled: bool,
+        allowed_when: ConnectionType,
+        delay: i64,
+    ) {
+        info!(
+            "set_update_policy: {}, {:?}, {}",
+            enabled, &allowed_when, delay
+        );
+        if let Some(sender) = &self.shared_data.lock().scheduler {
+            if let Ok(result) = sender.send(SchedulerMessage::Config(Config {
+                enabled,
+                allowed_when,
+                delay,
+            })) {
+                info!("scheduler.send success {:?}", result);
+                responder.resolve(true);
+            } else {
+                responder.resolve(false);
+            }
+        } else {
+            responder.resolve(false);
+        }
     }
 }
 

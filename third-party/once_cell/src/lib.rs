@@ -157,6 +157,51 @@ macro_rules! regex {
 
 This macro can be useful to avoid the "compile regex on every loop iteration" problem.
 
+Another pattern would be a `LateInit` type for delayed initialization:
+
+
+```
+use once_cell::sync::OnceCell;
+
+#[derive(Debug)]
+pub struct LateInit<T> { cell: OnceCell<T> }
+
+impl<T> LateInit<T> {
+    pub fn init(&self, value: T) {
+        assert!(self.cell.set(value).is_ok())
+    }
+}
+
+impl<T> Default for LateInit<T> {
+    fn default() -> Self { LateInit { cell: OnceCell::default() } }
+}
+
+impl<T> std::ops::Deref for LateInit<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.cell.get().unwrap()
+    }
+}
+
+#[derive(Default, Debug)]
+struct A<'a> {
+    b: LateInit<&'a B<'a>>,
+}
+
+#[derive(Default, Debug)]
+struct B<'a> {
+    a: LateInit<&'a A<'a>>
+}
+
+fn build_cycle() {
+    let a = A::default();
+    let b = B::default();
+    a.b.init(&b);
+    b.a.init(&a);
+    println!("{:?}", a.b.a.b.a);
+}
+```
+
 # Comparison with std
 
 |`!Sync` types         | Access Mode            | Drawbacks                                     |
@@ -177,8 +222,7 @@ equivalents with `RefCell` and `Mutex`.
 
 # Minimum Supported `rustc` Version
 
-This crate's minimum supported `rustc` version is `1.31.1` (or `1.36.0` with the
-`parking_lot` feature enabled).
+This crate's minimum supported `rustc` version is `1.36.0`.
 
 If only the `std` feature is enabled, MSRV will be updated conservatively.
 When using other features, like `parking_lot`, MSRV might be updated more frequently, up to the latest stable.
@@ -232,6 +276,10 @@ might be easier to debug than a deadlock.
 */
 
 #![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "unstable")]
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
 #[cfg(feature = "std")]
 #[cfg(feature = "parking_lot")]
@@ -994,3 +1042,6 @@ pub mod sync {
     /// ```
     fn _dummy() {}
 }
+
+#[cfg(feature = "unstable")]
+pub mod race;

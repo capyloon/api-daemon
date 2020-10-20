@@ -180,9 +180,9 @@ impl AppMgmtTask for UpdateTask {
 
 pub struct CheckForUpdateTask(
     pub Shared<AppsSharedData>,
-    pub String,                            // Update url
-    pub AppsOptions,                       // For auto update option
-    pub AppsEngineCheckForUpdateResponder, // responder
+    pub String,                                    // Update url
+    pub AppsOptions,                               // For auto update option
+    pub Option<AppsEngineCheckForUpdateResponder>, // some responder
 );
 
 impl AppMgmtTask for CheckForUpdateTask {
@@ -190,7 +190,7 @@ impl AppMgmtTask for CheckForUpdateTask {
         let mut shared = self.0.lock();
         let url = &self.1;
         let apps_option = &self.2;
-        let responder = &self.3;
+        let some_responder = &self.3;
 
         let data_path = shared.config.data_path.clone();
         let is_auto_update = match apps_option.auto_install {
@@ -203,19 +203,24 @@ impl AppMgmtTask for CheckForUpdateTask {
         {
             Ok(ret) => {
                 info!("broadcast event: check_for_update");
+                let mut updated = false;
                 if let Some(app) = ret {
                     shared
                         .registry
                         .event_broadcaster
                         .broadcast_app_update_available(app);
-                    responder.resolve(true);
-                } else {
-                    responder.resolve(false);
+                    updated = true;
+                }
+
+                if let Some(responder) = some_responder {
+                    responder.resolve(updated);
                 }
             }
             Err(err) => {
                 info!("CheckForUpdateTask error {:?}", err);
-                responder.reject(err);
+                if let Some(responder) = some_responder {
+                    responder.reject(err);
+                }
             }
         }
     }

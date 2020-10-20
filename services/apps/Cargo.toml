@@ -27,6 +27,7 @@ md-5 = "0.9.1"
 hex-slice = "0.1.4"
 version-compare = "0.0.10"
 vhost_server = { path = "../../vhost" }
+time = "0.2"
 
 [build-dependencies]
 common = { path = "../../common" }

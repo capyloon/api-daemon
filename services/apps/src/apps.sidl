@@ -46,6 +46,11 @@ enum AppsServiceError {
   UnknownError            // Other undefined error
 }
 
+enum ConnectionType {
+    WiFiOnly
+    Any
+}
+
 dictionary AppsObject {
   name: str
   installState: AppsInstallState
@@ -94,6 +99,12 @@ interface AppsEngine {
   // In: the URL of a app in store server
   // Return: the app object or an error string.
   fn update(manifest_url: str) -> AppsObject, AppsServiceError
+
+  // In: enabled to enable/disable auto update check.
+  // allowed_type, the types of network are allow to use
+  // delay, update check for certain time after a success check in seconds
+  // Return: successfully set or not.
+  fn set_update_policy(enabled: bool, allowed_type: ConnectionType, delay: int) -> bool
 
   // Report the app object which is updated successfully
   event appUpdated -> AppsObject

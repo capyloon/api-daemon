@@ -1,0 +1,337 @@
+# TODO
+
+
+impl_debug macro:
+
+    // Same as above, but the flags are bit OR-ed.
+    (
+        $type: path,
+        ORed:
+        $(
+            $(#[$target: meta])*
+            $libc: ident :: $flag: ident
+        ),+ $(,)*
+    ) => {
+        impl std::fmt::Debug for $type {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let mut written_one = false;
+                $(
+                    $(#[$target])*
+                    #[allow(clippy::bad_bit_mask)] // Apparently some flags are zero.
+                    {
+                        if (self.0 & $libc :: $flag) == $libc :: $flag {
+                            if !written_one {
+                                write!(f, "{}", stringify!($flag))?;
+                                written_one = true;
+                            } else {
+                                write!(f, "|{}", stringify!($flag))?;
+                            }
+                        }
+                    }
+                )+
+                if !written_one {
+                    write!(f, "{}", self.0)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    };
+
+
+
+
+
+
+getsockopt/setsockopt
+https://docs.microsoft.com/en-us/windows/win32/winsock/socket-options
+
+
+# IP_PROTO
+IP_ADD_SOURCE_MEMBERSHIP
+IP_BLOCK_SOURCE
+IP_DONTFRAGMENT
+IP_DROP_SOURCE_MEMBERSHIP
+IP_HDRINCL
+IP_OPTIONS
+IP_ORIGINAL_ARRIVAL_IF
+IP_PKTINFO
+IP_RECEIVE_BROADCAST
+IP_RECVIF
+IP_RECVTTL
+IP_TOS
+IP_UNBLOCK_SOURCE
+IP_UNICAST_IF
+IP_WFP_REDIRECT_CONTEXT
+IP_WFP_REDIRECT_RECORDS
+
+# IPPROTO_IPV6
+IP_ORIGINAL_ARRIVAL_IF
+IPV6_HDRINCL
+IPV6_HOPLIMIT
+IPV6_PKTINFO
+IPV6_PROTECTION_LEVEL
+IPV6_RECVIF
+IPV6_UNICAST_HOPS
+IPV6_UNICAST_IF
+
+# IPPROTO_TCP
+TCP_BSDURGENT
+TCP_EXPEDITED_1122
+TCP_KEEPCNT
+TCP_MAXRT
+TCP_NODELAY
+TCP_TIMESTAMPS
+TCP_FASTOPEN
+
+# SOL_SOCKET
+PVD_CONFIG
+SO_ACCEPTCONN
+SO_BROADCAST
+SO_BSP_STATE
+SO_CONDITIONAL_ACCEPT
+SO_CONNDATA
+SO_CONNDATALEN
+SO_CONNECT_TIME
+SO_CONNOPT
+SO_CONNOPTLEN
+SO_DISCDATA
+SO_DISCDATALEN
+SO_DISCOPT
+SO_DISCOPTLEN
+SO_DEBUG
+SO_DONTLINGER
+SO_DONTROUTE
+SO_ERROR
+SO_EXCLUSIVEADDRUSE
+SO_GROUP_ID
+SO_GROUP_PRIORITY
+SO_KEEPALIVE
+SO_LINGER
+SO_MAX_MSG_SIZE
+SO_MAXDG
+SO_MAXPATHDG
+SO_OOBINLINE
+SO_OPENTYPE
+SO_PORT_SCALABILITY
+SO_PROTECT
+SO_PROTOCOL_INFO
+SO_PROTOCOL_INFOA
+SO_PROTOCOL_INFOW
+SO_RCVBUF
+SO_RCVLOWAT
+SO_RCVTIMEO
+SO_RANDOMIZE_PORT
+SO_REUSEADDR
+SO_REUSE_UNICASTPORT
+SO_REUSE_MULTICASTPORT
+SO_SNDBUF
+SO_SNDLOWAT
+SO_SNDTIMEO
+SO_TYPE
+SO_UPDATE_ACCEPT_CONTEXT
+SO_UPDATE_CONNECT_CONTEXT
+SO_USELOOPBACK
+
+
+
+
+
+
+
+## SockAddr
+
+/// Unix only API.
+impl SockAddr {
+    /// Returns this address as a `SocketAddr` if it is in the `AF_UNIX` family.
+    #[cfg(feature = "all")]
+    pub fn as_unix(&self) -> Option<SocketAddr> {
+        if self.storage.ss_family as libc::c_int == libc::AF_UNIX {
+            todo!()
+        } else {
+            None
+        }
+    }
+}
+
+/// Unix only API.
+#[cfg(feature = "all")]
+impl From<SocketAddr> for SockAddr {
+    fn from(addr: SocketAddr) -> SockAddr {
+        todo!()
+    }
+}
+
+
+
+## Other
+
+
+
+* Add to src/lib.rs:
+
+* Windows impl.
+
+* Expand tests. Anything after shutdown.
+// TODO: test:
+// * take_error
+// * shutdown
+//
+// Raw:
+// * setsockopt
+// * getsockopt
+// * fcntl
+
+
+* Add Domain::for methods:
+  fn Domain::for_socket_addr(addr: &std::net::SocketAddr) -> Domain.
+
+
+
+SockAddr from UDS SocketAddr:
+
+/// Unix only API.
+impl SockAddr {
+    /// Returns the contents of this address if it is a pathname address.
+    ///
+    /// Only possible if the address is of type `AF_UNIX` and the address it not
+    /// unnamed.
+    pub fn as_pathname(&self) -> Option<&Path> {
+        // AF_UNIX
+        todo!()
+    }
+}
+
+// TODO: I don't like this.
+impl From<SocketAddr> for SockAddr {
+    fn from(addr: SocketAddr) -> SockAddr {
+        // Same layout as that in the standard library.
+        struct StdSocketAddr {
+            addr: libc::sockaddr_un,
+            len: libc::socklen_t,
+        }
+
+        unsafe {
+            let addr = mem::transmute::<SocketAddr, StdSocketAddr>(addr);
+            SockAddr::from_raw_parts(*(&addr.addr as *const _ as *const _), addr.len)
+        }
+    }
+}
+
+
+
+
+
+/* TODO: OLD TESTS.
+#[cfg(test)]
+mod test {
+    use std::net::SocketAddr;
+
+    use super::*;
+
+    #[test]
+    fn connect_timeout_unrouteable() {
+        // this IP is unroutable, so connections should always time out
+        let addr = "10.255.255.1:80".parse::<SocketAddr>().unwrap().into();
+
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+        match socket.connect_timeout(&addr, Duration::from_millis(250)) {
+            Ok(_) => panic!("unexpected success"),
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
+            Err(e) => panic!("unexpected error {}", e),
+        }
+    }
+
+    #[test]
+    fn connect_timeout_unbound() {
+        // bind and drop a socket to track down a "probably unassigned" port
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+        let addr = "127.0.0.1:0".parse::<SocketAddr>().unwrap().into();
+        socket.bind(&addr).unwrap();
+        let addr = socket.local_addr().unwrap();
+        drop(socket);
+
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+        match socket.connect_timeout(&addr, Duration::from_millis(250)) {
+            Ok(_) => panic!("unexpected success"),
+            Err(ref e)
+                if e.kind() == io::ErrorKind::ConnectionRefused
+                    || e.kind() == io::ErrorKind::TimedOut => {}
+            Err(e) => panic!("unexpected error {}", e),
+        }
+    }
+
+    #[test]
+    fn connect_timeout_valid() {
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+        socket
+            .bind(&"127.0.0.1:0".parse::<SocketAddr>().unwrap().into())
+            .unwrap();
+        socket.listen(128).unwrap();
+
+        let addr = socket.local_addr().unwrap();
+
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+        socket
+            .connect_timeout(&addr, Duration::from_millis(250))
+            .unwrap();
+    }
+
+    #[test]
+    #[cfg(all(unix, feature = "pair", feature = "unix"))]
+    fn pair() {
+        let (mut a, mut b) = Socket::pair(Domain::unix(), Type::stream(), None).unwrap();
+        a.write_all(b"hello world").unwrap();
+        let mut buf = [0; 11];
+        b.read_exact(&mut buf).unwrap();
+        assert_eq!(buf, &b"hello world"[..]);
+    }
+
+    #[test]
+    #[cfg(all(unix, feature = "unix"))]
+    fn unix() {
+        use tempdir::TempDir;
+
+        let dir = TempDir::new("unix").unwrap();
+        let addr = SockAddr::unix(dir.path().join("sock")).unwrap();
+
+        let listener = Socket::new(Domain::unix(), Type::stream(), None).unwrap();
+        listener.bind(&addr).unwrap();
+        listener.listen(10).unwrap();
+
+        let mut a = Socket::new(Domain::unix(), Type::stream(), None).unwrap();
+        a.connect(&addr).unwrap();
+
+        let mut b = listener.accept().unwrap().0;
+
+        a.write_all(b"hello world").unwrap();
+        let mut buf = [0; 11];
+        b.read_exact(&mut buf).unwrap();
+        assert_eq!(buf, &b"hello world"[..]);
+    }
+
+    #[test]
+    fn keepalive() {
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+        socket.set_keepalive(Some(Duration::from_secs(7))).unwrap();
+        // socket.keepalive() doesn't work on Windows #24
+        #[cfg(unix)]
+        assert_eq!(socket.keepalive().unwrap(), Some(Duration::from_secs(7)));
+        socket.set_keepalive(None).unwrap();
+        #[cfg(unix)]
+        assert_eq!(socket.keepalive().unwrap(), None);
+    }
+
+    #[test]
+    fn nodelay() {
+        let socket = Socket::new(Domain::ipv4(), Type::stream(), None).unwrap();
+
+        assert!(socket.set_nodelay(true).is_ok());
+
+        let result = socket.nodelay();
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+}
+*/
