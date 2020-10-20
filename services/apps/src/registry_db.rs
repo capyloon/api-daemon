@@ -178,7 +178,8 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let manifest_hash: String = row.get("manifest_hash")?;
     let package_hash: String = row.get("package_hash")?;
 
-    let mut item = AppsItem::default(&name, &manifest_url);
+    let mut item = AppsItem::new(&name);
+    item.set_manifest_url(&manifest_url);
     item.set_version(&version);
     item.set_update_url(&update_url);
     item.set_status(row.get("status")?);

@@ -259,9 +259,9 @@ pub fn install_package(
     fs::copy(from_path, download_app.as_path())?;
 
     let is_update = shared.registry.get_by_update_url(&update_url).is_some();
-    let manifest_url = format!("https://{}.local/manifest.webapp", &app_name);
+    let vhost_port = shared.registry.get_vhost_port();
     // Need create appsItem object and add to db to reflect status
-    let mut apps_item = AppsItem::default(&app_name, &manifest_url);
+    let mut apps_item = AppsItem::default(&app_name, vhost_port);
     if !manifest.get_version().is_empty() {
         apps_item.set_version(&manifest.get_version());
     }
@@ -305,9 +305,10 @@ pub fn uninstall_package(
     };
 
     let app_name = sanitize_filename::sanitize(app_name).to_lowercase();
-    let update_url = format!("https://{}.local/manifest.webapp", &app_name);
 
     let mut shared = shared_data.lock();
+    // Use a local manifest for identification purpose
+    let update_url = format!("https://{}.local/manifest.webapp", &app_name);
     let manifest_url = shared
         .registry
         .uninstall_app(&app_name, &update_url, &data_path)
@@ -521,7 +522,7 @@ fn test_install_app() {
             let mut shared = shared_data.lock();
             shared.config = config.clone();
 
-            let registry = AppsRegistry::initialize(&config).unwrap();
+            let registry = AppsRegistry::initialize(&config, 4443).unwrap();
             shared.registry = registry;
             println!("shared.apps_objects.len: {}", shared.registry.count());
             assert_eq!(4, shared.registry.count());
@@ -618,7 +619,7 @@ fn test_install_app() {
             let mut shared = shared_data.lock();
             shared.config = config.clone();
 
-            let registry = AppsRegistry::initialize(&config).unwrap();
+            let registry = AppsRegistry::initialize(&config, 4443).unwrap();
             shared.registry = registry;
             println!(
                 "Test from persisted storage, len: {}",
@@ -628,10 +629,11 @@ fn test_install_app() {
         }
 
         {
-            let app_name: String = "helloworld".into();
-            let app_url: String = "https://helloworld.local/manifest.webapp".into();
             let shared = shared_data.lock();
-            if let Ok(app) = shared.get_by_manifest_url(&app_url) {
+            let app_name: String = "helloworld".into();
+            let vhost_port = shared.registry.get_vhost_port();
+            let apps_item = AppsItem::default(&app_name, vhost_port);
+            if let Ok(app) = shared.get_by_manifest_url(&apps_item.get_manifest_url()) {
                 assert_eq!(app_name, app.name);
             } else {
                 println!("get_by_manifest_url failed.");
@@ -695,7 +697,7 @@ fn test_get_all() {
         let mut shared = shared_data.lock();
         shared.config = config.clone();
 
-        let registry = match AppsRegistry::initialize(&config) {
+        let registry = match AppsRegistry::initialize(&config, 8443) {
             Ok(registry) => registry,
             Err(err) => {
                 println!("AppsRegistry::initialize error: {:?}", err);
@@ -705,8 +707,10 @@ fn test_get_all() {
         shared.registry = registry;
         shared.state = AppsServiceState::Running;
     }
+
     let app_list = get_all(&shared_data).unwrap();
-    let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"https://calculator.local/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"https://system.local/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"https://gallery.local/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"https://launcher.local/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
+    let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"https://calculator.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"https://system.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"https://gallery.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"https://launcher.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
+
     assert_eq!(app_list, expected);
 }
 

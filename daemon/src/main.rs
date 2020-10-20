@@ -143,7 +143,10 @@ fn main() {
             {
                 shared.vhost_api = vhost_api;
             }
-            apps_service::start_registry(shared_data.clone());
+            apps_service::start_registry(
+                shared_data.clone(),
+                config.vhost.port
+            );
         }
 
         // Starts the web socket server in its own thread.

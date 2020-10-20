@@ -3,8 +3,8 @@ use super::shared_state::*;
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::tasks::{
-    CheckForUpdateTask, InstallPackageTask, InstallPwaTask, SetEnabledTask,
-    UninstallTask, UpdateTask,
+    CheckForUpdateTask, InstallPackageTask, InstallPwaTask, SetEnabledTask, UninstallTask,
+    UpdateTask,
 };
 use common::core::BaseMessage;
 use common::traits::{

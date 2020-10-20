@@ -22,12 +22,12 @@ use common::traits::Shared;
 use log::info;
 use std::thread;
 
-pub fn start_registry(shared_data: Shared<AppsSharedData>) {
+pub fn start_registry(shared_data: Shared<AppsSharedData>, vhost_port: u16) {
     thread::Builder::new()
         .name("apps service".into())
         .spawn(move || {
             info!("Starting apps service");
-            apps_registry::start(shared_data);
+            apps_registry::start(shared_data, vhost_port);
         })
         .expect("Failed to start vhost server thread");
     info!("After start apps service");

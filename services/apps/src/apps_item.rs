@@ -29,10 +29,10 @@ pub struct AppsItem {
 }
 
 impl AppsItem {
-    pub fn default(name: &str, manifest_url: &str) -> AppsItem {
+    pub fn new(name: &str) -> AppsItem {
         AppsItem {
             name: name.into(),
-            manifest_url: manifest_url.into(),
+            manifest_url: AppsItem::default_string(),
             install_state: AppsItem::default_install_state(),
             update_url: AppsItem::default_string(),
             status: AppsItem::default_status(),
@@ -45,8 +45,24 @@ impl AppsItem {
         }
     }
 
+    pub fn default(name: &str, vhost_port: u16) -> AppsItem {
+        let mut app = AppsItem::new(name);
+        app.set_manifest_url(&AppsItem::new_manifest_url(name, vhost_port));
+        app
+    }
+
+    pub fn default_pwa(name: &str, vhost_port: u16) -> AppsItem {
+        let mut app = AppsItem::new(name);
+        app.set_manifest_url(&AppsItem::new_pwa_url(name, vhost_port));
+        app
+    }
+
     pub fn get_name(&self) -> String {
         self.name.clone()
+    }
+
+    pub fn set_manifest_url(&mut self, manifest_url: &str) {
+        self.manifest_url = manifest_url.into();
     }
 
     pub fn get_manifest_url(&self) -> String {
@@ -145,6 +161,25 @@ impl AppsItem {
         match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(n) => n.as_millis() as u64,
             Err(_) => 0,
+        }
+    }
+
+    pub fn new_manifest_url(app_name: &str, vhost_port: u16) -> String {
+        if vhost_port == 443 {
+            format!("https://{}.local/manifest.webapp", &app_name)
+        } else {
+            format!("https://{}.local:{}/manifest.webapp", &app_name, vhost_port)
+        }
+    }
+
+    pub fn new_pwa_url(app_name: &str, vhost_port: u16) -> String {
+        if vhost_port == 443 {
+            format!("https://cached.local/{}/manifest.webapp", &app_name)
+        } else {
+            format!(
+                "https://cached.local:{}/{}/manifest.webapp",
+                vhost_port, &app_name
+            )
         }
     }
 }

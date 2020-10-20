@@ -83,9 +83,10 @@ impl AppMgmtTask for InstallPwaTask {
             Ok(app) => {
                 info!("broadcast event: app_installed");
                 responder.resolve(app.clone());
-                shared.registry
-                      .event_broadcaster
-                      .broadcast_app_installed(app);
+                shared
+                    .registry
+                    .event_broadcaster
+                    .broadcast_app_installed(app);
             }
             Err(err) => {
                 responder.reject(err);
