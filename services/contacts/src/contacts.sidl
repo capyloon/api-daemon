@@ -90,6 +90,13 @@ dictionary ContactInfo {
   icePosition: int
 }
 
+dictionary SimContactInfo {
+  id: str
+  tel: str
+  email: str
+  name: str
+}
+
 interface ContactCursor {
   // Returns the next available batch of contacts, or rejects if no
   // more contact is available.

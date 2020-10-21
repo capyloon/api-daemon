@@ -72,6 +72,13 @@ callback NetworkManagerDelegate {
   fn get_network_info() -> NetworkInfo
 }
 
+dictionary SimContactInfo {
+  id: str
+  tel: str
+  email: str
+  name: str
+}
+
 #[rust:not-tracked]
 interface GeckoFeatures {
   fn set_apps_service_delegate(delegate: AppsServiceDelegate)
@@ -86,6 +93,9 @@ interface GeckoFeatures {
 
   // Registers a single use token for this url and permissions.
   fn register_token(token: str, url: str, permissions: str*)
+
+  // Imports all contacts from sim cards.
+  fn import_sim_contacts(sim_contacts: SimContactInfo*)
 }
 
 service GeckoBridge: GeckoFeatures

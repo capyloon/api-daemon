@@ -181,6 +181,47 @@ impl Default for ContactInfo {
     }
 }
 
+impl From<&SimContactInfo> for ContactInfo {
+    fn from(sim_contact_info: &SimContactInfo) -> Self {
+        let mut contact = ContactInfo::default();
+
+        contact.id = sim_contact_info.id.to_string();
+        contact.name = sim_contact_info.name.to_string();
+        contact.family_name = sim_contact_info.name.to_string();
+        contact.given_name = sim_contact_info.name.to_string();
+
+        let sim_tels: Vec<&str> = sim_contact_info.tel.split('\u{001E}').collect();
+        let tels = sim_tels
+            .iter()
+            .map(|x| ContactTelField {
+                atype: "".to_string(),
+                value: x.to_string(),
+                pref: false,
+                carrier: "".to_string(),
+            })
+            .collect();
+        contact.tel = Some(tels);
+
+        let sim_emails: Vec<&str> = sim_contact_info.email.split('\u{001E}').collect();
+        let emails = sim_emails
+            .iter()
+            .map(|x| ContactField {
+                atype: "".to_string(),
+                value: x.to_string(),
+                pref: false,
+            })
+            .collect();
+        contact.email = Some(emails);
+
+        contact.category = Some(vec!["SIM".to_owned()]);
+
+        contact.published = SystemTime::from(std::time::SystemTime::now());
+        contact.updated = SystemTime::from(std::time::SystemTime::now());
+
+        contact
+    }
+}
+
 macro_rules! fillVecField {
     ($field: expr, $value: expr) => {
         if $field.is_none() {
@@ -1330,6 +1371,13 @@ impl ContactsDb {
 
         rows_to_vec(rows)
     }
+
+    pub fn import_sim_contacts(&mut self, sim_contacts: &[SimContactInfo]) -> Result<(), Error> {
+        debug!("ContactsDb::import_sim_contacts");
+
+        let contacts_info: Vec<ContactInfo> = sim_contacts.iter().map(|item| item.into()).collect();
+        self.save(&contacts_info, true)
+    }
 }
 
 fn rows_to_vec<I, R>(source: I) -> Result<Vec<R>, Error>
@@ -1365,6 +1413,30 @@ mod test {
         alice.name = "alice".to_string();
 
         db.save(&[bob, alice], false).unwrap();
+
+        assert_eq!(db.count().unwrap(), 2);
+
+        db.clear_contacts().unwrap();
+
+        assert_eq!(db.count().unwrap(), 0);
+
+        // Import sim contacts.
+        let sim_contact_1 = SimContactInfo {
+            id: "0001".to_string(),
+            tel: "13682628272\u{001E}18812345678\u{001E}19922223333".to_string(),
+            email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
+            name: "Ted".to_string(),
+        };
+
+        let sim_contact_2 = SimContactInfo {
+            id: "0002".to_string(),
+            tel: "15912345678\u{001E}18923456789".to_string(),
+            email: "test1@kaiostech.com\u{001E}231678456@qq.com".to_string(),
+            name: "Bob".to_string(),
+        };
+
+        db.import_sim_contacts(&[sim_contact_1, sim_contact_2])
+            .unwrap();
 
         assert_eq!(db.count().unwrap(), 2);
 

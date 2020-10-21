@@ -1588,6 +1588,7 @@ name = "geckobridge"
 version = "0.1.0"
 dependencies = [
  "common",
+ "contacts_service",
  "lazy_static",
  "log 0.4.11",
  "serde",

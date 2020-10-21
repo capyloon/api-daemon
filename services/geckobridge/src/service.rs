@@ -2,13 +2,16 @@
 
 use super::state::*;
 use crate::generated::common::*;
-use crate::generated::service::*;
+use crate::generated::{self, service::*};
 use common::core::BaseMessage;
 use common::traits::{
     OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, TrackerId,
 };
 use log::{error, info};
 use std::collections::{HashMap, HashSet};
+
+use contacts_service::generated::common::SimContactInfo;
+use contacts_service::service::ContactsService;
 
 pub struct GeckoBridgeService {
     id: TrackerId,
@@ -186,6 +189,43 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             responder.resolve()
         } else {
             responder.reject();
+        }
+    }
+
+    fn import_sim_contacts(
+        &mut self,
+        responder: &GeckoFeaturesImportSimContactsResponder,
+        sim_contacts: Option<Vec<generated::common::SimContactInfo>>,
+    ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
+
+        let sim_contact_info = match sim_contacts {
+            Some(sim_contacts) => {
+                let sim_contact_info = sim_contacts
+                    .iter()
+                    .map(|x| SimContactInfo {
+                        id: x.id.to_string(),
+                        tel: x.tel.to_string(),
+                        email: x.email.to_string(),
+                        name: x.name.to_string(),
+                    })
+                    .collect();
+                sim_contact_info
+            }
+            None => Vec::new(),
+        };
+
+        let contact_state = ContactsService::shared_state();
+        let mut contacts = contact_state.lock();
+        match contacts.db.import_sim_contacts(&sim_contact_info) {
+            Ok(()) => responder.resolve(),
+            Err(err) => {
+                error!("import_sim_contact error is {}", err);
+                responder.reject()
+            }
         }
     }
 }
