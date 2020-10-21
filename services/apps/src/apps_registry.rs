@@ -550,18 +550,22 @@ impl AppsRegistry {
         let _ = self.save_app(is_update, &apps_item, &manifest);
 
         // Relay the request to Gecko using the bridge.
-        if let Some(b2g_features) = manifest.get_b2g_features() {
-            let features =
-                JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)));
-            let bridge = GeckoBridgeService::shared_state();
-            if is_update {
-                bridge.lock().apps_service_on_update(manifest_url, features);
-            } else {
-                bridge
-                    .lock()
-                    .apps_service_on_install(manifest_url, features);
+        let features = match manifest.get_b2g_features() {
+            Some(b2g_features) => {
+                JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)))
             }
+            _ => JsonValue::from(json!(null)),
+        };
+
+        let bridge = GeckoBridgeService::shared_state();
+        if is_update {
+            bridge.lock().apps_service_on_update(manifest_url, features);
+        } else {
+            bridge
+                .lock()
+                .apps_service_on_install(manifest_url, features);
         }
+
         Ok(())
     }
 
@@ -833,15 +837,18 @@ impl AppsRegistry {
                 let manifest = load_manifest(&app_dir)?;
 
                 // Relay the request to Gecko using the bridge.
-                if let Some(b2g_features) = manifest.get_b2g_features() {
-                    debug!("Register on boot manifest_url: {}", &app.get_manifest_url());
-                    let features =
-                        JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)));
-                    let bridge = GeckoBridgeService::shared_state();
-                    bridge
-                        .lock()
-                        .apps_service_on_boot(app.get_manifest_url(), features);
-                }
+                let features = match manifest.get_b2g_features() {
+                    Some(b2g_features) => {
+                        JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)))
+                    }
+                    _ => JsonValue::from(json!(null)),
+                };
+
+                debug!("Register on boot manifest_url: {}", &app.get_manifest_url());
+                let bridge = GeckoBridgeService::shared_state();
+                bridge
+                    .lock()
+                    .apps_service_on_boot(app.get_manifest_url(), features);
             }
         }
         Ok(())
