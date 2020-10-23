@@ -42,8 +42,6 @@ pub struct B2GFeatures {
     activities: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     messages: Option<Value>,
-    #[serde(default = "String::new")]
-    appcache_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     inputs: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
