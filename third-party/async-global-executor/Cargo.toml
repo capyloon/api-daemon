@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "async-global-executor"
-version = "1.3.0"
+version = "1.4.3"
 authors = ["Marc-Antoine Perennou <Marc-Antoine@Perennou.com>"]
 description = "A global executor built on top of async-executor and async-io"
 homepage = "https://github.com/Keruspe/async-global-executor"
@@ -23,10 +23,6 @@ keywords = ["async", "await", "future", "executor"]
 categories = ["asynchronous", "concurrency"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/Keruspe/async-global-executor"
-[dependencies.async-compat]
-version = "^0.1"
-optional = true
-
 [dependencies.async-executor]
 version = "^1.3"
 
@@ -42,14 +38,24 @@ version = "^1.13"
 
 [dependencies.once_cell]
 version = "^1.4"
+
+[dependencies.tokio02-crate]
+version = "^0.2"
+features = ["rt-core"]
+optional = true
+default-features = false
+package = "tokio"
+
+[dependencies.tokio03-crate]
+version = "^0.3"
+features = ["rt", "rt-multi-thread"]
+optional = true
+default-features = false
+package = "tokio"
 [dev-dependencies.doc-comment]
 version = "^0.3"
 
-[dev-dependencies.tokio]
-version = "^0.2"
-features = ["rt-threaded"]
-default-features = false
-
 [features]
 default = ["async-io"]
-tokio02 = ["async-compat"]
+tokio02 = ["tokio02-crate"]
+tokio03 = ["tokio03-crate"]

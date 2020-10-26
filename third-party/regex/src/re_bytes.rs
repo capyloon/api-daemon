@@ -119,7 +119,8 @@ impl Regex {
         RegexBuilder::new(re).build()
     }
 
-    /// Returns true if and only if the regex matches the string given.
+    /// Returns true if and only if there is a match for the regex in the
+    /// string given.
     ///
     /// It is recommended to use this method if all you need to do is test
     /// a match, since the underlying matching engine may be able to do less
@@ -930,17 +931,22 @@ impl<'t> Captures<'t> {
     /// Expands all instances of `$name` in `replacement` to the corresponding
     /// capture group `name`, and writes them to the `dst` buffer given.
     ///
-    /// `name` may be an integer corresponding to the index of the
-    /// capture group (counted by order of opening parenthesis where `0` is the
+    /// `name` may be an integer corresponding to the index of the capture
+    /// group (counted by order of opening parenthesis where `0` is the
     /// entire match) or it can be a name (consisting of letters, digits or
     /// underscores) corresponding to a named capture group.
     ///
     /// If `name` isn't a valid capture group (whether the name doesn't exist
     /// or isn't a valid index), then it is replaced with the empty string.
     ///
-    /// The longest possible name is used. e.g., `$1a` looks up the capture
-    /// group named `1a` and not the capture group at index `1`. To exert more
-    /// precise control over the name, use braces, e.g., `${1}a`.
+    /// The longest possible name consisting of the characters `[_0-9A-Za-z]`
+    /// is used. e.g., `$1a` looks up the capture group named `1a` and not the
+    /// capture group at index `1`. To exert more precise control over the
+    /// name, or to refer to a capture group name that uses characters outside
+    /// of `[_0-9A-Za-z]`, use braces, e.g., `${1}a` or `${foo[bar].baz}`. When
+    /// using braces, any sequence of valid UTF-8 bytes is permitted. If the
+    /// sequence does not refer to a capture group name in the corresponding
+    /// regex, then it is replaced with an empty string.
     ///
     /// To write a literal `$` use `$$`.
     pub fn expand(&self, replacement: &[u8], dst: &mut Vec<u8>) {
@@ -1051,6 +1057,7 @@ impl<'t, 'i> Index<&'i str> for Captures<'t> {
 ///
 /// The lifetime `'c` corresponds to the lifetime of the `Captures` value, and
 /// the lifetime `'t` corresponds to the originally matched text.
+#[derive(Clone)]
 pub struct SubCaptureMatches<'c, 't: 'c> {
     caps: &'c Captures<'t>,
     it: SubCapturesPosIter<'c>,

@@ -13,9 +13,9 @@
 [package]
 edition = "2018"
 name = "awc"
-version = "2.0.0"
+version = "2.0.1"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
-description = "Async HTTP client library that uses the Actix runtime."
+description = "Async HTTP and WebSocket client library built on the Actix ecosystem"
 homepage = "https://actix.rs"
 documentation = "https://docs.rs/awc/"
 readme = "README.md"
@@ -42,10 +42,13 @@ version = "1.0.0"
 version = "1.0.6"
 
 [dependencies.base64]
-version = "0.12"
+version = "0.13"
 
 [dependencies.bytes]
 version = "0.5.3"
+
+[dependencies.cfg-if]
+version = "1.0"
 
 [dependencies.derive_more]
 version = "0.99.2"

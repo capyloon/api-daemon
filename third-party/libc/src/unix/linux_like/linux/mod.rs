@@ -538,6 +538,13 @@ s_no_extra_traits! {
         pub salg_name: [::c_uchar; 64],
     }
 
+    /// WARNING: The `PartialEq`, `Eq` and `Hash` implementations of this
+    /// type are unsound and will be removed in the future.
+    #[deprecated(
+        note = "this struct has unsafe trait implementations that will be \
+                removed in the future",
+        since = "0.2.80"
+    )]
     pub struct af_alg_iv {
         pub ivlen: u32,
         pub iv: [::c_uchar; 0],
@@ -781,6 +788,7 @@ cfg_if! {
             }
         }
 
+        #[allow(deprecated)]
         impl af_alg_iv {
             fn as_slice(&self) -> &[u8] {
                 unsafe {
@@ -792,22 +800,26 @@ cfg_if! {
             }
         }
 
+        #[allow(deprecated)]
         impl PartialEq for af_alg_iv {
             fn eq(&self, other: &af_alg_iv) -> bool {
                 *self.as_slice() == *other.as_slice()
            }
         }
 
+        #[allow(deprecated)]
         impl Eq for af_alg_iv {}
 
+        #[allow(deprecated)]
         impl ::fmt::Debug for af_alg_iv {
             fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
                 f.debug_struct("af_alg_iv")
-                    .field("iv", &self.as_slice())
+                    .field("ivlen", &self.ivlen)
                     .finish()
             }
         }
 
+        #[allow(deprecated)]
         impl ::hash::Hash for af_alg_iv {
             fn hash<H: ::hash::Hasher>(&self, state: &mut H) {
                 self.as_slice().hash(state);
@@ -1228,6 +1240,7 @@ pub const RTLD_NOW: ::c_int = 0x2;
 pub const AT_EACCESS: ::c_int = 0x200;
 
 pub const TCP_MD5SIG: ::c_int = 14;
+pub const TCP_ULP: ::c_int = 31;
 
 align_const! {
     pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = pthread_mutex_t {
@@ -1262,6 +1275,17 @@ pub const SCHED_RESET_ON_FORK: ::c_int = 0x40000000;
 
 // netinet/in.h
 // NOTE: These are in addition to the constants defined in src/unix/mod.rs
+
+/// Multipath TCP
+pub const IPPROTO_MPTCP: ::c_int = 262;
+#[deprecated(
+    since = "0.2.80",
+    note = "This value was increased in the newer kernel \
+            and we'll change this following upstream in the future release. \
+            See #1896 for more info."
+)]
+pub const IPPROTO_MAX: ::c_int = 256;
+
 pub const AF_IB: ::c_int = 27;
 pub const AF_MPLS: ::c_int = 28;
 pub const AF_NFC: ::c_int = 39;
@@ -3216,6 +3240,12 @@ extern "C" {
         out_fd: ::c_int,
         in_fd: ::c_int,
         offset: *mut off_t,
+        count: ::size_t,
+    ) -> ::ssize_t;
+    pub fn sendfile64(
+        out_fd: ::c_int,
+        in_fd: ::c_int,
+        offset: *mut off64_t,
         count: ::size_t,
     ) -> ::ssize_t;
     pub fn sigsuspend(mask: *const ::sigset_t) -> ::c_int;

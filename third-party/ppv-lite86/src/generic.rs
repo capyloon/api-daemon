@@ -1,8 +1,8 @@
 #![allow(non_camel_case_types)]
 
-use core::ops::*;
 use crate::soft::{x2, x4};
 use crate::types::*;
+use core::ops::*;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -59,12 +59,6 @@ impl vec256_storage {
     #[inline(always)]
     pub fn split128(self) -> [vec128_storage; 2] {
         self.v128
-    }
-}
-impl From<[u64; 4]> for vec256_storage {
-    #[inline]
-    fn from(q: [u64; 4]) -> Self {
-        Self { v128: [[0, 1].into(), [2, 3].into()] }
     }
 }
 impl From<vec256_storage> for [u64; 4] {

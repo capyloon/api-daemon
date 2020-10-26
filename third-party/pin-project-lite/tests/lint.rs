@@ -1,27 +1,21 @@
-#![warn(nonstandard_style, rust_2018_compatibility, rust_2018_idioms, unused)]
-// Note: This does not guarantee compatibility with `forbid(future_incompatible)` in the future.
-// If rustc adds a new lint, we may not be able to keep this.
-#![forbid(future_incompatible)]
 #![forbid(unsafe_code)]
+#![warn(nonstandard_style, rust_2018_idioms, rustdoc, unused)]
+// Note: This does not guarantee compatibility with forbidding these lints in the future.
+// If rustc adds a new lint, we may not be able to keep this.
+#![forbid(future_incompatible, rust_2018_compatibility)]
 #![allow(unknown_lints)] // for old compilers
 #![warn(
-    absolute_paths_not_starting_with_crate,
-    anonymous_parameters,
     box_pointers,
     deprecated_in_future,
     elided_lifetimes_in_paths,
     explicit_outlives_requirements,
-    keyword_idents,
     macro_use_extern_crate,
     meta_variable_misuse,
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
     missing_docs,
-    missing_doc_code_examples,
     non_ascii_idents,
-    pointer_structural_match,
-    private_doc_tests,
     single_use_lifetimes,
     trivial_casts,
     trivial_numeric_casts,
@@ -34,10 +28,12 @@
     unused_results,
     variant_size_differences
 )]
-// unused_crate_dependencies: unrelated
-// unsafe_code: forbidden
+// absolute_paths_not_starting_with_crate, anonymous_parameters, keyword_idents, pointer_structural_match: forbidden as a part of future_incompatible
+// missing_doc_code_examples, private_doc_tests, invalid_html_tags: warned as a part of rustdoc
 // unsafe_block_in_unsafe_fn: unstable
+// unsafe_code: forbidden
 // unstable_features: deprecated: https://doc.rust-lang.org/beta/rustc/lints/listing/allowed-by-default.html#unstable-features
+// unused_crate_dependencies: unrelated
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 #![warn(clippy::restriction)]
 #![allow(clippy::blanket_clippy_restriction_lints)] // this is a test, so enable all restriction lints intentionally.
@@ -87,6 +83,20 @@ pub mod clippy_mut_mut {
             #[pin]
             pub pinned: &'a mut T,
             pub unpinned: &'a mut U,
+        }
+    }
+}
+
+#[allow(unreachable_pub)]
+mod clippy_redundant_pub_crate {
+    use pin_project_lite::pin_project;
+
+    pin_project! {
+        #[derive(Debug)]
+        pub struct Struct<T, U> {
+            #[pin]
+            pub pinned: T,
+            pub unpinned: U,
         }
     }
 }

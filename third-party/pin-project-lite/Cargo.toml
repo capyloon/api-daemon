@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "pin-project-lite"
-version = "0.1.10"
+version = "0.1.11"
 authors = ["Taiki Endo <te316e89@gmail.com>"]
 description = "A lightweight version of pin-project written with declarative macros.\n"
 homepage = "https://github.com/taiki-e/pin-project-lite"
@@ -28,7 +28,10 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 [dev-dependencies.rustversion]
-version = "1.0"
+version = "1"
+
+[dev-dependencies.static_assertions]
+version = "1"
 
 [dev-dependencies.trybuild]
-version = "1.0"
+version = "1"

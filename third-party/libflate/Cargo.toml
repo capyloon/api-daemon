@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "libflate"
-version = "1.0.2"
+version = "1.0.3"
 authors = ["Takeru Ohta <phjgt308@gmail.com>"]
 description = "A Rust implementation of DEFLATE algorithm and related formats (ZLIB, GZIP)"
 homepage = "https://github.com/sile/libflate"
@@ -35,8 +35,5 @@ version = "1"
 version = "1.0.0"
 [dev-dependencies.clap]
 version = "2"
-[badges.codecov]
-repository = "sile/libflate"
-
-[badges.travis-ci]
+[badges.coveralls]
 repository = "sile/libflate"

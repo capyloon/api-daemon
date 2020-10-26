@@ -73,6 +73,7 @@ pub(crate) mod dispatch;
 mod pool;
 pub mod service;
 #[cfg(test)]
+#[cfg(feature = "runtime")]
 mod tests;
 
 /// A Client to make outgoing HTTP requests.
@@ -325,7 +326,7 @@ where
             let extra_info = pooled.conn_info.extra.clone();
             let fut = fut.map_ok(move |mut res| {
                 if let Some(extra) = extra_info {
-                    extra.set(&mut res);
+                    extra.set(res.extensions_mut());
                 }
                 res
             });

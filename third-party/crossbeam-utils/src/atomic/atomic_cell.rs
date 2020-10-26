@@ -1,3 +1,7 @@
+// Necessary for implementing atomic methods for `AtomicUnit`
+#![allow(clippy::unit_arg)]
+#![allow(clippy::let_unit_value)]
+
 use core::cell::UnsafeCell;
 use core::fmt;
 use core::mem;
@@ -8,6 +12,7 @@ use core::sync::atomic::{self, AtomicBool, Ordering};
 use std::panic::{RefUnwindSafe, UnwindSafe};
 
 use super::seq_lock::SeqLock;
+use const_fn::const_fn;
 
 /// A thread-safe mutable memory location.
 ///
@@ -19,10 +24,10 @@ use super::seq_lock::SeqLock;
 ///
 /// Atomic loads use the [`Acquire`] ordering and atomic stores use the [`Release`] ordering.
 ///
-/// [`Cell`]: https://doc.rust-lang.org/std/cell/struct.Cell.html
-/// [`AtomicCell::<T>::is_lock_free()`]: struct.AtomicCell.html#method.is_lock_free
-/// [`Acquire`]: https://doc.rust-lang.org/std/sync/atomic/enum.Ordering.html#variant.Acquire
-/// [`Release`]: https://doc.rust-lang.org/std/sync/atomic/enum.Ordering.html#variant.Release
+/// [`Cell`]: std::cell::Cell
+/// [`AtomicCell::<T>::is_lock_free()`]: AtomicCell::is_lock_free
+/// [`Acquire`]: std::sync::atomic::Ordering::Acquire
+/// [`Release`]: std::sync::atomic::Ordering::Release
 #[repr(transparent)]
 pub struct AtomicCell<T: ?Sized> {
     /// The inner value.
@@ -51,14 +56,13 @@ impl<T> AtomicCell<T> {
     ///
     /// let a = AtomicCell::new(7);
     /// ```
-    #[cfg(not(has_min_const_fn))]
-    pub fn new(val: T) -> AtomicCell<T> {
+    pub const fn new(val: T) -> AtomicCell<T> {
         AtomicCell {
             value: UnsafeCell::new(val),
         }
     }
 
-    /// Creates a new atomic cell initialized with `val`.
+    /// Consumes the atomic and returns the contained value.
     ///
     /// # Examples
     ///
@@ -66,22 +70,6 @@ impl<T> AtomicCell<T> {
     /// use crossbeam_utils::atomic::AtomicCell;
     ///
     /// let a = AtomicCell::new(7);
-    /// ```
-    #[cfg(has_min_const_fn)]
-    pub const fn new(val: T) -> AtomicCell<T> {
-        AtomicCell {
-            value: UnsafeCell::new(val),
-        }
-    }
-
-    /// Unwraps the atomic cell and returns its inner value.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crossbeam_utils::atomic::AtomicCell;
-    ///
-    /// let mut a = AtomicCell::new(7);
     /// let v = a.into_inner();
     ///
     /// assert_eq!(v, 7);
@@ -118,7 +106,8 @@ impl<T> AtomicCell<T> {
     /// // operations on them will have to use global locks for synchronization.
     /// assert_eq!(AtomicCell::<[u8; 1000]>::is_lock_free(), false);
     /// ```
-    pub fn is_lock_free() -> bool {
+    #[const_fn("1.46")]
+    pub const fn is_lock_free() -> bool {
         atomic_is_lock_free::<T>()
     }
 
@@ -171,31 +160,13 @@ impl<T: ?Sized> AtomicCell<T> {
     /// ```
     /// use crossbeam_utils::atomic::AtomicCell;
     ///
-    /// let mut a = AtomicCell::new(5);
+    /// let a = AtomicCell::new(5);
     ///
     /// let ptr = a.as_ptr();
     /// ```
     #[inline]
     pub fn as_ptr(&self) -> *mut T {
         self.value.get()
-    }
-
-    /// Returns a mutable reference to the inner value.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crossbeam_utils::atomic::AtomicCell;
-    ///
-    /// let mut a = AtomicCell::new(7);
-    /// *a.get_mut() += 1;
-    ///
-    /// assert_eq!(a.load(), 8);
-    /// ```
-    #[doc(hidden)]
-    #[deprecated(note = "this method is unsound and will be removed in the next release")]
-    pub fn get_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.value.get() }
     }
 }
 
@@ -219,7 +190,7 @@ impl<T: Default> AtomicCell<T> {
 }
 
 impl<T: Copy> AtomicCell<T> {
-    /// Loads a value.
+    /// Loads a value from the atomic cell.
     ///
     /// # Examples
     ///
@@ -624,8 +595,15 @@ impl<T: Default> Default for AtomicCell<T> {
     }
 }
 
+impl<T> From<T> for AtomicCell<T> {
+    #[inline]
+    fn from(val: T) -> AtomicCell<T> {
+        AtomicCell::new(val)
+    }
+}
+
 impl<T: Copy + fmt::Debug> fmt::Debug for AtomicCell<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AtomicCell")
             .field("value", &self.load())
             .finish()
@@ -633,7 +611,8 @@ impl<T: Copy + fmt::Debug> fmt::Debug for AtomicCell<T> {
 }
 
 /// Returns `true` if values of type `A` can be transmuted into values of type `B`.
-fn can_transmute<A, B>() -> bool {
+#[const_fn("1.46")]
+const fn can_transmute<A, B>() -> bool {
     // Sizes must be equal, but alignment of `A` must be greater or equal than that of `B`.
     mem::size_of::<A>() == mem::size_of::<B>() && mem::align_of::<A>() >= mem::align_of::<B>()
 }
@@ -673,13 +652,104 @@ fn lock(addr: usize) -> &'static SeqLock {
     // In order to protect from such cases, we simply choose a large prime number for `LEN`.
     const LEN: usize = 97;
 
-    const L: SeqLock = SeqLock::INIT;
-
     static LOCKS: [SeqLock; LEN] = [
-        L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L,
-        L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L,
-        L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L, L,
-        L, L, L, L, L, L, L,
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
+        SeqLock::new(),
     ];
 
     // If the modulus is a constant number, the compiler will use crazy math to transform this into
@@ -747,7 +817,8 @@ macro_rules! atomic {
 }
 
 /// Returns `true` if operations on `AtomicCell<T>` are lock-free.
-fn atomic_is_lock_free<T>() -> bool {
+#[const_fn("1.46")]
+const fn atomic_is_lock_free<T>() -> bool {
     atomic! { T, _a, true, false }
 }
 

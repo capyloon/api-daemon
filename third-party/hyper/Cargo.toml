@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "hyper"
-version = "0.13.8"
+version = "0.13.9"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 include = ["Cargo.toml", "LICENSE", "src/**/*"]
 description = "A fast and correct HTTP library."
@@ -77,6 +77,11 @@ required-features = ["runtime", "stream"]
 [[example]]
 name = "send_file"
 path = "examples/send_file.rs"
+required-features = ["runtime"]
+
+[[example]]
+name = "service_struct_impl"
+path = "examples/service_struct_impl.rs"
 required-features = ["runtime"]
 
 [[example]]
@@ -181,7 +186,7 @@ version = "0.3"
 version = "0.4.1"
 
 [dependencies.pin-project]
-version = "0.4.20"
+version = "1.0"
 
 [dependencies.socket2]
 version = "0.3"
@@ -251,3 +256,5 @@ nightly = []
 runtime = ["tcp", "tokio/rt-core"]
 stream = []
 tcp = ["socket2", "tokio/blocking", "tokio/tcp", "tokio/time"]
+[target."cfg(any(target_os = \"linux\", target_os = \"macos\"))".dev-dependencies.pnet]
+version = "0.25.0"

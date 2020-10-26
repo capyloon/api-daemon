@@ -22,6 +22,7 @@ use crate::shared_state::{enabled_services, SharedStateKind};
 use common::remote_services_registrar::RemoteServicesRegistrar;
 use log::{error, info};
 use std::thread;
+use vhost_server::config::VhostApi;
 
 static VERSION: &'static str = include_str!("../../version.in");
 
@@ -127,7 +128,7 @@ fn main() {
 
         // Start the vhost server
         #[cfg(feature = "virtual-host")]
-        let vhost_api = vhost_server::start_server(&config.vhost);
+        let vhost_data = vhost_server::vhost_data(&config.vhost);
 
         #[cfg(feature = "apps-service")]
         {
@@ -141,12 +142,9 @@ fn main() {
             shared.config = config.apps_service;
             #[cfg(feature = "virtual-host")]
             {
-                shared.vhost_api = vhost_api;
+                shared.vhost_api = VhostApi::new(vhost_data.clone());
             }
-            apps_service::start_registry(
-                shared_data.clone(),
-                config.vhost.port
-            );
+            apps_service::start_registry(shared_data.clone(), config.general.port);
         }
 
         // Starts the web socket server in its own thread.
@@ -154,7 +152,7 @@ fn main() {
         let actix_handle = thread::Builder::new()
             .name("actix ws server".into())
             .spawn(move || {
-                api_server::start(&ws_context);
+                api_server::start(&ws_context, vhost_data);
             })
             .expect("Failed to start ws server thread");
 

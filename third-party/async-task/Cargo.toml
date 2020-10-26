@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "async-task"
-version = "4.0.2"
+version = "4.0.3"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "Task abstraction for building executors"
 homepage = "https://github.com/stjepang/async-task"

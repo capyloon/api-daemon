@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "const_fn"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Taiki Endo <te316e89@gmail.com>"]
 description = "An attribute for easy generation of const functions with conditional compilations.\n"
 homepage = "https://github.com/taiki-e/const_fn"
@@ -28,5 +28,3 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
 proc-macro = true
-
-[dependencies]

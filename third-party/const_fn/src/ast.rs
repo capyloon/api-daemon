@@ -1,7 +1,7 @@
 use proc_macro::{Delimiter, Literal, Span, TokenStream, TokenTree};
-use std::iter::Peekable;
 
 use crate::{
+    iter::TokenIter,
     to_tokens::ToTokens,
     utils::{parse_as_empty, tt_span},
     Result,
@@ -15,7 +15,7 @@ pub(crate) struct Func {
 }
 
 pub(crate) fn parse_input(input: TokenStream) -> Result<Func> {
-    let mut input = input.into_iter().peekable();
+    let mut input = TokenIter::new(input);
 
     let attrs = parse_attrs(&mut input)?;
     let sig = parse_signature(&mut input);
@@ -64,19 +64,19 @@ impl ToTokens for Func {
     }
 }
 
-fn parse_signature(input: &mut Peekable<impl Iterator<Item = TokenTree>>) -> Vec<TokenTree> {
+fn parse_signature(input: &mut TokenIter) -> Vec<TokenTree> {
     let mut sig = Vec::new();
     loop {
         match input.peek() {
             Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => break,
             None => break,
-            _ => sig.push(input.next().unwrap()),
+            Some(_) => sig.push(input.next().unwrap()),
         }
     }
     sig
 }
 
-fn parse_attrs(input: &mut Peekable<impl Iterator<Item = TokenTree>>) -> Result<Vec<Attribute>> {
+fn parse_attrs(input: &mut TokenIter) -> Result<Vec<Attribute>> {
     let mut attrs = Vec::new();
     loop {
         let pound_token = match input.peek() {
@@ -109,16 +109,16 @@ impl ToTokens for Attribute {
 }
 
 pub(crate) struct LitStr {
-    token: Literal,
+    pub(crate) token: Literal,
     value: String,
 }
 
 impl LitStr {
-    pub(crate) fn new(token: &Literal) -> Result<Self> {
+    pub(crate) fn new(token: Literal) -> Result<Self> {
         let value = token.to_string();
         // unlike `syn::LitStr`, only accepts `"..."`
         if value.starts_with('"') && value.ends_with('"') {
-            Ok(Self { token: token.clone(), value })
+            Ok(Self { token, value })
         } else {
             Err(error!(token.span(), "expected string literal"))
         }

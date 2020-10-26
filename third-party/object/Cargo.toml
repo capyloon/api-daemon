@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "object"
-version = "0.20.0"
+version = "0.22.0"
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Philip Craig <philipjcraig@gmail.com>"]
 exclude = ["/.coveralls.yml", "/.travis.yml"]
 description = "A unified interface for reading and writing object file formats."
@@ -33,7 +33,15 @@ required-features = ["read", "write"]
 
 [[example]]
 name = "objdump"
-required-features = ["read"]
+required-features = ["read_core"]
+
+[[example]]
+name = "ar"
+required-features = ["read_core", "archive"]
+
+[[example]]
+name = "objectmap"
+required-features = ["read_core"]
 [dependencies.alloc]
 version = "1.0.0"
 optional = true
@@ -68,6 +76,7 @@ version = "0.7"
 
 [features]
 all = ["read", "write", "std", "compression", "default"]
+archive = []
 cargo-all = []
 coff = []
 compression = ["flate2", "std"]
@@ -75,7 +84,7 @@ default = ["read", "compression"]
 elf = []
 macho = []
 pe = ["coff"]
-read = ["read_core", "coff", "elf", "macho", "pe", "wasm", "unaligned"]
+read = ["read_core", "archive", "coff", "elf", "macho", "pe", "wasm", "unaligned"]
 read_core = []
 rustc-dep-of-std = ["core", "compiler_builtins", "alloc"]
 std = []

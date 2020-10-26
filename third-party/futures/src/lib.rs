@@ -95,7 +95,7 @@
 
 #![doc(test(attr(deny(warnings), allow(dead_code, unused_assignments, unused_variables))))]
 
-#![doc(html_root_url = "https://docs.rs/futures/0.3.6")]
+#![doc(html_root_url = "https://docs.rs/futures/0.3.7")]
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
@@ -458,8 +458,8 @@ pub mod stream {
         StreamExt,
         Chain, Collect, Concat, Enumerate, Filter, FilterMap, FlatMap, Flatten,
         Fold, Forward, ForEach, Fuse, StreamFuture, Inspect, Map, Next,
-        SelectNextSome, Peek, Peekable, Scan, Skip, SkipWhile, Take, TakeWhile,
-        Then, Zip,
+        SelectNextSome, Peek, Peekable, Scan, Skip, SkipWhile, Take, TakeUntil,
+        TakeWhile, Then, Zip,
 
         TryStreamExt,
         AndThen, ErrInto, MapOk, MapErr, OrElse,

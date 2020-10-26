@@ -139,7 +139,10 @@ fn parse_group(tokens: Iter, delimiter: Delimiter) -> Result<IterImpl, Error> {
 fn parse_visibility(tokens: Iter) -> Result<Visibility, Error> {
     if let Some(TokenTree::Ident(ident)) = tokens.peek() {
         if ident.to_string() == "pub" {
-            return Ok(Some(tokens.next().unwrap().span()));
+            match tokens.next().unwrap() {
+                TokenTree::Ident(vis) => return Ok(Some(vis)),
+                _ => unreachable!(),
+            }
         }
     }
     Ok(None)
@@ -168,6 +171,7 @@ pub(crate) fn parse_export_args(tokens: Iter) -> Result<ExportArgs, Error> {
         support_nested: false,
         internal_macro_calls: 0,
         fake_call_site: false,
+        only_hack_old_rustc: false,
     };
 
     while let Some(tt) = tokens.next() {
@@ -185,11 +189,14 @@ pub(crate) fn parse_export_args(tokens: Iter) -> Result<ExportArgs, Error> {
             TokenTree::Ident(ident) if ident.to_string() == "fake_call_site" => {
                 args.fake_call_site = true;
             }
+            TokenTree::Ident(ident) if ident.to_string() == "only_hack_old_rustc" => {
+                args.only_hack_old_rustc = true;
+            }
             _ => {
                 return Err(Error::new(
                     tt.span(),
-                    "expected one of: `support_nested`, `internal_macro_calls`, `fake_call_site`",
-                ))
+                    "expected one of: `support_nested`, `internal_macro_calls`, `fake_call_site`, `only_hack_old_rustc`",
+                ));
             }
         }
         if tokens.peek().is_none() {
@@ -202,10 +209,12 @@ pub(crate) fn parse_export_args(tokens: Iter) -> Result<ExportArgs, Error> {
 }
 
 pub(crate) fn parse_define_args(tokens: Iter) -> Result<(), Error> {
-    if tokens.peek().is_none() {
-        Ok(())
-    } else {
-        Err(Error::new(Span::call_site(), "unexpected input"))
+    match tokens.peek() {
+        None => Ok(()),
+        Some(token) => Err(Error::new(
+            token.span(),
+            "unexpected argument to proc_macro_hack macro implementation; args are only accepted on the macro declaration (the `pub use`)",
+        )),
     }
 }
 

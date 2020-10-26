@@ -39,16 +39,23 @@
 //! You can manually define declarative macros with similar functionality (see [`if_rust_version`](https://github.com/ogoffart/if_rust_version#examples)), or [you can define the same function twice with different cfg](https://github.com/crossbeam-rs/crossbeam/blob/0b6ea5f69fde8768c1cfac0d3601e0b4325d7997/crossbeam-epoch/src/atomic.rs#L340-L372).
 //! (Note: the former approach requires more macros to be defined depending on the number of version requirements, the latter approach requires more functions to be maintained manually)
 
-#![doc(html_root_url = "https://docs.rs/const_fn/0.4.2")]
+#![doc(html_root_url = "https://docs.rs/const_fn/0.4.3")]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms, single_use_lifetimes), allow(dead_code))
 ))]
 #![forbid(unsafe_code)]
-#![warn(rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
+#![warn(future_incompatible, rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
 #![warn(clippy::all, clippy::default_trait_access)]
-// mem::take and #[non_exhaustive] requires Rust 1.40
-#![allow(clippy::mem_replace_with_default, clippy::manual_non_exhaustive)]
+// mem::take, #[non_exhaustive], and Option::{as_deref, as_deref_mut} require Rust 1.40,
+// matches! requires Rust 1.42, str::{strip_prefix, strip_suffix} requires Rust 1.45
+#![allow(
+    clippy::mem_replace_with_default,
+    clippy::manual_non_exhaustive,
+    clippy::option_as_ref_deref,
+    clippy::match_like_matches_macro,
+    clippy::manual_strip
+)]
 
 // older compilers require explicit `extern crate`.
 #[allow(unused_extern_crates)]
@@ -59,12 +66,14 @@ mod utils;
 
 mod ast;
 mod error;
+mod iter;
 mod to_tokens;
 
 use proc_macro::{Delimiter, TokenStream, TokenTree};
 use std::str::FromStr;
 
 use crate::{
+    ast::{Func, LitStr},
     error::Error,
     to_tokens::ToTokens,
     utils::{cfg_attrs, parse_as_empty, tt_span},
@@ -77,25 +86,29 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 #[proc_macro_attribute]
 pub fn const_fn(args: TokenStream, input: TokenStream) -> TokenStream {
     let arg = match parse_arg(args) {
-        Ok(a) => a,
+        Ok(arg) => arg,
         Err(e) => return e.to_compile_error(),
     };
-    let mut func = match ast::parse_input(input) {
-        Ok(i) => i,
+    let func = match ast::parse_input(input) {
+        Ok(func) => func,
         Err(e) => return e.to_compile_error(),
     };
 
+    expand(arg, func)
+}
+
+fn expand(arg: Arg, mut func: Func) -> TokenStream {
     match arg {
-        Arg::Cfg(c) => {
-            let (mut tokens, cfg_not) = cfg_attrs(c);
+        Arg::Cfg(cfg) => {
+            let (mut tokens, cfg_not) = cfg_attrs(cfg);
             tokens.extend(func.to_token_stream());
             tokens.extend(cfg_not);
             func.print_const = false;
             tokens.extend(func.to_token_stream());
             tokens
         }
-        Arg::Feature(f) => {
-            let (mut tokens, cfg_not) = cfg_attrs(f);
+        Arg::Feature(feat) => {
+            let (mut tokens, cfg_not) = cfg_attrs(feat);
             tokens.extend(func.to_token_stream());
             tokens.extend(cfg_not);
             func.print_const = false;
@@ -103,15 +116,13 @@ pub fn const_fn(args: TokenStream, input: TokenStream) -> TokenStream {
             tokens
         }
         Arg::Version(req) => {
-            if req.major > 1 || VERSION.as_ref().map_or(true, |v| req.minor > v.minor) {
+            if req.major > 1 || req.minor > VERSION.minor {
                 func.print_const = false;
             }
             func.to_token_stream()
         }
         Arg::Nightly => {
-            if VERSION.as_ref().map_or(true, |v| !v.nightly) {
-                func.print_const = false;
-            }
+            func.print_const = VERSION.nightly;
             func.to_token_stream()
         }
     }
@@ -129,12 +140,12 @@ enum Arg {
 }
 
 fn parse_arg(tokens: TokenStream) -> Result<Arg> {
-    let tokens2 = tokens.clone();
     let mut iter = tokens.into_iter();
 
     let next = iter.next();
-    match &next {
-        Some(TokenTree::Ident(i)) => match i.to_string().as_str() {
+    let next_span = tt_span(next.as_ref());
+    match next {
+        Some(TokenTree::Ident(i)) => match &*i.to_string() {
             "nightly" => {
                 parse_as_empty(iter)?;
                 return Ok(Arg::Nightly);
@@ -149,13 +160,19 @@ fn parse_arg(tokens: TokenStream) -> Result<Arg> {
                 };
             }
             "feature" => {
-                return match iter.next().as_ref() {
-                    Some(TokenTree::Punct(p)) if p.as_char() == '=' => match iter.next().as_ref() {
-                        Some(TokenTree::Literal(l)) if l.to_string().starts_with('"') => {
+                let next = iter.next();
+                return match next.as_ref() {
+                    Some(TokenTree::Punct(p)) if p.as_char() == '=' => match iter.next() {
+                        Some(TokenTree::Literal(l)) => {
+                            let l = LitStr::new(l)?;
                             parse_as_empty(iter)?;
-                            Ok(Arg::Feature(tokens2))
+                            Ok(Arg::Feature(
+                                vec![TokenTree::Ident(i), next.unwrap(), l.token.into()]
+                                    .into_iter()
+                                    .collect(),
+                            ))
                         }
-                        tt => Err(error!(tt_span(tt), "expected `=`")),
+                        tt => Err(error!(tt_span(tt.as_ref()), "expected string literal")),
                     },
                     tt => Err(error!(tt_span(tt), "expected `=`")),
                 };
@@ -163,7 +180,7 @@ fn parse_arg(tokens: TokenStream) -> Result<Arg> {
             _ => {}
         },
         Some(TokenTree::Literal(l)) => {
-            if let Ok(l) = ast::LitStr::new(l) {
+            if let Ok(l) = LitStr::new(l) {
                 parse_as_empty(iter)?;
                 return match l.value().parse::<VersionReq>() {
                     Ok(req) => Ok(Arg::Version(req)),
@@ -174,15 +191,12 @@ fn parse_arg(tokens: TokenStream) -> Result<Arg> {
         _ => {}
     }
 
-    Err(error!(
-        tt_span(next.as_ref()),
-        "expected one of: `nightly`, `cfg`, `feature`, string literal"
-    ))
+    Err(error!(next_span, "expected one of: `nightly`, `cfg`, `feature`, string literal"))
 }
 
 struct VersionReq {
-    major: u16,
-    minor: u16,
+    major: u32,
+    minor: u32,
 }
 
 impl FromStr for VersionReq {
@@ -193,29 +207,28 @@ impl FromStr for VersionReq {
         let major = pieces
             .next()
             .ok_or("need to specify the major version")?
-            .parse::<u16>()
+            .parse::<u32>()
             .map_err(|e| e.to_string())?;
         let minor = pieces
             .next()
             .ok_or("need to specify the minor version")?
-            .parse::<u16>()
+            .parse::<u32>()
             .map_err(|e| e.to_string())?;
         if let Some(s) = pieces.next() {
-            Err(format!("unexpected input: {}", s))
+            Err(format!("unexpected input: .{}", s))
         } else {
             Ok(Self { major, minor })
         }
     }
 }
 
-#[derive(Debug)]
 struct Version {
-    minor: u16,
-    patch: u16,
+    minor: u32,
     nightly: bool,
 }
 
 #[cfg(const_fn_has_build_script)]
-const VERSION: Option<Version> = Some(include!(concat!(env!("OUT_DIR"), "/version.rs")));
+const VERSION: Version = include!(concat!(env!("OUT_DIR"), "/version.rs"));
+// If build script has not run or unable to determine version, it is considered as Rust 1.0.
 #[cfg(not(const_fn_has_build_script))]
-const VERSION: Option<Version> = None;
+const VERSION: Version = Version { minor: 0, nightly: false };

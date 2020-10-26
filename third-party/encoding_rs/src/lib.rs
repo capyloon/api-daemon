@@ -247,6 +247,9 @@
 //! [charset](https://crates.io/crates/charset) wraps encoding_rs and adds
 //! UTF-7 decoding for email purposes.
 //!
+//! For single-byte DOS encodings beyond the ones supported by the Encoding
+//! Standard, there is the [`oem_cp`](https://crates.io/crates/oem_cp) crate.
+//!
 //! # Preparing Text for the Encoders
 //!
 //! Normalizing text into Unicode Normalization Form C prior to encoding text
@@ -738,10 +741,10 @@ mod variant;
 
 pub mod mem;
 
-use ascii::ascii_valid_up_to;
-use ascii::iso_2022_jp_ascii_valid_up_to;
-use utf_8::utf8_valid_up_to;
-use variant::*;
+use crate::ascii::ascii_valid_up_to;
+use crate::ascii::iso_2022_jp_ascii_valid_up_to;
+use crate::utf_8::utf8_valid_up_to;
+use crate::variant::*;
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -2682,12 +2685,12 @@ impl Encoding {
                         0x09u8 | 0x0Au8 | 0x0Cu8 | 0x0Du8 | 0x20u8 => {
                             continue;
                         }
-                        b'A'...b'Z' => {
+                        b'A'..=b'Z' => {
                             trimmed[trimmed_pos] = *byte + 0x20u8;
                             trimmed_pos = 1usize;
                             break;
                         }
-                        b'a'...b'z' | b'0'...b'9' | b'-' | b'_' | b':' | b'.' => {
+                        b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b':' | b'.' => {
                             trimmed[trimmed_pos] = *byte;
                             trimmed_pos = 1usize;
                             break;
@@ -2710,7 +2713,7 @@ impl Encoding {
                         0x09u8 | 0x0Au8 | 0x0Cu8 | 0x0Du8 | 0x20u8 => {
                             break;
                         }
-                        b'A'...b'Z' => {
+                        b'A'..=b'Z' => {
                             if trimmed_pos == LONGEST_LABEL_LENGTH {
                                 // There's no encoding with a label this long
                                 return None;
@@ -2719,7 +2722,7 @@ impl Encoding {
                             trimmed_pos += 1usize;
                             continue;
                         }
-                        b'a'...b'z' | b'0'...b'9' | b'-' | b'_' | b':' | b'.' => {
+                        b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b':' | b'.' => {
                             if trimmed_pos == LONGEST_LABEL_LENGTH {
                                 // There's no encoding with a label this long
                                 return None;

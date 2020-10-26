@@ -193,8 +193,8 @@ impl Certificate {
     }
 
     /// Parses a PEM-formatted X509 certificate.
-    pub fn from_pem(der: &[u8]) -> Result<Certificate> {
-        let cert = imp::Certificate::from_pem(der)?;
+    pub fn from_pem(pem: &[u8]) -> Result<Certificate> {
+        let cert = imp::Certificate::from_pem(pem)?;
         Ok(Certificate(cert))
     }
 
@@ -327,6 +327,7 @@ pub struct TlsConnectorBuilder {
     accept_invalid_certs: bool,
     accept_invalid_hostnames: bool,
     use_sni: bool,
+    disable_built_in_roots: bool,
 }
 
 impl TlsConnectorBuilder {
@@ -364,6 +365,14 @@ impl TlsConnectorBuilder {
     /// Defaults to an empty set.
     pub fn add_root_certificate(&mut self, cert: Certificate) -> &mut TlsConnectorBuilder {
         self.root_certificates.push(cert);
+        self
+    }
+
+    /// Controls the use of built-in system certificates during certificate validation.
+    ///
+    /// Defaults to `false` -- built-in system certs will be used.
+    pub fn disable_built_in_roots(&mut self, disable: bool) -> &mut TlsConnectorBuilder {
+        self.disable_built_in_roots = disable;
         self
     }
 
@@ -435,7 +444,7 @@ impl TlsConnectorBuilder {
 /// stream.read_to_end(&mut res).unwrap();
 /// println!("{}", String::from_utf8_lossy(&res));
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TlsConnector(imp::TlsConnector);
 
 impl TlsConnector {
@@ -454,6 +463,7 @@ impl TlsConnector {
             use_sni: true,
             accept_invalid_certs: false,
             accept_invalid_hostnames: false,
+            disable_built_in_roots: false,
         }
     }
 

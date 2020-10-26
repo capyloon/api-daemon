@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "blocking"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "A thread pool for isolating blocking I/O in async programs"
 homepage = "https://github.com/stjepang/blocking"
@@ -36,7 +36,7 @@ version = "1.0.0"
 version = "1.3.4"
 
 [dependencies.futures-lite]
-version = "1.0.0"
+version = "1.11.0"
 
 [dependencies.once_cell]
 version = "1.4.1"

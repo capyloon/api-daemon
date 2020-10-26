@@ -61,21 +61,20 @@
 //!
 //! [pin-project supports this.][naming]
 //!
-//! [`pin_project!`]: https://docs.rs/pin-project-lite/0.1/pin_project_lite/macro.pin_project.html
-//! [naming]: https://docs.rs/pin-project/0.4/pin_project/attr.pin_project.html
-//! [not-unpin]: https://docs.rs/pin-project/0.4/pin_project/attr.pin_project.html#unpin
+//! [naming]: https://docs.rs/pin-project/1/pin_project/attr.pin_project.html
+//! [not-unpin]: https://docs.rs/pin-project/1/pin_project/attr.pin_project.html#unpin
 //! [pin-project]: https://github.com/taiki-e/pin-project
-//! [pinned-drop]: https://docs.rs/pin-project/0.4/pin_project/attr.pin_project.html#pinned_drop
-//! [unsafe-unpin]: https://docs.rs/pin-project/0.4/pin_project/attr.pin_project.html#unsafeunpin
+//! [pinned-drop]: https://docs.rs/pin-project/1/pin_project/attr.pin_project.html#pinned_drop
+//! [unsafe-unpin]: https://docs.rs/pin-project/1/pin_project/attr.pin_project.html#unsafeunpin
 
 #![no_std]
-#![doc(html_root_url = "https://docs.rs/pin-project-lite/0.1.10")]
+#![doc(html_root_url = "https://docs.rs/pin-project-lite/0.1.11")]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms, single_use_lifetimes), allow(dead_code))
 ))]
 #![warn(unsafe_code)]
-#![warn(rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
+#![warn(future_incompatible, rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
 #![warn(clippy::all, clippy::default_trait_access)]
 // mem::take and #[non_exhaustive] requires Rust 1.40, matches! requires Rust 1.42
 #![allow(
@@ -141,6 +140,28 @@
 /// original [`Pin`] type, it needs to use [`.as_mut()`][`Pin::as_mut`] to avoid
 /// consuming the [`Pin`].
 ///
+/// ```rust
+/// use pin_project_lite::pin_project;
+/// use std::pin::Pin;
+///
+/// pin_project! {
+///     struct Struct<T> {
+///         #[pin]
+///         field: T,
+///     }
+/// }
+///
+/// impl<T> Struct<T> {
+///     fn call_project_twice(mut self: Pin<&mut Self>) {
+///         // `project` consumes `self`, so reborrow the `Pin<&mut Self>` via `as_mut`.
+///         self.as_mut().project();
+///         self.as_mut().project();
+///     }
+/// }
+/// ```
+///
+/// # `!Unpin`
+///
 /// If you want to ensure that [`Unpin`] is not implemented, use `#[pin]`
 /// attribute for a [`PhantomPinned`] field.
 ///
@@ -151,7 +172,7 @@
 /// pin_project! {
 ///     struct Struct<T> {
 ///         field: T,
-///         #[pin]
+///         #[pin] // <------ This `#[pin]` is required to make `Struct` to `!Unpin`.
 ///         _pin: PhantomPinned,
 ///     }
 /// }
@@ -210,6 +231,7 @@ macro_rules! __pin_project_internal {
 
         #[allow(explicit_outlives_requirements)]
         #[allow(single_use_lifetimes)] // https://github.com/rust-lang/rust/issues/55058
+        #[allow(clippy::redundant_pub_crate)]
         #[allow(clippy::used_underscore_binding)]
         const _: () = {
             $crate::__pin_project_internal! { @make_proj_ty_struct;

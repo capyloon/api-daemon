@@ -3,17 +3,16 @@ use alloc::string::String;
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
-    SectionId, UnitSectionOffset,
+    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, Encoding, LocationListsOffset,
+    RangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
-    Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
-    DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
+    Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugInfo, DebugInfoUnitHeadersIter,
+    DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes, DebugTypesUnitHeadersIter,
     DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
     IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, Reader, ReaderOffset,
-    ReaderOffsetId, Result, RngListIter, Section, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader,
-    UnitOffset,
+    ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitOffset,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -51,6 +50,9 @@ pub struct Dwarf<R> {
 
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
+
+    /// The type of this file.
+    pub file_type: DwarfFileType,
 }
 
 impl<T> Dwarf<T> {
@@ -85,6 +87,7 @@ impl<T> Dwarf<T> {
             debug_types: Section::load(&mut section)?,
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
+            file_type: DwarfFileType::Main,
         })
     }
 
@@ -130,24 +133,24 @@ impl<T> Dwarf<T> {
             debug_types: self.debug_types.borrow(&mut borrow),
             locations: self.locations.borrow(&mut borrow),
             ranges: self.ranges.borrow(&mut borrow),
+            file_type: self.file_type,
         }
     }
 }
 
 impl<R: Reader> Dwarf<R> {
-    /// Iterate the compilation- and partial-unit headers in the
-    /// `.debug_info` section.
+    /// Iterate the unit headers in the `.debug_info` section.
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     #[inline]
-    pub fn units(&self) -> CompilationUnitHeadersIter<R> {
+    pub fn units(&self) -> DebugInfoUnitHeadersIter<R> {
         self.debug_info.units()
     }
 
-    /// Construct a new `Unit` from the given compilation unit header.
+    /// Construct a new `Unit` from the given unit header.
     #[inline]
-    pub fn unit(&self, header: CompilationUnitHeader<R>) -> Result<Unit<R>> {
+    pub fn unit(&self, header: UnitHeader<R>) -> Result<Unit<R>> {
         Unit::new(self, header)
     }
 
@@ -156,27 +159,14 @@ impl<R: Reader> Dwarf<R> {
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     #[inline]
-    pub fn type_units(&self) -> TypeUnitHeadersIter<R> {
+    pub fn type_units(&self) -> DebugTypesUnitHeadersIter<R> {
         self.debug_types.units()
-    }
-
-    /// Construct a new `Unit` from the given type unit header.
-    #[inline]
-    pub fn type_unit(&self, header: TypeUnitHeader<R>) -> Result<Unit<R>> {
-        Unit::new_type_unit(self, header)
     }
 
     /// Parse the abbreviations for a compilation unit.
     // TODO: provide caching of abbreviations
     #[inline]
-    pub fn abbreviations(&self, unit: &CompilationUnitHeader<R>) -> Result<Abbreviations> {
-        unit.abbreviations(&self.debug_abbrev)
-    }
-
-    /// Parse the abbreviations for a type unit.
-    // TODO: provide caching of abbreviations
-    #[inline]
-    pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R>) -> Result<Abbreviations> {
+    pub fn abbreviations(&self, unit: &UnitHeader<R>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
     }
 
@@ -239,6 +229,23 @@ impl<R: Reader> Dwarf<R> {
     pub fn address(&self, unit: &Unit<R>, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
         self.debug_addr
             .get_address(unit.encoding().address_size, unit.addr_base, index)
+    }
+
+    /// Try to return an attribute value as an address.
+    ///
+    /// If the attribute value is one of:
+    ///
+    /// - a `DW_FORM_addr`
+    /// - a `DW_FORM_addrx` index into the `.debug_addr` entries for the unit
+    ///
+    /// then return the address.
+    /// Returns `None` for other forms.
+    pub fn attr_address(&self, unit: &Unit<R>, attr: AttributeValue<R>) -> Result<Option<u64>> {
+        match attr {
+            AttributeValue::Addr(addr) => Ok(Some(addr)),
+            AttributeValue::DebugAddrIndex(index) => self.address(unit, index).map(Some),
+            _ => Ok(None),
+        }
     }
 
     /// Return the range list offset at the given index.
@@ -374,13 +381,22 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: LocationListsOffset<R::Offset>,
     ) -> Result<LocListIter<R>> {
-        self.locations.locations(
-            offset,
-            unit.encoding(),
-            unit.low_pc,
-            &self.debug_addr,
-            unit.addr_base,
-        )
+        match self.file_type {
+            DwarfFileType::Main => self.locations.locations(
+                offset,
+                unit.encoding(),
+                unit.low_pc,
+                &self.debug_addr,
+                unit.addr_base,
+            ),
+            DwarfFileType::Dwo => self.locations.locations_dwo(
+                offset,
+                unit.encoding(),
+                unit.low_pc,
+                &self.debug_addr,
+                unit.addr_base,
+            ),
+        }
     }
 
     /// Try to return an attribute value as a location list offset.
@@ -480,9 +496,6 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// The section offset of the unit.
-    pub offset: UnitSectionOffset<Offset>,
-
     /// The header of the unit.
     pub header: UnitHeader<R, Offset>,
 
@@ -515,45 +528,31 @@ where
 }
 
 impl<R: Reader> Unit<R> {
-    /// Construct a new `Unit` from the given compilation unit header.
+    /// Construct a new `Unit` from the given unit header.
     #[inline]
-    pub fn new(dwarf: &Dwarf<R>, header: CompilationUnitHeader<R>) -> Result<Self> {
-        Self::new_internal(
-            dwarf,
-            UnitSectionOffset::DebugInfoOffset(header.offset()),
-            header.header(),
-        )
-    }
-
-    /// Construct a new `Unit` from the given type unit header.
-    #[inline]
-    pub fn new_type_unit(dwarf: &Dwarf<R>, header: TypeUnitHeader<R>) -> Result<Self> {
-        Self::new_internal(
-            dwarf,
-            UnitSectionOffset::DebugTypesOffset(header.offset()),
-            header.header(),
-        )
-    }
-
-    fn new_internal(
-        dwarf: &Dwarf<R>,
-        offset: UnitSectionOffset<R::Offset>,
-        header: UnitHeader<R>,
-    ) -> Result<Self> {
+    pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R>) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
         let mut unit = Unit {
-            offset,
-            header,
             abbreviations,
             name: None,
             comp_dir: None,
             low_pc: 0,
-            // Defaults to 0 for GNU extensions.
-            str_offsets_base: DebugStrOffsetsBase(R::Offset::from_u8(0)),
+            str_offsets_base: DebugStrOffsetsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
+            // NB: Because the .debug_addr section never lives in a .dwo, we can assume its base is always 0 or provided.
             addr_base: DebugAddrBase(R::Offset::from_u8(0)),
-            loclists_base: DebugLocListsBase(R::Offset::from_u8(0)),
-            rnglists_base: DebugRngListsBase(R::Offset::from_u8(0)),
+            loclists_base: DebugLocListsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
+            rnglists_base: DebugRngListsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
             line_program: None,
+            header,
         };
         let mut name = None;
         let mut comp_dir = None;
@@ -587,7 +586,7 @@ impl<R: Reader> Unit<R> {
                             unit.str_offsets_base = base;
                         }
                     }
-                    constants::DW_AT_addr_base => {
+                    constants::DW_AT_addr_base | constants::DW_AT_GNU_addr_base => {
                         if let AttributeValue::DebugAddrBase(base) = attr.value() {
                             unit.addr_base = base;
                         }
@@ -597,7 +596,7 @@ impl<R: Reader> Unit<R> {
                             unit.loclists_base = base;
                         }
                     }
-                    constants::DW_AT_rnglists_base => {
+                    constants::DW_AT_rnglists_base | constants::DW_AT_GNU_ranges_base => {
                         if let AttributeValue::DebugRngListsBase(base) = attr.value() {
                             unit.rnglists_base = base;
                         }
@@ -663,6 +662,17 @@ impl<R: Reader> Unit<R> {
     pub fn entries_raw(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesRaw<R>> {
         self.header.entries_raw(&self.abbreviations, offset)
     }
+
+    /// Copy attributes that are subject to relocation from another unit. This is intended
+    /// to be used to copy attributes from a skeleton compilation unit to the corresponding
+    /// split compilation unit.
+    pub fn copy_relocated_attributes(&mut self, other: &Unit<R>) {
+        self.low_pc = other.low_pc;
+        self.addr_base = other.addr_base;
+        if self.header.version() < 5 {
+            self.rnglists_base = other.rnglists_base;
+        }
+    }
 }
 
 impl<T: ReaderOffset> UnitSectionOffset<T> {
@@ -673,7 +683,7 @@ impl<T: ReaderOffset> UnitSectionOffset<T> {
     where
         R: Reader<Offset = T>,
     {
-        let (offset, unit_offset) = match (self, unit.offset) {
+        let (offset, unit_offset) = match (self, unit.header.offset()) {
             (
                 UnitSectionOffset::DebugInfoOffset(offset),
                 UnitSectionOffset::DebugInfoOffset(unit_offset),
@@ -704,12 +714,12 @@ impl<T: ReaderOffset> UnitOffset<T> {
     where
         R: Reader<Offset = T>,
     {
-        match unit.offset {
+        match unit.header.offset() {
             UnitSectionOffset::DebugInfoOffset(unit_offset) => {
-                UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(unit_offset.0 + self.0))
+                DebugInfoOffset(unit_offset.0 + self.0).into()
             }
             UnitSectionOffset::DebugTypesOffset(unit_offset) => {
-                UnitSectionOffset::DebugTypesOffset(DebugTypesOffset(unit_offset.0 + self.0))
+                DebugTypesOffset(unit_offset.0 + self.0).into()
             }
         }
     }

@@ -12,7 +12,7 @@
 
 [package]
 name = "signal-hook-registry"
-version = "1.2.1"
+version = "1.2.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>", "Masaki Hara <ackie.h.gmai@gmail.com>"]
 description = "Backend crate for signal-hook"
 documentation = "https://docs.rs/signal-hook-registry"
@@ -20,9 +20,6 @@ readme = "README.md"
 keywords = ["signal", "unix", "daemon"]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/vorner/signal-hook"
-[dependencies.arc-swap]
-version = "~0.4"
-
 [dependencies.libc]
 version = "~0.2"
 [dev-dependencies.signal-hook]

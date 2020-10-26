@@ -20,11 +20,12 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "pin-project"
-version = "0.4.26"
+version = "1.0.1"
 dependencies = [
  "pin-project-auxiliary-macro",
  "pin-project-internal",
  "rustversion",
+ "static_assertions",
  "trybuild",
 ]
 
@@ -36,9 +37,9 @@ checksum = "b2cfcdf156df4231bda3b27e3c59ea733a8e7725d71b4378ed3da1b4d44364ba"
 
 [[package]]
 name = "pin-project-internal"
-version = "0.4.26"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c82fb1329f632c3552cf352d14427d57a511b1cf41db93b3a7d77906a82dcc8e"
+checksum = "81a4ffa594b66bff340084d4081df649a7dc049ac8d7fc458d8e628bfbbb2f86"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -112,10 +113,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "syn"
-version = "1.0.42"
+name = "static_assertions"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c51d92969d209b54a98397e1b91c8ae82d8c87a7bb87df0b29aa2ad81454228"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "syn"
+version = "1.0.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e03e57e4fcbfe7749842d53e24ccb9aa12b7252dbe5e91d2acad31834c8b8fdd"
 dependencies = [
  "proc-macro2",
  "quote",

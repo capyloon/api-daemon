@@ -35,7 +35,7 @@ fn mime_type_for(file_name: &str) -> Mime {
     }
 }
 
-fn maybe_not_modified(
+pub fn maybe_not_modified(
     if_none_match: Option<&HeaderValue>,
     etag: &str,
     mime: &Mime,
@@ -149,7 +149,7 @@ where
 // http://host:port/path/to/file.ext -> $root_path/host/application.zip!path/to/file.ext
 // When using a Gaia debug profile, applications are not packaged so if application.zip doesn't
 // exist we try to map to $root_path/host/path/to/file.ext instead.
-pub(crate) async fn vhost(
+pub async fn vhost(
     data: web::Data<Shared<AppData>>,
     req: HttpRequest,
 ) -> Result<HttpResponse, Error> {

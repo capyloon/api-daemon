@@ -4,7 +4,7 @@ use crate::session::Session;
 use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler};
 use actix_cors::Cors;
 use actix_web::http::header;
-use actix_web::middleware::Logger;
+use actix_web::middleware::{Compress, Logger};
 use actix_web::web::Bytes;
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
@@ -21,6 +21,27 @@ use futures_core::{
 use futures_util::io::AsyncReadExt;
 use log::{debug, error};
 use std::sync::RwLock;
+use vhost_server::vhost_handler::{maybe_not_modified, vhost, AppData};
+
+async fn etag_for_file(file: &File) -> String {
+    if let Ok(metadata) = file.metadata().await {
+        match metadata.modified().map(|modified| {
+            modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("Modified is earlier than time::UNIX_EPOCH!")
+        }) {
+            Ok(modified) => format!(
+                "W/\"{}.{}-{}\"",
+                modified.as_secs(),
+                modified.subsec_nanos(),
+                metadata.len()
+            ),
+            _ => format!("W/\"{}\"", metadata.len()),
+        }
+    } else {
+        String::new()
+    }
+}
 
 #[derive(Clone)]
 struct ActorSender {
@@ -228,13 +249,21 @@ async fn http_index(
             let content_length = file.metadata().await?.len();
             let content_type = mime_guess::from_path(req.path()).first_or_octet_stream();
 
+            let etag = etag_for_file(&file).await;
+            let if_none_match = req.headers().get(header::IF_NONE_MATCH);
+            if let Some(response) = maybe_not_modified(if_none_match, &etag, &content_type) {
+                return Ok(response);
+            }
+
             let mut ok = HttpResponse::Ok();
             let builder = ok
-                .if_true(gzipped, |builder| {
-                    builder.header(header::CONTENT_ENCODING, "gzip");
-                })
+                .header(header::ETAG, etag)
                 .header(header::CONTENT_LENGTH, content_length)
                 .header(header::CONTENT_TYPE, content_type);
+
+            if gzipped {
+                builder.header(header::CONTENT_ENCODING, "gzip");
+            }
 
             let response = if content_length <= CHUNK_SIZE as _ {
                 // If the file is small enough, read it all and send it as body.
@@ -252,9 +281,42 @@ async fn http_index(
     }
 }
 
-pub fn start(global_context: &GlobalContext) {
+// A Guard that checks if a request should be handled by the vhost server.
+// This checks if the Host header is of the pattern: xxxxx.localhost:$port
+// or xxxxx.localhost if running on the default http port (80).
+struct VhostChecker {
+    check: String,
+}
+
+impl VhostChecker {
+    fn new(port: u16) -> Self {
+        if port != 80 {
+            Self {
+                check: format!("localhost:{}", port),
+            }
+        } else {
+            Self {
+                check: "localhost".to_owned(),
+            }
+        }
+    }
+}
+
+impl actix_web::guard::Guard for VhostChecker {
+    fn check(&self, request: &actix_web::dev::RequestHead) -> bool {
+        if let Some(host) = request.headers().get("Host") {
+            let parts: Vec<&str> = host.to_str().unwrap_or_else(|_| &"").split('.').collect();
+            parts.len() == 2 && parts[1] == self.check
+        } else {
+            false
+        }
+    }
+}
+
+pub fn start(global_context: &GlobalContext, vhost_data: Shared<AppData>) {
     let config = global_context.config.clone();
-    let addr = format!("{}:{}", config.general.host, config.general.port);
+    let port = config.general.port;
+    let addr = format!("{}:{}", config.general.host, port);
 
     let sys = actix_rt::System::new("ws-server");
     let shared_data = SharedWsData {
@@ -264,20 +326,27 @@ pub fn start(global_context: &GlobalContext) {
 
     HttpServer::new(move || {
         App::new()
-            .wrap(Logger::new("%a \"%r\" %s %b %D"))
-            .data(RwLock::new(shared_data.clone()))
-            .wrap(
-                Cors::new()
-                    .send_wildcard()
-                    .finish(),
+            .wrap(Logger::new("\"%r\" %{Host}i %s %b %D")) // Custom log to display the vhost
+            .wrap(Cors::new().send_wildcard().finish())
+            .wrap(Compress::default())
+            .service(
+                web::scope("/")
+                    .guard(VhostChecker::new(port))
+                    .data(vhost_data.clone())
+                    .route("*", web::post().to(|| HttpResponse::MethodNotAllowed()))
+                    .route("/{filename:.*}", web::get().to(vhost)),
             )
-            .route("*", web::post().to(|| HttpResponse::MethodNotAllowed()))
-            .route("/", web::get().to(ws_index))
-            .route("/*", web::get().to(http_index))
+            .service(
+                web::scope("/")
+                    .data(RwLock::new(shared_data.clone()))
+                    .route("*", web::post().to(|| HttpResponse::MethodNotAllowed()))
+                    .route("/ws", web::get().to(ws_index))
+                    .route("/*", web::get().to(http_index)),
+            )
     })
     .bind(addr)
-    .expect("Failed to bind to actix ws")
-    .disable_signals() // For now, since that's causing us issues with Ctrl-C
+    .expect("Failed to bind to actix http")
+    .disable_signals() // For now, since that's causing issues with Ctrl-C
     .run();
 
     let _ = sys.run();
@@ -288,14 +357,19 @@ mod test {
     use crate::api_server;
     use crate::config::Config;
     use crate::global_context::GlobalContext;
+    use common::traits::Shared;
     use reqwest::header::{CONTENT_ENCODING, CONTENT_TYPE};
     use reqwest::StatusCode;
     use std::{thread, time};
+    use vhost_server::vhost_handler::AppData;
 
     fn start_server(port: u16) {
         // Create a new ws server.
         thread::spawn(move || {
-            api_server::start(&GlobalContext::new(&Config::test_on_port(port)));
+            api_server::start(
+                &GlobalContext::new(&Config::test_on_port(port)),
+                Shared::adopt(AppData::default()),
+            );
         });
 
         // Wait for the server to start.

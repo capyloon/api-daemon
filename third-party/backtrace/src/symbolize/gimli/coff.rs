@@ -1,4 +1,4 @@
-use super::{Context, Mapping, Mmap, Path, Stash, Vec};
+use super::{Context, Mapping, Path, Stash, Vec};
 use core::convert::TryFrom;
 use object::pe::{ImageDosHeader, ImageSymbol};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, SectionTable};
@@ -13,9 +13,7 @@ type Pe = object::pe::ImageNtHeaders64;
 impl Mapping {
     pub fn new(path: &Path) -> Option<Mapping> {
         let map = super::mmap(path)?;
-        let stash = Stash::new();
-        let cx = super::cx(&stash, Object::parse(&map)?)?;
-        Some(mk!(Mapping { map, cx, stash }))
+        Mapping::mk(map, |data, stash| Context::new(stash, Object::parse(data)?))
     }
 }
 
@@ -52,7 +50,7 @@ impl<'a> Object<'a> {
         let mut i = 0;
         let len = symtab.len();
         while i < len {
-            let sym = symtab.symbol(i)?;
+            let sym = symtab.symbol(i).ok()?;
             i += 1 + sym.number_of_aux_symbols as usize;
             let section_number = sym.section_number.get(LE);
             if sym.derived_type() != object::pe::IMAGE_SYM_DTYPE_FUNCTION || section_number == 0 {
@@ -101,5 +99,9 @@ impl<'a> Object<'a> {
             Err(i) => i.checked_sub(1)?,
         };
         self.symbols[i].1.name(self.strings).ok()
+    }
+
+    pub(super) fn search_object_map(&self, _addr: u64) -> Option<(&Context, u64)> {
+        None
     }
 }

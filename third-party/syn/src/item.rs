@@ -875,7 +875,7 @@ pub mod parsing {
             let lookahead = ahead.lookahead1();
             let mut item = if lookahead.peek(Token![fn]) || peek_signature(&ahead) {
                 let vis: Visibility = input.parse()?;
-                let sig = parse_signature(input)?;
+                let sig: Signature = input.parse()?;
                 if input.peek(Token![;]) {
                     input.parse::<Token![;]>()?;
                     Ok(Item::Verbatim(verbatim::between(begin, input)))
@@ -1334,46 +1334,45 @@ pub mod parsing {
             && fork.peek(Token![fn])
     }
 
-    fn parse_signature(input: ParseStream) -> Result<Signature> {
-        let constness: Option<Token![const]> = input.parse()?;
-        let asyncness: Option<Token![async]> = input.parse()?;
-        let unsafety: Option<Token![unsafe]> = input.parse()?;
-        let abi: Option<Abi> = input.parse()?;
-        let fn_token: Token![fn] = input.parse()?;
-        let ident: Ident = input.parse()?;
-        let generics: Generics = input.parse()?;
+    impl Parse for Signature {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let constness: Option<Token![const]> = input.parse()?;
+            let asyncness: Option<Token![async]> = input.parse()?;
+            let unsafety: Option<Token![unsafe]> = input.parse()?;
+            let abi: Option<Abi> = input.parse()?;
+            let fn_token: Token![fn] = input.parse()?;
+            let ident: Ident = input.parse()?;
+            let mut generics: Generics = input.parse()?;
 
-        let content;
-        let paren_token = parenthesized!(content in input);
-        let mut inputs = parse_fn_args(&content)?;
-        let variadic = pop_variadic(&mut inputs);
+            let content;
+            let paren_token = parenthesized!(content in input);
+            let mut inputs = parse_fn_args(&content)?;
+            let variadic = pop_variadic(&mut inputs);
 
-        let output: ReturnType = input.parse()?;
-        let where_clause: Option<WhereClause> = input.parse()?;
+            let output: ReturnType = input.parse()?;
+            generics.where_clause = input.parse()?;
 
-        Ok(Signature {
-            constness,
-            asyncness,
-            unsafety,
-            abi,
-            fn_token,
-            ident,
-            paren_token,
-            inputs,
-            output,
-            variadic,
-            generics: Generics {
-                where_clause,
-                ..generics
-            },
-        })
+            Ok(Signature {
+                constness,
+                asyncness,
+                unsafety,
+                abi,
+                fn_token,
+                ident,
+                paren_token,
+                inputs,
+                output,
+                variadic,
+                generics,
+            })
+        }
     }
 
     impl Parse for ItemFn {
         fn parse(input: ParseStream) -> Result<Self> {
             let outer_attrs = input.call(Attribute::parse_outer)?;
             let vis: Visibility = input.parse()?;
-            let sig = parse_signature(input)?;
+            let sig: Signature = input.parse()?;
             parse_rest_of_fn(input, outer_attrs, vis, sig)
         }
     }
@@ -1584,7 +1583,7 @@ pub mod parsing {
             let lookahead = ahead.lookahead1();
             let mut item = if lookahead.peek(Token![fn]) || peek_signature(&ahead) {
                 let vis: Visibility = input.parse()?;
-                let sig = parse_signature(input)?;
+                let sig: Signature = input.parse()?;
                 if input.peek(token::Brace) {
                     let content;
                     braced!(content in input);
@@ -1657,7 +1656,7 @@ pub mod parsing {
         fn parse(input: ParseStream) -> Result<Self> {
             let attrs = input.call(Attribute::parse_outer)?;
             let vis: Visibility = input.parse()?;
-            let sig = parse_signature(input)?;
+            let sig: Signature = input.parse()?;
             let semi_token: Token![;] = input.parse()?;
             Ok(ForeignItemFn {
                 attrs,
@@ -2151,7 +2150,7 @@ pub mod parsing {
     impl Parse for TraitItemMethod {
         fn parse(input: ParseStream) -> Result<Self> {
             let outer_attrs = input.call(Attribute::parse_outer)?;
-            let sig = parse_signature(input)?;
+            let sig: Signature = input.parse()?;
 
             let lookahead = input.lookahead1();
             let (brace_token, inner_attrs, stmts, semi_token) = if lookahead.peek(token::Brace) {
@@ -2285,7 +2284,7 @@ pub mod parsing {
                         || input.peek3(Token![,])
                         || input.peek3(Token![>]))
                 || input.peek2(Token![const]));
-        let generics: Generics = if has_generics {
+        let mut generics: Generics = if has_generics {
             input.parse()?
         } else {
             Generics::default()
@@ -2312,7 +2311,7 @@ pub mod parsing {
         })();
 
         let self_ty: Type = input.parse()?;
-        let where_clause: Option<WhereClause> = input.parse()?;
+        generics.where_clause = input.parse()?;
 
         let content;
         let brace_token = braced!(content in input);
@@ -2331,10 +2330,7 @@ pub mod parsing {
                 defaultness,
                 unsafety,
                 impl_token,
-                generics: Generics {
-                    where_clause,
-                    ..generics
-                },
+                generics,
                 trait_,
                 self_ty: Box::new(self_ty),
                 brace_token,
@@ -2452,7 +2448,7 @@ pub mod parsing {
             let mut attrs = input.call(Attribute::parse_outer)?;
             let vis: Visibility = input.parse()?;
             let defaultness: Option<Token![default]> = input.parse()?;
-            let sig = parse_signature(input)?;
+            let sig: Signature = input.parse()?;
 
             let block = if let Some(semi) = input.parse::<Option<Token![;]>>()? {
                 // Accept methods without a body in an impl block because

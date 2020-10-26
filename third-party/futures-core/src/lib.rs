@@ -16,7 +16,7 @@
 
 #![doc(test(attr(deny(warnings), allow(dead_code, unused_assignments, unused_variables))))]
 
-#![doc(html_root_url = "https://docs.rs/futures-core/0.3.6")]
+#![doc(html_root_url = "https://docs.rs/futures-core/0.3.7")]
 
 #[cfg(all(feature = "cfg-target-has-atomic", not(feature = "unstable")))]
 compile_error!("The `cfg-target-has-atomic` feature requires the `unstable` feature as an explicit opt-in to unstable features");
@@ -35,7 +35,6 @@ pub mod task;
 
 // Not public API.
 #[doc(hidden)]
-pub mod core_reexport {
-    #[doc(hidden)]
-    pub use core::*;
+pub mod __private {
+    pub use core::task::Poll;
 }

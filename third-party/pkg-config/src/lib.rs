@@ -9,10 +9,15 @@
 //! A number of environment variables are available to globally configure how
 //! this crate will invoke `pkg-config`:
 //!
-//! * `PKG_CONFIG_ALLOW_CROSS` - if this variable is not set, then `pkg-config`
-//!   will automatically be disabled for all cross compiles.
 //! * `FOO_NO_PKG_CONFIG` - if set, this will disable running `pkg-config` when
 //!   probing for the library named `foo`.
+//!
+//! * `PKG_CONFIG_ALLOW_CROSS` - The `pkg-config` command usually doesn't
+//!   support cross-compilation, and this crate prevents it from selecting
+//!   incompatible versions of libraries.
+//!   Setting `PKG_CONFIG_ALLOW_CROSS=1` disables this protection, which is
+//!   likely to cause linking errors, unless `pkg-config` has been configured
+//!   to use appropriate sysroot and search paths for the target platform.
 //!
 //! There are also a number of environment variables which can configure how a
 //! library is linked to (dynamically vs statically). These variables control
@@ -70,7 +75,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io;
 use std::ops::{Bound, RangeBounds};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::str;
 
@@ -106,9 +111,11 @@ pub enum Error {
     /// Contains the name of the responsible environment variable.
     EnvNoPkgConfig(String),
 
-    /// Cross compilation detected.
+    /// Detected cross compilation without a custom sysroot.
     ///
-    /// Override with `PKG_CONFIG_ALLOW_CROSS=1`.
+    /// Ignore the error with `PKG_CONFIG_ALLOW_CROSS=1`,
+    /// which may let `pkg-config` select libraries
+    /// for the host's architecture instead of the target's.
     CrossCompilation,
 
     /// Failed to run `pkg-config`.
@@ -132,10 +139,13 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             Error::EnvNoPkgConfig(ref name) => write!(f, "Aborted because {} is set", name),
-            Error::CrossCompilation => write!(
-                f,
-                "Cross compilation detected. \
-                 Use PKG_CONFIG_ALLOW_CROSS=1 to override"
+            Error::CrossCompilation => f.write_str(
+                "pkg-config has not been configured to support cross-compilation.
+
+                Install a sysroot for the target platform and configure it via
+                PKG_CONFIG_SYSROOT_DIR and PKG_CONFIG_PATH, or install a
+                cross-compiling wrapper for pkg-config and set it via
+                PKG_CONFIG environment variable.",
             ),
             Error::Command {
                 ref command,
@@ -177,7 +187,12 @@ pub fn probe_library(name: &str) -> Result<Library, Error> {
 }
 
 /// Run `pkg-config` to get the value of a variable from a package using
-/// --variable.
+/// `--variable`.
+///
+/// The content of `PKG_CONFIG_SYSROOT_DIR` is not injected in paths that are
+/// returned by `pkg-config --variable`, which makes them unsuitable to use
+/// during cross-compilation unless specifically designed to be used
+/// at that time.
 pub fn get_variable(package: &str, variable: &str) -> Result<String, Error> {
     let arg = format!("--variable={}", variable);
     let cfg = Config::new();
@@ -484,16 +499,36 @@ impl Library {
             }
         }
 
-        let words = split_flags(output);
-        let parts = words
-            .iter()
-            .filter(|l| l.len() > 2)
-            .map(|arg| (&arg[0..2], &arg[2..]))
-            .collect::<Vec<_>>();
+        let system_roots = if cfg!(target_os = "macos") {
+            vec![PathBuf::from("/Library"), PathBuf::from("/System")]
+        } else {
+            let sysroot = config
+                .env_var_os("PKG_CONFIG_SYSROOT_DIR")
+                .or_else(|| config.env_var_os("SYSROOT"))
+                .map(PathBuf::from);
+
+            if cfg!(target_os = "windows") {
+                if let Some(sysroot) = sysroot {
+                    vec![sysroot]
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![sysroot.unwrap_or_else(|| PathBuf::from("/usr"))]
+            }
+        };
 
         let mut dirs = Vec::new();
         let statik = config.is_static(name);
-        for &(flag, val) in &parts {
+
+        let words = split_flags(output);
+
+        // Handle single-character arguments like `-I/usr/include`
+        let parts = words
+            .iter()
+            .filter(|l| l.len() > 2)
+            .map(|arg| (&arg[0..2], &arg[2..]));
+        for (flag, val) in parts {
             match flag {
                 "-L" => {
                     let meta = format!("rustc-link-search=native={}", val);
@@ -515,7 +550,7 @@ impl Library {
                         continue;
                     }
 
-                    if statik && is_static_available(val, &dirs) {
+                    if statik && is_static_available(val, &system_roots, &dirs) {
                         let meta = format!("rustc-link-lib=static={}", val);
                         config.print_metadata(&meta);
                     } else {
@@ -536,6 +571,7 @@ impl Library {
             }
         }
 
+        // Handle multi-character arguments with space-separated value like `-framework foo`
         let mut iter = words.iter().flat_map(|arg| {
             if arg.starts_with("-Wl,") {
                 arg[4..].split(',').collect()
@@ -544,13 +580,20 @@ impl Library {
             }
         });
         while let Some(part) = iter.next() {
-            if part != "-framework" {
-                continue;
-            }
-            if let Some(lib) = iter.next() {
-                let meta = format!("rustc-link-lib=framework={}", lib);
-                config.print_metadata(&meta);
-                self.frameworks.push(lib.to_string());
+            match part {
+                "-framework" => {
+                    if let Some(lib) = iter.next() {
+                        let meta = format!("rustc-link-lib=framework={}", lib);
+                        config.print_metadata(&meta);
+                        self.frameworks.push(lib.to_string());
+                    }
+                }
+                "-isystem" | "-iquote" | "-idirafter" => {
+                    if let Some(inc) = iter.next() {
+                        self.include_paths.push(PathBuf::from(inc));
+                    }
+                }
+                _ => (),
             }
         }
     }
@@ -568,13 +611,8 @@ fn envify(name: &str) -> String {
 }
 
 /// System libraries should only be linked dynamically
-fn is_static_available(name: &str, dirs: &[PathBuf]) -> bool {
+fn is_static_available(name: &str, system_roots: &[PathBuf], dirs: &[PathBuf]) -> bool {
     let libname = format!("lib{}.a", name);
-    let system_roots = if cfg!(target_os = "macos") {
-        vec![Path::new("/Library"), Path::new("/System")]
-    } else {
-        vec![Path::new("/usr")]
-    };
 
     dirs.iter().any(|dir| {
         !system_roots.iter().any(|sys| dir.starts_with(sys)) && dir.join(&libname).exists()
@@ -639,18 +677,23 @@ fn split_flags(output: &[u8]) -> Vec<String> {
 #[test]
 #[cfg(target_os = "macos")]
 fn system_library_mac_test() {
+    let system_roots = vec![PathBuf::from("/Library"), PathBuf::from("/System")];
+
     assert!(!is_static_available(
         "PluginManager",
+        system_roots,
         &[PathBuf::from("/Library/Frameworks")]
     ));
     assert!(!is_static_available(
         "python2.7",
+        system_roots,
         &[PathBuf::from(
             "/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config"
         )]
     ));
     assert!(!is_static_available(
         "ffi_convenience",
+        system_roots,
         &[PathBuf::from(
             "/Library/Ruby/Gems/2.0.0/gems/ffi-1.9.10/ext/ffi_c/libffi-x86_64/.libs"
         )]
@@ -660,6 +703,7 @@ fn system_library_mac_test() {
     if Path::new("/usr/local/lib/libpng16.a").exists() {
         assert!(is_static_available(
             "png16",
+            system_roots,
             &[PathBuf::from("/usr/local/lib")]
         ));
 
@@ -676,7 +720,12 @@ fn system_library_mac_test() {
 fn system_library_linux_test() {
     assert!(!is_static_available(
         "util",
+        &[PathBuf::from("/usr")],
         &[PathBuf::from("/usr/lib/x86_64-linux-gnu")]
     ));
-    assert!(!is_static_available("dialog", &[PathBuf::from("/usr/lib")]));
+    assert!(!is_static_available(
+        "dialog",
+        &[PathBuf::from("/usr")],
+        &[PathBuf::from("/usr/lib")]
+    ));
 }

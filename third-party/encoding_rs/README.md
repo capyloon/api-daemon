@@ -86,6 +86,11 @@ one directly. (It wraps this crate and adds UTF-7 decoding.)
 For mappings to and from Windows code page identifiers, use the
 [`codepage`](https://crates.io/crates/codepage) crate.
 
+## DOS Encodings
+
+This crate does not support single-byte DOS encodings that aren't required by
+the Web Platform, but the [`oem_cp`](https://crates.io/crates/oem_cp) crate does.
+
 ## Preparing Text for the Encoders
 
 Normalizing text into Unicode Normalization Form C prior to encoding text into
@@ -139,7 +144,7 @@ There are currently these optional cargo features:
 
 ### `simd-accel`
 
-Enables SIMD acceleration using the nightly-dependent `packed_simd` crate.
+Enables SIMD acceleration using the nightly-dependent `packed_simd_2` crate.
 
 This is an opt-in feature, because enabling this feature _opts out_ of Rust's
 guarantees of future compilers compiling old code (aka. "stability story").
@@ -160,7 +165,7 @@ feature.
 _Note!_ If you are compiling for a target that does not have 128-bit SIMD
 enabled as part of the target definition and you are enabling 128-bit SIMD
 using `-C target_feature`, you need to enable the `core_arch` Cargo feature
-for `packed_simd` to compile a crates.io snapshot of `core_arch` instead of
+for `packed_simd_2` to compile a crates.io snapshot of `core_arch` instead of
 using the standard-library copy of `core::arch`, because the `core::arch`
 module of the pre-compiled standard library has been compiled with the
 assumption that the CPU doesn't have 128-bit SIMD. At present this applies
@@ -345,16 +350,15 @@ A framework for measuring performance is [available separately][2].
 ## Rust Version Compatibility
 
 It is a goal to support the latest stable Rust, the latest nightly Rust and
-the version of Rust that's used for Firefox Nightly (currently 1.29.0).
-These are tested on Travis.
+the version of Rust that's used for Firefox Nightly.
 
-Additionally, beta and the oldest known to work Rust version (currently
-1.29.0) are tested on Travis. The oldest Rust known to work is tested as
-a canary so that when the oldest known to work no longer works, the change
-can be documented here. At this time, there is no firm commitment to support
-a version older than what's required by Firefox. The oldest supported Rust
-is expected to move forward rapidly when `packed_simd` can replace the `simd`
-crate without performance regression.
+At this time, there is no firm commitment to support a version older than
+what's required by Firefox, and there is no commitment to treat MSRV changes
+as semver-breaking, because this crate depends on `cfg-if`, which doesn't
+appear to treat MSRV changes as semver-breaking, so it would be useless for
+this crate to treat MSRV changes as semver-breaking.
+
+As of 2020-11-02, MSRV appears to be Rust 1.36.0.
 
 ## Compatibility with rust-encoding
 
@@ -416,6 +420,18 @@ To regenerate the generated code:
 - [ ] ~Investigate [Bob Steagall's lookup table acceleration for UTF-8](https://github.com/BobSteagall/CppNow2018/blob/master/FastConversionFromUTF-8/Fast%20Conversion%20From%20UTF-8%20with%20C%2B%2B%2C%20DFAs%2C%20and%20SSE%20Intrinsics%20-%20Bob%20Steagall%20-%20C%2B%2BNow%202018.pdf).~
 
 ## Release Notes
+
+### 0.8.26
+
+* Fix oversights in edition 2018 migration that broke the `simd-accel` feature.
+
+### 0.8.25
+
+* Do pointer alignment checks in a way where intermediate steps aren't defined to be Undefined Behavior.
+* Update the `packed_simd` dependency to `packed_simd_2`.
+* Update the `cfg-if` dependency to 1.0.
+* Address warnings that have been introduced by newer Rust versions along the way.
+* Update to edition 2018, since even prior to 1.0 `cfg-if` updated to edition 2018 without a semver break.
 
 ### 0.8.24
 

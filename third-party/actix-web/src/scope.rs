@@ -58,7 +58,6 @@ type BoxedResponse = LocalBoxFuture<'static, Result<ServiceResponse, Error>>;
 ///  * /{project_id}/path1 - responds to all http method
 ///  * /{project_id}/path2 - `GET` requests
 ///  * /{project_id}/path3 - `HEAD` requests
-///
 pub struct Scope<T = ScopeEndpoint> {
     endpoint: T,
     rdef: String,
@@ -210,6 +209,9 @@ where
 
             self.data = Some(data);
         }
+        self.data
+            .get_or_insert_with(Extensions::new)
+            .extend(cfg.extensions);
         self
     }
 
@@ -443,16 +445,17 @@ where
         *self.factory_ref.borrow_mut() = Some(ScopeFactory {
             data: self.data.take().map(Rc::new),
             default: self.default.clone(),
-            services: Rc::new(
-                cfg.into_services()
-                    .1
-                    .into_iter()
-                    .map(|(mut rdef, srv, guards, nested)| {
-                        rmap.add(&mut rdef, nested);
-                        (rdef, srv, RefCell::new(guards))
-                    })
-                    .collect(),
-            ),
+            services: cfg
+                .into_services()
+                .1
+                .into_iter()
+                .map(|(mut rdef, srv, guards, nested)| {
+                    rmap.add(&mut rdef, nested);
+                    (rdef, srv, RefCell::new(guards))
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+                .into(),
         });
 
         // get guards
@@ -474,7 +477,7 @@ where
 
 pub struct ScopeFactory {
     data: Option<Rc<Extensions>>,
-    services: Rc<Vec<(ResourceDef, HttpNewService, RefCell<Option<Guards>>)>>,
+    services: Rc<[(ResourceDef, HttpNewService, RefCell<Option<Guards>>)]>,
     default: Rc<RefCell<Option<Rc<HttpNewService>>>>,
 }
 

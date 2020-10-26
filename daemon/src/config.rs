@@ -88,10 +88,7 @@ impl Config {
             },
             #[cfg(feature = "virtual-host")]
             vhost: vhost_server::config::Config {
-                port: port + 1,
                 root_path: "".into(),
-                key_path: "".into(),
-                cert_path: "".into(),
                 csp: "".into(),
             },
             #[cfg(feature = "apps-service")]

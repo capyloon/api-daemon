@@ -179,6 +179,18 @@
 //!   # }
 //!   ```
 //!
+//!   A `bail!` macro is provided as a shorthand for the same early return.
+//!
+//!   ```
+//!   # use anyhow::{bail, Result};
+//!   #
+//!   # fn demo() -> Result<()> {
+//!   #     let missing = "...";
+//!   bail!("Missing attribute: {}", missing);
+//!   #     Ok(())
+//!   # }
+//!   ```
+//!
 //! <br>
 //!
 //! # No-std support
@@ -197,7 +209,7 @@
 //! will require an explicit `.map_err(Error::msg)` when working with a
 //! non-Anyhow error type inside a function that returns Anyhow's error type.
 
-#![doc(html_root_url = "https://docs.rs/anyhow/1.0.33")]
+#![doc(html_root_url = "https://docs.rs/anyhow/1.0.34")]
 #![cfg_attr(backtrace, feature(backtrace))]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), no_std)]

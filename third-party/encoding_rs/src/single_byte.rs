@@ -8,10 +8,10 @@
 // except according to those terms.
 
 use super::*;
-use ascii::*;
-use data::position;
-use handles::*;
-use variant::*;
+use crate::ascii::*;
+use crate::data::position;
+use crate::handles::*;
+use crate::variant::*;
 
 pub struct SingleByteDecoder {
     table: &'static [u16; 128],
@@ -645,6 +645,10 @@ mod tests {
     fn test_single_byte_decode() {
         decode_single_byte(IBM866, &data::SINGLE_BYTE_DATA.ibm866);
         decode_single_byte(ISO_8859_10, &data::SINGLE_BYTE_DATA.iso_8859_10);
+        if cfg!(miri) {
+            // Miri is too slow
+            return;
+        }
         decode_single_byte(ISO_8859_13, &data::SINGLE_BYTE_DATA.iso_8859_13);
         decode_single_byte(ISO_8859_14, &data::SINGLE_BYTE_DATA.iso_8859_14);
         decode_single_byte(ISO_8859_15, &data::SINGLE_BYTE_DATA.iso_8859_15);
@@ -676,6 +680,10 @@ mod tests {
     fn test_single_byte_encode() {
         encode_single_byte(IBM866, &data::SINGLE_BYTE_DATA.ibm866);
         encode_single_byte(ISO_8859_10, &data::SINGLE_BYTE_DATA.iso_8859_10);
+        if cfg!(miri) {
+            // Miri is too slow
+            return;
+        }
         encode_single_byte(ISO_8859_13, &data::SINGLE_BYTE_DATA.iso_8859_13);
         encode_single_byte(ISO_8859_14, &data::SINGLE_BYTE_DATA.iso_8859_14);
         encode_single_byte(ISO_8859_15, &data::SINGLE_BYTE_DATA.iso_8859_15);

@@ -65,7 +65,7 @@ export class Session {
     let ws_start = function (session) {
       session.transport = new WSTransport();
       session.transport.set_listener(session);
-      url = url || "ws://localhost:8081";
+      url = url || "ws://localhost:8081/ws";
       session.transport.start(url, session.token);
       ret.success = true;
       ret.cause = "success";
@@ -104,7 +104,7 @@ export class Session {
 
     host = host || "localhost:8081";
 
-    return this.open_url(`ws://${host}`, token, session_state, lazy_reconnect);
+    return this.open_url(`ws://${host}/ws`, token, session_state, lazy_reconnect);
   }
 
   /**

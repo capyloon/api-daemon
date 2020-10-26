@@ -14,11 +14,8 @@ socket_path = "/tmp/api-daemon-socket"
 root_path = "../prebuilts/http_root"
 
 [vhost]
-port = 4443
 root_path = "../prebuilts/http_root/webapps"
-cert_path = "../vhost/cert.pem"
-key_path = "../vhost/key.pem"
-csp = "default-src * data: blob:; script-src 'self' http://127.0.0.1 https://shared.local; object-src 'none'; style-src 'self' 'unsafe-inline' https://lighttheme.local https://darktheme.local https://shared.local"
+csp = "default-src * data: blob:; script-src 'self' http://127.0.0.1 http://shared.localhost; object-src 'none'; style-src 'self' 'unsafe-inline' http://shared.localhost"
 
 [apps_service]
 root_path = "../services/apps/test-fixtures/webapps"

@@ -1,11 +1,9 @@
 //! Support for symbolication using the `gimli` crate on crates.io
 //!
-//! This implementation is largely a work in progress and is off by default for
-//! all platforms, but it's hoped to be developed over time! Long-term this is
-//! intended to wholesale replace the `libbacktrace.rs` implementation.
+//! This is the default symbolication implementation for Rust.
 
 use self::gimli::read::EndianSlice;
-use self::gimli::LittleEndian as Endian;
+use self::gimli::NativeEndian as Endian;
 use self::mmap::Mmap;
 use self::stash::Stash;
 use super::BytesOrWideString;
@@ -54,11 +52,6 @@ mod stash;
 
 const MAPPINGS_CACHE_SIZE: usize = 4;
 
-struct Context<'a> {
-    dwarf: addr2line::Context<EndianSlice<'a, Endian>>,
-    object: Object<'a>,
-}
-
 struct Mapping {
     // 'static lifetime is a lie to hack around lack of support for self-referential structs.
     cx: Context<'static>,
@@ -66,43 +59,53 @@ struct Mapping {
     _stash: Stash,
 }
 
-fn cx<'data>(stash: &'data Stash, object: Object<'data>) -> Option<Context<'data>> {
-    fn load_section<'data, S>(stash: &'data Stash, obj: &Object<'data>) -> S
+impl Mapping {
+    fn mk<F>(data: Mmap, mk: F) -> Option<Mapping>
     where
-        S: gimli::Section<gimli::EndianSlice<'data, Endian>>,
+        F: for<'a> Fn(&'a [u8], &'a Stash) -> Option<Context<'a>>,
     {
-        let data = obj.section(stash, S::section_name()).unwrap_or(&[]);
-        S::from(EndianSlice::new(data, Endian))
-    }
-
-    let dwarf = addr2line::Context::from_sections(
-        load_section(stash, &object),
-        load_section(stash, &object),
-        load_section(stash, &object),
-        load_section(stash, &object),
-        load_section(stash, &object),
-        load_section(stash, &object),
-        load_section(stash, &object),
-        load_section(stash, &object),
-        load_section(stash, &object),
-        gimli::EndianSlice::new(&[], Endian),
-    )
-    .ok()?;
-    Some(Context { dwarf, object })
-}
-
-macro_rules! mk {
-    (Mapping { $map:expr, $inner:expr, $stash:expr }) => {{
-        fn assert_lifetimes<'a>(_: &'a Mmap, _: &Context<'a>, _: &'a Stash) {}
-        assert_lifetimes(&$map, &$inner, &$stash);
-        Mapping {
+        let stash = Stash::new();
+        let cx = mk(&data, &stash)?;
+        Some(Mapping {
             // Convert to 'static lifetimes since the symbols should
             // only borrow `map` and `stash` and we're preserving them below.
-            cx: unsafe { core::mem::transmute::<Context<'_>, Context<'static>>($inner) },
-            _map: $map,
-            _stash: $stash,
+            cx: unsafe { core::mem::transmute::<Context<'_>, Context<'static>>(cx) },
+            _map: data,
+            _stash: stash,
+        })
+    }
+}
+
+struct Context<'a> {
+    dwarf: addr2line::Context<EndianSlice<'a, Endian>>,
+    object: Object<'a>,
+}
+
+impl<'data> Context<'data> {
+    fn new(stash: &'data Stash, object: Object<'data>) -> Option<Context<'data>> {
+        fn load_section<'data, S>(stash: &'data Stash, obj: &Object<'data>) -> S
+        where
+            S: gimli::Section<gimli::EndianSlice<'data, Endian>>,
+        {
+            let data = obj.section(stash, S::section_name()).unwrap_or(&[]);
+            S::from(EndianSlice::new(data, Endian))
         }
-    }};
+
+        let dwarf = addr2line::Context::from_sections(
+            load_section(stash, &object),
+            load_section(stash, &object),
+            load_section(stash, &object),
+            load_section(stash, &object),
+            load_section(stash, &object),
+            load_section(stash, &object),
+            load_section(stash, &object),
+            load_section(stash, &object),
+            load_section(stash, &object),
+            gimli::EndianSlice::new(&[], Endian),
+        )
+        .ok()?;
+        Some(Context { dwarf, object })
+    }
 }
 
 fn mmap(path: &Path) -> Option<Mmap> {
@@ -201,9 +204,14 @@ cfg_if::cfg_if! {
                 }],
             })
         }
-    } else if #[cfg(target_os = "macos")] {
+    } else if #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+    ))] {
         // macOS uses the Mach-O file format and uses DYLD-specific APIs to
-        // load a list of native libraries that are part of the appplication.
+        // load a list of native libraries that are part of the application.
 
         use mystd::os::unix::prelude::*;
         use mystd::ffi::{OsStr, CStr};
@@ -367,28 +375,32 @@ cfg_if::cfg_if! {
         fn native_libraries() -> Vec<Library> {
             let mut ret = Vec::new();
             unsafe {
-                libc::dl_iterate_phdr(Some(callback), &mut ret as *mut _ as *mut _);
+                libc::dl_iterate_phdr(Some(callback), &mut ret as *mut Vec<_> as *mut _);
             }
             return ret;
         }
 
+        // `info` should be a valid pointers.
+        // `vec` should be a valid pointer to a `std::Vec`.
         unsafe extern "C" fn callback(
             info: *mut libc::dl_phdr_info,
             _size: libc::size_t,
             vec: *mut libc::c_void,
         ) -> libc::c_int {
+            let info = &*info;
             let libs = &mut *(vec as *mut Vec<Library>);
-            let name = if (*info).dlpi_name.is_null() || *(*info).dlpi_name == 0{
+            let is_main_prog = info.dlpi_name.is_null() || *info.dlpi_name == 0;
+            let name = if is_main_prog {
                 if libs.is_empty() {
                     mystd::env::current_exe().map(|e| e.into()).unwrap_or_default()
                 } else {
                     OsString::new()
                 }
             } else {
-                let bytes = CStr::from_ptr((*info).dlpi_name).to_bytes();
+                let bytes = CStr::from_ptr(info.dlpi_name).to_bytes();
                 OsStr::from_bytes(bytes).to_owned()
             };
-            let headers = core::slice::from_raw_parts((*info).dlpi_phdr, (*info).dlpi_phnum as usize);
+            let headers = core::slice::from_raw_parts(info.dlpi_phdr, info.dlpi_phnum as usize);
             libs.push(Library {
                 name,
                 segments: headers
@@ -398,7 +410,7 @@ cfg_if::cfg_if! {
                         stated_virtual_memory_address: (*header).p_vaddr as usize,
                     })
                     .collect(),
-                bias: (*info).dlpi_addr as usize,
+                bias: info.dlpi_addr as usize,
             });
             0
         }
@@ -547,7 +559,7 @@ impl Cache {
             .next()
     }
 
-    fn mapping_for_lib<'a>(&'a mut self, lib: usize) -> Option<&'a Context<'a>> {
+    fn mapping_for_lib<'a>(&'a mut self, lib: usize) -> Option<&'a mut Context<'a>> {
         let idx = self.mappings.iter().position(|(idx, _)| *idx == lib);
 
         // Invariant: after this conditional completes without early returning
@@ -573,10 +585,10 @@ impl Cache {
             self.mappings.insert(0, (lib, mapping));
         }
 
-        let cx: &'a Context<'static> = &self.mappings[0].1.cx;
+        let cx: &'a mut Context<'static> = &mut self.mappings[0].1.cx;
         // don't leak the `'static` lifetime, make sure it's scoped to just
         // ourselves
-        Some(unsafe { mem::transmute::<&'a Context<'static>, &'a Context<'a>>(cx) })
+        Some(unsafe { mem::transmute::<&'a mut Context<'static>, &'a mut Context<'a>>(cx) })
     }
 }
 
@@ -613,7 +625,20 @@ pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol))
                 });
             }
         }
-
+        if !any_frames {
+            if let Some((object_cx, object_addr)) = cx.object.search_object_map(addr as u64) {
+                if let Ok(mut frames) = object_cx.dwarf.find_frames(object_addr) {
+                    while let Ok(Some(frame)) = frames.next() {
+                        any_frames = true;
+                        call(Symbol::Frame {
+                            addr: addr as *mut c_void,
+                            location: frame.location,
+                            name: frame.function.map(|f| f.name.slice()),
+                        });
+                    }
+                }
+            }
+        }
         if !any_frames {
             if let Some(name) = cx.object.search_symtab(addr as u64) {
                 call(Symbol::Symtab {

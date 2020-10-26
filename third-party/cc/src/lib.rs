@@ -337,6 +337,35 @@ impl Build {
         self
     }
 
+    /// Add multiple directories to the `-I` include path.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # let condition = true;
+    /// #
+    /// let mut extra_dir = None;
+    /// if condition {
+    ///     extra_dir = Some(Path::new("/path/to"));
+    /// }
+    ///
+    /// cc::Build::new()
+    ///     .file("src/foo.c")
+    ///     .includes(extra_dir)
+    ///     .compile("foo");
+    /// ```
+    pub fn includes<P>(&mut self, dirs: P) -> &mut Build
+    where
+        P: IntoIterator,
+        P::Item: AsRef<Path>,
+    {
+        for dir in dirs {
+            self.include(dir);
+        }
+        self
+    }
+
     /// Specify a `-D` variable with an optional value.
     ///
     /// # Example
@@ -1430,6 +1459,14 @@ impl Build {
                             cmd.args
                                 .push(format!("--target={}-apple-darwin", arch).into());
                         }
+                    } else if target.contains("macabi") {
+                        if let Some(arch) =
+                            map_darwin_target_from_rust_to_compiler_architecture(target)
+                        {
+                            let ios = if arch == "arm64" { "ios" } else { "ios13.0" };
+                            cmd.args
+                                .push(format!("--target={}-apple-{}-macabi", arch, ios).into());
+                        }
                     } else {
                         cmd.args.push(format!("--target={}", target).into());
                     }
@@ -1852,6 +1889,7 @@ impl Build {
         enum ArchSpec {
             Device(&'static str),
             Simulator(&'static str),
+            Catalyst(&'static str),
         }
 
         let target = self.get_target()?;
@@ -1861,18 +1899,38 @@ impl Build {
                 "Unknown architecture for iOS target.",
             )
         })?;
-        let arch = match arch {
-            "arm" | "armv7" | "thumbv7" => ArchSpec::Device("armv7"),
-            "armv7s" | "thumbv7s" => ArchSpec::Device("armv7s"),
-            "arm64e" => ArchSpec::Device("arm64e"),
-            "arm64" | "aarch64" => ArchSpec::Device("arm64"),
-            "i386" | "i686" => ArchSpec::Simulator("-m32"),
-            "x86_64" => ArchSpec::Simulator("-m64"),
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::ArchitectureInvalid,
-                    "Unknown architecture for iOS target.",
-                ));
+
+        let is_catalyst = match target.split('-').nth(3) {
+            Some(v) => v == "macabi",
+            None => false,
+        };
+
+        let arch = if is_catalyst {
+            match arch {
+                "arm64e" => ArchSpec::Catalyst("arm64e"),
+                "arm64" | "aarch64" => ArchSpec::Catalyst("arm64"),
+                "x86_64" => ArchSpec::Catalyst("-m64"),
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::ArchitectureInvalid,
+                        "Unknown architecture for iOS target.",
+                    ));
+                }
+            }
+        } else {
+            match arch {
+                "arm" | "armv7" | "thumbv7" => ArchSpec::Device("armv7"),
+                "armv7s" | "thumbv7s" => ArchSpec::Device("armv7s"),
+                "arm64e" => ArchSpec::Device("arm64e"),
+                "arm64" | "aarch64" => ArchSpec::Device("arm64"),
+                "i386" | "i686" => ArchSpec::Simulator("-m32"),
+                "x86_64" => ArchSpec::Simulator("-m64"),
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::ArchitectureInvalid,
+                        "Unknown architecture for iOS target.",
+                    ));
+                }
             }
         };
 
@@ -1893,6 +1951,7 @@ impl Build {
                     .push(format!("-mios-simulator-version-min={}", min_version).into());
                 "iphonesimulator"
             }
+            ArchSpec::Catalyst(_) => "macosx",
         };
 
         self.print(&format!("Detecting iOS SDK path for {}", sdk));
@@ -2095,9 +2154,8 @@ impl Build {
     fn envflags(&self, name: &str) -> Vec<String> {
         self.get_var(name)
             .unwrap_or(String::new())
-            .split(|c: char| c.is_whitespace())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
+            .split_ascii_whitespace()
+            .map(|slice| slice.to_string())
             .collect()
     }
 
@@ -2497,14 +2555,13 @@ impl Build {
             return Ok(ret.clone());
         }
 
-        let sdk_path = self
-            .cmd("xcrun")
-            .arg("--show-sdk-path")
-            .arg("--sdk")
-            .arg(sdk)
-            .stderr(Stdio::inherit())
-            .output()?
-            .stdout;
+        let sdk_path = run_output(
+            self.cmd("xcrun")
+                .arg("--show-sdk-path")
+                .arg("--sdk")
+                .arg(sdk),
+            "xcrun",
+        )?;
 
         let sdk_path = match String::from_utf8(sdk_path) {
             Ok(p) => p,

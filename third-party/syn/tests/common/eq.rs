@@ -22,7 +22,7 @@ use rustc_ast::ast::{
 };
 use rustc_ast::ptr::P;
 use rustc_ast::token::{self, CommentKind, DelimToken, Token, TokenKind};
-use rustc_ast::tokenstream::{DelimSpan, TokenStream, TokenTree};
+use rustc_ast::tokenstream::{DelimSpan, LazyTokenStream, TokenStream, TokenTree};
 use rustc_data_structures::sync::Lrc;
 use rustc_data_structures::thin_vec::ThinVec;
 use rustc_span::source_map::Spanned;
@@ -40,7 +40,7 @@ impl<T: SpanlessEq> SpanlessEq for P<T> {
     }
 }
 
-impl<T: SpanlessEq> SpanlessEq for Lrc<T> {
+impl<T: ?Sized + SpanlessEq> SpanlessEq for Lrc<T> {
     fn eq(&self, other: &Self) -> bool {
         SpanlessEq::eq(&**self, &**other)
     }
@@ -56,9 +56,15 @@ impl<T: SpanlessEq> SpanlessEq for Option<T> {
     }
 }
 
-impl<T: SpanlessEq> SpanlessEq for Vec<T> {
+impl<T: SpanlessEq> SpanlessEq for [T] {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().zip(other).all(|(a, b)| SpanlessEq::eq(a, b))
+    }
+}
+
+impl<T: SpanlessEq> SpanlessEq for Vec<T> {
+    fn eq(&self, other: &Self) -> bool {
+        <[T] as SpanlessEq>::eq(self, other)
     }
 }
 
@@ -358,13 +364,13 @@ spanless_eq_enum!(UseTreeKind; Simple(0 1 2) Nested(0) Glob);
 spanless_eq_enum!(VariantData; Struct(0 1) Tuple(0 1) Unit(0));
 spanless_eq_enum!(VisibilityKind; Public Crate(0) Restricted(path id) Inherited);
 spanless_eq_enum!(WherePredicate; BoundPredicate(0) RegionPredicate(0) EqPredicate(0));
-spanless_eq_enum!(ExprKind; Box(0) Array(0) Call(0 1) MethodCall(0 1 2) Tup(0)
-    Binary(0 1 2) Unary(0 1) Lit(0) Cast(0 1) Type(0 1) Let(0 1) If(0 1 2)
-    While(0 1 2) ForLoop(0 1 2 3) Loop(0 1) Match(0 1) Closure(0 1 2 3 4 5)
-    Block(0 1) Async(0 1 2) Await(0) TryBlock(0) Assign(0 1 2) AssignOp(0 1 2)
-    Field(0 1) Index(0 1) Range(0 1 2) Path(0 1) AddrOf(0 1 2) Break(0 1)
-    Continue(0) Ret(0) InlineAsm(0) LlvmInlineAsm(0) MacCall(0) Struct(0 1 2)
-    Repeat(0 1) Paren(0) Try(0) Yield(0) Err);
+spanless_eq_enum!(ExprKind; Box(0) Array(0) ConstBlock(0) Call(0 1)
+    MethodCall(0 1 2) Tup(0) Binary(0 1 2) Unary(0 1) Lit(0) Cast(0 1) Type(0 1)
+    Let(0 1) If(0 1 2) While(0 1 2) ForLoop(0 1 2 3) Loop(0 1) Match(0 1)
+    Closure(0 1 2 3 4 5) Block(0 1) Async(0 1 2) Await(0) TryBlock(0)
+    Assign(0 1 2) AssignOp(0 1 2) Field(0 1) Index(0 1) Range(0 1 2) Path(0 1)
+    AddrOf(0 1 2) Break(0 1) Continue(0) Ret(0) InlineAsm(0) LlvmInlineAsm(0)
+    MacCall(0) Struct(0 1 2) Repeat(0 1) Paren(0) Try(0) Yield(0) Err);
 spanless_eq_enum!(InlineAsmOperand; In(reg expr) Out(reg late expr)
     InOut(reg late expr) SplitInOut(reg late in_expr out_expr) Const(expr)
     Sym(expr));
@@ -434,5 +440,13 @@ impl SpanlessEq for TokenStream {
                 return false;
             }
         }
+    }
+}
+
+impl SpanlessEq for LazyTokenStream {
+    fn eq(&self, other: &Self) -> bool {
+        let this = self.into_token_stream();
+        let other = other.into_token_stream();
+        SpanlessEq::eq(&this, &other)
     }
 }

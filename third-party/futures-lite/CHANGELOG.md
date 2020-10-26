@@ -1,3 +1,16 @@
+# Version 1.11.2
+
+- Improve docs for `ready!`.
+
+# Version 1.11.1
+
+- Fix some typos.
+
+# Version 1.11.0
+
+- Add the new `prelude` module.
+- Deprecate trait re-exports in the root module.
+
 # Version 1.10.1
 
 - Fix compilation errors with Rust 1.42.0 and 1.45.2

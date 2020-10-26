@@ -165,19 +165,19 @@ impl AppsItem {
     }
 
     pub fn new_manifest_url(app_name: &str, vhost_port: u16) -> String {
-        if vhost_port == 443 {
-            format!("https://{}.local/manifest.webapp", &app_name)
+        if vhost_port == 80 {
+            format!("http://{}.localhost/manifest.webapp", &app_name)
         } else {
-            format!("https://{}.local:{}/manifest.webapp", &app_name, vhost_port)
+            format!("http://{}.localhost:{}/manifest.webapp", &app_name, vhost_port)
         }
     }
 
     pub fn new_pwa_url(app_name: &str, vhost_port: u16) -> String {
-        if vhost_port == 443 {
-            format!("https://cached.local/{}/manifest.webapp", &app_name)
+        if vhost_port == 80 {
+            format!("http://cached.localhost/{}/manifest.webapp", &app_name)
         } else {
             format!(
-                "https://cached.local:{}/{}/manifest.webapp",
+                "http://cached.localhost:{}/{}/manifest.webapp",
                 vhost_port, &app_name
             )
         }

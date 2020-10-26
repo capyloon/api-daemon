@@ -8,9 +8,9 @@
 // except according to those terms.
 
 use super::*;
-use data::*;
-use handles::*;
-use variant::*;
+use crate::data::*;
+use crate::handles::*;
+use crate::variant::*;
 // Rust 1.14.0 requires the following despite the asterisk above.
 use super::in_inclusive_range;
 use super::in_inclusive_range16;
@@ -385,6 +385,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_shift_jis_decode_all() {
         let input = include_bytes!("test_data/shift_jis_in.txt");
         let expectation = include_str!("test_data/shift_jis_in_ref.txt");
@@ -394,6 +395,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_shift_jis_encode_all() {
         let input = include_str!("test_data/shift_jis_out.txt");
         let expectation = include_bytes!("test_data/shift_jis_out_ref.txt");

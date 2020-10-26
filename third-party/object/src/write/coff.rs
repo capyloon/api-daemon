@@ -4,7 +4,7 @@ use std::vec::Vec;
 
 use crate::endian::{LittleEndian as LE, U16Bytes, U32Bytes, U16, U32};
 use crate::pe as coff;
-use crate::pod::BytesMut;
+use crate::pod::{bytes_of, WritableBuffer};
 use crate::write::string::*;
 use crate::write::util::*;
 use crate::write::*;
@@ -14,6 +14,8 @@ struct SectionOffsets {
     offset: usize,
     str_id: Option<StringId>,
     reloc_offset: usize,
+    selection: u8,
+    associative_section: u16,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -137,7 +139,7 @@ impl Object {
         stub_id
     }
 
-    pub(crate) fn coff_write(&self) -> Result<Vec<u8>> {
+    pub(crate) fn coff_write(&self, buffer: &mut dyn WritableBuffer) -> Result<()> {
         // Calculate offsets of everything, and build strtab.
         let mut offset = 0;
         let mut strtab = StringTable::default();
@@ -170,6 +172,49 @@ impl Object {
             if count != 0 {
                 section_offsets[index].reloc_offset = offset;
                 offset += count * mem::size_of::<coff::ImageRelocation>();
+            }
+        }
+
+        // Set COMDAT flags.
+        for comdat in &self.comdats {
+            let symbol = &self.symbols[comdat.symbol.0];
+            let comdat_section = match symbol.section {
+                SymbolSection::Section(id) => id.0,
+                _ => {
+                    return Err(Error(format!(
+                        "unsupported COMDAT symbol `{}` section {:?}",
+                        symbol.name().unwrap_or(""),
+                        symbol.section
+                    )));
+                }
+            };
+            section_offsets[comdat_section].selection = match comdat.kind {
+                ComdatKind::NoDuplicates => coff::IMAGE_COMDAT_SELECT_NODUPLICATES,
+                ComdatKind::Any => coff::IMAGE_COMDAT_SELECT_ANY,
+                ComdatKind::SameSize => coff::IMAGE_COMDAT_SELECT_SAME_SIZE,
+                ComdatKind::ExactMatch => coff::IMAGE_COMDAT_SELECT_EXACT_MATCH,
+                ComdatKind::Largest => coff::IMAGE_COMDAT_SELECT_LARGEST,
+                ComdatKind::Newest => coff::IMAGE_COMDAT_SELECT_NEWEST,
+                ComdatKind::Unknown => {
+                    return Err(Error(format!(
+                        "unsupported COMDAT symbol `{}` kind {:?}",
+                        symbol.name().unwrap_or(""),
+                        comdat.kind
+                    )));
+                }
+            };
+            for id in &comdat.sections {
+                let section = &self.sections[id.0];
+                if section.symbol.is_none() {
+                    return Err(Error(format!(
+                        "missing symbol for COMDAT section `{}`",
+                        section.name().unwrap_or(""),
+                    )));
+                }
+                if id.0 != comdat_section {
+                    section_offsets[id.0].selection = coff::IMAGE_COMDAT_SELECT_ASSOCIATIVE;
+                    section_offsets[id.0].associative_section = comdat_section as u16 + 1;
+                }
             }
         }
 
@@ -214,7 +259,9 @@ impl Object {
         offset += strtab_len;
 
         // Start writing.
-        let mut buffer = BytesMut(Vec::with_capacity(offset));
+        buffer
+            .reserve(offset)
+            .map_err(|_| Error(String::from("Cannot allocate buffer")))?;
 
         // Write file header.
         let header = coff::ImageFileHeader {
@@ -241,17 +288,20 @@ impl Object {
                 _ => U16::default(),
             },
         };
-        buffer.write(&header);
+        buffer.extend(bytes_of(&header));
 
         // Write section headers.
         for (index, section) in self.sections.iter().enumerate() {
-            // TODO: IMAGE_SCN_LNK_COMDAT
-            let characteristics = match section.flags {
+            let mut characteristics = match section.flags {
                 SectionFlags::Coff {
                     characteristics, ..
                 } => characteristics,
                 _ => 0,
-            } | match section.kind {
+            };
+            if section_offsets[index].selection != 0 {
+                characteristics |= coff::IMAGE_SCN_LNK_COMDAT;
+            };
+            characteristics |= match section.kind {
                 SectionKind::Text => {
                     coff::IMAGE_SCN_CNT_CODE
                         | coff::IMAGE_SCN_MEM_EXECUTE
@@ -365,16 +415,16 @@ impl Object {
                     return Err(Error(format!("invalid section name offset {}", str_offset)));
                 }
             }
-            buffer.write(&coff_section);
+            buffer.extend(bytes_of(&coff_section));
         }
 
         // Write section data and relocations.
         for (index, section) in self.sections.iter().enumerate() {
             let len = section.data.len();
             if len != 0 {
-                write_align(&mut buffer, 4);
+                write_align(buffer, 4);
                 debug_assert_eq!(section_offsets[index].offset, buffer.len());
-                buffer.write_bytes(&section.data);
+                buffer.extend(section.data.as_slice());
             }
 
             if !section.relocations.is_empty() {
@@ -429,7 +479,7 @@ impl Object {
                         ),
                         typ: U16Bytes::new(LE, typ),
                     };
-                    buffer.write(&coff_relocation);
+                    buffer.extend(bytes_of(&coff_relocation));
                 }
             }
         }
@@ -519,7 +569,7 @@ impl Object {
                 let str_offset = strtab.get_offset(symbol_offsets[index].str_id.unwrap());
                 coff_symbol.name[4..8].copy_from_slice(&u32::to_le_bytes(str_offset as u32));
             }
-            buffer.write(&coff_symbol);
+            buffer.extend(bytes_of(&coff_symbol));
 
             // Write auxiliary symbols.
             match symbol.kind {
@@ -532,26 +582,23 @@ impl Object {
                 }
                 SymbolKind::Section => {
                     debug_assert_eq!(number_of_aux_symbols, 1);
-                    let section = &self.sections[symbol.section.id().unwrap().0];
-                    let (selection, number) = match symbol.flags {
-                        SymbolFlags::CoffSection {
-                            selection,
-                            associative_section,
-                        } => (selection, associative_section.0 as u16),
-                        _ => (0, 0),
-                    };
+                    let section_index = symbol.section.id().unwrap().0;
+                    let section = &self.sections[section_index];
                     let aux = coff::ImageAuxSymbolSection {
                         length: U32Bytes::new(LE, section.size as u32),
                         number_of_relocations: U16Bytes::new(LE, section.relocations.len() as u16),
                         number_of_linenumbers: U16Bytes::default(),
-                        check_sum: U32Bytes::new(LE, checksum(&section.data.0)),
-                        number: U16Bytes::new(LE, number),
-                        selection,
+                        check_sum: U32Bytes::new(LE, checksum(section.data.as_slice())),
+                        number: U16Bytes::new(
+                            LE,
+                            section_offsets[section_index].associative_section,
+                        ),
+                        selection: section_offsets[section_index].selection,
                         reserved: 0,
                         // TODO: bigobj
                         high_number: U16Bytes::default(),
                     };
-                    buffer.write(&aux);
+                    buffer.extend(bytes_of(&aux));
                 }
                 _ => {
                     debug_assert_eq!(number_of_aux_symbols, 0);
@@ -564,7 +611,9 @@ impl Object {
         buffer.extend(&u32::to_le_bytes(strtab_len as u32));
         buffer.extend(&strtab_data);
 
-        Ok(buffer.0)
+        debug_assert_eq!(offset, buffer.len());
+
+        Ok(())
     }
 }
 

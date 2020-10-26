@@ -118,6 +118,12 @@ anyhow = "1.0"
   return Err(anyhow!("Missing attribute: {}", missing));
   ```
 
+  A `bail!` macro is provided as a shorthand for the same early return.
+
+  ```rust
+  bail!("Missing attribute: {}", missing);
+  ```
+
 <br>
 
 ## No-std support

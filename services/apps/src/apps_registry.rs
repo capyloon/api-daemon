@@ -1052,7 +1052,7 @@ fn test_init_apps_from_system() {
         cert_type: String::from("production"),
     };
 
-    let registry = match AppsRegistry::initialize(&config, 443) {
+    let registry = match AppsRegistry::initialize(&config, 80) {
         Ok(v) => v,
         Err(err) => {
             panic!("err: {:?}", err);
@@ -1114,7 +1114,7 @@ fn test_register_app() {
         cert_type: String::from("test"),
     };
 
-    let mut registry = match AppsRegistry::initialize(&config, 443) {
+    let mut registry = match AppsRegistry::initialize(&config, 80) {
         Ok(v) => v,
         Err(err) => {
             panic!("err: {:?}", err);
@@ -1182,9 +1182,9 @@ fn test_register_app() {
     registry.register_app(&apps_item, &manifest).unwrap();
 
     // Verify the manifet url is as expeced
-    let expected_manfiest_url = format!("https://helloworld.local/manifest.webapp");
+    let expected_manifest_url = format!("http://helloworld.localhost/manifest.webapp");
     let manifest_url = apps_item.get_manifest_url();
-    assert_eq!(manifest_url, expected_manfiest_url);
+    assert_eq!(manifest_url, expected_manifest_url);
 
     match registry.get_by_manifest_url(&manifest_url) {
         Some(test) => {
@@ -1268,7 +1268,7 @@ fn test_unregister_app() {
         cert_type: String::from("test"),
     };
 
-    let mut registry = AppsRegistry::initialize(&config, 4443).unwrap();
+    let mut registry = AppsRegistry::initialize(&config, 8081).unwrap();
 
     // Test unregister_app - invalid updater url
     let update_url = "";
@@ -1315,7 +1315,7 @@ fn test_unregister_app() {
     assert_eq!(5, registry.count());
 
     // Verify the manifet url is as expeced
-    let expected_manfiest_url = format!("https://helloworld.local:4443/manifest.webapp");
+    let expected_manfiest_url = format!("http://helloworld.localhost:8081/manifest.webapp");
     let manifest_url = apps_item.get_manifest_url();
     assert_eq!(manifest_url, expected_manfiest_url);
 
@@ -1371,7 +1371,7 @@ fn test_apply_download() {
         cert_type: String::from("test"),
     };
 
-    let mut registry = match AppsRegistry::initialize(&config, 4443) {
+    let mut registry = match AppsRegistry::initialize(&config, 80) {
         Ok(v) => v,
         Err(err) => {
             panic!("err: {:?}", err);
@@ -1616,7 +1616,7 @@ fn test_apply_pwa() {
         cert_type: String::from("test"),
     };
 
-    let mut registry = match AppsRegistry::initialize(&config, 4443) {
+    let mut registry = match AppsRegistry::initialize(&config, 80) {
         Ok(v) => v,
         Err(err) => {
             panic!("err: {:?}", err);

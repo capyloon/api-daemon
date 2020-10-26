@@ -30,6 +30,7 @@ use self::security_framework::os::macos::keychain::{self, KeychainSettings, SecK
 use self::security_framework_sys::base::errSecParam;
 
 use {Protocol, TlsAcceptorBuilder, TlsConnectorBuilder};
+use self::security_framework::os::macos::import_export::Pkcs12ImportOptionsExt;
 
 static SET_AT_EXIT: Once = Once::new();
 
@@ -74,7 +75,7 @@ impl From<base::Error> for Error {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Identity {
     identity: SecIdentity,
     chain: Vec<SecCertificate>,
@@ -253,7 +254,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TlsConnector {
     identity: Option<Identity>,
     min_protocol: Option<Protocol>,
@@ -262,6 +263,7 @@ pub struct TlsConnector {
     use_sni: bool,
     danger_accept_invalid_hostnames: bool,
     danger_accept_invalid_certs: bool,
+    disable_built_in_roots: bool,
 }
 
 impl TlsConnector {
@@ -278,6 +280,7 @@ impl TlsConnector {
             use_sni: builder.use_sni,
             danger_accept_invalid_hostnames: builder.accept_invalid_hostnames,
             danger_accept_invalid_certs: builder.accept_invalid_certs,
+            disable_built_in_roots: builder.disable_built_in_roots,
         })
     }
 
@@ -299,6 +302,7 @@ impl TlsConnector {
         builder.use_sni(self.use_sni);
         builder.danger_accept_invalid_hostnames(self.danger_accept_invalid_hostnames);
         builder.danger_accept_invalid_certs(self.danger_accept_invalid_certs);
+        builder.trust_anchor_certificates_only(self.disable_built_in_roots);
 
         match builder.handshake(domain, stream) {
             Ok(stream) => Ok(TlsStream { stream, cert: None }),

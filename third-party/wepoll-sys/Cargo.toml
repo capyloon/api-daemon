@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "wepoll-sys"
-version = "3.0.0"
+version = "3.0.1"
 authors = ["Yorick Peterse <yorickpeterse@gmail.com>"]
 build = "build.rs"
 links = "wepoll"
@@ -24,7 +24,7 @@ categories = ["external-ffi-bindings", "os::windows-apis"]
 license = "MPL-2.0"
 repository = "https://gitlab.com/yorickpeterse/wepoll-sys"
 [package.metadata.docs.rs]
-default-target = "x86_64-pc-windows-msvc"
+targets = ["x86_64-pc-windows-msvc"]
 [build-dependencies.cc]
 version = "^1.0"
 

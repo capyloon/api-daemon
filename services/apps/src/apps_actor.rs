@@ -247,7 +247,7 @@ pub fn install_package(
     if app_name.is_empty() {
         return Err(AppsActorError::InvalidAppName);
     }
-    let update_url = format!("https://{}.local/manifest.webapp", &app_name);
+    let update_url = format!("http://{}.localhost/manifest.webapp", &app_name);
     let app_name = shared
         .registry
         .get_unique_name(&manifest.get_name(), &update_url)
@@ -311,7 +311,7 @@ pub fn uninstall_package(
 
     let mut shared = shared_data.lock();
     // Use a local manifest for identification purpose
-    let update_url = format!("https://{}.local/manifest.webapp", &app_name);
+    let update_url = format!("http://{}.localhost/manifest.webapp", &app_name);
     let manifest_url = shared
         .registry
         .uninstall_app(&app_name, &update_url, &data_path)
@@ -712,7 +712,7 @@ fn test_get_all() {
     }
 
     let app_list = get_all(&shared_data).unwrap();
-    let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"https://calculator.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"https://system.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"https://gallery.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"https://launcher.local:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
+    let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"http://calculator.localhost:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"http://system.localhost:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"http://gallery.localhost:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webapp\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"http://launcher.localhost:8443/manifest.webapp\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
 
     assert_eq!(app_list, expected);
 }

@@ -13,9 +13,9 @@
 [package]
 edition = "2018"
 name = "actix-web"
-version = "3.1.0"
+version = "3.2.0"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
-description = "Actix web is a powerful, pragmatic, and extremely fast web framework for Rust."
+description = "Actix web is a powerful, pragmatic, and extremely fast web framework for Rust"
 homepage = "https://actix.rs"
 documentation = "https://docs.rs/actix-web/"
 readme = "README.md"
@@ -43,6 +43,10 @@ name = "uds"
 required-features = ["compress"]
 
 [[example]]
+name = "on_connect"
+required-features = []
+
+[[example]]
 name = "client"
 required-features = ["rustls"]
 
@@ -61,7 +65,7 @@ harness = false
 version = "0.3.0"
 
 [dependencies.actix-http]
-version = "2.0.0"
+version = "2.1.0"
 
 [dependencies.actix-macros]
 version = "0.1.0"
@@ -91,7 +95,7 @@ version = "2.0.0"
 version = "2.0.0"
 
 [dependencies.actix-web-codegen]
-version = "0.3.0"
+version = "0.4.0"
 
 [dependencies.awc]
 version = "2.0.0"
@@ -133,10 +137,10 @@ optional = true
 package = "openssl"
 
 [dependencies.pin-project]
-version = "0.4.17"
+version = "1.0.0"
 
 [dependencies.regex]
-version = "1.3"
+version = "1.4"
 
 [dependencies.rust-tls]
 version = "0.18.0"

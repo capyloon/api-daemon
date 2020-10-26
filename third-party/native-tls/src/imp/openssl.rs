@@ -10,7 +10,7 @@ use self::openssl::ssl::{
     self, MidHandshakeSslStream, SslAcceptor, SslConnector, SslContextBuilder, SslMethod,
     SslVerifyMode,
 };
-use self::openssl::x509::{X509, X509VerifyResult};
+use self::openssl::x509::{X509, store::X509StoreBuilder, X509VerifyResult};
 use std::error;
 use std::fmt;
 use std::io;
@@ -91,7 +91,7 @@ fn supported_protocols(
 
 fn init_trust() {
     static ONCE: Once = Once::new();
-    ONCE.call_once(|| openssl_probe::init_ssl_cert_env_vars());
+    ONCE.call_once(openssl_probe::init_ssl_cert_env_vars);
 }
 
 #[cfg(target_os = "android")]
@@ -158,7 +158,7 @@ impl Identity {
         Ok(Identity {
             pkey: parsed.pkey,
             cert: parsed.cert,
-            chain: parsed.chain.into_iter().flat_map(|x| x).collect(),
+            chain: parsed.chain.into_iter().flatten().collect(),
         })
     }
 }
@@ -264,6 +264,10 @@ impl TlsConnector {
         }
         supported_protocols(builder.min_protocol, builder.max_protocol, &mut connector)?;
 
+        if builder.disable_built_in_roots {
+            connector.set_cert_store(X509StoreBuilder::new()?.build());
+        }
+
         for cert in &builder.root_certificates {
             if let Err(err) = connector.cert_store_mut().add_cert((cert.0).0.clone()) {
                 debug!("add_cert error: {:?}", err);
@@ -296,6 +300,18 @@ impl TlsConnector {
 
         let s = ssl.connect(domain, stream)?;
         Ok(TlsStream(s))
+    }
+}
+
+impl fmt::Debug for TlsConnector {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt
+            .debug_struct("TlsConnector")
+            // n.b. SslConnector is a newtype on SslContext which implements a noop Debug so it's omitted
+            .field("use_sni", &self.use_sni)
+            .field("accept_invalid_hostnames", &self.accept_invalid_hostnames)
+            .field("accept_invalid_certs", &self.accept_invalid_certs)
+            .finish()
     }
 }
 

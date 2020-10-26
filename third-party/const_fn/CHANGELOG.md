@@ -6,9 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.3] - 2020-11-02
+
+* [`const_fn` no longer fails to compile if unable to determine rustc version. Instead, it now displays a warning.](https://github.com/taiki-e/const_fn/pull/31)
+
+* [`const_fn` no longer relies on debug print format.](https://github.com/taiki-e/const_fn/pull/30)
+
 ## [0.4.2] - 2020-08-31
 
 * [Improve error messages when failed to parse version information.](https://github.com/taiki-e/const_fn/pull/26)
+
+* [Fix compile failure with cargo installed by yum.](https://github.com/taiki-e/const_fn/pull/26)
 
 ## [0.4.1] - 2020-08-25
 
@@ -98,7 +106,8 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 Initial release
 
-[Unreleased]: https://github.com/taiki-e/const_fn/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/taiki-e/const_fn/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/taiki-e/const_fn/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/taiki-e/const_fn/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/taiki-e/const_fn/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/taiki-e/const_fn/compare/v0.3.1...v0.4.0

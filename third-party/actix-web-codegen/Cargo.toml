@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "actix-web-codegen"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
 description = "Actix web proc macros"
 homepage = "https://actix.rs"

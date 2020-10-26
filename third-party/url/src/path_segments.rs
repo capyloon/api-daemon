@@ -6,9 +6,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use parser::{self, to_u32, SchemeType};
+use crate::parser::{self, to_u32, SchemeType};
+use crate::Url;
 use std::str;
-use Url;
 
 /// Exposes methods to manipulate the path of an URL that is not cannot-be-base.
 ///
@@ -21,7 +21,7 @@ use Url;
 /// use url::Url;
 /// # use std::error::Error;
 ///
-/// # fn run() -> Result<(), Box<Error>> {
+/// # fn run() -> Result<(), Box<dyn Error>> {
 /// let mut url = Url::parse("mailto:me@example.com")?;
 /// assert!(url.path_segments_mut().is_err());
 ///
@@ -42,7 +42,7 @@ pub struct PathSegmentsMut<'a> {
 }
 
 // Not re-exported outside the crate
-pub fn new(url: &mut Url) -> PathSegmentsMut {
+pub fn new(url: &mut Url) -> PathSegmentsMut<'_> {
     let after_path = url.take_after_path();
     let old_after_path_position = to_u32(url.serialization.len()).unwrap();
     // Special urls always have a non empty path
@@ -80,7 +80,7 @@ impl<'a> PathSegmentsMut<'a> {
     /// use url::Url;
     /// # use std::error::Error;
     ///
-    /// # fn run() -> Result<(), Box<Error>> {
+    /// # fn run() -> Result<(), Box<dyn Error>> {
     /// let mut url = Url::parse("https://github.com/servo/rust-url/")?;
     /// url.path_segments_mut().map_err(|_| "cannot be base")?
     ///     .clear().push("logout");
@@ -108,7 +108,7 @@ impl<'a> PathSegmentsMut<'a> {
     /// use url::Url;
     /// # use std::error::Error;
     ///
-    /// # fn run() -> Result<(), Box<Error>> {
+    /// # fn run() -> Result<(), Box<dyn Error>> {
     /// let mut url = Url::parse("https://github.com/servo/rust-url/")?;
     /// url.path_segments_mut().map_err(|_| "cannot be base")?
     ///     .push("pulls");
@@ -177,7 +177,7 @@ impl<'a> PathSegmentsMut<'a> {
     /// use url::Url;
     /// # use std::error::Error;
     ///
-    /// # fn run() -> Result<(), Box<Error>> {
+    /// # fn run() -> Result<(), Box<dyn Error>> {
     /// let mut url = Url::parse("https://github.com/")?;
     /// let org = "servo";
     /// let repo = "rust-url";
@@ -197,7 +197,7 @@ impl<'a> PathSegmentsMut<'a> {
     /// use url::Url;
     /// # use std::error::Error;
     ///
-    /// # fn run() -> Result<(), Box<Error>> {
+    /// # fn run() -> Result<(), Box<dyn Error>> {
     /// let mut url = Url::parse("https://github.com/servo")?;
     /// url.path_segments_mut().map_err(|_| "cannot be base")?
     ///     .extend(&["..", "rust-url", ".", "pulls"]);

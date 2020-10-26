@@ -1,3 +1,19 @@
+# Version 1.4.3
+
+- switch to multi threaded tokio schedulers when enabled
+
+# Version 1.4.2
+
+- Drop an Arc
+
+# Version 1.4.1
+
+- switch back to manual implementation for tokio02 integration
+
+# Version 1.4.0
+
+- add tokio03 integration
+
 # Version 1.3.0
 
 - use async-compat for tokio02 integration

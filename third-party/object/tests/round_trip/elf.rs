@@ -1,8 +1,8 @@
 use object::read::elf::{FileHeader, SectionHeader};
-use object::read::Object;
+use object::read::{Object, ObjectSymbol};
 use object::{
-    elf, read, write, Architecture, BinaryFormat, Bytes, Endianness, LittleEndian, SectionFlags,
-    SectionIndex, SectionKind, SymbolFlags, SymbolKind, SymbolScope, SymbolSection, U32,
+    elf, read, write, Architecture, BinaryFormat, Bytes, Endianness, LittleEndian, SectionIndex,
+    SectionKind, SymbolFlags, SymbolKind, SymbolScope, SymbolSection, U32,
 };
 use std::io::Write;
 
@@ -34,10 +34,10 @@ fn symtab_shndx() {
     assert_eq!(object.format(), BinaryFormat::Elf);
     assert_eq!(object.architecture(), Architecture::X86_64);
 
-    for (index, symbol) in object.symbols().skip(1) {
+    for symbol in object.symbols().skip(1) {
         assert_eq!(
             symbol.section(),
-            SymbolSection::Section(SectionIndex(index.0))
+            SymbolSection::Section(SectionIndex(symbol.index().0))
         );
     }
 }

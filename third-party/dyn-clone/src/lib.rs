@@ -11,38 +11,38 @@
 //! implementation of `DynClone`. Types that implement the standard library's
 //! [`std::clone::Clone`] trait are automatically usable by a `DynClone` trait
 //! object.
-//! 
+//!
 //! [`DynClone`]: trait.DynClone.html
 //! [`clone_box`]: fn.clone_box.html
 //! [`std::clone::Clone`]: https://doc.rust-lang.org/std/clone/trait.Clone.html
-//! 
+//!
 //! # Example
-//! 
+//!
 //! ```
 //! use dyn_clone::DynClone;
 //!
 //! trait MyTrait: DynClone {
 //!     fn recite(&self);
 //! }
-//! 
+//!
 //! impl MyTrait for String {
 //!     fn recite(&self) {
 //!         println!("{} ♫", self);
 //!     }
 //! }
-//! 
+//!
 //! fn main() {
 //!     let line = "The slithy structs did gyre and gimble the namespace";
-//! 
+//!
 //!     // Build a trait object holding a String.
 //!     // This requires String to implement MyTrait and std::clone::Clone.
 //!     let x: Box<dyn MyTrait> = Box::new(String::from(line));
-//! 
+//!
 //!     x.recite();
-//! 
+//!
 //!     // The type of x2 is a Box<dyn MyTrait> cloned from x.
 //!     let x2 = dyn_clone::clone_box(&*x);
-//! 
+//!
 //!     x2.recite();
 //! }
 //! ```
@@ -67,10 +67,12 @@
 //! }
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/dyn_clone/1.0.2")]
+#![doc(html_root_url = "https://docs.rs/dyn_clone/1.0.3")]
 #![no_std]
 
 extern crate alloc;
+
+use crate::sealed::{Private, Sealed};
 
 #[macro_use]
 mod macros;
@@ -81,13 +83,19 @@ pub mod private {
     pub use core::clone::Clone;
 }
 
+mod sealed {
+    pub trait Sealed {}
+    impl<T: Clone> Sealed for T {}
+    pub struct Private;
+}
+
 /// This trait is implemented by any type that implements [`std::clone::Clone`].
 ///
 /// [`std::clone::Clone`]: https://doc.rust-lang.org/std/clone/trait.Clone.html
-pub trait DynClone {
+pub trait DynClone: Sealed {
     // Not public API
     #[doc(hidden)]
-    unsafe fn clone_box(&self) -> *mut ();
+    fn __clone_box(&self, _: Private) -> *mut ();
 }
 
 use alloc::boxed::Box;
@@ -96,9 +104,7 @@ pub fn clone<T>(t: &T) -> T
 where
     T: DynClone,
 {
-    unsafe {
-        *Box::from_raw(<T as DynClone>::clone_box(t) as *mut T)
-    }
+    unsafe { *Box::from_raw(<T as DynClone>::__clone_box(t, Private) as *mut T) }
 }
 
 pub fn clone_box<T>(t: &T) -> Box<T>
@@ -109,18 +115,16 @@ where
     unsafe {
         let data_ptr = &mut fat_ptr as *mut *const T as *mut *mut ();
         assert_eq!(*data_ptr as *const (), t as *const T as *const ());
-        *data_ptr = <T as DynClone>::clone_box(t);
+        *data_ptr = <T as DynClone>::__clone_box(t, Private);
     }
-    unsafe {
-        Box::from_raw(fat_ptr as *mut T)
-    }
+    unsafe { Box::from_raw(fat_ptr as *mut T) }
 }
 
 impl<T> DynClone for T
 where
-    T: core::clone::Clone,
+    T: Clone,
 {
-    unsafe fn clone_box(&self) -> *mut () {
+    fn __clone_box(&self, _: Private) -> *mut () {
         Box::into_raw(Box::new(self.clone())) as *mut ()
     }
 }

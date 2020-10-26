@@ -12,7 +12,7 @@
 
 [package]
 name = "base-x"
-version = "0.2.6"
+version = "0.2.8"
 authors = ["Alex R. <alexei.rudenko@gmail.com>"]
 description = "Encode/decode any base"
 homepage = "https://github.com/OrKoN/base-x-rs"
@@ -33,3 +33,7 @@ version = "0.11"
 
 [dev-dependencies.rand]
 version = "0.3"
+
+[features]
+default = ["std"]
+std = []

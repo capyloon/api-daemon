@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "instant"
-version = "0.1.7"
+version = "0.1.8"
 authors = ["sebcrozet <developer@crozet.re>"]
 description = "A partial replacement for std::time::Instant that works on WASM too."
 readme = "README.md"
@@ -21,9 +21,9 @@ keywords = ["time", "wasm"]
 license = "BSD-3-Clause"
 repository = "https://github.com/sebcrozet/instant"
 [dependencies.cfg-if]
-version = "0.1"
+version = "1.0"
 [dev-dependencies.wasm-bindgen-test]
-version = "0.2"
+version = "0.3"
 
 [features]
 now = ["time"]
@@ -46,7 +46,7 @@ version = "0.3"
 features = ["Window", "Performance", "PerformanceTiming"]
 optional = true
 [target."cfg(not(any(feature = \"stdweb\", feature = \"wasm-bindgen\")))".dependencies.time]
-version = "0.1"
+version = "0.2"
 optional = true
 [target.wasm32-unknown-emscripten.dependencies.js-sys]
 version = "0.3"

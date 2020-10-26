@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "async-io"
-version = "1.1.9"
+version = "1.2.0"
 dependencies = [
  "async-channel",
  "async-net",
@@ -161,9 +161,9 @@ checksum = "de27142b013a8e869c14957e6d2edeef89e97c289e69d042ee3a49acd8b51789"
 
 [[package]]
 name = "futures-lite"
-version = "1.8.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0db18c5f58083b54b0c416638ea73066722c2815c1e54dd8ba85ee3def593c3a"
+checksum = "37b9527bac39e9b07cc01b51c888f94d31d94c9702501352bc916c2ff7c7c85b"
 dependencies = [
  "fastrand",
  "futures-core",

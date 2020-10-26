@@ -49,7 +49,7 @@ tcpsocket-service = ["tcpsocket_service"]
 settings-service = ["settings_service"]
 # Enable the time service.
 time-service = ["time_service"]
-# Enable the vhost https server
+# Enable the vhost http server
 virtual-host = ["vhost_server"]
 
 [dependencies]

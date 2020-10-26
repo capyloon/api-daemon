@@ -7,6 +7,7 @@ pub enum Architecture {
     Arm,
     I386,
     Mips,
+    S390x,
     Wasm32,
     X86_64,
 }
@@ -22,6 +23,7 @@ impl Architecture {
             Architecture::Arm => Some(AddressSize::U32),
             Architecture::I386 => Some(AddressSize::U32),
             Architecture::Mips => Some(AddressSize::U32),
+            Architecture::S390x => Some(AddressSize::U64),
             Architecture::Wasm32 => Some(AddressSize::U32),
             Architecture::X86_64 => Some(AddressSize::U64),
         }
@@ -135,7 +137,7 @@ pub enum SectionKind {
     Note,
     /// Metadata such as symbols or relocations.
     ///
-    /// Example ELF sections: `.symtab`, `.strtab`
+    /// Example ELF sections: `.symtab`, `.strtab`, `.group`
     Metadata,
 }
 
@@ -146,6 +148,40 @@ impl SectionKind {
             || self == SectionKind::UninitializedTls
             || self == SectionKind::Common
     }
+}
+
+/// The selection kind for a COMDAT section group.
+///
+/// This determines the way in which the linker resolves multiple definitions of the COMDAT
+/// sections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComdatKind {
+    /// The selection kind is unknown.
+    Unknown,
+    /// Multiple definitions are allowed.
+    ///
+    /// An arbitrary definition is selected, and the rest are removed.
+    ///
+    /// This is the only supported selection kind for ELF.
+    Any,
+    /// Multiple definitions are not allowed.
+    ///
+    /// This is used to group sections without allowing duplicates.
+    NoDuplicates,
+    /// Multiple definitions must have the same size.
+    ///
+    /// An arbitrary definition is selected, and the rest are removed.
+    SameSize,
+    /// Multiple definitions must match exactly.
+    ///
+    /// An arbitrary definition is selected, and the rest are removed.
+    ExactMatch,
+    /// Multiple definitions are allowed, and the largest is selected.
+    ///
+    /// An arbitrary definition with the largest size is selected, and the rest are removed.
+    Largest,
+    /// Multiple definitions are allowed, and the newest is selected.
+    Newest,
 }
 
 /// The kind of a symbol.
@@ -257,6 +293,11 @@ pub enum RelocationEncoding {
     ///
     /// The `RelocationKind` must be PC relative.
     X86Branch,
+
+    /// s390x PC-relative offset shifted right by one bit.
+    ///
+    /// The `RelocationKind` must be PC relative.
+    S390xDbl,
 }
 
 /// File flags that are specific to each file format.
@@ -325,6 +366,6 @@ pub enum SymbolFlags<Section> {
         /// `Selection` field in the auxiliary symbol for the section.
         selection: u8,
         /// `Number` field in the auxiliary symbol for the section.
-        associative_section: Section,
+        associative_section: Option<Section>,
     },
 }

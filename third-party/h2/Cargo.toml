@@ -13,11 +13,11 @@
 [package]
 edition = "2018"
 name = "h2"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["Carl Lerche <me@carllerche.com>", "Sean McArthur <sean@seanmonstar.com>"]
 exclude = ["fixtures/**", "ci/**"]
 description = "An HTTP/2.0 client and server"
-documentation = "https://docs.rs/h2/0.2.6/h2/"
+documentation = "https://docs.rs/h2/0.2.7/h2/"
 readme = "README.md"
 keywords = ["http", "async", "non-blocking"]
 categories = ["asynchronous", "web-programming", "network-programming"]
@@ -61,6 +61,11 @@ features = ["codec"]
 [dependencies.tracing]
 version = "0.1.13"
 features = ["std", "log"]
+default-features = false
+
+[dependencies.tracing-futures]
+version = "0.2"
+features = ["std-future"]
 default-features = false
 [dev-dependencies.env_logger]
 version = "0.5.3"

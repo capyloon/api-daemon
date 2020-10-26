@@ -109,13 +109,13 @@ assert_eq!(css_url.as_str(), "http://servo.github.io/rust-url/main.css");
 
 #[macro_use]
 extern crate matches;
-extern crate idna;
-extern crate percent_encoding;
+pub use form_urlencoded;
+
 #[cfg(feature = "serde")]
 extern crate serde;
 
-use host::HostInternal;
-use parser::{to_u32, Context, Parser, SchemeType, PATH_SEGMENT, USERINFO};
+use crate::host::HostInternal;
+use crate::parser::{to_u32, Context, Parser, SchemeType, PATH_SEGMENT, USERINFO};
 use percent_encoding::{percent_decode, percent_encode, utf8_percent_encode};
 use std::borrow::Borrow;
 use std::cmp;
@@ -130,21 +130,21 @@ use std::ops::{Range, RangeFrom, RangeTo};
 use std::path::{Path, PathBuf};
 use std::str;
 
-pub use host::Host;
-pub use origin::{OpaqueOrigin, Origin};
-pub use parser::{ParseError, SyntaxViolation};
-pub use path_segments::PathSegmentsMut;
-pub use query_encoding::EncodingOverride;
-pub use slicing::Position;
+use std::convert::TryFrom;
+
+pub use crate::host::Host;
+pub use crate::origin::{OpaqueOrigin, Origin};
+pub use crate::parser::{ParseError, SyntaxViolation};
+pub use crate::path_segments::PathSegmentsMut;
+pub use crate::slicing::Position;
+pub use form_urlencoded::EncodingOverride;
 
 mod host;
 mod origin;
 mod parser;
 mod path_segments;
-mod query_encoding;
 mod slicing;
 
-pub mod form_urlencoded;
 #[doc(hidden)]
 pub mod quirks;
 
@@ -224,7 +224,7 @@ impl<'a> ParseOptions<'a> {
     }
 
     /// Parse an URL string with the configuration so far.
-    pub fn parse(self, input: &str) -> Result<Url, ::ParseError> {
+    pub fn parse(self, input: &str) -> Result<Url, crate::ParseError> {
         Parser {
             serialization: String::with_capacity(input.len()),
             base_url: self.base_url,
@@ -259,7 +259,7 @@ impl Url {
     ///
     /// [`ParseError`]: enum.ParseError.html
     #[inline]
-    pub fn parse(input: &str) -> Result<Url, ::ParseError> {
+    pub fn parse(input: &str) -> Result<Url, crate::ParseError> {
         Url::options().parse(input)
     }
 
@@ -276,6 +276,7 @@ impl Url {
     /// # fn run() -> Result<(), ParseError> {
     /// let url = Url::parse_with_params("https://example.net?dont=clobberme",
     ///                                  &[("lang", "rust"), ("browser", "servo")])?;
+    /// assert_eq!("https://example.net/?dont=clobberme&lang=rust&browser=servo", url.as_str());
     /// # Ok(())
     /// # }
     /// # run().unwrap();
@@ -288,7 +289,7 @@ impl Url {
     ///
     /// [`ParseError`]: enum.ParseError.html
     #[inline]
-    pub fn parse_with_params<I, K, V>(input: &str, iter: I) -> Result<Url, ::ParseError>
+    pub fn parse_with_params<I, K, V>(input: &str, iter: I) -> Result<Url, crate::ParseError>
     where
         I: IntoIterator,
         I::Item: Borrow<(K, V)>,
@@ -336,7 +337,7 @@ impl Url {
     ///
     /// [`ParseError`]: enum.ParseError.html
     #[inline]
-    pub fn join(&self, input: &str) -> Result<Url, ::ParseError> {
+    pub fn join(&self, input: &str) -> Result<Url, crate::ParseError> {
         Url::options().base_url(Some(self)).parse(input)
     }
 
@@ -925,7 +926,7 @@ impl Url {
     /// Return the port number for this URL, or the default port number if it is known.
     ///
     /// This method only knows the default port number
-    /// of the `http`, `https`, `ws`, `wss`, `ftp`, and `gopher` schemes.
+    /// of the `http`, `https`, `ws`, `wss` and `ftp` schemes.
     ///
     /// For URLs in these schemes, this method always returns `Some(_)`.
     /// For other schemes, it is the same as `Url::port()`.
@@ -1056,7 +1057,7 @@ impl Url {
     /// use url::Url;
     /// # use std::error::Error;
     ///
-    /// # fn run() -> Result<(), Box<Error>> {
+    /// # fn run() -> Result<(), Box<dyn Error>> {
     /// let url = Url::parse("https://example.com/foo/bar")?;
     /// let mut path_segments = url.path_segments().ok_or_else(|| "cannot be base")?;
     /// assert_eq!(path_segments.next(), Some("foo"));
@@ -1079,7 +1080,7 @@ impl Url {
     /// # }
     /// # run().unwrap();
     /// ```
-    pub fn path_segments(&self) -> Option<str::Split<char>> {
+    pub fn path_segments(&self) -> Option<str::Split<'_, char>> {
         let path = self.path();
         if path.starts_with('/') {
             Some(path[1..].split('/'))
@@ -1151,7 +1152,7 @@ impl Url {
     ///
 
     #[inline]
-    pub fn query_pairs(&self) -> form_urlencoded::Parse {
+    pub fn query_pairs(&self) -> form_urlencoded::Parse<'_> {
         form_urlencoded::parse(self.query().unwrap_or("").as_bytes())
     }
 
@@ -1194,7 +1195,7 @@ impl Url {
         })
     }
 
-    fn mutate<F: FnOnce(&mut Parser) -> R, R>(&mut self, f: F) -> R {
+    fn mutate<F: FnOnce(&mut Parser<'_>) -> R, R>(&mut self, f: F) -> R {
         let mut parser = Parser::for_setter(mem::replace(&mut self.serialization, String::new()));
         let result = f(&mut parser);
         self.serialization = parser.serialization;
@@ -1336,7 +1337,7 @@ impl Url {
     /// not `url.set_query(None)`.
     ///
     /// The state of `Url` is unspecified if this return value is leaked without being dropped.
-    pub fn query_pairs_mut(&mut self) -> form_urlencoded::Serializer<UrlQuery> {
+    pub fn query_pairs_mut(&mut self) -> form_urlencoded::Serializer<'_, UrlQuery<'_>> {
         let fragment = self.take_fragment();
 
         let query_start;
@@ -1413,7 +1414,7 @@ impl Url {
     /// Return an object with methods to manipulate this URL’s path segments.
     ///
     /// Return `Err(())` if this URL is cannot-be-a-base.
-    pub fn path_segments_mut(&mut self) -> Result<PathSegmentsMut, ()> {
+    pub fn path_segments_mut(&mut self) -> Result<PathSegmentsMut<'_>, ()> {
         if self.cannot_be_a_base() {
             Err(())
         } else {
@@ -1449,7 +1450,7 @@ impl Url {
     /// use url::Url;
     /// # use std::error::Error;
     ///
-    /// # fn run() -> Result<(), Box<Error>> {
+    /// # fn run() -> Result<(), Box<dyn Error>> {
     /// let mut url = Url::parse("ssh://example.net:2048/")?;
     ///
     /// url.set_port(Some(4096)).map_err(|_| "cannot be base")?;
@@ -1468,7 +1469,7 @@ impl Url {
     /// use url::Url;
     /// # use std::error::Error;
     ///
-    /// # fn run() -> Result<(), Box<Error>> {
+    /// # fn run() -> Result<(), Box<dyn Error>> {
     /// let mut url = Url::parse("https://example.org/")?;
     ///
     /// url.set_port(Some(443)).map_err(|_| "cannot be base")?;
@@ -1662,10 +1663,8 @@ impl Url {
             let scheme_type = SchemeType::from(self.scheme());
             if scheme_type.is_special() {
                 return Err(ParseError::EmptyHost);
-            } else {
-                if self.serialization.len() == self.path_start as usize {
-                    self.serialization.push('/');
-                }
+            } else if self.serialization.len() == self.path_start as usize {
+                self.serialization.push('/');
             }
             debug_assert!(self.byte_at(self.scheme_end) == b':');
             debug_assert!(self.byte_at(self.path_start) == b'/');
@@ -1952,11 +1951,19 @@ impl Url {
 
     /// Change this URL’s scheme.
     ///
-    /// Do nothing and return `Err` if:
+    /// Do nothing and return `Err` under the following circumstances:
     ///
-    /// * The new scheme is not in `[a-zA-Z][a-zA-Z0-9+.-]+`
-    /// * This URL is cannot-be-a-base and the new scheme is one of
-    ///   `http`, `https`, `ws`, `wss`, `ftp`, or `gopher`
+    /// * If the new scheme is not in `[a-zA-Z][a-zA-Z0-9+.-]+`
+    /// * If this URL is cannot-be-a-base and the new scheme is one of
+    ///   `http`, `https`, `ws`, `wss` or `ftp`
+    /// * If either the old or new scheme is `http`, `https`, `ws`,
+    ///   `wss` or `ftp` and the other is not one of these
+    /// * If the new scheme is `file` and this URL includes credentials
+    ///   or has a non-null port
+    /// * If this URL's scheme is `file` and its host is empty or null
+    ///
+    /// See also [the URL specification's section on legal scheme state
+    /// overrides](https://url.spec.whatwg.org/#scheme-state).
     ///
     /// # Examples
     ///
@@ -2319,15 +2326,23 @@ impl str::FromStr for Url {
     type Err = ParseError;
 
     #[inline]
-    fn from_str(input: &str) -> Result<Url, ::ParseError> {
+    fn from_str(input: &str) -> Result<Url, crate::ParseError> {
         Url::parse(input)
+    }
+}
+
+impl<'a> TryFrom<&'a str> for Url {
+    type Error = ParseError;
+
+    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+        Url::parse(s)
     }
 }
 
 /// Display the serialization of this URL.
 impl fmt::Display for Url {
     #[inline]
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.serialization, formatter)
     }
 }
@@ -2336,7 +2351,15 @@ impl fmt::Display for Url {
 impl fmt::Debug for Url {
     #[inline]
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.serialization, formatter)
+        formatter
+            .debug_struct("Url")
+            .field("scheme", &self.scheme())
+            .field("host", &self.host())
+            .field("port", &self.port())
+            .field("path", &self.path())
+            .field("query", &self.query())
+            .field("fragment", &self.fragment())
+            .finish()
     }
 }
 
@@ -2555,7 +2578,7 @@ fn path_to_file_url_segments_windows(
 #[cfg(any(unix, target_os = "redox"))]
 fn file_url_segments_to_pathbuf(
     host: Option<&str>,
-    segments: str::Split<char>,
+    segments: str::Split<'_, char>,
 ) -> Result<PathBuf, ()> {
     use std::ffi::OsStr;
     use std::os::unix::prelude::OsStrExt;
@@ -2574,12 +2597,11 @@ fn file_url_segments_to_pathbuf(
         bytes.extend(percent_decode(segment.as_bytes()));
     }
     // A windows drive letter must end with a slash.
-    if bytes.len() > 2 {
-        if matches!(bytes[bytes.len() - 2], b'a'..=b'z' | b'A'..=b'Z')
-            && matches!(bytes[bytes.len() - 1], b':' | b'|')
-        {
-            bytes.push(b'/');
-        }
+    if bytes.len() > 2
+        && matches!(bytes[bytes.len() - 2], b'a'..=b'z' | b'A'..=b'Z')
+        && matches!(bytes[bytes.len() - 1], b':' | b'|')
+    {
+        bytes.push(b'/');
     }
     let os_str = OsStr::from_bytes(&bytes);
     let path = PathBuf::from(os_str);
@@ -2602,7 +2624,7 @@ fn file_url_segments_to_pathbuf(
 #[cfg_attr(not(windows), allow(dead_code))]
 fn file_url_segments_to_pathbuf_windows(
     host: Option<&str>,
-    mut segments: str::Split<char>,
+    mut segments: str::Split<'_, char>,
 ) -> Result<PathBuf, ()> {
     let mut string = if let Some(host) = host {
         r"\\".to_owned() + host
@@ -2656,6 +2678,30 @@ fn file_url_segments_to_pathbuf_windows(
 pub struct UrlQuery<'a> {
     url: Option<&'a mut Url>,
     fragment: Option<String>,
+}
+
+// `as_mut_string` string here exposes the internal serialization of an `Url`,
+// which should not be exposed to users.
+// We achieve that by not giving users direct access to `UrlQuery`:
+// * Its fields are private
+//   (and so can not be constructed with struct literal syntax outside of this crate),
+// * It has no constructor
+// * It is only visible (on the type level) to users in the return type of
+//   `Url::query_pairs_mut` which is `Serializer<UrlQuery>`
+// * `Serializer` keeps its target in a private field
+// * Unlike in other `Target` impls, `UrlQuery::finished` does not return `Self`.
+impl<'a> form_urlencoded::Target for UrlQuery<'a> {
+    fn as_mut_string(&mut self) -> &mut String {
+        &mut self.url.as_mut().unwrap().serialization
+    }
+
+    fn finish(mut self) -> &'a mut Url {
+        let url = self.url.take().unwrap();
+        url.restore_already_parsed_fragment(self.fragment.take());
+        url
+    }
+
+    type Finished = &'a mut Url;
 }
 
 impl<'a> Drop for UrlQuery<'a> {

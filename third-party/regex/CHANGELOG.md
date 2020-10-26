@@ -1,3 +1,54 @@
+1.4.2 (2020-11-01)
+==================
+This is a small bug fix release that bans `\P{any}`. We previously banned empty
+classes like `[^\w\W]`, but missed the `\P{any}` case. In the future, we hope
+to permit empty classes.
+
+* [BUG #722](https://github.com/rust-lang/regex/issues/722):
+  Ban `\P{any}` to avoid a panic in the regex compiler. Found by OSS-Fuzz.
+
+
+1.4.1 (2020-10-13)
+==================
+This is a small bug fix release that makes `\p{cf}` work. Previously, it would
+report "property not found" even though `cf` is a valid abbreviation for the
+`Format` general category.
+
+* [BUG #719](https://github.com/rust-lang/regex/issues/719):
+  Fixes bug that prevented `\p{cf}` from working.
+
+
+1.4.0 (2020-10-11)
+==================
+This releases has a few minor documentation fixes as well as some very minor
+API additions. The MSRV remains at Rust 1.28 for now, but this is intended to
+increase to at least Rust 1.41.1 soon.
+
+This release also adds support for OSS-Fuzz. Kudos to
+[@DavidKorczynski](https://github.com/DavidKorczynski)
+for doing the heavy lifting for that!
+
+New features:
+
+* [FEATURE #649](https://github.com/rust-lang/regex/issues/649):
+  Support `[`, `]` and `.` in capture group names.
+* [FEATURE #687](https://github.com/rust-lang/regex/issues/687):
+  Add `is_empty` predicate to `RegexSet`.
+* [FEATURE #689](https://github.com/rust-lang/regex/issues/689):
+  Implement `Clone` for `SubCaptureMatches`.
+* [FEATURE #715](https://github.com/rust-lang/regex/issues/715):
+  Add `empty` constructor to `RegexSet` for convenience.
+
+Bug fixes:
+
+* [BUG #694](https://github.com/rust-lang/regex/issues/694):
+  Fix doc example for `Replacer::replace_append`.
+* [BUG #698](https://github.com/rust-lang/regex/issues/698):
+  Clarify docs for `s` flag when using a `bytes::Regex`.
+* [BUG #711](https://github.com/rust-lang/regex/issues/711):
+  Clarify `is_match` docs to indicate that it can match anywhere in string.
+
+
 1.3.9 (2020-05-28)
 ==================
 This release fixes a MSRV (Minimum Support Rust Version) regression in the
@@ -6,7 +57,7 @@ compile on other Rust versions, such as Rust 1.39.
 
 Bug fixes:
 
-* [BUG #685](https://github.com/rust-lang/regex/issue/685):
+* [BUG #685](https://github.com/rust-lang/regex/issues/685):
   Remove use of `doc_comment` crate, which cannot be used before Rust 1.43.
 
 
@@ -22,9 +73,9 @@ Bug fixes:
 
 * [BUG #523](https://github.com/rust-lang/regex/pull/523):
   Add note to documentation that spaces can be escaped in `x` mode.
-* [BUG #524](https://github.com/rust-lang/regex/issue/524):
+* [BUG #524](https://github.com/rust-lang/regex/issues/524):
   Add support for empty sub-expressions, including empty alternations.
-* [BUG #659](https://github.com/rust-lang/regex/issue/659):
+* [BUG #659](https://github.com/rust-lang/regex/issues/659):
   Fix match bug caused by an empty sub-expression miscompilation.
 
 

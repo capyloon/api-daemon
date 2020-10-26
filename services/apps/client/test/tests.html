@@ -52,25 +52,25 @@
         await tester.assert_eq(
           "get app 1",
           service =>
-            service.getApp("https://calculator.local:4443/manifest.webapp"),
+            service.getApp("http://calculator.localhost:8081/manifest.webapp"),
           calculator_expected
         );
 
         await tester.assert_eq(
           "get app 2",
-          service => service.getApp("https://gallery.local:4443/manifest.webapp"),
+          service => service.getApp("http://gallery.localhost:8081/manifest.webapp"),
           gallery_expected
         );
 
         await tester.assert_eq(
           "get app 3",
-          service => service.getApp("https://launcher.local:4443/manifest.webapp"),
+          service => service.getApp("http://launcher.localhost:8081/manifest.webapp"),
           launcher_expected
         );
 
         await tester.assert_eq(
           "get app 4",
-          service => service.getApp("https://system.local:4443/manifest.webapp"),
+          service => service.getApp("http://system.localhost:8081/manifest.webapp"),
           system_expected
         );
 
@@ -147,7 +147,7 @@
         let on_updated_handler = tester.setup_event(tester.service.APP_UPDATED_EVENT);
         await tester.assert_eq(
           "update app",
-          service => service.update("https://ciautotest.local:4443/manifest.webapp"),
+          service => service.update("http://ciautotest.localhost:8081/manifest.webapp"),
           update_expected(0)
         );
         await tester.assert_event_eq("on update event", on_updated_handler, update_expected(0));
@@ -168,14 +168,14 @@
         let on_status_chaged_handler = tester.setup_event(tester.service.APPSTATUS_CHANGED_EVENT);
         await tester.assert_eq(
           "set disable",
-          service => service.setEnabled("https://ciautotest.local:4443/manifest.webapp", lib_apps.AppsStatus.DISABLED),
+          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webapp", lib_apps.AppsStatus.DISABLED),
           status_expected(1)
         );
         await tester.assert_event_eq("on status changed event", on_status_chaged_handler, status_expected(1));
 
         await tester.assert_eq(
           "set enabled",
-          service => service.setEnabled("https://ciautotest.local:4443/manifest.webapp", lib_apps.AppsStatus.ENABLED),
+          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webapp", lib_apps.AppsStatus.ENABLED),
           status_expected(0)
         );
         await tester.assert_event_eq("on status changed event", on_status_chaged_handler, status_expected(0));
@@ -183,13 +183,13 @@
 
         await tester.assert_eq(
           "set disable launcher",
-          service => service.setEnabled("https://launcher.local:4443/manifest.webapp", lib_apps.AppsStatus.DISABLED),
+          service => service.setEnabled("http://launcher.localhost:8081/manifest.webapp", lib_apps.AppsStatus.DISABLED),
           launcher_status_expected(1)
         );
 
         await tester.assert_eq(
           "set enabled launcher",
-          service => service.setEnabled("https://launcher.local:4443/manifest.webapp", lib_apps.AppsStatus.ENABLED),
+          service => service.setEnabled("http://launcher.localhost:8081/manifest.webapp", lib_apps.AppsStatus.ENABLED),
           launcher_status_expected(0)
         );
 
@@ -197,10 +197,10 @@
         let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);
         await tester.assert_eq(
           "uninstall app",
-          service => service.uninstall("https://ciautotest.local:4443/manifest.webapp"),
-          "https://ciautotest.local:4443/manifest.webapp"
+          service => service.uninstall("http://ciautotest.localhost:8081/manifest.webapp"),
+          "http://ciautotest.localhost:8081/manifest.webapp"
         );
-        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, "https://ciautotest.local:4443/manifest.webapp");
+        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, "http://ciautotest.localhost:8081/manifest.webapp");
         on_uninstall1_handler.stop();
 
         await tester.assert_eq(

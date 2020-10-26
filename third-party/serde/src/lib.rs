@@ -82,7 +82,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 // Serde types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/serde/1.0.116")]
+#![doc(html_root_url = "https://docs.rs/serde/1.0.117")]
 // Support using Serde without the standard library!
 #![cfg_attr(not(feature = "std"), no_std)]
 // Unstable functionality only if the user asks for it. For tracking and
@@ -118,6 +118,7 @@
         zero_prefixed_literal,
         // correctly used
         enum_glob_use,
+        map_err_ignore,
         wildcard_imports,
         // not practical
         needless_pass_by_value,

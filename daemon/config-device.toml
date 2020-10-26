@@ -12,11 +12,8 @@ socket_path = "/dev/socket/api-daemon"
 root_path = "/system/api-daemon/http_root"
 
 [vhost]
-port = 443
 root_path = "/data/local/webapps"
-cert_path = "/system/b2g/defaults/local-cert.pem"
-key_path = "/system/b2g/defaults/local-key.pem"
-csp = "default-src * data: blob:; script-src 'self' http://127.0.0.1 https://shared.local; object-src 'none'; style-src 'self' 'unsafe-inline' https://shared.local"
+csp = "default-src * data: blob:; script-src 'self' http://127.0.0.1 http://shared.localhost; object-src 'none'; style-src 'self' 'unsafe-inline' http://shared.localhost"
 
 [apps_service]
 root_path = "/system/b2g/webapps"

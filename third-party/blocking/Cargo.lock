@@ -25,7 +25,7 @@ checksum = "065374052e7df7ee4047b1160cca5e1467a12351a40b3da123c870ba0b8eda2a"
 
 [[package]]
 name = "blocking"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "async-channel",
  "async-task",
@@ -76,9 +76,9 @@ checksum = "de27142b013a8e869c14957e6d2edeef89e97c289e69d042ee3a49acd8b51789"
 
 [[package]]
 name = "futures-lite"
-version = "1.0.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dfd8ccee4974dccf68838bb2b9c90439238090061c82454af83866ac059eb9f"
+checksum = "37b9527bac39e9b07cc01b51c888f94d31d94c9702501352bc916c2ff7c7c85b"
 dependencies = [
  "fastrand",
  "futures-core",

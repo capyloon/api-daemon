@@ -28,9 +28,6 @@ members = [
 ]
 
 [patch.crates-io]
-# This disables http/2.0 support when connecting on https. For some unknown reason
-# actix-web returns 400 errors while things work fine using http/1.1
-actix-http = { git = "https://github.com/fabricedesre/actix-web.git", branch = "no-h2" }
 # Unbreak build on Gonk.
 ring = { git = "https://github.com/kaiostech/ring.git", branch = "gonk-0.16.15" }
 # Pick up a version that doesn't depend on time 0.1

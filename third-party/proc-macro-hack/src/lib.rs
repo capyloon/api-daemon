@@ -132,6 +132,14 @@
 //!   in the macro input, use `#[proc_macro_hack(fake_call_site)]` on the
 //!   re-export in your declaration crate. *Most macros won't need this.*
 //!
+//! - On compilers that are new enough to natively support proc macros in
+//!   expression position, proc-macro-hack does not automatically use that
+//!   support, since the hygiene can be subtly different between the two
+//!   implementations. To opt in to compiling your macro to native
+//!   `#[proc_macro]` on sufficiently new compilers, use
+//!   `#[proc_macro_hack(only_hack_old_rustc)]` on the re-export in your
+//!   declaration crate.
+//!
 //! [#10]: https://github.com/dtolnay/proc-macro-hack/issues/10
 //! [#20]: https://github.com/dtolnay/proc-macro-hack/issues/20
 //! [`proc-macro-nested`]: https://docs.rs/proc-macro-nested
@@ -156,7 +164,7 @@ use crate::parse::{
 use proc_macro::{Ident, Punct, Spacing, Span, TokenStream, TokenTree};
 use std::fmt::Write;
 
-type Visibility = Option<Span>;
+type Visibility = Option<Ident>;
 
 enum Input {
     Export(Export),
@@ -244,13 +252,18 @@ struct ExportArgs {
     support_nested: bool,
     internal_macro_calls: u16,
     fake_call_site: bool,
+    only_hack_old_rustc: bool,
 }
 
 fn expand_export(export: Export, args: ExportArgs) -> TokenStream {
+    if args.only_hack_old_rustc && cfg!(not(need_proc_macro_hack)) {
+        return expand_export_nohack(export);
+    }
+
     let dummy = dummy_name_for_export(&export);
 
     let attrs = export.attrs;
-    let ref vis = export.vis.map(|span| Ident::new("pub", span));
+    let vis = export.vis;
     let macro_export = match vis {
         Some(_) => quote!(#[macro_export]),
         None => quote!(),
@@ -273,14 +286,14 @@ fn expand_export(export: Export, args: ExportArgs) -> TokenStream {
     let mut export_call_site = TokenStream::new();
     let mut macro_rules = TokenStream::new();
     for Macro { name, export_as } in &export.macros {
-        let actual_name = actual_proc_macro_name(&name);
+        let hacked = hacked_proc_macro_name(&name);
         let dispatch = dispatch_macro_name(&name);
         let call_site = call_site_macro_name(&name);
 
         if !actual_names.is_empty() {
             actual_names.extend(quote!(,));
         }
-        actual_names.extend(quote!(#actual_name));
+        actual_names.extend(quote!(#hacked));
 
         if !export_dispatch.is_empty() {
             export_dispatch.extend(quote!(,));
@@ -294,18 +307,18 @@ fn expand_export(export: Export, args: ExportArgs) -> TokenStream {
 
         let do_derive = if !args.fake_call_site {
             quote! {
-                #[derive(#crate_prefix #actual_name)]
+                #[derive(#crate_prefix #hacked)]
             }
         } else if crate_prefix.is_some() {
             quote! {
-                use #crate_prefix #actual_name;
+                use #crate_prefix #hacked;
                 #[#crate_prefix #call_site ($($proc_macro)*)]
-                #[derive(#actual_name)]
+                #[derive(#hacked)]
             }
         } else {
             quote! {
                 #[#call_site ($($proc_macro)*)]
-                #[derive(#actual_name)]
+                #[derive(#hacked)]
             }
         };
 
@@ -375,21 +388,47 @@ fn expand_export(export: Export, args: ExportArgs) -> TokenStream {
     wrap_in_enum_hack(dummy, expanded)
 }
 
+fn expand_export_nohack(export: Export) -> TokenStream {
+    let attrs = export.attrs;
+    let vis = export.vis;
+    let from = export.from;
+    let mut names = TokenStream::new();
+
+    for Macro { name, export_as } in &export.macros {
+        let pub_name = pub_proc_macro_name(&name);
+        if !names.is_empty() {
+            names.extend(quote!(,));
+        }
+        names.extend(quote!(#pub_name as #export_as));
+    }
+
+    if export.macros.len() != 1 {
+        names = quote!({#names});
+    }
+
+    quote! {
+        #attrs
+        #vis use #from::#names;
+    }
+}
+
 fn expand_define(define: Define) -> TokenStream {
     let attrs = define.attrs;
     let name = define.name;
-    let dummy = actual_proc_macro_name(&name);
+    let pub_name = pub_proc_macro_name(&name);
+    let hacked = hacked_proc_macro_name(&name);
     let body = define.body;
 
     quote! {
-        mod #dummy {
+        mod #pub_name {
             extern crate proc_macro;
             pub use self::proc_macro::*;
         }
 
         #attrs
-        #[proc_macro_derive(#dummy)]
-        pub fn #dummy(input: #dummy::TokenStream) -> #dummy::TokenStream {
+        #[doc(hidden)]
+        #[proc_macro_derive(#hacked)]
+        pub fn #hacked(input: #pub_name::TokenStream) -> #pub_name::TokenStream {
             use std::iter::FromIterator;
 
             let mut iter = input.into_iter();
@@ -399,7 +438,7 @@ fn expand_define(define: Define) -> TokenStream {
             iter.next().unwrap(); // `[allow(dead_code)]`
 
             let mut braces = match iter.next().unwrap() {
-                #dummy::TokenTree::Group(group) => group.stream().into_iter(),
+                #pub_name::TokenTree::Group(group) => group.stream().into_iter(),
                 _ => unimplemented!(),
             };
             let variant = braces.next().unwrap(); // `Value` or `Nested`
@@ -408,29 +447,29 @@ fn expand_define(define: Define) -> TokenStream {
             braces.next().unwrap(); // `=`
 
             let mut parens = match braces.next().unwrap() {
-                #dummy::TokenTree::Group(group) => group.stream().into_iter(),
+                #pub_name::TokenTree::Group(group) => group.stream().into_iter(),
                 _ => unimplemented!(),
             };
             parens.next().unwrap(); // `stringify`
             parens.next().unwrap(); // `!`
 
             let inner = match parens.next().unwrap() {
-                #dummy::TokenTree::Group(group) => group.stream(),
+                #pub_name::TokenTree::Group(group) => group.stream(),
                 _ => unimplemented!(),
             };
 
-            let output: #dummy::TokenStream = #name(inner.clone());
+            let output: #pub_name::TokenStream = #name(inner.clone());
 
-            fn count_bangs(input: #dummy::TokenStream) -> usize {
+            fn count_bangs(input: #pub_name::TokenStream) -> usize {
                 let mut count = 0;
                 for token in input {
                     match token {
-                        #dummy::TokenTree::Punct(punct) => {
+                        #pub_name::TokenTree::Punct(punct) => {
                             if punct.as_char() == '!' {
                                 count += 1;
                             }
                         }
-                        #dummy::TokenTree::Group(group) => {
+                        #pub_name::TokenTree::Group(group) => {
                             count += count_bangs(group.stream());
                         }
                         _ => {}
@@ -442,15 +481,15 @@ fn expand_define(define: Define) -> TokenStream {
             // macro_rules! proc_macro_call {
             //     () => { #output }
             // }
-            #dummy::TokenStream::from_iter(vec![
-                #dummy::TokenTree::Ident(
-                    #dummy::Ident::new("macro_rules", #dummy::Span::call_site()),
+            #pub_name::TokenStream::from_iter(vec![
+                #pub_name::TokenTree::Ident(
+                    #pub_name::Ident::new("macro_rules", #pub_name::Span::call_site()),
                 ),
-                #dummy::TokenTree::Punct(
-                    #dummy::Punct::new('!', #dummy::Spacing::Alone),
+                #pub_name::TokenTree::Punct(
+                    #pub_name::Punct::new('!', #pub_name::Spacing::Alone),
                 ),
-                #dummy::TokenTree::Ident(
-                    #dummy::Ident::new(
+                #pub_name::TokenTree::Ident(
+                    #pub_name::Ident::new(
                         &if support_nested {
                             let extra_bangs = if varname == "Nested" {
                                 0
@@ -461,35 +500,48 @@ fn expand_define(define: Define) -> TokenStream {
                         } else {
                             String::from("proc_macro_call")
                         },
-                        #dummy::Span::call_site(),
+                        #pub_name::Span::call_site(),
                     ),
                 ),
-                #dummy::TokenTree::Group(
-                    #dummy::Group::new(#dummy::Delimiter::Brace, #dummy::TokenStream::from_iter(vec![
-                        #dummy::TokenTree::Group(
-                            #dummy::Group::new(#dummy::Delimiter::Parenthesis, #dummy::TokenStream::new()),
+                #pub_name::TokenTree::Group(
+                    #pub_name::Group::new(#pub_name::Delimiter::Brace, #pub_name::TokenStream::from_iter(vec![
+                        #pub_name::TokenTree::Group(
+                            #pub_name::Group::new(#pub_name::Delimiter::Parenthesis, #pub_name::TokenStream::new()),
                         ),
-                        #dummy::TokenTree::Punct(
-                            #dummy::Punct::new('=', #dummy::Spacing::Joint),
+                        #pub_name::TokenTree::Punct(
+                            #pub_name::Punct::new('=', #pub_name::Spacing::Joint),
                         ),
-                        #dummy::TokenTree::Punct(
-                            #dummy::Punct::new('>', #dummy::Spacing::Alone),
+                        #pub_name::TokenTree::Punct(
+                            #pub_name::Punct::new('>', #pub_name::Spacing::Alone),
                         ),
-                        #dummy::TokenTree::Group(
-                            #dummy::Group::new(#dummy::Delimiter::Brace, output),
+                        #pub_name::TokenTree::Group(
+                            #pub_name::Group::new(#pub_name::Delimiter::Brace, output),
                         ),
                     ])),
                 ),
             ])
         }
 
+        #attrs
+        #[proc_macro]
+        pub fn #pub_name(input: #pub_name::TokenStream) -> #pub_name::TokenStream {
+            #name(input)
+        }
+
         fn #name #body
     }
 }
 
-fn actual_proc_macro_name(conceptual: &Ident) -> Ident {
+fn pub_proc_macro_name(conceptual: &Ident) -> Ident {
     Ident::new(
         &format!("proc_macro_hack_{}", conceptual),
+        conceptual.span(),
+    )
+}
+
+fn hacked_proc_macro_name(conceptual: &Ident) -> Ident {
+    Ident::new(
+        &format!("_proc_macro_hack_{}", conceptual),
         conceptual.span(),
     )
 }

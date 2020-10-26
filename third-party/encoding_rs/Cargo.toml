@@ -11,8 +11,9 @@
 # will likely look very different (and much more reasonable)
 
 [package]
+edition = "2018"
 name = "encoding_rs"
-version = "0.8.24"
+version = "0.8.26"
 authors = ["Henri Sivonen <hsivonen@hsivonen.fi>"]
 description = "A Gecko-oriented implementation of the Encoding Standard"
 homepage = "https://docs.rs/encoding_rs/"
@@ -25,11 +26,12 @@ repository = "https://github.com/hsivonen/encoding_rs"
 [profile.release]
 lto = true
 [dependencies.cfg-if]
-version = "0.1.0"
+version = "1.0"
 
 [dependencies.packed_simd]
-version = "0.3.3"
+version = "0.3.4"
 optional = true
+package = "packed_simd_2"
 
 [dependencies.serde]
 version = "1.0"
