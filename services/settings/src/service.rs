@@ -1,5 +1,5 @@
 /// Implementation of the test service.
-use crate::db::SettingsDb;
+use crate::db::{ObserverType, SettingsDb};
 use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
@@ -147,7 +147,11 @@ impl SettingsFactoryMethods for SettingsService {
 
         match self.proxy_tracker.get(&observer) {
             Some(SettingsManagerProxy::SettingObserver(proxy)) => {
-                let id = self.state.lock().db.add_observer(&name, proxy);
+                let id = self
+                    .state
+                    .lock()
+                    .db
+                    .add_observer(&name, ObserverType::Proxy(proxy.clone()));
                 self.observers.insert(observer, (name, id));
                 responder.resolve();
             }

@@ -55,6 +55,16 @@ impl DatabaseUpgrader for SettingsSchemaManager {
     }
 }
 
+// The observers from other api-daemon services
+pub trait DbObserver {
+    fn callback(&self, name: &String, value: &JsonValue);
+}
+
+pub enum ObserverType {
+    Proxy(SettingObserverProxy),
+    FuncPtr(Box<dyn DbObserver + Sync + Send>),
+}
+
 pub struct SettingsDb {
     // Current id that we hand out when an observer is registered.
     id: DispatcherId,
@@ -65,7 +75,7 @@ pub struct SettingsDb {
     // The set of observers we may call. They are keyed on the setting name to
     // not slow down lookup when settings changes, even if that makes observer
     // removal slower.
-    observers: HashMap<String, Vec<(SettingObserverProxy, DispatcherId)>>,
+    observers: HashMap<String, Vec<(ObserverType, DispatcherId)>>,
 }
 
 impl SettingsDb {
@@ -88,7 +98,8 @@ impl SettingsDb {
             #[cfg(target_os = "android")]
             let defaults_path: &str = "/system/b2g/defaults/settings.json";
             #[cfg(not(target_os = "android"))]
-            let defaults_path = std::env::var("DEFAULT_SETTINGS").unwrap_or_else(|_| "".to_string());
+            let defaults_path =
+                std::env::var("DEFAULT_SETTINGS").unwrap_or_else(|_| "".to_string());
 
             if !defaults_path.is_empty() {
                 match std::fs::File::open(&defaults_path) {
@@ -115,15 +126,15 @@ impl SettingsDb {
         self.event_broadcaster.remove(id)
     }
 
-    pub fn add_observer(&mut self, name: &str, observer: &SettingObserverProxy) -> DispatcherId {
+    pub fn add_observer(&mut self, name: &str, observer: ObserverType) -> DispatcherId {
         self.id += 1;
 
         match self.observers.get_mut(name) {
             Some(observers) => {
-                observers.push((observer.clone(), self.id));
+                observers.push((observer, self.id));
             }
             None => {
-                let init = vec![(observer.clone(), self.id)];
+                let init = vec![(observer, self.id)];
                 self.observers.insert(name.into(), init);
             }
         }
@@ -191,7 +202,15 @@ impl SettingsDb {
                 // If we have observers for this setting, call their callback.
                 if let Some(observers) = self.observers.get_mut(&setting_info.name) {
                     for observer in observers {
-                        observer.0.callback(setting_info.clone());
+                        let (obs, _) = observer;
+                        match obs {
+                            ObserverType::Proxy(cb) => {
+                                cb.callback(setting_info.clone());
+                            }
+                            ObserverType::FuncPtr(cb) => {
+                                cb.callback(&setting_info.name, &setting_info.value);
+                            }
+                        }
                     }
                 }
             }
