@@ -10,13 +10,17 @@ DAEMON_ROOT := $(abspath $(LOCAL_PATH))
 include $(CLEAR_VARS)
 
 RUST_TARGET := armv7-linux-androideabi
+TARGET_INCLUDE := arm-linux-androideabi
+
 ifeq ($(TARGET_ARCH),x86_64)
 RUST_TARGET := x86_64-linux-android
+TARGET_INCLUDE := $(RUST_TARGET)
 LIBSUFFIX := 64
 endif
 
 ifeq ($(TARGET_ARCH),arm64)
 RUST_TARGET := aarch64-linux-android
+TARGET_INCLUDE := $(RUST_TARGET)
 LIBSUFFIX := 64
 endif
 
@@ -62,7 +66,7 @@ $(LOCAL_INSTALLED_MODULE):
 	@cp $(DAEMON_ROOT)/vhost/cert.pem $(TARGET_OUT)/b2g/defaults/local-cert.pem
 	@cp $(DAEMON_ROOT)/vhost/key.pem $(TARGET_OUT)/b2g/defaults/local-key.pem
 	@cp $(DAEMON_ROOT)/services/devicecapability/devicecapability.json $(TARGET_OUT)/b2g/defaults/devicecapability.json
-	@cp $(LOCAL_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${RUST_TARGET}/libc++_shared.so $(TARGET_OUT)/lib$(LIBSUFFIX)
+	@cp $(LOCAL_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$(TARGET_INCLUDE)/libc++_shared.so $(TARGET_OUT)/lib$(LIBSUFFIX)
 
 ##################################
 # Build the ca-bundle.crt for api-daemon
