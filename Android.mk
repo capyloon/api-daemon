@@ -44,7 +44,11 @@ API_DAEMON_LIB_DEPS := \
 
 include $(BUILD_PREBUILT)
 
+ifndef ANDROID_NDK
 LOCAL_NDK := $(HOME)/.mozbuild/android-ndk-r20b-canary
+else
+LOCAL_NDK := $(ANDROID_NDK)
+endif
 
 $(LOCAL_BUILT_MODULE): $(TARGET_CRTBEGIN_DYNAMIC_O) $(TARGET_CRTEND_O) $(addprefix $(TARGET_OUT_SHARED_LIBRARIES)/,$(API_DAEMON_LIB_DEPS))
 	@echo "api-daemon: $(API_DAEMON_EXEC)"
