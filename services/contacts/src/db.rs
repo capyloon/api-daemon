@@ -5,6 +5,9 @@ use common::SystemTime;
 use log::{debug, error};
 use rusqlite::{Connection, Row, Statement, NO_PARAMS};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::io::BufReader;
 use std::sync::mpsc::{channel, Sender};
 use std::time::{Duration, UNIX_EPOCH};
@@ -34,7 +37,7 @@ pub enum Error {
 
 pub struct ContactsSchemaManager {}
 
-static UPGRADE_0_1_SQL: [&str; 12] = [
+static UPGRADE_0_1_SQL: [&str; 13] = [
     // Main table holding main data of contact.
     r#"CREATE TABLE IF NOT EXISTS contact_main (
         contact_id   TEXT    NOT NULL PRIMARY KEY,
@@ -77,6 +80,11 @@ static UPGRADE_0_1_SQL: [&str; 12] = [
        contact_id TEXT NOT NULL,
        FOREIGN KEY(group_id) REFERENCES groups(id),
        FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id)
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS sim_contact_hash (
+        id TEXT PRIMARY KEY,
+        hash TEXT,
+        FOREIGN KEY(id) REFERENCES contact_main(contact_id)
     )"#,
 ];
 
@@ -179,6 +187,26 @@ impl Default for ContactInfo {
             ice_position: 0,
         }
     }
+}
+
+struct SimContactHash {
+    key: String,
+    value: String,
+}
+
+impl Hash for SimContactInfo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.tel.hash(state);
+        self.name.hash(state);
+        self.email.hash(state);
+    }
+}
+
+fn hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
 }
 
 impl From<&SimContactInfo> for ContactInfo {
@@ -664,6 +692,7 @@ impl ContactsDb {
         debug!("ContactsDb::clear_contacts");
         let conn = self.db.mut_connection();
         let tx = conn.transaction()?;
+        tx.execute("DELETE FROM sim_contact_hash", NO_PARAMS)?;
         tx.execute("UPDATE speed_dials SET contact_id = ''", NO_PARAMS)?;
         tx.execute("DELETE FROM contact_additional", NO_PARAMS)?;
         tx.execute("DELETE FROM group_contacts", NO_PARAMS)?;
@@ -699,6 +728,7 @@ impl ContactsDb {
         let tx = connection.transaction()?;
         {
             for contact_id in contact_ids {
+                tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&contact_id])?;
                 tx.execute(
                     "DELETE FROM contact_additional WHERE contact_id = ?",
                     &[&contact_id],
@@ -745,6 +775,7 @@ impl ContactsDb {
                         continue;
                     }
                     contact.updated = SystemTime::from(std::time::SystemTime::now());
+                    tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&contact.id])?;
                     tx.execute(
                         "DELETE FROM contact_additional WHERE contact_id = ?",
                         &[&contact.id],
@@ -1372,11 +1403,86 @@ impl ContactsDb {
         rows_to_vec(rows)
     }
 
+    pub fn update_sim_contacts_hash(
+        &mut self,
+        sim_contacts: &[SimContactInfo],
+    ) -> Result<(), Error> {
+        let conn = self.db.mut_connection();
+        let tx = conn.transaction()?;
+        {
+            for contact_info in sim_contacts {
+                tx.execute(
+                    "DELETE FROM sim_contact_hash WHERE id = ?",
+                    &[&contact_info.id],
+                )?;
+                tx.execute(
+                    "INSERT INTO sim_contact_hash (id, hash) VALUES(?, ?)",
+                    &[&contact_info.id, &hash(contact_info).to_string()],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn import_sim_contacts(&mut self, sim_contacts: &[SimContactInfo]) -> Result<(), Error> {
         debug!("ContactsDb::import_sim_contacts");
+        let mut updated_contacts = vec![];
+        // Holding the sim contact hash from the sim_contact_hash table.
+        // Key: sim contact id, value: hash of this sim contact.
+        let mut map: HashMap<String, String> = HashMap::new();
+        let conn = self.db.connection();
+        {
+            let mut stmt = conn.prepare("SELECT id, hash FROM sim_contact_hash")?;
+            let rows = stmt.query_map(NO_PARAMS, |row| {
+                Ok(SimContactHash {
+                    key: row.get(0)?,
+                    value: row.get(1)?,
+                })
+            })?;
 
-        let contacts_info: Vec<ContactInfo> = sim_contacts.iter().map(|item| item.into()).collect();
-        self.save(&contacts_info, true)
+            for row in rows {
+                let data = row?;
+                map.insert(data.key, data.value);
+            }
+
+            for contact in sim_contacts {
+                if let Some(value) = map.get(&contact.id) {
+                    let hash_value = hash(&contact).to_string();
+
+                    if &hash_value != value {
+                        // Sim contacts need to update.
+                        updated_contacts.push(contact.clone());
+                    }
+
+                    // Remove the sim contacts which need update or none change from map.
+                    // Then the rest of the map is the contacts that should be delete.
+                    map.remove(&contact.id);
+                } else {
+                    // New sim contacts.
+                    updated_contacts.push(contact.clone());
+                }
+            }
+        }
+
+        let mut removed_ids = vec![];
+        for key in map.keys() {
+            removed_ids.push(key.clone());
+        }
+        if !removed_ids.is_empty() {
+            self.remove(&removed_ids)?;
+        }
+        let contacts_info: Vec<ContactInfo> =
+            updated_contacts.iter().map(|item| item.into()).collect();
+        self.save(&contacts_info, true)?;
+        self.update_sim_contacts_hash(&updated_contacts)?;
+        let event = SimContactLoadedEvent {
+            remove_count: removed_ids.len() as i64,
+            update_count: updated_contacts.len() as i64,
+        };
+        self.event_broadcaster.broadcast_sim_contact_loaded(event);
+
+        Ok(())
     }
 }
 
@@ -1439,6 +1545,138 @@ mod test {
             .unwrap();
 
         assert_eq!(db.count().unwrap(), 2);
+
+        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+            // Verify import sim_contact_1's data sucessful.
+            assert_eq!(contact.name, "Ted".to_string());
+            let tel = contact.tel.unwrap();
+            assert_eq!(tel[0].value, "13682628272".to_string());
+            assert_eq!(tel[1].value, "18812345678".to_string());
+            assert_eq!(tel[2].value, "19922223333".to_string());
+            let email = contact.email.unwrap();
+            assert_eq!(email[0].value, "test@163.com".to_string());
+            assert_eq!(email[1].value, "happy@sina.com".to_string());
+            assert_eq!(email[2].value, "3179912@qq.com".to_string());
+        }
+
+        // Used to verify sim contact name changed.
+        let sim_contact_1_name_change = SimContactInfo {
+            id: "0001".to_string(),
+            tel: "13682628272\u{001E}18812345678\u{001E}19922223333".to_string(),
+            email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
+            name: "Jack".to_string(),
+        };
+
+        db.import_sim_contacts(&[sim_contact_1_name_change])
+            .unwrap();
+
+        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+            // Verify sim_contact_1's name update to "Jack".
+            assert_eq!(contact.name, "Jack".to_string());
+        }
+
+        let mut cursor = db
+            .get_all(
+                ContactSortOptions {
+                    sort_by: SortOption::Name,
+                    sort_order: Order::Ascending,
+                    sort_language: "".to_string(),
+                },
+                10,
+                true,
+            )
+            .unwrap();
+
+        let contacts = cursor.next().unwrap();
+        for i in 0..contacts.len() {
+            assert_eq!(contacts[i].name, "Jack".to_string());
+        }
+        // Verify sim_contact_2 is removed.
+        assert!(cursor.next().unwrap().is_empty());
+        assert_eq!(db.count().unwrap(), 1);
+
+        // To verify contact tel changed to 15229099710.
+        let sim_contact_1_tel_change = SimContactInfo {
+            id: "0001".to_string(),
+            tel: "15229099710".to_string(),
+            email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
+            name: "Jack".to_string(),
+        };
+
+        db.import_sim_contacts(&[sim_contact_1_tel_change]).unwrap();
+
+        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+            // Verify sim_contact_1's tel update to "15229099710".
+            assert_eq!(contact.tel.unwrap()[0].value, "15229099710".to_string());
+        }
+
+        // To verify contact email changed to zx@163.com.
+        let sim_contact_1_email_change = SimContactInfo {
+            id: "0001".to_string(),
+            tel: "15229099710".to_string(),
+            email: "zx@163.com".to_string(),
+            name: "Jack".to_string(),
+        };
+
+        db.import_sim_contacts(&[sim_contact_1_email_change])
+            .unwrap();
+
+        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+            // Verify sim_contact_1's email update to "zx@163.com".
+            assert_eq!(contact.email.unwrap()[0].value, "zx@163.com".to_string());
+        }
+
+        let sim_contacts = [
+            SimContactInfo {
+                id: "0001".to_string(),
+                tel: "181".to_string(),
+                email: "test@kaios.com".to_string(),
+                name: "Are".to_string(),
+            },
+            SimContactInfo {
+                id: "0002".to_string(),
+                tel: "182".to_string(),
+                email: "mbz@gmail.com".to_string(),
+                name: "Bbc".to_string(),
+            },
+            SimContactInfo {
+                id: "0003".to_string(),
+                tel: "183".to_string(),
+                email: "zx@kaiostech.com".to_string(),
+                name: "David".to_string(),
+            },
+            SimContactInfo {
+                id: "0004".to_string(),
+                tel: "15229099710".to_string(),
+                email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
+                name: "Zhang".to_string(),
+            },
+        ];
+
+        db.import_sim_contacts(&sim_contacts).unwrap();
+
+        cursor = db
+            .get_all(
+                ContactSortOptions {
+                    sort_by: SortOption::Name,
+                    sort_order: Order::Ascending,
+                    sort_language: "".to_string(),
+                },
+                10,
+                true,
+            )
+            .unwrap();
+
+        let contacts = cursor.next().unwrap();
+        for i in 0..contacts.len() {
+            assert_eq!(contacts[i].name, sim_contacts[i].name);
+        }
+        assert!(cursor.next().unwrap().is_empty());
+
+        db.import_sim_contacts(&[]).unwrap();
+
+        // Verify db is empty after import empty sim contacts.
+        assert_eq!(db.count().unwrap(), 0);
 
         db.clear_contacts().unwrap();
 

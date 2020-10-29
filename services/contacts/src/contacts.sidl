@@ -206,6 +206,11 @@ dictionary ContactsChangeEvent {
   contacts: ContactInfo*
 }
 
+dictionary SimContactLoadedEvent {
+  remove_count: int
+  update_count: int
+}
+
 #[rust:not-tracked]
 interface ContactsFactory {
 
@@ -267,6 +272,7 @@ interface ContactsFactory {
   event blockednumber_change -> BlockedNumberChangeEvent
   event speeddial_change -> SpeedDialChangeEvent
   event group_change -> GroupChangeEvent
+  event sim_contact_loaded -> SimContactLoadedEvent
 }
 
 service ContactsManager: ContactsFactory
