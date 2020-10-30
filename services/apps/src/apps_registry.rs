@@ -605,15 +605,25 @@ impl AppsRegistry {
         if let Some(icons_value) = manifest.get_icons() {
             let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
             let base_url = Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
-
             for icon in icons {
-                let icon_path = download_dir.join(&icon.get_src());
+                let mut icon_src = icon.get_src();
+                // If this is an absolute uri remove the leading / when building the download path
+                // so we don't end up trying to use a /some/invalid/path/icon.png path.
+                if icon_src.starts_with('/') {
+                    let _ = icon_src.remove(0);
+                }
+                let icon_path = download_dir.join(&icon_src);
                 let icon_dir = icon_path.parent().unwrap();
                 let icon_url = base_url
                     .join(&icon.get_src())
                     .map_err(|_| AppsServiceError::InvalidManifest)?;
                 let _ = AppsStorage::ensure_dir(&icon_dir);
-                let _ = downloader.download(icon_url.as_str(), icon_path.as_path());
+                if let Err(err) = downloader.download(icon_url.as_str(), icon_path.as_path()) {
+                    error!(
+                        "Failed to download icon {} -> {:?} : {:?}",
+                        icon_url, icon_path, err
+                    );
+                }
             }
         }
 
