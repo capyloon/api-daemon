@@ -1,10 +1,38 @@
 // SIDL for time service
+#[derive=Eq,derive=Hash]
+enum CallbackReason {
+  None
+  timeChanged
+  timezoneChanged
+}
+
+callback TimeObserver {
+  fn callback(reason: CallbackReason)
+}
+
 #[rust:not-tracked]
 interface Time {
 
+    // set system time
     fn set(time : date)
 
+    // get system time
     fn get() -> date
+
+    fn setTimezone(timezone : str)
+
+    // return the uptime in milliseconds
+    fn getElapsedRealTime() -> int
+
+    // add an observer for CallbackReason
+    fn add_observer(reason: CallbackReason, observer: TimeObserver)
+
+    // remove an observer
+    fn remove_observer(reason: CallbackReason, observer: TimeObserver)
+
+    event time_changed
+
+    event timezone_changed
 }
 
 service TimeService: Time

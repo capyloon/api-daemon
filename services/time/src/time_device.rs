@@ -1,13 +1,13 @@
-use std::{fs, path};
-use std::os::unix::io::AsRawFd;
 use libc::c_int;
-use time::*;
 use log::info;
+use std::os::unix::io::AsRawFd;
+use std::{fs, path};
+use time::*;
 
 mod ffi {
-    use nix::{ioctl_read_buf, ioctl_write_buf};
-    use super::Timespec;
     use super::RtcTime;
+    use super::Timespec;
+    use nix::{ioctl_read_buf, ioctl_write_buf};
 
     const ANDROID_ALARM_MAGIC: u8 = b'a';
     const ANDROID_ALARM_GET_TIME: u8 = 4;
@@ -17,8 +17,18 @@ mod ffi {
     const RTC_RD_TIME: u8 = 0x09;
     const RTC_SET_TIME: u8 = 0x0a;
 
-    ioctl_read_buf!(alarm_get_clock, ANDROID_ALARM_MAGIC, ANDROID_ALARM_GET_TIME, Timespec);
-    ioctl_write_buf!(alarm_set_clock, ANDROID_ALARM_MAGIC, ANDROID_ALARM_SET_RTC, Timespec);
+    ioctl_read_buf!(
+        alarm_get_clock,
+        ANDROID_ALARM_MAGIC,
+        ANDROID_ALARM_GET_TIME,
+        Timespec
+    );
+    ioctl_write_buf!(
+        alarm_set_clock,
+        ANDROID_ALARM_MAGIC,
+        ANDROID_ALARM_SET_RTC,
+        Timespec
+    );
 
     ioctl_read_buf!(rtc_rd_time, RTC_MAGIC, RTC_RD_TIME, RtcTime);
     ioctl_write_buf!(rtc_set_time, RTC_MAGIC, RTC_SET_TIME, RtcTime);
@@ -108,8 +118,7 @@ impl TimeDevice for TimerFd {
         }
     }
 
-    fn get_time(&mut self) -> Result<RtcTime, nix::Error>
-    {
+    fn get_time(&mut self) -> Result<RtcTime, nix::Error> {
         let mut rt: [RtcTime; 1] = [RtcTime::new(); 1];
         unsafe {
             let _ = ffi::rtc_rd_time(self.dev.as_raw_fd(), &mut rt);
@@ -118,12 +127,9 @@ impl TimeDevice for TimerFd {
         Ok(rt[0])
     }
 
-    fn set_time(&mut self, rt: &RtcTime) -> Result<i32, nix::Error>
-    {
+    fn set_time(&mut self, rt: &RtcTime) -> Result<i32, nix::Error> {
         info!("rtc device set time {:?}", rt);
-        unsafe {
-            ffi::rtc_set_time(self.dev.as_raw_fd(), &[*rt])
-        }
+        unsafe { ffi::rtc_set_time(self.dev.as_raw_fd(), &[*rt]) }
     }
 }
 
@@ -147,8 +153,7 @@ impl TimeDevice for AlarmDriver {
         }
     }
 
-    fn get_time(&mut self) -> Result<Timespec, nix::Error>
-    {
+    fn get_time(&mut self) -> Result<Timespec, nix::Error> {
         // create timespec object
         let mut ts: [Timespec; 1] = [Timespec::new(0, 0); 1];
         info!("alarm driver get time");
@@ -159,11 +164,8 @@ impl TimeDevice for AlarmDriver {
         Ok(ts[0])
     }
 
-    fn set_time(&mut self, ts: &Timespec) -> Result<i32, nix::Error>
-    {
+    fn set_time(&mut self, ts: &Timespec) -> Result<i32, nix::Error> {
         info!("alarm driver set time {:?}", ts);
-        unsafe {
-            ffi::alarm_set_clock(self.dev.as_raw_fd(), &[*ts])
-        }
+        unsafe { ffi::alarm_set_clock(self.dev.as_raw_fd(), &[*ts]) }
     }
 }

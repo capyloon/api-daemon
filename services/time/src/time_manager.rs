@@ -1,4 +1,5 @@
 use crate::time_device::*;
+use android_utils::AndroidProperties;
 use libc::{gettimeofday, settimeofday, suseconds_t, time_t, timeval};
 use log::{debug, error};
 use std::io::Read;
@@ -6,6 +7,9 @@ use std::num::ParseFloatError;
 use std::str::FromStr;
 use std::{fs, io, ptr};
 use time::*;
+
+#[cfg(not(target_os = "android"))]
+use std::env;
 
 #[derive(Clone, Debug)]
 pub struct TimeManager {}
@@ -16,6 +20,7 @@ mod ffi {
 }
 
 impl TimeManager {
+    #[cfg(target_os = "android")]
     pub fn set_system_clock(msec: i64) -> Result<bool, io::Error> {
         let t = Self::msec_to_timespec(msec);
         debug!("get timespec: {:?}", t);
@@ -40,6 +45,13 @@ impl TimeManager {
         Ok(true)
     }
 
+    // We only change the system time on android
+    #[cfg(not(target_os = "android"))]
+    pub fn set_system_clock(msec: i64) -> Result<bool, io::Error> {
+        debug!("Running on {} do not change system time", env::consts::OS);
+        Ok(true)
+    }
+
     pub fn get_system_clock() -> Result<i64, io::Error> {
         unsafe {
             let mut system_time = timeval {
@@ -50,6 +62,38 @@ impl TimeManager {
             let ret: i64 = (system_time.tv_sec as i64 * 1000) + (system_time.tv_usec as i64) / 1000;
             Ok(ret)
         }
+    }
+
+    pub fn get_elapsed_real_time() -> Result<i64, io::Error> {
+        let ret: Result<f64, io::Error> = TimeInfo::get_elapsed_real_time();
+        match ret {
+            Ok(t) => {
+                debug!("get_elapsed_real_time {:?}", t);
+
+                Ok((t * 1000.0) as i64)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn set_timezone(timezone: String) -> Result<bool, io::Error> {
+        error!("set timezone {} ", timezone);
+        if let Err(err) = AndroidProperties::set("persist.sys.timezone", &timezone) {
+            error!("AndroidProperties::set failed {:?}", err);
+        }
+
+        Ok(true)
+    }
+
+    // We only change the system time on android
+    #[cfg(not(target_os = "android"))]
+    pub fn set_timezone(timezone: String) -> Result<bool, io::Error> {
+        debug!(
+            "Running on {} do not change system timezone",
+            env::consts::OS
+        );
+        Ok(true)
     }
 
     fn msec_to_timespec(msec: i64) -> time::Timespec {
