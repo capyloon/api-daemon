@@ -33,6 +33,103 @@
           true
         );
 
+        class MyObserver extends lib_time.TimeObserverBase {
+          constructor(service, session) {
+            super(service.id, session);
+            this.timechangedTimes = 0;
+            this.timezonechangedTimes = 0;
+          }
+
+          display() {
+            return "Time observer";
+          }
+
+          callback(reason) {
+            console.log(`MyObserver::callback` + JSON.stringify(reason));
+            if (reason.reason == lib_time.CallbackReason.TIME_CHANGED) {
+              this.timechangedTimes++;
+            } else if (reason.reason == lib_time.CallbackReason.TIMEZONE_CHANGED) {
+              this.timezonechangedTimes++;
+            }
+
+            return Promise.resolve();
+          }
+
+          resolve() {
+            return Promise.resolve([this.timechangedTimes, this.timezonechangedTimes]);
+          }
+        }
+
+        // add observer test
+        // 1. add timechanged and timezonechanged observer
+        // 2. change time and timezone
+        // 3. check the callback times of time and timezone
+        let observer = new MyObserver(tester.service, tester.session);
+        await tester.assert_eq(
+          "add timechanged observer",
+          (service) => service.addObserver(lib_time.CallbackReason.TIME_CHANGED, observer),
+          {}
+        );
+
+        await tester.assert_eq(
+          "add timezonechanged observer",
+          (service) => service.addObserver(lib_time.CallbackReason.TIMEZONE_CHANGED, observer),
+          {}
+        );
+
+        var date = new Date();
+        await tester.assert_eq(
+          "set time",
+          (service) => service.set(date),
+          {}
+        );
+
+        await tester.assert_eq(
+          "set timezone",
+          (service) => service.setTimezone("Asia/Taipei"),
+          {}
+        );
+
+        await tester.assert_eq(
+          "wait for time/timezone changed observer",
+          (service) => observer.resolve(),
+          [1, 1]
+        );
+
+        // remove observer test
+        // 1. remove timechanged and timezonechanged observers
+        // 2. set time and timezone
+        // 3. check the callback times should be the same
+        await tester.assert_eq(
+          "remove timechanged observer",
+          (service) => service.removeObserver(lib_time.CallbackReason.TIME_CHANGED, observer),
+          {}
+        );
+
+        await tester.assert_eq(
+          "remove timeizonechanged observer",
+          (service) => service.removeObserver(lib_time.CallbackReason.TIMEZONE_CHANGED, observer),
+          {}
+        );
+
+        await tester.assert_eq(
+          "set time",
+          (service) => service.set(date),
+          {}
+        );
+
+        await tester.assert_eq(
+          "set timezone",
+          (service) => service.setTimezone("Asia/Taipei"),
+          {}
+        );
+
+        await tester.assert_eq(
+          "wait for time/timechanged observer",
+          (service) => observer.resolve(),
+          [1, 1]
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
       }
