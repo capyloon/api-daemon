@@ -32,6 +32,7 @@ enum AppsServiceError {
   DownloadPackageFailed   // Can't download the app package
   DuplicatedAction        // Requested action is duplicated
   InvalidAppName          // App name is not allowed to use
+  InvalidStartUrl         // Error in the manifest file
   InvalidState            // The service is not ready
   InvalidManifest         // Error in the manifest file
   InvalidPackage          // Error in the package file

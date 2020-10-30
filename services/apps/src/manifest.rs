@@ -99,6 +99,10 @@ fn default_as_start_url() -> String {
 }
 
 impl Icons {
+    pub fn set_src(&mut self, src: &str) {
+        self.src = src.to_string();
+    }
+
     pub fn get_src(&self) -> String {
         self.src.clone()
     }
@@ -173,6 +177,14 @@ impl Manifest {
         Ok(())
     }
 
+    pub fn set_icons(&mut self, icons: Value) {
+        self.icons = Some(icons);
+    }
+
+    pub fn set_start_url(&mut self, url: &str) {
+        self.start_url = url.to_string();
+    }
+
     pub fn set_version(&mut self, version: &str) {
         self.version = version.to_string();
     }
@@ -208,6 +220,14 @@ impl Manifest {
     pub fn read_from<P: AsRef<Path>>(manifest_file: P) -> Result<Manifest, AppsMgmtError> {
         let file = File::open(manifest_file)?;
         serde_json::from_reader(std::io::BufReader::new(file)).map_err(|err| err.into())
+    }
+
+    pub fn write_to<P: AsRef<Path>>(
+        manifest_file: P,
+        manifest: &Manifest,
+    ) -> Result<(), AppsMgmtError> {
+        let file = File::create(manifest_file)?;
+        serde_json::to_writer(file, manifest).map_err(|err| err.into())
     }
 }
 

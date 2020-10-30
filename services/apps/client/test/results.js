@@ -30,7 +30,7 @@ var get_all_expected1 = [ calculator_expected, gallery_expected, system_expected
 var download_failed_response_expected = {"name":"ciautotest","installState":0,"manifestUrl":"https://ciautotest.local:4443/manifest.webapp","status":0,"updateState":0,"updateUrl":"http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json","allowedAutoDownload":false};
 
 function install_pwa_expected(installState){
-  return {"name":"hellopwa","installState":installState,"manifestUrl":"https://cached.local:4443/hellopwa/manifest.webapp","status":0,"updateState":0,"updateUrl":"https://seinlin.github.io/tests/pwa/manifest.webapp","allowedAutoDownload":false};
+  return {"name":"hellopwa","installState":installState,"manifestUrl":"https://cached.local:4443/hellopwa/manifest.webapp","status":0,"updateState":0,"updateUrl":"https://testpwa.github.io/manifest.webmanifest","allowedAutoDownload":false};
 }
 
 var get_all_expected2 = [ calculator_expected, gallery_expected, system_expected, launcher_expected, install_pwa_expected(0) ];

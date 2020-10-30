@@ -578,7 +578,7 @@ impl AppsRegistry {
         let download_dir =
             AppsStorage::get_app_dir(&path.join("downloading"), &hash(update_url).to_string())
                 .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
-        let download_manifest = download_dir.join("manifest.webapp");
+        let download_manifest = download_dir.join("manifest.webmanifest");
         let downloader = Downloader::default();
 
         // 1. download manfiest to cache dir.
@@ -592,7 +592,7 @@ impl AppsRegistry {
             );
             return Err(AppsServiceError::DownloadManifestFailed);
         }
-        let manifest = Manifest::read_from(&download_manifest)
+        let mut manifest = Manifest::read_from(&download_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
         let app_name = self.get_unique_name(&manifest.get_name(), &update_url)?;
         let mut apps_item = AppsItem::default_pwa(&app_name, self.get_vhost_port());
@@ -601,11 +601,15 @@ impl AppsRegistry {
         self.event_broadcaster
             .broadcast_app_installing(AppsObject::from(&apps_item));
 
-        // 2. download icons to cached dir.
+        // 2-1. download icons to cached dir.
+        let update_url_base =
+            Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
+        let manifest_url_base = Url::parse(&apps_item.get_manifest_url())
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
         if let Some(icons_value) = manifest.get_icons() {
-            let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
-            let base_url = Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
-            for icon in icons {
+            let mut icons: Vec<Icons> =
+                serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+            for icon in &mut icons {
                 let mut icon_src = icon.get_src();
                 // If this is an absolute uri remove the leading / when building the download path
                 // so we don't end up trying to use a /some/invalid/path/icon.png path.
@@ -614,7 +618,7 @@ impl AppsRegistry {
                 }
                 let icon_path = download_dir.join(&icon_src);
                 let icon_dir = icon_path.parent().unwrap();
-                let icon_url = base_url
+                let icon_url = update_url_base
                     .join(&icon.get_src())
                     .map_err(|_| AppsServiceError::InvalidManifest)?;
                 let _ = AppsStorage::ensure_dir(&icon_dir);
@@ -624,8 +628,21 @@ impl AppsRegistry {
                         icon_url, icon_path, err
                     );
                 }
+                let icon_cached_url = manifest_url_base
+                    .join(&icon_src)
+                    .map_err(|_| AppsServiceError::InvalidManifest)?;
+                icon.set_src(icon_cached_url.as_str());
             }
+            manifest.set_icons(serde_json::to_value(icons).unwrap());
         }
+
+        // 2-2. update start url in cached manifest to absolute url
+        let start_url = update_url_base
+            .join(&manifest.get_start_url())
+            .map_err(|_| AppsServiceError::InvalidStartUrl)?;
+        manifest.set_start_url(start_url.as_str());
+        Manifest::write_to(&download_manifest, &manifest)
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // 3. finish installation and reigster the pwa app.
         self.apply_pwa(&mut apps_item, &download_dir.as_path(), &manifest, &path)?;
@@ -1611,19 +1628,19 @@ fn test_apply_pwa() {
     println!("registry.count(): {}", registry.count());
     assert_eq!(4, registry.count());
 
-    let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webapp");
-    let update_url = "https://pwa1.test/manifest.webapp";
+    // Test 1: apply from a local dir
+    let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webmanifest");
+    let update_url = "https://pwa1.test/manifest.webmanifest";
     let download_dir = AppsStorage::get_app_dir(
         &test_path.join("downloading"),
         &format!("{}", hash(update_url)),
     )
     .unwrap();
-    let download_manifest = download_dir.join("manifest.webapp");
+    let download_manifest = download_dir.join("manifest.webmanifest");
 
     if let Err(err) = fs::create_dir_all(download_dir.as_path()) {
         println!("{:?}", err);
     }
-
     let _ = fs::copy(&src_manifest, &download_manifest).unwrap();
     let manifest = Manifest::read_from(&download_manifest).unwrap();
     if let Some(icons_value) = manifest.get_icons() {
@@ -1632,12 +1649,10 @@ fn test_apply_pwa() {
     } else {
         assert!(false);
     }
-
     let mut apps_item = AppsItem::default(&manifest.get_name(), registry.get_vhost_port());
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(&update_url);
 
-    // Test 1: apply from a local dir
     match registry.apply_pwa(
         &mut apps_item,
         &download_dir.as_path(),
@@ -1655,7 +1670,7 @@ fn test_apply_pwa() {
     }
 
     // Test 2: download and apply from a remote url
-    let app_url = "https://seinlin.github.io/tests/pwa/manifest.webapp";
+    let app_url = "https://testpwa.github.io/manifest.webmanifest";
     match registry.download_and_apply_pwa(&_test_dir, app_url) {
         Ok(app) => {
             assert_eq!(app.name, "hellopwa");
@@ -1664,5 +1679,34 @@ fn test_apply_pwa() {
             println!("err: {:?}", err);
             assert!(false);
         }
+    }
+    if let Some(app) = registry.get_by_update_url(app_url) {
+        assert_eq!(app.get_name(), "hellopwa");
+
+        let cached_dir = test_path.join("cached").join(app.get_name());
+        let update_manifest = cached_dir.join("manifest.webmanifest");
+        let manifest = Manifest::read_from(&update_manifest).unwrap();
+
+        // start url should be absolute url of remote address
+        assert_eq!(
+            manifest.get_start_url(),
+            "https://testpwa.github.io/index.html"
+        );
+
+        // icon url should be relative path of local cached address
+        if let Some(icons_value) = manifest.get_icons() {
+            let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+            assert_eq!(4, icons.len());
+            let manifest_url_base = Url::parse(&app.get_manifest_url()).unwrap().join("/");
+            for icon in icons {
+                let icon_src = icon.get_src();
+                let icon_url_base = Url::parse(&icon_src).unwrap().join("/");
+                assert_eq!(icon_url_base, manifest_url_base);
+            }
+        } else {
+            assert!(false);
+        }
+    } else {
+        assert!(false);
     }
 }
