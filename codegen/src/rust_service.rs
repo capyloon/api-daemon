@@ -448,7 +448,22 @@ impl Codegen {
                 }
 
                 writeln!(sink, "Req::{} => {{", req_name)?;
-                // 1. Get the appropriate proxy object.
+                // 1. If this is returning a callback, add it to the proxy tracker.
+                if let ConcreteType::Callback(callback) = &returned.success.typ {
+                    writeln!(sink, "self.maybe_add_proxy(value, || {{")?;
+                    writeln!(
+                        sink,
+                        "{}Proxy::{}({}Proxy::new(",
+                        service.name, callback, callback
+                    )?;
+                    writeln!(sink, "value,")?;
+                    writeln!(sink, "message.service,")?;
+                    writeln!(sink, "&transport,")?;
+                    writeln!(sink, "))")?;
+                    writeln!(sink, "}});")?;
+                }
+
+                // 2. Get the appropriate proxy object.
                 writeln!(sink, "let object_ref = ObjectRef::from(message.object);")?;
                 writeln!(sink, "let tracker = self.get_proxy_tracker();")?;
                 writeln!(
@@ -456,20 +471,20 @@ impl Codegen {
                     "if let Some({}Proxy::{}(proxy))  = tracker.get_mut(&object_ref) {{",
                     service.name, callback.name
                 )?;
-                // 2. Get the request id.
+                // 3. Get the request id.
                 writeln!(
                     sink,
                     "if let BaseMessageKind::Response(request) = message.kind {{"
                 )?;
 
-                // 3. Get the sender for this call.
+                // 4. Get the sender for this call.
                 writeln!(
                     sink,
                     "let mut lock = proxy.{}_requests.lock();",
                     method.name
                 )?;
                 writeln!(sink, "if let Some(sender) = lock.get(&request) {{")?;
-                // 4 send an Ok() response.
+                // 5. send an Ok() response.
                 let param_type = if returned.success.typ != ConcreteType::Void {
                     "value"
                 } else {
@@ -477,7 +492,7 @@ impl Codegen {
                 };
                 // TODO: manage error from send()
                 writeln!(sink, "let _ = sender.send(Ok({}));", param_type)?;
-                // 5 Remove this sender since we can't receive multiple messages for the same request.
+                // 6. Remove this sender since we can't receive multiple messages for the same request.
                 writeln!(sink, "lock.remove(&request);")?;
                 writeln!(sink, "}} else {{")?;
                 writeln!(
@@ -511,7 +526,22 @@ impl Codegen {
                     req_name.push_str("(value)");
                 }
                 writeln!(sink, "Req::{} => {{", req_name)?;
-                // 1. Get the appropriate proxy object.
+                // 1. If this is returning a callback, add it to the proxy tracker.
+                if let ConcreteType::Callback(callback) = &returned.error.typ {
+                    writeln!(sink, "self.maybe_add_proxy(value, || {{")?;
+                    writeln!(
+                        sink,
+                        "{}Proxy::{}({}Proxy::new(",
+                        service.name, callback, callback
+                    )?;
+                    writeln!(sink, "value,")?;
+                    writeln!(sink, "message.service,")?;
+                    writeln!(sink, "&transport,")?;
+                    writeln!(sink, "))")?;
+                    writeln!(sink, "}});")?;
+                }
+
+                // 2. Get the appropriate proxy object.
                 writeln!(sink, "let object_ref = ObjectRef::from(message.object);")?;
                 writeln!(sink, "let tracker = self.get_proxy_tracker();")?;
                 writeln!(
@@ -520,20 +550,20 @@ impl Codegen {
                     service.name, callback.name
                 )?;
 
-                // 2. Get the request id.
+                // 3. Get the request id.
                 writeln!(
                     sink,
                     "if let BaseMessageKind::Response(request) = message.kind {{"
                 )?;
 
-                // 3. Get the sender for this call.
+                // 4. Get the sender for this call.
                 writeln!(
                     sink,
                     "let mut lock = proxy.{}_requests.lock();",
                     method.name
                 )?;
                 writeln!(sink, "if let Some(sender) = lock.get(&request) {{")?;
-                // 3. send an Err() response.
+                // 5. send an Err() response.
                 let param_type = if returned.error.typ != ConcreteType::Void {
                     "value"
                 } else {
@@ -541,7 +571,7 @@ impl Codegen {
                 };
                 // TODO: manage error from send()
                 writeln!(sink, "let _ = sender.send(Err({}));", param_type)?;
-                // 4. Remove this sender since we can't receive multiple messages for the same request.
+                // 6. Remove this sender since we can't receive multiple messages for the same request.
                 writeln!(sink, "lock.remove(&request);")?;
                 writeln!(sink, "}} else {{")?;
                 writeln!(
