@@ -28,6 +28,7 @@ enum AppsServiceState {
 enum AppsServiceError {
   AppNotFound             // App is not in the list
   ClearDataError          // Failed to clear app data
+  DependenciesError       // Dependencies are not met
   DiskSpaceNotEnough      // Do not have enough disk space
   DownloadManifestFailed  // Can't download the meta manifest
   DownloadPackageFailed   // Can't download the app package

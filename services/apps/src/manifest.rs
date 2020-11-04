@@ -6,6 +6,7 @@ use crate::apps_utils;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use thiserror::Error;
@@ -50,6 +51,8 @@ pub struct B2GFeatures {
     serviceworker: Option<Value>,
     #[serde(default = "default_as_false")]
     core: bool,
+    #[serde(default = "B2GFeatures::default_hashmap")]
+    dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
 }
 
 fn default_as_false() -> bool {
@@ -57,6 +60,9 @@ fn default_as_false() -> bool {
 }
 
 impl B2GFeatures {
+    fn default_hashmap() -> HashMap<String, String> {
+        HashMap::new()
+    }
     pub fn get_locales(&self) -> Option<Value> {
         self.locales.clone()
     }

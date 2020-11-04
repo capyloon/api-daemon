@@ -7,28 +7,28 @@ license = "Apache-2.0"
 
 [dependencies]
 actix-rt = "1.0"
+assert-json-diff = "1.1.0"
 common = { path = "../../common" }
 geckobridge = { path = "../geckobridge" }
+hex-slice = "0.1"
+http = "0.2"
 lazy_static = "1.4"
 log = "0.4"
-nix = "0.19"
-rusqlite = { version = "0.23", features = ["bundled"] }
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-sqlite-utils = { path = "../../support/sqlite-utils" }
-threadpool = "1.7"
-thiserror = "1.0"
-url = "2.1"
-zip = { git = "ssh://git@git.kaiostech.com/rust-forks/zip-rs.git", branch="omni-ja", default-features = false, features = ["deflate", "omnija"]}
-zip_utils = { git = "ssh://git@git.kaiostech.com/KaiOS/zip_utils.git", branch="master" }
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-assert-json-diff = "1.1.0"
-http = "0.2.1"
 md-5 = "0.9.1"
-hex-slice = "0.1.4"
+nix = "0.19"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rusqlite = { version = "0.23", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlite-utils = { path = "../../support/sqlite-utils" }
+thiserror = "1.0"
+threadpool = "1.7"
+time = "0.2"
+url = "2.1"
 version-compare = "0.0.10"
 vhost_server = { path = "../../vhost" }
-time = "0.2"
+zip = { git = "ssh://git@git.kaiostech.com/rust-forks/zip-rs.git", branch="omni-ja", default-features = false, features = ["deflate", "omnija"]}
+zip_utils = { git = "ssh://git@git.kaiostech.com/KaiOS/zip_utils.git", branch="master" }
 
 [build-dependencies]
 common = { path = "../../common" }

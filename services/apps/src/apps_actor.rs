@@ -43,6 +43,8 @@ pub enum AppsActorError {
     IoError(#[from] std::io::Error),
     #[error("Internal Error")]
     Internal,
+    #[error("Dependencies Error")]
+    DependenciesError,
 }
 
 #[derive(Error, Debug)]
@@ -77,6 +79,20 @@ struct FileRemover {
 impl Drop for FileRemover {
     fn drop(&mut self) {
         let _ = fs::remove_file(PathBuf::from(&self.path).as_path());
+    }
+}
+
+struct RestartChecker {
+    need_restart: bool,
+    shared_state: Shared<AppsSharedData>,
+}
+
+impl Drop for RestartChecker {
+    fn drop(&mut self) {
+        self.shared_state
+            .lock()
+            .registry
+            .check_need_restart(self.need_restart);
     }
 }
 
@@ -181,6 +197,10 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
                 let file = FileRemover {
                     path: request.param.clone().unwrap(),
                 };
+                let mut checker = RestartChecker {
+                    need_restart: false,
+                    shared_state: shared_data.clone(),
+                };
                 let manifest = match validate_package(&file.path) {
                     Ok(m) => m,
                     Err(err) => {
@@ -191,10 +211,13 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
 
                 // Delete it at drop
                 let from_file = Path::new(&file.path);
-                if let Err(err) = install_package(&shared_data, &from_file, &manifest) {
-                    error!("Installation fails, {}", err);
-                    write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
-                    continue;
+                match install_package(&shared_data, &from_file, &manifest) {
+                    Ok((_, need_restart)) => checker.need_restart = need_restart,
+                    Err(err) => {
+                        error!("Installation fails, {}", err);
+                        write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
+                        continue;
+                    }
                 }
 
                 info!("Installation success");
@@ -269,12 +292,11 @@ pub fn install_package(
     shared_data: &Shared<AppsSharedData>,
     from_path: &Path,
     manifest: &Manifest,
-) -> Result<AppsItem, AppsActorError> {
+) -> Result<(AppsItem, bool), AppsActorError> {
     let data_path = {
         let shared = shared_data.lock();
         shared.config.data_path.clone()
     };
-
     let path = Path::new(&data_path);
 
     if !from_path.is_file() {
@@ -308,6 +330,11 @@ pub fn install_package(
     }
     apps_item.set_update_url(&update_url);
     apps_item.set_install_state(AppsInstallState::Installing);
+    shared
+        .registry
+        .event_broadcaster
+        .broadcast_app_installing(AppsObject::from(&apps_item));
+
     let _ = shared
         .registry
         .apply_download(&mut apps_item, &download_dir, &manifest, &path, is_update)
@@ -329,7 +356,7 @@ pub fn install_package(
         shared.vhost_api.app_installed(&app_name);
     }
 
-    Ok(apps_item)
+    Ok((apps_item, false))
 }
 
 pub fn uninstall(
@@ -549,6 +576,7 @@ fn test_install_app() {
             data_path: _test_dir.clone(),
             uds_path: String::from("uds_path"),
             cert_type: String::from("test"),
+            updater_socket: String::from("updater_socket"),
         };
         {
             let mut shared = shared_data.lock();
@@ -567,9 +595,12 @@ fn test_install_app() {
             .unwrap()
             .as_millis() as u64;
 
-        if let Ok(apps_item) = install_package(&shared_data, &src_app.as_path(), &manifest) {
+        if let Ok((apps_item, need_restart)) =
+            install_package(&shared_data, &src_app.as_path(), &manifest)
+        {
             println!("App installed");
             app_name = apps_item.get_name();
+            assert!(!need_restart);
         } else {
             println!("App installed failed");
             panic!();
@@ -687,6 +718,7 @@ fn test_get_all() {
         data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
+        updater_socket: String::from("updater_socket"),
     };
     {
         let registry = match AppsRegistry::initialize(&config, 8443) {

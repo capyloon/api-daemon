@@ -150,6 +150,9 @@ test:cargo:codegen:
 test:cargo:support:libsignal-sys:
   extends: .test_cargo
 
+test:cargo:support:updater_client:
+  extends: .test_cargo
+
 test:cargo:parser:
   extends: .test_cargo
 

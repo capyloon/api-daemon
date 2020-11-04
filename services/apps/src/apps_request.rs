@@ -443,6 +443,7 @@ fn test_apply_pwa() {
         data_path: test_dir.clone(),
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
+        updater_socket: String::from("updater_socket"),
     };
 
     let vhost_port = 80;

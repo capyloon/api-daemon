@@ -96,6 +96,7 @@ impl Config {
                 data_path: "".into(),
                 uds_path: "".into(),
                 cert_type: "".into(),
+                updater_socket: "".into(),
             }
         }
     }

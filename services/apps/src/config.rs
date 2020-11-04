@@ -6,4 +6,5 @@ pub struct Config {
     pub data_path: String,
     pub uds_path: String,
     pub cert_type: String,
+    pub updater_socket: String,
 }

@@ -17,7 +17,7 @@ pub struct UpdateManifest {
     pub packaged_size: u64,
     pub size: u64,
     #[serde(default = "UpdateManifest::default_dependencies")]
-    pub dependencies: HashMap<String, String>, //VersionReq>,
+    pub dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
     pub r#type: String,
     pub b2g_features: Option<B2GFeatures>,
 }
@@ -57,6 +57,9 @@ fn test_read_manifest() {
             assert_eq!(manifest.size, 10022);
             assert_eq!(manifest.packaged_size, 12345);
             assert_eq!(manifest.r#type, "web");
+
+            let packages = manifest.get_dependencies();
+            assert_eq!(packages.len(), 3);
         }
         Err(err) => {
             error!("Error: {:?}", err);

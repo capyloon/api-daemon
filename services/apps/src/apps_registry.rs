@@ -708,6 +708,17 @@ impl AppsRegistry {
             Err(AppsServiceError::AppNotFound)
         }
     }
+
+    pub fn check_need_restart(&self, need_restart: bool) {
+        if need_restart {
+            let pool = self.pool.clone();
+            thread::spawn(move || {
+                // Calling join from a thread within the pool will cause a deadlock.
+                pool.join();
+                ::std::process::exit(0);
+            });
+        }
+    }
 }
 
 pub trait AppMgmtTask: Send {
@@ -794,6 +805,7 @@ fn test_init_apps_from_system() {
         data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("production"),
+        updater_socket: String::from("updater_socket"),
     };
 
     let registry = match AppsRegistry::initialize(&config, 80) {
@@ -856,6 +868,7 @@ fn test_register_app() {
         data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
+        updater_socket: String::from("updater_socket"),
     };
 
     let vhost_port = 80;
@@ -1010,6 +1023,7 @@ fn test_unregister_app() {
         data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
+        updater_socket: String::from("updater_socket"),
     };
 
     let vhost_port = 8081;
@@ -1112,6 +1126,7 @@ fn test_apply_download() {
         data_path: _test_dir.clone(),
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
+        updater_socket: String::from("updater_socket"),
     };
 
     let vhost_port = 80;
