@@ -7,22 +7,50 @@ use common::core::BaseMessage;
 use common::traits::{
     OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, TrackerId,
 };
-use log::{error, info};
-use std::collections::{HashMap, HashSet};
-
 use contacts_service::generated::common::SimContactInfo;
 use contacts_service::service::ContactsService;
+use log::{error, debug, info};
+use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::sync::Arc;
+
+lazy_static! {
+    pub(crate) static ref PROXY_TRACKER: Arc<Mutex<GeckoBridgeProxyTracker>> =
+        Arc::new(Mutex::new(GeckoBridgeProxyTracker::default()));
+}
+
+macro_rules! getDelegateWrapper {
+    ($struct_name: ident, $fn_name: ident, $delegate: ident, $ret_type: ty) => {
+        impl $struct_name {
+            fn $fn_name(&mut self, delegate: ObjectRef) -> Option<$ret_type> {
+                match self.get_proxy_tracker().lock().get(&delegate) {
+                    Some(GeckoBridgeProxy::$delegate(delegate)) => {
+                        Some(delegate.clone())
+                    },
+                    _ => {
+                        None
+                    }
+                }
+            }
+        }
+    };
+}
 
 pub struct GeckoBridgeService {
     id: TrackerId,
-    proxy_tracker: GeckoBridgeProxyTracker,
     state: Shared<GeckoBridgeState>,
     only_register_token: bool,
 }
 
+getDelegateWrapper!(GeckoBridgeService, get_AppService_delegate, AppsServiceDelegate, AppsServiceDelegateProxy);
+getDelegateWrapper!(GeckoBridgeService, get_PowerManager_delegate, PowerManagerDelegate, PowerManagerDelegateProxy);
+getDelegateWrapper!(GeckoBridgeService, get_MobileManager_delegate, MobileManagerDelegate, MobileManagerDelegateProxy);
+getDelegateWrapper!(GeckoBridgeService, get_NetworkManager_delegate, NetworkManagerDelegate, NetworkManagerDelegateProxy);
+
 impl GeckoBridge for GeckoBridgeService {
-    fn get_proxy_tracker(&mut self) -> &mut GeckoBridgeProxyTracker {
-        &mut self.proxy_tracker
+    fn get_proxy_tracker(&mut self) -> Arc<Mutex<GeckoBridgeProxyTracker>> {
+        let a = &*PROXY_TRACKER;
+        a.clone()
     }
 }
 
@@ -78,18 +106,15 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             responder.reject();
             return;
         }
+
         // Get the proxy and update our state.
-        match self.proxy_tracker.get(&delegate) {
-            Some(GeckoBridgeProxy::PowerManagerDelegate(delegate)) => {
-                self.state
-                    .lock()
-                    .set_powermanager_delegate(delegate.clone());
-                responder.resolve();
-            }
-            _ => {
-                error!("Failed to get tracked powermanager delegate.");
-                responder.reject();
-            }
+        if let Some(app_delegate) = self.get_PowerManager_delegate(delegate) {
+            self.state
+                .lock()
+                .set_powermanager_delegate(app_delegate.clone());
+            responder.resolve();
+        } else {
+            responder.reject();
         }
     }
 
@@ -102,18 +127,15 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             responder.reject();
             return;
         }
+
         // Get the proxy and update our state.
-        match self.proxy_tracker.get(&delegate) {
-            Some(GeckoBridgeProxy::AppsServiceDelegate(delegate)) => {
-                self.state
-                    .lock()
-                    .set_apps_service_delegate(delegate.clone());
-                responder.resolve();
-            }
-            _ => {
-                error!("Failed to get tracked apps service delegate");
-                responder.reject();
-            }
+        if let Some(app_delegate) = self.get_AppService_delegate(delegate) {
+            self.state
+                .lock()
+                .set_apps_service_delegate(app_delegate.clone());
+            responder.resolve();
+        } else {
+            responder.reject();
         }
     }
 
@@ -126,18 +148,15 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             responder.reject();
             return;
         }
+
         // Get the proxy and update our state.
-        match self.proxy_tracker.get(&delegate) {
-            Some(GeckoBridgeProxy::MobileManagerDelegate(delegate)) => {
-                self.state
-                    .lock()
-                    .set_mobilemanager_delegate(delegate.clone());
-                responder.resolve();
-            }
-            _ => {
-                error!("Failed to get tracked mobilemanager delegate.");
-                responder.reject();
-            }
+        if let Some(app_delegate) = self.get_MobileManager_delegate(delegate) {
+            self.state
+                .lock()
+                .set_mobilemanager_delegate(app_delegate.clone());
+            responder.resolve();
+        } else {
+            responder.reject();
         }
     }
 
@@ -150,18 +169,15 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             responder.reject();
             return;
         }
+
         // Get the proxy and update our state.
-        match self.proxy_tracker.get(&delegate) {
-            Some(GeckoBridgeProxy::NetworkManagerDelegate(delegate)) => {
-                self.state
-                    .lock()
-                    .set_networkmanager_delegate(delegate.clone());
-                responder.resolve();
-            }
-            _ => {
-                error!("Failed to get tracked networkmanager delegate.");
-                responder.reject();
-            }
+        if let Some(app_delegate) = self.get_NetworkManager_delegate(delegate) {
+            self.state
+                .lock()
+                .set_networkmanager_delegate(app_delegate.clone());
+            responder.resolve();
+        } else {
+            responder.reject();
         }
     }
 
@@ -285,7 +301,10 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
 
     fn release_object(&mut self, object_id: u32) -> bool {
         info!("releasing object {}", object_id);
-        self.proxy_tracker.remove(&object_id.into()).is_some()
+        self.get_proxy_tracker()
+            .lock()
+            .remove(&object_id.into())
+            .is_some()
     }
 }
 

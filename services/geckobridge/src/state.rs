@@ -5,6 +5,8 @@ use crate::generated::common::{
     AppsServiceDelegateProxy, CardInfoType, MobileManagerDelegateProxy, NetworkInfo,
     NetworkManagerDelegateProxy, NetworkOperator, PowerManagerDelegateProxy,
 };
+use crate::generated::service::{GeckoBridgeProxy, GeckoBridgeProxyTracker};
+use crate::service::PROXY_TRACKER;
 use common::tokens::SharedTokensManager;
 use common::traits::{OriginAttributes, Shared};
 use common::JsonValue;
@@ -12,9 +14,11 @@ use log::{debug, error};
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use thiserror::Error;
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 #[derive(Error, Debug)]
-pub enum DelegatorError {
+pub enum DelegateError {
     #[error("Report errors from web runtime")]
     InvalidWebRuntimeService,
     #[error("Receive receiver error")]
@@ -46,6 +50,11 @@ pub struct GeckoBridgeState {
 }
 
 impl GeckoBridgeState {
+    fn get_proxy_tracker(&mut self) -> Arc<Mutex<GeckoBridgeProxyTracker>> {
+        let a = &*PROXY_TRACKER;
+        a.clone()
+    }
+
     /// Reset the state, making it possible to set new delegates.
     pub fn reset(&mut self) {
         self.prefs = HashMap::new();
@@ -241,19 +250,19 @@ impl GeckoBridgeState {
         &mut self,
         service_id: i64,
         info_type: CardInfoType,
-    ) -> Result<String, DelegatorError> {
+    ) -> Result<String, DelegateError> {
         if let Some(mobilemanager) = &mut self.mobilemanager {
             let rx = mobilemanager.get_card_info(service_id, info_type);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(info) => Ok(info),
-                    Err(_) => Err(DelegatorError::InvalidWebRuntimeService),
+                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
                 }
             } else {
-                Err(DelegatorError::InvalidChannel)
+                Err(DelegateError::InvalidChannel)
             }
         } else {
-            Err(DelegatorError::InvalidDelegator)
+            Err(DelegateError::InvalidDelegator)
         }
     }
 
@@ -261,19 +270,19 @@ impl GeckoBridgeState {
         &mut self,
         service_id: i64,
         is_sim: bool,
-    ) -> Result<NetworkOperator, DelegatorError> {
+    ) -> Result<NetworkOperator, DelegateError> {
         if let Some(mobilemanager) = &mut self.mobilemanager {
             let rx = mobilemanager.get_mnc_mcc(service_id, is_sim);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(operator) => Ok(operator),
-                    Err(_) => Err(DelegatorError::InvalidWebRuntimeService),
+                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
                 }
             } else {
-                Err(DelegatorError::InvalidChannel)
+                Err(DelegateError::InvalidChannel)
             }
         } else {
-            Err(DelegatorError::InvalidDelegator)
+            Err(DelegateError::InvalidDelegator)
         }
     }
 
@@ -283,19 +292,19 @@ impl GeckoBridgeState {
         self.notify_readyness_observers();
     }
 
-    pub fn networkmanager_get_network_info(&mut self) -> Result<NetworkInfo, DelegatorError> {
+    pub fn networkmanager_get_network_info(&mut self) -> Result<NetworkInfo, DelegateError> {
         if let Some(networkmanager) = &mut self.networkmanager {
             let rx = networkmanager.get_network_info();
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(info) => Ok(info),
-                    Err(_) => Err(DelegatorError::InvalidWebRuntimeService),
+                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
                 }
             } else {
-                Err(DelegatorError::InvalidChannel)
+                Err(DelegateError::InvalidChannel)
             }
         } else {
-            Err(DelegatorError::InvalidDelegator)
+            Err(DelegateError::InvalidDelegator)
         }
     }
 

@@ -1615,6 +1615,7 @@ dependencies = [
  "contacts_service",
  "lazy_static",
  "log 0.4.11",
+ "parking_lot 0.11.1",
  "serde",
  "thiserror",
 ]

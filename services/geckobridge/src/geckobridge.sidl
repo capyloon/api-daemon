@@ -108,4 +108,5 @@ interface GeckoFeatures {
   fn import_sim_contacts(sim_contacts: SimContactInfo*)
 }
 
+#[rust:shared-proxy-tracker]
 service GeckoBridge: GeckoFeatures

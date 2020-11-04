@@ -73,6 +73,18 @@ impl Codegen {
             false
         };
 
+        // Check the "rust:shared-proxy-tracker" annotation to decide if we will use
+        // Arc<Mutex<ProxyTracker>> or ProxyTracker.
+        let use_shared_proxy_tracker = if let Some(annotation) = &service.annotation {
+            annotation.has("rust:shared-proxy-tracker")
+        } else {
+            false
+        };
+
+        if use_shared_proxy_tracker {
+            sink.write_all(b"use std::sync::Arc; use parking_lot::Mutex;")?;
+        }
+
         let service_name = &service.name;
 
         writeln!(
@@ -181,19 +193,37 @@ impl Codegen {
 
         // Only need a proxy tracker when there are callback objects.
         if !self.ast.callbacks.is_empty() {
-            writeln!(
-                sink,
-                "fn get_proxy_tracker(&mut self) -> &mut {}ProxyTracker;\n",
-                service_name
-            )?;
+            if use_shared_proxy_tracker {
+                writeln!(
+                    sink,
+                    "fn get_proxy_tracker(&mut self) -> Arc<Mutex<{}ProxyTracker>>;\n",
+                    service_name
+                )?;
+            } else {
+                writeln!(
+                    sink,
+                    "fn get_proxy_tracker(&mut self) -> &mut {}ProxyTracker;\n",
+                    service_name
+                )?;
+            }
 
             writeln!(sink, "fn maybe_add_proxy<F>(&mut self, object_ref: ObjectRef, builder: F) where F: FnOnce() -> {}Proxy,", service_name)?;
-            sink.write_all(
-                b"{
-                let tracker = self.get_proxy_tracker();
-                tracker.entry(object_ref).or_insert_with(builder);
-            }\n\n",
-            )?;
+            if use_shared_proxy_tracker {
+                sink.write_all(
+                    b"{
+                        let tracker = self.get_proxy_tracker();
+                        let mut lock = tracker.lock();
+                        lock.entry(object_ref).or_insert_with(builder);
+                    }\n\n",
+                )?;
+            } else {
+                sink.write_all(
+                    b"{
+                        let tracker = self.get_proxy_tracker();
+                        tracker.entry(object_ref).or_insert_with(builder);
+                    }\n\n",
+                )?;
+            }
         }
 
         // Generate the main dispatcher function, calling the methods from the Methods traits and sending
@@ -466,6 +496,9 @@ impl Codegen {
                 // 2. Get the appropriate proxy object.
                 writeln!(sink, "let object_ref = ObjectRef::from(message.object);")?;
                 writeln!(sink, "let tracker = self.get_proxy_tracker();")?;
+                if use_shared_proxy_tracker {
+                    writeln!(sink, "let mut tracker = tracker.lock();")?;
+                }
                 writeln!(
                     sink,
                     "if let Some({}Proxy::{}(proxy))  = tracker.get_mut(&object_ref) {{",
@@ -544,6 +577,9 @@ impl Codegen {
                 // 2. Get the appropriate proxy object.
                 writeln!(sink, "let object_ref = ObjectRef::from(message.object);")?;
                 writeln!(sink, "let tracker = self.get_proxy_tracker();")?;
+                if use_shared_proxy_tracker {
+                    writeln!(sink, "let mut tracker = tracker.lock();")?;
+                }
                 writeln!(
                     sink,
                     "if let Some({}Proxy::{}(proxy))  = tracker.get_mut(&object_ref) {{",
