@@ -9,7 +9,7 @@ use common::traits::{
 };
 use contacts_service::generated::common::SimContactInfo;
 use contacts_service::service::ContactsService;
-use log::{error, debug, info};
+use log::{error, info};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -24,12 +24,8 @@ macro_rules! getDelegateWrapper {
         impl $struct_name {
             fn $fn_name(&mut self, delegate: ObjectRef) -> Option<$ret_type> {
                 match self.get_proxy_tracker().lock().get(&delegate) {
-                    Some(GeckoBridgeProxy::$delegate(delegate)) => {
-                        Some(delegate.clone())
-                    },
-                    _ => {
-                        None
-                    }
+                    Some(GeckoBridgeProxy::$delegate(delegate)) => Some(delegate.clone()),
+                    _ => None,
                 }
             }
         }
@@ -42,10 +38,30 @@ pub struct GeckoBridgeService {
     only_register_token: bool,
 }
 
-getDelegateWrapper!(GeckoBridgeService, get_AppService_delegate, AppsServiceDelegate, AppsServiceDelegateProxy);
-getDelegateWrapper!(GeckoBridgeService, get_PowerManager_delegate, PowerManagerDelegate, PowerManagerDelegateProxy);
-getDelegateWrapper!(GeckoBridgeService, get_MobileManager_delegate, MobileManagerDelegate, MobileManagerDelegateProxy);
-getDelegateWrapper!(GeckoBridgeService, get_NetworkManager_delegate, NetworkManagerDelegate, NetworkManagerDelegateProxy);
+getDelegateWrapper!(
+    GeckoBridgeService,
+    get_app_service_delegate,
+    AppsServiceDelegate,
+    AppsServiceDelegateProxy
+);
+getDelegateWrapper!(
+    GeckoBridgeService,
+    get_power_manager_delegate,
+    PowerManagerDelegate,
+    PowerManagerDelegateProxy
+);
+getDelegateWrapper!(
+    GeckoBridgeService,
+    get_mobile_manager_delegate,
+    MobileManagerDelegate,
+    MobileManagerDelegateProxy
+);
+getDelegateWrapper!(
+    GeckoBridgeService,
+    get_network_manager_delegate,
+    NetworkManagerDelegate,
+    NetworkManagerDelegateProxy
+);
 
 impl GeckoBridge for GeckoBridgeService {
     fn get_proxy_tracker(&mut self) -> Arc<Mutex<GeckoBridgeProxyTracker>> {
@@ -108,10 +124,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         }
 
         // Get the proxy and update our state.
-        if let Some(app_delegate) = self.get_PowerManager_delegate(delegate) {
+        if let Some(app_delegate) = self.get_power_manager_delegate(delegate) {
             self.state
                 .lock()
-                .set_powermanager_delegate(app_delegate.clone());
+                .set_powermanager_delegate(app_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -129,10 +145,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         }
 
         // Get the proxy and update our state.
-        if let Some(app_delegate) = self.get_AppService_delegate(delegate) {
+        if let Some(app_delegate) = self.get_app_service_delegate(delegate) {
             self.state
                 .lock()
-                .set_apps_service_delegate(app_delegate.clone());
+                .set_apps_service_delegate(app_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -150,10 +166,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         }
 
         // Get the proxy and update our state.
-        if let Some(app_delegate) = self.get_MobileManager_delegate(delegate) {
+        if let Some(app_delegate) = self.get_mobile_manager_delegate(delegate) {
             self.state
                 .lock()
-                .set_mobilemanager_delegate(app_delegate.clone());
+                .set_mobilemanager_delegate(app_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -171,10 +187,10 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         }
 
         // Get the proxy and update our state.
-        if let Some(app_delegate) = self.get_NetworkManager_delegate(delegate) {
+        if let Some(app_delegate) = self.get_network_manager_delegate(delegate) {
             self.state
                 .lock()
-                .set_networkmanager_delegate(app_delegate.clone());
+                .set_networkmanager_delegate(app_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -278,7 +294,6 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
         let service_id = helper.session_tracker_id().service();
         Ok(GeckoBridgeService {
             id: service_id,
-            proxy_tracker: HashMap::new(),
             state,
             only_register_token,
         })

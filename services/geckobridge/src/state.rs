@@ -3,7 +3,8 @@
 
 use crate::generated::common::{
     AppsServiceDelegateProxy, CardInfoType, MobileManagerDelegateProxy, NetworkInfo,
-    NetworkManagerDelegateProxy, NetworkOperator, PowerManagerDelegateProxy,
+    NetworkManagerDelegateProxy, NetworkOperator, ObjectRef, PowerManagerDelegateProxy,
+    WakelockProxy,
 };
 use crate::generated::service::{GeckoBridgeProxy, GeckoBridgeProxyTracker};
 use crate::service::PROXY_TRACKER;
@@ -11,11 +12,11 @@ use common::tokens::SharedTokensManager;
 use common::traits::{OriginAttributes, Shared};
 use common::JsonValue;
 use log::{debug, error};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use thiserror::Error;
 use std::sync::Arc;
-use parking_lot::Mutex;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum DelegateError {
@@ -25,6 +26,8 @@ pub enum DelegateError {
     InvalidChannel,
     #[error("Failed to get delegate manager")]
     InvalidDelegator,
+    #[error("Invalid wakelock")]
+    InvalidWakelock,
 }
 
 pub enum PrefValue {
@@ -50,7 +53,7 @@ pub struct GeckoBridgeState {
 }
 
 impl GeckoBridgeState {
-    fn get_proxy_tracker(&mut self) -> Arc<Mutex<GeckoBridgeProxyTracker>> {
+    fn proxy_tracker(&mut self) -> Arc<Mutex<GeckoBridgeProxyTracker>> {
         let a = &*PROXY_TRACKER;
         a.clone()
     }
@@ -162,6 +165,97 @@ impl GeckoBridgeState {
         }
     }
 
+    pub fn powermanager_request_wakelock(
+        &mut self,
+        topic: String,
+    ) -> Result<ObjectRef, DelegateError> {
+        if let Some(powermanager) = &mut self.powermanager {
+            let rx = powermanager.request_wakelock(topic);
+            if let Ok(result) = rx.recv() {
+                match result {
+                    Ok(obj_ref) => {
+                        if let Some(GeckoBridgeProxy::Wakelock(_proxy)) =
+                            self.proxy_tracker().lock().get(&obj_ref)
+                        {
+                            debug!("Request the wakelock successfully.");
+                            Ok(obj_ref)
+                        } else {
+                            error!("Failed to get wakelock: no proxy object.");
+                            Err(DelegateError::InvalidWakelock)
+                        }
+                    }
+                    Err(_) => {
+                        error!("Failed to request wake lock, invalid object reference.");
+                        Err(DelegateError::InvalidWakelock)
+                    }
+                }
+            } else {
+                error!("Failed to get the wakelock: invalid delegate channel.");
+                Err(DelegateError::InvalidChannel)
+            }
+        } else {
+            error!("Failed to get the wakelock: powermanager delegate is not set!");
+            Err(DelegateError::InvalidDelegator)
+        }
+    }
+
+    fn get_wakelock_proxy(&mut self, wakelock: ObjectRef) -> Result<WakelockProxy, DelegateError> {
+        match self.proxy_tracker().lock().get(&wakelock) {
+            Some(GeckoBridgeProxy::Wakelock(proxy)) => Ok(proxy.clone()),
+            _ => Err(DelegateError::InvalidWakelock),
+        }
+    }
+
+    pub fn powermanager_wakelock_get_topic(
+        &mut self,
+        wakelock: ObjectRef,
+    ) -> Result<String, DelegateError> {
+        if let Ok(mut proxy) = self.get_wakelock_proxy(wakelock) {
+            let rx = proxy.get_topic();
+            if let Ok(result) = rx.recv() {
+                match result {
+                    Ok(topic) => {
+                        debug!("powermanager_wakelock_get_topic: {}.", topic);
+                        Ok(topic)
+                    }
+                    Err(_) => {
+                        error!("powermanager_wakelock_get_topic: invalid wakelock.");
+                        Err(DelegateError::InvalidWakelock)
+                    }
+                }
+            } else {
+                error!("powermanager_wakelock_get_topic: invalid channel.");
+                Err(DelegateError::InvalidChannel)
+            }
+        } else {
+            error!("powermanager_wakelock_get_topic: invalid wakelock proxy.");
+            Err(DelegateError::InvalidWakelock)
+        }
+    }
+
+    pub fn powermanager_wakelock_unlock(
+        &mut self,
+        wakelock: ObjectRef,
+    ) -> Result<(), DelegateError> {
+        let mut proxy = self.get_wakelock_proxy(wakelock)?;
+        let rx = proxy.unlock();
+        if let Ok(result) = rx.recv() {
+            match result {
+                Ok(()) => {
+                    debug!("powermanager_wakelock_unlock: successful.");
+                    Ok(())
+                }
+                Err(_) => {
+                    error!("powermanager_wakelock_unlock: invalid channel.");
+                    Err(DelegateError::InvalidChannel)
+                }
+            }
+        } else {
+            error!("powermanager_wakelock_unlock: invalid channel.");
+            Err(DelegateError::InvalidChannel)
+        }
+    }
+
     // Apps service delegate management.
     pub fn is_apps_service_ready(&self) -> bool {
         self.appsservice.is_some()
@@ -175,23 +269,23 @@ impl GeckoBridgeState {
     pub fn apps_service_on_clear(
         &mut self,
         manifest_url: String,
-        data_type: String
-    ) -> Result<(), DelegatorError> {
+        data_type: String,
+    ) -> Result<(), DelegateError> {
         debug!("apps_service_on_clear: {}", &manifest_url);
         if let Some(service) = &mut self.appsservice {
             let rx = service.on_clear(manifest_url, data_type);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(_) => Ok(()),
-                    Err(_) => Err(DelegatorError::InvalidWebRuntimeService),
+                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
                 }
             } else {
                 error!("The apps service delegate rx channel error!");
-                Err(DelegatorError::InvalidChannel)
+                Err(DelegateError::InvalidChannel)
             }
         } else {
             error!("The apps service delegate is not set!");
-            Err(DelegatorError::InvalidDelegator)
+            Err(DelegateError::InvalidDelegator)
         }
     }
 

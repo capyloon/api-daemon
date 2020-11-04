@@ -17,8 +17,19 @@ callback AppsServiceDelegate {
   fn on_uninstall(manifest_url: str)
 }
 
+callback Wakelock {
+  // Name of the resource.
+  fn get_topic() -> str
+
+  // Release the wake lock.
+  fn unlock()
+}
+
 callback PowerManagerDelegate {
   fn set_screen_enabled(enabled: bool, is_external_screen: bool)
+
+  // Request the wake lock for the resource specific by topic, eg, 'cpu', 'wifi' and 'screen'.
+  fn request_wakelock(topic: str) -> Wakelock
 }
 
 enum CardInfoType {
