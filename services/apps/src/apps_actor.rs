@@ -18,10 +18,14 @@ use thiserror::Error;
 pub enum AppsActorError {
     #[error("AppNotFound")]
     AppNotFound,
+    #[error("AppsServiceError {:?}", 0)]
+    ServiceError(AppsServiceError),
     #[error("Package missing")]
     PackageMissing,
     #[error("Installation directory not found")]
     InstallationDirNotFound,
+    #[error("Empty url")]
+    EmptyUrl,
     #[error("Invalid app name")]
     InvalidAppName,
     #[error("File copy failed")]
@@ -110,7 +114,9 @@ pub fn start_webapp_actor(shared_data: Shared<AppsSharedData>) {
 }
 
 fn validate_request(request: &Request) -> bool {
-    if (request.cmd == "install" || request.cmd == "uninstall") && request.param.is_some() {
+    if (request.cmd == "install" || request.cmd == "install-pwa" || request.cmd == "uninstall")
+        && request.param.is_some()
+    {
         true
     } else {
         request.cmd == "list"
@@ -192,8 +198,26 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
             write_response(&mut stream_write, &request.cmd, true, "success");
         }
 
+        if &request.cmd == "install-pwa" {
+            // request.param is assured to be Some.
+            let url = request.param.clone().unwrap();
+            if let Err(err) = install_pwa(&shared_data, &url) {
+                error!("Installation fails, {}", err);
+                write_response(
+                    &mut stream_write,
+                    &request.cmd,
+                    false,
+                    &format!("{:?}", err),
+                );
+                continue;
+            }
+
+            info!("Installation {:?} success", &request.param);
+            write_response(&mut stream_write, &request.cmd, true, "success");
+        }
+
         if &request.cmd == "uninstall" {
-            if let Err(err) = uninstall_package(&shared_data, &request.param.unwrap()) {
+            if let Err(err) = uninstall(&shared_data, &request.param.unwrap()) {
                 error!("Uninstallation fails, {}", err);
                 write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
 
@@ -219,6 +243,21 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
             }
         }
     }
+}
+
+pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &str) -> Result<(), AppsActorError> {
+    let mut shared = shared_data.lock();
+    let data_path = shared.config.data_path.clone();
+    let app = shared
+        .registry
+        .download_and_apply_pwa(&data_path, url)
+        .map_err(AppsActorError::ServiceError)?;
+    shared
+        .registry
+        .event_broadcaster
+        .broadcast_app_installed(app);
+
+    Ok(())
 }
 
 // Read valid application from from_path.
@@ -292,37 +331,35 @@ pub fn install_package(
     Ok(())
 }
 
-pub fn uninstall_package(
+pub fn uninstall(
     shared_data: &Shared<AppsSharedData>,
-    app_name: &str,
+    manifest_url: &str,
 ) -> Result<(), AppsActorError> {
-    if app_name.is_empty() {
-        return Err(AppsActorError::InvalidAppName);
-    }
-
-    let data_path = {
-        let shared = shared_data.lock();
-        shared.config.data_path.clone()
-    };
-    let app_name = AppsRegistry::sanitize_name(&app_name);
-    if app_name.is_empty() {
-        return Err(AppsActorError::InvalidAppName);
+    if manifest_url.is_empty() {
+        return Err(AppsActorError::EmptyUrl);
     }
 
     let mut shared = shared_data.lock();
-    // Use a local manifest for identification purpose
-    let update_url = format!("http://{}.localhost/manifest.webapp", &app_name);
-    let manifest_url = shared
+    let app = match shared.get_by_manifest_url(manifest_url) {
+        Ok(app) => app,
+        Err(err) => {
+            error!("Do not find uninstall app: {:?}", err);
+            return Err(AppsActorError::AppNotFound);
+        }
+    };
+    let data_path = shared.config.data_path.clone();
+
+    let _ = shared
         .registry
-        .uninstall_app(&app_name, &update_url, &data_path)
+        .uninstall_app(&app.name, &app.update_url, &data_path)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     shared
         .registry
         .event_broadcaster
-        .broadcast_app_uninstalled(manifest_url);
+        .broadcast_app_uninstalled(manifest_url.into());
 
-    shared.vhost_api.app_uninstalled(&app_name);
+    shared.vhost_api.app_uninstalled(&app.name);
 
     Ok(())
 }
@@ -631,12 +668,14 @@ fn test_install_app() {
             assert_eq!(5, shared.registry.count());
         }
 
+        let mut manifest_url = String::new();
         {
             let shared = shared_data.lock();
             let app_name: String = "helloworld".into();
             let vhost_port = shared.registry.get_vhost_port();
             let apps_item = AppsItem::default(&app_name, vhost_port);
-            if let Ok(app) = shared.get_by_manifest_url(&apps_item.get_manifest_url()) {
+            manifest_url = apps_item.get_manifest_url();
+            if let Ok(app) = shared.get_by_manifest_url(&manifest_url) {
                 assert_eq!(app_name, app.name);
             } else {
                 println!("get_by_manifest_url failed.");
@@ -645,7 +684,7 @@ fn test_install_app() {
         }
 
         // Uninstall
-        if let Ok(_) = uninstall_package(&shared_data, "Helloworld") {
+        if let Ok(_) = uninstall(&shared_data, &manifest_url) {
             let shared = shared_data.lock();
             println!(
                 "After uninstall, shared.apps_objects.len: {}",
@@ -653,7 +692,7 @@ fn test_install_app() {
             );
             assert_eq!(4, shared.registry.count());
         } else {
-            println!("uninstall_package failed");
+            println!("uninstall failed");
             assert!(false);
         }
     }
