@@ -153,6 +153,18 @@
       );
 
       await tester.assert_eq(
+        "has number true",
+        (service) => service.hasNumber("181777777"),
+        true
+      );
+
+      await tester.assert_eq(
+        "has number false",
+        (service) => service.hasNumber("181777888"),
+        false
+      );
+
+      await tester.assert_eq(
         "verify after add contact_1, contact_2 ,contact count is 2",
         (service) => service.getCount(),
         2

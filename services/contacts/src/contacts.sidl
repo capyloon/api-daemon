@@ -236,6 +236,9 @@ interface ContactsFactory {
   // Returns a cursor that will iterate over contacts matching the query.
   fn find(params: ContactFindSortOptions, batch_size: int) -> ContactCursor
 
+  // Returns a bool indicating whether this tel number exists.
+  fn has_number(number: str) -> bool
+
   // Position: 1 based.
   fn set_ice(contact_id: str, position: int)
 
