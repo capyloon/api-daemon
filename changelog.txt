@@ -1,5 +1,8 @@
 Change history
 
+2.0
+    Bump major version since this branch is not compatible with 1.x
+
 1.4.22
     Force the child to exit on IPC errors.
 
