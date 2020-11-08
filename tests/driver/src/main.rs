@@ -32,7 +32,7 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
     let script = match env::args().nth(1) {
         Some(value) => value,
         None => {
-            error!("Usage: {} <path_to_test.html>", env::args().nth(0).unwrap());
+            error!("Usage: {} <path_to_test.html>", env::args().next().unwrap());
             exit(1);
         }
     };
@@ -97,7 +97,7 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
     let mut retries = 0;
     loop {
         // Try to connect to localhost:4444 with a socket.
-        if let Ok(_) = TcpStream::connect("localhost:4444") {
+        if TcpStream::connect("localhost:4444").is_ok() {
             break;
         }
 
@@ -167,7 +167,8 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
             println!(
                 "{} : {}",
                 Paint::red("Failed to get test data, error").bold(),
-                Paint::white(err));
+                Paint::white(err)
+            );
             exit(4);
         }
     };
@@ -181,21 +182,19 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
                 Paint::green(test.description).bold(),
                 test.elapsed.unwrap()
             );
+        } else if test.error.is_none() {
+            println!(
+                "{} : expected {} but got {}",
+                Paint::red(test.description).bold(),
+                Paint::white(test.expected.unwrap()),
+                Paint::white(test.observed.unwrap())
+            );
         } else {
-            if test.error.is_none() {
-                println!(
-                    "{} : expected {} but got {}",
-                    Paint::red(test.description).bold(),
-                    Paint::white(test.expected.unwrap()),
-                    Paint::white(test.observed.unwrap())
-                );
-            } else {
-                println!(
-                    "{} : {}",
-                    Paint::red(test.description).bold(),
-                    Paint::white(test.error.unwrap())
-                );
-            }
+            println!(
+                "{} : {}",
+                Paint::red(test.description).bold(),
+                Paint::white(test.error.unwrap())
+            );
         }
     }
 

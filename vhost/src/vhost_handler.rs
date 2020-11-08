@@ -43,7 +43,7 @@ pub fn maybe_not_modified(
     // Check if we have an etag from the If-None-Match header.
     if let Some(if_none_match) = if_none_match {
         if let Ok(value) = if_none_match.to_str() {
-            if etag.to_string() == value {
+            if etag == value {
                 return Some(
                     HttpResponse::NotModified()
                         .content_type(mime.as_ref())
@@ -75,7 +75,7 @@ fn response_from_zip<'a>(
 
     HttpResponse::Ok()
         .set_header("Content-Security-Policy", csp)
-        .set_header("ETag", etag.to_string())
+        .set_header("ETag", etag)
         .content_type(mime.as_ref())
         .body(buf)
 }
@@ -104,7 +104,7 @@ fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue
         HttpResponse::Ok()
             .set_header("Content-Security-Policy", csp)
             .content_type(mime.as_ref())
-            .set_header("ETag", etag.to_string())
+            .set_header("ETag", etag)
             .body(buf)
     } else {
         HttpResponse::NotFound().finish()

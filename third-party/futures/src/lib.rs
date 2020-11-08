@@ -95,7 +95,7 @@
 
 #![doc(test(attr(deny(warnings), allow(dead_code, unused_assignments, unused_variables))))]
 
-#![doc(html_root_url = "https://docs.rs/futures/0.3.7")]
+#![doc(html_root_url = "https://docs.rs/futures/0.3.8")]
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
@@ -301,7 +301,7 @@ pub mod future {
     #[cfg(feature = "std")]
     pub use futures_util::future::{
         Remote, RemoteHandle,
-        CatchUnwind, Shared,
+        CatchUnwind, Shared, WeakShared,
     };
 }
 
@@ -456,7 +456,7 @@ pub mod stream {
         try_unfold, TryUnfold,
 
         StreamExt,
-        Chain, Collect, Concat, Enumerate, Filter, FilterMap, FlatMap, Flatten,
+        Chain, Collect, Concat, Cycle, Enumerate, Filter, FilterMap, FlatMap, Flatten,
         Fold, Forward, ForEach, Fuse, StreamFuture, Inspect, Map, Next,
         SelectNextSome, Peek, Peekable, Scan, Skip, SkipWhile, Take, TakeUntil,
         TakeWhile, Then, Zip,
@@ -498,7 +498,7 @@ pub mod stream {
     #[cfg(feature = "alloc")]
     pub use futures_util::stream::{
         // For TryStreamExt:
-        TryBufferUnordered, TryForEachConcurrent,
+        TryBufferUnordered, TryBuffered, TryForEachConcurrent,
     };
 
     #[cfg(feature = "std")]

@@ -14,7 +14,7 @@ pub fn vhost_data(config: &Config) -> Shared<AppData> {
     let config = config.clone();
     Shared::adopt(AppData {
         root_path: config.root_path.clone(),
-        csp: config.csp.clone(),
+        csp: config.csp,
         zips: HashMap::new(),
     })
 }

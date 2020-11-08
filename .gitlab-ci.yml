@@ -24,6 +24,8 @@ build:daemon:
   script:
     - rustc --version && cargo --version
     - cd $CI_PROJECT_DIR/daemon
+    # Fail when encountering clippy warnings.
+    - cargo clippy --all-targets -- -D warnings
     - cargo build --release --features=fake-tokens
     - cd $CI_PROJECT_DIR/child-test-daemon
     - cargo build --release

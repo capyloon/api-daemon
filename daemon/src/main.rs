@@ -24,7 +24,7 @@ use log::{error, info};
 use std::thread;
 use vhost_server::config::VhostApi;
 
-static VERSION: &'static str = include_str!("../../version.in");
+static VERSION: &str = include_str!("../../version.in");
 
 #[cfg(target_os = "android")]
 fn init_logger(verbose: bool) {
@@ -157,11 +157,10 @@ fn main() {
             .expect("Failed to start ws server thread");
 
         // Starts the unix domain socket server in its own thread.
-        let uds_context = global_context.clone();
         let uds_handle = thread::Builder::new()
             .name("uds server".into())
             .spawn(move || {
-                uds_server::start(&uds_context);
+                uds_server::start(&global_context);
             })
             .expect("Failed to start uds server thread");
 

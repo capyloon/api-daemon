@@ -12,7 +12,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use thiserror::Error as ThisError;
-use toml;
 
 #[derive(ThisError, Debug)]
 pub enum Error {

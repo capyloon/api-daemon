@@ -196,7 +196,7 @@ impl PowermanagerMethods for PowerManager {
         let color = 0xff00_0000 + (val << 16) + (val << 8) + val;
 
         let light_state = light::LightState {
-            color: color,
+            color,
             flash_mode: FLASH_NONE,
             flash_on_ms: 0,
             flash_off_ms: 0,
@@ -260,7 +260,7 @@ impl PowermanagerMethods for PowerManager {
         let color = 0xff00_0000 + (val << 16) + (val << 8) + val;
 
         let light_state = light::LightState {
-            color: color,
+            color,
             flash_mode: FLASH_NONE,
             flash_on_ms: 0,
             flash_off_ms: 0,

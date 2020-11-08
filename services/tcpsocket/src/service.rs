@@ -13,7 +13,7 @@ use common::traits::{
 
 use log::{debug, error, info};
 use mio::unix::UnixReady;
-use mio::{Events, Poll, Token};
+use mio::{Event, Events, Poll, Token};
 use parking_lot::Mutex;
 use std::io::ErrorKind;
 use std::sync::Arc;
@@ -22,12 +22,155 @@ use std::thread;
 const MAX_SOCKET_NUM: usize = 1024;
 const RECV_BUFF_SIZE: usize = 16384;
 
+use crate::private_traits::PrivateTrait;
+type Msocket<'a> = parking_lot::lock_api::MutexGuard<
+    'a,
+    parking_lot::RawMutex,
+    (dyn PrivateTrait + std::marker::Send + 'static),
+>;
+
+fn read_on_socket<'a>(socket: &mut Msocket<'a>, buf: &mut [u8], len: usize) {
+    // Data
+    debug!("Reading data len={}", len);
+    let mut v = buf[0..len].to_vec();
+    socket.on_event(EventType::Data, v);
+    // Draining readiness
+    loop {
+        match socket.read(buf) {
+            Ok(0) => {
+                break;
+            }
+            Ok(len) => {
+                v = buf[0..len].to_vec();
+                socket.on_event(EventType::Data, v);
+            }
+            Err(err) => {
+                if err.kind() == ErrorKind::WouldBlock {
+                    break;
+                } else {
+                    // TODO: add more specified error process
+                    error!("Error draining read buffer: {:?}", err);
+                }
+            }
+        }
+    }
+}
+
+fn process_event(
+    event: &Event,
+    is_connected: bool,
+    buf: &mut [u8],
+    poll: Arc<Poll>,
+    token_map: &TokenMap,
+    tracker: Arc<Mutex<TcpSocketManagerTrackerType>>,
+) -> bool {
+    let token = event.token();
+    debug!("Event: {:?}", token);
+    let tracker_id;
+    let responder;
+
+    let mut is_connected = is_connected;
+
+    if let Some((id, res)) = token_map.lock().get(&token) {
+        tracker_id = *id;
+        responder = res.clone();
+    } else {
+        error!("can't get tracker from map for Events {:?}", token);
+        return is_connected;
+    }
+    let mut untrack = false;
+    let mut tracker_lock = tracker.lock();
+    if let Some(obj) = tracker_lock.get_mut(tracker_id) {
+        let TcpSocketManagerTrackedObject::TcpSocket(ctxt) = obj;
+        {
+            let mut socket = ctxt.lock();
+            if !socket.is_ready() {
+                if socket.set_ready(event.readiness().is_writable()) {
+                    is_connected = true;
+                } else {
+                    // Relase local resource
+                    socket.post_close(&poll);
+                    token_map.lock().remove(&Token(tracker_id as usize));
+                    debug!("map size on release_object: {:?}", token_map.lock().len());
+                    untrack = true;
+                    responder.reject();
+                }
+            }
+        }
+        if is_connected {
+            is_connected = false;
+            responder.resolve(ctxt.clone());
+            return is_connected;
+        }
+        let socket_state: UnixReady = event.readiness().into();
+        if socket_state.is_hup() {
+            debug!("Got HUP, peer closed connection.");
+            // The socket was closed by the peer.
+            let mut socket = ctxt.lock();
+            socket.post_close(&poll);
+            token_map.lock().remove(&Token(tracker_id as usize));
+            debug!(
+                "Sockets managed by this event loop after HUP: {}",
+                token_map.lock().len()
+            );
+            untrack = true;
+            // Send to client
+            socket.on_event(EventType::Close, vec![0]);
+        } else if socket_state.is_readable() {
+            let mut socket = ctxt.lock();
+            match socket.read(buf) {
+                Ok(0) => {
+                    // Close
+                    debug!("Empty read, will close connection.");
+                    // Relase local resource
+                    socket.post_close(&poll);
+                    token_map.lock().remove(&Token(tracker_id as usize));
+                    debug!(
+                        "Sockets managed by this event loop after Read(0): {}",
+                        token_map.lock().len()
+                    );
+                    untrack = true;
+                    // Send to client
+                    let v = vec![0];
+                    socket.on_event(EventType::Close, v);
+                }
+                Ok(len) => {
+                    read_on_socket(&mut socket, buf, len);
+                }
+                Err(ref err) => {
+                    // Silently ignore WouldBlock since it's not an
+                    // unrecoverable error situation.
+                    if err.kind() != ErrorKind::WouldBlock {
+                        error!("Error reading data: {:?}", err);
+                        // Error
+                        let v = err.to_string().into_bytes();
+                        socket.on_event(EventType::Error, v);
+                    }
+                }
+            }
+        } else if socket_state.is_writable() {
+            let mut socket = ctxt.lock();
+            debug!("Socket is writable");
+            socket.drain_queue();
+        }
+        if untrack {
+            info!("Untrack {}", tracker_id);
+            tracker_lock.untrack(tracker_id);
+        }
+    }
+
+    is_connected
+}
+
 pub fn start_event_loop(
     poll: Arc<Poll>,
     token_map: TokenMap,
     tracker: Arc<Mutex<TcpSocketManagerTrackerType>>,
 ) {
-    info!("Starting event loop with {} sockets.", token_map.lock().len());
+    info!(
+        "Starting event loop with {} sockets.",
+        token_map.lock().len()
+    );
     thread::spawn(move || {
         let mut buf = [0; RECV_BUFF_SIZE];
         let mut events = Events::with_capacity(MAX_SOCKET_NUM);
@@ -38,123 +181,16 @@ pub fn start_event_loop(
                 Ok(size) => debug!("Polled {} events", size),
                 Err(err) => error!("Error in poll: {:?}", err),
             }
-            for event in &events {
-                let token = event.token();
-                debug!("Event: {:?}", token);
-                let tracker_id;
-                let responder;
 
-                if let Some((id, res)) = token_map.lock().get(&token) {
-                    tracker_id = *id;
-                    responder = res.clone();
-                } else {
-                    error!("can't get tracker from map for Events {:?}", token);
-                    continue;
-                }
-                let mut untrack = false;
-                let mut tracker_lock = tracker.lock();
-                if let Some(obj) = tracker_lock.get_mut(tracker_id) {
-                    let TcpSocketManagerTrackedObject::TcpSocket(ctxt) = obj;
-                    {
-                        let mut socket = ctxt.lock();
-                        if !socket.is_ready() {
-                            if socket.set_ready(event.readiness().is_writable()) {
-                                is_connected = true;
-                            } else {
-                                // Relase local resource
-                                socket.post_close(&poll);
-                                token_map.lock().remove(&Token(tracker_id as usize));
-                                debug!("map size on release_object: {:?}", token_map.lock().len());
-                                untrack = true;
-                                responder.reject();
-                            }
-                        }
-                    }
-                    if is_connected {
-                        is_connected = false;
-                        responder.resolve(ctxt.clone());
-                        continue;
-                    }
-                    let socket_state: UnixReady = event.readiness().into();
-                    if socket_state.is_hup() {
-                        debug!("Got HUP, peer closed connection.");
-                        // The socket was closed by the peer.
-                        let mut socket = ctxt.lock();
-                        socket.post_close(&poll);
-                        token_map.lock().remove(&Token(tracker_id as usize));
-                        debug!(
-                            "Sockets managed by this event loop after HUP: {}",
-                            token_map.lock().len()
-                        );
-                        untrack = true;
-                        // Send to client
-                        let v = vec![0];
-                        socket.on_event(EventType::Close, v);
-                    } else if socket_state.is_readable() {
-                        let mut socket = ctxt.lock();
-                        match socket.read(&mut buf) {
-                            Ok(0) => {
-                                // Close
-                                debug!("Empty read, will close connection.");
-                                // Relase local resource
-                                socket.post_close(&poll);
-                                token_map.lock().remove(&Token(tracker_id as usize));
-                                debug!(
-                                    "Sockets managed by this event loop after Read(0): {}",
-                                    token_map.lock().len()
-                                );
-                                untrack = true;
-                                // Send to client
-                                let v = vec![0];
-                                socket.on_event(EventType::Close, v);
-                            }
-                            Ok(len) => {
-                                // Data
-                                debug!("Reading data len={}", len);
-                                let mut v = buf[0..len].to_vec();
-                                socket.on_event(EventType::Data, v);
-                                // Draining readiness
-                                loop {
-                                    match socket.read(&mut buf) {
-                                        Ok(0) => {
-                                            break;
-                                        }
-                                        Ok(len) => {
-                                            v = buf[0..len].to_vec();
-                                            socket.on_event(EventType::Data, v);
-                                        }
-                                        Err(err) => {
-                                            if err.kind() == ErrorKind::WouldBlock {
-                                                break;
-                                            } else {
-                                                // TODO: add more specified error process
-                                                error!("Error draining read buffer: {:?}", err);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(ref err) => {
-                                // Silently ignore WouldBlock since it's not an
-                                // unrecoverable error situation.
-                                if err.kind() != ErrorKind::WouldBlock {
-                                    error!("Error reading data: {:?}", err);
-                                    // Error
-                                    let v = err.to_string().into_bytes();
-                                    socket.on_event(EventType::Error, v);
-                                }
-                            }
-                        }
-                    } else if socket_state.is_writable() {
-                        let mut socket = ctxt.lock();
-                        debug!("Socket is writable");
-                        socket.drain_queue();
-                    }
-                    if untrack {
-                        info!("Untrack {}", tracker_id);
-                        tracker_lock.untrack(tracker_id);
-                    }
-                }
+            for event in &events {
+                is_connected = process_event(
+                    &event,
+                    is_connected,
+                    &mut buf,
+                    Arc::clone(&poll),
+                    &token_map,
+                    tracker.clone(),
+                );
             }
             // Used to exit running thread.
             // Usually, it's pending on poll event queue.
@@ -208,8 +244,8 @@ impl TcpSocketFactoryMethods for TcpSocketService {
                 {
                     let provider = Arc::new(Mutex::new(socket));
                     let mut tracker_lock = tracker.lock();
-                    let obj_id = tracker_lock
-                        .track(TcpSocketManagerTrackedObject::TcpSocket(provider));
+                    let obj_id =
+                        tracker_lock.track(TcpSocketManagerTrackedObject::TcpSocket(provider));
                     token_map
                         .lock()
                         .insert(Token(obj_id as usize), (obj_id, tcp_responder));

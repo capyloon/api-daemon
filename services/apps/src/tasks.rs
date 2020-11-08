@@ -171,7 +171,7 @@ impl AppMgmtTask for UpdateTask {
                 shared
                     .registry
                     .event_broadcaster
-                    .broadcast_app_download_failed(AppsObject::from(old_app));
+                    .broadcast_app_download_failed(old_app);
                 responder.reject(err);
             }
         }

@@ -13,8 +13,8 @@ pub use futures_core::stream::{FusedStream, Stream, TryStream};
 #[allow(clippy::module_inception)]
 mod stream;
 pub use self::stream::{
-    Chain, Collect, Concat, Enumerate, Filter, FilterMap, FlatMap, Flatten, Fold, ForEach, Fuse,
-    Inspect, Map, Next, Peek, Peekable, Scan, SelectNextSome, Skip, SkipWhile, StreamExt,
+    Chain, Collect, Concat, Cycle, Enumerate, Filter, FilterMap, FlatMap, Flatten, Fold, ForEach,
+    Fuse, Inspect, Map, Next, Peek, Peekable, Scan, SelectNextSome, Skip, SkipWhile, StreamExt,
     StreamFuture, Take, TakeWhile, TakeUntil, Then, Zip,
 };
 
@@ -55,7 +55,7 @@ pub use self::try_stream::IntoAsyncRead;
 
 #[cfg_attr(feature = "cfg-target-has-atomic", cfg(target_has_atomic = "ptr"))]
 #[cfg(feature = "alloc")]
-pub use self::try_stream::{TryBufferUnordered, TryForEachConcurrent};
+pub use self::try_stream::{TryBufferUnordered, TryBuffered, TryForEachConcurrent};
 
 // Primitive streams
 

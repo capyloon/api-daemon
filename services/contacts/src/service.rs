@@ -175,11 +175,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn has_number(
-        &mut self,
-        responder: &ContactsFactoryHasNumberResponder,
-        number: String,
-    ) {
+    fn has_number(&mut self, responder: &ContactsFactoryHasNumberResponder, number: String) {
         debug!("has_number number: {}", number);
 
         let options = ContactFindSortOptions {
@@ -195,11 +191,7 @@ impl ContactsFactoryMethods for ContactsService {
         if let Some(mut db_cursor) = self.state.lock().db.find(options, 1) {
             if let Some(info) = db_cursor.next() {
                 debug!("has_number info.len: {}", info.len());
-                if info.len() > 0 {
-                    responder.resolve(true);
-                } else {
-                    responder.resolve(false);
-                }
+                responder.resolve(!info.is_empty());
             }
         } else {
             responder.reject();

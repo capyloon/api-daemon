@@ -30,7 +30,7 @@ enum SessionState {
 }
 
 // The current version of the protocol support.
-static PROTOCOL_VERSION: &'static str = "1.0.0";
+static PROTOCOL_VERSION: &str = "1.0.0";
 
 pub struct Session {
     pub(crate) session_id: u32,
@@ -428,7 +428,7 @@ impl Session {
         }
         let elapsed = timer.elapsed().unwrap();
         let millis =
-            (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_nanos() / 1_000_000)) as u32;
+            (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis())) as u32;
         if millis > self.message_max_time {
             let what = if is_handshake {
                 "Handshake".into()
@@ -494,7 +494,7 @@ mod test {
         let mut session = Session::open(
             0,
             &config,
-            shared_sender.clone(),
+            shared_sender,
             token_manager.clone(),
             context,
             shared_rsm,
@@ -556,8 +556,8 @@ mod test {
         let mut session = Session::open(
             0,
             &config,
-            shared_sender.clone(),
-            token_manager.clone(),
+            shared_sender,
+            token_manager,
             context,
             shared_rsm,
             Shared::<_>::default(),
@@ -620,7 +620,7 @@ mod test {
             service: 0,
             object: 1,
             kind: BaseMessageKind::Request(5),
-            content: buffer1.clone(),
+            content: buffer1,
         };
         buffer2 = encode_message(&message).expect("Failed to encode");
         session.on_message(&buffer2);

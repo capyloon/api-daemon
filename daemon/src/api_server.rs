@@ -160,8 +160,7 @@ async fn ws_index(
         global_context.service_state(),
     );
 
-    let resp = ws::start(WsHandler { session }, &req, stream);
-    resp
+    ws::start(WsHandler { session }, &req, stream)
 }
 
 // Returns the File and whether this is the gzip version.
@@ -233,10 +232,7 @@ async fn http_index(
         Some(header_value) => match header_value.to_str() {
             Ok(value) => {
                 let values: Vec<_> = value.split(',').map(|e| e.trim()).collect();
-                values
-                    .into_iter()
-                    .find(|encoding| *encoding == "gzip")
-                    .is_some()
+                values.into_iter().any(|encoding| encoding == "gzip")
             }
             Err(_) => false,
         },
@@ -333,13 +329,13 @@ pub fn start(global_context: &GlobalContext, vhost_data: Shared<AppData>) {
                 web::scope("/")
                     .guard(VhostChecker::new(port))
                     .data(vhost_data.clone())
-                    .route("*", web::post().to(|| HttpResponse::MethodNotAllowed()))
+                    .route("*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route("/{filename:.*}", web::get().to(vhost)),
             )
             .service(
                 web::scope("/")
                     .data(RwLock::new(shared_data.clone()))
-                    .route("*", web::post().to(|| HttpResponse::MethodNotAllowed()))
+                    .route("*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route("/ws", web::get().to(ws_index))
                     .route("/*", web::get().to(http_index)),
             )

@@ -32,10 +32,8 @@ impl ILight {
             "android.hardware.light@2.0::ILight",
             service_name,
         );
-        ret.map_or(None, |x| {
-            Some(ILight {
-                ibinder: Box::new(x),
-            })
+        ret.map(|x| ILight {
+            ibinder: Box::new(x),
         })
     }
 
@@ -97,10 +95,9 @@ impl ILight {
                 owns_buf: false,
             };
             reply.read_buffer(&mut _handle, &mut _v_hidl_vec).unwrap();
-            let _v = reply
+            reply
                 .read_embedded::<Vec<i32>>(&_v_hidl_vec, _handle, 0)
-                .unwrap();
-            _v
+                .unwrap()
         })
     }
 }

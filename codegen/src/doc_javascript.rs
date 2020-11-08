@@ -18,7 +18,7 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-pub fn js_type(typ: &ConcreteType, arity: &Arity) -> Vec<String> {
+pub fn js_type(typ: &ConcreteType, arity: Arity) -> Vec<String> {
     let mut res = String::new();
     match arity {
         Arity::OneOrMore => res.push_str("["),
@@ -69,7 +69,7 @@ pub fn js_type(typ: &ConcreteType, arity: &Arity) -> Vec<String> {
 }
 
 pub fn get_decorator() -> TypeExtraDecorator {
-    std::rc::Rc::new(|typ, arity| js_type(typ, arity))
+    std::rc::Rc::new(|typ, arity| js_type(typ, *arity))
 }
 
 pub struct Codegen {

@@ -246,11 +246,7 @@ impl Codegen {
     ) -> Result<()> {
         let name = item.name.clone().unwrap_or_else(|| "<no_name>".into());
 
-        let is_nested = nesting_level != 0
-            && match item.typ.typ {
-                ConcreteType::Dictionary(_) => true,
-                _ => false,
-            };
+        let is_nested = nesting_level != 0 && matches!(item.typ.typ, ConcreteType::Dictionary(_));
 
         let full_name = match &item.name {
             Some(name) => {

@@ -223,7 +223,7 @@ impl From<&SimContactInfo> for ContactInfo {
             .iter()
             .map(|x| ContactTelField {
                 atype: "".to_string(),
-                value: x.to_string(),
+                value: (*x).to_string(),
                 pref: false,
                 carrier: "".to_string(),
             })
@@ -235,7 +235,7 @@ impl From<&SimContactInfo> for ContactInfo {
             .iter()
             .map(|x| ContactField {
                 atype: "".to_string(),
-                value: x.to_string(),
+                value: (*x).to_string(),
                 pref: false,
             })
             .collect();
@@ -250,34 +250,33 @@ impl From<&SimContactInfo> for ContactInfo {
     }
 }
 
-macro_rules! fillVecField {
-    ($field: expr, $value: expr) => {
-        if $field.is_none() {
-            $field = Some(vec![$value]);
-        } else {
-            if let Some(fields) = $field.as_mut() {
-                fields.push($value);
-            }
-        }
-    };
+fn fill_vec_field<T>(field: &mut Option<Vec<T>>, value: T) {
+    if let Some(fields) = field.as_mut() {
+        fields.push(value);
+    } else {
+        *field = Some(vec![value]);
+    }
 }
 
-macro_rules! saveVecField {
-    ($stmt: expr, $id: expr, $type: expr, $datas: expr) => {
-        if let Some(values) = &$datas {
-            for value in values {
-                $stmt.insert(&[&$id as &dyn rusqlite::ToSql, &$type.to_string(), &value])?;
-            }
+fn save_vec_field(
+    stmt: &mut Statement,
+    id: &str,
+    stype: &str,
+    datas: &Option<Vec<String>>,
+) -> Result<(), Error> {
+    if let Some(values) = datas {
+        for value in values {
+            stmt.insert(&[&id as &dyn rusqlite::ToSql, &stype.to_string(), &value])?;
         }
-    };
+    }
+    Ok(())
 }
 
-macro_rules! saveStrField {
-    ($stmt: expr, $id: expr, $type: expr, $data: expr) => {
-        if !$data.is_empty() {
-            $stmt.insert(&[&$id as &dyn rusqlite::ToSql, &$type.to_string(), &$data])?;
-        }
-    };
+fn save_str_field(stmt: &mut Statement, id: &str, stype: &str, data: &str) -> Result<(), Error> {
+    if !data.is_empty() {
+        stmt.insert(&[&id as &dyn rusqlite::ToSql, &stype.to_string(), &data])?;
+    }
+    Ok(())
 }
 
 impl ContactInfo {
@@ -359,25 +358,25 @@ impl ContactInfo {
         for result_row in rows {
             let row = result_row?;
             if row.data_type == "honorific_prefix" {
-                fillVecField!(self.honorific_prefix, row.value);
+                fill_vec_field(&mut self.honorific_prefix, row.value);
             } else if row.data_type == "phonetic_given_name" {
                 self.phonetic_given_name = row.value;
             } else if row.data_type == "phonetic_family_name" {
                 self.phonetic_family_name = row.value;
             } else if row.data_type == "additional_name" {
-                fillVecField!(self.additional_name, row.value);
+                fill_vec_field(&mut self.additional_name, row.value);
             } else if row.data_type == "honorific_suffix" {
-                fillVecField!(self.honorific_suffix, row.value);
+                fill_vec_field(&mut self.honorific_suffix, row.value);
             } else if row.data_type == "nickname" {
-                fillVecField!(self.nickname, row.value);
+                fill_vec_field(&mut self.nickname, row.value);
             } else if row.data_type == "category" {
-                fillVecField!(self.category, row.value);
+                fill_vec_field(&mut self.category, row.value);
             } else if row.data_type == "org" {
-                fillVecField!(self.org, row.value);
+                fill_vec_field(&mut self.org, row.value);
             } else if row.data_type == "job_title" {
-                fillVecField!(self.job_title, row.value);
+                fill_vec_field(&mut self.job_title, row.value);
             } else if row.data_type == "note" {
-                fillVecField!(self.note, row.value);
+                fill_vec_field(&mut self.note, row.value);
             } else if row.data_type == "addresses" {
                 if !&row.value.is_empty() {
                     let addr: Vec<Address> = serde_json::from_str(&row.value)?;
@@ -395,7 +394,7 @@ impl ContactInfo {
                     self.url = Some(url);
                 }
             } else if row.data_type == "groups" {
-                fillVecField!(self.groups, row.value);
+                fill_vec_field(&mut self.groups, row.value);
             } else if row.data_type == "ice_position" {
                 self.ice_position = row.value.parse().unwrap_or(0);
             } else {
@@ -477,42 +476,67 @@ impl ContactInfo {
         let mut stmt = tx.prepare(
             "INSERT INTO contact_additional (contact_id, data_type, value) VALUES(?, ?, ?)",
         )?;
-        saveVecField!(stmt, self.id, "honorific_prefix", self.honorific_prefix);
-        saveVecField!(stmt, self.id, "additional_name", self.additional_name);
-        saveVecField!(stmt, self.id, "honorific_suffix", self.honorific_suffix);
-        saveVecField!(stmt, self.id, "nickname", self.nickname);
-        saveVecField!(stmt, self.id, "category", self.category);
-        saveVecField!(stmt, self.id, "org", self.org);
-        saveVecField!(stmt, self.id, "job_title", self.job_title);
-        saveVecField!(stmt, self.id, "note", self.note);
-        saveStrField!(stmt, self.id, "sex", self.sex);
-        saveStrField!(stmt, self.id, "gender_identity", self.gender_identity);
-        saveStrField!(stmt, self.id, "ringtone", self.ringtone);
-        saveStrField!(
-            stmt,
-            self.id,
-            "phonetic_given_name",
-            self.phonetic_given_name
-        );
-        saveStrField!(
-            stmt,
-            self.id,
-            "phonetic_family_name",
-            self.phonetic_family_name
-        );
+        save_vec_field(
+            &mut stmt,
+            &self.id,
+            "honorific_prefix",
+            &self.honorific_prefix,
+        )?;
+        save_vec_field(
+            &mut stmt,
+            &self.id,
+            "additional_name",
+            &self.additional_name,
+        )?;
+        save_vec_field(
+            &mut stmt,
+            &self.id,
+            "honorific_suffix",
+            &self.honorific_suffix,
+        )?;
+        save_vec_field(&mut stmt, &self.id, "nickname", &self.nickname)?;
+        save_vec_field(&mut stmt, &self.id, "category", &self.category)?;
+        save_vec_field(&mut stmt, &self.id, "org", &self.org)?;
+        save_vec_field(&mut stmt, &self.id, "job_title", &self.job_title)?;
+        save_vec_field(&mut stmt, &self.id, "note", &self.note)?;
+        save_str_field(&mut stmt, &self.id, "sex", &self.sex)?;
+        save_str_field(
+            &mut stmt,
+            &self.id,
+            "gender_identity",
+            &self.gender_identity,
+        )?;
+        save_str_field(&mut stmt, &self.id, "ringtone", &self.ringtone)?;
+        save_str_field(
+            &mut stmt,
+            &self.id,
+            &"phonetic_given_name",
+            &self.phonetic_given_name,
+        )?;
+        save_str_field(
+            &mut stmt,
+            &self.id,
+            &"phonetic_family_name",
+            &self.phonetic_family_name,
+        )?;
 
         if self.ice_position != 0 {
-            saveStrField!(stmt, self.id, "ice_position", self.ice_position.to_string());
+            save_str_field(
+                &mut stmt,
+                &self.id,
+                "ice_position",
+                &self.ice_position.to_string(),
+            )?;
         }
 
         if let Some(addresses) = &self.addresses {
             let json = serde_json::to_string(addresses)?;
-            saveStrField!(stmt, self.id, "addresses", json);
+            save_str_field(&mut stmt, &self.id, "addresses", &json)?;
         }
 
         if let Some(url) = &self.url {
             let json = serde_json::to_string(url)?;
-            saveStrField!(stmt, self.id, "url", json);
+            save_str_field(&mut stmt, &self.id, "url", &json)?;
         }
 
         if let Some(groups) = &self.groups {
@@ -985,10 +1009,10 @@ impl ContactsDb {
                     }
                 };
 
-                for n in 0..params.len() {
+                for (n, param) in params.iter().enumerate() {
                     debug!("current n is {}, param = {}", n, params[n]);
                     // SQLite binding indexes are 1 based, not 0 based...
-                    if let Err(err) = statement.raw_bind_parameter(n + 1, params[n].to_string()) {
+                    if let Err(err) = statement.raw_bind_parameter(n + 1, param) {
                         error!(
                             "Failed to bind #{} `find` parameter to `{}`: {}",
                             n, sql, err
@@ -1109,31 +1133,34 @@ impl ContactsDb {
                 for prop in vcard.properties {
                     if prop.name == "EMAIL" {
                         if let Some(email_vcard) = &prop.value {
-                            fillVecField!(
-                                contact.email,
+                            fill_vec_field(
+                                &mut contact.email,
                                 ContactField {
                                     atype: "".to_string(),
                                     value: email_vcard.clone(),
                                     pref: false,
-                                }
+                                },
                             );
                         }
                     } else if prop.name == "TEL" {
                         if let Some(tel_vcard) = &prop.value {
-                            fillVecField!(
-                                contact.tel,
+                            fill_vec_field(
+                                &mut contact.tel,
                                 ContactTelField {
                                     atype: "".to_string(),
                                     value: tel_vcard.clone(),
                                     pref: false,
                                     carrier: "".to_string(),
-                                }
+                                },
                             );
                         }
                     } else if prop.name == "FN" {
                         contact.name = prop.value.unwrap_or_else(|| "".into());
                     } else if prop.name == "TITLE" {
-                        fillVecField!(contact.job_title, prop.value.unwrap_or_else(|| "".into()));
+                        fill_vec_field(
+                            &mut contact.job_title,
+                            prop.value.unwrap_or_else(|| "".into()),
+                        );
                     }
                 }
                 debug!("contact in vcard is : {:?}", contact);
@@ -1588,8 +1615,8 @@ mod test {
             .unwrap();
 
         let contacts = cursor.next().unwrap();
-        for i in 0..contacts.len() {
-            assert_eq!(contacts[i].name, "Jack".to_string());
+        for contact in contacts {
+            assert_eq!(contact.name, "Jack".to_string());
         }
         // Verify sim_contact_2 is removed.
         assert!(cursor.next().unwrap().is_empty());

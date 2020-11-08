@@ -1,5 +1,9 @@
 /* -*- Mode: rust; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 /* vim: set ts=8 sts=4 et sw=4 tw=80: */
+
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(clippy::missing_safety_doc)]
+
 #[cfg(target_os = "android")]
 mod cutils {
     // A placeholder of Parcel defined in parcel.cpp
@@ -482,7 +486,7 @@ pub mod hidl {
             if unsafe {
                 crate::cutils::parcel_write_buffer(
                     self.parcel,
-                    std::mem::transmute::<&T, *const u8>(buffer),
+                    buffer as *const T as *const u8,
                     std::mem::size_of::<T>(),
                     buffer_handle,
                 )
@@ -503,7 +507,7 @@ pub mod hidl {
                     self.parcel,
                     std::mem::size_of::<T>(),
                     buffer_handle,
-                    std::mem::transmute::<&mut T, *mut u8>(buffer),
+                    buffer as *mut T as *mut u8,
                 )
             } == 0
             {
@@ -523,7 +527,7 @@ pub mod hidl {
             if unsafe {
                 crate::cutils::parcel_write_embedded_buffer(
                     self.parcel,
-                    std::mem::transmute::<&T, *const u8>(buffer),
+                    buffer as *const T as *const u8,
                     std::mem::size_of::<T>(),
                     buffer_handle,
                     parent_handle,
@@ -550,7 +554,7 @@ pub mod hidl {
                     buffer_handle,
                     parent_handle,
                     parent_offset,
-                    std::mem::transmute::<&mut T, *mut u8>(buffer),
+                    buffer as *mut T as *mut u8,
                 )
             } == 0
             {
@@ -1255,6 +1259,7 @@ pub mod hidl {
     }
 
     impl HidlNativeHandle {
+        #[allow(clippy::cast_ptr_alignment)]
         fn from(handle: &HidlHandle) -> HidlNativeHandle {
             let memsz = std::mem::size_of::<HidlHandle>()
                 + std::mem::size_of::<i32>() * (handle.fds.len() + handle.ints.len());
@@ -1353,9 +1358,10 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let _parcel = crate::hidl::Parcel::new();
+        let _parcel = crate::hidl::Parcel::default();
         assert_eq!(2 + 2, 4);
     }
+
     #[test]
     fn read_buffer() {
         let src = FooType {
@@ -1363,7 +1369,7 @@ mod tests {
             data64: 0xdeadbeefdeadbeef,
         };
 
-        let mut parcel = crate::hidl::Parcel::new();
+        let mut parcel = crate::hidl::Parcel::default();
         parcel.write_f32(src.dataf).unwrap();
         parcel.write_u64(src.data64).unwrap();
 
@@ -1376,7 +1382,10 @@ mod tests {
         let mut handle: usize = 0;
         parcel.read_buffer(&mut handle, &mut dst).unwrap();
 
-        assert_eq!(src.dataf, dst.dataf);
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(src.dataf, dst.dataf);
+        }
         assert_eq!(src.data64, dst.data64);
     }
 }

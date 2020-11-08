@@ -929,12 +929,12 @@ impl AppsRegistry {
                 }
                 app.set_status(status);
 
-                return Ok((AppsObject::from(&app), status_changed));
+                Ok((AppsObject::from(&app), status_changed))
             } else {
                 Err(AppsServiceError::InvalidState)
             }
         } else {
-            return Err(AppsServiceError::AppNotFound);
+            Err(AppsServiceError::AppNotFound)
         }
     }
 }

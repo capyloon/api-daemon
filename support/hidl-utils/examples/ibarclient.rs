@@ -24,12 +24,12 @@ struct Position {
 struct Position_embedded {
     x: i32,
     y: i32,
-    msg1: <String as hidl::EmbeddedOps<String>>::EM_STRUCT,
-    msg2: <String as hidl::EmbeddedOps<String>>::EM_STRUCT,
+    msg1: <String as hidl::EmbeddedOps<String>>::EmStruct,
+    msg2: <String as hidl::EmbeddedOps<String>>::EmStruct,
 }
 
 impl EmbeddedOps<Position> for Position {
-    type EM_STRUCT = Position_embedded;
+    type EmStruct = Position_embedded;
     fn elms_size(n: usize) -> usize {
         n * std::mem::size_of::<Self>()
     }
@@ -42,7 +42,7 @@ impl EmbeddedOps<Position> for Position {
     fn write_embedded_to(
         &self,
         parcel: &mut hidl::Parcel,
-        em_struct: *const Self::EM_STRUCT,
+        em_struct: *const Self::EmStruct,
         parent_handle: usize,
         parent_offset: usize,
     ) -> Result<(), ()> {
@@ -68,31 +68,29 @@ impl EmbeddedOps<Position> for Position {
     }
     fn read_embedded_from(
         parcel: &mut hidl::Parcel,
-        em_struct: *const Self::EM_STRUCT,
+        em_struct: *const Self::EmStruct,
         parent_handle: usize,
         parent_offset: usize,
-    ) -> Result<(Self), ()> {
+    ) -> Result<Self, ()> {
         unsafe {
             let ret = Position {
                 x: (*em_struct).x,
                 y: (*em_struct).y,
                 msg1: {
-                    let _v = parcel
+                    parcel
                         .read_embedded(&(*em_struct).msg1, parent_handle, parent_offset + 8)
-                        .unwrap();
-                    _v
+                        .unwrap()
                 },
                 msg2: {
-                    let _v = parcel
+                    parcel
                         .read_embedded(&(*em_struct).msg2, parent_handle, parent_offset + 24)
-                        .unwrap();
-                    _v
+                        .unwrap()
                 },
             };
             Ok(ret)
         }
     }
-    fn prepare_embedded(&self, em_struct: *mut Self::EM_STRUCT) -> Result<(), ()> {
+    fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<(), ()> {
         unsafe {
             (*em_struct).x = self.x;
             (*em_struct).y = self.y;
@@ -106,7 +104,7 @@ impl EmbeddedOps<Position> for Position {
 fn get_position() {
     println!("get_position");
     let bar = hidl::IBinder::query_service_manager(IFACE, SERVICE).unwrap();
-    let mut parcel = hidl::Parcel::new();
+    let mut parcel = hidl::Parcel::default();
     parcel.write_iface_token(IFACE).unwrap();
     parcel.write_i32(11).unwrap();
 
@@ -118,7 +116,7 @@ fn get_position() {
     };
     let _v = &pos;
     let mut handle: usize = 0;
-    let _em_struct = parcel.alloc_obj::<<Position as EmbeddedOps<Position>>::EM_STRUCT>();
+    let _em_struct = parcel.alloc_obj::<<Position as EmbeddedOps<Position>>::EmStruct>();
     _v.prepare_embedded(_em_struct).unwrap();
     {
         let _v = unsafe { &*_em_struct };
@@ -126,7 +124,7 @@ fn get_position() {
     };
     parcel.write_embedded(_v, _em_struct, handle, 0).unwrap();
 
-    let mut reply = hidl::Parcel::new();
+    let mut reply = hidl::Parcel::default();
     bar.transact(1, &parcel, &mut reply, 0).unwrap();
 
     let mut version: u32 = 0;
@@ -149,12 +147,12 @@ fn get_position() {
 fn send_msg() {
     println!("send_msg");
     let bar = hidl::IBinder::query_service_manager(IFACE, SERVICE).unwrap();
-    let mut parcel = hidl::Parcel::new();
+    let mut parcel = hidl::Parcel::default();
     parcel.write_iface_token(IFACE).unwrap();
     let mut _handle: usize = 0;
     parcel.write_hidl_string(&mut _handle, "Hello!!").unwrap();
 
-    let mut reply = hidl::Parcel::new();
+    let mut reply = hidl::Parcel::default();
     bar.transact(3, &parcel, &mut reply, 0).unwrap();
 
     let mut version: u32 = 0;
@@ -171,15 +169,15 @@ fn send_handle() {
     println!("send_handle");
     let (mut sock1, sock2) = std::os::unix::net::UnixStream::pair().unwrap();
     let fd2 = sock2.as_raw_fd();
-    let mut handle = hidl_utils::hidl::HidlHandle::new();
+    let mut handle = hidl_utils::hidl::HidlHandle::default();
     handle.fds.push(fd2);
 
     let bar = hidl::IBinder::query_service_manager(IFACE, SERVICE).unwrap();
-    let mut parcel = hidl::Parcel::new();
+    let mut parcel = hidl::Parcel::default();
     parcel.write_iface_token(IFACE).unwrap();
     parcel.write_handle(&handle).unwrap();
 
-    let mut reply = hidl::Parcel::new();
+    let mut reply = hidl::Parcel::default();
     bar.transact(4, &parcel, &mut reply, 0).unwrap();
 
     // Force sock2 closing.

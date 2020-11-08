@@ -4,7 +4,7 @@ use std::env;
 use std::path::Path;
 
 fn main() {
-    if let Ok(_) = env::var("BUILD_WITH_NDK_DIR") {
+    if env::var("BUILD_WITH_NDK_DIR").is_ok() {
         let path = env::var("CARGO_MANIFEST_DIR").unwrap();
         println!(
             "cargo:rustc-link-search=native={}",
@@ -17,7 +17,7 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=binder");
         println!("cargo:rustc-link-lib=dylib=hwbinder");
         println!("cargo:rustc-link-lib=dylib=c++_shared");
-        if let Ok(_) = env::var("GONK_DIR") {
+        if env::var("GONK_DIR").is_ok() {
 
             #[cfg(target_arch = "arm")]
             let asm_dir = "asm-arm";
@@ -88,7 +88,7 @@ fn main() {
                 .include(_libc_kernel_arch_inc)
                 .include(_libc_kernel_scsi_inc)
                 .include(_libc_kernel_android_uapi)
-                .flag(&_sysroot.to_string())
+                .flag(&_sysroot)
                 .compile("utils-c");
         }
     }
