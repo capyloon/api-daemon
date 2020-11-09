@@ -289,6 +289,18 @@ impl AppsRegistry {
         Ok(zip_path)
     }
 
+    // Returns a sanitized version of the name, usable as:
+    // - a filename
+    // - a subdomain
+    // The result is ASCII only with no whitespace.
+    pub fn sanitize_name(name: &str) -> String {
+        name.trim()
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphabetic())
+            .collect()
+    }
+
     // Get a unique name for the app of a given update_url.
     // In:
     //    name - the app name in the app manifest.
@@ -300,13 +312,15 @@ impl AppsRegistry {
         name: &str,
         update_url: &str,
     ) -> Result<String, AppsServiceError> {
-        let name = sanitize_filename::sanitize(name.to_lowercase());
-        let mut unique_name = name.to_string();
-
         if let Some(db) = &self.db {
             // The update_url is unique return name from the db.
             if let Ok(app) = db.get_by_update_url(update_url) {
                 return Ok(app.get_name());
+            }
+
+            let mut unique_name: String = Self::sanitize_name(name);
+            if unique_name.is_empty() {
+                return Err(AppsServiceError::InvalidAppName);
             }
 
             // For new update_url, return name or name + [1-999]
@@ -1075,7 +1089,6 @@ fn test_init_apps_from_system() {
 #[test]
 fn test_register_app() {
     use crate::config;
-    use crate::manifest::ManifestError;
     use config::Config;
 
     let _ = env_logger::try_init();
@@ -1120,23 +1133,8 @@ fn test_register_app() {
     let version = "some_version";
     let manifest = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url)
-        .unwrap();
-    let mut apps_item = AppsItem::default(&app_name, vhost_port);
-    apps_item.set_install_state(AppsInstallState::Installing);
-    apps_item.set_update_url(&update_url);
-
-    if let Err(err) = registry.register_app(&apps_item, &manifest) {
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "{}",
-                RegistrationError::WrongManifest(ManifestError::NameMissing)
-            )
-        );
-    } else {
-        assert!(false);
-    }
+        .get_unique_name(&manifest.get_name(), &update_url).err().unwrap();
+    assert_eq!(app_name, AppsServiceError::InvalidAppName);
 
     // Test register_app - invalid update url
     let name = "some_name";
@@ -1643,13 +1641,16 @@ fn test_apply_pwa() {
     }
     let _ = fs::copy(&src_manifest, &download_manifest).unwrap();
     let manifest = Manifest::read_from(&download_manifest).unwrap();
+    let app_name = registry
+        .get_unique_name(&manifest.get_name(), &update_url)
+        .unwrap();
     if let Some(icons_value) = manifest.get_icons() {
         let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
         assert_eq!(4, icons.len());
     } else {
         assert!(false);
     }
-    let mut apps_item = AppsItem::default(&manifest.get_name(), registry.get_vhost_port());
+    let mut apps_item = AppsItem::default(&app_name, registry.get_vhost_port());
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(&update_url);
 

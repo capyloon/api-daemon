@@ -1,4 +1,5 @@
 use crate::apps_item::AppsItem;
+use crate::apps_registry::AppsRegistry;
 use crate::apps_storage::{validate_package, PackageError};
 use crate::generated::common::*;
 use crate::manifest::{Manifest, ManifestError};
@@ -12,9 +13,6 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::thread;
 use thiserror::Error;
-
-#[cfg(test)]
-use crate::apps_registry::AppsRegistry;
 
 #[derive(Error, Debug)]
 pub enum AppsActorError {
@@ -245,7 +243,10 @@ pub fn install_package(
         return Err(AppsActorError::InstallationDirNotFound);
     }
     let mut shared = shared_data.lock();
-    let app_name = sanitize_filename::sanitize(manifest.get_name()).to_lowercase();
+    let app_name = AppsRegistry::sanitize_name(&manifest.get_name());
+    if app_name.is_empty() {
+        return Err(AppsActorError::InvalidAppName);
+    }
     let update_url = format!("https://{}.local/manifest.webapp", &app_name);
     let app_name = shared
         .registry
@@ -303,8 +304,10 @@ pub fn uninstall_package(
         let shared = shared_data.lock();
         shared.config.data_path.clone()
     };
-
-    let app_name = sanitize_filename::sanitize(app_name).to_lowercase();
+    let app_name = AppsRegistry::sanitize_name(&app_name);
+    if app_name.is_empty() {
+        return Err(AppsActorError::InvalidAppName);
+    }
 
     let mut shared = shared_data.lock();
     // Use a local manifest for identification purpose

@@ -12,7 +12,6 @@ lazy_static = "1.4"
 log = "0.4"
 nix = "0.17"
 rusqlite = { version = "0.23", features = ["bundled"] }
-sanitize-filename = "0.2.1"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sqlite-utils = { path = "../../support/sqlite-utils" }
