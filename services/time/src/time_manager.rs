@@ -1,21 +1,29 @@
-use crate::time_device::*;
-use android_utils::AndroidProperties;
-use libc::{gettimeofday, settimeofday, suseconds_t, time_t, timeval};
-use log::{debug, error};
+use libc::{gettimeofday, timeval};
+use log::debug;
 use std::io::Read;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 use std::{fs, io, ptr};
-use time::*;
 
 #[cfg(not(target_os = "android"))]
 use std::env;
+
+#[cfg(target_os = "android")]
+use {
+    crate::time_device::*,
+    android_utils::AndroidProperties,
+    libc::{settimeofday, suseconds_t, time_t},
+    log::error,
+    time::*,
+};
 
 #[derive(Clone, Debug)]
 pub struct TimeManager {}
 
 mod ffi {
+    #[cfg(target_os = "android")]
     pub const RTC_DEVICE_PATH: &str = "/dev/rtc0";
+
     pub const SYSTEM_UP_TIME_PATH: &str = "/proc/uptime";
 }
 
@@ -47,7 +55,7 @@ impl TimeManager {
 
     // We only change the system time on android
     #[cfg(not(target_os = "android"))]
-    pub fn set_system_clock(msec: i64) -> Result<bool, io::Error> {
+    pub fn set_system_clock(_msec: i64) -> Result<bool, io::Error> {
         debug!("Running on {} do not change system time", env::consts::OS);
         Ok(true)
     }
@@ -88,7 +96,7 @@ impl TimeManager {
 
     // We only change the system time on android
     #[cfg(not(target_os = "android"))]
-    pub fn set_timezone(timezone: String) -> Result<bool, io::Error> {
+    pub fn set_timezone(_timezone: String) -> Result<bool, io::Error> {
         debug!(
             "Running on {} do not change system timezone",
             env::consts::OS
@@ -96,6 +104,7 @@ impl TimeManager {
         Ok(true)
     }
 
+    #[cfg(target_os = "android")]
     fn msec_to_timespec(msec: i64) -> time::Timespec {
         let time_interval: i64 = 1000;
         Timespec::new(
