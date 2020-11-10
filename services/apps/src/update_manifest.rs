@@ -43,7 +43,7 @@ fn test_read_manifest() {
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
     let manifest_path = format!(
-        "{}/test-fixtures/sample_update_manifest.webapp",
+        "{}/test-fixtures/sample_update_manifest.webmanifest",
         current.display()
     );
 

@@ -58,7 +58,7 @@ fn downloader_download_file() {
     let current = env::current_dir().unwrap();
 
     let downloader = Downloader::default();
-    let file_path = current.join("test-fixtures/sample.webapp");
+    let file_path = current.join("test-fixtures/sample.webmanifest");
     let res = downloader.download(
         "https://seinlin.org/apps/packages/sample/manifest.webapp",
         &file_path.as_path(),

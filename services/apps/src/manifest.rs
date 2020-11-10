@@ -245,7 +245,7 @@ mod tests {
         // Init apps from test-fixtures/webapps and verify in test-apps-dir.
         let current = env::current_dir().unwrap();
         let manifest_path = format!(
-            "{}/test-fixtures/sample_app_manifest_1.webapp",
+            "{}/test-fixtures/sample_app_manifest_1.webmanifest",
             current.display()
         );
 
@@ -261,7 +261,7 @@ mod tests {
         }
 
         let manifest_path = format!(
-            "{}/test-fixtures/sample_app_manifest_2.webapp",
+            "{}/test-fixtures/sample_app_manifest_2.webmanifest",
             current.display()
         );
 
@@ -277,7 +277,7 @@ mod tests {
         }
 
         let manifest_path = format!(
-            "{}/test-fixtures/sample_app_manifest_3.webapp",
+            "{}/test-fixtures/sample_app_manifest_3.webmanifest",
             current.display()
         );
 
@@ -302,7 +302,7 @@ mod tests {
         // Init apps from test-fixtures/webapps and verify in test-apps-dir.
         let current = env::current_dir().unwrap();
         let manifest_path = format!(
-            "{}/test-fixtures/test-appsutils/href_ok.webapp",
+            "{}/test-fixtures/test-appsutils/href_ok.webmanifest",
             current.display()
         );
         let manifest = Manifest::read_from(&manifest_path).unwrap();
@@ -319,7 +319,7 @@ mod tests {
         // Init apps from test-fixtures/webapps and verify in test-apps-dir.
         let current = env::current_dir().unwrap();
         let manifest_path = format!(
-            "{}/test-fixtures/test-appsutils/href_nok.webapp",
+            "{}/test-fixtures/test-appsutils/href_nok.webmanifest",
             current.display()
         );
         let manifest = Manifest::read_from(&manifest_path).unwrap();

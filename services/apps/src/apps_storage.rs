@@ -70,10 +70,13 @@ impl AppsStorage {
 
 // Validate application.zip at path.
 // Return Manifest for later use
-pub fn validate_package<P: AsRef<Path>>(path: P) -> Result<Manifest, PackageError> {
+pub fn validate_package_with_name<P: AsRef<Path>>(
+    path: P,
+    manifest_name: &str,
+) -> Result<Manifest, PackageError> {
     let package = File::open(path)?;
     let mut archive = ZipArchive::new(package)?;
-    let manifest = archive.by_name("manifest.webapp")?;
+    let manifest = archive.by_name(manifest_name)?;
 
     let manifest: Manifest = match serde_json::from_reader(manifest) {
         Ok(manifest) => manifest,
@@ -81,6 +84,20 @@ pub fn validate_package<P: AsRef<Path>>(path: P) -> Result<Manifest, PackageErro
             error!("validate_package WrongManifest json error: {:?}", err);
             return Err(PackageError::WrongManifest(ManifestError::Json(err)));
         }
+    };
+
+    Ok(manifest)
+}
+
+// Validate application.zip at path.
+// Return Manifest for later use
+pub fn validate_package<P: AsRef<Path>>(path: P) -> Result<Manifest, PackageError> {
+    let manifest = match validate_package_with_name(&path, "manifest.webmanifest") {
+        Ok(manifest) => manifest,
+        Err(PackageError::WrongManifest(detail)) => {
+            return Err(PackageError::WrongManifest(detail))
+        }
+        Err(_) => validate_package_with_name(&path, "manifest.webapp")?,
     };
 
     if let Err(err) = manifest.is_valid() {

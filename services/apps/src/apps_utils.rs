@@ -47,13 +47,13 @@ fn test_compare_manifest_ok() {
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
     let manifest_path = format!(
-        "{}/test-fixtures/test-appsutils/update_manifest_ok.webapp",
+        "{}/test-fixtures/test-appsutils/update_manifest_ok.webmanifest",
         current.display()
     );
     let update_manifest = UpdateManifest::read_from(&manifest_path).unwrap();
 
     let manifest_path2 = format!(
-        "{}/test-fixtures/test-appsutils/manifest_ok.webapp",
+        "{}/test-fixtures/test-appsutils/manifest_ok.webmanifest",
         current.display()
     );
     let manifest = Manifest::read_from(&manifest_path2).unwrap();
@@ -70,12 +70,12 @@ fn test_compare_manifest_name_mismatch() {
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
     let manifest_path1 = format!(
-        "{}/test-fixtures/test-appsutils/name_mismatch1.webapp",
+        "{}/test-fixtures/test-appsutils/name_mismatch1.webmanifest",
         current.display()
     );
     let update_manifest = UpdateManifest::read_from(&manifest_path1).unwrap();
     let manifest_path2 = format!(
-        "{}/test-fixtures/test-appsutils/name_mismatch2.webapp",
+        "{}/test-fixtures/test-appsutils/name_mismatch2.webmanifest",
         current.display()
     );
     let manifest2 = Manifest::read_from(&manifest_path2).unwrap();

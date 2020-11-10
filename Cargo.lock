@@ -4585,13 +4585,3 @@ dependencies = [
  "x509-signature",
  "zip",
 ]
-
-[[patch.unused]]
-name = "reqwest"
-version = "0.10.8"
-source = "git+https://github.com/fabricedesre/reqwest.git?branch=patch-1#1d214ae9c292f5c7d7dfb1ee8e6ef96cb8c56546"
-
-[[patch.unused]]
-name = "ring"
-version = "0.16.16"
-source = "git+https://github.com/kaiostech/ring.git?branch=gonk-0.16.16#332904d71057e9025c3c64dbb09127ad0e422b48"

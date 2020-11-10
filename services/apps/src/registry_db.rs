@@ -123,8 +123,8 @@ impl FromSql for AppsUpdateState {
 // {
 // "name": "system",
 // "version": "",
-// "manifest_url": "http://system.localhost/manifest.webapp",
-// "update_url": "https://store.server/system/manifest.webapp",
+// "manifest_url": "http://system.localhost/manifest.webmanifest",
+// "update_url": "https://store.server/system/manifest.webmanifest",
 // "status": "Enabled",
 // "install_state": "Installed",
 // "update_state": "Idle",

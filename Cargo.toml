@@ -28,10 +28,6 @@ members = [
 ]
 
 [patch.crates-io]
-# Unbreak build on Gonk.
-ring = { git = "https://github.com/kaiostech/ring.git", branch = "gonk-0.16.16" }
-# Pick up a version that doesn't depend on webpki-roots v0.19
-reqwest = { git = "https://github.com/fabricedesre/reqwest.git", branch = "patch-1" }
 # Bump crossbeam to avoid duplicates
 actix = { git = "https://github.com/fabricedesre/actix.git", branch = "0.10-bump-crossbeam" }
 

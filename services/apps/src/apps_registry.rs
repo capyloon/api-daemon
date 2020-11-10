@@ -114,10 +114,10 @@ where
     hasher.finish()
 }
 
-fn read_zip_manifest<P: AsRef<Path>>(zip_file: P) -> Result<Manifest, AppsError> {
+fn read_zip_manifest<P: AsRef<Path>>(zip_file: P, manifest_name: &str) -> Result<Manifest, AppsError> {
     let file = File::open(zip_file)?;
     let mut archive = ZipArchive::new(file)?;
-    let manifest = archive.by_name("manifest.webapp")?;
+    let manifest = archive.by_name(manifest_name)?;
     let value: Manifest = serde_json::from_reader(manifest)?;
     Ok(value)
 }
@@ -129,15 +129,16 @@ fn read_webapps<P: AsRef<Path>>(apps_json_file: P) -> Result<Vec<AppsItem>, Apps
     Ok(value)
 }
 
-// Loads the manifest for an app:
-// First tries to load it from app_dir/application.zip!manifest.webapp if it's present,
-// and fallbacks to app_dir/manifest.webapp
+// Loads the manifest for an app from app_dir/application.zip!manifest.webmanifest
+// and fallbacks to app_dir/manifest.webmanifest if needed.
 fn load_manifest(app_dir: &PathBuf) -> Result<Manifest, AppsError> {
     let zipfile = app_dir.join("application.zip");
-    if let Ok(manifest) = read_zip_manifest(zipfile.as_path()) {
+    if let Ok(manifest) = read_zip_manifest(zipfile.as_path(), "manifest.webmanifest") {
+        Ok(manifest)
+    } else if let Ok(manifest) = read_zip_manifest(zipfile.as_path(), "manifest.webapp") {
         Ok(manifest)
     } else {
-        let manifest = app_dir.join("manifest.webapp");
+        let manifest = app_dir.join("manifest.webmanifest");
         let file = File::open(manifest)?;
         let reader = BufReader::new(file);
         let value: Manifest = serde_json::from_reader(reader)?;
@@ -1210,7 +1211,7 @@ fn test_register_app() {
     // 1. Normal register install
     // 2. Re-register as update
     // 3. Unregister
-    let update_url = format!("https://store.helloworld.local/manifest.webapp");
+    let update_url = format!("https://store.helloworld.local/manifest.webmanifest");
 
     // Normal register an app
     let name = "helloworld";
@@ -1232,7 +1233,7 @@ fn test_register_app() {
     registry.register_app(&apps_item, &manifest).unwrap();
 
     // Verify the manifet url is as expeced
-    let expected_manifest_url = format!("http://helloworld.localhost/manifest.webapp");
+    let expected_manifest_url = format!("http://helloworld.localhost/manifest.webmanifest");
     let manifest_url = apps_item.get_manifest_url();
     assert_eq!(manifest_url, expected_manifest_url);
 
@@ -1333,7 +1334,7 @@ fn test_unregister_app() {
     }
 
     // Test unregister_app - invalid updater url
-    let update_url = format!("https://store.helloworld.local/manifest.webapp");
+    let update_url = format!("https://store.helloworld.local/manifest.webmanifest");
     if let Err(err) = registry.unregister_app(&update_url) {
         assert_eq!(
             format!("{}", err),
@@ -1365,7 +1366,7 @@ fn test_unregister_app() {
     assert_eq!(5, registry.count());
 
     // Verify the manifet url is as expeced
-    let expected_manfiest_url = format!("http://helloworld.localhost:8081/manifest.webapp");
+    let expected_manfiest_url = format!("http://helloworld.localhost:8081/manifest.webmanifest");
     let manifest_url = apps_item.get_manifest_url();
     assert_eq!(manifest_url, expected_manfiest_url);
 
@@ -1441,7 +1442,7 @@ fn test_apply_download() {
     }
     let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
     let manifest = validate_package(&available_app.as_path()).unwrap();
-    let update_url = "https://test0.helloworld/manifest.webapp";
+    let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let vhost_port = registry.get_vhost_port();
     let app_name = registry
@@ -1474,7 +1475,7 @@ fn test_apply_download() {
         }
         let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
         let manifest = validate_package(&available_app.as_path()).unwrap();
-        let update_url = &format!("https://test{}.helloworld/manifest.webapp", count);
+        let update_url = &format!("https://test{}.helloworld/manifest.webmanifest", count);
         let app_name = registry
             .get_unique_name(&manifest.get_name(), &update_url)
             .unwrap();
@@ -1510,7 +1511,7 @@ fn test_apply_download() {
     }
     let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
     let manifest = validate_package(&available_app.as_path()).unwrap();
-    let update_url = "https://test0.helloworld/manifest.webapp";
+    let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let app_name = registry
         .get_unique_name(&manifest.get_name(), &update_url)
@@ -1592,7 +1593,7 @@ fn test_compare_version_hash() {
 
     let current = env::current_dir().unwrap();
     let manifest_path = format!(
-        "{}/test-fixtures/compare-version-hash/sample_update_manifest.webapp",
+        "{}/test-fixtures/compare-version-hash/sample_update_manifest.webmanifest",
         current.display()
     );
 
