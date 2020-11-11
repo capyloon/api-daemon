@@ -3685,10 +3685,12 @@ version = "0.1.0"
 dependencies = [
  "android_utils",
  "common",
+ "lazy_static",
  "libc",
  "log 0.4.11",
  "nix 0.17.0",
  "serde",
+ "settings_service",
  "threadpool",
  "time 0.1.44",
 ]

@@ -2,7 +2,6 @@
 /// - list services.
 /// - assign them a stable ID
 /// - change ownership of their directory so they can read/write in it.
-
 use log::error;
 use std::collections::HashMap;
 use std::fs::{read_dir, File};
@@ -49,6 +48,15 @@ impl RemoteServicesRegistrar {
     // information with services discovered by listing a directory of
     // services.
     pub fn new<P: AsRef<Path>>(config_path: P, root_dir: P) -> Self {
+        // Ensure the configuration directory exists.
+        if let Err(err) = std::fs::create_dir_all(&root_dir) {
+            error!(
+                "Failed to create directory {:?} : {}",
+                root_dir.as_ref(),
+                err
+            );
+        }
+
         // Get the initial list from the configuration file.
         let mut max_id = 0;
         let config_services = if let Ok(toml) = read_toml_file(&config_path) {
@@ -92,8 +100,8 @@ impl RemoteServicesRegistrar {
         // On device, chown and chmod the directory for each service.
         #[cfg(target_os = "android")]
         {
+            use nix::sys::stat::{fchmodat, FchmodatFlags, Mode};
             use nix::unistd::{chown, Gid, Uid};
-            use nix::sys::stat::{Mode, fchmodat, FchmodatFlags};
             for (service, id) in &services {
                 let mut path = root_dir.as_ref().join(service);
                 let id = (id + APP_ID_BASE).into();
@@ -125,7 +133,11 @@ impl RemoteServicesRegistrar {
         let write_path = Path::new(&s);
 
         if let Err(err) = write_as_toml_file(&write_path, &services) {
-            error!("Failed to write update service file at {} : {}", write_path.display(), err);
+            error!(
+                "Failed to write update service file at {} : {}",
+                write_path.display(),
+                err
+            );
         }
 
         RemoteServicesRegistrar { services }
@@ -147,16 +159,19 @@ fn init_remote_service_manager() {
     assert_eq!(manager.services.len(), 2);
 
     // No matching directory for this config file.
-    let manager = RemoteServicesRegistrar::new("./tests/services1.toml", "./tests/empty_remote_services");
+    let manager =
+        RemoteServicesRegistrar::new("./tests/services1.toml", "./tests/empty_remote_services");
     assert_eq!(manager.services.len(), 0);
 
     // New service available in the directory
-    let manager = RemoteServicesRegistrar::new("./tests/services1.toml", "./tests/three_remote_services");
+    let manager =
+        RemoteServicesRegistrar::new("./tests/services1.toml", "./tests/three_remote_services");
     assert_eq!(manager.services.len(), 3);
     assert_eq!(*manager.services.get("newservice").unwrap(), 3);
 
     // New service available in the directory, gap in the service id.
-    let manager = RemoteServicesRegistrar::new("./tests/services2.toml", "./tests/three_remote_services");
+    let manager =
+        RemoteServicesRegistrar::new("./tests/services2.toml", "./tests/three_remote_services");
     assert_eq!(manager.services.len(), 3);
     assert_eq!(*manager.services.get("newservice").unwrap(), 25);
 
