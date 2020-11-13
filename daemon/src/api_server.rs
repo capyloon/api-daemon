@@ -356,10 +356,21 @@ mod test {
     use common::traits::Shared;
     use reqwest::header::{CONTENT_ENCODING, CONTENT_TYPE};
     use reqwest::StatusCode;
+    use std::net::TcpStream;
     use std::{thread, time};
     use vhost_server::vhost_handler::AppData;
 
-    fn start_server(port: u16) {
+    fn find_available_port(start_at: u16) -> u16 {
+        loop {
+            let port = start_at + (rand::random::<u16>() % 10000);
+            if TcpStream::connect(format!("127.0.0.1:{}", port)).is_err() {
+                return port;
+            }
+        }
+    }
+
+    fn start_server() -> u16 {
+        let port = find_available_port(8000);
         // Create a new ws server.
         thread::spawn(move || {
             api_server::start(
@@ -370,34 +381,40 @@ mod test {
 
         // Wait for the server to start.
         thread::sleep(time::Duration::from_millis(1000));
+        port
     }
 
     #[test]
     fn test_http_post_request() {
-        start_server(9087);
+        let port = start_server();
 
         // Check that POST requests return a BadRequest status
         let client = reqwest::blocking::Client::new();
-        let resp = client.post("http://localhost:9087/test").send().unwrap();
+        let resp = client
+            .post(&format!("http://127.0.0.1:{}/test", port))
+            .send()
+            .unwrap();
 
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     #[test]
     fn test_not_found_http_get_request() {
-        start_server(9088);
+        let port = start_server();
 
         // Check that GET requests return a NotFound status
-        let resp = reqwest::blocking::get("http://localhost:9088/test/not_here").unwrap();
+        let resp =
+            reqwest::blocking::get(&format!("http://127.0.0.1:{}/test/not_here", port)).unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
     fn test_valid_http_get_request() {
-        start_server(9089);
+        let port = start_server();
 
         // Check that GET requests return a ok status
-        let resp = reqwest::blocking::get("http://localhost:9089/core/index.js").unwrap();
+        let resp =
+            reqwest::blocking::get(&format!("http://127.0.0.1:{}/core/index.js", port)).unwrap();
 
         assert_eq!(resp.status(), StatusCode::OK);
         {
@@ -411,10 +428,11 @@ mod test {
 
     #[test]
     fn test_octet_stream_http_get_request() {
-        start_server(9090);
+        let port = start_server();
 
         // Check that GET requests return a ok status
-        let resp = reqwest::blocking::get("http://localhost:9090/core/data.dat").unwrap();
+        let resp =
+            reqwest::blocking::get(&format!("http://127.0.0.1:{}/core/data.dat", port)).unwrap();
 
         assert_eq!(resp.status(), StatusCode::OK);
         {
@@ -427,13 +445,13 @@ mod test {
 
     #[test]
     fn test_gzip_http_get_request() {
-        start_server(9091);
+        let port = start_server();
 
         // Check that GET requests return a ok status with a gzip ContentEncoding
         let client = reqwest::blocking::Client::builder().build().unwrap();
 
         let resp = client
-            .get("http://localhost:9091/core/data.dat")
+            .get(&format!("http://127.0.0.1:{}/core/data.dat", port))
             .header("Accept-Encoding", "gzip")
             .send()
             .unwrap();

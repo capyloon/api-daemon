@@ -49,11 +49,18 @@ impl RemoteServicesRegistrar {
     // services.
     pub fn new<P: AsRef<Path>>(config_path: P, root_dir: P) -> Self {
         // Ensure the configuration directory exists.
-        if let Err(err) = std::fs::create_dir_all(&root_dir) {
+        if let Some(config_dir) = config_path.as_ref().parent() {
+            if let Err(err) = std::fs::create_dir_all(&config_dir) {
+                error!(
+                    "Failed to create directory {:?} : {}",
+                    root_dir.as_ref(),
+                    err
+                );
+            }
+        } else {
             error!(
-                "Failed to create directory {:?} : {}",
-                root_dir.as_ref(),
-                err
+                "Unable to find parent directory for {}",
+                config_path.as_ref().display()
             );
         }
 

@@ -1161,6 +1161,7 @@ dependencies = [
  "parking_lot 0.11.0",
  "powermanager_service",
  "procmanager_service",
+ "rand 0.3.23",
  "read-byte-slice",
  "reqwest",
  "semver",

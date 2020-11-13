@@ -99,6 +99,7 @@ android_utils = { path = "../support/android-utils" }
 [dev-dependencies]
 actix-web-actors = "3.0"
 futures-util = "0.3"
+rand = "*"
 reqwest = { version = "0.10", default-features = false, features = ["blocking", "rustls-tls"] }
 
 [build-dependencies]
