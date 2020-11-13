@@ -54,9 +54,27 @@ pub mod basic {
                     pub unpinned: U,
                 }
 
+                #[::pin_project::pin_project(
+                    project = DefaultStructNamedProj,
+                    project_ref = DefaultStructNamedProjRef,
+                )]
+                #[derive(Debug)]
+                pub struct DefaultStructNamed<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
                 #[::pin_project::pin_project]
                 #[derive(Debug)]
                 pub struct DefaultTupleStruct<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    project = DefaultTupleStructNamedProj,
+                    project_ref = DefaultTupleStructNamedProjRef,
+                )]
+                #[derive(Debug)]
+                pub struct DefaultTupleStructNamed<T, U>(#[pin] pub T, pub U);
 
                 #[::pin_project::pin_project(
                     project = DefaultEnumProj,
@@ -124,9 +142,29 @@ pub mod basic {
                     pub unpinned: U,
                 }
 
+                #[::pin_project::pin_project(
+                    project = ReplaceStructNamedProj,
+                    project_ref = ReplaceStructNamedProjRef,
+                    project_replace = ReplaceStructNamedProjOwn,
+                )]
+                #[derive(Debug)]
+                pub struct ReplaceStructNamed<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
                 #[::pin_project::pin_project(project_replace)]
                 #[derive(Debug)]
                 pub struct ReplaceTupleStruct<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    project = ReplaceTupleStructNamedProj,
+                    project_ref = ReplaceTupleStructNamedProjRef,
+                    project_replace = ReplaceTupleStructNamedProjOwn,
+                )]
+                #[derive(Debug)]
+                pub struct ReplaceTupleStructNamed<T, U>(#[pin] pub T, pub U);
 
                 #[::pin_project::pin_project(
                     project = ReplaceEnumProj,
@@ -223,6 +261,207 @@ pub mod forbid_unsafe {
     #![forbid(unsafe_code)]
 
     include!("include/basic-safe-part.rs");
+
+    pub mod inside_macro {
+        #[rustfmt::skip]
+        macro_rules! mac {
+            () => {
+                #[::pin_project::pin_project]
+                #[derive(Debug)]
+                pub struct DefaultStruct<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
+                #[::pin_project::pin_project(
+                    project = DefaultStructNamedProj,
+                    project_ref = DefaultStructNamedProjRef,
+                )]
+                #[derive(Debug)]
+                pub struct DefaultStructNamed<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
+                #[::pin_project::pin_project]
+                #[derive(Debug)]
+                pub struct DefaultTupleStruct<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    project = DefaultTupleStructNamedProj,
+                    project_ref = DefaultTupleStructNamedProjRef,
+                )]
+                #[derive(Debug)]
+                pub struct DefaultTupleStructNamed<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    project = DefaultEnumProj,
+                    project_ref = DefaultEnumProjRef,
+                )]
+                #[derive(Debug)]
+                pub enum DefaultEnum<T, U> {
+                    Struct {
+                        #[pin]
+                        pinned: T,
+                        unpinned: U,
+                    },
+                    Tuple(#[pin] T, U),
+                    Unit,
+                }
+
+                #[::pin_project::pin_project(PinnedDrop)]
+                #[derive(Debug)]
+                pub struct PinnedDropStruct<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
+                #[::pin_project::pinned_drop]
+                impl<T, U> PinnedDrop for PinnedDropStruct<T, U> {
+                    fn drop(self: ::pin_project::__private::Pin<&mut Self>) {}
+                }
+
+                #[::pin_project::pin_project(PinnedDrop)]
+                #[derive(Debug)]
+                pub struct PinnedDropTupleStruct<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pinned_drop]
+                impl<T, U> PinnedDrop for PinnedDropTupleStruct<T, U> {
+                    fn drop(self: ::pin_project::__private::Pin<&mut Self>) {}
+                }
+
+                #[::pin_project::pin_project(
+                    PinnedDrop,
+                    project = PinnedDropEnumProj,
+                    project_ref = PinnedDropEnumProjRef,
+                )]
+                #[derive(Debug)]
+                pub enum PinnedDropEnum<T, U> {
+                    Struct {
+                        #[pin]
+                        pinned: T,
+                        unpinned: U,
+                    },
+                    Tuple(#[pin] T, U),
+                    Unit,
+                }
+
+                #[::pin_project::pinned_drop]
+                impl<T, U> PinnedDrop for PinnedDropEnum<T, U> {
+                    fn drop(self: ::pin_project::__private::Pin<&mut Self>) {}
+                }
+
+                #[::pin_project::pin_project(project_replace)]
+                #[derive(Debug)]
+                pub struct ReplaceStruct<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
+                #[::pin_project::pin_project(
+                    project = ReplaceStructNamedProj,
+                    project_ref = ReplaceStructNamedProjRef,
+                    project_replace = ReplaceStructNamedProjOwn,
+                )]
+                #[derive(Debug)]
+                pub struct ReplaceStructNamed<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
+                #[::pin_project::pin_project(project_replace)]
+                #[derive(Debug)]
+                pub struct ReplaceTupleStruct<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    project = ReplaceTupleStructNamedProj,
+                    project_ref = ReplaceTupleStructNamedProjRef,
+                    project_replace = ReplaceTupleStructNamedProjOwn,
+                )]
+                #[derive(Debug)]
+                pub struct ReplaceTupleStructNamed<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    project = ReplaceEnumProj,
+                    project_ref = ReplaceEnumProjRef,
+                    project_replace = ReplaceEnumProjOwn,
+                )]
+                #[derive(Debug)]
+                pub enum ReplaceEnum<T, U> {
+                    Struct {
+                        #[pin]
+                        pinned: T,
+                        unpinned: U,
+                    },
+                    Tuple(#[pin] T, U),
+                    Unit,
+                }
+
+                #[::pin_project::pin_project(UnsafeUnpin)]
+                #[derive(Debug)]
+                pub struct UnsafeUnpinStruct<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
+                #[::pin_project::pin_project(UnsafeUnpin)]
+                #[derive(Debug)]
+                pub struct UnsafeUnpinTupleStruct<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    UnsafeUnpin,
+                    project = UnsafeUnpinEnumProj,
+                    project_ref = UnsafeUnpinEnumProjRef,
+                )]
+                #[derive(Debug)]
+                pub enum UnsafeUnpinEnum<T, U> {
+                    Struct {
+                        #[pin]
+                        pinned: T,
+                        unpinned: U,
+                    },
+                    Tuple(#[pin] T, U),
+                    Unit,
+                }
+
+                #[::pin_project::pin_project(!Unpin)]
+                #[derive(Debug)]
+                pub struct NotUnpinStruct<T, U> {
+                    #[pin]
+                    pub pinned: T,
+                    pub unpinned: U,
+                }
+
+                #[::pin_project::pin_project(!Unpin)]
+                #[derive(Debug)]
+                pub struct NotUnpinTupleStruct<T, U>(#[pin] pub T, pub U);
+
+                #[::pin_project::pin_project(
+                    !Unpin,
+                    project = NotUnpinEnumProj,
+                    project_ref = NotUnpinEnumProjRef,
+                )]
+                #[derive(Debug)]
+                pub enum NotUnpinEnum<T, U> {
+                    Struct {
+                        #[pin]
+                        pinned: T,
+                        unpinned: U,
+                    },
+                    Tuple(#[pin] T, U),
+                    Unit,
+                }
+            };
+        }
+
+        mac!();
+    }
 }
 
 pub mod box_pointers {
@@ -782,32 +1021,34 @@ pub mod clippy_used_underscore_binding {
     }
 }
 
+// Run `./dev.sh +$toolchain test --test lint` to update this.
 #[cfg(not(miri))]
 #[allow(box_pointers)]
 #[allow(clippy::restriction)]
-#[rustversion::attr(not(nightly), ignore)]
+#[rustversion::attr(before(2020-11-08), ignore)] // Note: This date is commit-date and the day before the toolchain date.
 #[test]
 fn check_lint_list() {
-    use std::{env, fs, path::PathBuf, process::Command, str};
+    use std::{env, fs, path::Path, process::Command, str};
 
     type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
     fn assert_eq(expected_path: &str, actual: &str) -> Result<()> {
-        let manifest_dir = env::var_os("CARGO_MANIFEST_DIR")
-            .map(PathBuf::from)
-            .expect("CARGO_MANIFEST_DIR not set");
-        let expected_path = manifest_dir.join(expected_path);
-        let expected = fs::read_to_string(&expected_path)?;
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let expected_path = &manifest_dir.join(expected_path);
+        let expected = fs::read_to_string(expected_path)?;
         if expected != actual {
-            if env::var_os("CI").map_or(false, |v| v == "true") {
-                panic!(
-                    "assertion failed:\n\nEXPECTED:\n{0}\n{1}\n{0}\n\nACTUAL:\n{0}\n{2}\n{0}\n",
-                    "-".repeat(60),
-                    expected,
-                    actual,
-                );
+            if env::var_os("CI").is_some() {
+                let actual_path =
+                    &manifest_dir.join("target").join(expected_path.file_name().unwrap());
+                fs::write(actual_path, actual)?;
+                let status = Command::new("git")
+                    .args(&["--no-pager", "diff", "--no-index", "--"])
+                    .args(&[expected_path, actual_path])
+                    .status()?;
+                assert!(!status.success());
+                panic!("assertion failed");
             } else {
-                fs::write(&expected_path, actual)?;
+                fs::write(expected_path, actual)?;
             }
         }
         Ok(())

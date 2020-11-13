@@ -1,18 +1,36 @@
 use super::*;
 
-fn check_unwrap<T>(prc: &Process, val: ProcResult<T>) {
+fn check_unwrap<T>(prc: &Process, val: ProcResult<T>) -> Option<T> {
     match val {
-        Ok(_t) => {}
+        Ok(t) => Some(t),
         Err(ProcError::PermissionDenied(_)) if unsafe { libc::geteuid() } != 0 => {
             // we are not root, and so a permission denied error is OK
+            None
         }
         Err(ProcError::NotFound(path)) => {
             // a common reason for this error is that the process isn't running anymore
             if prc.is_alive() {
                 panic!("{:?} not found", path)
             }
+            None
         }
-        Err(err) => panic!("{:?}", err),
+        Err(err) => panic!("check_unwrap error for {} {:?}", prc.pid, err),
+    }
+}
+
+fn check_unwrap_task<T>(prc: &Process, val: ProcResult<T>) -> Option<T> {
+    match val {
+        Ok(t) => Some(t),
+        Err(ProcError::PermissionDenied(_)) if unsafe { libc::geteuid() } != 0 => {
+            // we are not root, and so a permission denied error is OK
+            None
+        }
+        Err(ProcError::NotFound(_path)) => {
+            // tasks can be more short-lived thanks processes, and it seems that accessing
+            // the /status and /stat files for tasks is quite unreliable
+            None
+        }
+        Err(err) => panic!("check_unwrap error for {} {:?}", prc.pid, err),
     }
 }
 
@@ -104,6 +122,18 @@ fn test_self_proc() {
 
 #[test]
 fn test_all() {
+    let is_wsl2 = kernel_config()
+        .ok()
+        .and_then(|cfg| {
+            cfg.get("CONFIG_LOCALVERSION").and_then(|ver| {
+                if let ConfigSetting::Value(s) = ver {
+                    Some(s == "\"-microsoft-standard\"")
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or(false);
     for prc in all_processes().unwrap() {
         // note: this test doesn't unwrap, since some of this data requires root to access
         // so permission denied errors are common.  The check_unwrap helper function handles
@@ -127,7 +157,13 @@ fn test_all() {
         check_unwrap(&prc, prc.io());
         check_unwrap(&prc, prc.maps());
         check_unwrap(&prc, prc.coredump_filter());
-        check_unwrap(&prc, prc.autogroup());
+        // The WSL2 kernel doesn't have autogroup, even though this should be present since linux
+        // 2.6.36
+        if is_wsl2 {
+            assert!(prc.autogroup().is_err());
+        } else {
+            check_unwrap(&prc, prc.autogroup());
+        }
         check_unwrap(&prc, prc.auxv());
         check_unwrap(&prc, prc.cgroups());
         check_unwrap(&prc, prc.wchan());
@@ -136,9 +172,13 @@ fn test_all() {
         check_unwrap(&prc, prc.mountstats());
         check_unwrap(&prc, prc.oom_score());
 
-        for task in prc.tasks().unwrap() {
-            let task = task.unwrap();
-            check_unwrap(&prc, task.stat());
+        if let Some(tasks) = check_unwrap(&prc, prc.tasks()) {
+            for task in tasks {
+                let task = task.unwrap();
+                check_unwrap_task(&prc, task.stat());
+                check_unwrap_task(&prc, task.status());
+                check_unwrap_task(&prc, task.io());
+            }
         }
     }
 }
@@ -163,9 +203,9 @@ fn test_error_handling() {
     // getting the proc struct should be OK
     let init = Process::new(1).unwrap();
 
-    let i_am_root = unsafe { libc::geteuid() } == 0;
+    let i_have_access = unsafe { libc::geteuid() } == init.owner;
 
-    if !i_am_root {
+    if !i_have_access {
         // but accessing data should result in an error (unless we are running as root!)
         assert!(!init.cwd().is_ok());
         assert!(!init.environ().is_ok());
@@ -203,15 +243,9 @@ fn test_proc_maps() {
 #[test]
 fn test_mmap_path() {
     assert_eq!(MMapPath::from("[stack]").unwrap(), MMapPath::Stack);
-    assert_eq!(
-        MMapPath::from("[foo]").unwrap(),
-        MMapPath::Other("foo".to_owned())
-    );
+    assert_eq!(MMapPath::from("[foo]").unwrap(), MMapPath::Other("foo".to_owned()));
     assert_eq!(MMapPath::from("").unwrap(), MMapPath::Anonymous);
-    assert_eq!(
-        MMapPath::from("[stack:154]").unwrap(),
-        MMapPath::TStack(154)
-    );
+    assert_eq!(MMapPath::from("[stack:154]").unwrap(), MMapPath::TStack(154));
     assert_eq!(
         MMapPath::from("/lib/libfoo.so").unwrap(),
         MMapPath::Path(PathBuf::from("/lib/libfoo.so"))

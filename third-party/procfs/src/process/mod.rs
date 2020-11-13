@@ -58,10 +58,10 @@ use crate::from_iter;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read};
-#[cfg(all(unix, not(target_os = "android")))]
-use std::os::linux::fs::MetadataExt;
 #[cfg(target_os = "android")]
 use std::os::android::fs::MetadataExt;
+#[cfg(all(unix, not(target_os = "android")))]
+use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -359,9 +359,7 @@ impl MMapPath {
                 let tid = from_str!(u32, expect!(s.nth(1)));
                 MMapPath::TStack(tid)
             }
-            x if x.starts_with('[') && x.ends_with(']') => {
-                MMapPath::Other(x[1..x.len() - 1].to_string())
-            }
+            x if x.starts_with('[') && x.ends_with(']') => MMapPath::Other(x[1..x.len() - 1].to_string()),
             x => MMapPath::Path(PathBuf::from(x)),
         })
     }
@@ -477,9 +475,7 @@ impl FromStr for FDTarget {
                     let inode = expect!(u32::from_str_radix(strip_first_last(inode)?, 10));
                     Ok(FDTarget::Pipe(inode))
                 }
-                "anon_inode" => Ok(FDTarget::AnonInode(
-                    expect!(s.next(), "anon inode").to_string(),
-                )),
+                "anon_inode" => Ok(FDTarget::AnonInode(expect!(s.next(), "anon inode").to_string())),
                 "/memfd" => Ok(FDTarget::MemFD(expect!(s.next(), "memfd name").to_string())),
                 "" => Err(ProcError::Incomplete(None)),
                 x => {
@@ -582,13 +578,7 @@ impl Process {
         f.read_to_string(&mut buf)?;
         Ok(buf
             .split('\0')
-            .filter_map(|s| {
-                if !s.is_empty() {
-                    Some(s.to_string())
-                } else {
-                    None
-                }
-            })
+            .filter_map(|s| if !s.is_empty() { Some(s.to_string()) } else { None })
             .collect())
     }
 
@@ -607,16 +597,8 @@ impl Process {
                 prc.stat.comm == self.stat.comm
                     && prc.owner == self.owner
                     && prc.stat.starttime == self.stat.starttime
-                    && prc
-                        .stat
-                        .state()
-                        .map(|s| s != ProcState::Zombie)
-                        .unwrap_or(false)
-                    && self
-                        .stat
-                        .state()
-                        .map(|s| s != ProcState::Zombie)
-                        .unwrap_or(false)
+                    && prc.stat.state().map(|s| s != ProcState::Zombie).unwrap_or(false)
+                    && self.stat.state().map(|s| s != ProcState::Zombie).unwrap_or(false)
             }
             _ => false,
         }
@@ -670,10 +652,7 @@ impl Process {
             // slice will be in the form key=var, so split on the first equals sign
             let mut split = slice.splitn(2, |b| *b == b'=');
             if let (Some(k), Some(v)) = (split.next(), split.next()) {
-                map.insert(
-                    OsStr::from_bytes(k).to_os_string(),
-                    OsStr::from_bytes(v).to_os_string(),
-                );
+                map.insert(OsStr::from_bytes(k).to_os_string(), OsStr::from_bytes(v).to_os_string());
             };
             //let env = OsStr::from_bytes(slice);
         }
@@ -741,6 +720,13 @@ impl Process {
         }
 
         Ok(vec)
+    }
+
+    /// Gets the number of open file descriptors for a process
+    pub fn fd_count(&self) -> ProcResult<usize> {
+        let path = self.root.join("fd");
+
+        Ok(wrap_io_error!(path, path.read_dir())?.count())
     }
 
     /// Gets a list of open file descriptors for a process

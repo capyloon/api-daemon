@@ -7,5 +7,5 @@ edition = "2018"
 [dependencies]
 libc = "0.2"
 log = "0.4"
-procfs = "0.8"
+procfs = "0.9"
 thiserror = "1.0"

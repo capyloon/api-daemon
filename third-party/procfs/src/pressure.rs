@@ -133,12 +133,6 @@ fn parse_pressure_record(line: &str) -> ProcResult<PressureRecord> {
     })
 }
 
-/// Get CPU pressure information
-#[deprecated(note = "Please use the CpuPressure::new() method instead")]
-pub fn cpu_pressure() -> ProcResult<CpuPressure> {
-    CpuPressure::new()
-}
-
 fn get_pressure(pressure_file: &str) -> ProcResult<(PressureRecord, PressureRecord)> {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
@@ -154,18 +148,6 @@ fn get_pressure(pressure_file: &str) -> ProcResult<(PressureRecord, PressureReco
     Ok((parse_pressure_record(&some)?, parse_pressure_record(&full)?))
 }
 
-/// Get memory pressure information
-#[deprecated(note = "Please use the MemoryPressure::new() method instead")]
-pub fn memory_pressure() -> ProcResult<MemoryPressure> {
-    MemoryPressure::new()
-}
-
-/// Get IO pressure information
-#[deprecated(note = "Please use the IoPressure::new() method instead")]
-pub fn io_pressure() -> ProcResult<IoPressure> {
-    IoPressure::new()
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -178,8 +160,7 @@ mod test {
 
     #[test]
     fn test_parse_pressure_record() {
-        let record =
-            parse_pressure_record("full avg10=2.10 avg60=0.12 avg300=0.00 total=391926").unwrap();
+        let record = parse_pressure_record("full avg10=2.10 avg60=0.12 avg300=0.00 total=391926").unwrap();
 
         assert!(record.avg10 - 2.10 < EPSILON);
         assert!(record.avg60 - 0.12 < EPSILON);

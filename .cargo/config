@@ -1,9 +1,9 @@
 [source.crates-io]
 replace-with = "vendored-sources"
 
-[source."https://github.com/fabricedesre/procfs.git"]
-git = "https://github.com/fabricedesre/procfs.git"
-branch = "android"
+[source."https://github.com/fabricedesre/actix.git"]
+git = "https://github.com/fabricedesre/actix.git"
+branch = "0.10-bump-crossbeam"
 replace-with = "vendored-sources"
 
 [source."https://github.com/fabricedesre/reqwest.git"]
@@ -13,12 +13,11 @@ replace-with = "vendored-sources"
 
 [source."https://github.com/kaiostech/ring.git"]
 git = "https://github.com/kaiostech/ring.git"
-branch = "gonk-0.16.15"
+branch = "gonk-0.16.16"
 replace-with = "vendored-sources"
 
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
-branch = "master"
 replace-with = "vendored-sources"
 
 [source."ssh://git@git.kaiostech.com/KaiOS/zip_utils.git"]

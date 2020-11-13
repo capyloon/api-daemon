@@ -1,6 +1,10 @@
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{spanned::Spanned, visit_mut::VisitMut, *};
+use quote::{format_ident, quote, ToTokens};
+use syn::{
+    parse_quote, spanned::Spanned, visit_mut::VisitMut, Error, FnArg, GenericArgument, ImplItem,
+    ItemImpl, Pat, PatIdent, Path, PathArguments, Result, ReturnType, Signature, Token, Type,
+    TypePath, TypeReference,
+};
 
 use crate::utils::{parse_as_empty, prepend_underscore_to_self, ReplaceReceiver, SliceExt};
 
@@ -196,7 +200,7 @@ fn expand_impl(item: &mut ItemImpl) {
     // `fn drop(mut self: Pin<&mut Self>)` -> `fn __drop_inner<T>(mut __self: Pin<&mut Receiver>)`
     let drop_inner = {
         let mut drop_inner = method.clone();
-        let ident = Ident::new("__drop_inner", drop_inner.sig.ident.span());
+        let ident = format_ident!("__drop_inner");
         // Add a dummy `__drop_inner` function to prevent users call outer `__drop_inner`.
         drop_inner.block.stmts.insert(0, parse_quote!(fn #ident() {}));
         drop_inner.sig.ident = ident;

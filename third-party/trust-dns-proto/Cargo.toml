@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "trust-dns-proto"
-version = "0.19.5"
+version = "0.19.6"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
 description = "Trust-DNS is a safe and secure DNS library. This is the foundational DNS protocol library for all Trust-DNS projects.\n"
 homepage = "http://www.trust-dns.org/index.html"

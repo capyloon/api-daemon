@@ -23,8 +23,12 @@ macro_rules! since_kernel {
 /// To construct one of these structures, you have to first create a [Process](crate::process::Process).
 ///
 /// Not all fields are available in every kernel.  These fields have `Option<T>` types.
+///
+/// New fields to this struct may be added at any time (even without a major or minor semver bump).
 #[derive(Debug, Clone)]
 pub struct Stat {
+    _private: (),
+
     /// The process ID.
     pub pid: i32,
     /// The filename of the executable, in parentheses.
@@ -309,6 +313,7 @@ impl Stat {
         let exit_code = since_kernel!(3, 5, 0, expect!(from_iter(&mut rest)));
 
         Ok(Stat {
+            _private: (),
             pid,
             comm,
             state,
@@ -365,12 +370,8 @@ impl Stat {
     }
 
     pub fn state(&self) -> ProcResult<ProcState> {
-        ProcState::from_char(self.state).ok_or_else(|| {
-            build_internal_error!(format!(
-                "{:?} is not a recognized process state",
-                self.state
-            ))
-        })
+        ProcState::from_char(self.state)
+            .ok_or_else(|| build_internal_error!(format!("{:?} is not a recognized process state", self.state)))
     }
 
     pub fn tty_nr(&self) -> (i32, i32) {
@@ -388,12 +389,8 @@ impl Stat {
     ///
     /// See also the [Stat::flags](struct.Stat.html#structfield.flags) field.
     pub fn flags(&self) -> ProcResult<StatFlags> {
-        StatFlags::from_bits(self.flags).ok_or_else(|| {
-            build_internal_error!(format!(
-                "Can't construct flags bitfield from {:?}",
-                self.flags
-            ))
-        })
+        StatFlags::from_bits(self.flags)
+            .ok_or_else(|| build_internal_error!(format!("Can't construct flags bitfield from {:?}", self.flags)))
     }
 
     /// Get the starttime of the process as a `DateTime` object.

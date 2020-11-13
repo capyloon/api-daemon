@@ -12,11 +12,7 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use super::{
-    nonce::{self, Iv},
-    Block, Direction, BLOCK_LEN,
-};
-
+use super::{counter, iv::Iv, quic::Sample, Block, Direction, BLOCK_LEN};
 use crate::{bits::BitLength, c, cpu, endian::*, error, polyfill};
 
 pub(crate) struct Key {
@@ -194,7 +190,7 @@ impl Key {
 
     #[inline]
     pub fn encrypt_iv_xor_block(&self, iv: Iv, input: Block) -> Block {
-        let mut output = self.encrypt_block(iv.into_block_less_safe());
+        let mut output = self.encrypt_block(Block::from(&iv.into_bytes_less_safe()));
         output.bitxor_assign(input);
         output
     }
@@ -295,8 +291,8 @@ impl Key {
         }
     }
 
-    pub fn new_mask(&self, sample: Block) -> [u8; 5] {
-        let block = self.encrypt_block(sample);
+    pub fn new_mask(&self, sample: Sample) -> [u8; 5] {
+        let block = self.encrypt_block(Block::from(&sample));
 
         let mut out: [u8; 5] = [0; 5];
         out.copy_from_slice(&block.as_ref()[..5]);
@@ -335,7 +331,7 @@ pub enum Variant {
     AES_256,
 }
 
-pub type Counter = nonce::Counter<BigEndian<u32>>;
+pub type Counter = counter::Counter<BigEndian<u32>>;
 
 #[repr(C)] // Only so `Key` can be `#[repr(C)]`
 #[derive(Clone, Copy)]

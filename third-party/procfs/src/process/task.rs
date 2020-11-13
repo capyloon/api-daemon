@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::{FileWrapper, Io, ProcError, Stat};
+use super::{FileWrapper, Io, ProcError, Stat, Status};
 use crate::ProcResult;
 
 /// A task (aka Thread) inside of a [`Process`](crate::process::Process)
@@ -37,6 +37,13 @@ impl Task {
         Stat::from_reader(FileWrapper::open(self.root.join("stat"))?)
     }
 
+    /// Thread info from `/proc/<pid>/task/<tid>/status`
+    ///
+    /// Many of the returned fields will be the same as the parent process
+    pub fn status(&self) -> ProcResult<Status> {
+        Status::from_reader(FileWrapper::open(self.root.join("status"))?)
+    }
+
     /// Thread IO info from `/proc/<pid>/task/<tid>/io`
     ///
     /// This data will be unique per task.
@@ -51,6 +58,7 @@ mod tests {
     use std::sync::{Arc, Barrier};
 
     #[test]
+    #[cfg(not(tarpaulin))] // this test is unstable under tarpaulin, and i'm yet sure why
     fn test_task() {
         use std::io::Read;
 
@@ -77,10 +85,8 @@ mod tests {
                 zero.take(bytes_to_read).read_to_end(&mut vec).unwrap();
                 assert_eq!(vec.len(), bytes_to_read as usize);
 
-                // spin for about 51 ticks (utime accounting isn't perfectly accurate)
-                let dur = std::time::Duration::from_millis(
-                    51 * (1000 / crate::ticks_per_second().unwrap()) as u64,
-                );
+                // spin for about 52 ticks (utime accounting isn't perfectly accurate)
+                let dur = std::time::Duration::from_millis(52 * (1000 / crate::ticks_per_second().unwrap()) as u64);
                 let start = std::time::Instant::now();
                 while start.elapsed() <= dur {
                     // spin
@@ -116,6 +122,7 @@ mod tests {
         for task in me.tasks().unwrap() {
             let task = task.unwrap();
             let stat = task.stat().unwrap();
+            let status = task.status().unwrap();
             let io = task.io().unwrap();
 
             summed_io.rchar += io.rchar;
@@ -126,12 +133,12 @@ mod tests {
             summed_io.write_bytes += io.write_bytes;
             summed_io.cancelled_write_bytes += io.cancelled_write_bytes;
 
-            if stat.comm == "one" {
+            if stat.comm == "one" && status.name == "one" {
                 found_one = true;
                 assert!(io.rchar >= bytes_to_read);
                 assert!(stat.utime >= 50, "utime({}) too small", stat.utime);
             }
-            if stat.comm == "two" {
+            if stat.comm == "two" && status.name == "two" {
                 found_two = true;
                 assert_eq!(io.rchar, 0);
                 assert_eq!(stat.utime, 0);

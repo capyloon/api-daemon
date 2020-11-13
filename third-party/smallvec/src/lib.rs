@@ -233,6 +233,12 @@ pub enum CollectionAllocErr {
     },
 }
 
+impl fmt::Display for CollectionAllocErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Allocation error: {:?}", self)
+    }
+}
+
 impl From<LayoutErr> for CollectionAllocErr {
     fn from(_: LayoutErr) -> Self {
         CollectionAllocErr::CapacityOverflow
@@ -769,6 +775,24 @@ impl<A: Array> SmallVec<A> {
             *len_ptr = last_index;
             Some(ptr::read(ptr.add(last_index)))
         }
+    }
+
+    /// Moves all the elements of `other` into `self`, leaving `other` empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use smallvec::{SmallVec, smallvec};
+    /// let mut v0: SmallVec<[u8; 16]> = smallvec![1, 2, 3];
+    /// let mut v1: SmallVec<[u8; 32]> = smallvec![4, 5, 6];
+    /// v0.append(&mut v1);
+    /// assert_eq!(*v0, [1, 2, 3, 4, 5, 6]);
+    /// assert_eq!(*v1, []);
+    /// ```
+    pub fn append<B>(&mut self, other: &mut SmallVec<B>)
+    where B: Array<Item = A::Item>
+    {
+        self.extend(other.drain(..))
     }
 
     /// Re-allocate to set the capacity to `max(new_cap, inline_size())`.
@@ -1525,8 +1549,10 @@ where
     where
         B: SeqAccess<'de>,
     {
+        use serde::de::Error;
         let len = seq.size_hint().unwrap_or(0);
-        let mut values = SmallVec::with_capacity(len);
+        let mut values = SmallVec::new();
+        values.try_reserve(len).map_err(B::Error::custom)?;
 
         while let Some(value) = seq.next_element()? {
             values.push(value);
@@ -1928,7 +1954,8 @@ macro_rules! impl_array(
 
 #[cfg(not(feature = "const_generics"))]
 impl_array!(
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 24, 32, 36, 0x40, 0x60, 0x80,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+    21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 36, 0x40, 0x60, 0x80,
     0x100, 0x200, 0x400, 0x600, 0x800, 0x1000, 0x2000, 0x4000, 0x6000, 0x8000, 0x10000, 0x20000,
     0x40000, 0x60000, 0x80000, 0x10_0000
 );

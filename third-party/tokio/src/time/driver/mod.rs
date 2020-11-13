@@ -82,7 +82,7 @@ use std::{cmp, fmt};
 /// [timeout]: crate::time::Timeout
 /// [interval]: crate::time::Interval
 #[derive(Debug)]
-pub(crate) struct Driver<T> {
+pub(crate) struct Driver<T: Park> {
     /// Shared state
     inner: Arc<Inner>,
 
@@ -94,6 +94,9 @@ pub(crate) struct Driver<T> {
 
     /// Source of "now" instances
     clock: Clock,
+
+    /// True if the driver is being shutdown
+    is_shutdown: bool,
 }
 
 /// Timer state shared between `Driver`, `Handle`, and `Registration`.
@@ -135,6 +138,7 @@ where
             wheel: wheel::Wheel::new(),
             park,
             clock,
+            is_shutdown: false,
         }
     }
 
@@ -225,7 +229,7 @@ where
                 // The entry's deadline is invalid, so error it and update the
                 // internal state accordingly.
                 entry.set_when_internal(None);
-                entry.error();
+                entry.error(Error::invalid());
             }
         }
     }
@@ -303,10 +307,12 @@ where
 
         Ok(())
     }
-}
 
-impl<T> Drop for Driver<T> {
-    fn drop(&mut self) {
+    fn shutdown(&mut self) {
+        if self.is_shutdown {
+            return;
+        }
+
         use std::u64;
 
         // Shutdown the stack of entries to process, preventing any new entries
@@ -317,8 +323,21 @@ impl<T> Drop for Driver<T> {
         let mut poll = wheel::Poll::new(u64::MAX);
 
         while let Some(entry) = self.wheel.poll(&mut poll, &mut ()) {
-            entry.error();
+            entry.error(Error::shutdown());
         }
+
+        self.park.shutdown();
+
+        self.is_shutdown = true;
+    }
+}
+
+impl<T> Drop for Driver<T>
+where
+    T: Park,
+{
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

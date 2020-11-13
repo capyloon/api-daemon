@@ -81,7 +81,7 @@ mod setup_config;
 
 pub mod windows_registry;
 
-/// A builder for compilation of a native static library.
+/// A builder for compilation of a native library.
 ///
 /// A `Build` is the main type of the `cc` crate and is used to control all the
 /// various configuration options and such of a compile. You'll find more
@@ -684,11 +684,11 @@ impl Build {
     /// Set the standard library to link against when compiling with C++
     /// support.
     ///
-    /// The default value of this property depends on the current target: On
-    /// OS X `Some("c++")` is used, when compiling for a Visual Studio based
-    /// target `None` is used and for other targets `Some("stdc++")` is used.
+    /// See [`get_cpp_link_stdlib`](cc::Build::get_cpp_link_stdlib) documentation
+    /// for the default value.
     /// If the `CXXSTDLIB` environment variable is set, its value will
-    /// override the default value.
+    /// override the default value, but not the value explicitly set by calling
+    /// this function.
     ///
     /// A value of `None` indicates that no automatic linking should happen,
     /// otherwise cargo will link against the specified library.
@@ -698,6 +698,7 @@ impl Build {
     /// Common values:
     /// - `stdc++` for GNU
     /// - `c++` for Clang
+    /// - `c++_shared` or `c++_static` for Android
     ///
     /// # Example
     ///
@@ -1773,66 +1774,25 @@ impl Build {
     }
 
     fn assemble(&self, lib_name: &str, dst: &Path, objs: &[Object]) -> Result<(), Error> {
-        // Delete the destination if it exists as the `ar` tool at least on Unix
-        // appends to it, which we don't want.
+        // Delete the destination if it exists as we want to
+        // create on the first iteration instead of appending.
         let _ = fs::remove_file(&dst);
-
-        let objects: Vec<_> = objs.iter().map(|obj| obj.dst.clone()).collect();
         let target = self.get_target()?;
+        let objs: Vec<_> = objs
+            .iter()
+            .map(|o| o.dst.clone())
+            .chain(self.objects.clone())
+            .collect();
+
+        for chunk in objs.chunks(100) {
+            self.assemble_progressive(dst, chunk)?;
+        }
+
         if target.contains("msvc") {
-            let (mut cmd, program) = self.get_ar()?;
-            let mut out = OsString::from("-out:");
-            out.push(dst);
-            cmd.arg(out).arg("-nologo");
-            for flag in self.ar_flags.iter() {
-                cmd.arg(flag);
-            }
-
-            // Similar to https://github.com/rust-lang/rust/pull/47507
-            // and https://github.com/rust-lang/rust/pull/48548
-            let estimated_command_line_len = objects
-                .iter()
-                .chain(&self.objects)
-                .map(|a| a.as_os_str().len())
-                .sum::<usize>();
-            if estimated_command_line_len > 1024 * 6 {
-                let mut args = String::from("\u{FEFF}"); // BOM
-                for arg in objects.iter().chain(&self.objects) {
-                    args.push('"');
-                    for c in arg.to_str().unwrap().chars() {
-                        if c == '"' {
-                            args.push('\\')
-                        }
-                        args.push(c)
-                    }
-                    args.push('"');
-                    args.push('\n');
-                }
-
-                let mut utf16le = Vec::new();
-                for code_unit in args.encode_utf16() {
-                    utf16le.push(code_unit as u8);
-                    utf16le.push((code_unit >> 8) as u8);
-                }
-
-                let mut args_file = OsString::from(dst);
-                args_file.push(".args");
-                fs::File::create(&args_file)
-                    .unwrap()
-                    .write_all(&utf16le)
-                    .unwrap();
-
-                let mut args_file_arg = OsString::from("@");
-                args_file_arg.push(args_file);
-                cmd.arg(args_file_arg);
-            } else {
-                cmd.args(&objects).args(&self.objects);
-            }
-            run(&mut cmd, &program)?;
-
             // The Rust compiler will look for libfoo.a and foo.lib, but the
             // MSVC linker will also be passed foo.lib, so be sure that both
             // exist for now.
+
             let lib_dst = dst.with_file_name(format!("{}.lib", lib_name));
             let _ = fs::remove_file(&lib_dst);
             match fs::hard_link(&dst, &lib_dst).or_else(|_| {
@@ -1847,6 +1807,29 @@ impl Build {
                     ));
                 }
             };
+        }
+
+        Ok(())
+    }
+
+    fn assemble_progressive(&self, dst: &Path, objs: &[PathBuf]) -> Result<(), Error> {
+        let target = self.get_target()?;
+
+        if target.contains("msvc") {
+            let (mut cmd, program) = self.get_ar()?;
+            let mut out = OsString::from("-out:");
+            out.push(dst);
+            cmd.arg(out).arg("-nologo");
+            for flag in self.ar_flags.iter() {
+                cmd.arg(flag);
+            }
+            // If the library file already exists, add the libary name
+            // as an argument to let lib.exe know we are appending the objs.
+            if dst.exists() {
+                cmd.arg(dst);
+            }
+            cmd.args(objs);
+            run(&mut cmd, &program)?;
         } else {
             let (mut ar, cmd) = self.get_ar()?;
 
@@ -1876,10 +1859,7 @@ impl Build {
             for flag in self.ar_flags.iter() {
                 ar.arg(flag);
             }
-            run(
-                ar.arg("crs").arg(dst).args(&objects).args(&self.objects),
-                &cmd,
-            )?;
+            run(ar.arg("crs").arg(dst).args(objs), &cmd)?;
         }
 
         Ok(())
@@ -2241,8 +2221,11 @@ impl Build {
         ))
     }
 
-    /// Returns the default C++ standard library for the current target: `libc++`
-    /// for OS X and `libstdc++` for anything else.
+    /// Returns the C++ standard library:
+    /// 1. If [cpp_link_stdlib](cc::Build::cpp_link_stdlib) is set, uses its value.
+    /// 2. Else if the `CXXSTDLIB` environment variable is set, uses its value.
+    /// 3. Else the default is `libc++` for OS X and BSDs, `libc++_shared` for Android,
+    /// `None` for MSVC and `libstdc++` for anything else.
     fn get_cpp_link_stdlib(&self) -> Result<Option<String>, Error> {
         match self.cpp_link_stdlib.clone() {
             Some(s) => Ok(s),
@@ -2263,6 +2246,8 @@ impl Build {
                         Ok(Some("c++".to_string()))
                     } else if target.contains("openbsd") {
                         Ok(Some("c++".to_string()))
+                    } else if target.contains("android") {
+                        Ok(Some("c++_shared".to_string()))
                     } else {
                         Ok(Some("stdc++".to_string()))
                     }
@@ -2352,7 +2337,9 @@ impl Build {
             "i686-unknown-linux-musl" => Some("musl"),
             "i686-unknown-netbsd" => Some("i486--netbsdelf"),
             "mips-unknown-linux-gnu" => Some("mips-linux-gnu"),
+            "mips-unknown-linux-musl" => Some("mips-linux-musl"),
             "mipsel-unknown-linux-gnu" => Some("mipsel-linux-gnu"),
+            "mipsel-unknown-linux-musl" => Some("mipsel-linux-musl"),
             "mips64-unknown-linux-gnuabi64" => Some("mips64-linux-gnuabi64"),
             "mips64el-unknown-linux-gnuabi64" => Some("mips64el-linux-gnuabi64"),
             "mipsisa32r6-unknown-linux-gnu" => Some("mipsisa32r6-linux-gnu"),

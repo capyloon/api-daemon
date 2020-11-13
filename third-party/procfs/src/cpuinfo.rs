@@ -62,10 +62,7 @@ impl CpuInfo {
         let common_fields: Vec<String> = list[0]
             .iter()
             .filter_map(|(key, val)| {
-                if list
-                    .iter()
-                    .all(|map| map.get(key).map_or(false, |v| v == val))
-                {
+                if list.iter().all(|map| map.get(key).map_or(false, |v| v == val)) {
                     Some(key.clone())
                 } else {
                     None
@@ -126,12 +123,10 @@ impl CpuInfo {
     }
 
     pub fn model_name(&self, cpu_num: usize) -> Option<&str> {
-        self.get_info(cpu_num)
-            .and_then(|mut m| m.remove("model name"))
+        self.get_info(cpu_num).and_then(|mut m| m.remove("model name"))
     }
     pub fn vendor_id(&self, cpu_num: usize) -> Option<&str> {
-        self.get_info(cpu_num)
-            .and_then(|mut m| m.remove("vendor_id"))
+        self.get_info(cpu_num).and_then(|mut m| m.remove("vendor_id"))
     }
     /// May not be available on some older 2.6 kernels
     pub fn physical_id(&self, cpu_num: usize) -> Option<u32> {
@@ -144,12 +139,6 @@ impl CpuInfo {
             .and_then(|mut m| m.remove("flags"))
             .map(|flags: &str| flags.split_whitespace().collect())
     }
-}
-
-/// Get CPU info, from /proc/cpuinfo
-#[deprecated(note = "Please use the CpuInfo::new() method instead")]
-pub fn cpuinfo() -> ProcResult<CpuInfo> {
-    CpuInfo::new()
 }
 
 #[cfg(test)]

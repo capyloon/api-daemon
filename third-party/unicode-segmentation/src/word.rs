@@ -19,6 +19,12 @@ use tables::word::WordCat;
 /// [Alphabetic](http://unicode.org/reports/tr44/#Alphabetic)
 /// property, or with
 /// [General_Category=Number](http://unicode.org/reports/tr44/#General_Category_Values).
+///
+/// This struct is created by the [`unicode_words`] method on the [`UnicodeSegmentation`] trait. See
+/// its documentation for more.
+///
+/// [`unicode_words`]: trait.UnicodeSegmentation.html#tymethod.unicode_words
+/// [`UnicodeSegmentation`]: trait.UnicodeSegmentation.html
 pub struct UnicodeWords<'a> {
     inner: Filter<UWordBounds<'a>, fn(&&str) -> bool>,
 }
@@ -36,6 +42,12 @@ impl<'a> DoubleEndedIterator for UnicodeWords<'a> {
 
 /// External iterator for a string's
 /// [word boundaries](http://www.unicode.org/reports/tr29/#Word_Boundaries).
+///
+/// This struct is created by the [`split_word_bounds`] method on the [`UnicodeSegmentation`]
+/// trait. See its documentation for more.
+///
+/// [`split_word_bounds`]: trait.UnicodeSegmentation.html#tymethod.split_word_bounds
+/// [`UnicodeSegmentation`]: trait.UnicodeSegmentation.html
 #[derive(Clone)]
 pub struct UWordBounds<'a> {
     string: &'a str,
@@ -44,6 +56,12 @@ pub struct UWordBounds<'a> {
 }
 
 /// External iterator for word boundaries and byte offsets.
+///
+/// This struct is created by the [`split_word_bound_indices`] method on the
+/// [`UnicodeSegmentation`] trait. See its documentation for more.
+///
+/// [`split_word_bound_indices`]: trait.UnicodeSegmentation.html#tymethod.split_word_bound_indices
+/// [`UnicodeSegmentation`]: trait.UnicodeSegmentation.html
 #[derive(Clone)]
 pub struct UWordBoundIndices<'a> {
     start_offset: usize,
@@ -125,7 +143,7 @@ enum RegionalState {
 
 fn is_emoji(ch: char) -> bool {
     use tables::emoji;
-    emoji::emoji_category(ch) == emoji::EmojiCat::EC_Extended_Pictographic
+    emoji::emoji_category(ch).2 == emoji::EmojiCat::EC_Extended_Pictographic
 }
 
 impl<'a> Iterator for UWordBounds<'a> {
@@ -164,7 +182,7 @@ impl<'a> Iterator for UWordBounds<'a> {
             prev_zwj = cat == wd::WC_ZWJ;
             // if there's a category cached, grab it
             cat = match self.cat {
-                None => wd::word_category(ch),
+                None => wd::word_category(ch).2,
                 _ => self.cat.take().unwrap()
             };
             take_cat = true;
@@ -391,7 +409,7 @@ impl<'a> DoubleEndedIterator for UWordBounds<'a> {
 
             // if there's a category cached, grab it
             cat = match self.catb {
-                None => wd::word_category(ch),
+                None => wd::word_category(ch).2,
                 _ => self.catb.take().unwrap()
             };
             take_cat = true;
@@ -533,7 +551,7 @@ impl<'a> DoubleEndedIterator for UWordBounds<'a> {
                         if regional_state == RegionalState::Unknown {
                             let count = self.string[..previdx]
                                             .chars().rev()
-                                            .map(|c| wd::word_category(c))
+                                            .map(|c| wd::word_category(c).2)
                                             .filter(|&c| ! (c == wd::WC_ZWJ || c == wd::WC_Extend || c == wd::WC_Format))
                                             .take_while(|&c| c == wd::WC_Regional_Indicator)
                                             .count();
@@ -624,7 +642,7 @@ impl<'a> UWordBounds<'a> {
         let nidx = idx + self.string[idx..].chars().next().unwrap().len_utf8();
         if nidx < self.string.len() {
             let nch = self.string[nidx..].chars().next().unwrap();
-            Some(wd::word_category(nch))
+            Some(wd::word_category(nch).2)
         } else {
             None
         }
@@ -635,7 +653,7 @@ impl<'a> UWordBounds<'a> {
         use tables::word as wd;
         if idx > 0 {
             let nch = self.string[..idx].chars().next_back().unwrap();
-            Some(wd::word_category(nch))
+            Some(wd::word_category(nch).2)
         } else {
             None
         }

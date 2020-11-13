@@ -54,7 +54,7 @@ expanded_categories = {
 # these are the surrogate codepoints, which are not valid rust characters
 surrogate_codepoints = (0xd800, 0xdfff)
 
-UNICODE_VERSION = (12, 0, 0)
+UNICODE_VERSION = (13, 0, 0)
 
 UNICODE_VERSION_NUMBER = "%s.%s.%s" %UNICODE_VERSION
 
@@ -64,10 +64,10 @@ def is_surrogate(n):
 def fetch(f):
     if not os.path.exists(os.path.basename(f)):
         if "emoji" in f:
-            os.system("curl -O https://www.unicode.org/Public/emoji/%s.%s/%s"
-                      % (UNICODE_VERSION[0], UNICODE_VERSION[1], f))
+            os.system("curl -O https://www.unicode.org/Public/%s/ucd/emoji/%s"
+                      % (UNICODE_VERSION_NUMBER, f))
         else:
-            os.system("curl -O http://www.unicode.org/Public/%s/ucd/%s"
+            os.system("curl -O https://www.unicode.org/Public/%s/ucd/%s"
                       % (UNICODE_VERSION_NUMBER, f))
 
     if not os.path.exists(os.path.basename(f)):
@@ -280,7 +280,8 @@ def emit_break_module(f, break_table, break_cats, name):
         f.write(("        %sC_" % Name[0]) + cat + ",\n")
     f.write("""    }
 
-    fn bsearch_range_value_table(c: char, r: &'static [(char, char, %sCat)]) -> %sCat {
+    fn bsearch_range_value_table(c: char, r: &'static [(char, char, %sCat)]) -> (u32, u32, %sCat) {
+        use core;
         use core::cmp::Ordering::{Equal, Less, Greater};
         match r.binary_search_by(|&(lo, hi, _)| {
             if lo <= c && c <= hi { Equal }
@@ -288,14 +289,20 @@ def emit_break_module(f, break_table, break_cats, name):
             else { Greater }
         }) {
             Ok(idx) => {
-                let (_, _, cat) = r[idx];
-                cat
+                let (lower, upper, cat) = r[idx];
+                (lower as u32, upper as u32, cat)
             }
-            Err(_) => %sC_Any
+            Err(idx) => {
+                (
+                    if idx > 0 { r[idx-1].1 as u32 + 1 } else { 0 },
+                    r.get(idx).map(|c|c.0 as u32 - 1).unwrap_or(core::u32::MAX),
+                    %sC_Any,
+                )
+            }
         }
     }
 
-    pub fn %s_category(c: char) -> %sCat {
+    pub fn %s_category(c: char) -> (u32, u32, %sCat) {
         bsearch_range_value_table(c, %s_cat_table)
     }
 

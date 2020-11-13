@@ -22,9 +22,15 @@ use super::{convert_to_kibibytes, FileWrapper, ProcResult};
 /// This imprecision in /proc/meminfo is known,
 /// but is not corrected due to legacy concerns -
 /// programs rely on /proc/meminfo to specify size with the "kB" string.
+///
+/// New fields to this struct may be added at any time (even without a major or minor semver bump).
 #[derive(Debug)]
 #[allow(non_snake_case)]
 pub struct Meminfo {
+    // this private field prevents clients from directly constructing this object.
+    // this allows us (procfs) to add fields in a semver compatible way
+    _private: (),
+
     /// Total usable RAM (i.e., physical RAM minus a few reserved bits and the kernel binary code).
     pub mem_total: u64,
     /// The sum of [LowFree](#structfield.low_free) + [HighFree](#structfield.high_free).
@@ -260,6 +266,16 @@ pub struct Meminfo {
     ///
     /// Includes s_reclaimable, and other direct allocations with a shrinker.
     pub k_reclaimable: Option<u64>,
+
+    /// Undocumented field
+    ///
+    /// (CONFIG_TRANSPARENT_HUGEPAGE is requried.  Since Linux 5.4)
+    pub file_pmd_mapped: Option<u64>,
+
+    /// Undocumented field
+    ///
+    /// (CONFIG_TRANSPARENT_HUGEPAGE is required.  Since Linux 5.4)
+    pub file_huge_pages: Option<u64>,
 }
 
 impl Meminfo {
@@ -302,6 +318,7 @@ impl Meminfo {
         // if there's anything still left in the map at the end, that
         // means we probably have a bug/typo, or are out-of-date
         let meminfo = Meminfo {
+            _private: (),
             mem_total: expect!(map.remove("MemTotal")),
             mem_free: expect!(map.remove("MemFree")),
             mem_available: map.remove("MemAvailable"),
@@ -360,6 +377,8 @@ impl Meminfo {
             k_reclaimable: map.remove("KReclaimable"),
             per_cpu: map.remove("Percpu"),
             hugetlb: map.remove("Hugetlb"),
+            file_pmd_mapped: map.remove("FilePmdMapped"),
+            file_huge_pages: map.remove("FileHugePages"),
         };
 
         if cfg!(test) && !map.is_empty() {
@@ -378,20 +397,15 @@ mod test {
     #[allow(clippy::cognitive_complexity)]
     #[test]
     fn test_meminfo() {
-        use std::path::Path;
-
         // TRAVIS
         // we don't have access to the kernel_config on travis, so skip that test there
         match ::std::env::var("TRAVIS") {
             Ok(ref s) if s == "true" => return,
             _ => {}
         }
-        if !Path::new(crate::PROC_CONFIG_GZ).exists() && !Path::new(crate::BOOT_CONFIG).exists() {
-            return;
-        }
 
         let kernel = KernelVersion::current().unwrap();
-        let config = kernel_config().unwrap();
+        let config = kernel_config().ok();
 
         let meminfo = Meminfo::new().unwrap();
         println!("{:#?}", meminfo);
@@ -419,10 +433,14 @@ mod test {
             && kernel <= KernelVersion::new(2, 6, 30)
             && meminfo.unevictable.is_some()
         {
-            assert!(config.get("CONFIG_UNEVICTABLE_LRU").is_some());
+            if let Some(ref config) = config {
+                assert!(config.get("CONFIG_UNEVICTABLE_LRU").is_some());
+            }
         }
 
-        if kernel >= KernelVersion::new(2, 6, 19) && config.contains_key("CONFIG_HIGHMEM") {
+        if kernel >= KernelVersion::new(2, 6, 19)
+            && config.as_ref().map_or(false, |cfg| cfg.contains_key("CONFIG_HIGHMEM"))
+        {
             assert!(meminfo.high_total.is_some());
             assert!(meminfo.high_free.is_some());
             assert!(meminfo.low_total.is_some());
@@ -472,7 +490,11 @@ mod test {
             assert!(meminfo.s_unreclaim.is_none());
         }
 
-        if kernel >= KernelVersion::new(2, 6, 27) && config.contains_key("CONFIG_QUICKLIST") {
+        if kernel >= KernelVersion::new(2, 6, 27)
+            && config
+                .as_ref()
+                .map_or(false, |cfg| cfg.contains_key("CONFIG_QUICKLIST"))
+        {
             assert!(meminfo.quicklists.is_some());
         } else {
             assert!(meminfo.quicklists.is_none());
@@ -490,14 +512,22 @@ mod test {
             assert!(meminfo.commit_limit.is_none());
         }
 
-        if kernel >= KernelVersion::new(2, 6, 32) && config.contains_key("CONFIG_MEMORY_FAILURE") {
+        if kernel >= KernelVersion::new(2, 6, 32)
+            && config
+                .as_ref()
+                .map_or(std::path::Path::new("/proc/kpagecgroup").exists(), |cfg| {
+                    cfg.contains_key("CONFIG_MEMORY_FAILURE")
+                })
+        {
             assert!(meminfo.hardware_corrupted.is_some());
         } else {
             assert!(meminfo.hardware_corrupted.is_none());
         }
 
         if kernel >= KernelVersion::new(2, 6, 38)
-            && config.contains_key("CONFIG_TRANSPARENT_HUGEPAGE")
+            && config
+                .as_ref()
+                .map_or(false, |cfg| cfg.contains_key("CONFIG_TRANSPARENT_HUGEPAGE"))
         {
             assert!(meminfo.anon_hugepages.is_some());
         } else {
@@ -506,7 +536,9 @@ mod test {
         }
 
         if kernel >= KernelVersion::new(4, 8, 0)
-            && config.contains_key("CONFIG_TRANSPARENT_HUGEPAGE")
+            && config
+                .as_ref()
+                .map_or(true, |cfg| cfg.contains_key("CONFIG_TRANSPARENT_HUGEPAGE"))
         {
             assert!(meminfo.shmem_hugepages.is_some());
             assert!(meminfo.shmem_pmd_mapped.is_some());
@@ -515,7 +547,7 @@ mod test {
             assert!(meminfo.shmem_pmd_mapped.is_none());
         }
 
-        if kernel >= KernelVersion::new(3, 1, 0) && config.contains_key("CONFIG_CMA") {
+        if kernel >= KernelVersion::new(3, 1, 0) && config.as_ref().map_or(true, |cfg| cfg.contains_key("CONFIG_CMA")) {
             assert!(meminfo.cma_total.is_some());
             assert!(meminfo.cma_free.is_some());
         } else {
@@ -523,7 +555,10 @@ mod test {
             assert!(meminfo.cma_free.is_none());
         }
 
-        if config.contains_key("CONFIG_HUGETLB_PAGE") {
+        if config
+            .as_ref()
+            .map_or(true, |cfg| cfg.contains_key("CONFIG_HUGETLB_PAGE"))
+        {
             assert!(meminfo.hugepages_total.is_some());
             assert!(meminfo.hugepages_free.is_some());
             assert!(meminfo.hugepagesize.is_some());
@@ -533,13 +568,21 @@ mod test {
             assert!(meminfo.hugepagesize.is_none());
         }
 
-        if kernel >= KernelVersion::new(2, 6, 17) && config.contains_key("CONFIG_HUGETLB_PAGE") {
+        if kernel >= KernelVersion::new(2, 6, 17)
+            && config
+                .as_ref()
+                .map_or(true, |cfg| cfg.contains_key("CONFIG_HUGETLB_PAGE"))
+        {
             assert!(meminfo.hugepages_rsvd.is_some());
         } else {
             assert!(meminfo.hugepages_rsvd.is_none());
         }
 
-        if kernel >= KernelVersion::new(2, 6, 24) && config.contains_key("CONFIG_HUGETLB_PAGE") {
+        if kernel >= KernelVersion::new(2, 6, 24)
+            && config
+                .as_ref()
+                .map_or(true, |cfg| cfg.contains_key("CONFIG_HUGETLB_PAGE"))
+        {
             assert!(meminfo.hugepages_surp.is_some());
         } else {
             assert!(meminfo.hugepages_surp.is_none());

@@ -13,6 +13,12 @@ use core::cmp;
 use tables::grapheme::GraphemeCat;
 
 /// External iterator for grapheme clusters and byte offsets.
+///
+/// This struct is created by the [`grapheme_indices`] method on the [`UnicodeSegmentation`]
+/// trait. See its documentation for more.
+///
+/// [`grapheme_indices`]: trait.UnicodeSegmentation.html#tymethod.grapheme_indices
+/// [`UnicodeSegmentation`]: trait.UnicodeSegmentation.html
 #[derive(Clone)]
 pub struct GraphemeIndices<'a> {
     start_offset: usize,
@@ -61,6 +67,12 @@ impl<'a> DoubleEndedIterator for GraphemeIndices<'a> {
 
 /// External iterator for a string's
 /// [grapheme clusters](http://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries).
+///
+/// This struct is created by the [`graphemes`] method on the [`UnicodeSegmentation`] trait. See its
+/// documentation for more.
+///
+/// [`graphemes`]: trait.UnicodeSegmentation.html#tymethod.graphemes
+/// [`UnicodeSegmentation`]: trait.UnicodeSegmentation.html
 #[derive(Clone)]
 pub struct Graphemes<'a> {
     string: &'a str,
@@ -178,6 +190,8 @@ pub struct GraphemeCursor {
     // Set if a call to `prev_boundary` or `next_boundary` was suspended due
     // to needing more input.
     resuming: bool,
+    // Cached grapheme category and associated scalar value range.
+    grapheme_cat_cache: (u32, u32, GraphemeCat),
 }
 
 /// An error return indicating that not enough content was available in the
@@ -276,6 +290,35 @@ impl GraphemeCursor {
             pre_context_offset: None,
             ris_count: None,
             resuming: false,
+            grapheme_cat_cache: (0, 0, GraphemeCat::GC_Control),
+        }
+    }
+
+    fn grapheme_category(&mut self, ch: char) -> GraphemeCat {
+        use tables::grapheme as gr;
+        use tables::grapheme::GraphemeCat::*;
+
+        if ch <= '\u{7e}' {
+            // Special-case optimization for ascii, except U+007F.  This
+            // improves performance even for many primarily non-ascii texts,
+            // due to use of punctuation and white space characters from the
+            // ascii range.
+            if ch >= '\u{20}' {
+                GC_Any
+            } else if ch == '\n' {
+                GC_LF
+            } else if ch == '\r' {
+                GC_CR
+            } else {
+                GC_Control
+            }
+        } else {
+            // If this char isn't within the cached range, update the cache to the
+            // range that includes it.
+            if (ch as u32) < self.grapheme_cat_cache.0 || (ch as u32) > self.grapheme_cat_cache.1 {
+                self.grapheme_cat_cache = gr::grapheme_category(ch);
+            }
+            self.grapheme_cat_cache.2
         }
     }
 
@@ -349,7 +392,7 @@ impl GraphemeCursor {
         self.pre_context_offset = None;
         if self.is_extended && chunk_start + chunk.len() == self.offset {
             let ch = chunk.chars().rev().next().unwrap();
-            if gr::grapheme_category(ch) == gr::GC_Prepend {
+            if self.grapheme_category(ch) == gr::GC_Prepend {
                 self.decide(false);  // GB9b
                 return;
             }
@@ -359,7 +402,7 @@ impl GraphemeCursor {
             GraphemeState::Emoji => self.handle_emoji(chunk, chunk_start),
             _ => if self.cat_before.is_none() && self.offset == chunk.len() + chunk_start {
                 let ch = chunk.chars().rev().next().unwrap();
-                self.cat_before = Some(gr::grapheme_category(ch));
+                self.cat_before = Some(self.grapheme_category(ch));
             },
         }
     }
@@ -393,7 +436,7 @@ impl GraphemeCursor {
         use tables::grapheme as gr;
         let mut ris_count = self.ris_count.unwrap_or(0);
         for ch in chunk.chars().rev() {
-            if gr::grapheme_category(ch) != gr::GC_Regional_Indicator {
+            if self.grapheme_category(ch) != gr::GC_Regional_Indicator {
                 self.ris_count = Some(ris_count);
                 self.decide((ris_count % 2) == 0);
                 return;
@@ -413,13 +456,13 @@ impl GraphemeCursor {
         use tables::grapheme as gr;
         let mut iter = chunk.chars().rev();
         if let Some(ch) = iter.next() {
-            if gr::grapheme_category(ch) != gr::GC_ZWJ {
+            if self.grapheme_category(ch) != gr::GC_ZWJ {
                 self.decide(true);
                 return;
             }
         }
         for ch in iter {
-            match gr::grapheme_category(ch) {
+            match self.grapheme_category(ch) {
                 gr::GC_Extend => (),
                 gr::GC_Extended_Pictographic => {
                     self.decide(false);
@@ -481,7 +524,7 @@ impl GraphemeCursor {
         let offset_in_chunk = self.offset - chunk_start;
         if self.cat_after.is_none() {
             let ch = chunk[offset_in_chunk..].chars().next().unwrap();
-            self.cat_after = Some(gr::grapheme_category(ch));
+            self.cat_after = Some(self.grapheme_category(ch));
         }
         if self.offset == chunk_start {
             let mut need_pre_context = true;
@@ -497,7 +540,7 @@ impl GraphemeCursor {
         }
         if self.cat_before.is_none() {
             let ch = chunk[..offset_in_chunk].chars().rev().next().unwrap();
-            self.cat_before = Some(gr::grapheme_category(ch));
+            self.cat_before = Some(self.grapheme_category(ch));
         }
         match check_pair(self.cat_before.unwrap(), self.cat_after.unwrap()) {
             PairResult::NotBreak => return self.decision(false),
@@ -553,7 +596,6 @@ impl GraphemeCursor {
     /// assert_eq!(cursor.next_boundary(&s[2..4], 2), Ok(None));
     /// ```
     pub fn next_boundary(&mut self, chunk: &str, chunk_start: usize) -> Result<Option<usize>, GraphemeIncomplete> {
-        use tables::grapheme as gr;
         if self.offset == self.len {
             return Ok(None);
         }
@@ -562,14 +604,14 @@ impl GraphemeCursor {
         loop {
             if self.resuming {
                 if self.cat_after.is_none() {
-                    self.cat_after = Some(gr::grapheme_category(ch));
+                    self.cat_after = Some(self.grapheme_category(ch));
                 }
             } else {
                 self.offset += ch.len_utf8();
                 self.state = GraphemeState::Unknown;
                 self.cat_before = self.cat_after.take();
                 if self.cat_before.is_none() {
-                    self.cat_before = Some(gr::grapheme_category(ch));
+                    self.cat_before = Some(self.grapheme_category(ch));
                 }
                 if self.cat_before.unwrap() == GraphemeCat::GC_Regional_Indicator {
                     self.ris_count = self.ris_count.map(|c| c + 1);
@@ -578,7 +620,7 @@ impl GraphemeCursor {
                 }
                 if let Some(next_ch) = iter.next() {
                     ch = next_ch;
-                    self.cat_after = Some(gr::grapheme_category(ch));
+                    self.cat_after = Some(self.grapheme_category(ch));
                 } else if self.offset == self.len {
                     self.decide(true);
                 } else {
@@ -629,7 +671,6 @@ impl GraphemeCursor {
     /// assert_eq!(cursor.prev_boundary(&s[0..2], 0), Ok(None));
     /// ```
     pub fn prev_boundary(&mut self, chunk: &str, chunk_start: usize) -> Result<Option<usize>, GraphemeIncomplete> {
-        use tables::grapheme as gr;
         if self.offset == 0 {
             return Ok(None);
         }
@@ -644,7 +685,7 @@ impl GraphemeCursor {
                 return Err(GraphemeIncomplete::PrevChunk);
             }
             if self.resuming {
-                self.cat_before = Some(gr::grapheme_category(ch));
+                self.cat_before = Some(self.grapheme_category(ch));
             } else {
                 self.offset -= ch.len_utf8();
                 self.cat_after = self.cat_before.take();
@@ -654,12 +695,12 @@ impl GraphemeCursor {
                 }
                 if let Some(prev_ch) = iter.next() {
                     ch = prev_ch;
-                    self.cat_before = Some(gr::grapheme_category(ch));
+                    self.cat_before = Some(self.grapheme_category(ch));
                 } else if self.offset == 0 {
                     self.decide(true);
                 } else {
                     self.resuming = true;
-                    self.cat_after = Some(gr::grapheme_category(ch));
+                    self.cat_after = Some(self.grapheme_category(ch));
                     return Err(GraphemeIncomplete::PrevChunk);
                 }
             }

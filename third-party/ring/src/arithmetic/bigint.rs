@@ -46,7 +46,6 @@ use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
-use untrusted;
 
 pub unsafe trait Prime {}
 
@@ -86,7 +85,7 @@ impl<M> Clone for BoxedLimbs<M> {
     fn clone(&self) -> Self {
         Self {
             limbs: self.limbs.clone(),
-            m: self.m.clone(),
+            m: self.m,
         }
     }
 }
@@ -137,7 +136,7 @@ impl<M> BoxedLimbs<M> {
 
     fn zero(width: Width<M>) -> Self {
         Self {
-            limbs: vec![0; width.num_limbs].to_owned().into_boxed_slice(),
+            limbs: vec![0; width.num_limbs].into_boxed_slice(),
             m: PhantomData,
         }
     }
@@ -389,7 +388,7 @@ impl<M, E> Clone for Elem<M, E> {
     fn clone(&self) -> Self {
         Self {
             limbs: self.limbs.clone(),
-            encoding: self.encoding.clone(),
+            encoding: self.encoding,
         }
     }
 }
@@ -1169,7 +1168,7 @@ impl Nonnegative {
                 return Err(error::Unspecified);
             }
         }
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -1397,7 +1396,6 @@ mod tests {
     use super::*;
     use crate::test;
     use alloc::format;
-    use untrusted;
 
     // Type-level representation of an arbitrary modulus.
     struct M {}
@@ -1530,7 +1528,7 @@ mod tests {
     #[test]
     fn test_modulus_debug() {
         let (modulus, _) = Modulus::<M>::from_be_bytes_with_bit_length(untrusted::Input::from(
-            &vec![0xff; LIMB_BYTES * MODULUS_MIN_LIMBS],
+            &[0xff; LIMB_BYTES * MODULUS_MIN_LIMBS],
         ))
         .unwrap();
         assert_eq!("Modulus", format!("{:?}", modulus));

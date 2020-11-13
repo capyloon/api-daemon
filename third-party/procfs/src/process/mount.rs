@@ -1,3 +1,5 @@
+use bitflags::bitflags;
+
 use crate::{from_iter, FileWrapper, ProcResult};
 
 use std::collections::HashMap;
@@ -620,11 +622,7 @@ device tmpfs mounted on /run/user/0 with fstype tmpfs
         let nfs_v4 = &mountstats[0];
         match &nfs_v4.statistics {
             Some(stats) => {
-                assert_eq!(
-                    "1.1".to_string(),
-                    stats.version,
-                    "mountstats version wrongly parsed."
-                );
+                assert_eq!("1.1".to_string(), stats.version, "mountstats version wrongly parsed.");
                 assert_eq!(Duration::from_secs(3542), stats.age);
                 assert_eq!(1, stats.bytes.normal_read);
                 assert_eq!(114, stats.events.inode_revalidate);
@@ -641,8 +639,7 @@ device tmpfs mounted on /run/user/0 with fstype tmpfs
         // there are no assertions, but we still want to check for parsing errors (which can
         // cause panics)
 
-        let stats =
-            MountStat::from_reader(FileWrapper::open("/proc/self/mountstats").unwrap()).unwrap();
+        let stats = MountStat::from_reader(FileWrapper::open("/proc/self/mountstats").unwrap()).unwrap();
         for stat in stats {
             println!("{:#?}", stat);
             if let Some(nfs) = stat.statistics {

@@ -72,16 +72,14 @@ impl str::FromStr for DropCache {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse()
-            .map_err(|_| "Fail to parse drop cache")
-            .and_then(|n| match n {
-                0 => Ok(DropCache::Default),
-                1 => Ok(DropCache::PageCache),
-                2 => Ok(DropCache::Inodes),
-                3 => Ok(DropCache::All),
-                4 => Ok(DropCache::Disable),
-                _ => Err("Unknown drop cache value"),
-            })
+        s.parse().map_err(|_| "Fail to parse drop cache").and_then(|n| match n {
+            0 => Ok(DropCache::Default),
+            1 => Ok(DropCache::PageCache),
+            2 => Ok(DropCache::Inodes),
+            3 => Ok(DropCache::All),
+            4 => Ok(DropCache::Disable),
+            _ => Err("Unknown drop cache value"),
+        })
     }
 }
 
@@ -122,6 +120,7 @@ pub fn set_max_map_count(count: u64) -> ProcResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn test() {
@@ -131,6 +130,12 @@ mod tests {
         }
         if Path::new("/proc/sys/vm/max_map_count").exists() {
             max_map_count().unwrap();
+        }
+
+        for v in 0..5 {
+            let s = format!("{}", v);
+            let dc = DropCache::from_str(&s).unwrap();
+            assert_eq!(format!("{}", dc), s);
         }
     }
 }

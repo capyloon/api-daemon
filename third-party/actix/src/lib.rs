@@ -44,6 +44,7 @@
 #![warn(deprecated_in_future, trivial_casts, trivial_numeric_casts)]
 
 #[doc(hidden)]
+#[cfg(feature = "derive")]
 pub use actix_derive::*;
 
 #[cfg(doctest)]
@@ -73,7 +74,7 @@ pub use actix_rt::{Arbiter, System, SystemRunner};
 pub use crate::actor::{
     Actor, ActorContext, ActorState, AsyncContext, Running, SpawnHandle, Supervised,
 };
-pub use crate::address::{Addr, MailboxError, Recipient, WeakAddr};
+pub use crate::address::{Addr, MailboxError, Recipient, WeakAddr, WeakRecipient};
 // pub use crate::arbiter::{Arbiter, ArbiterBuilder};
 pub use crate::context::Context;
 pub use crate::fut::{ActorFuture, ActorStream, FinishStream, WrapFuture, WrapStream};
@@ -101,7 +102,9 @@ pub mod prelude {
     //! ```
 
     #[doc(hidden)]
+    #[cfg(feature = "derive")]
     pub use actix_derive::*;
+
     pub use actix_rt::{Arbiter, System, SystemRunner};
 
     pub use crate::actor::{

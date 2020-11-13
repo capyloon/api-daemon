@@ -398,7 +398,7 @@ impl core::fmt::Debug for UnboundKey {
     }
 }
 
-#[allow(variant_size_differences)]
+#[allow(clippy::large_enum_variant, variant_size_differences)]
 enum KeyInner {
     AesGcm(aes_gcm::Key),
     ChaCha20Poly1305(chacha20_poly1305::Key),
@@ -635,7 +635,7 @@ impl Eq for Algorithm {}
 /// An authentication tag.
 #[must_use]
 #[repr(C)]
-pub struct Tag(Block);
+pub struct Tag([u8; TAG_LEN]);
 
 impl AsRef<[u8]> for Tag {
     fn as_ref(&self) -> &[u8] {
@@ -670,7 +670,9 @@ mod block;
 mod chacha;
 mod chacha20_poly1305;
 pub mod chacha20_poly1305_openssh;
+mod counter;
 mod gcm;
+mod iv;
 mod nonce;
 mod poly1305;
 pub mod quic;
