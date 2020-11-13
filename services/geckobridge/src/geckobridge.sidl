@@ -2,9 +2,16 @@
 // by letting Gecko install delegates for some features.
 
 callback AppsServiceDelegate {
+  // Called at startup for each app, value is the 'b2g_features'
+  // property in the manifest.
   fn on_boot(manifest_url: str, value: json)
+  // Called once we have called on_boot() for all apps.
+  fn on_boot_done()
+  // Called when a new app is installed.
   fn on_install(manifest_url: str, value: json)
+  // Called when an app is updated.
   fn on_update(manifest_url: str, value: json)
+  // Called when an app is uninstalled.
   fn on_uninstall(manifest_url: str)
 }
 

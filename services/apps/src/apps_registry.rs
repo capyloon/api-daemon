@@ -892,6 +892,10 @@ impl AppsRegistry {
                     .lock()
                     .apps_service_on_boot(app.get_manifest_url(), features);
             }
+            // Notify the bridge that we processed all apps on boot.
+            GeckoBridgeService::shared_state()
+                .lock()
+                .apps_service_on_boot_done();
         }
         Ok(())
     }
@@ -1141,7 +1145,9 @@ fn test_register_app() {
     let version = "some_version";
     let manifest = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url).err().unwrap();
+        .get_unique_name(&manifest.get_name(), &update_url)
+        .err()
+        .unwrap();
     assert_eq!(app_name, AppsServiceError::InvalidAppName);
 
     // Test register_app - invalid update url

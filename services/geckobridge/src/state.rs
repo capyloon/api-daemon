@@ -164,7 +164,7 @@ impl GeckoBridgeState {
     }
 
     pub fn apps_service_on_boot(&mut self, manifest_url: String, value: JsonValue) {
-        debug!("apps_service_on_update: {} - {:?}", &manifest_url, value);
+        debug!("apps_service_on_boot: {} - {:?}", &manifest_url, value);
         if let Some(service) = &mut self.appsservice {
             let _ = service.on_boot(manifest_url, value);
         } else {
@@ -172,8 +172,17 @@ impl GeckoBridgeState {
         }
     }
 
+    pub fn apps_service_on_boot_done(&mut self) {
+        debug!("apps_service_on_boot_done");
+        if let Some(service) = &mut self.appsservice {
+            let _ = service.on_boot_done();
+        } else {
+            error!("The apps service delegate is not set!");
+        }
+    }
+
     pub fn apps_service_on_install(&mut self, manifest_url: String, value: JsonValue) {
-        debug!("apps_service_on_update: {} - {:?}", &manifest_url, value);
+        debug!("apps_service_on_install: {} - {:?}", &manifest_url, value);
         if let Some(service) = &mut self.appsservice {
             let _ = service.on_install(manifest_url, value);
         } else {
