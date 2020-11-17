@@ -222,7 +222,7 @@ impl Service<ProcManagerService> for ProcManagerService {
         _context: SharedSessionContext,
         shared_obj: Shared<Self::State>,
         _helper: SessionSupport,
-    ) -> Option<ProcManagerService> {
+    ) -> Result<ProcManagerService, String> {
         debug!("ProcManagerService::create");
         let service = ProcManagerService {
             genid: 0,
@@ -231,7 +231,7 @@ impl Service<ProcManagerService> for ProcManagerService {
             proc_movings: vec![],
         };
 
-        Some(service)
+        Ok(service)
     }
 
     fn format_request(&mut self, _transport: &SessionSupport, message: &BaseMessage) -> String {

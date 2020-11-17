@@ -1158,7 +1158,6 @@ dependencies = [
  "rand 0.7.3",
  "read-byte-slice",
  "reqwest",
- "semver",
  "serde",
  "serde_derive",
  "serde_json",

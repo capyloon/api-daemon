@@ -6,14 +6,13 @@ const DEBUG = false;
 
 export const core = (() => {
   class SessionHandshake {
-    constructor(version, token) {
-      this.version = version;
+    constructor(token) {
       this.token = token;
     }
 
     encode() {
       let encoder = new Encoder();
-      return encoder.string(this.version).string(this.token).value();
+      return encoder.string(this.token).value();
     }
   }
 
@@ -145,20 +144,45 @@ export const core = (() => {
     DISABLE_EVENT: 4,
   };
 
+  const GetServiceResponse = {
+    decode: (decoder) => {
+      let variant = decoder.enum_tag();
+      switch (variant) {
+        case 0:
+          // decode the service id.
+          let service = decoder.u32();
+          return { service };
+          break;
+        case 1:
+          return { error: "UnknownService" };
+          break;
+        case 2:
+          return { error: "FingerprintMismatch" };
+          break;
+        case 3:
+          return { error: "MissingPermission" };
+          break;
+        case 4:
+          return { error: `Internal:${decoder.string()}` };
+          break;
+        default:
+          throw Error(`Unknown GetServiceResponse variant: ${variant}`);
+          break;
+      }
+    },
+  };
+
   const CoreResponse = {
     decode: (buffer) => {
       let decoder = new Decoder(buffer);
       let variant = decoder.enum_tag();
       if (variant === CoreRequest.GET_SERVICE) {
         // Decode a GetService response.
-        let success = decoder.bool();
-        let service = decoder.u32();
-        return { variant: CoreRequest.GET_SERVICE, success, service };
+        let response = GetServiceResponse.decode(decoder);
+        return { variant: CoreRequest.GET_SERVICE, response };
       } else if (variant === CoreRequest.HAS_SERVICE) {
-        // Decode a GetService response.
-        let success = decoder.bool();
-        let service = decoder.u32();
-        return { variant: CoreRequest.HAS_SERVICE, success, service };
+        // Decode a HasService response.
+        return { variant: CoreRequest.HAS_SERVICE, success: decoder.bool() };
       } else if (variant === CoreRequest.RELEASE_OBJECT) {
         // Decode a ReleaseObject response.
         return { variant: CoreRequest.RELEASE_OBJECT, success: decoder.bool() };

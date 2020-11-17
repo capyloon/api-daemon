@@ -205,12 +205,12 @@ impl Service<SettingsService> for SettingsService {
         _context: SharedSessionContext,
         state: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<SettingsService> {
+    ) -> Result<SettingsService, String> {
         info!("SettingsService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = SettingsFactoryEventDispatcher::from(helper, 0 /* object id */);
         let dispatcher_id = state.lock().db.add_dispatcher(&event_dispatcher);
-        Some(SettingsService {
+        Ok(SettingsService {
             id: service_id,
             proxy_tracker: HashMap::new(),
             state,

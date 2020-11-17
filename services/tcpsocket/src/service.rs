@@ -278,12 +278,12 @@ impl Service<TcpSocketService> for TcpSocketService {
         _context: SharedSessionContext,
         _shared_obj: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<TcpSocketService> {
+    ) -> Result<TcpSocketService, String> {
         let tracker = ObjectTracker::default();
         let object_id = tracker.next_id();
         // This is a little trick to create the event dispatcher eariler and used in tcpsocket later on.
         if let Ok(poll) = Poll::new() {
-            Some(TcpSocketService {
+            Ok(TcpSocketService {
                 tokenmap: Shared::default(),
                 id: object_id,
                 tracker: Arc::new(Mutex::new(tracker)),
@@ -292,7 +292,7 @@ impl Service<TcpSocketService> for TcpSocketService {
             })
         } else {
             error!("Creation of the Poll failed.");
-            None
+            Err("Failed to create poller".into())
         }
     }
 

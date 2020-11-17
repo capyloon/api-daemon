@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 /// the client's origin.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionHandshake {
-    pub version: String,
     pub token: String,
 }
 
@@ -71,7 +70,7 @@ impl BaseMessage {
         }
     }
 
-    pub fn permission_error(permission: &str, message: &str, msg: &BaseMessage)-> Self {
+    pub fn permission_error(permission: &str, message: &str, msg: &BaseMessage) -> Self {
         BaseMessage {
             service: msg.service,
             object: msg.object,
@@ -94,9 +93,12 @@ pub struct GetServiceRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct GetServiceResponse {
-    pub success: bool,
-    pub service: u32,
+pub enum GetServiceResponse {
+    Success(u32), // The service id
+    UnknownService,
+    FingerprintMismatch,
+    MissingPermission,
+    InternalError(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -107,7 +109,6 @@ pub struct HasServiceRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HasServiceResponse {
     pub success: bool,
-    pub service: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

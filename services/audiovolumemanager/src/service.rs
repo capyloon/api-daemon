@@ -63,7 +63,7 @@ impl Service<AudioVolume> for AudioVolume {
         _context: SharedSessionContext,
         shared_obj: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<AudioVolume> {
+    ) -> Result<AudioVolume, String> {
         info!("AudioVolumeService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = AudioVolumeEventDispatcher::from(helper, 0);
@@ -79,7 +79,7 @@ impl Service<AudioVolume> for AudioVolume {
             dispatcher_id,
         };
 
-        Some(service)
+        Ok(service)
     }
 
     fn format_request(&mut self, _transport: &SessionSupport, message: &BaseMessage) -> String {

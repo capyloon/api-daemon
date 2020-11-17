@@ -498,12 +498,12 @@ impl Service<TestServiceImpl> for TestServiceImpl {
         _context: SharedSessionContext,
         state: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<TestServiceImpl> {
+    ) -> Result<TestServiceImpl, String> {
         info!("TestService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher =
             TestFactoryEventDispatcher::from(helper.clone(), 0 /* object id */);
-        Some(TestServiceImpl {
+        Ok(TestServiceImpl {
             id: service_id,
             event_dispatcher,
             tracker: Arc::new(Mutex::new(ObjectTracker::default())),

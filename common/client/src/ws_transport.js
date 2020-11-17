@@ -36,7 +36,7 @@ class WSTransport {
         this.socket.onopen = () => {
             console.log("Websocket: opened");
             // Send the handshake
-            let handshake = new ExternalAPI.core.SessionHandshake("1.0.0", token);
+            let handshake = new ExternalAPI.core.SessionHandshake(token);
             this.socket.send(handshake.encode());
         }
 

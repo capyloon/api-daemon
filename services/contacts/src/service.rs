@@ -517,12 +517,12 @@ impl Service<ContactsService> for ContactsService {
         _context: SharedSessionContext,
         state: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<ContactsService> {
+    ) -> Result<ContactsService, String> {
         info!("ContactsService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = ContactsFactoryEventDispatcher::from(helper, 0 /* object id */);
         let dispatcher_id = state.lock().db.add_dispatcher(&event_dispatcher);
-        Some(ContactsService {
+        Ok(ContactsService {
             id: service_id,
             state,
             dispatcher_id,

@@ -314,14 +314,14 @@ impl Service<PowerManager> for PowerManager {
         _context: SharedSessionContext,
         shared_obj: Shared<Self::State>,
         _helper: SessionSupport,
-    ) -> Option<PowerManager> {
+    ) -> Result<PowerManager, String> {
         debug!("PowerManager::create");
         let service = PowerManager {
             shared_obj,
             light_service: light::ILight::get_service(SERVICE),
         };
 
-        Some(service)
+        Ok(service)
     }
 
     // Returns a human readable version of the request.

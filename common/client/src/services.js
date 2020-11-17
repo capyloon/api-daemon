@@ -35,11 +35,14 @@ const Services = {
         DEBUG &&
           console.log(`Service.get(${name}) response: ${JSON.stringify(res)}`);
         let msg = res.msg;
-        if (msg.variant === kcore.CoreRequest.GET_SERVICE && msg.success) {
-          return msg.service;
+        if (
+          msg.variant === kcore.CoreRequest.GET_SERVICE &&
+          msg.response.service
+        ) {
+          return msg.response.service;
         }
 
-        return Promise.reject(`No such service: ${name}`);
+        return Promise.reject(msg.response.error);
       });
   },
 
@@ -63,8 +66,7 @@ const Services = {
       /*object*/ 0,
       /*content*/ buff
     );
-    return session.send_request(message, kcore.CoreResponse)
-    .then((res) => {
+    return session.send_request(message, kcore.CoreResponse).then((res) => {
       DEBUG &&
         console.log(`Service.has(${name}) response: ${JSON.stringify(res)}`);
       if (res.msg.success !== undefined) {

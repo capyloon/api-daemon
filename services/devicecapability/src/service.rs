@@ -52,10 +52,10 @@ impl Service<DeviceCapabilityService> for DeviceCapabilityService {
         _context: SharedSessionContext,
         state: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<DeviceCapabilityService> {
+    ) -> Result<DeviceCapabilityService, String> {
         info!("DeviceCapabilitiyService::create");
         let service_id = helper.session_tracker_id().service();
-        Some(DeviceCapabilityService {
+        Ok(DeviceCapabilityService {
             id: service_id,
             state,
         })

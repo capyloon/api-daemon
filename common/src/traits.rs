@@ -424,8 +424,8 @@ pub trait Service<S> {
         _context: SharedSessionContext,
         _state: Shared<Self::State>,
         _helper: SessionSupport,
-    ) -> Option<S> {
-        None
+    ) -> Result<S, String> {
+        Err("NotImplemented".into())
     }
 
     /// Sets the identity of the session user.
@@ -436,8 +436,8 @@ pub trait Service<S> {
         _manager: SharedRemoteServiceManager,
         _service: &str,
         _fingerprint: &str,
-    ) -> Option<S> {
-        None
+    ) -> Result<S, String> {
+        Err("NotImplemented".into())
     }
 
     /// Factory to create a shared state instance.

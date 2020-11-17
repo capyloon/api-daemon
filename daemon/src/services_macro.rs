@@ -118,18 +118,13 @@ macro_rules! declare_services {
 
         // Helper for Session::on_create_service
         pub fn on_create_service_helper(session: &mut Session, s_id: TrackerId, req: &GetServiceRequest)-> CoreResponse {
-            let mut response = CoreResponse::GetService(GetServiceResponse {
-                success: false,
-                service: 0,
-            });
-
             $(
                 #[cfg(feature = $feature)]
                 if req.name == $crate_name::generated::service::SERVICE_NAME {
                     if req.fingerprint != $crate_name::generated::service::SERVICE_FINGERPRINT {
                         error!("Fingerprint mismatch for service {}. Expected {} but got {}",
                                req.name, $crate_name::generated::service::SERVICE_FINGERPRINT, req.fingerprint);
-                        return response;
+                               return CoreResponse::GetService(GetServiceResponse::FingerprintMismatch);
                     }
                     let lock = session.shared_state.lock();
                     let state = match lock.get($crate_name::generated::service::SERVICE_NAME) {
@@ -148,27 +143,32 @@ macro_rules! declare_services {
                             "Could not create service {}: required permission not present.",
                             $crate_name::generated::service::SERVICE_NAME
                         );
-                    } else if let Some(s) = $service::create(
+                        return CoreResponse::GetService(GetServiceResponse::MissingPermission);
+                    } else {
+                        match $service::create(
                         &origin_attributes,
                         session.context.clone(),
                         state.clone(),
                         helpers,
-                    ) {
-                        let s_item = TrackableServices::$service(RefCell::new(s));
-                        let id = session.tracker.track(s_item);
-                        response = CoreResponse::GetService(GetServiceResponse {
-                            success: true,
-                            service: id,
-                        });
-                    } else {
-                        error!(
-                            "Could not create service {} !",
-                            $crate_name::generated::service::SERVICE_NAME
-                        );
+                        ) {
+                            Ok(s) => {
+                                let s_item = TrackableServices::$service(RefCell::new(s));
+                                let id = session.tracker.track(s_item);
+                                return CoreResponse::GetService(GetServiceResponse::Success(id));
+                            },
+                            Err(err) => {
+                                error!(
+                                    "Could not create service {} !",
+                                    $crate_name::generated::service::SERVICE_NAME
+                                );
+                                return CoreResponse::GetService(GetServiceResponse::InternalError(err));
+                            }
+                        }
                     }
                 }
             )*
-            response
+
+            CoreResponse::GetService(GetServiceResponse::UnknownService)
         }
 
         // Helper for Session::format_request

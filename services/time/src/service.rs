@@ -265,7 +265,7 @@ impl Service<Time> for Time {
         _context: SharedSessionContext,
         _shared_obj: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<Time> {
+    ) -> Result<Time, String> {
         info!("TimeoService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = TimeEventDispatcher::from(helper, 0);
@@ -287,7 +287,7 @@ impl Service<Time> for Time {
             ObserverType::FuncPtr(Box::new(service.setting_observer.0)),
         );
 
-        Some(service)
+        Ok(service)
     }
 
     fn format_request(&mut self, _transport: &SessionSupport, message: &BaseMessage) -> String {

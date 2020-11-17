@@ -173,7 +173,7 @@ impl Service<AppsService> for AppsService {
         _context: SharedSessionContext,
         shared_data: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<AppsService> {
+    ) -> Result<AppsService, String> {
         info!("AppsService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = AppsEngineEventDispatcher::from(helper, 0 /* object id */);
@@ -181,7 +181,7 @@ impl Service<AppsService> for AppsService {
             .lock()
             .registry
             .add_dispatcher(&event_dispatcher);
-        Some(AppsService {
+        Ok(AppsService {
             id: service_id,
             shared_data,
             event_dispatcher,

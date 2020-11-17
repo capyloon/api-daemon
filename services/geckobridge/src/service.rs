@@ -244,13 +244,13 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
         _context: SharedSessionContext,
         state: Shared<Self::State>,
         helper: SessionSupport,
-    ) -> Option<GeckoBridgeService> {
+    ) -> Result<GeckoBridgeService, String> {
         info!("GeckoBridgeService::create");
 
         // Only connections from the UDS socket are permitted.
         if attrs.identity() != "uds" {
             error!("Only Gecko can get an instance of the GeckoBridge service!");
-            return None;
+            return Err("Non Gecko client".into());
         }
 
         // We only allow a single instance of this service to change delegates.
@@ -259,7 +259,7 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
         let only_register_token = state.lock().is_ready();
 
         let service_id = helper.session_tracker_id().service();
-        Some(GeckoBridgeService {
+        Ok(GeckoBridgeService {
             id: service_id,
             proxy_tracker: HashMap::new(),
             state,

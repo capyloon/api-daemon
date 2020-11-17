@@ -18,7 +18,6 @@ use common::traits::{
     SessionSupport, SessionTrackerId, Shared, SharedEventMap, SharedSessionContext, TrackerId,
 };
 use log::{debug, error, info, warn};
-use semver::{Version, VersionReq};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::time::SystemTime;
@@ -28,9 +27,6 @@ enum SessionState {
     Handshake,
     Request,
 }
-
-// The current version of the protocol support.
-static PROTOCOL_VERSION: &str = "1.0.0";
 
 pub struct Session {
     pub(crate) session_id: u32,
@@ -150,13 +146,8 @@ impl Session {
                 .contains(&format!("{}:remote", req.name))
         {
             error!("Could not instanciate service named `{}`", req.name);
-            self.session_helper.serialize_message(
-                &message,
-                &GetServiceResponse {
-                    success: false,
-                    service: 0,
-                },
-            );
+            self.session_helper
+                .serialize_message(&message, &GetServiceResponse::UnknownService);
             return;
         }
 
@@ -169,7 +160,7 @@ impl Session {
             .contains(&format!("{}:remote", req.name))
         {
             info!("About to create remote service `{}`", req.name);
-            if let Some(s) = RemoteService::create_remote(
+            match RemoteService::create_remote(
                 SessionTrackerId::from(self.session_id, s_id),
                 &self.origin_attributes.clone().unwrap(),
                 self.context.clone(),
@@ -177,14 +168,14 @@ impl Session {
                 &req.name,
                 &req.fingerprint,
             ) {
-                let s_item = TrackableServices::Remote(RefCell::new(s));
-                let id = self.tracker.track(s_item);
-                response = CoreResponse::GetService(GetServiceResponse {
-                    success: true,
-                    service: id,
-                });
-            } else {
-                error!("Could not create service {} !", req.name);
+                Ok(s) => {
+                    let s_item = TrackableServices::Remote(RefCell::new(s));
+                    let id = self.tracker.track(s_item);
+                    response = CoreResponse::GetService(GetServiceResponse::Success(id));
+                }
+                Err(err) => {
+                    error!("Could not create service {}: {}", req.name, err);
+                }
             }
         }
 
@@ -205,7 +196,6 @@ impl Session {
             &message,
             &CoreResponse::HasService(HasServiceResponse {
                 success: has_service,
-                service: 0,
             }),
         );
     }
@@ -311,22 +301,7 @@ impl Session {
         let req: Result<SessionHandshake, bincode::Error> = common::deserialize_bincode(message);
         match req {
             Ok(handshake) => {
-                info!("Got client version {}", handshake.version);
-                let supported = VersionReq::parse(PROTOCOL_VERSION).unwrap();
-                match Version::parse(&handshake.version) {
-                    Ok(client) => {
-                        if !supported.matches(&client) {
-                            self.abort_connection(&format!(
-                                "Unsupported protocol: {}",
-                                handshake.version
-                            ));
-                            return;
-                        }
-                    }
-                    Err(err) => {
-                        self.abort_connection(&format!("Invalid protocol version: {:?}", err));
-                    }
-                }
+                info!("Got client handshake");
 
                 // In fake-tokens mode, add the presented token to the token manager.
                 #[cfg(feature = "fake-tokens")]
@@ -427,8 +402,7 @@ impl Session {
             }
         }
         let elapsed = timer.elapsed().unwrap();
-        let millis =
-            (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis())) as u32;
+        let millis = (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis())) as u32;
         if millis > self.message_max_time {
             let what = if is_handshake {
                 "Handshake".into()
@@ -501,8 +475,7 @@ mod test {
             Shared::<_>::default(),
         );
 
-        let mut handshake = SessionHandshake {
-            version: "1.0.0".into(),
+        let handshake = SessionHandshake {
             token: "test-token".into(),
         };
         // Start with an unknown token.
@@ -534,7 +507,6 @@ mod test {
             "test-token",
             OriginAttributes::new("test-identity", HashSet::new()),
         );
-        handshake.version = "42.1.2".into();
         buffer = encode_message(&handshake).expect("Failed to encode");
         session.on_message(&buffer);
         let answer = receiver.recv().unwrap();

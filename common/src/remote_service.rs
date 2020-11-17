@@ -1,6 +1,6 @@
 //! Manages remote services.
 
-use crate::core::BaseMessage;
+use crate::core::{BaseMessage, GetServiceResponse};
 use crate::remote_services_registrar::RemoteServicesRegistrar;
 #[cfg(target_os = "android")]
 use crate::selinux::SeLinux;
@@ -371,7 +371,8 @@ impl RemoteServiceManager {
                             error!("Error decoding child message: {}", err);
                             // If we fail to decode, there is no good way to recover so instead we just
                             // kill the child. Our watchdog thread will then do the cleanup.
-                            let _ = kill(nix::unistd::Pid::from_raw(child_pid as _), Signal::SIGKILL);
+                            let _ =
+                                kill(nix::unistd::Pid::from_raw(child_pid as _), Signal::SIGKILL);
                             // Exit this thread.
                             break;
                         }
@@ -594,7 +595,7 @@ impl Service<RemoteService> for RemoteService {
         manager: SharedRemoteServiceManager,
         service_name: &str,
         service_fingerprint: &str,
-    ) -> Option<Self> {
+    ) -> Result<Self, String> {
         let manager2 = manager.clone();
         let mut manager = manager.lock();
         match manager.ensure(service_name) {
@@ -619,27 +620,32 @@ impl Service<RemoteService> for RemoteService {
 
                 let response: ChildToParentMessage = rpc_receiver.recv().unwrap();
                 match response {
-                    ChildToParentMessage::Created(_tracker_id, result) => {
-                        info!("Creating remote service result: {}", result);
-                        if result {
-                            let service = RemoteService {
-                                id,
-                                handle: writer,
-                                service_name: service_name.into(),
-                                manager: manager2,
-                            };
-                            Some(service)
-                        } else {
-                            None
+                    ChildToParentMessage::Created(_tracker_id, response) => {
+                        info!("Creating remote service result: {:?}", response);
+                        match response {
+                            GetServiceResponse::Success(_) => {
+                                let service = RemoteService {
+                                    id,
+                                    handle: writer,
+                                    service_name: service_name.into(),
+                                    manager: manager2,
+                                };
+                                Ok(service)
+                            }
+                            GetServiceResponse::InternalError(msg) => Err(msg),
+                            other => Err(format!("Remote service creation failure: {:?}", other)),
                         }
                     }
                     _ => {
                         error!("Unexpected message creating remote {}", service_name);
-                        None
+                        Err(format!(
+                            "Unexpected message creating remote {}",
+                            service_name
+                        ))
                     }
                 }
             }
-            None => None,
+            None => Err(format!("Failed to spawn remote service {}", service_name)),
         }
     }
 
@@ -675,8 +681,8 @@ pub enum ParentToChildMessage {
 
 #[derive(Serialize, Deserialize)]
 pub enum ChildToParentMessage {
-    Created(SessionTrackerId, bool), // Whether we successfully instatiated a service.
-    Packet(SessionTrackerId, Vec<u8>), // A generic encoded protobuf.
-    ObjectReleased(SessionTrackerId, bool), // Whether we successfully released an object.
-    Stop,                            // Forces the connection to close.
+    Created(SessionTrackerId, GetServiceResponse), // Whether we successfully instatiated a service.
+    Packet(SessionTrackerId, Vec<u8>),             // A generic encoded protobuf.
+    ObjectReleased(SessionTrackerId, bool),        // Whether we successfully released an object.
+    Stop,                                          // Forces the connection to close.
 }

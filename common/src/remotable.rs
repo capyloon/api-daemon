@@ -13,7 +13,7 @@ mod session {
 
 use $use_name;
 use std::env;
-use common::core::BaseMessage;
+use common::core::{BaseMessage, GetServiceResponse};
 use common::object_tracker::ObjectTracker;
 use common::remote_service::{ChildToParentMessage, LockedIpcWriter, ParentToChildMessage, IPC_BUFFER_SIZE};
 use common::socket_pair::PairedStream;
@@ -68,7 +68,7 @@ fn handle_ipc(fd: RawFd) {
                         );
                         let res =
                             session.get_service(&service_name, &service_fingerprint, tracker_id, &origin_attributes);
-                        debug!("session.get_service result is {}", res);
+                        debug!("session.get_service result is {:?}", res);
                         let response = ChildToParentMessage::Created(tracker_id, res);
                         if let Err(err) = inner_parent_writer.serialize(&response) {
                             error!("Failed to serialize Created: {}", err);
@@ -189,18 +189,18 @@ impl Session {
         service_fingerprint: &str,
         tracker_id: SessionTrackerId,
         origin_attributes: &OriginAttributes,
-    ) -> bool {
+    ) -> GetServiceResponse {
         info!("Creating service `{}`", service_name);
 
         // Early return if we can check that we don't have this service registered.
         if service_name != $crate_name::generated::service::SERVICE_NAME {
-            return false;
+            return GetServiceResponse::UnknownService;
         }
 
         if service_fingerprint != $crate_name::generated::service::SERVICE_FINGERPRINT {
             error!("Fingerprint mismatch for service {}. Expected {} but got {}",
             service_name, $crate_name::generated::service::SERVICE_FINGERPRINT, service_fingerprint);
-            return false;
+            return GetServiceResponse::FingerprintMismatch;
         }
 
         let helpers = SessionSupport::new(
@@ -212,20 +212,25 @@ impl Session {
         // Tries to instanciate a service.
         if !$crate_name::generated::service::check_service_permission(origin_attributes) {
             error!("Could not create service {}: required permission not present.", stringify!(service));
-            false
-        } else if let Some(s) = $service_name::create(
+            GetServiceResponse::MissingPermission
+        } else { 
+            match $service_name::create(
             &origin_attributes.clone(),
             self.context.clone(),
             self.shared_state.clone(),
             helpers,
-        ) {
-            let s_item = TrackableServices::$service_name(RefCell::new(s));
-            self.tracker.track_with(s_item, tracker_id);
+            ) {
+                Ok(s) => {
+                    let s_item = TrackableServices::$service_name(RefCell::new(s));
+                    self.tracker.track_with(s_item, tracker_id);
 
-            true
-        } else {
-            error!("Could not create service {} !", stringify!(service));
-            false
+                    GetServiceResponse::Success(0)
+                },
+                Err(err) => {
+                    error!("Could not create service {} !", stringify!(service));
+                    GetServiceResponse::InternalError(err)
+                }
+            }
         }
     }
 
