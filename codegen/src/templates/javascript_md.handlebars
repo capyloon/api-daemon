@@ -1,0 +1,143 @@
+# {{services.[0].name}} service
+
+## Instanciating the service
+
+Load the following scripts:
+
+```html
+<script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+<script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+<script src="http://127.0.0.1:8081/api/v1/apps/service.js"></script>
+```
+
+You can then get an instance of the service with code similar to:
+
+```javascript
+function getService() {
+  return new Promise((resolve, reject) => {
+    let session = new lib_session.Session();
+    let sessionstate = {
+      onsessionconnected() {
+        lib_{{sidl-name}}.{{services.[0].name}}.get(session).then(resolve, reject);
+      },
+
+      onsessiondisconnected() {
+        reject("Session Disconnected");
+      }
+    };
+
+    // On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken when running the api-daemon.
+    session.open("websocket", "localhost:8081", "secrettoken", sessionstate);
+  });
+}
+
+let instance = getService().then({{sidl-name}} => {
+...
+});
+```
+
+This service implements the [{{services.[0].interface}}](#interface_{{services.[0].interface}}) interface.
+
+---
+{{#each enumerations}}
+## {{name}} enumeration
+
+{<br />
+{{#each members}}&nbsp;&nbsp;{{name}},<br />{{/each}}
+}
+
+{{/each}}
+---
+{{#each dictionaries}}
+## {{name}} dictionnary
+
+{<br />
+{{#each members}}&nbsp;&nbsp;{{name}}: {{maybe-link typ.extra.[0] typ.extra.[1]}},<br />{{/each}}
+}
+
+{{/each}}
+---
+{{#each callbacks}}
+## {{name}} callback object
+### Creating a {{name}} object
+Use code similar to:
+```javascript
+class MyCallbackObject extends lib_{{sidl-name}}.{{name}}Base {
+  constructor(service, session) {
+    super(service.id, session);
+  }
+  {{#each methods}}
+    {{name}}(...) {
+      ...
+  }
+  {{/each}}
+```
+
+### Methods
+{{#each methods}}
+[{{name}}](#callback_{{../name}}_method_{{name}})
+{{/each}}
+{{#each methods}}
+{{name}}({{~#if params.[0] ~}}{{~#each params ~}}/* , {{name}} */ {{maybe-link typ.extra.[0] typ.extra.[1]}}{{~/each ~}}{{~/if}})
+
+Resolves with {{maybe-link returns.success.extra.[0] returns.success.extra.[1]}}
+
+Rejects with {{maybe-link returns.error.extra.[0] returns.error.extra.[1]}}
+{{/each}}
+{{/each}}
+
+{{#each interfaces}}
+## {{name}} Interface
+{{#if members}}
+### Members
+{{#each members}}
+[{{name}}](#interface_{{../name}}_member_{{name}})
+{{/each}}
+{{#each members}}
+{{name}} is of type {{maybe-link typ.extra.[0] typ.extra.[1]}}
+
+To get {{amount}} value, use code similar to:
+```javascript
+target.{{name}}().then(value => { ... });
+```
+To set {{amount}} value, use code similar to:
+```javascript
+target.{{name}} = value;
+```
+{{/each}}
+{{/if}}
+
+{{#if methods}}
+### Methods
+&nbsp;&nbsp;{{#each methods}}[{{name}}](#interface_{{../name}}_method_{{name}})  {{/each}}
+
+{{#each methods}}
+  {{name}}({{~#if params.[0] ~}}{{~#each params ~}}/* , {{name}} */ {{maybe-link typ.extra.[0] typ.extra.[1]}}{{~/each ~}}{{~/if}})
+
+  Resolves with {{maybe-link returns.success.extra.[0] returns.success.extra.[1]}}
+
+  Rejects with {{maybe-link returns.error.extra.[0] returns.error.extra.[1]}}
+
+---
+{{/each}}
+{{/if}}
+
+{{#if events}}
+### Events
+&nbsp;&nbsp;{{#each events}}[{{name}}](#interface_{{../name}}_event_{{name}})  {{/each}}
+
+{{#each events}}
+The {{name}} event emits a {{maybe-link returns.extra.[0] returns.extra.[1]}}
+
+To manage this event, use code similar to:
+```javascript
+function handleEvent(value) {
+    ...
+}
+target.addEventListener(target.{{upper-snake-case name}}_EVENT, handleEvent);
+target.removeEventListener(target.{{upper-snake-case name}}_EVENT, handleEvent);
+```
+---
+{{/each}} {{!-- events --}}
+{{/if}}
+{{/each}}

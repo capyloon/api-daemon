@@ -88,7 +88,7 @@ impl Codegen {
         }
 
         // Include our Handlerbar template inline so we won't have runtime path issues.
-        let main_template = include_str!("templates/javascript_html.handlebars");
+        let main_template = include_str!("templates/javascript_md.handlebars");
         let style_css = include_str!("templates/style.css");
 
         let mut handlebars = Handlebars::new();

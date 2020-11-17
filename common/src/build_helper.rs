@@ -77,7 +77,7 @@ pub fn build_service(sidl_name: &str) {
     // 5. Generate the Javascript documentation.
     sidl_codegen::generate_javascript_doc(
         Path::new(&sidl_path),
-        Path::new(&format!("client/generated/{}_service.html", sidl_name)),
+        Path::new(&format!("client/generated/{}_service.md", sidl_name)),
         sidl_name,
     )
     .expect("Generating Javascript documentation.");
