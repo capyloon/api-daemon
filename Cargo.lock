@@ -472,6 +472,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "apps_test_server"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "base64 0.13.0",
+ "env_logger 0.8.2",
+ "hawk",
+ "log 0.4.13",
+ "mime_guess",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1784,6 +1796,20 @@ name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
+
+[[package]]
+name = "hawk"
+version = "3.2.1"
+source = "git+https://github.com/taskcluster/rust-hawk.git?rev=c0760a0d78eca2695f77b16122fc21cc3dbfd195#c0760a0d78eca2695f77b16122fc21cc3dbfd195"
+dependencies = [
+ "anyhow",
+ "base64 0.12.3",
+ "log 0.4.13",
+ "once_cell",
+ "ring",
+ "thiserror",
+ "url",
+]
 
 [[package]]
 name = "heck"

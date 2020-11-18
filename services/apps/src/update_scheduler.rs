@@ -328,7 +328,7 @@ fn test_in_order() {
             let _ = sender.send(SchedulerMessage::Config(Config {
                 enabled: true,
                 allowed_when: ConnectionType::Any,
-                delay: 18,
+                delay: 25,
             }));
 
             // The scheduler loops every 10 sec
@@ -338,7 +338,7 @@ fn test_in_order() {
             let scheduler = UpdateScheduler::new();
             assert_eq!(scheduler.enabled, true);
             assert_eq!(scheduler.allowed_when, ConnectionType::Any);
-            assert_eq!(scheduler.delay, 18);
+            assert_eq!(scheduler.delay, 25);
             assert_eq!(scheduler.should_trigger(), false);
         }
     }

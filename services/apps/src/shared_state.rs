@@ -18,20 +18,24 @@ pub struct AppsSharedData {
     pub vhost_api: VhostApi,
     pub state: AppsServiceState,
     pub registry: AppsRegistry,
+    pub token_provider: Option<TokenProviderProxy>,
     pub scheduler: Option<Sender<SchedulerMessage>>,
 }
 
-impl AppsSharedData {
-    pub fn default() -> Self {
+impl Default for AppsSharedData {
+    fn default() -> Self {
         AppsSharedData {
             config: Config::default(),
             vhost_api: VhostApi::default(),
             state: AppsServiceState::Initializing,
             registry: AppsRegistry::default(),
+            token_provider: None,
             scheduler: None,
         }
     }
+}
 
+impl AppsSharedData {
     pub fn get_all_apps(&self) -> Result<Vec<AppsObject>, AppsServiceError> {
         if self.state != AppsServiceState::Running {
             return Err(AppsServiceError::InvalidState);

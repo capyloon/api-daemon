@@ -25,6 +25,7 @@ members = [
   "support/power",
   "support/sqlite-utils",
   "tests/driver",
+  "tests/apps-test-server",
   "vhost/",
 ]
 

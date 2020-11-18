@@ -12,18 +12,22 @@ use common::traits::{
     DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
     TrackerId,
 };
-use log::{debug, info};
+use log::{debug, error, info};
+use std::collections::HashMap;
 use zip_utils::verify_zip;
 
-#[derive(Clone)]
 pub struct AppsService {
     id: TrackerId,
+    proxy_tracker: AppsManagerProxyTracker,
     pub shared_data: Shared<AppsSharedData>,
-    event_dispatcher: AppsEngineEventDispatcher,
     dispatcher_id: DispatcherId,
 }
 
-impl AppsManager for AppsService {}
+impl AppsManager for AppsService {
+    fn get_proxy_tracker(&mut self) -> &mut AppsManagerProxyTracker {
+        &mut self.proxy_tracker
+    }
+}
 
 impl AppsEngineMethods for AppsService {
     fn get_all(&mut self, responder: &AppsEngineGetAllResponder) {
@@ -186,6 +190,23 @@ impl AppsEngineMethods for AppsService {
             }
         }
     }
+
+    fn set_token_provider(
+        &mut self,
+        responder: &AppsEngineSetTokenProviderResponder,
+        provider: ObjectRef,
+    ) {
+        info!("set_token_provider");
+        if let Some(AppsManagerProxy::TokenProvider(token_provider)) =
+            self.proxy_tracker.get(&provider)
+        {
+            self.shared_data.lock().token_provider = Some(token_provider.clone());
+            responder.resolve();
+        } else {
+            error!("Failed to get token proxy_tracker");
+            responder.reject();
+        }
+    }
 }
 
 impl Service<AppsService> for AppsService {
@@ -212,8 +233,8 @@ impl Service<AppsService> for AppsService {
             .add_dispatcher(&event_dispatcher);
         Ok(AppsService {
             id: service_id,
+            proxy_tracker: HashMap::new(),
             shared_data,
-            event_dispatcher,
             dispatcher_id,
         })
     }

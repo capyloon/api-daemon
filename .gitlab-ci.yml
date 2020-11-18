@@ -81,7 +81,7 @@ build:daemon:
 build:daemon:test:essentials:
   extends: .build_base
   variables:
-    test_essentials: "child-test-daemon tests/driver tests/fota-test-server"
+    test_essentials: "child-test-daemon tests/driver tests/fota-test-server tests/apps-test-server"
   script:
     - |
       for te in ${test_essentials}; do
@@ -93,6 +93,7 @@ build:daemon:test:essentials:
     paths:
       - target/release/child-test-daemon
       - target/release/fota_test_server
+      - target/release/apps_test_server
       - target/release/driver
       - services/test/client/generated/test_service.js
 
@@ -187,6 +188,8 @@ test:js-clients:
     - ./target/debug/echo-server 7878&
     - ./target/debug/echo-server 7879&
     - ./target/debug/echo-server 7880&
+    - cd $CI_PROJECT_DIR/tests/apps-test-server
+    - $CI_PROJECT_DIR/target/release/apps_test_server &
     - cd $CI_PROJECT_DIR
     - WITH_TEST_SERVICE=1 ./release_libs.sh
     - mkdir -p ./daemon/remote/TestService

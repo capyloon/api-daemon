@@ -163,7 +163,7 @@
     "launchercomms": {
       "description": "Communication between launcher app and system app",
       "rules": {
-        "manifestURLs": ["app://launcher.gaiamobile.org/manifest.webapp"]
+        "manifestURLs": ["app://launcher.gaiamobile.org/manifest.webmanifest"]
       }
     },
     "bluetoothTransfercomms": {
@@ -177,7 +177,7 @@
     "application-data-comms": {
       "description": "Communication between settings app and system app",
       "rules": {
-        "manifestURLs": ["app://settings.gaiamobile.org/manifest.webapp"]
+        "manifestURLs": ["app://settings.gaiamobile.org/manifest.webmanifest"]
       }
     },
     "stk": {
@@ -202,7 +202,7 @@
       "handler_path": "/index.html",
       "description": "IAC channel used for get FM Radio status",
       "rules": {
-        "manifestURLs": ["app://fm.gaiamobile.org/manifest.webapp"]
+        "manifestURLs": ["app://fm.gaiamobile.org/manifest.webmanifest"]
       }
     },
     "emailcomms": {

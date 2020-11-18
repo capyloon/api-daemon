@@ -6,6 +6,7 @@ pub mod service;
 pub mod apps_actor;
 pub mod apps_item;
 pub mod apps_registry;
+pub mod apps_request;
 pub mod apps_storage;
 pub mod apps_utils;
 pub mod config;

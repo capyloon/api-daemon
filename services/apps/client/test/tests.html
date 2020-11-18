@@ -74,6 +74,9 @@
           system_expected
         );
 
+        let provider = new TokenProvider(tester.service, tester.session);
+        await tester.service.setTokenProvider(provider);
+
 // install event
 // - Installed
 // - Installing
@@ -83,7 +86,7 @@
 
         await tester.assert_eq(
           "install app",
-          service => service.installPackage("http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json"),
+          service => service.installPackage("http://127.0.0.1:8596/apps/manifest.webmanifest"),
           install_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_handler, install_expected(1));
@@ -94,7 +97,7 @@
 
         await tester.assert_eq(
           "check for update",
-          service => service.checkForUpdate("http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json", {autoInstall: false}),
+          service => service.checkForUpdate("http://127.0.0.1:8596/apps/manifest.webmanifest", {autoInstall: false}),
           false
         );
 
@@ -103,7 +106,7 @@
         let on_download_failed = tester.setup_event(tester.service.APP_DOWNLOAD_FAILED_EVENT);
         await tester.assert_rej_eq(
           "reinstall forbidden",
-          service => service.installPackage("http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json"),
+          service => service.installPackage("http://127.0.0.1:8596/apps/manifest.webmanifest"),
           AppsServiceError.REINSTALL_FORBIDDEN
         );
         await tester.assert_event_eq("download failed event", on_download_failed, download_failed_response_expected);

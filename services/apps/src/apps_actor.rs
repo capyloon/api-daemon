@@ -1,5 +1,6 @@
 use crate::apps_item::AppsItem;
 use crate::apps_registry::AppsRegistry;
+use crate::apps_request::AppsRequest;
 use crate::apps_storage::{validate_package, PackageError};
 use crate::generated::common::*;
 use crate::manifest::{Manifest, ManifestError};
@@ -98,11 +99,11 @@ pub fn start_webapp_actor(shared_data: Shared<AppsSharedData>) {
         Ok(listener) => {
             debug!("Starting thread of socket server in apps service");
             for stream in listener.incoming() {
-                let shared_state = shared_data.clone();
                 match stream {
                     Ok(stream) => {
                         debug!("Starting : thread incoming OK");
-                        thread::spawn(move || handle_client(shared_state, stream));
+                        let shared_client = shared_data.clone();
+                        thread::spawn(move || handle_client(shared_client, stream));
                     }
                     Err(err) => {
                         error!("Error: {}", err);
@@ -175,63 +176,60 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
         };
 
         debug!("cmd {}, param path {:?}", request.cmd, request.param);
-        if &request.cmd == "install" {
-            let file = FileRemover {
-                path: request.param.clone().unwrap(),
-            };
-            let manifest = match validate_package(&file.path) {
-                Ok(m) => m,
-                Err(err) => {
+        match request.cmd.as_str() {
+            "install" => {
+                let file = FileRemover {
+                    path: request.param.clone().unwrap(),
+                };
+                let manifest = match validate_package(&file.path) {
+                    Ok(m) => m,
+                    Err(err) => {
+                        write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
+                        continue;
+                    }
+                };
+
+                // Delete it at drop
+                let from_file = Path::new(&file.path);
+                if let Err(err) = install_package(&shared_data, &from_file, &manifest) {
+                    error!("Installation fails, {}", err);
                     write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
                     continue;
                 }
-            };
 
-            // Delete it at drop
-            let from_file = Path::new(&file.path);
-            if let Err(err) = install_package(&shared_data, &from_file, &manifest) {
-                error!("Installation fails, {}", err);
-                write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
-                continue;
+                info!("Installation success");
+                debug!("{:?} is valid", &request.param);
+                write_response(&mut stream_write, &request.cmd, true, "success");
             }
+            "install-pwa" => {
+                // request.param is assured to be Some.
+                let url = request.param.clone().unwrap();
+                if let Err(err) = install_pwa(&shared_data, &url) {
+                    error!("Installation fails, {}", err);
+                    write_response(
+                        &mut stream_write,
+                        &request.cmd,
+                        false,
+                        &format!("{:?}", err),
+                    );
+                    continue;
+                }
 
-            info!("Installation success");
-            debug!("{:?} is valid", &request.param);
-            write_response(&mut stream_write, &request.cmd, true, "success");
-        }
-
-        if &request.cmd == "install-pwa" {
-            // request.param is assured to be Some.
-            let url = request.param.clone().unwrap();
-            if let Err(err) = install_pwa(&shared_data, &url) {
-                error!("Installation fails, {}", err);
-                write_response(
-                    &mut stream_write,
-                    &request.cmd,
-                    false,
-                    &format!("{:?}", err),
-                );
-                continue;
+                info!("Installation {:?} success", &request.param);
+                write_response(&mut stream_write, &request.cmd, true, "success");
             }
+            "uninstall" => {
+                if let Err(err) = uninstall(&shared_data, &request.param.unwrap()) {
+                    error!("Uninstallation fails, {}", err);
+                    write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
 
-            info!("Installation {:?} success", &request.param);
-            write_response(&mut stream_write, &request.cmd, true, "success");
-        }
+                    continue;
+                }
 
-        if &request.cmd == "uninstall" {
-            if let Err(err) = uninstall(&shared_data, &request.param.unwrap()) {
-                error!("Uninstallation fails, {}", err);
-                write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
-
-                continue;
+                info!("Uninstallation success");
+                write_response(&mut stream_write, &request.cmd, true, "success");
             }
-
-            info!("Uninstallation success");
-            write_response(&mut stream_write, &request.cmd, true, "success");
-        }
-
-        if &request.cmd == "list" {
-            match get_all(&shared_data) {
+            "list" => match get_all(&shared_data) {
                 Err(_) => {
                     error!("List application failed");
                     write_response(&mut stream_write, &request.cmd, false, "");
@@ -242,19 +240,21 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
                     debug!("List application success");
                     write_response(&mut stream_write, &request.cmd, true, &app_list);
                 }
-            }
+            },
+            _ => {}
         }
     }
 }
 
 pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &str) -> Result<(), AppsActorError> {
-    let mut shared = shared_data.lock();
-    let data_path = shared.config.data_path.clone();
-    let app = shared
-        .registry
+    let mut request = AppsRequest::new(shared_data.clone());
+    let data_path = request.shared_data.lock().config.data_path.clone();
+    let app = request
         .download_and_apply_pwa(&data_path, url)
         .map_err(AppsActorError::ServiceError)?;
-    shared
+    request
+        .shared_data
+        .lock()
         .registry
         .event_broadcaster
         .broadcast_app_installed(app);
@@ -269,7 +269,7 @@ pub fn install_package(
     shared_data: &Shared<AppsSharedData>,
     from_path: &Path,
     manifest: &Manifest,
-) -> Result<(), AppsActorError> {
+) -> Result<AppsItem, AppsActorError> {
     let data_path = {
         let shared = shared_data.lock();
         shared.config.data_path.clone()
@@ -301,19 +301,13 @@ pub fn install_package(
     fs::copy(from_path, download_app.as_path())?;
 
     let is_update = shared.registry.get_by_update_url(&update_url).is_some();
-    let vhost_port = shared.registry.get_vhost_port();
     // Need create appsItem object and add to db to reflect status
-    let mut apps_item = AppsItem::default(&app_name, vhost_port);
+    let mut apps_item = AppsItem::default(&app_name, shared.registry.get_vhost_port());
     if !manifest.get_version().is_empty() {
         apps_item.set_version(&manifest.get_version());
     }
     apps_item.set_update_url(&update_url);
     apps_item.set_install_state(AppsInstallState::Installing);
-    shared
-        .registry
-        .event_broadcaster
-        .broadcast_app_installing(AppsObject::from(&apps_item));
-
     let _ = shared
         .registry
         .apply_download(&mut apps_item, &download_dir, &manifest, &path, is_update)
@@ -335,7 +329,7 @@ pub fn install_package(
         shared.vhost_api.app_installed(&app_name);
     }
 
-    Ok(())
+    Ok(apps_item)
 }
 
 pub fn uninstall(
@@ -354,6 +348,7 @@ pub fn uninstall(
             return Err(AppsActorError::AppNotFound);
         }
     };
+
     let data_path = shared.config.data_path.clone();
 
     let _ = shared
@@ -543,7 +538,7 @@ fn test_install_app() {
         println!("test_install_app error: {:?}", err);
     }
 
-    let src_app = current.join("test-fixtures/apps-from/helloworld/application.zip");
+    let src_app = current.join("test-fixtures/apps-from/helloworldactor/application.zip");
     println!("src_app: {}", &src_app.display());
 
     // Test from shared object
@@ -565,27 +560,22 @@ fn test_install_app() {
             assert_eq!(4, shared.registry.count());
         }
 
-        let app_name: String = "helloworld".into();
+        let app_name: String;
         let manifest = validate_package(&src_app.as_path()).unwrap();
         let milisec_before_installing = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
 
-        if install_package(&shared_data, &src_app.as_path(), &manifest).is_ok() {
+        if let Ok(apps_item) = install_package(&shared_data, &src_app.as_path(), &manifest) {
             println!("App installed");
+            app_name = apps_item.get_name();
         } else {
             println!("App installed failed");
             panic!();
         }
         {
             let shared = shared_data.lock();
-            println!(
-                "After installed, shared.apps_objects.len: {}",
-                shared.registry.count()
-            );
-            assert_eq!(5, shared.registry.count());
-
             match shared.registry.get_first_by_name(&app_name) {
                 Some(app) => {
                     println!("Installation, success");
@@ -598,9 +588,6 @@ fn test_install_app() {
                     panic!();
                 }
             }
-
-            println!("shared.apps_objects.len: {}", shared.registry.count());
-            assert_eq!(5, shared.registry.count());
         }
 
         // Re-install
@@ -627,12 +614,6 @@ fn test_install_app() {
                     panic!();
                 }
             }
-
-            println!(
-                "After re-installed, shared.apps_objects.len: {}",
-                shared.registry.count()
-            );
-            assert_eq!(5, shared.registry.count());
         }
     }
 
@@ -644,48 +625,27 @@ fn test_install_app() {
         }
 
         let shared_data = AppsService::shared_state();
-        let config = Config {
-            root_path: _root_dir,
-            data_path: _test_dir.clone(),
-            uds_path: String::from("uds_path"),
-            cert_type: String::from("test"),
-        };
+        let manifest_url: String;
         {
-            let mut shared = shared_data.lock();
-            shared.config = config.clone();
-
-            let registry = AppsRegistry::initialize(&config, 4443).unwrap();
-            shared.registry = registry;
-            println!(
-                "Test from persisted storage, len: {}",
-                shared.registry.count()
-            );
-            assert_eq!(5, shared.registry.count());
-        }
-
-        let manifest_url = {
             let shared = shared_data.lock();
-            let app_name: String = "helloworld".into();
-            let vhost_port = shared.registry.get_vhost_port();
-            let apps_item = AppsItem::default(&app_name, vhost_port);
-            let manifest_url = apps_item.get_manifest_url();
+            let app_name: String = "helloworldactor".into();
+            let apps_item = AppsItem::default(&app_name, shared.registry.get_vhost_port());
+            manifest_url = apps_item.get_manifest_url();
             if let Ok(app) = shared.get_by_manifest_url(&manifest_url) {
                 assert_eq!(app_name, app.name);
             } else {
                 println!("get_by_manifest_url failed.");
                 panic!();
             }
-            manifest_url
-        };
+        }
 
         // Uninstall
         if uninstall(&shared_data, &manifest_url).is_ok() {
             let shared = shared_data.lock();
-            println!(
-                "After uninstall, shared.apps_objects.len: {}",
-                shared.registry.count()
-            );
-            assert_eq!(4, shared.registry.count());
+            if shared.get_by_manifest_url(&manifest_url).is_ok() {
+                println!("get_by_manifest_url should not ok");
+                panic!();
+            }
         } else {
             println!("uninstall failed");
             panic!();
@@ -729,9 +689,6 @@ fn test_get_all() {
         cert_type: String::from("test"),
     };
     {
-        let mut shared = shared_data.lock();
-        shared.config = config.clone();
-
         let registry = match AppsRegistry::initialize(&config, 8443) {
             Ok(registry) => registry,
             Err(err) => {
@@ -739,14 +696,17 @@ fn test_get_all() {
                 return;
             }
         };
-        shared.registry = registry;
-        shared.state = AppsServiceState::Running;
+        {
+            let mut shared = shared_data.lock();
+            shared.config = config.clone();
+            shared.registry = registry;
+            shared.state = AppsServiceState::Running;
+        }
+        let app_list = get_all(&shared_data).unwrap();
+        let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"http://calculator.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"http://system.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"http://gallery.localhost:8443/manifest.webmanifest\",\"removable\":true,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"http://launcher.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
+
+        assert_eq!(app_list, expected);
     }
-
-    let app_list = get_all(&shared_data).unwrap();
-    let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"http://calculator.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"http://system.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"http://gallery.localhost:8443/manifest.webmanifest\",\"removable\":true,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"http://launcher.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
-
-    assert_eq!(app_list, expected);
 }
 
 #[test]

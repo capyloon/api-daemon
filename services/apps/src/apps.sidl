@@ -59,6 +59,21 @@ enum ClearType {
   Storage                 // Clear Apps local storage, such as indexDB.
 }
 
+enum TokenType {
+    Account            // Token from account
+    Restricted         // Restricted token which has less permission
+}
+
+dictionary Token {
+  key_id: str
+  mac_key: str
+  token_type: TokenType
+}
+
+callback TokenProvider {
+  fn get_token(token_type: TokenType) -> Token
+}
+
 dictionary AppsObject {
   name: str
   installState: AppsInstallState
@@ -118,6 +133,9 @@ interface AppsEngine {
   // delay, update check for certain time after a success check in seconds
   // Return: successfully set or not.
   fn set_update_policy(enabled: bool, allowed_type: ConnectionType, delay: int) -> bool
+
+  // In: Token provider, which is used later by app service to get token
+  fn set_token_provider(provider: TokenProvider)
 
   // Report the app object which is updated successfully
   event appUpdated -> AppsObject

@@ -1,6 +1,7 @@
 // Implementation of the tasks matching api calls.
 
 use crate::apps_registry::AppMgmtTask;
+use crate::apps_request::AppsRequest;
 use crate::generated::common::*;
 use crate::shared_state::AppsSharedData;
 use common::traits::Shared;
@@ -16,16 +17,23 @@ pub struct InstallPackageTask(
 impl AppMgmtTask for InstallPackageTask {
     fn run(&self) {
         // Actually run the installation.
-        let mut shared = self.0.lock();
+        let shared_data = self.0.clone();
+        let mut request = AppsRequest::new(shared_data);
         let url = &self.1;
         let responder = &self.2;
 
-        if let Some(app) = shared.registry.get_by_update_url(&url) {
+        // Fall backs to getting token in downloader module
+        let _ = ensure_token(&mut request);
+
+        let some_app = request.shared_data.lock().registry.get_by_update_url(&url);
+        if let Some(app) = some_app {
             if app.get_install_state() == AppsInstallState::Installed
                 || app.get_install_state() == AppsInstallState::Installing
             {
-                info!("broadcast event: app_download_failed");
-                shared
+                info!("broadcast event: app_download_failed ReinstallForbidden");
+                request
+                    .shared_data
+                    .lock()
                     .registry
                     .event_broadcaster
                     .broadcast_app_download_failed(AppsObject::from(&app));
@@ -33,15 +41,13 @@ impl AppMgmtTask for InstallPackageTask {
             }
         }
 
-        let data_path = shared.config.data_path.clone();
+        let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
         let data_dir = current.join(data_path);
-        match shared
-            .registry
-            .download_and_apply(data_dir.to_str().unwrap(), &url, false)
-        {
+        match request.download_and_apply(data_dir.to_str().unwrap(), &url, false) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
+                let mut shared = request.shared_data.lock();
                 shared.vhost_api.app_installed(&app.name);
                 responder.resolve(app.clone());
                 shared
@@ -51,6 +57,7 @@ impl AppMgmtTask for InstallPackageTask {
             }
             Err(err) => {
                 info!("InstallPackageTask error download_and_apply {:?}", err);
+                let shared = request.shared_data.lock();
                 if let Some(app) = shared.registry.get_by_update_url(&url) {
                     if app.get_install_state() == AppsInstallState::Installed
                         || app.get_install_state() == AppsInstallState::Installing
@@ -76,19 +83,31 @@ pub struct InstallPwaTask(
 impl AppMgmtTask for InstallPwaTask {
     fn run(&self) {
         // Actually run the installation.
-        let mut shared = self.0.lock();
+        let shared_data = self.0.clone();
+        let mut request = AppsRequest::new(shared_data);
         let url = &self.1;
         let responder = &self.2;
 
-        if shared.registry.get_by_update_url(&url).is_some() {
+        // Fall backs to getting token in downloader module
+        let _ = ensure_token(&mut request);
+
+        if request
+            .shared_data
+            .lock()
+            .registry
+            .get_by_update_url(&url)
+            .is_some()
+        {
             return responder.reject(AppsServiceError::ReinstallForbidden);
         }
-        let data_path = shared.config.data_path.clone();
-        match shared.registry.download_and_apply_pwa(&data_path, &url) {
+        let data_path = request.shared_data.lock().config.data_path.clone();
+        match request.download_and_apply_pwa(&data_path, &url) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
                 responder.resolve(app.clone());
-                shared
+                request
+                    .shared_data
+                    .lock()
                     .registry
                     .event_broadcaster
                     .broadcast_app_installed(app);
@@ -108,11 +127,12 @@ pub struct UninstallTask(
 
 impl AppMgmtTask for UninstallTask {
     fn run(&self) {
-        let mut shared = self.0.lock();
+        let shared_data = self.0.clone();
+        let request = AppsRequest::new(shared_data);
         let url = &self.1;
         let responder = &self.2;
 
-        let app = match shared.get_by_manifest_url(&url) {
+        let app = match request.shared_data.lock().get_by_manifest_url(&url) {
             Ok(app) => app,
             Err(err) => {
                 error!("Do not find uninstall app: {:?}", err);
@@ -120,6 +140,7 @@ impl AppMgmtTask for UninstallTask {
             }
         };
 
+        let mut shared = request.shared_data.lock();
         let data_path = shared.config.data_path.clone();
         let current = env::current_dir().unwrap();
         let data_dir = current.join(data_path);
@@ -149,11 +170,15 @@ pub struct UpdateTask(
 
 impl AppMgmtTask for UpdateTask {
     fn run(&self) {
-        let mut shared = self.0.lock();
+        let shared_data = self.0.clone();
+        let mut request = AppsRequest::new(shared_data);
         let url = &self.1;
         let responder = &self.2;
 
-        let old_app = match shared.get_by_manifest_url(&url) {
+        // Fall backs to getting token in downloader module
+        let _ = ensure_token(&mut request);
+
+        let old_app = match request.shared_data.lock().get_by_manifest_url(&url) {
             Ok(app) => app,
             Err(err) => {
                 error!("Update app not found: {:?}", err);
@@ -163,21 +188,20 @@ impl AppMgmtTask for UpdateTask {
 
         let update_url = &old_app.update_url;
 
-        let data_path = shared.config.data_path.clone();
+        let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
         let data_dir = current.join(data_path);
-        match shared
-            .registry
-            .download_and_apply(data_dir.to_str().unwrap(), &update_url, true)
-        {
+        match request.download_and_apply(data_dir.to_str().unwrap(), &update_url, true) {
             Ok(app) => {
                 info!("broadcast event: app_updated");
+                let mut shared = request.shared_data.lock();
                 shared.vhost_api.app_updated(&app.name);
                 responder.resolve(app.clone());
                 shared.registry.event_broadcaster.broadcast_app_updated(app);
             }
             Err(err) => {
                 info!("broadcast event: app_updated failed. Reason: {:?}", err);
+                let shared = request.shared_data.lock();
                 shared
                     .registry
                     .event_broadcaster
@@ -197,22 +221,25 @@ pub struct CheckForUpdateTask(
 
 impl AppMgmtTask for CheckForUpdateTask {
     fn run(&self) {
-        let mut shared = self.0.lock();
+        let shared_data = self.0.clone();
+        let mut request = AppsRequest::new(shared_data);
         let url = &self.1;
         let apps_option = &self.2;
         let some_responder = &self.3;
 
-        let data_path = shared.config.data_path.clone();
+        // Fall backs to getting token in downloader module
+        let _ = ensure_token(&mut request);
+
+        let data_path = request.shared_data.lock().config.data_path.clone();
         let is_auto_update = apps_option.auto_install.unwrap_or(false);
-        match shared
-            .registry
-            .check_for_update(&data_path, &url, is_auto_update)
-        {
+        match request.check_for_update(&data_path, &url, is_auto_update) {
             Ok(ret) => {
                 info!("broadcast event: check_for_update");
                 let mut updated = false;
                 if let Some(app) = ret {
-                    shared
+                    request
+                        .shared_data
+                        .lock()
                         .registry
                         .event_broadcaster
                         .broadcast_app_update_available(app);
@@ -247,8 +274,9 @@ impl AppMgmtTask for SetEnabledTask {
         let status = self.2;
         let responder = &self.3;
         let current = env::current_dir().unwrap();
-        let root_path = current.join(shared.config.root_path.clone());
-        let data_path = current.join(shared.config.data_path.clone());
+        let config = shared.config.clone();
+        let root_path = current.join(config.root_path);
+        let data_path = current.join(config.data_path);
         match shared
             .registry
             .set_enabled(&manifest_url, status, &data_path, &root_path)
@@ -293,4 +321,11 @@ impl AppMgmtTask for ClearTask {
             Err(err) => responder.reject(err),
         };
     }
+}
+
+// This function blocks current thread to receive token
+// Used only in threadpool
+fn ensure_token(_request: &mut AppsRequest) -> bool {
+    // Make if believe it's always true.
+    true
 }
