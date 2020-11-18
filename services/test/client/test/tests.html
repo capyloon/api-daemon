@@ -15,7 +15,11 @@
 
     <script>
       async function run_tests() {
-        let tester = await test_service(lib_test.TestService, "test-client");
+        let session = new lib_session.Session();
+        let tester = await test_service(lib_test.TestService, "test-client", session);
+
+        await tester.assert_eq("has_service_true", () => session.has_service("TestService"), true);
+        await tester.assert_eq("has_service_false", () => session.has_service("NoSuchService"), false);
 
         let timeout_handler = tester.setup_event(tester.service.TIMEOUT_EVENT);
 

@@ -203,10 +203,10 @@ impl Session {
         message.kind = BaseMessageKind::Response(message.request());
         self.session_helper.serialize_message(
             &message,
-            &HasServiceResponse {
+            &CoreResponse::HasService(HasServiceResponse {
                 success: has_service,
                 service: 0,
-            },
+            }),
         );
     }
 

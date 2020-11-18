@@ -204,8 +204,11 @@ mod test {
         let base: BaseMessage = Frame::deserialize_from(&mut stream).unwrap();
         assert_eq!(base.response(), 1);
         // Decode the response
-        let response: HasServiceResponse = common::deserialize_bincode(&base.content).unwrap();
-        assert_eq!(response.success, true);
+        let response: CoreResponse = common::deserialize_bincode(&base.content).unwrap();
+        match response {
+            CoreResponse::HasService(r) => assert_eq!(r.success, true),
+            _ => panic!("Cannot deserialize HasService response"),
+        }
 
         // Close the session.
         stream.shutdown(Shutdown::Both).unwrap();

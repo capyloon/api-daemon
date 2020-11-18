@@ -53,16 +53,22 @@ const Services = {
    */
   has: (name, session) => {
     DEBUG && console.log(`Services.has(${name})`);
-    let buff = services.create_core_message("hasService", { name: name });
-
-    let message = kcore.BaseMessage.create({
-      service: 0,
-      object: 0,
-      content: buff,
+    let buff = kcore.CoreRequest.encode({
+      variant: kcore.CoreRequest.HAS_SERVICE,
+      name: name,
     });
-    return session.send_request(message, kcore.CoreResponse).then((res) => {
-      if (res.msg.hasService) {
-        return res.msg.hasService.success;
+
+    let message = new kcore.BaseMessage(
+      /*service*/ 0,
+      /*object*/ 0,
+      /*content*/ buff
+    );
+    return session.send_request(message, kcore.CoreResponse)
+    .then((res) => {
+      DEBUG &&
+        console.log(`Service.has(${name}) response: ${JSON.stringify(res)}`);
+      if (res.msg.success !== undefined) {
+        return res.msg.success;
       }
 
       return Promise.reject(`hasService failed for: ${name}`);

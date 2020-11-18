@@ -181,9 +181,9 @@ class ServiceTester {
 }
 
 // Returns a promise resolving to a ServiceTester attached to the service.
-function test_service(service, tester_name) {
+function test_service(service, tester_name, existing_session) {
   return new Promise((resolve, reject) => {
-    let session = new lib_session.Session();
+    let session = existing_session ? existing_session : new lib_session.Session();
     let sessionstate = {
       onsessionconnected() {
         service.get(session).then(service => {
