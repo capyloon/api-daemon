@@ -5,6 +5,7 @@ authors = ["The KaiOS Team"]
 edition = "2018"
 
 [dependencies]
+chrono = "0.4"
 common = { path = "../../common" }
 ical = "0.6"
 lazy_static = "1.4"

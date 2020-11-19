@@ -13,7 +13,7 @@ pub enum SqliteDbError {
 }
 
 pub trait DatabaseUpgrader {
-    fn upgrade(&mut self, from: u32, to: u32, connection: &Connection) -> bool;
+    fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool;
 }
 
 pub struct SqliteDb {
@@ -29,7 +29,7 @@ impl SqliteDb {
         version: u32,
         flags: OpenFlags,
     ) -> Result<Self, SqliteDbError> {
-        let connection = Connection::open_with_flags(path, flags)?;
+        let mut connection = Connection::open_with_flags(path, flags)?;
 
         // Get the current version.
         let current_version: u32 = connection.query_row(
@@ -43,7 +43,7 @@ impl SqliteDb {
             return Err(SqliteDbError::SchemaUpgrade(current_version, version));
         }
 
-        if current_version < version && !upgrader.upgrade(current_version, version, &connection) {
+        if current_version < version && !upgrader.upgrade(current_version, version, &mut connection) {
             return Err(SqliteDbError::SchemaUpgrade(current_version, version));
         }
 
@@ -88,7 +88,7 @@ fn upgrader_test() {
         upgraded: bool,
     };
     impl DatabaseUpgrader for OneShotUpgrader {
-        fn upgrade(&mut self, from: u32, to: u32, connection: &Connection) -> bool {
+        fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
             if !self.upgraded {
                 assert_eq!((from, to), (0, 1));
                 self.upgraded = true;

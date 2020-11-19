@@ -37,7 +37,7 @@ impl PartialEq for Error {
 pub struct SettingsSchemaManager {}
 
 impl DatabaseUpgrader for SettingsSchemaManager {
-    fn upgrade(&mut self, from: u32, to: u32, connection: &Connection) -> bool {
+    fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
         // We only support version 1 currently.
         if !(from == 0 && to == 1) {
             return false;

@@ -1,5 +1,6 @@
 /// DB interface for the Contacts
 use crate::generated::common::*;
+use crate::preload::*;
 use common::traits::DispatcherId;
 use common::SystemTime;
 use log::{debug, error};
@@ -33,6 +34,12 @@ pub enum Error {
     InvalidContactId(String),
     #[error("Ice position already used")]
     IcePositionUsed(String),
+    #[error("Read File Error")]
+    File(String),
+    #[error("Parse Time Error")]
+    ParseTime(#[from] chrono::format::ParseError),
+    #[error("Time Error")]
+    Time(String),
 }
 
 pub struct ContactsSchemaManager {}
@@ -89,7 +96,7 @@ static UPGRADE_0_1_SQL: [&str; 13] = [
 ];
 
 impl DatabaseUpgrader for ContactsSchemaManager {
-    fn upgrade(&mut self, from: u32, to: u32, connection: &Connection) -> bool {
+    fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
         // We only support version 1 currently.
         if !(from == 0 && to == 1) {
             return false;
@@ -100,6 +107,12 @@ impl DatabaseUpgrader for ContactsSchemaManager {
                 error!("Upgrade step failure: {}", err);
                 return false;
             }
+        }
+
+        if let Err(err) = load_contacts_to_db(CONTACTS_PRELOAD_FILE_PATH, connection) {
+            error!("Failed to load default contacts: {}", err);
+        } else {
+            debug!("Default contacts loaded successfully");
         }
 
         true
@@ -404,7 +417,7 @@ impl ContactInfo {
         Ok(())
     }
 
-    fn save_main_data(&self, tx: &rusqlite::Transaction) -> Result<(), Error> {
+    pub(crate) fn save_main_data(&self, tx: &rusqlite::Transaction) -> Result<(), Error> {
         let mut stmt_ins = tx.prepare("INSERT INTO contact_main (contact_id, name, family_name, given_name, 
             tel_number, tel_json, email, email_json, photo_type, photo_blob, published, updated, bday, 
             anniversary) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")?;
@@ -472,7 +485,7 @@ impl ContactInfo {
         Ok(())
     }
 
-    fn save_additional_data(&self, tx: &rusqlite::Transaction) -> Result<(), Error> {
+    pub(crate) fn save_additional_data(&self, tx: &rusqlite::Transaction) -> Result<(), Error> {
         let mut stmt = tx.prepare(
             "INSERT INTO contact_additional (contact_id, data_type, value) VALUES(?, ?, ?)",
         )?;
@@ -1536,7 +1549,14 @@ mod test {
 
         let mut db = ContactsDb::new(broadcaster);
         db.clear_contacts().unwrap();
+        assert_eq!(db.count().unwrap(), 0);
 
+        load_contacts_to_db("./test-fixtures/contacts.json", db.db.mut_connection());
+        assert_eq!(db.count().unwrap(), 2);
+        db.clear_contacts().unwrap();
+        assert_eq!(db.count().unwrap(), 0);
+
+        load_contacts_to_db("./test-fixtures/contacts_incorrect.json", db.db.mut_connection());
         assert_eq!(db.count().unwrap(), 0);
 
         let mut bob = ContactInfo::default();

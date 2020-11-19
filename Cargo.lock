@@ -974,6 +974,7 @@ checksum = "c478836e029dcef17fb47c89023448c64f781a046e0300e257ad8225ae59afab"
 name = "contacts_service"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "common",
  "env_logger 0.7.1",
  "ical",
