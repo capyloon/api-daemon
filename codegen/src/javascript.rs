@@ -121,6 +121,7 @@ impl MethodWriter {
 
 pub struct Codegen {
     ast: Ast,
+    fingerprint: String,
 }
 
 fn js_type(typ: &ConcreteType) -> String {
@@ -854,7 +855,7 @@ impl Codegen {
         }};"#,
             service.name,
             service.name,
-            crate::helpers::get_fingerprint(&self.ast),
+            self.fingerprint,
             service.interface
         )?;
         writeln!(sink)?;
@@ -920,8 +921,10 @@ impl Codegen {
     }
 
     pub fn new(ast: Ast) -> Codegen {
+        let fingerprint = crate::helpers::get_fingerprint(&ast);
         Codegen {
             ast: normalize_rust_case(&ast, &JavascriptCaseNormalizer),
+            fingerprint,
         }
     }
 }

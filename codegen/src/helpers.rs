@@ -245,18 +245,40 @@ pub fn get_all_reqs_resps(ast: &Ast) -> (Vec<String>, Vec<String>) {
 }
 
 pub fn get_fingerprint(ast: &Ast) -> String {
+    use crate::ast_utils::*;
     use sha2::{Digest, Sha256};
     use std::fmt::Write;
 
-    let (reqs, resps) = get_all_reqs_resps(ast);
+    let ast = normalize_rust_case(ast, &RustCaseNormalizer);
+
+    let (reqs, resps) = get_all_reqs_resps(&ast);
     let mut hasher = Sha256::new();
 
+    // Hash all the requests and response enumerations.
     for req in reqs {
         hasher.update(req.as_bytes());
     }
 
     for resp in resps {
         hasher.update(resp.as_bytes());
+    }
+
+    // Hash each dictionary shape: member names and types.
+    for dictionary in ast.dictionaries.values() {
+        for member in &dictionary.members {
+            let rtype = rust_type(&member.typ);
+            hasher.update(member.name.as_bytes());
+            hasher.update(rtype.as_bytes());
+        }
+    }
+
+    // Hash each event shape: name and type.
+    for interface in ast.interfaces.values() {
+        for event in interface.events.values() {
+            let rtype = rust_type(&event.returns);
+            hasher.update(event.name.as_bytes());
+            hasher.update(rtype.as_bytes());
+        }
     }
 
     let result = hasher.finalize();

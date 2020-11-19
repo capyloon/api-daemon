@@ -44,7 +44,8 @@ impl EnumWriter {
         // TODO: figure out if we have to serialize and deserialize based on usage.
         writeln!(
             sink,
-            "#[derive(Clone, PartialEq, Deserialize, Serialize, Debug{})]", more_derived
+            "#[derive(Clone, PartialEq, Deserialize, Serialize, Debug{})]",
+            more_derived
         )?;
         writeln!(sink, "pub enum {} {{", enumeration.name)?;
 
@@ -78,13 +79,16 @@ impl DictWriter {
 pub struct Codegen {
     ast: Ast,
     toplevel_name: String,
+    fingerprint: String,
 }
 
 impl Codegen {
     pub fn new(ast: Ast, name: &str) -> Self {
+        let fingerprint = get_fingerprint(&ast);
         Self {
-            ast,
+            ast: normalize_rust_case(&ast, &RustCaseNormalizer),
             toplevel_name: name.into(),
+            fingerprint,
         }
     }
 
@@ -558,7 +562,7 @@ impl Codegen {
         }
 
         let name = ast.services[0].name.clone();
-        let mut codegen = Codegen::new(normalize_rust_case(&ast, &RustCaseNormalizer), &name);
+        let mut codegen = Codegen::new(ast, &name);
         codegen.top_level(sink)
     }
 
@@ -568,38 +572,30 @@ impl Codegen {
         }
 
         let name = ast.services[0].name.clone();
-        let mut codegen = Codegen::new(normalize_rust_case(&ast, &RustCaseNormalizer), &name);
+        let mut codegen = Codegen::new(ast, &name);
         codegen.gecko_client(sink)
     }
 
     fn gecko_client<'a, W: Write>(&mut self, sink: &'a mut W) -> Result<()> {
         sink.write_all(
-            b"// This file is generated. Do not edit.
-// @generated\n
-use crate::common::traits::TrackerId;
-#[allow(unused_imports)]
-use crate::common::{JsonValue, SystemTime};
-use serde::{Deserialize, Serialize};
+            b"/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub struct ObjectRef(TrackerId);
-impl From<TrackerId> for ObjectRef {
-    fn from(val: TrackerId) -> Self {
-        Self(val)
-    }
-}
-impl From<ObjectRef> for TrackerId {
-    fn from(val: ObjectRef) -> Self {
-        val.0
-    }
-}\n\n",
+// This file is generated. Do not edit.
+// @generated
+
+#[allow(unused_imports)]
+use crate::common::{JsonValue, SystemTime, ObjectRef};
+use serde::{Deserialize, Serialize};
+\n\n",
         )?;
 
         // Include the service fingerprint.
         writeln!(
             sink,
             "pub static SERVICE_FINGERPRINT: &str = \"{}\";\n",
-            get_fingerprint(&self.ast)
+            self.fingerprint,
         )?;
 
         // Include enums
