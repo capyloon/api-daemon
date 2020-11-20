@@ -44,7 +44,7 @@ pub enum Error {
 
 pub struct ContactsSchemaManager {}
 
-static UPGRADE_0_1_SQL: [&str; 13] = [
+static UPGRADE_0_1_SQL: [&str; 14] = [
     // Main table holding main data of contact.
     r#"CREATE TABLE IF NOT EXISTS contact_main (
         contact_id   TEXT    NOT NULL PRIMARY KEY,
@@ -60,13 +60,16 @@ static UPGRADE_0_1_SQL: [&str; 13] = [
         published    INTEGER DEFAULT (0),
         updated      INTEGER DEFAULT (0),
         bday         INTEGER DEFAULT (0),
-        anniversary  INTEGER DEFAULT (0)
+        anniversary  INTEGER DEFAULT (0),
+        category     TEXT    DEFAULT (''),
+        category_json TEXT   DEFAULT ('')
     )"#,
     r#"CREATE INDEX idx_name ON contact_main(name)"#,
     r#"CREATE INDEX idx_famil_name ON contact_main(family_name)"#,
     r#"CREATE INDEX idx_given_name ON contact_main(given_name)"#,
     r#"CREATE INDEX idx_tel_number ON contact_main(tel_number)"#,
     r#"CREATE INDEX idx_email ON contact_main(email)"#,
+    r#"CREATE INDEX idx_category ON contact_main(category)"#,
     r#"CREATE TABLE IF NOT EXISTS contact_additional (
         contact_id TEXT NOT NULL,
         data_type TEXT NOT NULL,
@@ -157,6 +160,8 @@ struct MainRowData {
     updated: i64,
     bday: i64,
     anniversary: i64,
+    category: String,
+    category_json: String,
 }
 
 #[derive(Debug)]
@@ -295,8 +300,11 @@ fn save_str_field(stmt: &mut Statement, id: &str, stype: &str, data: &str) -> Re
 impl ContactInfo {
     fn fill_main_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
         self.id = id.into();
-        let mut stmt = conn.prepare("SELECT contact_id, name, family_name, given_name, tel_json, email_json,
-        photo_type, photo_blob, published, updated, bday, anniversary FROM contact_main WHERE contact_id=:id")?;
+        let mut stmt = conn.prepare(
+            "SELECT contact_id, name, family_name, given_name, tel_json, email_json,
+        photo_type, photo_blob, published, updated, bday, anniversary, category, category_json FROM
+        contact_main WHERE contact_id=:id",
+        )?;
 
         let rows = stmt.query_map_named(&[(":id", &self.id)], |row| {
             Ok(MainRowData {
@@ -312,6 +320,8 @@ impl ContactInfo {
                 updated: row.get(9)?,
                 bday: row.get(10)?,
                 anniversary: row.get(11)?,
+                category: row.get(12)?,
+                category_json: row.get(13)?,
             })
         })?;
 
@@ -330,6 +340,11 @@ impl ContactInfo {
             if !row.email_json.is_empty() {
                 let email: Vec<ContactField> = serde_json::from_str(&row.email_json)?;
                 self.email = Some(email);
+            }
+
+            if !row.category_json.is_empty() {
+                let category: Vec<String> = serde_json::from_str(&row.category_json)?;
+                self.category = Some(category);
             }
 
             self.photo_type = row.photo_type;
@@ -382,8 +397,6 @@ impl ContactInfo {
                 fill_vec_field(&mut self.honorific_suffix, row.value);
             } else if row.data_type == "nickname" {
                 fill_vec_field(&mut self.nickname, row.value);
-            } else if row.data_type == "category" {
-                fill_vec_field(&mut self.category, row.value);
             } else if row.data_type == "org" {
                 fill_vec_field(&mut self.org, row.value);
             } else if row.data_type == "job_title" {
@@ -420,7 +433,7 @@ impl ContactInfo {
     pub(crate) fn save_main_data(&self, tx: &rusqlite::Transaction) -> Result<(), Error> {
         let mut stmt_ins = tx.prepare("INSERT INTO contact_main (contact_id, name, family_name, given_name, 
             tel_number, tel_json, email, email_json, photo_type, photo_blob, published, updated, bday, 
-            anniversary) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")?;
+            anniversary, category, category_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")?;
 
         let mut tel_number: String = "\u{001E}".to_string();
         let mut tel_json = "".to_string();
@@ -444,6 +457,18 @@ impl ContactInfo {
             }
             // The email_json is used for restore the email struct.
             email_json = serde_json::to_string(emails)?;
+        }
+
+        let mut category = "\u{001E}".to_string();
+        let mut category_json = "".to_string();
+        if let Some(categories) = &self.category {
+            for item in categories {
+                category += item;
+                // Seperate with unprintable character, used for find.
+                category.push_str("\u{001E}");
+            }
+            // The category_json is used for restore the category array.
+            category_json = serde_json::to_string(categories)?;
         }
 
         let mut published = 0;
@@ -481,6 +506,8 @@ impl ContactInfo {
             &updated,
             &bday,
             &anniversary,
+            &category,
+            &category_json,
         ])?;
         Ok(())
     }
@@ -508,7 +535,6 @@ impl ContactInfo {
             &self.honorific_suffix,
         )?;
         save_vec_field(&mut stmt, &self.id, "nickname", &self.nickname)?;
-        save_vec_field(&mut stmt, &self.id, "category", &self.category)?;
         save_vec_field(&mut stmt, &self.id, "org", &self.org)?;
         save_vec_field(&mut stmt, &self.id, "job_title", &self.job_title)?;
         save_vec_field(&mut stmt, &self.id, "note", &self.note)?;
@@ -932,79 +958,83 @@ impl ContactsDb {
             move |connection| {
                 let mut sql = String::from("SELECT contact_id FROM contact_main WHERE ");
                 let mut params = vec![];
-                match options.filter_by {
-                    FilterByOption::Name => {
-                        sql.push_str("name LIKE :value");
+                for (n, filter_by) in options.filter_by.iter().enumerate() {
+                    if n != 0 {
+                        sql.push_str(" OR ");
                     }
-                    FilterByOption::GivenName => {
-                        sql.push_str("given_name LIKE :value");
-                    }
-                    FilterByOption::FamilyName => {
-                        sql.push_str("family_name LIKE :value");
-                    }
-                    FilterByOption::Email => {
-                        sql.push_str("email LIKE :value");
-                    }
-                    FilterByOption::Tel => {
-                        sql.push_str("tel_number LIKE :value");
-                    }
-                    FilterByOption::Category => {
-                        sql = String::from(
-                            "SELECT contact_id FROM contact_additional WHERE data_type = 'category' 
-                            AND value LIKE :value",
-                        );
-                    }
-                }
-
-                let value = match options.filter_option {
-                    FilterOption::StartsWith => {
-                        if options.filter_by == FilterByOption::Email
-                            || options.filter_by == FilterByOption::Tel
-                        {
-                            // The tel_number and email will store like:"\u{001E}88888\u{001E}99999\u{001E}.
-                            // StartsWith means contain %\u{001E}{}%.
-                            format!("%\u{001E}{}%", options.filter_value)
-                        } else {
-                            format!("{}%", options.filter_value)
+                    match *filter_by {
+                        FilterByOption::Name => {
+                            sql.push_str("name LIKE ?");
+                        }
+                        FilterByOption::GivenName => {
+                            sql.push_str("given_name LIKE ?");
+                        }
+                        FilterByOption::FamilyName => {
+                            sql.push_str("family_name LIKE ?");
+                        }
+                        FilterByOption::Email => {
+                            sql.push_str("email LIKE ?");
+                        }
+                        FilterByOption::Tel => {
+                            sql.push_str("tel_number LIKE ?");
+                        }
+                        FilterByOption::Category => {
+                            sql.push_str("category LIKE ?");
                         }
                     }
-                    FilterOption::FuzzyMatch => {
-                        // Only used for tel
-                        // Matching from back to front, If the filter_value length is greater
-                        // Than MIN_MATCH_DIGITS, take the last MIN_MATCH_DIGITS length string.
-                        let filter_value = &options.filter_value;
-                        let mut slice = "".to_string();
-                        if filter_value.len() > MIN_MATCH_DIGITS {
-                            let start = filter_value.len() - MIN_MATCH_DIGITS;
-                            if let Some(value_slice) = filter_value.get(start..filter_value.len()) {
-                                slice = value_slice.to_string()
+
+                    let value = match options.filter_option {
+                        FilterOption::StartsWith => {
+                            if *filter_by == FilterByOption::Email
+                                || *filter_by == FilterByOption::Tel
+                            {
+                                // The tel_number and email will store like:"\u{001E}88888\u{001E}99999\u{001E}.
+                                // StartsWith means contain %\u{001E}{}%.
+                                format!("%\u{001E}{}%", options.filter_value)
+                            } else {
+                                format!("{}%", options.filter_value)
                             }
-                            format!("%{}\u{001E}%", slice)
-                        } else {
-                            format!("%{}\u{001E}%", filter_value)
                         }
-                    }
-                    FilterOption::Contains => format!("%{}%", options.filter_value),
-                    FilterOption::Equals => {
-                        if options.filter_by == FilterByOption::Email
-                            || options.filter_by == FilterByOption::Tel
-                        {
-                            // The email and tel number will store like:"\u{001E}88888\u{001E}99999\u{001E}".
-                            // For equal it means to contains "%\u{001E}{}\u{001E}%".
-                            format!("%\u{001E}{}\u{001E}%", options.filter_value)
-                        } else {
-                            options.filter_value.to_string()
+                        FilterOption::FuzzyMatch => {
+                            // Only used for tel
+                            // Matching from back to front, If the filter_value length is greater
+                            // Than MIN_MATCH_DIGITS, take the last MIN_MATCH_DIGITS length string.
+                            let filter_value = &options.filter_value;
+                            let mut slice = "".to_string();
+                            if filter_value.len() > MIN_MATCH_DIGITS {
+                                let start = filter_value.len() - MIN_MATCH_DIGITS;
+                                if let Some(value_slice) =
+                                    filter_value.get(start..filter_value.len())
+                                {
+                                    slice = value_slice.to_string()
+                                }
+                                format!("%{}\u{001E}%", slice)
+                            } else {
+                                format!("%{}\u{001E}%", filter_value)
+                            }
                         }
-                    }
-                    FilterOption::Match => "".to_string(),
-                };
+                        FilterOption::Contains => format!("%{}%", options.filter_value),
+                        FilterOption::Equals => {
+                            if *filter_by == FilterByOption::Email
+                                || *filter_by == FilterByOption::Tel
+                            {
+                                // The email and tel number will store like:"\u{001E}88888\u{001E}99999\u{001E}".
+                                // For equal it means to contains "%\u{001E}{}\u{001E}%".
+                                format!("%\u{001E}{}\u{001E}%", options.filter_value)
+                            } else {
+                                options.filter_value.to_string()
+                            }
+                        }
+                        FilterOption::Match => "".to_string(),
+                    };
 
-                debug!("find filter value is {}", value);
-                params.push(value);
+                    debug!("find filter value is {}", value);
+                    params.push(value);
+                }
 
                 let order_filed: String = options.sort_by.into();
 
-                if !order_filed.is_empty() && options.filter_by != FilterByOption::Category {
+                if !order_filed.is_empty() {
                     sql.push_str(" ORDER BY ");
                     sql.push_str(&order_filed);
                     sql.push_str(&" COLLATE NOCASE ".to_string());
@@ -1556,7 +1586,10 @@ mod test {
         db.clear_contacts().unwrap();
         assert_eq!(db.count().unwrap(), 0);
 
-        load_contacts_to_db("./test-fixtures/contacts_incorrect.json", db.db.mut_connection());
+        load_contacts_to_db(
+            "./test-fixtures/contacts_incorrect.json",
+            db.db.mut_connection(),
+        );
         assert_eq!(db.count().unwrap(), 0);
 
         let mut bob = ContactInfo::default();

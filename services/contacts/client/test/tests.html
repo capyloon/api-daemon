@@ -270,9 +270,11 @@
       );
 
       let favorite_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.DESCENDING,
         filterValue: "favorite",
         filterOption: lib_contacts.FilterOption.CONTAINS,
-        filterBy: lib_contacts.FilterByOption.CATEGORY,
+        filterBy: [lib_contacts.FilterByOption.CATEGORY],
         onlyMainData: false
       }, 20);
 
@@ -282,7 +284,7 @@
       favorite_cursor.release();
 
       await tester.assert_eq(
-        "verify find favorite contact result",
+        "verify find favorite contact desc result",
         service => {
           return new Promise((resolve, reject) => {
             let names = [];
@@ -381,6 +383,156 @@
         []
       );
 
+      // To verify search by multi fields which contain the "Cartl".
+      let multi_field_search_contacts = [
+        // The familyName and email contain Cartl.
+        // To verify this contact can be sucesfful search and occur only once.
+        // And to verify can sucessful searched by category device.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Alpha",
+          givenName: "bob",
+          familyName: "Catrl",
+          // The "device" at first position of the category.
+          category: ["device", "account"],
+          email: [{ atype: "office", value: "Catrl@mail.com", pref: false }]
+        },
+        // Only the givenName contain "Cartl".
+        // And to verify can sucessful searched by category device.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Beta",
+          familyName: "Cmkj",
+          givenName: "Catrl",
+          // The "device" at middle position of the category.
+          category: ["kai", "device", "os"],
+          email: [{ atype: "office", value: "Test@mail.com", pref: false }]
+        },
+        // Only the email contain "Cartl".
+        // And to verify can sucessful searched by category device.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "Cargo",
+          familyName: "Hualin",
+          givenName: "bob",
+          // The "device" at last position of the category.
+          category: ["os", "kai", "device"],
+          email: [{ atype: "office", value: "Catrl120@mail.com", pref: false }]
+        },
+        // No field contain "Cartl".
+        // To verify can't be searched by category device.
+        {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "ZhangSan",
+          familyName: "Ji",
+          givenName: "Ke",
+          category: ["SIM"],
+          email: [{ atype: "office", value: "JingFang@mail.com", pref: false }]
+        },
+      ];
+
+      await tester.assert_eq(
+        "add multi_field_search_contacts",
+        (service) => service.add(multi_field_search_contacts),
+        {}
+      );
+
+      let multi_field_cursor = await tester.service.getAll({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING
+      }, 10, false);
+
+      let verify_multi_feild_contact = await multi_field_cursor.next();
+
+      multi_field_cursor.release();
+
+      await tester.assert_eq(
+        "verify add multi_field_search_contacts sucessful by getAll result'",
+        service => {
+          return new Promise((resolve, reject) => {
+            let names = [];
+            verify_multi_feild_contact.forEach(function (contact) {
+              names.push(contact.name);
+            })
+            resolve(names);
+          });
+        },
+        [multi_field_search_contacts[0].name,
+        multi_field_search_contacts[1].name,
+        multi_field_search_contacts[2].name,
+        multi_field_search_contacts[3].name]
+      );
+
+      let find_catrl_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "Catrl",
+        filterOption: lib_contacts.FilterOption.CONTAINS,
+        filterBy: [lib_contacts.FilterByOption.NAME,
+        lib_contacts.FilterByOption.GIVEN_NAME,
+        lib_contacts.FilterByOption.EMAIL,
+        lib_contacts.FilterByOption.FAMILY_NAME],
+        onlyMainData: false
+      }, 20);
+
+      let find_catrl_result = await find_catrl_cursor.next();
+
+      for (let i = 0; i < find_catrl_result.length; i++) {
+        await tester.assert_eq(
+          `find with multi fields which contain Catrl asc, item #${i + 1}/3`,
+          () => Promise.resolve(find_catrl_result[i].id),
+          verify_multi_feild_contact[i].id
+        );
+      }
+
+      find_catrl_cursor.release();
+
+      // To verify can sucessful search "device" contact by category,
+      // The distraction parameter TEL, NAME will not affect the result.
+      let find_with_category_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "device",
+        filterOption: lib_contacts.FilterOption.CONTAINS,
+        filterBy: [lib_contacts.FilterByOption.CATEGORY,
+        lib_contacts.FilterByOption.TEL,
+        lib_contacts.FilterByOption.NAME],
+        onlyMainData: false
+      }, 20);
+
+      let device_contacts = await find_with_category_cursor.next();
+
+      find_with_category_cursor.release();
+      for (let i = 0; i < device_contacts.length; i++) {
+        await tester.assert_eq(
+          `find category which contain device, item #${i + 1}/${device_contacts.length}`,
+          () => Promise.resolve(device_contacts[i].id),
+          verify_multi_feild_contact[i].id
+        );
+      }
+
+      await tester.assert_eq(
+        "clear contacts db",
+        (service) => service.clearContacts(),
+        {}
+      );
+
       await tester.assert_eq(
         "import 200 contacts from vcf",
         (service) => service.importVcf(contacts_vcf),
@@ -398,7 +550,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "wil",
         filterOption: lib_contacts.FilterOption.CONTAINS,
-        filterBy: lib_contacts.FilterByOption.NAME,
+        filterBy: [lib_contacts.FilterByOption.NAME],
         onlyMainData: false
       }, 20);
 
@@ -434,7 +586,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "wil",
         filterOption: lib_contacts.FilterOption.STARTS_WITH,
-        filterBy: lib_contacts.FilterByOption.NAME,
+        filterBy: [lib_contacts.FilterByOption.NAME],
         onlyMainData: false
       }, 20);
 
@@ -468,7 +620,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "William E. Betancourt",
         filterOption: lib_contacts.FilterOption.EQUALS,
-        filterBy: lib_contacts.FilterByOption.NAME,
+        filterBy: [lib_contacts.FilterByOption.NAME],
         onlyMainData: false
       }, 20);
 
@@ -489,8 +641,8 @@
       find_equal_name_cursor.release();
 
       let contact_number_start_with_181 = [
-        // This item is used to verify the contact with mutil tels,
-        // The first tel can be sucessful serch by start with 181.
+        // This item is used to verify the contact with multi tels,
+        // The first tel can be sucessful search by start with 181.
         {
           published: new Date(),
           updated: new Date(),
@@ -501,8 +653,8 @@
           tel: [{ value: "181999999" }, { value: "0456723" }, { value: "2341456" }]
         },
 
-        // This item is used to verify the contact with mutil tels,
-        // The middle tel can be sucessful serch by start with 181.
+        // This item is used to verify the contact with multi tels,
+        // The middle tel can be sucessful search by start with 181.
         {
           published: new Date(),
           updated: new Date(),
@@ -513,8 +665,8 @@
           tel: [{ value: "123456788" }, { value: "18192507320" }, { value: "788997879" }]
         },
 
-        // This item is used to verify the contact with mutil tels,
-        // THe last tel can be sucessful serch by start with 181.
+        // This item is used to verify the contact with multi tels,
+        // THe last tel can be sucessful search by start with 181.
         {
           published: new Date(),
           updated: new Date(),
@@ -532,8 +684,8 @@
         {}
       );
 
-      // A contact tel contain 181, to verify it can't be serch by start with 181.
-      // And to verify it can be sucessful serch with contains 181.
+      // A contact tel contain 181, to verify it can't be search by start with 181.
+      // And to verify it can be sucessful search with contains 181.
       let contact_number_contain_181 = {
         published: new Date(),
         updated: new Date(),
@@ -557,7 +709,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "181",
         filterOption: lib_contacts.FilterOption.STARTS_WITH,
-        filterBy: lib_contacts.FilterByOption.TEL,
+        filterBy: [lib_contacts.FilterByOption.TEL],
         onlyMainData: false
       }, 20);
 
@@ -590,7 +742,7 @@
         sortOrder: lib_contacts.Order.DESCENDING,
         filterValue: "181",
         filterOption: lib_contacts.FilterOption.CONTAINS,
-        filterBy: lib_contacts.FilterByOption.TEL,
+        filterBy: [lib_contacts.FilterByOption.TEL],
         onlyMainData: false
       }, 20);
 
@@ -621,7 +773,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "92518107320",
         filterOption: lib_contacts.FilterOption.EQUALS,
-        filterBy: lib_contacts.FilterByOption.TEL,
+        filterBy: [lib_contacts.FilterByOption.TEL],
         onlyMainData: false
       }, 20);
 
@@ -645,8 +797,8 @@
       find_equal_92518107320_cursor.release();
 
       let contact_number_fuzzy_match = [
-        // This item is used to verify the contact with mutil tels,
-        // The first tel can be sucessful serch by fuzzy_match.
+        // This item is used to verify the contact with multi tels,
+        // The first tel can be sucessful search by fuzzy_match.
         {
           published: new Date(),
           updated: new Date(),
@@ -657,8 +809,8 @@
           tel: [{ value: "12348885555" }, { value: "0456723" }, { value: "2341456" }]
         },
 
-        // This item is used to verify the contact with mutil tels,
-        // The middle tel can be sucessful serch by fuzzy_match.
+        // This item is used to verify the contact with multi tels,
+        // The middle tel can be sucessful search by fuzzy_match.
         {
           published: new Date(),
           updated: new Date(),
@@ -669,8 +821,8 @@
           tel: [{ value: "123456788" }, { value: "4348885555" }, { value: "788997879" }]
         },
 
-        // This item is used to verify the contact with mutil tels,
-        // THe last tel can be sucessful serch by fuzzy_match.
+        // This item is used to verify the contact with multi tels,
+        // THe last tel can be sucessful search by fuzzy_match.
         {
           published: new Date(),
           updated: new Date(),
@@ -694,7 +846,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "48885555",
         filterOption: lib_contacts.FilterOption.FUZZY_MATCH,
-        filterBy: lib_contacts.FilterByOption.TEL,
+        filterBy: [lib_contacts.FilterByOption.TEL],
         onlyMainData: false
       }, 20);
 
@@ -720,8 +872,8 @@
       find_fuzzy_match_cursor.release();
 
       let contact_email_data = [
-        // This item is used to verify the contact with mutil emails,
-        // The first email can be sucessful serch by start with Tony.
+        // This item is used to verify the contact with multi emails,
+        // The first email can be sucessful search by start with Tony.
         {
           published: new Date(),
           updated: new Date(),
@@ -732,8 +884,8 @@
           email: [{ value: "Tonya@163.com" }, { value: "mbz@kaiostech.com" }, { value: "qwert@test.com" }]
         },
 
-        // This item is used to verify the contact with mutil emails,
-        // The middle email can be sucessful serch by start with Tony.
+        // This item is used to verify the contact with multi emails,
+        // The middle email can be sucessful search by start with Tony.
         {
           published: new Date(),
           updated: new Date(),
@@ -744,8 +896,8 @@
           email: [{ value: "data@163.com" }, { value: "Tonyb@kaiostech.com" }, { value: "qwert@test.com" }]
         },
 
-        // This item is used to verify the contact with mutil emails,
-        // The last email can be sucessful serch by start with Tony.
+        // This item is used to verify the contact with multi emails,
+        // The last email can be sucessful search by start with Tony.
         {
           published: new Date(),
           updated: new Date(),
@@ -756,7 +908,7 @@
           email: [{ value: "test@163.com" }, { value: "test2@kaiostech.com" }, { value: "Tonyc@test.com" }]
         },
 
-        // This item is used to verify the contact with mutil emails,
+        // This item is used to verify the contact with multi emails,
         // The abcTonyd@test.com can' be find by start with Tony, but can be find by contain Tony.
         {
           published: new Date(),
@@ -781,7 +933,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "Tony",
         filterOption: lib_contacts.FilterOption.STARTS_WITH,
-        filterBy: lib_contacts.FilterByOption.EMAIL,
+        filterBy: [lib_contacts.FilterByOption.EMAIL],
         onlyMainData: false
       }, 20);
 
@@ -811,7 +963,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "Tony",
         filterOption: lib_contacts.FilterOption.CONTAINS,
-        filterBy: lib_contacts.FilterByOption.EMAIL,
+        filterBy: [lib_contacts.FilterByOption.EMAIL],
         onlyMainData: false
       }, 20);
 
@@ -841,7 +993,7 @@
         sortOrder: lib_contacts.Order.ASCENDING,
         filterValue: "abcTonyd@kaiostech.com",
         filterOption: lib_contacts.FilterOption.EQUALS,
-        filterBy: lib_contacts.FilterByOption.EMAIL,
+        filterBy: [lib_contacts.FilterByOption.EMAIL],
         onlyMainData: false
       }, 20);
 

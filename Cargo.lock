@@ -4520,7 +4520,7 @@ dependencies = [
 [[package]]
 name = "zip_utils"
 version = "0.1.0"
-source = "git+ssh://git@git.kaiostech.com/KaiOS/zip_utils.git?branch=master#4b0649aa152006c4cd3c864c56b0ae19642422bc"
+source = "git+ssh://git@git.kaiostech.com/KaiOS/zip_utils.git#4b0649aa152006c4cd3c864c56b0ae19642422bc"
 dependencies = [
  "base64 0.12.3",
  "chrono",

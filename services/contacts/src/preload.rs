@@ -86,7 +86,7 @@ impl Default for ContactField {
         ContactField {
             atype: String::new(),
             value: String::new(),
-            pref: false
+            pref: false,
         }
     }
 }
@@ -97,7 +97,7 @@ impl Default for ContactTelField {
             atype: String::new(),
             value: String::new(),
             pref: false,
-            carrier: String::new()
+            carrier: String::new(),
         }
     }
 }
@@ -120,8 +120,9 @@ fn json_string_to_systemtime(time_str: String) -> Result<SystemTime, Error> {
     debug!("json_string_to_systemtime from time_str: {}", time_str);
 
     let date_time = NaiveDateTime::parse_from_str(&time_str, "%Y-%m-%d %H:%M:%S")?;
-    let time = UNIX_EPOCH.checked_add(Duration::from_secs(date_time.timestamp() as u64))
-                                   .ok_or_else(|| Error::Time("parse time error".into()))?;
+    let time = UNIX_EPOCH
+        .checked_add(Duration::from_secs(date_time.timestamp() as u64))
+        .ok_or_else(|| Error::Time("parse time error".into()))?;
     Ok(SystemTime::from(time))
 }
 
@@ -249,7 +250,6 @@ impl From<&JsonContactInfo> for ContactInfo {
         let mut email_array: Vec<ContactField> = Vec::new();
 
         if let Some(json_email_array) = json_contact.email.as_ref() {
-
             for json_email_item in json_email_array {
                 email_array.push(json_email_item.into());
             }
@@ -296,8 +296,10 @@ impl From<&JsonContactInfo> for ContactInfo {
     }
 }
 
-fn import_contacts_to_db(connection: &mut Connection, contacts: &[ContactInfo]) -> Result<(), Error> {
-
+fn import_contacts_to_db(
+    connection: &mut Connection,
+    contacts: &[ContactInfo],
+) -> Result<(), Error> {
     for contact_info in contacts {
         let tx = connection.transaction()?;
         let mut contact = contact_info.clone();

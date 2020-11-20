@@ -184,7 +184,7 @@ impl ContactsFactoryMethods for ContactsService {
             sort_language: "".into(),
             filter_value: number,
             filter_option: FilterOption::Equals,
-            filter_by: FilterByOption::Tel,
+            filter_by: vec![FilterByOption::Tel],
             only_main_data: true,
         };
 

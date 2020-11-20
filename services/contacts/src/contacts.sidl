@@ -153,7 +153,8 @@ dictionary ContactFindSortOptions {
 
   filterOption: FilterOption
 
-  filterBy: FilterByOption
+  // e.g. [FilterByOption::givenName, FilterByOption::email].
+  filterBy: FilterByOption+
 
   // Only return the main data of a contact or not.
   onlyMainData: bool

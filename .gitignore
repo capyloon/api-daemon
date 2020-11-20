@@ -11,4 +11,4 @@ prebuilts
 *~
 .DS_Store
 services/**/service.json
-
+daemon/contacts.sqlite*
