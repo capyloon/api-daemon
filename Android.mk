@@ -67,8 +67,6 @@ $(LOCAL_INSTALLED_MODULE):
 	@cp $(DAEMON_ROOT)/daemon/config-device.toml $(TARGET_OUT)/api-daemon/config.toml
 	@cp -R $(DAEMON_ROOT)/prebuilts/http_root $(TARGET_OUT)/api-daemon/
 	@cp $(DAEMON_ROOT)/$(API_DAEMON_EXEC) $(TARGET_OUT)/bin/
-	@cp $(DAEMON_ROOT)/vhost/cert.pem $(TARGET_OUT)/b2g/defaults/local-cert.pem
-	@cp $(DAEMON_ROOT)/vhost/key.pem $(TARGET_OUT)/b2g/defaults/local-key.pem
 	@cp $(DAEMON_ROOT)/services/devicecapability/devicecapability.json $(TARGET_OUT)/b2g/defaults/devicecapability.json
 	@cp $(LOCAL_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$(TARGET_INCLUDE)/libc++_shared.so $(TARGET_OUT)/lib$(LIBSUFFIX)
 
