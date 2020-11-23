@@ -279,4 +279,8 @@ interface ContactsFactory {
   event sim_contact_loaded -> SimContactLoadedEvent
 }
 
+// contacts:read is needed for any api access, so it's used to
+// control the overall access to the api.
+// More specific checks are added for 'write' and 'create' access modes.
+#[permission=contacts:read]
 service ContactsManager: ContactsFactory

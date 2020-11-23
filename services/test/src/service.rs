@@ -5,8 +5,8 @@ use crate::private_traits::PrivateTestTrait;
 use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
-    ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
-    SimpleObjectTracker, TrackerId,
+    CommonResponder, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
+    SharedSessionContext, SimpleObjectTracker, TrackerId,
 };
 use common::{JsonValue, SystemTime};
 use log::{error, info};

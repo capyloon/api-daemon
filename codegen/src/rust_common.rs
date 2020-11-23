@@ -305,6 +305,17 @@ impl Codegen {
                 writeln!(sink, "pub base_message: BaseMessage,")?;
                 writeln!(sink, "}}\n")?;
 
+                writeln!(sink, "impl common::traits::CommonResponder for {}Responder {{", camel_name)?;
+                sink.write_all(b"fn get_transport(&self) -> &SessionSupport {
+                    &self.transport
+                }\n")?;
+
+                sink.write_all(b"fn get_base_message(&self) -> &BaseMessage {
+                    &self.base_message
+                }\n")?;
+
+                writeln!(sink, "}}\n")?; // End of `impl CommonResponder`
+
                 writeln!(sink, "impl {}Responder {{", camel_name)?;
 
                 // Resolve with the success response.
@@ -383,14 +394,7 @@ impl Codegen {
                 writeln!(sink, ");")?;
                 writeln!(sink, "}}\n")?;
 
-                // Generate the common permission_error() function.
-                sink.write_all(b"pub fn permission_error(&self, permission: &str, message: &str) {
-                    let message = BaseMessage::permission_error(permission, message, &self.base_message);
-                    let empty: Vec<bool> = vec![];
-                    self.transport.serialize_message(&message, &empty);
-                }\n")?;
-
-                writeln!(sink, "}}\n")?;
+                writeln!(sink, "}}\n")?; // End `impl XyzResponder`
             }
 
             // Getter responder. They are simpler since getter are infallible.
@@ -669,7 +673,9 @@ use common::core::{BaseMessage, BaseMessageKind};
 #[allow(unused_imports)]
 use common::{JsonValue, SystemTime, is_event_in_map};
 #[allow(unused_imports)]
-use common::traits::{DispatcherId, SessionSupport, Shared, TrackerId};
+use common::traits::{DispatcherId, OriginAttributes, SessionSupport, Shared, TrackerId};
+#[allow(unused_imports)]
+use log::error;
 #[allow(unused_imports)]
 use std::collections::HashMap;
 #[allow(unused_imports)]

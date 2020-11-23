@@ -4,8 +4,8 @@ use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::traits::{
-    DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
-    TrackerId,
+    CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
+    SharedSessionContext, TrackerId,
 };
 use log::{error, info};
 use std::collections::HashMap;
@@ -37,31 +37,13 @@ impl SettingsManager for SettingsService {
     }
 }
 
-impl SettingsService {
-    fn has_permission(&self, perm_name: &str, reason: &str) -> bool {
-        let identity = self.origin_attributes.identity();
-        if identity == "fake-identity" || identity == "uds" {
-            // Grant all permissions when in fake-tokens mode or for uds sessions.
-            true
-        } else {
-            let has_perm = self.origin_attributes.has_permission(perm_name);
-            if !has_perm {
-                error!(
-                    "Failed to {}: {} lacks the {} permission.",
-                    reason,
-                    self.origin_attributes.identity(),
-                    perm_name
-                );
-            }
-            has_perm
-        }
-    }
-}
-
 impl SettingsFactoryMethods for SettingsService {
     fn clear(&mut self, responder: &SettingsFactoryClearResponder) {
-        if !self.has_permission("settings:write", "clear settings") {
-            responder.permission_error("settings:write", "clear settings");
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "settings:write",
+            "clear settings",
+        ) {
             return;
         }
 
@@ -72,11 +54,6 @@ impl SettingsFactoryMethods for SettingsService {
     }
 
     fn get(&mut self, responder: &SettingsFactoryGetResponder, name: String) {
-        if !self.has_permission("settings:read", "get setting") {
-            responder.permission_error("settings:read", "get settings");
-            return;
-        }
-
         let responder = responder.clone();
         let shared = self.state.clone();
         thread::spawn(move || {
@@ -100,8 +77,11 @@ impl SettingsFactoryMethods for SettingsService {
     }
 
     fn set(&mut self, responder: &SettingsFactorySetResponder, settings: Vec<SettingInfo>) {
-        if !self.has_permission("settings:write", "set setting") {
-            responder.permission_error("settings:write", "set settings");
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "settings:write",
+            "set settings",
+        ) {
             return;
         }
 
@@ -117,11 +97,6 @@ impl SettingsFactoryMethods for SettingsService {
     }
 
     fn get_batch(&mut self, responder: &SettingsFactoryGetBatchResponder, names: Vec<String>) {
-        if !self.has_permission("settings:read", "get batch of settings") {
-            responder.permission_error("settings:read", "get batch of settings");
-            return;
-        }
-
         let responder = responder.clone();
         let shared = self.state.clone();
         thread::spawn(move || {
@@ -140,11 +115,6 @@ impl SettingsFactoryMethods for SettingsService {
         observer: ObjectRef,
     ) {
         info!("Adding observer {:?}", observer);
-        if !self.has_permission("settings:read", "add setting observer") {
-            responder.permission_error("settings:read", "add setting observer");
-            return;
-        }
-
         match self.proxy_tracker.get(&observer) {
             Some(SettingsManagerProxy::SettingObserver(proxy)) => {
                 let id = self
@@ -168,11 +138,6 @@ impl SettingsFactoryMethods for SettingsService {
         name: String,
         observer: ObjectRef,
     ) {
-        if !self.has_permission("settings:read", "remove setting observer") {
-            responder.permission_error("settings:read", "remove setting observer");
-            return;
-        }
-
         if self.proxy_tracker.contains_key(&observer) {
             match self.observers.get(&observer) {
                 Some((_name, id)) => {

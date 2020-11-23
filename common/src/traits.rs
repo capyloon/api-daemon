@@ -480,3 +480,38 @@ where
         }
     }
 }
+
+pub trait CommonResponder {
+    fn get_transport(&self) -> &SessionSupport;
+    fn get_base_message(&self) -> &BaseMessage;
+
+    fn permission_error(&self, permission: &str, message: &str) {
+        let message = BaseMessage::permission_error(permission, message, self.get_base_message());
+        let empty: Vec<bool> = vec![];
+        self.get_transport().serialize_message(&message, &empty);
+    }
+
+    fn maybe_send_permission_error(
+        &self,
+        origin_attributes: &OriginAttributes,
+        permission: &str,
+        message: &str,
+    ) -> bool {
+        let identity = origin_attributes.identity();
+        if identity == "fake-identity" || identity == "uds" {
+            // All permissions are granted in fake-tokens mode or for uds sessions, so
+            // no permission error will ever be sent.
+            false
+        } else {
+            let no_permission = !origin_attributes.has_permission(permission);
+            if no_permission {
+                error!(
+                    "Failed to {}: {} lacks the {} permission.",
+                    message, identity, permission
+                );
+                self.permission_error(permission, message);
+            }
+            no_permission
+        }
+    }
+}

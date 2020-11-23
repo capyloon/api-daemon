@@ -5,8 +5,8 @@ use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
-    DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, SimpleObjectTracker, TrackerId,
+    CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
+    Shared, SharedSessionContext, SimpleObjectTracker, TrackerId,
 };
 use log::{debug, error, info};
 use std::rc::Rc;
@@ -56,6 +56,7 @@ pub struct ContactsService {
     state: Shared<ContactsSharedData>,
     dispatcher_id: DispatcherId,
     tracker: ContactsManagerTrackerType,
+    origin_attributes: OriginAttributes,
 }
 
 impl ContactsManager for ContactsService {
@@ -66,6 +67,14 @@ impl ContactsManager for ContactsService {
 
 impl ContactsFactoryMethods for ContactsService {
     fn clear_contacts(&mut self, responder: &ContactsFactoryClearContactsResponder) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "clear contacts",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.clear_contacts() {
             Ok(()) => responder.resolve(),
             Err(err) => {
@@ -91,6 +100,14 @@ impl ContactsFactoryMethods for ContactsService {
     }
 
     fn add(&mut self, responder: &ContactsFactoryAddResponder, contacts: Vec<ContactInfo>) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:create",
+            "add contacts",
+        ) {
+            return;
+        }
+
         let responder = responder.clone();
         let shared = self.state.clone();
         thread::spawn(move || {
@@ -106,6 +123,14 @@ impl ContactsFactoryMethods for ContactsService {
     }
 
     fn update(&mut self, responder: &ContactsFactoryUpdateResponder, contacts: Vec<ContactInfo>) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "update contacts",
+        ) {
+            return;
+        }
+
         let responder = responder.clone();
         let shared = self.state.clone();
         thread::spawn(move || {
@@ -122,6 +147,14 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn remove(&mut self, responder: &ContactsFactoryRemoveResponder, contact_ids: Vec<String>) {
         debug!("remove contacts");
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "remove contacts",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.remove(&contact_ids) {
             Ok(()) => {
                 debug!("remove Ok");
@@ -204,24 +237,40 @@ impl ContactsFactoryMethods for ContactsService {
         contact_id: String,
         position: i64,
     ) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "set ice",
+        ) {
+            return;
+        }
+
         if position <= 0 {
-            info!("set_ice with invalid position:{}, reject", position);
+            debug!("set_ice with invalid position:{}, reject", position);
             return responder.reject();
         }
         match self.state.lock().db.set_ice(&contact_id, position) {
             Ok(()) => responder.resolve(),
             Err(err) => {
-                info!("set_ice error:{}", err);
+                debug!("set_ice error:{}", err);
                 responder.reject()
             }
         }
     }
 
     fn remove_ice(&mut self, responder: &ContactsFactoryRemoveIceResponder, contact_id: String) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "remove ice",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.remove_ice(&contact_id) {
             Ok(()) => responder.resolve(),
             Err(err) => {
-                info!("remove_ice error:{}", err);
+                debug!("remove_ice error:{}", err);
                 responder.reject()
             }
         }
@@ -230,11 +279,11 @@ impl ContactsFactoryMethods for ContactsService {
     fn get_all_ice(&mut self, responder: &ContactsFactoryGetAllIceResponder) {
         match self.state.lock().db.get_all_ice() {
             Ok(value) => {
-                info!("get_all_ice Ok {:#?}", value);
+                debug!("get_all_ice Ok {:#?}", value);
                 responder.resolve(Some(value))
             }
             Err(err) => {
-                info!("get_all_ice error: {}", err);
+                debug!("get_all_ice error: {}", err);
                 responder.reject();
             }
         }
@@ -253,7 +302,14 @@ impl ContactsFactoryMethods for ContactsService {
     }
 
     fn import_vcf(&mut self, responder: &ContactsFactoryImportVcfResponder, vcf: String) {
-        info!("import_vcf {}", vcf.len());
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:create",
+            "import contacts from vcf",
+        ) {
+            return;
+        }
+
         let responder = responder.clone();
         let shared = self.state.clone();
         thread::spawn(move || {
@@ -274,6 +330,14 @@ impl ContactsFactoryMethods for ContactsService {
         number: String,
     ) {
         debug!("add_blocked_number, number:{}", number);
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "add blocked number",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.add_blocked_number(&number) {
             Ok(()) => {
                 debug!("add_blocked_number Ok");
@@ -292,6 +356,14 @@ impl ContactsFactoryMethods for ContactsService {
         number: String,
     ) {
         debug!("remove_blocked_number, number:{}", number);
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "remove blocked number",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.remove_blocked_number(&number) {
             Ok(()) => {
                 debug!("remove_blocked_number Ok");
@@ -340,14 +412,14 @@ impl ContactsFactoryMethods for ContactsService {
     }
 
     fn get_speed_dials(&mut self, responder: &ContactsFactoryGetSpeedDialsResponder) {
-        info!("get_speed_dials");
+        debug!("get_speed_dials");
         match self.state.lock().db.get_speed_dials() {
             Ok(vec) => {
-                info!("get_speed_dials Ok");
+                debug!("get_speed_dials Ok");
                 responder.resolve(Some(vec))
             }
             Err(err) => {
-                info!("get_speed_dials Err:{}", err);
+                debug!("get_speed_dials Err:{}", err);
                 responder.reject()
             }
         }
@@ -360,10 +432,18 @@ impl ContactsFactoryMethods for ContactsService {
         tel: String,
         contact_id: String,
     ) {
-        info!(
+        debug!(
             "add_speed_dial, dial_key:{}, tel:{}, contact_id:{}",
             dial_key, tel, contact_id
         );
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "add speed dial",
+        ) {
+            return;
+        }
+
         match self
             .state
             .lock()
@@ -371,11 +451,11 @@ impl ContactsFactoryMethods for ContactsService {
             .add_speed_dial(&dial_key, &tel, &contact_id)
         {
             Ok(()) => {
-                info!("add_speed_dial Ok");
+                debug!("add_speed_dial Ok");
                 responder.resolve()
             }
             Err(err) => {
-                info!("add_speed_dial Err:{}", err);
+                debug!("add_speed_dial Err:{}", err);
                 responder.reject()
             }
         }
@@ -388,10 +468,18 @@ impl ContactsFactoryMethods for ContactsService {
         tel: String,
         contact_id: String,
     ) {
-        info!(
+        debug!(
             "update_speed_dial, dial_key:{}, tel:{}, contact_id:{}",
             dial_key, tel, contact_id
         );
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "update speed dial",
+        ) {
+            return;
+        }
+
         match self
             .state
             .lock()
@@ -399,11 +487,11 @@ impl ContactsFactoryMethods for ContactsService {
             .update_speed_dial(&dial_key, &tel, &contact_id)
         {
             Ok(()) => {
-                info!("update_speed_dial Ok");
+                debug!("update_speed_dial Ok");
                 responder.resolve()
             }
             Err(err) => {
-                info!("update_speed_dial Err:{}", err);
+                debug!("update_speed_dial Err:{}", err);
                 responder.reject()
             }
         }
@@ -414,41 +502,65 @@ impl ContactsFactoryMethods for ContactsService {
         responder: &ContactsFactoryRemoveSpeedDialResponder,
         dial_key: String,
     ) {
-        info!("remove_speed_dial, dial_key:{}", dial_key);
+        debug!("remove_speed_dial, dial_key:{}", dial_key);
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "remove speed dial",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.remove_speed_dial(&dial_key) {
             Ok(()) => {
-                info!("remove_speed_dial Ok");
+                debug!("remove_speed_dial Ok");
                 responder.resolve()
             }
             Err(err) => {
-                info!("remove_speed_dial Err:{}", err);
+                debug!("remove_speed_dial Err:{}", err);
                 responder.reject()
             }
         }
     }
 
     fn remove_group(&mut self, responder: &ContactsFactoryRemoveGroupResponder, id: String) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "remove group",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.remove_group(&id) {
             Ok(()) => {
-                info!("remove_group Ok");
+                debug!("remove_group Ok");
                 responder.resolve()
             }
             Err(err) => {
-                info!("remove_group Err:{}", err);
+                debug!("remove_group Err:{}", err);
                 responder.reject()
             }
         }
     }
 
     fn add_group(&mut self, responder: &ContactsFactoryAddGroupResponder, name: String) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "add group",
+        ) {
+            return;
+        }
+
         debug!("add_group called ,name {}", name);
         match self.state.lock().db.add_group(&name) {
             Ok(()) => {
-                info!("add_group Ok");
+                debug!("add_group Ok");
                 responder.resolve()
             }
             Err(err) => {
-                info!("add_group Err:{}", err);
+                debug!("add_group Err:{}", err);
                 responder.reject()
             }
         }
@@ -460,13 +572,21 @@ impl ContactsFactoryMethods for ContactsService {
         id: String,
         name: String,
     ) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "contacts:write",
+            "update group",
+        ) {
+            return;
+        }
+
         match self.state.lock().db.update_group(&id, &name) {
             Ok(()) => {
-                info!("update_group Ok");
+                debug!("update_group Ok");
                 responder.resolve()
             }
             Err(err) => {
-                info!("update_group Err:{}", err);
+                debug!("update_group Err:{}", err);
                 responder.reject()
             }
         }
@@ -479,11 +599,11 @@ impl ContactsFactoryMethods for ContactsService {
     ) {
         match self.state.lock().db.get_contactids_from_group(&group_id) {
             Ok(value) => {
-                info!("get_contactids_from_group Ok");
+                debug!("get_contactids_from_group Ok");
                 responder.resolve(Some(value))
             }
             Err(err) => {
-                info!("get_contactids_from_group error: {}", err);
+                debug!("get_contactids_from_group error: {}", err);
                 responder.reject()
             }
         }
@@ -492,11 +612,11 @@ impl ContactsFactoryMethods for ContactsService {
     fn get_all_groups(&mut self, responder: &ContactsFactoryGetAllGroupsResponder) {
         match self.state.lock().db.get_all_groups() {
             Ok(value) => {
-                info!("get_all_groups Ok");
+                debug!("get_all_groups Ok");
                 responder.resolve(Some(value))
             }
             Err(err) => {
-                info!("get_all_groups error: {}", err);
+                debug!("get_all_groups error: {}", err);
                 responder.reject();
             }
         }
@@ -513,7 +633,7 @@ impl Service<ContactsService> for ContactsService {
     }
 
     fn create(
-        _attrs: &OriginAttributes,
+        attrs: &OriginAttributes,
         _context: SharedSessionContext,
         state: Shared<Self::State>,
         helper: SessionSupport,
@@ -527,6 +647,7 @@ impl Service<ContactsService> for ContactsService {
             state,
             dispatcher_id,
             tracker: ObjectTracker::default(),
+            origin_attributes: attrs.clone(),
         })
     }
 
@@ -546,14 +667,14 @@ impl Service<ContactsService> for ContactsService {
     }
 
     fn release_object(&mut self, object_id: u32) -> bool {
-        info!("releasing object {}", object_id);
+        debug!("releasing object {}", object_id);
         self.tracker.untrack(object_id)
     }
 }
 
 impl Drop for ContactsService {
     fn drop(&mut self) {
-        info!("Dropping Contacts Service #{}", self.id);
+        debug!("Dropping Contacts Service #{}", self.id);
         let db = &mut self.state.lock().db;
         db.remove_dispatcher(self.dispatcher_id);
         self.tracker.clear();
