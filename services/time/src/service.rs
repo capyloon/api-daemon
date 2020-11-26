@@ -2,6 +2,7 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::time_manager::*;
+use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
 use common::traits::{
     DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
@@ -63,17 +64,30 @@ impl SharedObj {
         }
     }
 
-    pub fn broadcast(&mut self, reason: CallbackReason) {
-        if let Some(observers) = self.observers.get_mut(&reason) {
-            for observer in observers {
-                observer.0.callback(reason);
+    pub fn broadcast(&mut self, rn: CallbackReason, tz: String, time_delta: i64) {
+        let mut info = TimeInfo {
+            reason: rn,
+            timezone: tz,
+            delta: time_delta,
+        };
+
+        if info.timezone == "" {
+            // caller doesn't specify timezone, get local timezone setting
+            if let Ok(tz) = AndroidProperties::get("persist.sys.timezone", "") {
+                info.timezone = tz;
             }
         }
 
-        match reason {
+        if let Some(observers) = self.observers.get_mut(&info.reason) {
+            for observer in observers {
+                observer.0.callback(info.clone());
+            }
+        }
+
+        match info.reason {
             CallbackReason::TimeChanged => self.event_broadcaster.broadcast_time_changed(),
             CallbackReason::TimezoneChanged => self.event_broadcaster.broadcast_timezone_changed(),
-            CallbackReason::None => error!("unexpected callback reason {:?}", reason),
+            CallbackReason::None => error!("unexpected callback reason {:?}", info.reason),
         }
     }
 }
@@ -100,11 +114,12 @@ impl DbObserver for SettingObserver {
             return;
         }
 
-        match TimeManager::set_timezone(value.as_str().unwrap().to_string()) {
+        let timezone = value.as_str().unwrap().to_string();
+        match TimeManager::set_timezone(timezone.clone()) {
             Ok(_) => {
                 let shared = Time::shared_state();
                 let mut shared_lock = shared.lock();
-                shared_lock.broadcast(CallbackReason::TimezoneChanged);
+                shared_lock.broadcast(CallbackReason::TimezoneChanged, timezone, 0);
             }
             Err(e) => error!("set timezone failed: {:?}", e),
         }
@@ -135,13 +150,29 @@ impl TimeMethods for Time {
                 .duration_since(StdTime::UNIX_EPOCH)
                 .unwrap_or_else(|_| std::time::Duration::from_millis(0))
                 .as_millis();
+
+            // get time difference
+            let mut time_delta = 0;
+            match TimeManager::get_system_clock() {
+                Ok(cur) => {
+                    time_delta = cur - (since_epoch as i64);
+                }
+                Err(e) => {
+                    error!("get time failed {:?}", e);
+                }
+            }
+
             match TimeManager::set_system_clock(since_epoch as i64) {
                 Ok(success) => {
                     if success {
                         let shared_obj = Time::shared_state();
                         let mut shared_lock = shared_obj.lock();
                         info!("broadcast time changed event ");
-                        shared_lock.broadcast(CallbackReason::TimeChanged);
+                        shared_lock.broadcast(
+                            CallbackReason::TimeChanged,
+                            "".to_string(),
+                            time_delta,
+                        );
                         responder.resolve();
                     } else {
                         responder.reject();
@@ -172,11 +203,11 @@ impl TimeMethods for Time {
 
     fn set_timezone(&mut self, responder: &TimeSetTimezoneResponder, timezone: String) {
         info!("set time zone {:?}", timezone);
-        match TimeManager::set_timezone(timezone) {
+        match TimeManager::set_timezone(timezone.clone()) {
             Ok(_) => {
                 let mut shared_lock = self.shared_obj.lock();
                 info!("broadcast timezone changed event");
-                shared_lock.broadcast(CallbackReason::TimezoneChanged);
+                shared_lock.broadcast(CallbackReason::TimezoneChanged, timezone, 0);
                 responder.resolve();
             }
             Err(e) => {

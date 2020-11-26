@@ -44,11 +44,11 @@
             return "Time observer";
           }
 
-          callback(reason) {
-            console.log(`MyObserver::callback` + JSON.stringify(reason));
-            if (reason.reason == lib_time.CallbackReason.TIME_CHANGED) {
+          callback(timeInfo) {
+            console.log(`MyObserver::callback` + JSON.stringify(timeInfo.reason));
+            if (timeInfo.reason == lib_time.CallbackReason.TIME_CHANGED) {
               this.timechangedTimes++;
-            } else if (reason.reason == lib_time.CallbackReason.TIMEZONE_CHANGED) {
+            } else if (timeInfo.reason == lib_time.CallbackReason.TIMEZONE_CHANGED) {
               this.timezonechangedTimes++;
             }
 

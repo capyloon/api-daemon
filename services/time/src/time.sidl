@@ -6,8 +6,14 @@ enum CallbackReason {
   timezoneChanged
 }
 
+dictionary TimeInfo {
+  reason: CallbackReason
+  timezone: str
+  delta: int
+}
+
 callback TimeObserver {
-  fn callback(reason: CallbackReason)
+  fn callback(info: TimeInfo)
 }
 
 #[rust:not-tracked]

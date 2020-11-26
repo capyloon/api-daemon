@@ -115,7 +115,7 @@ impl TimeManager {
 }
 
 // TimeInfo struct implementation
-pub struct TimeInfo {
+struct TimeInfo {
     elapsed_time: f64,
     #[allow(dead_code)]
     idle_time: f64,
