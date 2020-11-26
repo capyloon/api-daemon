@@ -95,6 +95,7 @@ dictionary SimContactInfo {
   tel: str
   email: str
   name: str
+  category: str
 }
 
 interface ContactCursor {

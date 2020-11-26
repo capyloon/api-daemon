@@ -218,6 +218,7 @@ impl Hash for SimContactInfo {
         self.tel.hash(state);
         self.name.hash(state);
         self.email.hash(state);
+        self.category.hash(state);
     }
 }
 
@@ -259,7 +260,12 @@ impl From<&SimContactInfo> for ContactInfo {
             .collect();
         contact.email = Some(emails);
 
-        contact.category = Some(vec!["SIM".to_owned()]);
+        let categories = sim_contact_info
+            .category
+            .split('\u{001E}')
+            .map(|x| (*x).to_string())
+            .collect();
+        contact.category = Some(categories);
 
         contact.published = SystemTime::from(std::time::SystemTime::now());
         contact.updated = SystemTime::from(std::time::SystemTime::now());
@@ -1612,6 +1618,7 @@ mod test {
             tel: "13682628272\u{001E}18812345678\u{001E}19922223333".to_string(),
             email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
             name: "Ted".to_string(),
+            category: "KAICONTACT\u{001E}SIM0".to_string(),
         };
 
         let sim_contact_2 = SimContactInfo {
@@ -1619,6 +1626,7 @@ mod test {
             tel: "15912345678\u{001E}18923456789".to_string(),
             email: "test1@kaiostech.com\u{001E}231678456@qq.com".to_string(),
             name: "Bob".to_string(),
+            category: "KAICONTACT\u{001E}SIM0".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1, sim_contact_2])
@@ -1645,6 +1653,7 @@ mod test {
             tel: "13682628272\u{001E}18812345678\u{001E}19922223333".to_string(),
             email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
             name: "Jack".to_string(),
+            category: "KAICONTACT\u{001E}SIM0".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1_name_change])
@@ -1681,6 +1690,7 @@ mod test {
             tel: "15229099710".to_string(),
             email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
             name: "Jack".to_string(),
+            category: "KAICONTACT\u{001E}SIM0".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1_tel_change]).unwrap();
@@ -1696,6 +1706,7 @@ mod test {
             tel: "15229099710".to_string(),
             email: "zx@163.com".to_string(),
             name: "Jack".to_string(),
+            category: "KAICONTACT\u{001E}SIM0".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1_email_change])
@@ -1712,24 +1723,28 @@ mod test {
                 tel: "181".to_string(),
                 email: "test@kaios.com".to_string(),
                 name: "Are".to_string(),
+                category: "KAICONTACT\u{001E}SIM0".to_string(),
             },
             SimContactInfo {
                 id: "0002".to_string(),
                 tel: "182".to_string(),
                 email: "mbz@gmail.com".to_string(),
                 name: "Bbc".to_string(),
+                category: "KAICONTACT\u{001E}SIM0".to_string(),
             },
             SimContactInfo {
                 id: "0003".to_string(),
                 tel: "183".to_string(),
                 email: "zx@kaiostech.com".to_string(),
                 name: "David".to_string(),
+                category: "KAICONTACT\u{001E}SIM0".to_string(),
             },
             SimContactInfo {
                 id: "0004".to_string(),
                 tel: "15229099710".to_string(),
                 email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
                 name: "Zhang".to_string(),
+                category: "KAICONTACT\u{001E}SIM0".to_string(),
             },
         ];
 

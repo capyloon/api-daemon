@@ -211,6 +211,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
                         tel: x.tel.to_string(),
                         email: x.email.to_string(),
                         name: x.name.to_string(),
+                        category: x.category.to_string(),
                     })
                     .collect();
                 sim_contact_info
