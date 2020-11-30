@@ -45,7 +45,8 @@ impl AppsStorage {
                 stat.blocks_free(),
                 stat.blocks_available()
             );
-            return stat.block_size() * stat.blocks_available();
+            #[allow(clippy::useless_conversion)]
+            return (stat.block_size() * stat.blocks_available()).into();
         }
         0
     }
