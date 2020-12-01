@@ -16,10 +16,22 @@
     <script>
       async function run_tests() {
         let session = new lib_session.Session();
-        let tester = await test_service(lib_test.TestService, "test-client", session);
+        let tester = await test_service(
+          lib_test.TestService,
+          "test-client",
+          session
+        );
 
-        await tester.assert_eq("has_service_true", () => session.has_service("TestService"), true);
-        await tester.assert_eq("has_service_false", () => session.has_service("NoSuchService"), false);
+        await tester.assert_eq(
+          "has_service_true",
+          () => session.has_service("TestService"),
+          true
+        );
+        await tester.assert_eq(
+          "has_service_false",
+          () => session.has_service("NoSuchService"),
+          false
+        );
 
         let timeout_handler = tester.setup_event(tester.service.TIMEOUT_EVENT);
 
@@ -193,7 +205,14 @@
 
         await tester.assert_eq(
           "echo one or more arg",
-          (service) => service.echoArgOneOrMore([42, 32, 0x1234567890, 0x80000000, -0x80000000]),
+          (service) =>
+            service.echoArgOneOrMore([
+              42,
+              32,
+              0x1234567890,
+              0x80000000,
+              -0x80000000,
+            ]),
           [42, 32, 0x1234567890, 0x80000000, -0x80000000]
         );
 
@@ -289,6 +308,23 @@
             message: "The missing_permission() function needs a permission!",
           }
         );
+
+        const dates = [
+          new Date(),
+          new Date(2040, 11, 17),
+          new Date(0),
+          new Date(1910, 10, 11),
+          new Date(523, 05, 30),
+        ];
+
+        for (let i = 0; i < dates.length; i++) {
+          await tester.assert_eq(
+            `Date echo #${i}: ${dates[i].getTime()} - ${dates[i]}`,
+            (service) => service.echoDate(dates[i]),
+            dates[i].getTime(),
+            (result) => result.getTime()
+          );
+        }
 
         let reporter = new TestReporter([tester]);
         reporter.output();

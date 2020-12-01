@@ -125,6 +125,8 @@ interface TestFactory {
 
 	// This call will fail because of a missing permission check.
 	fn missing_permission()
+
+	fn echo_date(input: date) -> date
 }
 
 #[rust:use=crate::private_traits::*,rust:shared-tracker]

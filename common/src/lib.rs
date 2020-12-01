@@ -5,6 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value as SerdeValue;
 use std::fmt;
 use std::ops::Deref;
+use std::time::UNIX_EPOCH;
 use traits::{EventMapKey, SharedEventMap};
 
 pub mod build_helper;
@@ -118,13 +119,13 @@ impl<'de> Deserialize<'de> for SystemTime {
     {
         struct TimeVisitor;
         impl<'de> Visitor<'de> for TimeVisitor {
-            type Value = u64;
+            type Value = i64;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                write!(formatter, "u64: time in ms since eopch")
+                write!(formatter, "i64: time in ms since epoch")
             }
 
-            fn visit_u64<E>(self, val: u64) -> Result<Self::Value, E>
+            fn visit_i64<E>(self, val: i64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
@@ -132,13 +133,17 @@ impl<'de> Deserialize<'de> for SystemTime {
             }
         }
 
-        let val = deserializer.deserialize_u64(TimeVisitor)?;
-        log::debug!("Got Date as u64={}", val);
-        let time = std::time::UNIX_EPOCH;
-        Ok(SystemTime(
-            time.checked_add(std::time::Duration::from_millis(val))
-                .unwrap(),
-        ))
+        let milliseconds = deserializer.deserialize_i64(TimeVisitor)?;
+        let system_time = if milliseconds >= 0 {
+            UNIX_EPOCH
+                .checked_add(std::time::Duration::from_millis(milliseconds as _))
+                .unwrap_or(UNIX_EPOCH)
+        } else {
+            UNIX_EPOCH
+                .checked_sub(std::time::Duration::from_millis(-milliseconds as _))
+                .unwrap_or(UNIX_EPOCH)
+        };
+        Ok(SystemTime(system_time))
     }
 }
 
@@ -147,10 +152,10 @@ impl Serialize for SystemTime {
     where
         S: Serializer,
     {
-        if let Ok(from_epoch) = self.0.duration_since(std::time::UNIX_EPOCH) {
-            serializer.serialize_u64(from_epoch.as_millis() as _)
-        } else {
-            serializer.serialize_u64(0)
+        match self.0.duration_since(UNIX_EPOCH) {
+            Ok(from_epoch) => serializer.serialize_i64(from_epoch.as_millis() as _),
+            // In the error case, we get the number of milliseconds as the error duration.
+            Err(err) => serializer.serialize_i64(-(err.duration().as_millis() as i64)),
         }
     }
 }

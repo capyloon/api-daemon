@@ -193,10 +193,10 @@ export class Decoder {
         return this.varint();
     }
 
-    // Read a Date as a u64 milliseconds since epoch
+    // Read a Date as a i64 milliseconds since epoch
     date() {
         let date = new Date();
-        date.setTime(this.u64());
+        date.setTime(this.i64());
         return date;
     }
 }
@@ -346,9 +346,9 @@ export class Encoder {
         return this;
     }
 
-    // Write a Date as u64 milliseconds since epoch.
+    // Write a Date as i64 milliseconds since epoch.
     date(val) {
-        this.u64(val.getTime());
+        this.i64(val.getTime());
         return this;
     }
 

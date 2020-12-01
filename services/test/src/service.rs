@@ -473,6 +473,10 @@ impl TestFactoryMethods for TestServiceImpl {
             "The missing_permission() function needs a permission!",
         );
     }
+
+    fn echo_date(&mut self, responder: &TestFactoryEchoDateResponder, input: SystemTime) {
+        responder.resolve(input);
+    }
 }
 
 impl TestServiceImpl {
