@@ -115,6 +115,10 @@
         "default": true,
         "method": "preference"
     },
+    "device.wifi.certified": {
+        "default": true,
+        "method": "preference"
+    },
     "ril.support.primarysim.switch": {
         "default": false,
         "method": "preference"
