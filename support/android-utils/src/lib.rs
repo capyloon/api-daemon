@@ -5,7 +5,7 @@ mod system;
 
 pub use system::{
     adjust_process_oom_score, kill_process, set_ext_screen_brightness, total_memory,
-    update_cpu_sleep_state, SystemState,
+    SystemState,
 };
 
 use thiserror::Error;

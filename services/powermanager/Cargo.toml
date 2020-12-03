@@ -14,6 +14,7 @@ light = { path = "../../support/light" }
 log = "0.4"
 parking_lot = "0.11"
 recovery = { path = "../../support/recovery" }
+power = { path = "../../support/power"}
 serde = "1.0"
 
 [build-dependencies]

@@ -236,16 +236,6 @@ fn write_sys_file(file_name: &str, data: &str) -> bool {
     false
 }
 
-pub fn update_cpu_sleep_state(allow: bool) {
-    let file = if allow {
-        "/sys/power/wake_unlock"
-    } else {
-        "/sys/power/wake_lock"
-    };
-
-    write_sys_file(file, "api-daemon");
-}
-
 pub fn set_ext_screen_brightness(brightness: u32) -> bool {
     let control_path = AndroidProperties::get("screen.secondary.brightness", CONTROL_PATH)
         .unwrap_or_else(|_| CONTROL_PATH.into());

@@ -6,6 +6,7 @@ use common::core::BaseMessage;
 use common::traits::{OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext};
 use geckobridge::service::*;
 use log::{debug, error};
+use power::AndroidPower;
 use recovery::AndroidRecovery;
 use std::{thread, time};
 
@@ -31,6 +32,11 @@ const TYPE_BUTTONS: i32 = 2;
 // const TYPE_ATTENTION: i32 = 5;
 // const TYPE_BLUETOOTH: i32 = 6;
 // const TYPE_WIFI: i32 = 7;
+
+// The cpu stays on, but the screen is off.
+const PARTIAL_WAKE_LOCK: i32 = 1;
+// The cpu and screen are on.
+// const FULL_WAKE_LOCK: i32 = 2;
 
 const SERVICE: &str = "default";
 
@@ -125,7 +131,18 @@ impl PowermanagerMethods for PowerManager {
             let mut shared = self.shared_obj.lock();
             shared.cpu_allowed = value;
         }
-        android_utils::update_cpu_sleep_state(value);
+
+        if value {
+            AndroidPower::release_wake_lock("api-daemon").map_or_else(
+                |err: String| error!("{}", err),
+                |_| debug!("Release wake lock successfully"),
+            );
+        } else {
+            AndroidPower::acquire_wake_lock(PARTIAL_WAKE_LOCK, "api-daemon").map_or_else(
+                |err: String| error!("{}", err),
+                |_| debug!("Acquire wake lock successfully"),
+            );
+        }
     }
 
     fn get_ext_screen_brightness(

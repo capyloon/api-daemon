@@ -2689,6 +2689,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "power"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log 0.4.11",
+]
+
+[[package]]
 name = "powermanager_service"
 version = "0.1.0"
 dependencies = [
@@ -2700,6 +2708,7 @@ dependencies = [
  "light",
  "log 0.4.11",
  "parking_lot 0.11.1",
+ "power",
  "recovery",
  "serde",
 ]

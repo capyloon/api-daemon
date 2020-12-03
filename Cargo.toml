@@ -22,6 +22,7 @@ members = [
   "support/hidl-utils/",
   "support/libsignal-sys/",
   "support/light/",
+  "support/power",
   "support/sqlite-utils",
   "tests/driver",
   "vhost/",
