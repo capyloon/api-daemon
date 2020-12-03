@@ -145,8 +145,14 @@ pub fn read_config(config_path: &str) -> serde_json::Value {
 
 impl Default for DeviceCapabilityConfig {
     fn default() -> Self {
+        let config_path = match std::env::var("DEVICE_CAPABILITY_CONFIG") {
+            Ok(val) => val,
+            Err(_) => DEFAULT_CONFIG.to_string(),
+        };
+
+        info!("import from {}", config_path);
         Self {
-            json_value: read_config(DEFAULT_CONFIG),
+            json_value: read_config(&config_path),
         }
     }
 }
