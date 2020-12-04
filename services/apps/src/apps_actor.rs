@@ -307,6 +307,11 @@ pub fn install_package(
     }
     apps_item.set_update_url(&update_url);
     apps_item.set_install_state(AppsInstallState::Installing);
+    shared
+        .registry
+        .event_broadcaster
+        .broadcast_app_installing(AppsObject::from(&apps_item));
+
     let _ = shared
         .registry
         .apply_download(&mut apps_item, &download_dir, &manifest, &path, is_update)
