@@ -228,6 +228,39 @@ fn hash<T: Hash>(t: &T) -> u64 {
     s.finish()
 }
 
+impl From<&ContactInfo> for SimContactInfo {
+    fn from(contact_info: &ContactInfo) -> Self {
+        let tel_string = match &contact_info.tel {
+            Some(tel) => {
+                let tels: Vec<String> = tel.iter().map(|x| x.value.clone()).collect();
+                tels.join("\u{001E}")
+            }
+            None => "".to_string(),
+        };
+
+        let email_string = match &contact_info.email {
+            Some(email) => {
+                let emails: Vec<String> = email.iter().map(|x| x.value.clone()).collect();
+                emails.join("\u{001E}")
+            }
+            None => "".to_string(),
+        };
+
+        let category_string = match &contact_info.category {
+            Some(category) => category.join("\u{001E}"),
+            None => "".to_string(),
+        };
+
+        SimContactInfo {
+            id: contact_info.id.clone(),
+            name: contact_info.name.clone(),
+            email: email_string,
+            tel: tel_string,
+            category: category_string,
+        }
+    }
+}
+
 impl From<&SimContactInfo> for ContactInfo {
     fn from(sim_contact_info: &SimContactInfo) -> Self {
         let mut contact = ContactInfo::default();
@@ -515,6 +548,22 @@ impl ContactInfo {
             &category,
             &category_json,
         ])?;
+
+        // Update sim_contact_hash if it is a sim contact.
+        // Update after insert contact_main due to foreign key constraint.
+        if let Some(categories) = &self.category {
+            if categories.contains(&"SIM".to_string()) {
+                // Add or Update sim contact all need to update hash.
+                // So delete first and then insert.
+                tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&self.id])?;
+                let sim_info: SimContactInfo = self.into();
+                tx.execute(
+                    "INSERT INTO sim_contact_hash (id, hash) VALUES(?, ?)",
+                    &[&self.id, &hash(&sim_info).to_string()],
+                )?;
+            }
+        }
+
         Ok(())
     }
 
@@ -1479,28 +1528,6 @@ impl ContactsDb {
         rows_to_vec(rows)
     }
 
-    pub fn update_sim_contacts_hash(
-        &mut self,
-        sim_contacts: &[SimContactInfo],
-    ) -> Result<(), Error> {
-        let conn = self.db.mut_connection();
-        let tx = conn.transaction()?;
-        {
-            for contact_info in sim_contacts {
-                tx.execute(
-                    "DELETE FROM sim_contact_hash WHERE id = ?",
-                    &[&contact_info.id],
-                )?;
-                tx.execute(
-                    "INSERT INTO sim_contact_hash (id, hash) VALUES(?, ?)",
-                    &[&contact_info.id, &hash(contact_info).to_string()],
-                )?;
-            }
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
     pub fn import_sim_contacts(&mut self, sim_contacts: &[SimContactInfo]) -> Result<(), Error> {
         debug!("ContactsDb::import_sim_contacts");
         let mut updated_contacts = vec![];
@@ -1551,7 +1578,6 @@ impl ContactsDb {
         let contacts_info: Vec<ContactInfo> =
             updated_contacts.iter().map(|item| item.into()).collect();
         self.save(&contacts_info, true)?;
-        self.update_sim_contacts_hash(&updated_contacts)?;
         let event = SimContactLoadedEvent {
             remove_count: removed_ids.len() as i64,
             update_count: updated_contacts.len() as i64,
@@ -1587,15 +1613,27 @@ mod test {
         db.clear_contacts().unwrap();
         assert_eq!(db.count().unwrap(), 0);
 
-        load_contacts_to_db("./test-fixtures/contacts.json", db.db.mut_connection());
+        if let Err(error) =
+            load_contacts_to_db("./test-fixtures/contacts.json", db.db.mut_connection())
+        {
+            debug!(
+                "load_contacts_to_db ./test-fixtures/contacts.json error {}",
+                error
+            );
+        }
         assert_eq!(db.count().unwrap(), 2);
         db.clear_contacts().unwrap();
         assert_eq!(db.count().unwrap(), 0);
 
-        load_contacts_to_db(
+        if let Err(error) = load_contacts_to_db(
             "./test-fixtures/contacts_incorrect.json",
             db.db.mut_connection(),
-        );
+        ) {
+            debug!(
+                "load_contacts_to_db ./test-fixtures/contacts_incorrect.json error {}",
+                error
+            );
+        }
         assert_eq!(db.count().unwrap(), 0);
 
         let mut bob = ContactInfo::default();
@@ -1618,7 +1656,7 @@ mod test {
             tel: "13682628272\u{001E}18812345678\u{001E}19922223333".to_string(),
             email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
             name: "Ted".to_string(),
-            category: "KAICONTACT\u{001E}SIM0".to_string(),
+            category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
         let sim_contact_2 = SimContactInfo {
@@ -1626,7 +1664,7 @@ mod test {
             tel: "15912345678\u{001E}18923456789".to_string(),
             email: "test1@kaiostech.com\u{001E}231678456@qq.com".to_string(),
             name: "Bob".to_string(),
-            category: "KAICONTACT\u{001E}SIM0".to_string(),
+            category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1, sim_contact_2])
@@ -1653,7 +1691,7 @@ mod test {
             tel: "13682628272\u{001E}18812345678\u{001E}19922223333".to_string(),
             email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
             name: "Jack".to_string(),
-            category: "KAICONTACT\u{001E}SIM0".to_string(),
+            category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1_name_change])
@@ -1690,7 +1728,7 @@ mod test {
             tel: "15229099710".to_string(),
             email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
             name: "Jack".to_string(),
-            category: "KAICONTACT\u{001E}SIM0".to_string(),
+            category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1_tel_change]).unwrap();
@@ -1706,7 +1744,7 @@ mod test {
             tel: "15229099710".to_string(),
             email: "zx@163.com".to_string(),
             name: "Jack".to_string(),
-            category: "KAICONTACT\u{001E}SIM0".to_string(),
+            category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
         db.import_sim_contacts(&[sim_contact_1_email_change])
@@ -1723,28 +1761,28 @@ mod test {
                 tel: "181".to_string(),
                 email: "test@kaios.com".to_string(),
                 name: "Are".to_string(),
-                category: "KAICONTACT\u{001E}SIM0".to_string(),
+                category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
             },
             SimContactInfo {
                 id: "0002".to_string(),
                 tel: "182".to_string(),
                 email: "mbz@gmail.com".to_string(),
                 name: "Bbc".to_string(),
-                category: "KAICONTACT\u{001E}SIM0".to_string(),
+                category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
             },
             SimContactInfo {
                 id: "0003".to_string(),
                 tel: "183".to_string(),
                 email: "zx@kaiostech.com".to_string(),
                 name: "David".to_string(),
-                category: "KAICONTACT\u{001E}SIM0".to_string(),
+                category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
             },
             SimContactInfo {
                 id: "0004".to_string(),
                 tel: "15229099710".to_string(),
                 email: "test@163.com\u{001E}happy@sina.com\u{001E}3179912@qq.com".to_string(),
                 name: "Zhang".to_string(),
-                category: "KAICONTACT\u{001E}SIM0".to_string(),
+                category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
             },
         ];
 
