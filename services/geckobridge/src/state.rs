@@ -162,11 +162,22 @@ impl GeckoBridgeState {
         self.notify_readyness_observers();
     }
 
-    pub fn powermanager_set_screen_enabled(&mut self, value: bool, is_external_screen: bool) {
+    pub fn powermanager_set_screen_enabled(
+        &mut self,
+        value: bool,
+        is_external_screen: bool,
+    ) -> Result<(), ()> {
         if let Some(powermanager) = &mut self.powermanager {
-            let _ = powermanager.set_screen_enabled(value, is_external_screen);
+            let rx = powermanager.set_screen_enabled(value, is_external_screen);
+            if let Ok(result) = rx.recv() {
+                result
+            } else {
+                error!("Failed to set screen : invalid delegate channel.");
+                Err(())
+            }
         } else {
             error!("The powermanager delegate is not set!");
+            Err(())
         }
     }
 

@@ -1,3 +1,5 @@
+import "./src/screen.sidl"
+
 // The reason for the factory reset.
 // "normal" : simple factory reset.
 // "wipe"   : will also attempt to wipe all user storage areas.
@@ -53,6 +55,8 @@ interface Powermanager {
   // disabled?  Setting this attribute to false will prevent the device
   // entering suspend state.
   cpuSleepAllowed: bool
+
+  fn control_screen(info: ScreenControlInfo)
 }
 
 #[permission=power]

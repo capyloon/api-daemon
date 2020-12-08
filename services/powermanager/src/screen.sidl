@@ -1,0 +1,14 @@
+enum ScreenState {
+  On
+  Off
+}
+
+dictionary ScreenControlInfo {
+  // True or false to turn on or off the screen.
+  state: ScreenState?
+  // Brightness of the screen's backlight, on a scale from 0 (very dim) to 100
+  // (full brightness)
+  brightness: int?
+  // True or false to control external screen or main screen.
+  isExternal: bool
+}

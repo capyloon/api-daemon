@@ -124,10 +124,8 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         }
 
         // Get the proxy and update our state.
-        if let Some(app_delegate) = self.get_power_manager_delegate(delegate) {
-            self.state
-                .lock()
-                .set_powermanager_delegate(app_delegate);
+        if let Some(power_delegate) = self.get_power_manager_delegate(delegate) {
+            self.state.lock().set_powermanager_delegate(power_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -146,9 +144,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
         // Get the proxy and update our state.
         if let Some(app_delegate) = self.get_app_service_delegate(delegate) {
-            self.state
-                .lock()
-                .set_apps_service_delegate(app_delegate);
+            self.state.lock().set_apps_service_delegate(app_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -166,10 +162,8 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         }
 
         // Get the proxy and update our state.
-        if let Some(app_delegate) = self.get_mobile_manager_delegate(delegate) {
-            self.state
-                .lock()
-                .set_mobilemanager_delegate(app_delegate);
+        if let Some(mobile_delegate) = self.get_mobile_manager_delegate(delegate) {
+            self.state.lock().set_mobilemanager_delegate(mobile_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -187,10 +181,8 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         }
 
         // Get the proxy and update our state.
-        if let Some(app_delegate) = self.get_network_manager_delegate(delegate) {
-            self.state
-                .lock()
-                .set_networkmanager_delegate(app_delegate);
+        if let Some(network_delegate) = self.get_network_manager_delegate(delegate) {
+            self.state.lock().set_networkmanager_delegate(network_delegate);
             responder.resolve();
         } else {
             responder.reject();

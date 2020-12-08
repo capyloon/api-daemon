@@ -102,11 +102,151 @@ impl PowerManager {
             }
         }
     }
+
+    fn screen_brightness(&mut self, value: i64, is_external: bool) -> Result<(), ()> {
+        debug!(
+            "screen_brightness: brightness {} is external {}",
+            value, is_external
+        );
+        if !(0 <= value && value <= 100) {
+            error!("set_screen_brightness: invalid brightness {}", value);
+            return Err(());
+        }
+
+        // Set the backlight for external screen.
+        let brightness = ((value as f32 * 255.0) / (100.0)).round() as u32;
+        if is_external {
+            self.shared_obj.lock().ext_screen_brightness = value;
+            let result = android_utils::set_ext_screen_brightness(brightness);
+            if result {
+                return Ok(());
+            }
+            return Err(());
+        }
+
+        // Set the backlight for main screen.
+        let color = 0xff00_0000 + (brightness << 16) + (brightness << 8) + brightness;
+
+        let light_state = light::LightState {
+            color,
+            flash_mode: FLASH_NONE,
+            flash_on_ms: 0,
+            flash_off_ms: 0,
+            brightness_mode: BRIGHTNESS_USER,
+        };
+
+        self.shared_obj.lock().screen_brightness = value;
+        if self.ensure_service() {
+            let s = self.light_service.as_ref().expect("Invalid light service");
+            if s.set_light(TYPE_BACKLIGHT, &light_state).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(())
+    }
+
+    fn screen_enabled(&mut self, state: bool, is_external: bool) -> Result<(), ()> {
+        debug!(
+            "screen_enabled: state {}, is external {}",
+            state, is_external
+        );
+
+        if is_external {
+            self.shared_obj.lock().ext_screen_enabled = state;
+        } else {
+            self.shared_obj.lock().screen_enabled = state;
+        }
+
+        // Relay the request to Gecko using the bridge.
+        let bridge = GeckoBridgeService::shared_state();
+        if bridge
+            .lock()
+            .powermanager_set_screen_enabled(state, is_external)
+            .is_err()
+        {
+            error!("Failed to set screen to {}", state);
+            return Err(());
+        }
+
+        Ok(())
+    }
 }
 
 impl PowermanagerService for PowerManager {}
 
 impl PowermanagerMethods for PowerManager {
+    fn control_screen(
+        &mut self,
+        responder: &PowermanagerControlScreenResponder,
+        info: crate::generated::common::ScreenControlInfo,
+    ) {
+        debug!("Control_screen {:?} ", info);
+
+        // Hanlde the screen enable/disable and backlight with
+        // different order to prevent abnormal display.
+        if info.state.is_some() && info.brightness.is_some() {
+            let state = match info.state.unwrap() {
+                ScreenState::On => true,
+                ScreenState::Off => false,
+            };
+
+            let brightness = info.brightness.expect("Invalid brightness");
+            // Enabled the screen before turn on the backlight.
+            if state {
+                if self.screen_enabled(state, info.is_external).is_err() {
+                    responder.reject();
+                    return;
+                }
+                if self
+                    .screen_brightness(brightness, info.is_external)
+                    .is_err()
+                {
+                    responder.reject();
+                    return;
+                }
+                responder.resolve();
+                return;
+            }
+            // Turn off the backlight before disable the screen.
+            if self
+                .screen_brightness(brightness, info.is_external)
+                .is_err()
+            {
+                responder.reject();
+                return;
+            }
+            if self.screen_enabled(state, info.is_external).is_err() {
+                responder.reject();
+                return;
+            }
+            responder.resolve();
+            return;
+        }
+
+        if let Some(screen_state) = info.state {
+            let state = match screen_state {
+                ScreenState::On => true,
+                ScreenState::Off => false,
+            };
+
+            if self.screen_enabled(state, info.is_external).is_err() {
+                responder.reject();
+                return;
+            }
+        }
+
+        if let Some(brightness) = info.brightness {
+            if self
+                .screen_brightness(brightness, info.is_external)
+                .is_err()
+            {
+                responder.reject();
+                return;
+            }
+        }
+        responder.resolve();
+    }
+
     fn power_off(&mut self, responder: &PowermanagerPowerOffResponder) {
         debug!("power_off");
         responder.resolve();
@@ -155,11 +295,9 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_ext_screen_brightness(&mut self, value: i64) {
-        let brightness = ((value as f32 * 255.0) / (100.0)).round() as u32;
-        debug!("set_ext_screen_brightness {} {}", value, brightness);
-        let _ = android_utils::set_ext_screen_brightness(brightness);
-        let mut shared = self.shared_obj.lock();
-        shared.ext_screen_brightness = value;
+        if self.screen_brightness(value, true).is_err() {
+            error!("Failed to set external screen brightness");
+        }
     }
 
     fn get_ext_screen_enabled(&mut self, responder: &PowermanagerGetExtScreenEnabledResponder) {
@@ -169,14 +307,9 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_ext_screen_enabled(&mut self, value: bool) {
-        debug!("set_ext_screen_enabled {}", value);
-        {
-            let mut shared = self.shared_obj.lock();
-            shared.ext_screen_enabled = value;
+        if self.screen_enabled(value, true).is_err() {
+            error!("Failed to set external screen");
         }
-        // Relay the request to Gecko using the bridge.
-        let bridge = GeckoBridgeService::shared_state();
-        bridge.lock().powermanager_set_screen_enabled(value, true);
     }
 
     fn get_factory_reset(&mut self, responder: &PowermanagerGetFactoryResetResponder) {
@@ -263,30 +396,8 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_screen_brightness(&mut self, value: i64) {
-        if !(0 <= value && value <= 100) {
-            error!("set_screen_brightness: invalid request {}", value);
-            return;
-        }
-
-        {
-            let mut shared = self.shared_obj.lock();
-            shared.screen_brightness = value;
-        }
-
-        let val = ((value as f32 * 255.0) / (100.0)).round() as u32;
-        let color = 0xff00_0000 + (val << 16) + (val << 8) + val;
-
-        let light_state = light::LightState {
-            color,
-            flash_mode: FLASH_NONE,
-            flash_on_ms: 0,
-            flash_off_ms: 0,
-            brightness_mode: BRIGHTNESS_USER,
-        };
-
-        if self.ensure_service() {
-            let s = self.light_service.as_ref().unwrap();
-            let _ = s.set_light(TYPE_BACKLIGHT, &light_state);
+        if self.screen_brightness(value, false).is_err() {
+            error!("Failed to set screen brightness");
         }
     }
 
@@ -297,15 +408,9 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_screen_enabled(&mut self, value: bool) {
-        debug!("set_screen_enabled");
-        {
-            let mut shared = self.shared_obj.lock();
-            shared.screen_enabled = value;
+        if self.screen_enabled(value, false).is_err() {
+            error!("Failed to set screen");
         }
-
-        // Relay the request to Gecko using the bridge.
-        let bridge = GeckoBridgeService::shared_state();
-        bridge.lock().powermanager_set_screen_enabled(value, false);
     }
 }
 
