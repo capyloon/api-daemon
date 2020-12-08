@@ -290,7 +290,6 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
         // Content processes that will connect afterwards can still use it
         // to register tokens.
         let only_register_token = state.lock().is_ready();
-
         let service_id = helper.session_tracker_id().service();
         Ok(GeckoBridgeService {
             id: service_id,
@@ -326,6 +325,11 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
 impl Drop for GeckoBridgeService {
     fn drop(&mut self) {
         info!("Dropping GeckoBridge Service #{}", self.id);
-        self.state.lock().reset();
+
+        // Reset the bridge state only if the instance exposing the
+        // delegates is dropped.
+        if !self.only_register_token {
+            self.state.lock().reset();
+        }
     }
 }
