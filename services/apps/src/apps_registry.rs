@@ -226,6 +226,15 @@ impl AppsRegistry {
             return Err(AppsError::AppsConfigError);
         }
 
+        let vroot_dir = data_dir.join("vroot");
+        if !AppsStorage::ensure_dir(vroot_dir.as_path()) {
+            error!(
+                "Failed to ensure that the {} directory exists.",
+                vroot_dir.display()
+            );
+            return Err(AppsError::AppsConfigError);
+        }
+
         // Open the registry database.
         let mut db = RegistryDb::new(db_dir.join(&"apps.sqlite"))?;
         let count = db.count()?;
@@ -234,17 +243,13 @@ impl AppsRegistry {
         if count == 0 {
             info!("Initializing apps registry from {}", config.root_path);
 
-            if !data_dir.exists() {
-                fs::create_dir(&data_dir)?;
-            }
-
             let sys_apps = root_dir.join("webapps.json");
             match read_webapps(sys_apps) {
                 Ok(mut apps) => {
                     for app in &mut apps {
                         let app_name = app.get_name();
                         let source = root_dir.join(&app_name);
-                        let dest = data_dir.join(&app_name);
+                        let dest = vroot_dir.join(&app_name);
                         app.set_manifest_url(&AppsItem::new_manifest_url(&app_name, vhost_port));
                         if let Err(err) = symlink(&source, &dest) {
                             // Don't fail if the symlink already exists.
@@ -264,6 +269,10 @@ impl AppsRegistry {
                     error!("No apps were found: {:?}", err);
                 }
             }
+
+            // Create a symbolic link for cached in vroot.
+            let dest = vroot_dir.join("cached");
+            let _ = symlink(&cached_dir, &dest);
         }
 
         Ok(Self {
@@ -324,7 +333,10 @@ impl AppsRegistry {
             if unique_name.is_empty() {
                 return Err(AppsServiceError::InvalidAppName);
             }
-
+            // "cached" is reserved for pwa apps.
+            if unique_name == "cached" {
+                return Err(AppsServiceError::InvalidAppName);
+            }
             // For new update_url, return name or name + [1-999]
             if let Ok(apps) = db.get_all() {
                 let mut count = 1;
@@ -414,7 +426,7 @@ impl AppsRegistry {
     ) -> Result<PathBuf, AppsServiceError> {
         if let Some(app) = self.get_by_manifest_url(manifest_url) {
             let webapp_path = Path::new(&webapp_dir);
-            let app_path = webapp_path.join(&app.get_name());
+            let app_path = webapp_path.join("vroot").join(&app.get_name());
             let package_path = app_path.join("application.zip");
 
             if File::open(&package_path).is_ok() {
@@ -578,7 +590,7 @@ impl AppsRegistry {
         let manifest_url = apps_item.get_manifest_url();
         let app_name = apps_item.get_name();
         let installed_dir = path.join("installed").join(&app_name);
-        let webapp_dir = path.join(&app_name);
+        let webapp_dir = path.join("vroot").join(&app_name);
 
         // We can now replace the installed one with new version.
         let _ = remove_dir_all(&installed_dir);
@@ -870,7 +882,7 @@ impl AppsRegistry {
             Ok(manifest_url) => {
                 let path = Path::new(&data_path);
                 let installed_dir = path.join("installed").join(app_name);
-                let webapp_dir = path.join(app_name);
+                let webapp_dir = path.join("vroot").join(app_name);
 
                 let _ = remove_file(&webapp_dir);
                 let _ = remove_dir_all(&installed_dir);
@@ -907,12 +919,12 @@ impl AppsRegistry {
 
     pub fn register_on_boot(&self, config: &Config) -> Result<(), AppsError> {
         let current = env::current_dir().unwrap();
-        let data_dir = current.join(&config.data_path);
+        let vroot_dir = current.join(&config.data_path).join("vroot");
 
         if let Some(db) = &self.db {
             let apps = db.get_all()?;
             for app in &apps {
-                let app_dir = data_dir.join(&app.get_name());
+                let app_dir = vroot_dir.join(&app.get_name());
                 let manifest = load_manifest(&app_dir)?;
 
                 // Relay the request to Gecko using the bridge.
@@ -957,16 +969,16 @@ impl AppsRegistry {
                     .map_err(|_| AppsServiceError::FilesystemFailure)?;
 
                 if status == AppsStatus::Disabled {
-                    let app_data_dir = data_dir.join(&app.get_name());
-                    let _ = remove_file(&app_data_dir);
+                    let app_vroot_dir = data_dir.join("vroot").join(&app.get_name());
+                    let _ = remove_file(&app_vroot_dir);
                 } else if status == AppsStatus::Enabled {
                     let installed_dir = data_dir.join("installed").join(&app.get_name());
-                    let app_data_dir = data_dir.join(&app.get_name());
+                    let app_vroot_dir = data_dir.join("vroot").join(&app.get_name());
                     let app_root_dir = root_dir.join(&app.get_name());
                     if installed_dir.exists() {
-                        let _ = symlink(&installed_dir, &app_data_dir);
+                        let _ = symlink(&installed_dir, &app_vroot_dir);
                     } else if app_root_dir.exists() {
-                        let _ = symlink(&app_root_dir, &app_data_dir);
+                        let _ = symlink(&app_root_dir, &app_vroot_dir);
                     }
                 }
                 app.set_status(status);
@@ -1533,6 +1545,18 @@ fn test_apply_download() {
     } else {
         assert!(false);
     }
+
+    // Test 4: app name is reserved and not allowed.
+    let src_app = current.join("test-fixtures/apps-from/invalid/name_not_allow.zip");
+    if let Err(err) = fs::create_dir_all(available_dir.as_path()) {
+        println!("{:?}", err);
+    }
+    let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
+    let manifest = validate_package(&available_app.as_path()).unwrap();
+    let update_url = "https://invalidname.localhost/manifest.webapp";
+    let app_name = registry
+        .get_unique_name(&manifest.get_name(), &update_url);
+    assert_eq!(app_name, Err(AppsServiceError::InvalidAppName));
 
     {
         let manifest_url = apps_item.get_manifest_url();

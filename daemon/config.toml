@@ -14,7 +14,7 @@ socket_path = "/tmp/api-daemon-socket"
 root_path = "../prebuilts/http_root"
 
 [vhost]
-root_path = "../prebuilts/http_root/webapps"
+root_path = "../prebuilts/http_root/webapps/vroot"
 csp = "default-src * data: blob:; script-src 'self' http://127.0.0.1 http://shared.localhost; object-src 'none'; style-src 'self' 'unsafe-inline' http://shared.localhost"
 
 [apps_service]
