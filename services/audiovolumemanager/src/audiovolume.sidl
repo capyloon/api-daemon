@@ -19,4 +19,5 @@ interface AudioVolume {
   event audio_volume_changed -> AudioVolumeState
 }
 
+#[permission=volumemanager]
 service AudioVolumeManager: AudioVolume
