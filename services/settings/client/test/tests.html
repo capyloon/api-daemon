@@ -191,6 +191,116 @@
            { name: "testing.setting1", value: 44 },]
         );
 
+        // test case for
+        // 1. add "an observer" for key1 and key2
+        // 2. remove observer for key1
+        // 3. set [key1, value] and [key2, value]
+        // We should get callback ONLY for key2 changed
+        let promise3 = new Promise((resolve) => {
+          toResolve = resolve;
+        });
+
+        class MyObserver2 extends MyObserver {
+          constructor(service, session) {
+            super(service.id, session);
+            this.key1 = 0;
+            this.key2 = 0;
+          }
+
+          callback(setting) {
+            console.log("MyObserver2::callback " + JSON.stringify(setting));
+            if (setting.name == "key1") {
+              this.key1++;
+            } else if (setting.name == "key2"){
+              this.key2++;
+            }
+            toResolve([this.key1, this.key2]);
+            return Promise.resolve();
+          }
+        }
+
+        let pivot = new MyObserver2(tester.service, tester.session);
+
+        await tester.assert_eq(
+          "add observer for key1",
+          (service) => service.addObserver("key1", pivot),
+          {}
+        );
+
+        await tester.assert_eq(
+          "add observer for key2",
+          (service) => service.addObserver("key2", pivot),
+          {}
+        );
+
+        await tester.assert_eq(
+          "remove observer for key1",
+          (service) => service.removeObserver("key1", pivot),
+          {}
+        );
+
+        // remove key1 again
+        await tester.assert_eq(
+          "remove observer for key1 again",
+          (service) => service.removeObserver("key1", pivot).then(
+            resolve => {
+              return Promise.resolve(true);
+            },
+            reject => {
+              return Promise.resolve(false);
+            }
+          ),
+          false
+        );
+
+        let observed_setting3 = { name: "key1", value: "hello!" };
+        await tester.assert_eq(
+          "set value of key1",
+          (service) => service.set([observed_setting3]),
+          {}
+        );
+
+        let observed_setting4 = { name: "key2", value: "hello!" };
+        await tester.assert_eq(
+          "set of key2",
+          (service) => service.set([observed_setting4]),
+          {}
+        );
+
+        await tester.assert_eq(
+          "wait for observer",
+          (service) => promise3,
+          [0, 1]
+        );
+
+        // remove a non-existing observer
+        await tester.assert_eq(
+          "remove non-existing observer case 1",
+          (service) => service.removeObserver("non-existing-key", pivot).then(
+            resolve => {
+              return Promise.resolve(true);
+            },
+            reject => {
+              return Promise.resolve(false);
+            }
+          ),
+          false
+        );
+
+        let neverAddedObs = new MyObserver2(tester.service, tester.session);
+        await tester.assert_eq(
+          "remove non-existing observer case 2",
+          (service) => service.removeObserver("non-existingi-observer", neverAddedObs).then(
+            resolve => {
+              return Promise.resolve(true);
+            },
+            reject => {
+              return Promise.resolve(false);
+            }
+          ),
+          false
+        );
+
         let reporter = new TestReporter([tester, tester2]);
         reporter.output();
       }

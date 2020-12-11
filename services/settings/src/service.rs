@@ -27,7 +27,7 @@ pub struct SettingsService {
     proxy_tracker: SettingsManagerProxyTracker,
     state: Shared<SettingsSharedData>,
     dispatcher_id: DispatcherId,
-    observers: HashMap<ObjectRef, (String, DispatcherId)>,
+    observers: HashMap<ObjectRef, Vec<(String, DispatcherId)>>,
     origin_attributes: OriginAttributes,
 }
 
@@ -122,7 +122,15 @@ impl SettingsFactoryMethods for SettingsService {
                     .lock()
                     .db
                     .add_observer(&name, ObserverType::Proxy(proxy.clone()));
-                self.observers.insert(observer, (name, id));
+                match self.observers.get_mut(&observer) {
+                    Some(observer) => {
+                        observer.push((name, id));
+                    }
+                    None => {
+                        let init = vec![(name, id)];
+                        self.observers.insert(observer, init);
+                    }
+                }
                 responder.resolve();
             }
             _ => {
@@ -139,16 +147,15 @@ impl SettingsFactoryMethods for SettingsService {
         observer: ObjectRef,
     ) {
         if self.proxy_tracker.contains_key(&observer) {
-            match self.observers.get(&observer) {
-                Some((_name, id)) => {
-                    self.state.lock().db.remove_observer(&name, *id);
-                    responder.resolve();
-                }
-                None => {
-                    error!("Failed to find observer in list");
-                    responder.reject();
+            if let Some(target) = self.observers.get_mut(&observer) {
+                if let Some(idx) = target.iter().position(|x| x.0 == name) {
+                    self.state.lock().db.remove_observer(&target[idx].0, target[idx].1);
+                    target.remove(idx);
+                    responder.resolve()
                 }
             }
+            error!("Failed to find observer in list");
+            responder.reject();
         } else {
             error!("Failed to find proxy for this observer");
             responder.reject();
@@ -214,7 +221,9 @@ impl Drop for SettingsService {
 
         // Unregister observers for this instance.
         for observer in self.observers.values() {
-            db.remove_observer(&observer.0, observer.1);
+            for (name, id) in observer {
+                db.remove_observer(name, *id);
+            }
         }
     }
 }
