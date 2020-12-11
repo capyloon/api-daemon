@@ -65,6 +65,11 @@ impl GeckoBridgeState {
         self.appsservice = None;
         self.mobilemanager = None;
         self.networkmanager = None;
+        // Reset the proxy tracker content, which only holds proxy objects for the
+        // delegates.
+        let tracker = self.proxy_tracker();
+        tracker.lock().clear();
+
         // On session dropped, do no reset the observers.
     }
 

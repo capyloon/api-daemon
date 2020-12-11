@@ -23,10 +23,11 @@ fn handle_client(mut stream: UnixStream, context: GlobalContext, session_id: u32
 
     // Our channel to receive data from the session.
     let (sender, receiver) = mpsc::channel();
+    let sender2 = sender.clone();
 
     // Create a new session attached to this stream.
     let state = context.service_state();
-    let mut session = Session::open(
+    let mut session = Session::uds(
         session_id,
         &context.config,
         MessageSender::new(Box::new(StdSender::new(&sender))),
@@ -35,8 +36,6 @@ fn handle_client(mut stream: UnixStream, context: GlobalContext, session_id: u32
         context.remote_service_manager,
         state,
     );
-
-    session.disable_handshake();
 
     // Launch a thread to receive data from the session.
     thread::spawn(move || {
@@ -94,6 +93,9 @@ fn handle_client(mut stream: UnixStream, context: GlobalContext, session_id: u32
             }
         }
     }
+
+    // Make sure the stream is closed and the reading thread stops.
+    let _ = sender2.send(MessageKind::Close);
 }
 
 pub fn start(run_context: &GlobalContext) {

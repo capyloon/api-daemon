@@ -150,7 +150,7 @@ async fn ws_index(
 
     let global_context = &data.global_context;
 
-    let session = Session::open(
+    let session = Session::websocket(
         data.session_id_factory.lock().next_id() as u32,
         &global_context.config,
         MessageSender::new(Box::new(DummySender {})),

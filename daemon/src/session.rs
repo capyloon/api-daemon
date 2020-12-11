@@ -56,7 +56,8 @@ impl Drop for Session {
 
 impl Session {
     // Creates a session for a given message sender.
-    pub fn open(
+    #[allow(clippy::too_many_arguments)]
+    fn create(
         session_id: u32,
         config: &Config,
         sender: MessageSender,
@@ -64,6 +65,8 @@ impl Session {
         session_context: SharedSessionContext,
         remote_services_manager: SharedRemoteServiceManager,
         shared_state: SharedStateMap,
+        state: SessionState,
+        origin_attributes: Option<OriginAttributes>,
     ) -> Self {
         remote_services_manager
             .lock()
@@ -73,10 +76,10 @@ impl Session {
         let event_map: SharedEventMap = Shared::default();
         Session {
             session_id,
-            state: SessionState::Handshake,
+            state,
             tracker: ObjectTracker::default(),
             token_manager,
-            origin_attributes: None,
+            origin_attributes,
             message_max_time: config.general.message_max_time,
             services_names: enabled_services(&config, &registrar),
             context: session_context,
@@ -92,11 +95,52 @@ impl Session {
         }
     }
 
-    pub fn disable_handshake(&mut self) {
-        if self.state == SessionState::Handshake {
-            self.state = SessionState::Request;
-            self.origin_attributes = Some(OriginAttributes::new("uds", HashSet::new()));
-        }
+    // Creates a session for a websocket connection: the origin attributes
+    // will be populated during the handshake.
+    pub fn websocket(
+        session_id: u32,
+        config: &Config,
+        sender: MessageSender,
+        token_manager: SharedTokensManager,
+        session_context: SharedSessionContext,
+        remote_services_manager: SharedRemoteServiceManager,
+        shared_state: SharedStateMap,
+    ) -> Self {
+        Session::create(
+            session_id,
+            config,
+            sender,
+            token_manager,
+            session_context,
+            remote_services_manager,
+            shared_state,
+            SessionState::Handshake,
+            None,
+        )
+    }
+
+    // Creates a session for a UDS connection: there is no handshake needed,
+    // and the origin attributes are hardcoded to a "uds" identity.
+    pub fn uds(
+        session_id: u32,
+        config: &Config,
+        sender: MessageSender,
+        token_manager: SharedTokensManager,
+        session_context: SharedSessionContext,
+        remote_services_manager: SharedRemoteServiceManager,
+        shared_state: SharedStateMap,
+    ) -> Self {
+        Session::create(
+            session_id,
+            config,
+            sender,
+            token_manager,
+            session_context,
+            remote_services_manager,
+            shared_state,
+            SessionState::Request,
+            Some(OriginAttributes::new("uds", HashSet::new())),
+        )
     }
 
     pub fn replace_sender(&mut self, sender: MessageSender) {
@@ -465,7 +509,7 @@ mod test {
         let shared_rsm = Shared::adopt(RemoteServiceManager::new("./remote", registrar));
         let context = Shared::adopt(SessionContext::default());
 
-        let mut session = Session::open(
+        let mut session = Session::websocket(
             0,
             &config,
             shared_sender,
@@ -525,7 +569,7 @@ mod test {
         let registrar = RemoteServicesRegistrar::new("foo.toml", "");
         let shared_rsm = Shared::adopt(RemoteServiceManager::new("./remote", registrar));
 
-        let mut session = Session::open(
+        let mut session = Session::websocket(
             0,
             &config,
             shared_sender,
