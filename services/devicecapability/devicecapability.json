@@ -39,6 +39,14 @@
         "default": false,
         "method": "preference"
     },
+    "device.dfc": {
+        "default": false,
+        "method": "preference"
+    },
+    "device.dual-lte": {
+        "default": false,
+        "method": "preference"
+    },
     "device.flip": {
         "default": false,
         "method": "preference"
