@@ -193,8 +193,8 @@
 
         await tester.assert_eq(
           "echo one or more arg",
-          (service) => service.echoArgOneOrMore([42, 32,0x1234567890]),
-          [42, 32, 0x1234567890]
+          (service) => service.echoArgOneOrMore([42, 32, 0x1234567890, 0x80000000, -0x80000000]),
+          [42, 32, 0x1234567890, 0x80000000, -0x80000000]
         );
 
         await tester.assert_eq(

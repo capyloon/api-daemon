@@ -11,20 +11,28 @@
 // zigzag encoding.
 function zigzag_encode(val) {
     const i32 = 0x100000000;
-    var valH = val / i32;
-    var valL = val & 0xffffffff;
-    valH = (valH >> 31) ^ (valH << 1);
-    valL = (valL >> 31) ^ (valL << 1);
-    return valH * i32 + valL;
+    // get integeral value
+    let valH = Math.floor(val / i32);
+    // treat lower 32 bits as unsiged
+    let valL = (val & 0xffffffff) >>> 0;
+
+    // The least significant bit(LSB) of encodedH is the most significant bit(MSB) of valL
+    let encodedH = (valL >>> 31) ^ (valH << 1) ^ (valH >> 31);
+    // lower bits are unsigned
+    let encodedL = ((valL << 1) ^ (valH >> 31)) >>> 0;
+    return encodedH * i32 + encodedL;
 }
 
 function zigzag_decode(val) {
     const i32 = 0x100000000;
-    var valH = val / i32;
-    var valL = val & 0xffffffff;
-    valH = (valH >> 1) ^ -(valH & 1);
-    valL = (valL >> 1) ^ -(valL & 1);
-    return valH * i32 + valL
+    var valH = Math.floor(val / i32);
+    var valL = (val & 0xffffffff) >>> 0;
+
+    let decodedH = (valH >>> 1) ^ -(valL & 1);
+    // * The MSB of decodedL is the LSB of valH
+    // * lower bits are unsiged
+    let decodedL = ((valH << 31) ^ (valL >>> 1) ^ -(valL & 1)) >>> 0;
+    return decodedH * i32 + decodedL;
 }
 
 export class Decoder {
@@ -168,7 +176,9 @@ export class Decoder {
 
         let val = 0;
         for (let i = 0; i < 4; i++) {
-            val = (val << 8) + this.buffer[this.pos];
+            // if the MSB of val is on, the last '<< 8' causes val turns to negative.
+            // >>> 0 to make sure we get unsigned value
+            val = ((val << 8)>>>0) + this.buffer[this.pos];
             this.pos += 1;
         }
         return val;
