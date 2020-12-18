@@ -341,8 +341,8 @@ cfg_if! {
         }
     }
 }
-pub enum X509_CRL {}
-stack!(stack_st_X509_CRL);
+
+pub enum X509_LOOKUP_METHOD {}
 
 pub enum X509_NAME {}
 

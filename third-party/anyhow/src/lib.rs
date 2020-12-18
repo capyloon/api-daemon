@@ -209,7 +209,7 @@
 //! will require an explicit `.map_err(Error::msg)` when working with a
 //! non-Anyhow error type inside a function that returns Anyhow's error type.
 
-#![doc(html_root_url = "https://docs.rs/anyhow/1.0.34")]
+#![doc(html_root_url = "https://docs.rs/anyhow/1.0.37")]
 #![cfg_attr(backtrace, feature(backtrace))]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -361,6 +361,7 @@ pub use anyhow as format_err;
 ///     # Ok(())
 /// }
 /// ```
+#[repr(transparent)]
 pub struct Error {
     inner: ManuallyDrop<Box<ErrorImpl<()>>>,
 }
@@ -385,6 +386,7 @@ pub struct Error {
 /// }
 /// ```
 #[cfg(feature = "std")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 #[derive(Clone)]
 pub struct Chain<'a> {
     state: crate::chain::ChainState<'a>,
@@ -620,5 +622,28 @@ pub mod private {
         M: Display + Debug + Send + Sync + 'static,
     {
         Error::from_adhoc(message, backtrace!())
+    }
+
+    #[cfg(anyhow_no_macro_reexport)]
+    pub use crate::{__anyhow_concat as concat, __anyhow_stringify as stringify};
+    #[cfg(not(anyhow_no_macro_reexport))]
+    pub use core::{concat, stringify};
+
+    #[cfg(anyhow_no_macro_reexport)]
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! __anyhow_concat {
+        ($($tt:tt)*) => {
+            concat!($($tt)*)
+        };
+    }
+
+    #[cfg(anyhow_no_macro_reexport)]
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! __anyhow_stringify {
+        ($($tt:tt)*) => {
+            stringify!($($tt)*)
+        };
     }
 }

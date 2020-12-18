@@ -82,7 +82,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 // Serde types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/serde/1.0.117")]
+#![doc(html_root_url = "https://docs.rs/serde/1.0.118")]
 // Support using Serde without the standard library!
 #![cfg_attr(not(feature = "std"), no_std)]
 // Unstable functionality only if the user asks for it. For tracking and
@@ -119,6 +119,7 @@
         // correctly used
         enum_glob_use,
         map_err_ignore,
+        result_unit_err,
         wildcard_imports,
         // not practical
         needless_pass_by_value,
@@ -165,6 +166,7 @@ mod lib {
     pub use self::core::default::{self, Default};
     pub use self::core::fmt::{self, Debug, Display};
     pub use self::core::marker::{self, PhantomData};
+    pub use self::core::num::Wrapping;
     pub use self::core::ops::Range;
     pub use self::core::option::{self, Option};
     pub use self::core::result::{self, Result};
@@ -215,8 +217,6 @@ mod lib {
     pub use std::hash::{BuildHasher, Hash};
     #[cfg(feature = "std")]
     pub use std::io::Write;
-    #[cfg(feature = "std")]
-    pub use std::num::Wrapping;
     #[cfg(feature = "std")]
     pub use std::path::{Path, PathBuf};
     #[cfg(feature = "std")]

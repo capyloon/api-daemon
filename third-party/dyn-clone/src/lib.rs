@@ -67,7 +67,7 @@
 //! }
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/dyn_clone/1.0.3")]
+#![doc(html_root_url = "https://docs.rs/dyn_clone/1.0.4")]
 #![no_std]
 
 extern crate alloc;
@@ -81,6 +81,7 @@ mod macros;
 pub mod private {
     pub use alloc::boxed::Box;
     pub use core::clone::Clone;
+    pub use core::marker::{Send, Sync};
 }
 
 mod sealed {

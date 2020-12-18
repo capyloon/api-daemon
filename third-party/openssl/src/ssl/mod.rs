@@ -93,6 +93,7 @@ use ssl::bio::BioMethod;
 use ssl::callbacks::*;
 use ssl::error::InnerError;
 use stack::{Stack, StackRef};
+use util::{ForeignTypeExt, ForeignTypeRefExt};
 use x509::store::{X509Store, X509StoreBuilderRef, X509StoreRef};
 #[cfg(any(ossl102, libressl261))]
 use x509::verify::X509VerifyParamRef;
@@ -1342,6 +1343,30 @@ impl SslContextBuilder {
         unsafe { X509StoreBuilderRef::from_ptr_mut(ffi::SSL_CTX_get_cert_store(self.as_ptr())) }
     }
 
+    /// Returns a reference to the X509 verification configuration.
+    ///
+    /// Requires OpenSSL 1.0.2 or newer.
+    ///
+    /// This corresponds to [`SSL_CTX_get0_param`].
+    ///
+    /// [`SSL_CTX_get0_param`]: https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_get0_param.html
+    #[cfg(any(ossl102, libressl261))]
+    pub fn verify_param(&self) -> &X509VerifyParamRef {
+        unsafe { X509VerifyParamRef::from_ptr(ffi::SSL_CTX_get0_param(self.as_ptr())) }
+    }
+
+    /// Returns a mutable reference to the X509 verification configuration.
+    ///
+    /// Requires OpenSSL 1.0.2 or newer.
+    ///
+    /// This corresponds to [`SSL_CTX_get0_param`].
+    ///
+    /// [`SSL_CTX_get0_param`]: https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_get0_param.html
+    #[cfg(any(ossl102, libressl261))]
+    pub fn verify_param_mut(&mut self) -> &mut X509VerifyParamRef {
+        unsafe { X509VerifyParamRef::from_ptr_mut(ffi::SSL_CTX_get0_param(self.as_ptr())) }
+    }
+
     /// Sets the callback dealing with OCSP stapling.
     ///
     /// On the client side, this callback is responsible for validating the OCSP status response
@@ -1738,7 +1763,7 @@ impl SslContextBuilder {
     /// This corresponds to [`SSL_CTX_sess_get_cache_size`].
     ///
     /// [`SSL_CTX_sess_get_cache_size`]: https://www.openssl.org/docs/man1.0.2/man3/SSL_CTX_sess_set_cache_size.html
-    #[allow(clippy::identity_conversion)]
+    #[allow(clippy::useless_conversion)]
     pub fn set_session_cache_size(&mut self, size: i32) -> i64 {
         unsafe { ffi::SSL_CTX_sess_set_cache_size(self.as_ptr(), size.into()).into() }
     }
@@ -1798,6 +1823,14 @@ foreign_type_and_impl_send_sync! {
 
 impl Clone for SslContext {
     fn clone(&self) -> Self {
+        (**self).to_owned()
+    }
+}
+
+impl ToOwned for SslContextRef {
+    type Owned = SslContext;
+
+    fn to_owned(&self) -> Self::Owned {
         unsafe {
             SSL_CTX_up_ref(self.as_ptr());
             SslContext::from_ptr(self.as_ptr())
@@ -1865,11 +1898,7 @@ impl SslContextRef {
     pub fn certificate(&self) -> Option<&X509Ref> {
         unsafe {
             let ptr = ffi::SSL_CTX_get0_certificate(self.as_ptr());
-            if ptr.is_null() {
-                None
-            } else {
-                Some(X509Ref::from_ptr(ptr))
-            }
+            X509Ref::from_const_ptr_opt(ptr)
         }
     }
 
@@ -1884,11 +1913,7 @@ impl SslContextRef {
     pub fn private_key(&self) -> Option<&PKeyRef<Private>> {
         unsafe {
             let ptr = ffi::SSL_CTX_get0_privatekey(self.as_ptr());
-            if ptr.is_null() {
-                None
-            } else {
-                Some(PKeyRef::from_ptr(ptr))
-            }
+            PKeyRef::from_const_ptr_opt(ptr)
         }
     }
 
@@ -1908,8 +1933,7 @@ impl SslContextRef {
         unsafe {
             let mut chain = ptr::null_mut();
             ffi::SSL_CTX_get_extra_chain_certs(self.as_ptr(), &mut chain);
-            assert!(!chain.is_null());
-            StackRef::from_ptr(chain)
+            StackRef::from_const_ptr_opt(chain).expect("extra chain certs must not be null")
         }
     }
 
@@ -1980,7 +2004,7 @@ impl SslContextRef {
     /// This corresponds to [`SSL_CTX_sess_get_cache_size`].
     ///
     /// [`SSL_CTX_sess_get_cache_size`]: https://www.openssl.org/docs/man1.0.2/man3/SSL_CTX_sess_set_cache_size.html
-    #[allow(clippy::identity_conversion)]
+    #[allow(clippy::useless_conversion)]
     pub fn session_cache_size(&self) -> i64 {
         unsafe { ffi::SSL_CTX_sess_get_cache_size(self.as_ptr()).into() }
     }
@@ -2098,7 +2122,7 @@ impl SslCipherRef {
     /// This corresponds to [`SSL_CIPHER_get_bits`].
     ///
     /// [`SSL_CIPHER_get_bits`]: https://www.openssl.org/docs/manmaster/man3/SSL_CIPHER_get_name.html
-    #[allow(clippy::identity_conversion)]
+    #[allow(clippy::useless_conversion)]
     pub fn bits(&self) -> CipherBits {
         unsafe {
             let mut algo_bits = 0;
@@ -2257,7 +2281,7 @@ impl SslSessionRef {
     /// This corresponds to [`SSL_SESSION_get_time`].
     ///
     /// [`SSL_SESSION_get_time`]: https://www.openssl.org/docs/man1.1.1/man3/SSL_SESSION_get_time.html
-    #[allow(clippy::identity_conversion)]
+    #[allow(clippy::useless_conversion)]
     pub fn time(&self) -> i64 {
         unsafe { ffi::SSL_SESSION_get_time(self.as_ptr()).into() }
     }
@@ -2269,7 +2293,7 @@ impl SslSessionRef {
     /// This corresponds to [`SSL_SESSION_get_timeout`].
     ///
     /// [`SSL_SESSION_get_timeout`]: https://www.openssl.org/docs/man1.1.1/man3/SSL_SESSION_get_time.html
-    #[allow(clippy::identity_conversion)]
+    #[allow(clippy::useless_conversion)]
     pub fn timeout(&self) -> i64 {
         unsafe { ffi::SSL_SESSION_get_timeout(self.as_ptr()).into() }
     }
@@ -2365,11 +2389,11 @@ impl Ssl {
     ///
     /// [`SSL_new`]: https://www.openssl.org/docs/man1.0.2/ssl/SSL_new.html
     // FIXME should take &SslContextRef
-    pub fn new(ctx: &SslContext) -> Result<Ssl, ErrorStack> {
+    pub fn new(ctx: &SslContextRef) -> Result<Ssl, ErrorStack> {
         unsafe {
             let ptr = cvt_p(ffi::SSL_new(ctx.as_ptr()))?;
             let mut ssl = Ssl::from_ptr(ptr);
-            ssl.set_ex_data(*SESSION_CTX_INDEX, ctx.clone());
+            ssl.set_ex_data(*SESSION_CTX_INDEX, ctx.to_owned());
 
             Ok(ssl)
         }
@@ -2385,6 +2409,7 @@ impl Ssl {
     /// `SslConnector` rather than `Ssl` directly, as it manages that configuration.
     ///
     /// [`SSL_connect`]: https://www.openssl.org/docs/manmaster/man3/SSL_connect.html
+    #[allow(deprecated)]
     pub fn connect<S>(self, stream: S) -> Result<SslStream<S>, HandshakeError<S>>
     where
         S: Read + Write,
@@ -2402,6 +2427,7 @@ impl Ssl {
     /// `SslAcceptor` rather than `Ssl` directly, as it manages that configuration.
     ///
     /// [`SSL_accept`]: https://www.openssl.org/docs/manmaster/man3/SSL_accept.html
+    #[allow(deprecated)]
     pub fn accept<S>(self, stream: S) -> Result<SslStream<S>, HandshakeError<S>>
     where
         S: Read + Write,
@@ -2436,6 +2462,24 @@ impl SslRef {
 
     fn get_error(&self, ret: c_int) -> ErrorCode {
         unsafe { ErrorCode::from_raw(ffi::SSL_get_error(self.as_ptr(), ret)) }
+    }
+
+    /// Configure as an outgoing stream from a client.
+    ///
+    /// This corresponds to [`SSL_set_connect_state`].
+    ///
+    /// [`SSL_set_connect_state`]: https://www.openssl.org/docs/manmaster/man3/SSL_set_connect_state.html
+    pub fn set_connect_state(&mut self) {
+        unsafe { ffi::SSL_set_connect_state(self.as_ptr()) }
+    }
+
+    /// Configure as an incoming stream to a server.
+    ///
+    /// This corresponds to [`SSL_set_accept_state`].
+    ///
+    /// [`SSL_set_accept_state`]: https://www.openssl.org/docs/manmaster/man3/SSL_set_accept_state.html
+    pub fn set_accept_state(&mut self) {
+        unsafe { ffi::SSL_set_accept_state(self.as_ptr()) }
     }
 
     /// Like [`SslContextBuilder::set_verify`].
@@ -2578,11 +2622,7 @@ impl SslRef {
         unsafe {
             let ptr = ffi::SSL_get_current_cipher(self.as_ptr());
 
-            if ptr.is_null() {
-                None
-            } else {
-                Some(SslCipherRef::from_ptr(ptr as *mut _))
-            }
+            SslCipherRef::from_const_ptr_opt(ptr)
         }
     }
 
@@ -2637,11 +2677,7 @@ impl SslRef {
     pub fn peer_certificate(&self) -> Option<X509> {
         unsafe {
             let ptr = ffi::SSL_get_peer_certificate(self.as_ptr());
-            if ptr.is_null() {
-                None
-            } else {
-                Some(X509::from_ptr(ptr))
-            }
+            X509::from_ptr_opt(ptr)
         }
     }
 
@@ -2656,11 +2692,7 @@ impl SslRef {
     pub fn peer_cert_chain(&self) -> Option<&StackRef<X509>> {
         unsafe {
             let ptr = ffi::SSL_get_peer_cert_chain(self.as_ptr());
-            if ptr.is_null() {
-                None
-            } else {
-                Some(StackRef::from_ptr(ptr))
-            }
+            StackRef::from_const_ptr_opt(ptr)
         }
     }
 
@@ -2680,11 +2712,7 @@ impl SslRef {
     pub fn verified_chain(&self) -> Option<&StackRef<X509>> {
         unsafe {
             let ptr = ffi::SSL_get0_verified_chain(self.as_ptr());
-            if ptr.is_null() {
-                None
-            } else {
-                Some(StackRef::from_ptr(ptr))
-            }
+            StackRef::from_const_ptr_opt(ptr)
         }
     }
 
@@ -2696,11 +2724,7 @@ impl SslRef {
     pub fn certificate(&self) -> Option<&X509Ref> {
         unsafe {
             let ptr = ffi::SSL_get_certificate(self.as_ptr());
-            if ptr.is_null() {
-                None
-            } else {
-                Some(X509Ref::from_ptr(ptr))
-            }
+            X509Ref::from_const_ptr_opt(ptr)
         }
     }
 
@@ -2712,11 +2736,7 @@ impl SslRef {
     pub fn private_key(&self) -> Option<&PKeyRef<Private>> {
         unsafe {
             let ptr = ffi::SSL_get_privatekey(self.as_ptr());
-            if ptr.is_null() {
-                None
-            } else {
-                Some(PKeyRef::from_ptr(ptr))
-            }
+            PKeyRef::from_const_ptr_opt(ptr)
         }
     }
 
@@ -2812,11 +2832,7 @@ impl SslRef {
         unsafe {
             let chain = ffi::SSL_get_srtp_profiles(self.as_ptr());
 
-            if chain.is_null() {
-                None
-            } else {
-                Some(StackRef::from_ptr(chain))
-            }
+            StackRef::from_const_ptr_opt(chain)
         }
     }
 
@@ -2831,11 +2847,7 @@ impl SslRef {
         unsafe {
             let profile = ffi::SSL_get_selected_srtp_profile(self.as_ptr());
 
-            if profile.is_null() {
-                None
-            } else {
-                Some(SrtpProtectionProfileRef::from_ptr(profile as *mut _))
-            }
+            SrtpProtectionProfileRef::from_const_ptr_opt(profile)
         }
     }
 
@@ -2943,11 +2955,7 @@ impl SslRef {
     pub fn session(&self) -> Option<&SslSessionRef> {
         unsafe {
             let p = ffi::SSL_get_session(self.as_ptr());
-            if p.is_null() {
-                None
-            } else {
-                Some(SslSessionRef::from_ptr(p))
-            }
+            SslSessionRef::from_const_ptr_opt(p)
         }
     }
 
@@ -3409,23 +3417,28 @@ impl<S> MidHandshakeSslStream<S> {
     pub fn into_error(self) -> Error {
         self.error
     }
+}
 
+impl<S> MidHandshakeSslStream<S>
+where
+    S: Read + Write,
+{
     /// Restarts the handshake process.
     ///
     /// This corresponds to [`SSL_do_handshake`].
     ///
     /// [`SSL_do_handshake`]: https://www.openssl.org/docs/manmaster/man3/SSL_do_handshake.html
     pub fn handshake(mut self) -> Result<SslStream<S>, HandshakeError<S>> {
-        let ret = unsafe { ffi::SSL_do_handshake(self.stream.ssl.as_ptr()) };
-        if ret > 0 {
-            Ok(self.stream)
-        } else {
-            self.error = self.stream.make_error(ret);
-            match self.error.code() {
-                ErrorCode::WANT_READ | ErrorCode::WANT_WRITE => {
-                    Err(HandshakeError::WouldBlock(self))
+        match self.stream.do_handshake() {
+            Ok(()) => Ok(self.stream),
+            Err(error) => {
+                self.error = error;
+                match self.error.code() {
+                    ErrorCode::WANT_READ | ErrorCode::WANT_WRITE => {
+                        Err(HandshakeError::WouldBlock(self))
+                    }
+                    _ => Err(HandshakeError::Failure(self)),
                 }
-                _ => Err(HandshakeError::Failure(self)),
             }
         }
     }
@@ -3461,17 +3474,28 @@ where
 }
 
 impl<S: Read + Write> SslStream<S> {
-    fn new_base(ssl: Ssl, stream: S) -> Self {
+    /// Creates a new `SslStream`.
+    ///
+    /// This function performs no IO; the stream will not have performed any part of the handshake
+    /// with the peer. If the `Ssl` was configured with [`SslRef::set_client_state`] or
+    /// [`SslRef::set_server_state`], the handshake can be performed automatically during the first
+    /// call to read or write. Otherwise the `connect` and `accept` methods can be used to
+    /// explicitly perform the handshake.
+    ///
+    /// This corresponds to [`SSL_set_bio`].
+    ///
+    /// [`SSL_set_bio`]: https://www.openssl.org/docs/manmaster/man3/SSL_set_bio.html
+    pub fn new(ssl: Ssl, stream: S) -> Result<Self, ErrorStack> {
+        let (bio, method) = bio::new(stream)?;
         unsafe {
-            let (bio, method) = bio::new(stream).unwrap();
             ffi::SSL_set_bio(ssl.as_ptr(), bio, bio);
-
-            SslStream {
-                ssl: ManuallyDrop::new(ssl),
-                method: ManuallyDrop::new(method),
-                _p: PhantomData,
-            }
         }
+
+        Ok(SslStream {
+            ssl: ManuallyDrop::new(ssl),
+            method: ManuallyDrop::new(method),
+            _p: PhantomData,
+        })
     }
 
     /// Constructs an `SslStream` from a pointer to the underlying OpenSSL `SSL` struct.
@@ -3481,9 +3505,150 @@ impl<S: Read + Write> SslStream<S> {
     /// # Safety
     ///
     /// The caller must ensure the pointer is valid.
+    #[deprecated(
+        since = "0.10.32",
+        note = "use Ssl::from_ptr and SslStream::new instead"
+    )]
     pub unsafe fn from_raw_parts(ssl: *mut ffi::SSL, stream: S) -> Self {
         let ssl = Ssl::from_ptr(ssl);
-        Self::new_base(ssl, stream)
+        Self::new(ssl, stream).unwrap()
+    }
+
+    /// Read application data transmitted by a client before handshake completion.
+    ///
+    /// Useful for reducing latency, but vulnerable to replay attacks. Call
+    /// [`SslRef::set_accept_state`] first.
+    ///
+    /// Returns `Ok(0)` if all early data has been read.
+    ///
+    /// Requires OpenSSL 1.1.1 or newer.
+    ///
+    /// This corresponds to [`SSL_read_early_data`].
+    ///
+    /// [`SSL_read_early_data`]: https://www.openssl.org/docs/manmaster/man3/SSL_read_early_data.html
+    #[cfg(ossl111)]
+    pub fn read_early_data(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        let mut read = 0;
+        let ret = unsafe {
+            ffi::SSL_read_early_data(
+                self.ssl.as_ptr(),
+                buf.as_ptr() as *mut c_void,
+                buf.len(),
+                &mut read,
+            )
+        };
+        match ret {
+            ffi::SSL_READ_EARLY_DATA_ERROR => Err(self.make_error(ret)),
+            ffi::SSL_READ_EARLY_DATA_SUCCESS => Ok(read),
+            ffi::SSL_READ_EARLY_DATA_FINISH => Ok(0),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Send data to the server without blocking on handshake completion.
+    ///
+    /// Useful for reducing latency, but vulnerable to replay attacks. Call
+    /// [`SslRef::set_connect_state`] first.
+    ///
+    /// Requires OpenSSL 1.1.1 or newer.
+    ///
+    /// This corresponds to [`SSL_write_early_data`].
+    ///
+    /// [`SSL_write_early_data`]: https://www.openssl.org/docs/manmaster/man3/SSL_write_early_data.html
+    #[cfg(ossl111)]
+    pub fn write_early_data(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        let mut written = 0;
+        let ret = unsafe {
+            ffi::SSL_write_early_data(
+                self.ssl.as_ptr(),
+                buf.as_ptr() as *const c_void,
+                buf.len(),
+                &mut written,
+            )
+        };
+        if ret > 0 {
+            Ok(written as usize)
+        } else {
+            Err(self.make_error(ret))
+        }
+    }
+
+    /// Initiates a client-side TLS handshake.
+    ///
+    /// This corresponds to [`SSL_connect`].
+    ///
+    /// # Warning
+    ///
+    /// OpenSSL's default configuration is insecure. It is highly recommended to use
+    /// `SslConnector` rather than `Ssl` directly, as it manages that configuration.
+    ///
+    /// [`SSL_connect`]: https://www.openssl.org/docs/manmaster/man3/SSL_connect.html
+    pub fn connect(&mut self) -> Result<(), Error> {
+        let ret = unsafe { ffi::SSL_connect(self.ssl.as_ptr()) };
+        if ret > 0 {
+            Ok(())
+        } else {
+            Err(self.make_error(ret))
+        }
+    }
+
+    /// Initiates a server-side TLS handshake.
+    ///
+    /// This corresponds to [`SSL_accept`].
+    ///
+    /// # Warning
+    ///
+    /// OpenSSL's default configuration is insecure. It is highly recommended to use
+    /// `SslAcceptor` rather than `Ssl` directly, as it manages that configuration.
+    ///
+    /// [`SSL_accept`]: https://www.openssl.org/docs/manmaster/man3/SSL_accept.html
+    pub fn accept(&mut self) -> Result<(), Error> {
+        let ret = unsafe { ffi::SSL_accept(self.ssl.as_ptr()) };
+        if ret > 0 {
+            Ok(())
+        } else {
+            Err(self.make_error(ret))
+        }
+    }
+
+    /// Initiates the handshake.
+    ///
+    /// This will fail if `set_accept_state` or `set_connect_state` was not called first.
+    ///
+    /// This corresponds to [`SSL_do_handshake`].
+    ///
+    /// [`SSL_do_handshake`]: https://www.openssl.org/docs/manmaster/man3/SSL_do_handshake.html
+    pub fn do_handshake(&mut self) -> Result<(), Error> {
+        let ret = unsafe { ffi::SSL_do_handshake(self.ssl.as_ptr()) };
+        if ret > 0 {
+            Ok(())
+        } else {
+            Err(self.make_error(ret))
+        }
+    }
+
+    /// Perform a stateless server-side handshake.
+    ///
+    /// Requires that cookie generation and verification callbacks were
+    /// set on the SSL context.
+    ///
+    /// Returns `Ok(true)` if a complete ClientHello containing a valid cookie
+    /// was read, in which case the handshake should be continued via
+    /// `accept`. If a HelloRetryRequest containing a fresh cookie was
+    /// transmitted, `Ok(false)` is returned instead. If the handshake cannot
+    /// proceed at all, `Err` is returned.
+    ///
+    /// This corresponds to [`SSL_stateless`]
+    ///
+    /// [`SSL_stateless`]: https://www.openssl.org/docs/manmaster/man3/SSL_stateless.html
+    #[cfg(ossl111)]
+    pub fn stateless(&mut self) -> Result<bool, ErrorStack> {
+        match unsafe { ffi::SSL_stateless(self.ssl.as_ptr()) } {
+            1 => Ok(true),
+            0 => Ok(false),
+            -1 => Err(ErrorStack::get()),
+            _ => unreachable!(),
+        }
     }
 
     /// Like `read`, but returns an `ssl::Error` rather than an `io::Error`.
@@ -3684,10 +3849,15 @@ impl<S: Read + Write> Write for SslStream<S> {
 }
 
 /// A partially constructed `SslStream`, useful for unusual handshakes.
+#[deprecated(
+    since = "0.10.32",
+    note = "use the methods directly on Ssl/SslStream instead"
+)]
 pub struct SslStreamBuilder<S> {
     inner: SslStream<S>,
 }
 
+#[allow(deprecated)]
 impl<S> SslStreamBuilder<S>
 where
     S: Read + Write,
@@ -3695,7 +3865,7 @@ where
     /// Begin creating an `SslStream` atop `stream`
     pub fn new(ssl: Ssl, stream: S) -> Self {
         Self {
-            inner: SslStream::new_base(ssl, stream),
+            inner: SslStream::new(ssl, stream).unwrap(),
         }
     }
 
@@ -3742,48 +3912,40 @@ where
     }
 
     /// See `Ssl::connect`
-    pub fn connect(self) -> Result<SslStream<S>, HandshakeError<S>> {
-        let mut stream = self.inner;
-        let ret = unsafe { ffi::SSL_connect(stream.ssl.as_ptr()) };
-        if ret > 0 {
-            Ok(stream)
-        } else {
-            let error = stream.make_error(ret);
-            match error.code() {
+    pub fn connect(mut self) -> Result<SslStream<S>, HandshakeError<S>> {
+        match self.inner.connect() {
+            Ok(()) => Ok(self.inner),
+            Err(error) => match error.code() {
                 ErrorCode::WANT_READ | ErrorCode::WANT_WRITE => {
                     Err(HandshakeError::WouldBlock(MidHandshakeSslStream {
-                        stream,
+                        stream: self.inner,
                         error,
                     }))
                 }
                 _ => Err(HandshakeError::Failure(MidHandshakeSslStream {
-                    stream,
+                    stream: self.inner,
                     error,
                 })),
-            }
+            },
         }
     }
 
     /// See `Ssl::accept`
-    pub fn accept(self) -> Result<SslStream<S>, HandshakeError<S>> {
-        let mut stream = self.inner;
-        let ret = unsafe { ffi::SSL_accept(stream.ssl.as_ptr()) };
-        if ret > 0 {
-            Ok(stream)
-        } else {
-            let error = stream.make_error(ret);
-            match error.code() {
+    pub fn accept(mut self) -> Result<SslStream<S>, HandshakeError<S>> {
+        match self.inner.accept() {
+            Ok(()) => Ok(self.inner),
+            Err(error) => match error.code() {
                 ErrorCode::WANT_READ | ErrorCode::WANT_WRITE => {
                     Err(HandshakeError::WouldBlock(MidHandshakeSslStream {
-                        stream,
+                        stream: self.inner,
                         error,
                     }))
                 }
                 _ => Err(HandshakeError::Failure(MidHandshakeSslStream {
-                    stream,
+                    stream: self.inner,
                     error,
                 })),
-            }
+            },
         }
     }
 
@@ -3794,25 +3956,21 @@ where
     /// This corresponds to [`SSL_do_handshake`].
     ///
     /// [`SSL_do_handshake`]: https://www.openssl.org/docs/manmaster/man3/SSL_do_handshake.html
-    pub fn handshake(self) -> Result<SslStream<S>, HandshakeError<S>> {
-        let mut stream = self.inner;
-        let ret = unsafe { ffi::SSL_do_handshake(stream.ssl.as_ptr()) };
-        if ret > 0 {
-            Ok(stream)
-        } else {
-            let error = stream.make_error(ret);
-            match error.code() {
+    pub fn handshake(mut self) -> Result<SslStream<S>, HandshakeError<S>> {
+        match self.inner.do_handshake() {
+            Ok(()) => Ok(self.inner),
+            Err(error) => match error.code() {
                 ErrorCode::WANT_READ | ErrorCode::WANT_WRITE => {
                     Err(HandshakeError::WouldBlock(MidHandshakeSslStream {
-                        stream,
+                        stream: self.inner,
                         error,
                     }))
                 }
                 _ => Err(HandshakeError::Failure(MidHandshakeSslStream {
-                    stream,
+                    stream: self.inner,
                     error,
                 })),
-            }
+            },
         }
     }
 
@@ -3831,21 +3989,7 @@ where
     /// [`SSL_read_early_data`]: https://www.openssl.org/docs/manmaster/man3/SSL_read_early_data.html
     #[cfg(ossl111)]
     pub fn read_early_data(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        let mut read = 0;
-        let ret = unsafe {
-            ffi::SSL_read_early_data(
-                self.inner.ssl.as_ptr(),
-                buf.as_ptr() as *mut c_void,
-                buf.len(),
-                &mut read,
-            )
-        };
-        match ret {
-            ffi::SSL_READ_EARLY_DATA_ERROR => Err(self.inner.make_error(ret)),
-            ffi::SSL_READ_EARLY_DATA_SUCCESS => Ok(read),
-            ffi::SSL_READ_EARLY_DATA_FINISH => Ok(0),
-            _ => unreachable!(),
-        }
+        self.inner.read_early_data(buf)
     }
 
     /// Send data to the server without blocking on handshake completion.
@@ -3860,23 +4004,11 @@ where
     /// [`SSL_write_early_data`]: https://www.openssl.org/docs/manmaster/man3/SSL_write_early_data.html
     #[cfg(ossl111)]
     pub fn write_early_data(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        let mut written = 0;
-        let ret = unsafe {
-            ffi::SSL_write_early_data(
-                self.inner.ssl.as_ptr(),
-                buf.as_ptr() as *const c_void,
-                buf.len(),
-                &mut written,
-            )
-        };
-        if ret > 0 {
-            Ok(written as usize)
-        } else {
-            Err(self.inner.make_error(ret))
-        }
+        self.inner.write_early_data(buf)
     }
 }
 
+#[allow(deprecated)]
 impl<S> SslStreamBuilder<S> {
     /// Returns a shared reference to the underlying stream.
     pub fn get_ref(&self) -> &S {

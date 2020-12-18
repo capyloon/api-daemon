@@ -1,5 +1,9 @@
 # Change Log
 
+## [3.5.2](https://github.com/sunng87/handlebars-rust/compare/3.5.1...3.5.2) - 2020-12-29
+
+* [Fixed] allow `/` as trailing separator on Windows, backported from master [#405]
+
 ## [3.5.1](https://github.com/sunng87/handlebars-rust/compare/3.5.0...3.5.1) - 2020-10-25
 
 * [Fixed] dir source path separator bug on windows [#389]

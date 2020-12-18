@@ -39,17 +39,20 @@ pub fn maybe_not_modified(
     if_none_match: Option<&HeaderValue>,
     etag: &str,
     mime: &Mime,
+    csp: Option<&str>,
 ) -> Option<HttpResponse> {
     // Check if we have an etag from the If-None-Match header.
     if let Some(if_none_match) = if_none_match {
         if let Ok(value) = if_none_match.to_str() {
             if etag == value {
-                return Some(
-                    HttpResponse::NotModified()
-                        .content_type(mime.as_ref())
-                        .set_header("ETag", etag.to_string())
-                        .finish(),
-                );
+                let mut resp304 = HttpResponse::NotModified();
+                let mut builder = resp304
+                    .content_type(mime.as_ref())
+                    .set_header("ETag", etag.to_string());
+                if let Some(csp) = csp {
+                    builder = builder.set_header("Content-Security-Policy", csp);
+                }
+                return Some(builder.finish());
             }
         }
     }
@@ -66,7 +69,7 @@ fn response_from_zip<'a>(
     // Check if we can return NotModified without reading the file content.
     let etag = Etag::for_zip(&zip);
     let mime = mime_type_for(zip.name());
-    if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime) {
+    if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime, Some(csp)) {
         return response;
     }
 
@@ -91,7 +94,7 @@ fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue
             .unwrap_or_else(|| std::ffi::OsStr::new(""))
             .to_string_lossy();
         let mime = mime_type_for(&file_name);
-        if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime) {
+        if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime, Some(csp)) {
             return response;
         }
 
@@ -159,7 +162,7 @@ pub async fn vhost(
         let full_host = host
             .to_str()
             .map_err(|_| HttpResponse::BadRequest().finish())?;
-        debug!("Full Host is {:?}", host);
+        debug!("Full Host is {:?}", full_host);
         // Remove the port if there is one.
         let mut parts = full_host.split(':');
         // TODO: make more robust for cases where the host part can include ':' like ipv6 addresses.
@@ -203,6 +206,11 @@ pub async fn vhost(
                 data.zips.contains_key(host),
             )
         };
+
+        // Replace instances of 'self' in the CSP by the current origin.
+        // This is needed for proper loading of aliased URIs like about:neterror
+        let csp_self = format!("http://{}", full_host);
+        let csp = csp.replace("'self'", &csp_self);
 
         // Get a sorted list of languages to get the localized version of the resource.
         let mut languages =

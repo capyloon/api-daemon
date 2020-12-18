@@ -241,12 +241,15 @@ pub mod parsing {
                 if input.peek(Ident) && input.peek2(Token![:]) && !input.peek2(Token![::]) {
                     return Ok(GenericArgument::Constraint(input.parse()?));
                 }
+            }
 
-                if input.peek(Lit) {
-                    let lit = input.parse()?;
-                    return Ok(GenericArgument::Const(Expr::Lit(lit)));
-                }
+            if input.peek(Lit) {
+                let lit = input.parse()?;
+                return Ok(GenericArgument::Const(Expr::Lit(lit)));
+            }
 
+            #[cfg(feature = "full")]
+            {
                 if input.peek(token::Brace) {
                     let block = input.call(expr::parsing::expr_block)?;
                     return Ok(GenericArgument::Const(Expr::Block(block)));
@@ -499,22 +502,32 @@ pub mod parsing {
             }
         }
 
-        fn parse_helper(input: ParseStream, expr_style: bool) -> Result<Self> {
-            Ok(Path {
+        pub(crate) fn parse_helper(input: ParseStream, expr_style: bool) -> Result<Self> {
+            let mut path = Path {
                 leading_colon: input.parse()?,
                 segments: {
                     let mut segments = Punctuated::new();
                     let value = PathSegment::parse_helper(input, expr_style)?;
                     segments.push_value(value);
-                    while input.peek(Token![::]) {
-                        let punct: Token![::] = input.parse()?;
-                        segments.push_punct(punct);
-                        let value = PathSegment::parse_helper(input, expr_style)?;
-                        segments.push_value(value);
-                    }
                     segments
                 },
-            })
+            };
+            Path::parse_rest(input, &mut path, expr_style)?;
+            Ok(path)
+        }
+
+        pub(crate) fn parse_rest(
+            input: ParseStream,
+            path: &mut Self,
+            expr_style: bool,
+        ) -> Result<()> {
+            while input.peek(Token![::]) {
+                let punct: Token![::] = input.parse()?;
+                path.segments.push_punct(punct);
+                let value = PathSegment::parse_helper(input, expr_style)?;
+                path.segments.push_value(value);
+            }
+            Ok(())
         }
     }
 

@@ -409,6 +409,16 @@ impl ClientBuilder {
         self.with_inner(move |inner| inner.local_address(addr))
     }
 
+    /// Set that all sockets have `SO_KEEPALIVE` set with the supplied duration.
+    ///
+    /// If `None`, the option will not be set.
+    pub fn tcp_keepalive<D>(self, val: D) -> ClientBuilder
+        where
+            D: Into<Option<Duration>>,
+    {
+        self.with_inner(move |inner| inner.tcp_keepalive(val))
+    }
+
     // TLS options
 
     /// Add a custom root certificate.
@@ -559,6 +569,13 @@ impl ClientBuilder {
     /// even if another dependency were to enable the optional `trust-dns` feature.
     pub fn no_trust_dns(self) -> ClientBuilder {
         self.with_inner(|inner| inner.no_trust_dns())
+    }
+
+    /// Restrict the Client to be used with HTTPS only requests.
+    /// 
+    /// Defaults to false.
+    pub fn https_only(self, enabled: bool) -> ClientBuilder {
+        self.with_inner(|inner| inner.https_only(enabled))
     }
 
     // private

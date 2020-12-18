@@ -12,11 +12,11 @@
 
 [package]
 name = "itoa"
-version = "0.4.6"
+version = "0.4.7"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 exclude = ["performance.png"]
 description = "Fast functions for printing integer primitives to an io::Write"
-documentation = "https://github.com/dtolnay/itoa"
+documentation = "https://docs.rs/itoa"
 readme = "README.md"
 categories = ["value-formatting"]
 license = "MIT OR Apache-2.0"

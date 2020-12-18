@@ -13,7 +13,7 @@
 //! syntax tree node + punctuation, where every node in the sequence is followed
 //! by punctuation except for possibly the final one.
 //!
-//! [`Punctuated<T, P>`]: struct.Punctuated.html
+//! [`Punctuated<T, P>`]: Punctuated
 //!
 //! ```text
 //! a_function_call(arg1, arg2, arg3);
@@ -50,7 +50,17 @@ pub struct Punctuated<T, P> {
 
 impl<T, P> Punctuated<T, P> {
     /// Creates an empty punctuated sequence.
-    pub fn new() -> Punctuated<T, P> {
+    #[cfg(not(syn_no_const_vec_new))]
+    pub const fn new() -> Self {
+        Punctuated {
+            inner: Vec::new(),
+            last: None,
+        }
+    }
+
+    /// Creates an empty punctuated sequence.
+    #[cfg(syn_no_const_vec_new)]
+    pub fn new() -> Self {
         Punctuated {
             inner: Vec::new(),
             last: None,

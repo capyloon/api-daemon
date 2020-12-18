@@ -300,7 +300,7 @@
 //! [macro]: https://docs.serde.rs/serde_json/macro.json.html
 //! [`serde-json-core`]: https://japaric.github.io/serde-json-core/serde_json_core/
 
-#![doc(html_root_url = "https://docs.rs/serde_json/1.0.59")]
+#![doc(html_root_url = "https://docs.rs/serde_json/1.0.61")]
 #![deny(clippy::all, clippy::pedantic)]
 // Ignored clippy lints
 #![allow(
@@ -309,10 +309,12 @@
     clippy::doc_markdown,
     clippy::excessive_precision,
     clippy::float_cmp,
+    clippy::manual_range_contains,
     clippy::match_like_matches_macro,
     clippy::match_single_binding,
     clippy::needless_doctest_main,
     clippy::transmute_ptr_to_ptr,
+    clippy::unnecessary_wraps,
     // clippy bug: https://github.com/rust-lang/rust-clippy/issues/5704
     clippy::unnested_or_patterns,
 )]
@@ -337,6 +339,7 @@
     // things are often more readable this way
     clippy::cast_lossless,
     clippy::module_name_repetitions,
+    clippy::redundant_else,
     clippy::shadow_unrelated,
     clippy::single_match_else,
     clippy::too_many_lines,

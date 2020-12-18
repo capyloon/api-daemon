@@ -1,4 +1,5 @@
-//! An attribute for easy generation of const functions with conditional compilations.
+//! An attribute for easy generation of const functions with conditional
+//! compilations.
 //!
 //! # Examples
 //!
@@ -39,23 +40,16 @@
 //! You can manually define declarative macros with similar functionality (see [`if_rust_version`](https://github.com/ogoffart/if_rust_version#examples)), or [you can define the same function twice with different cfg](https://github.com/crossbeam-rs/crossbeam/blob/0b6ea5f69fde8768c1cfac0d3601e0b4325d7997/crossbeam-epoch/src/atomic.rs#L340-L372).
 //! (Note: the former approach requires more macros to be defined depending on the number of version requirements, the latter approach requires more functions to be maintained manually)
 
-#![doc(html_root_url = "https://docs.rs/const_fn/0.4.3")]
 #![doc(test(
     no_crate_inject,
-    attr(deny(warnings, rust_2018_idioms, single_use_lifetimes), allow(dead_code))
+    attr(
+        deny(warnings, rust_2018_idioms, single_use_lifetimes),
+        allow(dead_code, unused_variables)
+    )
 ))]
 #![forbid(unsafe_code)]
 #![warn(future_incompatible, rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
 #![warn(clippy::all, clippy::default_trait_access)]
-// mem::take, #[non_exhaustive], and Option::{as_deref, as_deref_mut} require Rust 1.40,
-// matches! requires Rust 1.42, str::{strip_prefix, strip_suffix} requires Rust 1.45
-#![allow(
-    clippy::mem_replace_with_default,
-    clippy::manual_non_exhaustive,
-    clippy::option_as_ref_deref,
-    clippy::match_like_matches_macro,
-    clippy::manual_strip
-)]
 
 // older compilers require explicit `extern crate`.
 #[allow(unused_extern_crates)]
@@ -82,6 +76,7 @@ use crate::{
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An attribute for easy generation of const functions with conditional compilations.
+///
 /// See crate level documentation for details.
 #[proc_macro_attribute]
 pub fn const_fn(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -125,6 +120,7 @@ fn expand(arg: Arg, mut func: Func) -> TokenStream {
             func.print_const = VERSION.nightly;
             func.to_token_stream()
         }
+        Arg::Always => func.to_token_stream(),
     }
 }
 
@@ -137,6 +133,8 @@ enum Arg {
     Cfg(TokenStream),
     // `const_fn(feature = "...")`
     Feature(TokenStream),
+    // `const_fn`
+    Always,
 }
 
 fn parse_arg(tokens: TokenStream) -> Result<Arg> {
@@ -145,6 +143,7 @@ fn parse_arg(tokens: TokenStream) -> Result<Arg> {
     let next = iter.next();
     let next_span = tt_span(next.as_ref());
     match next {
+        None => return Ok(Arg::Always),
         Some(TokenTree::Ident(i)) => match &*i.to_string() {
             "nightly" => {
                 parse_as_empty(iter)?;
@@ -188,7 +187,7 @@ fn parse_arg(tokens: TokenStream) -> Result<Arg> {
                 };
             }
         }
-        _ => {}
+        Some(_) => {}
     }
 
     Err(error!(next_span, "expected one of: `nightly`, `cfg`, `feature`, string literal"))
@@ -228,7 +227,7 @@ struct Version {
 }
 
 #[cfg(const_fn_has_build_script)]
-const VERSION: Version = include!(concat!(env!("OUT_DIR"), "/version.rs"));
+const VERSION: Version = include!(concat!(env!("OUT_DIR"), "/version"));
 // If build script has not run or unable to determine version, it is considered as Rust 1.0.
 #[cfg(not(const_fn_has_build_script))]
 const VERSION: Version = Version { minor: 0, nightly: false };

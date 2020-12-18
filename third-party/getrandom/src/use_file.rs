@@ -7,11 +7,15 @@
 // except according to those terms.
 
 //! Implementations that just need to read from a file
-use crate::util::LazyUsize;
-use crate::util_libc::{open_readonly, sys_fill_exact};
-use crate::Error;
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use crate::{
+    util::LazyUsize,
+    util_libc::{open_readonly, sys_fill_exact},
+    Error,
+};
+use core::{
+    cell::UnsafeCell,
+    sync::atomic::{AtomicUsize, Ordering::Relaxed},
+};
 
 #[cfg(target_os = "redox")]
 const FILE_PATH: &str = "rand:\0";
@@ -99,7 +103,7 @@ fn wait_until_rng_ready() -> Result<(), Error> {
         // A negative timeout means an infinite timeout.
         let res = unsafe { libc::poll(&mut pfd, 1, -1) };
         if res >= 0 {
-            assert_eq!(res, 1); // We only used one fd, and cannot timeout.
+            debug_assert_eq!(res, 1); // We only used one fd, and cannot timeout.
             return Ok(());
         }
         let err = crate::util_libc::last_os_error();

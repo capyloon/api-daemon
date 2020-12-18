@@ -123,11 +123,15 @@
 #![deny(missing_docs)]
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 
+use serde::Serialize;
 use serde_json::Value as Json;
 use std::convert::TryFrom;
 use std::future::Future;
 use tokio::sync::oneshot;
-use webdriver::command::{SendKeysParameters, SwitchToFrameParameters, WebDriverCommand};
+use webdriver::command::{
+    NewWindowParameters, SendKeysParameters, SwitchToFrameParameters, SwitchToWindowParameters,
+    WebDriverCommand,
+};
 use webdriver::common::{FrameId, ELEMENT_KEY};
 use webdriver::error::WebDriverError;
 
@@ -166,9 +170,9 @@ pub enum Locator<'a> {
     XPath(&'a str),
 }
 
-impl<'a> Into<webdriver::command::LocatorParameters> for Locator<'a> {
-    fn into(self) -> webdriver::command::LocatorParameters {
-        match self {
+impl<'a> From<Locator<'a>> for webdriver::command::LocatorParameters {
+    fn from(locator: Locator<'a>) -> webdriver::command::LocatorParameters {
+        match locator {
             Locator::Css(s) => webdriver::command::LocatorParameters {
                 using: webdriver::common::LocatorStrategy::CSSSelector,
                 value: s.to_string(),
@@ -192,9 +196,11 @@ impl<'a> Into<webdriver::command::LocatorParameters> for Locator<'a> {
 pub use crate::session::Client;
 
 /// A single element on the current page.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Element {
+    #[serde(skip_serializing)]
     client: Client,
+    #[serde(flatten)]
     element: webdriver::common::WebElement,
 }
 
@@ -293,48 +299,18 @@ impl Client {
     }
 
     /// Sets the x, y, width, and height properties of the current window.
-    ///
-    /// All values must be `>= 0` or you will get a `CmdError::InvalidArgument`.
     pub async fn set_window_rect(
         &mut self,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
     ) -> Result<(), error::CmdError> {
-        if x < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(x).into(),
-                format!("Expected to be `>= 0` but was `{}`", x),
-            ));
-        }
-
-        if y < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(y).into(),
-                format!("Expected to be `>= 0` but was `{}`", y),
-            ));
-        }
-
-        if width < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(width).into(),
-                format!("Expected to be `>= 0` but was `{}`", width),
-            ));
-        }
-
-        if height < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(height).into(),
-                format!("Expected to be `>= 0` but was `{}`", height),
-            ));
-        }
-
         let cmd = WebDriverCommand::SetWindowRect(webdriver::command::WindowRectParameters {
-            x: Some(x),
-            y: Some(y),
-            width: Some(width),
-            height: Some(height),
+            x: Some(x as i32),
+            y: Some(y as i32),
+            width: Some(width as i32),
+            height: Some(height as i32),
         });
 
         self.issue(cmd).await?;
@@ -372,32 +348,16 @@ impl Client {
     }
 
     /// Sets the x, y, width, and height properties of the current window.
-    ///
-    /// All values must be `>= 0` or you will get a `CmdError::InvalidArgument`.
     pub async fn set_window_size(
         &mut self,
-        width: i32,
-        height: i32,
+        width: u32,
+        height: u32,
     ) -> Result<(), error::CmdError> {
-        if width < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(width).into(),
-                format!("Expected to be `>= 0` but was `{}`", width),
-            ));
-        }
-
-        if height < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(height).into(),
-                format!("Expected to be `>= 0` but was `{}`", height),
-            ));
-        }
-
         let cmd = WebDriverCommand::SetWindowRect(webdriver::command::WindowRectParameters {
             x: None,
             y: None,
-            width: Some(width),
-            height: Some(height),
+            width: Some(width as i32),
+            height: Some(height as i32),
         });
 
         self.issue(cmd).await?;
@@ -425,26 +385,10 @@ impl Client {
     }
 
     /// Sets the x, y, width, and height properties of the current window.
-    ///
-    /// All values must be `>= 0` or you will get a `CmdError::InvalidArgument`.
-    pub async fn set_window_position(&mut self, x: i32, y: i32) -> Result<(), error::CmdError> {
-        if x < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(x).into(),
-                format!("Expected to be `>= 0` but was `{}`", x),
-            ));
-        }
-
-        if y < 0 {
-            return Err(error::CmdError::InvalidArgument(
-                stringify!(y).into(),
-                format!("Expected to be `>= 0` but was `{}`", y),
-            ));
-        }
-
+    pub async fn set_window_position(&mut self, x: u32, y: u32) -> Result<(), error::CmdError> {
         let cmd = WebDriverCommand::SetWindowRect(webdriver::command::WindowRectParameters {
-            x: Some(x),
-            y: Some(y),
+            x: Some(x as i32),
+            y: Some(y as i32),
             width: None,
             height: None,
         });
@@ -495,6 +439,23 @@ impl Client {
         }
     }
 
+    /// Get the active element for this session.
+    ///
+    /// The "active" element is the `Element` within the DOM that currently has focus. This will
+    /// often be an `<input>` or `<textarea>` element that currently has the text selection, or
+    /// another input element such as a checkbox or radio button. Which elements are focusable
+    /// depends on the platform and browser configuration.
+    ///
+    /// If no element has focus, the result may be the page body or a `NoSuchElement` error.
+    pub async fn active_element(&mut self) -> Result<Element, error::CmdError> {
+        let res = self.issue(WebDriverCommand::GetActiveElement).await?;
+        let e = self.parse_lookup(res)?;
+        Ok(Element {
+            client: self.clone(),
+            element: e,
+        })
+    }
+
     /// Retrieve the currently active URL for this session.
     pub async fn current_url(&mut self) -> Result<url::Url, error::CmdError> {
         self.current_url_().await
@@ -535,8 +496,8 @@ impl Client {
     /// Execute the given JavaScript `script` in the current browser session.
     ///
     /// `args` is available to the script inside the `arguments` array. Since `Element` implements
-    /// `ToJson`, you can also provide serialized `Element`s as arguments, and they will correctly
-    /// serialize to DOM elements on the other side.
+    /// `Serialize`, you can also provide serialized `Element`s as arguments, and they will
+    /// correctly deserialize to DOM elements on the other side.
     ///
     /// To retrieve the value of a variable, `return` has to be used in the JavaScript code.
     pub async fn execute(
@@ -551,6 +512,47 @@ impl Client {
         };
 
         self.issue(WebDriverCommand::ExecuteScript(cmd)).await
+    }
+
+    /// Execute the given async JavaScript `script` in the current browser session.
+    ///
+    /// The provided JavaScript has access to `args` through the JavaScript variable `arguments`.
+    /// The `arguments` array also holds an additional element at the end that provides a completion callback
+    /// for the asynchronous code.
+    ///
+    /// Since `Element` implements `Serialize`, you can also provide serialized `Element`s as arguments, and they will
+    /// correctly deserialize to DOM elements on the other side.
+    ///
+    /// # Examples
+    ///
+    /// Call a web API from the browser and retrieve the value asynchronously
+    ///
+    /// ```ignore
+    /// const JS: &'static str = r#"
+    ///     const [date, callback] = arguments;
+    ///
+    ///     fetch(`http://weather.api/${date}/hourly`)
+    ///     // whenever the HTTP Request completes,
+    ///     // send the value back to the Rust context
+    ///     .then(data => {
+    ///         callback(data.json())
+    ///     })
+    /// "#;
+    ///
+    /// let weather = client.execute_async(JS, vec![date]).await?;
+    /// ```
+    pub async fn execute_async(
+        &mut self,
+        script: &str,
+        mut args: Vec<Json>,
+    ) -> Result<Json, error::CmdError> {
+        self.fixup_elements(&mut args);
+        let cmd = webdriver::command::JavascriptCommandParameters {
+            script: script.to_string(),
+            args: Some(args),
+        };
+
+        self.issue(WebDriverCommand::ExecuteAsyncScript(cmd)).await
     }
 
     /// Issue an HTTP request to the given `url` with all the same cookies as the current session.
@@ -602,8 +604,7 @@ impl Client {
         // TODO: go back before we return if this call errors:
         let cookies = self.issue(WebDriverCommand::GetCookies).await?;
         if !cookies.is_array() {
-            // NOTE: this clone should _really_ not be necessary
-            Err(error::CmdError::NotW3C(cookies.clone()))?;
+            return Err(error::CmdError::NotW3C(cookies));
         }
         self.back().await?;
         let ua = self.get_ua().await?;
@@ -644,8 +645,7 @@ impl Client {
         }
 
         if !all_ok {
-            // NOTE: this clone should _really_ not be necessary
-            Err(error::CmdError::NotW3C(cookies))?;
+            return Err(error::CmdError::NotW3C(cookies));
         }
 
         let mut req = hyper::Request::builder();
@@ -667,7 +667,7 @@ impl Client {
     }
 
     /// Switches to the frame specified at the index.
-    pub async fn frame(mut self, index: Option<u16>) -> Result<Client, error::CmdError> {
+    pub async fn enter_frame(mut self, index: Option<u16>) -> Result<Client, error::CmdError> {
         let params = SwitchToFrameParameters {
             id: index.map(FrameId::Short),
         };
@@ -676,7 +676,7 @@ impl Client {
     }
 
     /// Switches to the parent of the frame the client is currently contained within.
-    pub async fn parent_frame(mut self) -> Result<Client, error::CmdError> {
+    pub async fn enter_parent_frame(mut self) -> Result<Client, error::CmdError> {
         self.issue(WebDriverCommand::SwitchToParentFrame).await?;
         Ok(self)
     }
@@ -774,6 +774,90 @@ impl Client {
             client: self.clone(),
             form: f,
         })
+    }
+
+    /// Gets the current window handle.
+    pub async fn window(&mut self) -> Result<webdriver::common::WebWindow, error::CmdError> {
+        let res = self.issue(WebDriverCommand::GetWindowHandle).await?;
+        match res {
+            Json::String(x) => Ok(webdriver::common::WebWindow(x)),
+            v => Err(error::CmdError::NotW3C(v)),
+        }
+    }
+
+    /// Gets a list of all active windows (and tabs)
+    pub async fn windows(&mut self) -> Result<Vec<webdriver::common::WebWindow>, error::CmdError> {
+        let res = self.issue(WebDriverCommand::GetWindowHandles).await?;
+        match res {
+            Json::Array(handles) => handles
+                .into_iter()
+                .map(|handle| match handle {
+                    Json::String(x) => Ok(webdriver::common::WebWindow(x)),
+                    v => Err(error::CmdError::NotW3C(v)),
+                })
+                .collect::<Result<Vec<_>, _>>(),
+            v => Err(error::CmdError::NotW3C(v)),
+        }
+    }
+
+    /// Switches to the chosen window.
+    pub async fn switch_to_window(
+        &mut self,
+        window: webdriver::common::WebWindow,
+    ) -> Result<(), error::CmdError> {
+        let params = SwitchToWindowParameters { handle: window.0 };
+        let _res = self.issue(WebDriverCommand::SwitchToWindow(params)).await?;
+        Ok(())
+    }
+
+    /// Closes the current window.
+    ///
+    /// Will close the session if no other windows exist.
+    ///
+    /// Closing a window will not switch the client to one of the remaining windows.
+    /// The switching must be done by calling `switch_to_window` using a still live window
+    /// after the current window has been closed.
+    pub async fn close_window(&mut self) -> Result<(), error::CmdError> {
+        let _res = self.issue(WebDriverCommand::CloseWindow).await?;
+        Ok(())
+    }
+
+    /// Creates a new window. If `is_tab` is `true`, then a tab will be created instead.
+    ///
+    /// Requires geckodriver > 0.24 and firefox > 66
+    ///
+    /// Windows are treated the same as tabs by the webdriver protocol.
+    /// The functions `new_window`, `switch_to_window`, `close_window`, `window` and `windows`
+    /// all operate on both tabs and windows.
+    pub async fn new_window(
+        &mut self,
+        as_tab: bool,
+    ) -> Result<webdriver::response::NewWindowResponse, error::CmdError> {
+        let type_hint = if as_tab { "tab" } else { "window" }.to_string();
+        let type_hint = Some(type_hint);
+        let params = NewWindowParameters { type_hint };
+        match self.issue(WebDriverCommand::NewWindow(params)).await? {
+            Json::Object(mut obj) => {
+                let handle = match obj
+                    .remove("handle")
+                    .and_then(|x| x.as_str().map(String::from))
+                {
+                    Some(handle) => handle,
+                    None => return Err(error::CmdError::NotW3C(Json::Object(obj))),
+                };
+
+                let typ = match obj
+                    .remove("type")
+                    .and_then(|x| x.as_str().map(String::from))
+                {
+                    Some(typ) => typ,
+                    None => return Err(error::CmdError::NotW3C(Json::Object(obj))),
+                };
+
+                Ok(webdriver::response::NewWindowResponse { handle, typ })
+            }
+            v => Err(error::CmdError::NotW3C(v)),
+        }
     }
 
     // helpers
@@ -1004,9 +1088,9 @@ impl Element {
                     webdriver::error::ErrorStatus::InvalidArgument,
                     "cannot follow element without href attribute",
                 );
-                Err(error::CmdError::Standard(e))?
+                return Err(error::CmdError::Standard(e));
             }
-            v => Err(error::CmdError::NotW3C(v))?,
+            v => return Err(error::CmdError::NotW3C(v)),
         };
 
         let url = self.client.current_url_().await?;
@@ -1033,8 +1117,24 @@ impl Element {
         .await
     }
 
+    /// Find and click an `<option>` child element by its index.
+    ///
+    /// This method clicks the first `<option>` element that is an `index`th child
+    /// (`option:nth-of-type(index+1)`). This will be the `index`th `<option>`
+    /// element if the current element is a `<select>`. If you use this method on
+    /// an `Element` that is _not_ a `<select>` (such as on a full `<form>`), it
+    /// may not do what you expect if there are multiple `<select>` elements
+    /// in the form, or if it there are stray `<option>` in the form.
+    ///
+    /// The indexing in this method is 0-based.
+    pub async fn select_by_index(mut self, index: usize) -> Result<Client, error::CmdError> {
+        let locator = format!("option:nth-of-type({})", index + 1);
+
+        self.find(Locator::Css(&locator)).await?.click().await
+    }
+
     /// Switches to the frame contained within the element.
-    pub async fn frame(self) -> Result<Client, error::CmdError> {
+    pub async fn enter_frame(self) -> Result<Client, error::CmdError> {
         let Self {
             mut client,
             element,
@@ -1084,7 +1184,7 @@ impl Form {
 
     /// Find a form input with the given `name` and set its value to `value`.
     pub async fn set_by_name(&mut self, field: &str, value: &str) -> Result<Self, error::CmdError> {
-        let locator = format!("input[name='{}']", field);
+        let locator = format!("[name='{}']", field);
         let locator = Locator::Css(&locator);
         self.set(locator, value).await
     }

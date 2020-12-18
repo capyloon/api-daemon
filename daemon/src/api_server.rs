@@ -236,7 +236,7 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
 
             let etag = etag_for_file(&file).await;
             let if_none_match = req.headers().get(header::IF_NONE_MATCH);
-            if let Some(response) = maybe_not_modified(if_none_match, &etag, &content_type) {
+            if let Some(response) = maybe_not_modified(if_none_match, &etag, &content_type, None) {
                 return Ok(response);
             }
 

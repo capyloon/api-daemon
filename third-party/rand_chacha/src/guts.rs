@@ -21,7 +21,7 @@ const BUFBLOCKS: u64 = 1 << LOG2_BUFBLOCKS;
 pub(crate) const BUFSZ64: u64 = BLOCK64 * BUFBLOCKS;
 pub(crate) const BUFSZ: usize = BUFSZ64 as usize;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ChaCha {
     pub(crate) b: vec128_storage,
     pub(crate) c: vec128_storage,
@@ -91,8 +91,17 @@ impl ChaCha {
     pub fn get_stream_param(&self, param: u32) -> u64 {
         get_stream_param(self, param)
     }
+
+    /// Return whether rhs is equal in all parameters except current 64-bit position.
+    #[inline]
+    pub fn stream64_eq(&self, rhs: &Self) -> bool {
+        let self_d: [u32; 4] = self.d.into();
+        let rhs_d: [u32; 4] = rhs.d.into();
+        self.b == rhs.b && self.c == rhs.c && self_d[3] == rhs_d[3] && self_d[2] == rhs_d[2]
+    }
 }
 
+#[allow(clippy::many_single_char_names)]
 #[inline(always)]
 fn refill_wide_impl<Mach: Machine>(
     m: Mach, state: &mut ChaCha, drounds: u32, out: &mut [u8; BUFSZ],
@@ -100,11 +109,11 @@ fn refill_wide_impl<Mach: Machine>(
     let k = m.vec([0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574]);
     let mut pos = state.pos64(m);
     let d0: Mach::u32x4 = m.unpack(state.d);
-    pos += 1;
+    pos = pos.wrapping_add(1);
     let d1 = d0.insert((pos >> 32) as u32, 1).insert(pos as u32, 0);
-    pos += 1;
+    pos = pos.wrapping_add(1);
     let d2 = d0.insert((pos >> 32) as u32, 1).insert(pos as u32, 0);
-    pos += 1;
+    pos = pos.wrapping_add(1);
     let d3 = d0.insert((pos >> 32) as u32, 1).insert(pos as u32, 0);
 
     let b = m.unpack(state.b);
@@ -121,13 +130,13 @@ fn refill_wide_impl<Mach: Machine>(
     }
     let mut pos = state.pos64(m);
     let d0: Mach::u32x4 = m.unpack(state.d);
-    pos += 1;
+    pos = pos.wrapping_add(1);
     let d1 = d0.insert((pos >> 32) as u32, 1).insert(pos as u32, 0);
-    pos += 1;
+    pos = pos.wrapping_add(1);
     let d2 = d0.insert((pos >> 32) as u32, 1).insert(pos as u32, 0);
-    pos += 1;
+    pos = pos.wrapping_add(1);
     let d3 = d0.insert((pos >> 32) as u32, 1).insert(pos as u32, 0);
-    pos += 1;
+    pos = pos.wrapping_add(1);
     let d4 = d0.insert((pos >> 32) as u32, 1).insert(pos as u32, 0);
 
     let (a, b, c, d) = (

@@ -1101,6 +1101,7 @@ pub const O_SYNC: ::c_int = 0x101000;
 pub const O_ASYNC: ::c_int = 0x2000;
 pub const O_NDELAY: ::c_int = 0x800;
 pub const O_DSYNC: ::c_int = 4096;
+pub const O_RSYNC: ::c_int = O_SYNC;
 
 pub const NI_MAXHOST: ::size_t = 1025;
 pub const NI_MAXSERV: ::size_t = 32;
@@ -2349,6 +2350,20 @@ f! {
     pub fn SO_EE_OFFENDER(ee: *const ::sock_extended_err) -> *mut ::sockaddr {
         ee.offset(1) as *mut ::sockaddr
     }
+
+    // Sadly, Android before 5.0 (API level 21), the accept4 syscall is not
+    // exposed by the libc. As work-around, we implement it through `syscall`
+    // directly. This workaround can be removed if the minimum version of
+    // Android is bumped. When the workaround is removed, `accept4` can be
+    // moved back to `linux_like/mod.rs`
+    pub fn accept4(
+        fd: ::c_int,
+        addr: *mut ::sockaddr,
+        len: *mut ::socklen_t,
+        flg: ::c_int
+    ) -> ::c_int {
+        syscall(SYS_accept4, fd, addr, len, flg) as ::c_int
+    }
 }
 
 extern "C" {
@@ -2451,6 +2466,8 @@ extern "C" {
     pub fn setutent();
     pub fn getutent() -> *mut utmp;
 
+    pub fn seekdir(dirp: *mut ::DIR, loc: ::c_long);
+    pub fn telldir(dirp: *mut ::DIR) -> ::c_long;
     pub fn fallocate(
         fd: ::c_int,
         mode: ::c_int,

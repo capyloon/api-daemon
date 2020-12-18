@@ -1871,7 +1871,7 @@ impl<'de> Deserialize<'de> for Duration {
         enum Field {
             Secs,
             Nanos,
-        };
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -1996,7 +1996,7 @@ impl<'de> Deserialize<'de> for SystemTime {
         enum Field {
             Secs,
             Nanos,
-        };
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -2334,10 +2334,7 @@ where
                             0 => Ok(Field::Unbounded),
                             1 => Ok(Field::Included),
                             2 => Ok(Field::Excluded),
-                            _ => Err(Error::invalid_value(
-                                Unexpected::Unsigned(value),
-                                &self,
-                            )),
+                            _ => Err(Error::invalid_value(Unexpected::Unsigned(value), &self)),
                         }
                     }
 
@@ -2499,10 +2496,7 @@ where
                         match value {
                             0 => Ok(Field::Ok),
                             1 => Ok(Field::Err),
-                            _ => Err(Error::invalid_value(
-                                Unexpected::Unsigned(value),
-                                &self,
-                            )),
+                            _ => Err(Error::invalid_value(Unexpected::Unsigned(value), &self)),
                         }
                     }
 
@@ -2570,7 +2564,6 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[cfg(feature = "std")]
 impl<'de, T> Deserialize<'de> for Wrapping<T>
 where
     T: Deserialize<'de>,

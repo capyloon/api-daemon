@@ -65,7 +65,7 @@ impl Client {
         });
 
         async move {
-            if let Err(_) = r {
+            if r.is_err() {
                 return Err(error::CmdError::Lost(io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     "WebDriver session has been closed",
@@ -113,11 +113,7 @@ enum OngoingResult {
 
 impl Ongoing {
     fn is_some(&self) -> bool {
-        if let Ongoing::None = *self {
-            false
-        } else {
-            true
-        }
+        !matches!(self, Ongoing::None)
     }
 
     // returns true if outer loop should break
@@ -127,7 +123,7 @@ impl Ongoing {
             Ongoing::Break => OngoingResult::Break,
             Ongoing::Shutdown { mut fut, ack } => {
                 if Pin::new(&mut fut).poll(cx).is_pending() {
-                    mem::replace(self, Ongoing::Shutdown { fut, ack });
+                    *self = Ongoing::Shutdown { fut, ack };
                     return Poll::Pending;
                 }
 
@@ -140,7 +136,7 @@ impl Ongoing {
                 let rsp = if let Poll::Ready(v) = fut.as_mut().poll(cx) {
                     v
                 } else {
-                    mem::replace(self, Ongoing::WebDriver { fut, ack });
+                    *self = Ongoing::WebDriver { fut, ack };
                     return Poll::Pending;
                 };
                 let mut rt = OngoingResult::Continue;
@@ -166,7 +162,7 @@ impl Ongoing {
                 let rt = if let Poll::Ready(v) = Pin::new(&mut fut).poll(cx) {
                     v
                 } else {
-                    mem::replace(self, Ongoing::Raw { fut, ack, ret });
+                    *self = Ongoing::Raw { fut, ack, ret };
                     return Poll::Pending;
                 };
                 let _ = ack.send(Ok(Json::Null));
@@ -271,6 +267,12 @@ impl Future for Session {
 
 impl Session {
     fn shutdown(&mut self, ack: Option<Ack>) {
+        // session was not created
+        if self.session.is_none() {
+            self.ongoing = Ongoing::Break;
+            return;
+        }
+
         let url = {
             self.wdb
                 .join(&format!("session/{}", self.session.as_ref().unwrap()))
@@ -347,7 +349,7 @@ impl Session {
             rx,
             ongoing: Ongoing::None,
             client,
-            wdb: wdb,
+            wdb,
             session: None,
             is_legacy: false,
             ua: None,
@@ -463,6 +465,7 @@ impl Session {
             WebDriverCommand::GetCookies => base.join("cookie"),
             WebDriverCommand::ExecuteScript(..) if self.is_legacy => base.join("execute"),
             WebDriverCommand::ExecuteScript(..) => base.join("execute/sync"),
+            WebDriverCommand::ExecuteAsyncScript(..) => base.join("execute/async"),
             WebDriverCommand::GetElementProperty(ref we, ref prop) => {
                 base.join(&format!("element/{}/property/{}", we.0, prop))
             }
@@ -488,6 +491,12 @@ impl Session {
             WebDriverCommand::TakeScreenshot => base.join("screenshot"),
             WebDriverCommand::SwitchToFrame(_) => base.join("frame"),
             WebDriverCommand::SwitchToParentFrame => base.join("frame/parent"),
+            WebDriverCommand::GetWindowHandle => base.join("window"),
+            WebDriverCommand::GetWindowHandles => base.join("window/handles"),
+            WebDriverCommand::NewWindow(..) => base.join("window/new"),
+            WebDriverCommand::SwitchToWindow(..) => base.join("window"),
+            WebDriverCommand::CloseWindow => base.join("window"),
+            WebDriverCommand::GetActiveElement => base.join("element/active"),
             _ => unimplemented!(),
         }
     }
@@ -561,6 +570,10 @@ impl Session {
                 body = Some(serde_json::to_string(script).unwrap());
                 method = Method::POST;
             }
+            WebDriverCommand::ExecuteAsyncScript(ref script) => {
+                body = Some(serde_json::to_string(script).unwrap());
+                method = Method::POST;
+            }
             WebDriverCommand::ElementSendKeys(_, ref keys) => {
                 body = Some(serde_json::to_string(keys).unwrap());
                 method = Method::POST;
@@ -580,7 +593,21 @@ impl Session {
                 body = Some(serde_json::to_string(params).unwrap());
                 method = Method::POST
             }
-            WebDriverCommand::SwitchToParentFrame => method = Method::POST,
+            WebDriverCommand::SwitchToParentFrame => {
+                body = Some("{}".to_string());
+                method = Method::POST
+            }
+            WebDriverCommand::SwitchToWindow(ref params) => {
+                body = Some(serde_json::to_string(params).unwrap());
+                method = Method::POST;
+            }
+            WebDriverCommand::NewWindow(ref params) => {
+                body = Some(serde_json::to_string(params).unwrap());
+                method = Method::POST;
+            }
+            WebDriverCommand::CloseWindow => {
+                method = Method::DELETE;
+            }
             _ => {}
         }
 
@@ -654,11 +681,7 @@ impl Session {
             })
             .map(move |r| {
                 let (body, status) = r?;
-                let is_new_session = if let WebDriverCommand::NewSession(..) = cmd {
-                    true
-                } else {
-                    false
-                };
+                let is_new_session = matches!(cmd, WebDriverCommand::NewSession(..));
 
                 let mut is_success = status.is_success();
                 let mut legacy_status = 0;
@@ -677,7 +700,7 @@ impl Session {
                             Ok(Json::Object(v))
                         } else {
                             v.remove("value")
-                                .ok_or_else(|| error::CmdError::NotW3C(Json::Object(v)))
+                                .ok_or(error::CmdError::NotW3C(Json::Object(v)))
                         }
                     }
                     v => Err(error::CmdError::NotW3C(v)),
@@ -762,6 +785,8 @@ impl Session {
                             "no such cookie" => ErrorStatus::NoSuchCookie,
                             "invalid session id" => ErrorStatus::InvalidSessionId,
                             "no such element" => ErrorStatus::NoSuchElement,
+                            "no such window" => ErrorStatus::NoSuchWindow,
+                            "stale element reference" => ErrorStatus::NoSuchElement,
                             _ => unreachable!(
                                 "received unknown error ({}) for NOT_FOUND status code",
                                 error
@@ -775,6 +800,7 @@ impl Session {
                             "unable to capture screen" => ErrorStatus::UnableToCaptureScreen,
                             "unexpected alert open" => ErrorStatus::UnexpectedAlertOpen,
                             "unknown error" => ErrorStatus::UnknownError,
+                            "script timeout" => ErrorStatus::ScriptTimeout,
                             "unsupported operation" => ErrorStatus::UnsupportedOperation,
                             _ => unreachable!(
                                 "received unknown error ({}) for INTERNAL_SERVER_ERROR status code",

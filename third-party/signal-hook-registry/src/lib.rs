@@ -1,7 +1,4 @@
-#![doc(
-    html_root_url = "https://docs.rs/signal-hook-registry/1.2.2/signal-hook-registry/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 #![warn(missing_docs)]
 #![allow(unknown_lints, renamed_and_remove_lints, bare_trait_objects)]
 
@@ -124,7 +121,7 @@ struct ActionId(u128);
 /// An ID of registered action.
 ///
 /// This is returned by all the registration routines and can be used to remove the action later on
-/// with a call to [`unregister`](fn.unregister.html).
+/// with a call to [`unregister`].
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct SigId {
     signal: c_int,
@@ -152,10 +149,7 @@ impl Slot {
             return Err(Error::last_os_error());
         }
         Ok(Slot {
-            prev: Prev {
-                signal,
-                info: old,
-            },
+            prev: Prev { signal, info: old },
             actions: BTreeMap::new(),
         })
     }
@@ -181,10 +175,7 @@ impl Slot {
             return Err(Error::last_os_error());
         }
         Ok(Slot {
-            prev: Prev {
-                signal,
-                info: old,
-            },
+            prev: Prev { signal, info: old },
             actions: BTreeMap::new(),
         })
     }
@@ -212,10 +203,7 @@ impl Prev {
         if old == SIG_ERR {
             return Err(Error::last_os_error());
         }
-        Ok(Prev {
-            signal,
-            info: old,
-        })
+        Ok(Prev { signal, info: old })
     }
 
     #[cfg(not(windows))]
@@ -227,10 +215,7 @@ impl Prev {
             return Err(Error::last_os_error());
         }
 
-        Ok(Prev {
-            signal,
-            info: old,
-        })
+        Ok(Prev { signal, info: old })
     }
 
     #[cfg(windows)]
@@ -398,7 +383,7 @@ extern "C" fn handler(sig: c_int, info: *mut siginfo_t, data: *mut c_void) {
 /// library refuses to handle them (eg. SIGSEGV). The routines panic in case registering one of
 /// these signals is attempted.
 ///
-/// See [`register`](fn.register.html).
+/// See [`register`].
 pub const FORBIDDEN: &[c_int] = FORBIDDEN_IMPL;
 
 #[cfg(windows)]
@@ -416,7 +401,7 @@ const FORBIDDEN_IMPL: &[c_int] = &[SIGKILL, SIGSTOP, SIGILL, SIGFPE, SIGSEGV];
 /// as part of this library's signal handler, before any actions set through this function.
 ///
 /// On success, the function returns an ID that can be used to remove the action again with
-/// [`unregister`](fn.unregister.html).
+/// [`unregister`].
 ///
 /// # Panics
 ///
@@ -492,15 +477,17 @@ const FORBIDDEN_IMPL: &[c_int] = &[SIGKILL, SIGSTOP, SIGILL, SIGFPE, SIGSEGV];
 /// # Examples
 ///
 /// ```rust
-/// extern crate signal_hook;
+/// extern crate signal_hook_registry;
 ///
 /// use std::io::Error;
 /// use std::process;
 ///
 /// fn main() -> Result<(), Error> {
-///     let signal = unsafe { signal_hook::register(signal_hook::SIGTERM, || process::abort()) }?;
+///     let signal = unsafe {
+///         signal_hook_registry::register(signal_hook::consts::SIGTERM, || process::abort())
+///     }?;
 ///     // Stuff here...
-///     signal_hook::unregister(signal); // Not really necessary.
+///     signal_hook_registry::unregister(signal); // Not really necessary.
 ///     Ok(())
 /// }
 /// ```
@@ -609,7 +596,10 @@ where
             // And yes, this still leaves a short race condition when some other thread could
             // replace the signal handler and we would be calling the outdated one for a short
             // time, until we install the slot.
-            globals.race_fallback.write().store(Some(Prev::detect(signal)?));
+            globals
+                .race_fallback
+                .write()
+                .store(Some(Prev::detect(signal)?));
 
             let mut slot = Slot::new(signal)?;
             slot.actions.insert(id, action);
@@ -627,8 +617,8 @@ where
 /// This function does nothing if the action was already removed. It returns true if it was removed
 /// and false if the action wasn't found.
 ///
-/// It can unregister all the actions installed by [`register`](fn.register.html) as well as the
-/// ones from downstream crates (like [`signal-hook`](https://docs.rs/signal-hook)).
+/// It can unregister all the actions installed by [`register`] as well as the ones from downstream
+/// crates (like [`signal-hook`](https://docs.rs/signal-hook)).
 ///
 /// # Warning
 ///
@@ -653,22 +643,14 @@ pub fn unregister(id: SigId) -> bool {
     replace
 }
 
-/// Removes all previously installed actions for a given signal.
-///
-/// This is similar to the [`unregister`](fn.unregister.html) function, with the sole difference it
-/// removes all actions for the given signal.
-///
-/// Returns if any hooks were actually removed (returns false if there was no hook registered for
-/// the signal).
-///
-/// # Warning
-///
-/// Similar to [`unregister`](fn.unregister.html), this does not manipulate the signal handler in
-/// the OS, it only removes the hooks on the Rust side.
-///
-/// Furthermore, this will remove *all* signal hooks of the given signal. These may have been
-/// registered by some library or unrelated part of the program. Therefore, this should be only
-/// used by the top-level application.
+// We keep this one here for strict backwards compatibility, but the API is kind of bad. One can
+// delete actions that don't belong to them, which is kind of against the whole idea of not
+// breaking stuff for others.
+#[deprecated(
+    since = "1.3.0",
+    note = "Don't use. Can influence unrelated parts of program / unknown actions"
+)]
+#[doc(hidden)]
 pub fn unregister_signal(signal: c_int) -> bool {
     let globals = GlobalData::ensure();
     let mut replace = false;

@@ -12,7 +12,7 @@
 
 [package]
 name = "openssl"
-version = "0.10.30"
+version = "0.10.32"
 authors = ["Steven Fackler <sfackler@gmail.com>"]
 description = "OpenSSL bindings"
 readme = "README.md"
@@ -24,7 +24,7 @@ repository = "https://github.com/sfackler/rust-openssl"
 version = "1.0"
 
 [dependencies.cfg-if]
-version = "0.1"
+version = "1.0"
 
 [dependencies.foreign-types]
 version = "0.3.1"
@@ -36,7 +36,7 @@ version = "1"
 version = "0.2"
 
 [dependencies.openssl-sys]
-version = "0.9.58"
+version = "0.9.60"
 [dev-dependencies.hex]
 version = "0.3"
 

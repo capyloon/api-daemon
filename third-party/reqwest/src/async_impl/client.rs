@@ -106,6 +106,7 @@ struct Config {
     cookie_store: Option<cookie::CookieStore>,
     trust_dns: bool,
     error: Option<crate::Error>,
+    https_only: bool,
 }
 
 impl Default for ClientBuilder {
@@ -135,7 +136,9 @@ impl ClientBuilder {
                 connection_verbose: false,
                 pool_idle_timeout: Some(Duration::from_secs(90)),
                 pool_max_idle_per_host: std::usize::MAX,
-                tcp_keepalive: Some(Duration::from_secs(60)),
+                // TODO: Re-enable default duration once hyper's HttpConnector is fixed
+                // to no longer error when an option fails.
+                tcp_keepalive: None, //Some(Duration::from_secs(60)),
                 proxies: Vec::new(),
                 auto_sys_proxy: true,
                 redirect_policy: redirect::Policy::default(),
@@ -157,6 +160,7 @@ impl ClientBuilder {
                 trust_dns: cfg!(feature = "trust-dns"),
                 #[cfg(feature = "cookies")]
                 cookie_store: None,
+                https_only: false,
             },
         }
     }
@@ -349,6 +353,7 @@ impl ClientBuilder {
                 request_timeout: config.timeout,
                 proxies,
                 proxies_maybe_http_auth,
+                https_only: config.https_only,
             }),
         })
     }
@@ -727,8 +732,6 @@ impl ClientBuilder {
     /// Set that all sockets have `SO_KEEPALIVE` set with the supplied duration.
     ///
     /// If `None`, the option will not be set.
-    ///
-    /// Default is 60 seconds.
     pub fn tcp_keepalive<D>(mut self, val: D) -> ClientBuilder
         where
             D: Into<Option<Duration>>,
@@ -917,6 +920,14 @@ impl ClientBuilder {
             self
         }
     }
+
+    /// Restrict the Client to be used with HTTPS only requests.
+    /// 
+    /// Defaults to false.
+    pub fn https_only(mut self, enabled: bool) -> ClientBuilder {
+        self.config.https_only = enabled;
+        self
+    }
 }
 
 type HyperClient = hyper::Client<Connector, super::body::ImplStream>;
@@ -1037,6 +1048,11 @@ impl Client {
     pub(super) fn execute_request(&self, req: Request) -> Pending {
         let (method, url, mut headers, body, timeout) = req.pieces();
         if url.scheme() != "http" && url.scheme() != "https" {
+            return Pending::new_err(error::url_bad_scheme(url));
+        }
+
+        // check if we're in https_only mode and check the scheme of the current URL
+        if self.inner.https_only && url.scheme() != "https" {
             return Pending::new_err(error::url_bad_scheme(url));
         }
 
@@ -1238,6 +1254,7 @@ struct ClientRef {
     request_timeout: Option<Duration>,
     proxies: Arc<Vec<Proxy>>,
     proxies_maybe_http_auth: bool,
+    https_only: bool,
 }
 
 impl ClientRef {

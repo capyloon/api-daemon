@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "rand_chacha"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["The Rand Project Developers", "The Rust Project Developers", "The CryptoCorrosion Contributors"]
 description = "ChaCha random number generator\n"
 homepage = "https://crates.io/crates/rand_chacha"
@@ -24,19 +24,14 @@ categories = ["algorithms", "no-std"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-random/rand"
 [dependencies.ppv-lite86]
-version = "0.2.6"
+version = "0.2.8"
 features = ["simd"]
 default-features = false
 
 [dependencies.rand_core]
-version = "0.5"
+version = "0.6.0"
 
 [features]
-default = ["std", "simd"]
+default = ["std"]
 simd = []
 std = ["ppv-lite86/std"]
-[badges.appveyor]
-repository = "rust-random/rand"
-
-[badges.travis-ci]
-repository = "rust-random/rand"

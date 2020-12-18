@@ -120,6 +120,7 @@ mod test {
 
         let fut = async move {
             let url2 = url.clone();
+            let url3 = url.clone();
             let response = http_client(lang, if_none_match).get(url).send().await;
             response
                 .map_err(move |err| {
@@ -127,7 +128,7 @@ mod test {
                     panic!("Failed to retrieve {}", url2.clone());
                 })
                 .and_then(|response| {
-                    assert_eq!(response.status(), expected);
+                    assert_eq!(response.status(), expected, "{}", url3);
                     if response.status() == StatusCode::OK {
                         assert_eq!(response.content_type(), mime);
                     }
@@ -160,7 +161,6 @@ mod test {
         url: &str,
         expected: StatusCode,
     ) -> Result<String, ()> {
-        use actix_web::HttpMessage;
         use log::error;
 
         let url = url.to_owned();
@@ -300,16 +300,16 @@ mod test {
             "text/html",
         )
         .unwrap();
-        assert_eq!(&etag, "W/\"1609980977.107365048-0\"");
+        assert_eq!(&etag, "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\"");
 
         let etag = request_if_none_match(
             "http://missing-zip.localhost:7443/index.html",
             StatusCode::NOT_MODIFIED,
             "text/html",
-            "W/\"1609980977.107365048-0\"",
+            "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\"",
         )
         .unwrap();
-        assert_eq!(&etag, "W/\"1609980977.107365048-0\"");
+        assert_eq!(&etag, "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\"");
 
         // Testing etag from zip.
         let etag = request(
@@ -350,7 +350,7 @@ mod test {
             "http://valid.localhost:7443/path/to/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
         );
 
-        let url = redirect_request(
+        let _url = redirect_request(
             "http://localhost:7443/valid/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
             StatusCode::BAD_REQUEST,
         );

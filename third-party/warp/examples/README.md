@@ -8,7 +8,7 @@ Welcome to the examples! These show off `warp`'s functionality and explain how t
 - [`routing.rs`](./routing.rs) - Builds up a more complex set of routes and shows how to combine filters
 - [`body.rs`](./body.rs) - What's a good API without parsing data from the request body?
 - [`headers.rs`](./headers.rs) - Parsing data from the request headers
-- [`errors.rs`](./errors.rs) - Your APIs are obviously perfect, but for silly others who call them incorrectly you'll want to define errors for them
+- [`rejections.rs`](./rejections.rs) - Your APIs are obviously perfect, but for silly others who call them incorrectly you'll want to define errors for them
 - [`futures.rs`](./futures.rs) - Wait, wait! ... Or how to integrate futures into filters
 - [`todos.rs`](./todos.rs) - Putting this all together with a proper app
 
@@ -35,3 +35,11 @@ Hooray! `warp` also includes built-in support for WebSockets
 ### TLS
 
 - [`tls.rs`](./tls.rs) - can i haz security?
+
+### Autoreloading
+
+- [`autoreload.rs`](./autoreload.rs) - Change some code and watch the server reload automatically!
+
+### Debugging
+
+- [`tracing.rs`](./tracing.rs) - Warp has built-in support for rich diagnostics with [`tracing`](https://docs.rs/tracing)!

@@ -9,16 +9,24 @@
 // except according to those terms.
 
 use std::cmp;
+#[cfg(target_os = "linux")]
+use std::ffi::{CStr, CString};
 use std::fmt;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::mem;
+#[cfg(target_os = "linux")]
+use std::mem::MaybeUninit;
 use std::net::Shutdown;
 use std::net::{self, Ipv4Addr, Ipv6Addr};
 use std::ops::Neg;
 #[cfg(feature = "unix")]
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
 use std::os::unix::prelude::*;
+#[cfg(target_os = "linux")]
+use std::ptr;
+#[cfg(target_os = "linux")]
+use std::slice;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -31,7 +39,9 @@ pub use libc::c_int;
 // Used in `Domain`.
 pub(crate) use libc::{AF_INET, AF_INET6};
 // Used in `Type`.
-pub(crate) use libc::{SOCK_DGRAM, SOCK_RAW, SOCK_SEQPACKET, SOCK_STREAM};
+#[cfg(not(target_os = "redox"))]
+pub(crate) use libc::SOCK_RAW;
+pub(crate) use libc::{SOCK_DGRAM, SOCK_SEQPACKET, SOCK_STREAM};
 // Used in `Protocol`.
 pub(crate) use libc::{IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP};
 
@@ -131,8 +141,9 @@ impl_debug!(
     crate::Type,
     libc::SOCK_STREAM,
     libc::SOCK_DGRAM,
+    #[cfg(not(target_os = "redox"))]
     libc::SOCK_RAW,
-    #[cfg(not(target_os = "haiku"))]
+    #[cfg(not(any(target_os = "haiku", target_os = "redox")))]
     libc::SOCK_RDM,
     libc::SOCK_SEQPACKET,
     /* TODO: add these optional bit OR-ed flags:
@@ -534,6 +545,7 @@ impl Socket {
         unsafe { self.setsockopt(libc::IPPROTO_IP, libc::IP_TTL, ttl as c_int) }
     }
 
+    #[cfg(not(target_os = "redox"))]
     pub fn mss(&self) -> io::Result<u32> {
         unsafe {
             let raw: c_int = self.getsockopt(libc::IPPROTO_TCP, libc::TCP_MAXSEG)?;
@@ -541,6 +553,7 @@ impl Socket {
         }
     }
 
+    #[cfg(not(target_os = "redox"))]
     pub fn set_mss(&self, mss: u32) -> io::Result<()> {
         unsafe { self.setsockopt(libc::IPPROTO_TCP, libc::TCP_MAXSEG, mss as c_int) }
     }
@@ -556,6 +569,62 @@ impl Socket {
     #[cfg(target_os = "linux")]
     pub fn set_mark(&self, mark: u32) -> io::Result<()> {
         unsafe { self.setsockopt(libc::SOL_SOCKET, libc::SO_MARK, mark as c_int) }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn device(&self) -> io::Result<Option<CString>> {
+        // TODO: replace with `MaybeUninit::uninit_array` once stable.
+        let mut buf: [MaybeUninit<u8>; libc::IFNAMSIZ] =
+            unsafe { MaybeUninit::<[MaybeUninit<u8>; libc::IFNAMSIZ]>::uninit().assume_init() };
+        let mut len = buf.len() as libc::socklen_t;
+        let len = unsafe {
+            cvt(libc::getsockopt(
+                self.fd,
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
+                buf.as_mut_ptr().cast(),
+                &mut len,
+            ))?
+        };
+        if len == 0 {
+            Ok(None)
+        } else {
+            // Allocate a buffer for `CString` with the length including the
+            // null terminator.
+            let len = len as usize;
+            let mut name = Vec::with_capacity(len);
+
+            // TODO: use `MaybeUninit::slice_assume_init_ref` once stable.
+            // Safety: `len` bytes are writen by the OS, this includes a null
+            // terminator. However we don't copy the null terminator because
+            // `CString::from_vec_unchecked` adds its own null terminator.
+            let buf = unsafe { slice::from_raw_parts(buf.as_ptr().cast(), len - 1) };
+            name.extend_from_slice(buf);
+
+            // Safety: the OS initialised the string for us, which shouldn't
+            // include any null bytes.
+            Ok(Some(unsafe { CString::from_vec_unchecked(name) }))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn bind_device(&self, interface: Option<&CStr>) -> io::Result<()> {
+        let (value, len) = if let Some(interface) = interface {
+            (interface.as_ptr(), interface.to_bytes_with_nul().len())
+        } else {
+            (ptr::null(), 0)
+        };
+
+        unsafe {
+            cvt(libc::setsockopt(
+                self.fd,
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
+                value.cast(),
+                len as libc::socklen_t,
+            ))
+            .map(|_| ())
+        }
     }
 
     pub fn unicast_hops_v6(&self) -> io::Result<u32> {

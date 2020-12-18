@@ -1,4 +1,4 @@
-//! [![github]](https://github.com/dtolnay/syn)&ensp;[![crates-io]](https://crates.io/crates/syn)&ensp;[![docs-rs]](https://docs.rs/syn)
+//! [![github]](https://github.com/dtolnay/syn)&ensp;[![crates-io]](https://crates.io/crates/syn)&ensp;[![docs-rs]](crate)
 //!
 //! [github]: https://img.shields.io/badge/github-8da0cb?style=for-the-badge&labelColor=555555&logo=github
 //! [crates-io]: https://img.shields.io/badge/crates.io-fc8d62?style=for-the-badge&labelColor=555555&logo=rust
@@ -39,12 +39,12 @@
 //!   procedural macros enable only what they need, and do not pay in compile
 //!   time for all the rest.
 //!
-//! [`syn::File`]: struct.File.html
-//! [`syn::Item`]: enum.Item.html
-//! [`syn::Expr`]: enum.Expr.html
-//! [`syn::Type`]: enum.Type.html
-//! [`syn::DeriveInput`]: struct.DeriveInput.html
-//! [parser functions]: parse/index.html
+//! [`syn::File`]: File
+//! [`syn::Item`]: Item
+//! [`syn::Expr`]: Expr
+//! [`syn::Type`]: Type
+//! [`syn::DeriveInput`]: DeriveInput
+//! [parser functions]: mod@parse
 //!
 //! <br>
 //!
@@ -58,7 +58,7 @@
 //! tokens, then hand some tokens back to the compiler to compile into the
 //! user's crate.
 //!
-//! [`TokenStream`]: https://doc.rust-lang.org/proc_macro/struct.TokenStream.html
+//! [`TokenStream`]: proc_macro::TokenStream
 //!
 //! ```toml
 //! [dependencies]
@@ -250,25 +250,18 @@
 //!   dynamic library libproc_macro from rustc toolchain.
 
 // Syn types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/syn/1.0.53")]
+#![doc(html_root_url = "https://docs.rs/syn/1.0.58")]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
-#![deny(clippy::all, clippy::pedantic)]
 // Ignored clippy lints.
 #![allow(
-    clippy::blocks_in_if_conditions,
-    clippy::cognitive_complexity,
     clippy::doc_markdown,
     clippy::eval_order_dependence,
     clippy::inherent_to_string,
     clippy::large_enum_variant,
-    clippy::manual_non_exhaustive,
-    clippy::manual_strip,
-    clippy::match_like_matches_macro,
     clippy::match_on_vec_items,
     clippy::needless_doctest_main,
     clippy::needless_pass_by_value,
     clippy::never_loop,
-    clippy::suspicious_op_assign_impl,
     clippy::too_many_arguments,
     clippy::trivially_copy_pass_by_ref,
     clippy::unnecessary_unwrap
@@ -280,18 +273,17 @@
     clippy::empty_enum,
     clippy::expl_impl_clone_on_copy,
     clippy::if_not_else,
-    clippy::items_after_statements,
     clippy::match_same_arms,
     clippy::missing_errors_doc,
     clippy::module_name_repetitions,
     clippy::must_use_candidate,
     clippy::option_if_let_else,
+    clippy::redundant_else,
     clippy::shadow_unrelated,
     clippy::similar_names,
     clippy::single_match_else,
     clippy::too_many_lines,
     clippy::unseparated_literal_suffix,
-    clippy::use_self,
     clippy::used_underscore_binding,
     clippy::wildcard_imports
 )]
@@ -796,7 +788,8 @@ pub use crate::gen::*;
 
 // Not public API.
 #[doc(hidden)]
-pub mod export;
+#[path = "export.rs"]
+pub mod __private;
 
 mod custom_keyword;
 mod custom_punctuation;

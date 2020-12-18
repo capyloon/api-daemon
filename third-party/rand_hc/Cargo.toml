@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "rand_hc"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["The Rand Project Developers"]
 description = "HC128 random number generator\n"
 homepage = "https://crates.io/crates/rand_hc"
@@ -21,12 +21,7 @@ documentation = "https://rust-random.github.io/rand/rand_hc/"
 readme = "README.md"
 keywords = ["random", "rng", "hc128"]
 categories = ["algorithms", "no-std"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-random/rand"
 [dependencies.rand_core]
-version = "0.5"
-[badges.appveyor]
-repository = "rust-random/rand"
-
-[badges.travis-ci]
-repository = "rust-random/rand"
+version = "0.6.0"

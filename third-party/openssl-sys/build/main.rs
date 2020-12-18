@@ -117,6 +117,7 @@ fn check_rustc_versions() {
 
 /// Validates the header files found in `include_dir` and then returns the
 /// version string of OpenSSL.
+#[allow(clippy::manual_strip)] // we need to support pre-1.45.0
 fn validate_headers(include_dirs: &[PathBuf]) -> Version {
     // This `*-sys` crate only works with OpenSSL 1.0.1, 1.0.2, and 1.1.0. To
     // correctly expose the right API from this crate, take a look at
@@ -221,6 +222,10 @@ See rust-openssl README for more information:
             (3, 1, 0) => ('3', '1', '0'),
             (3, 1, _) => ('3', '1', 'x'),
             (3, 2, 0) => ('3', '2', '0'),
+            (3, 2, 1) => ('3', '2', '1'),
+            (3, 2, _) => ('3', '2', 'x'),
+            (3, 3, 0) => ('3', '3', '0'),
+            (3, 3, 1) => ('3', '3', '1'),
             _ => version_error(),
         };
 
@@ -261,7 +266,7 @@ fn version_error() -> ! {
         "
 
 This crate is only compatible with OpenSSL 1.0.1 through 1.1.1, or LibreSSL 2.5
-through 3.2.0, but a different version of OpenSSL was found. The build is now aborting
+through 3.3.1, but a different version of OpenSSL was found. The build is now aborting
 due to this version mismatch.
 
 "
@@ -270,6 +275,7 @@ due to this version mismatch.
 
 // parses a string that looks like "0x100020cfL"
 #[allow(deprecated)] // trim_right_matches is now trim_end_matches
+#[allow(clippy::match_like_matches_macro)] // matches macro requires rust 1.42.0
 fn parse_version(version: &str) -> u64 {
     // cut off the 0x prefix
     assert!(version.starts_with("0x"));

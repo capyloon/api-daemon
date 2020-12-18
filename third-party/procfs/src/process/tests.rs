@@ -178,9 +178,24 @@ fn test_all() {
                 check_unwrap_task(&prc, task.stat());
                 check_unwrap_task(&prc, task.status());
                 check_unwrap_task(&prc, task.io());
+                check_unwrap_task(&prc, task.schedstat());
             }
         }
     }
+}
+
+#[test]
+fn test_smaps() {
+    let me = Process::myself().unwrap();
+    let smaps = match me.smaps() {
+        Ok(x) => x,
+        Err(ProcError::NotFound(_)) => {
+            // ignored because not all kernerls have smaps
+            return;
+        }
+        Err(e) => panic!("{}", e),
+    };
+    println!("{:#?}", smaps);
 }
 
 #[test]
@@ -332,6 +347,13 @@ fn test_statm() {
     let me = Process::myself().unwrap();
     let statm = me.statm().unwrap();
     println!("{:#?}", statm);
+}
+
+#[test]
+fn test_schedstat() {
+    let me = Process::myself().unwrap();
+    let schedstat = me.schedstat().unwrap();
+    println!("{:#?}", schedstat);
 }
 
 #[test]

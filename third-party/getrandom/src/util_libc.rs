@@ -5,11 +5,9 @@
 // <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-use crate::error::ERRNO_NOT_POSITIVE;
-use crate::util::LazyUsize;
-use crate::Error;
-use core::num::NonZeroU32;
-use core::ptr::NonNull;
+#![allow(dead_code)]
+use crate::{util::LazyUsize, Error};
+use core::{num::NonZeroU32, ptr::NonNull};
 
 cfg_if! {
     if #[cfg(any(target_os = "netbsd", target_os = "openbsd", target_os = "android"))] {
@@ -42,7 +40,7 @@ pub fn last_os_error() -> Error {
     if errno > 0 {
         Error::from(NonZeroU32::new(errno as u32).unwrap())
     } else {
-        ERRNO_NOT_POSITIVE
+        Error::ERRNO_NOT_POSITIVE
     }
 }
 
@@ -108,14 +106,10 @@ cfg_if! {
 
 // SAFETY: path must be null terminated, FD must be manually closed.
 pub unsafe fn open_readonly(path: &str) -> Result<libc::c_int, Error> {
-    debug_assert!(path.as_bytes().last() == Some(&0));
+    debug_assert_eq!(path.as_bytes().last(), Some(&0));
     let fd = open(path.as_ptr() as *const _, libc::O_RDONLY | libc::O_CLOEXEC);
     if fd < 0 {
         return Err(last_os_error());
     }
-    // O_CLOEXEC works on all Unix targets except for older Linux kernels (pre
-    // 2.6.23), so we also use an ioctl to make sure FD_CLOEXEC is set.
-    #[cfg(target_os = "linux")]
-    libc::ioctl(fd, libc::FIOCLEX);
     Ok(fd)
 }

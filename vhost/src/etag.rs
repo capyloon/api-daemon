@@ -2,29 +2,23 @@
 // This is done using cheap operations that don't
 // require reading the file content.
 
+use blake2::{Blake2s, Digest};
 use std::fs::File;
+use std::io::Read;
 use zip::read::ZipFile;
 
 pub(crate) struct Etag {}
 
 impl Etag {
-    // Builds the Etag from the last modified time and the size
-    // of the file.
-    pub(crate) fn for_file(file: &File) -> String {
-        if let Ok(metadata) = file.metadata() {
-            match metadata.modified().map(|modified| {
-                modified
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("Modified is earlier than time::UNIX_EPOCH!")
-            }) {
-                Ok(modified) => format!(
-                    "W/\"{}.{}-{}\"",
-                    modified.as_secs(),
-                    modified.subsec_nanos(),
-                    metadata.len()
-                ),
-                _ => format!("W/\"{}\"", metadata.len()),
-            }
+    // Builds the Etag with a Blake2 hash.
+    // https://en.wikipedia.org/wiki/BLAKE_(hash_function)#BLAKE2
+    pub(crate) fn for_file(mut file: &File) -> String {
+        let mut hasher = Blake2s::new();
+        let mut buffer = Vec::new();
+        if file.read_to_end(&mut buffer).is_ok() {
+            hasher.update(&buffer);
+            let res = hasher.finalize();
+            format!("W/\"{:x}\"", res)
         } else {
             String::new()
         }

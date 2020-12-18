@@ -1,18 +1,72 @@
-### v0.1.23 (August 31, 2020)
+### v0.2.5 (August 31, 2020)
 
+- **Features**:
+  - Add `warp_fn`, which can be used to create a `Wrap` from a closure. These in turn are used with `Filter::with()`.
+  - Add `warp::host` filters to deal with `Host`/`:authority` headers.
+  - Relax some lifetime bounds on `Server`.
 - **Fixes**:
-  - Fix panic when URI doesn't contain a slash.
+  - Fix panic when URI doesn't have a slash (for example, `CONNECT foo.bar`).
 
-### v0.1.22 (March 3, 2020)
-
-- **Features**:
-  - Add `Ws2::max_frame_siz_()` option.
-
-### v0.1.21 (February 27. 2020)
+### v0.2.4 (July 20, 2020)
 
 - **Features**:
-  - Add websocket ping and pong support.
-  - Add `Ws2::max_message_size()` option.
+  - Add `tracing` internals in place of `log` (log is still emitted for backwards compatibility).
+  - Add `warp::trace` module set of filters to customize `tracing` dianostics.
+  - Add `path` method to `warp::fs::File` reply.
+  - Add `source` implementation for `BodyDeserializeError`.
+  - Make `warp::ws::MissingConnectionUpgrade` rejection public.
+
+### v0.2.3 (May 19, 2020)
+
+- **Features**:
+  - Add `warp::compression` filters, which will compress response bodies.
+  - Add `warp::header::value()` filter to get a request `HeaderValue`.
+  - Add `request_headers` method to `warp::log::Info`.
+  - Add `max_frame_size` to `warp::ws::Ws` builder.
+  - Add `remote_addr` to `warp::test::RequestBuilder`.
+  - Add `try_bind_with_graceful_shutdown` to `warp::Server` builder.
+  - Add `serve_incoming_with_graceful_shutdown` to `warp::Server` builder.
+- **Fixes**:
+  - Fix `warp::addr::remote` when used with `Server::tls`.
+  - Fix panic in `warp::path::{peek, tail, full}` filters when the request URI is in authority-form or asterisk-form.
+
+### v0.2.2 (March 3, 2020)
+
+- **Features**:
+  - Implement `Reply` for all `Box<T>` where `T: Reply`.
+  - Add `name` methods to `MissingHeader`, `InvalidHeader`, and `MissingCookie` rejections.
+  - Add `warp::ext::optional()` filter that optionally retrieves an extension from the request.
+- **Fixes**:
+  - Fix the sending of pings when a user sends a `ws::Message::ping()`.
+
+### v0.2.1 (January 23, 2020)
+
+- **Features**:
+  - Add `close` and `close_with` constructors to `warp::ws::Message`.
+- **Fixes**:
+  - Fix `warp::fs` filters using a very small read buffer.
+
+## v0.2.0 (January 16, 2020)
+
+- **Features**:
+  - Update to `std::future`, adding `async`/`await` support!
+  - Add `warp::service()` to convert a `Filter` into a `tower::Service`.
+  - Implement `Reply` for `Box<dyn Reply>`.
+- **Changes**:
+  - Refactored Rejection system (#311).
+  - Change `path!` macro to assume a `path::end()` by default, with explicit `/ ..` to allow building a prefix (#359).
+  - Change `warp::path(str)` to accept any `AsRef<str>` argument.
+  - Rename "2"-suffixed filters and types (`get2` to `get`, `ws2` to `ws`, etc).
+  - `Filter::{or, or_else, recover}` now require `Self::Error=Rejection`. This helps catch filters that didn't make sense (like `warp::any().or(warp::get())`).
+  - Change several `warp::body` filters (#345).
+  - Change `warp::cors()` to return a `warp::cors::Builder` which still implements `Wrap`, but can also `build` a cheaper-to-clone wrapper.
+  - Change `warp::multipart` stream API to allow for errors when streaming.
+  - Change `warp::sse` to no longer return a `Filter`, adds `warp::sse::reply` to do what `Sse::reply` did.
+  - Change `Server::tls()` to return a TLS server builder (#340).
+  - Change internal `warp::never::Never` usage with `std::convert::Infallible`.
+  - Remove `warp::ext::set()` function (#222).
+  - Remove deprecated `warp::cookie::optional_value()`.
+
 
 ### v0.1.20 (September 17, 2019)
 

@@ -21,6 +21,7 @@
 .type	GFp_gcm_init_clmul,%function
 .align	4
 GFp_gcm_init_clmul:
+	AARCH64_VALID_CALL_TARGET
 	vld1.64	{q9},[r1]		@ load input H
 	vmov.i8	q11,#0xe1
 	vshl.i64	q11,q11,#57		@ 0xc2.0
@@ -72,6 +73,7 @@ GFp_gcm_init_clmul:
 .type	GFp_gcm_gmult_clmul,%function
 .align	4
 GFp_gcm_gmult_clmul:
+	AARCH64_VALID_CALL_TARGET
 	vld1.64	{q9},[r0]		@ load Xi
 	vmov.i8	q11,#0xe1
 	vld1.64	{q12,q13},[r1]	@ load twisted H, ...
@@ -114,6 +116,7 @@ GFp_gcm_gmult_clmul:
 .type	GFp_gcm_ghash_clmul,%function
 .align	4
 GFp_gcm_ghash_clmul:
+	AARCH64_VALID_CALL_TARGET
 	vstmdb	sp!,{d8,d9,d10,d11,d12,d13,d14,d15}		@ 32-bit ABI says so
 	vld1.64	{q0},[r0]		@ load [rotated] Xi
 						@ "[rotated]" means that

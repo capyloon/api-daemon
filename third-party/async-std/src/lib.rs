@@ -106,15 +106,14 @@
 //! [`io`], [`fs`], and [`net`] modules.
 //!
 //! The [`task`] module contains `async-std`'s task abstractions. [`sync`]
-//! contains further primitive shared memory types, including [`channel`],
-//! which contains the channel types for message passing.
+//! contains further primitive shared memory types. [`channel`]  contains the channel types for message passing.
 //!
 //! [files]: fs/struct.File.html
 //! [TCP]: net/struct.TcpStream.html
 //! [UDP]: net/struct.UdpSocket.html
 //! [`io`]: fs/struct.File.html
 //! [`sync`]: sync/index.html
-//! [`channel`]: sync/fn.channel.html
+//! [`channel`]: channel/index.html
 //!
 //! ## Timeouts, intervals, and delays
 //!
@@ -197,7 +196,7 @@
 //!
 //! ```toml
 //! [dependencies.async-std]
-//! version = "1.6.5"
+//! version = "1.7.0"
 //! features = ["unstable"]
 //! ```
 //!
@@ -210,17 +209,26 @@
 //!
 //! ```toml
 //! [dependencies.async-std]
-//! version = "1.6.5"
+//! version = "1.7.0"
 //! features = ["attributes"]
 //! ```
 //!
-//! Compatibility with the `tokio` runtime is possible using the `tokio02`
+//! Compatibility with the `tokio` 0.2 runtime is possible using the `tokio02`
 //! Cargo feature:
 //!
 //! ```toml
 //! [dependencies.async-std]
-//! version = "1.6.5"
+//! version = "1.7.0"
 //! features = ["tokio02"]
+//! ```
+//!
+//! Compatibility with the `tokio` 0.3 runtime is also simultaneously possible
+//! using the `tokio03` Cargo feature:
+//!
+//! ```toml
+//! [dependencies.async-std]
+//! version = "1.7.0"
+//! features = ["tokio03"]
 //! ```
 //!
 //! Additionally it's possible to only use the core traits and combinators by
@@ -228,7 +236,7 @@
 //!
 //! ```toml
 //! [dependencies.async-std]
-//! version = "1.6.5"
+//! version = "1.7.0"
 //! default-features = false
 //! features = ["std"]
 //! ```
@@ -238,7 +246,7 @@
 //!
 //! ```toml
 //! [dependencies.async-std]
-//! version = "1.6.5"
+//! version = "1.7.0"
 //! default-features = false
 //! features = ["alloc"]
 //! ```
@@ -291,6 +299,7 @@ cfg_std! {
     pub mod os;
     pub mod prelude;
     pub mod sync;
+    pub mod channel;
 }
 
 cfg_default! {
@@ -304,7 +313,7 @@ cfg_default! {
 
 cfg_unstable! {
     pub mod pin;
-    #[cfg(not(target_os = "unknown"))]
+    #[cfg(all(not(target_os = "unknown"), feature = "std"))]
     pub mod process;
 
     mod unit;

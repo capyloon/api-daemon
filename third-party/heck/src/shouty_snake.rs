@@ -1,3 +1,5 @@
+use crate::{transform, uppercase};
+
 /// This trait defines a shouty snake case conversion.
 ///
 /// In SHOUTY_SNAKE_CASE, word boundaries are indicated by underscores and all
@@ -6,14 +8,10 @@
 /// ## Example:
 ///
 /// ```rust
-/// extern crate heck;
-/// fn main() {
+/// use heck::ShoutySnakeCase;
 ///     
-///     use heck::ShoutySnakeCase;
-///
-///     let sentence = "That world is growing in this minute.";
-///     assert_eq!(sentence.to_shouty_snake_case(), "THAT_WORLD_IS_GROWING_IN_THIS_MINUTE");
-/// }
+/// let sentence = "That world is growing in this minute.";
+/// assert_eq!(sentence.to_shouty_snake_case(), "THAT_WORLD_IS_GROWING_IN_THIS_MINUTE");
 /// ```
 pub trait ShoutySnakeCase: ToOwned {
     /// Convert this type to shouty snake case.
@@ -37,7 +35,7 @@ impl<T: ?Sized + ShoutySnakeCase> ShoutySnekCase for T {
 
 impl ShoutySnakeCase for str {
     fn to_shouty_snake_case(&self) -> Self::Owned {
-        ::transform(self, ::uppercase, |s| s.push('_'))
+        transform(self, uppercase, |s| s.push('_'))
     }
 }
 

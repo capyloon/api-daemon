@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "ring"
-version = "0.16.18"
+version = "0.16.19"
 authors = ["Brian Smith <brian@briansmith.org>"]
 build = "build.rs"
 links = "ring-asm"
@@ -74,7 +74,7 @@ version = "1.5.2"
 features = ["std"]
 optional = true
 default-features = false
-[target."cfg(any(target_os = \"freebsd\", target_os = \"illumos\", target_os = \"netbsd\", target_os = \"openbsd\", target_os = \"solaris\"))".dependencies.once_cell]
+[target."cfg(any(target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"illumos\", target_os = \"netbsd\", target_os = \"openbsd\", target_os = \"solaris\"))".dependencies.once_cell]
 version = "1.5.2"
 features = ["std"]
 default-features = false

@@ -11,11 +11,11 @@
 //!
 //! This module is the home of the [`Distribution`] trait and several of its
 //! implementations. It is the workhorse behind some of the convenient
-//! functionality of the [`Rng`] trait, e.g. [`Rng::gen`], [`Rng::gen_range`] and
-//! of course [`Rng::sample`].
+//! functionality of the [`Rng`] trait, e.g. [`Rng::gen`] and of course
+//! [`Rng::sample`].
 //!
 //! Abstractly, a [probability distribution] describes the probability of
-//! occurance of each value in its sample space.
+//! occurrence of each value in its sample space.
 //!
 //! More concretely, an implementation of `Distribution<T>` for type `X` is an
 //! algorithm for choosing values from the sample space (a subset of `T`)
@@ -54,16 +54,16 @@
 //! space to be specified as an arbitrary range within its target type `T`.
 //! Both [`Standard`] and [`Uniform`] are in some sense uniform distributions.
 //!
-//! Values may be sampled from this distribution using [`Rng::gen_range`] or
+//! Values may be sampled from this distribution using [`Rng::sample(Range)`] or
 //! by creating a distribution object with [`Uniform::new`],
 //! [`Uniform::new_inclusive`] or `From<Range>`. When the range limits are not
 //! known at compile time it is typically faster to reuse an existing
-//! distribution object than to call [`Rng::gen_range`].
+//! `Uniform` object than to call [`Rng::sample(Range)`].
 //!
 //! User types `T` may also implement `Distribution<T>` for [`Uniform`],
 //! although this is less straightforward than for [`Standard`] (see the
-//! documentation in the [`uniform`] module. Doing so enables generation of
-//! values of type `T` with  [`Rng::gen_range`].
+//! documentation in the [`uniform`] module). Doing so enables generation of
+//! values of type `T` with  [`Rng::sample(Range)`].
 //!
 //! ## Open and half-open ranges
 //!
@@ -79,7 +79,7 @@
 //! the [`Bernoulli`] distribution (this is used by [`Rng::gen_bool`]).
 //!
 //! For weighted sampling from a sequence of discrete values, use the
-//! [`weighted`] module.
+//! [`WeightedIndex`] distribution.
 //!
 //! This crate no longer includes other non-uniform distributions; instead
 //! it is recommended that you use either [`rand_distr`] or [`statrs`].
@@ -100,62 +100,21 @@ pub use self::bernoulli::{Bernoulli, BernoulliError};
 pub use self::float::{Open01, OpenClosed01};
 pub use self::other::Alphanumeric;
 #[doc(inline)] pub use self::uniform::Uniform;
-#[cfg(feature = "alloc")]
-pub use self::weighted::{WeightedError, WeightedIndex};
 
-// The following are all deprecated after being moved to rand_distr
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::binomial::Binomial;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::cauchy::Cauchy;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::dirichlet::Dirichlet;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::exponential::{Exp, Exp1};
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::gamma::{Beta, ChiSquared, FisherF, Gamma, StudentT};
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::normal::{LogNormal, Normal, StandardNormal};
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::pareto::Pareto;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::poisson::Poisson;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::triangular::Triangular;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::unit_circle::UnitCircle;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::unit_sphere::UnitSphereSurface;
-#[allow(deprecated)]
-#[cfg(feature = "std")]
-pub use self::weibull::Weibull;
+#[cfg(feature = "alloc")]
+pub use self::weighted_index::{WeightedError, WeightedIndex};
 
 mod bernoulli;
-#[cfg(feature = "std")] mod binomial;
-#[cfg(feature = "std")] mod cauchy;
-#[cfg(feature = "std")] mod dirichlet;
-#[cfg(feature = "std")] mod exponential;
-#[cfg(feature = "std")] mod gamma;
-#[cfg(feature = "std")] mod normal;
-#[cfg(feature = "std")] mod pareto;
-#[cfg(feature = "std")] mod poisson;
-#[cfg(feature = "std")] mod triangular;
 pub mod uniform;
-#[cfg(feature = "std")] mod unit_circle;
-#[cfg(feature = "std")] mod unit_sphere;
-#[cfg(feature = "std")] mod weibull;
-#[cfg(feature = "alloc")] pub mod weighted;
+
+#[deprecated(since = "0.8.0", note = "use rand::distributions::{WeightedIndex, WeightedError} instead")]
+#[cfg(feature = "alloc")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
+pub mod weighted;
+#[cfg(feature = "alloc")] mod weighted_index;
+
+#[cfg(feature = "serde1")]
+use serde::{Serialize, Deserialize};
 
 mod float;
 #[doc(hidden)]
@@ -165,7 +124,6 @@ pub mod hidden_export {
 mod integer;
 mod other;
 mod utils;
-#[cfg(feature = "std")] mod ziggurat_tables;
 
 /// Types (distributions) that can be used to create a random instance of `T`.
 ///
@@ -204,17 +162,21 @@ pub trait Distribution<T> {
     /// use rand::thread_rng;
     /// use rand::distributions::{Distribution, Alphanumeric, Uniform, Standard};
     ///
-    /// let rng = thread_rng();
+    /// let mut rng = thread_rng();
     ///
     /// // Vec of 16 x f32:
-    /// let v: Vec<f32> = Standard.sample_iter(rng).take(16).collect();
+    /// let v: Vec<f32> = Standard.sample_iter(&mut rng).take(16).collect();
     ///
     /// // String:
-    /// let s: String = Alphanumeric.sample_iter(rng).take(7).collect();
+    /// let s: String = Alphanumeric
+    ///     .sample_iter(&mut rng)
+    ///     .take(7)
+    ///     .map(char::from)
+    ///     .collect();
     ///
     /// // Dice-rolling:
     /// let die_range = Uniform::new_inclusive(1, 6);
-    /// let mut roll_die = die_range.sample_iter(rng);
+    /// let mut roll_die = die_range.sample_iter(&mut rng);
     /// while roll_die.next().unwrap() != 6 {
     ///     println!("Not a 6; rolling again!");
     /// }
@@ -359,18 +321,18 @@ where
 /// multiplicative method: `(rng.gen::<$uty>() >> N) as $ty * (ε/2)`.
 ///
 /// See also: [`Open01`] which samples from `(0, 1)`, [`OpenClosed01`] which
-/// samples from `(0, 1]` and `Rng::gen_range(0, 1)` which also samples from
-/// `[0, 1)`. Note that `Open01` and `gen_range` (which uses [`Uniform`]) use
-/// transmute-based methods which yield 1 bit less precision but may perform
-/// faster on some architectures (on modern Intel CPUs all methods have
-/// approximately equal performance).
+/// samples from `(0, 1]` and `Rng::gen_range(0..1)` which also samples from
+/// `[0, 1)`. Note that `Open01` uses transmute-based methods which yield 1 bit
+/// less precision but may perform faster on some architectures (on modern Intel
+/// CPUs all methods have approximately equal performance).
 ///
 /// [`Uniform`]: uniform::Uniform
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde1", derive(Serialize, Deserialize))]
 pub struct Standard;
 
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     use super::{Distribution, Uniform};
     use crate::Rng;
@@ -380,8 +342,12 @@ mod tests {
         use crate::distributions::Open01;
         let mut rng = crate::test::rng(210);
         let distr = Open01;
-        let results: Vec<f32> = distr.sample_iter(&mut rng).take(100).collect();
-        println!("{:?}", results);
+        let mut iter = Distribution::<f32>::sample_iter(distr, &mut rng);
+        let mut sum: f32 = 0.;
+        for _ in 0..100 {
+            sum += iter.next().unwrap();
+        }
+        assert!(0. < sum && sum < 100.);
     }
 
     #[test]

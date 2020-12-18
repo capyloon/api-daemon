@@ -14,9 +14,12 @@ use core::num::Wrapping;
 use crate::distributions::{Distribution, Standard, Uniform};
 use crate::Rng;
 
+#[cfg(feature = "serde1")]
+use serde::{Serialize, Deserialize};
+
 // ----- Sampling distributions -----
 
-/// Sample a `char`, uniformly distributed over ASCII letters and numbers:
+/// Sample a `u8`, uniformly distributed over ASCII letters and numbers:
 /// a-z, A-Z and 0-9.
 ///
 /// # Example
@@ -29,11 +32,30 @@ use crate::Rng;
 /// let mut rng = thread_rng();
 /// let chars: String = iter::repeat(())
 ///         .map(|()| rng.sample(Alphanumeric))
+///         .map(char::from)
 ///         .take(7)
 ///         .collect();
 /// println!("Random chars: {}", chars);
 /// ```
+///
+/// # Passwords
+///
+/// Users sometimes ask whether it is safe to use a string of random characters
+/// as a password. In principle, all RNGs in Rand implementing `CryptoRng` are
+/// suitable as a source of randomness for generating passwords (if they are
+/// properly seeded), but it is more conservative to only use randomness
+/// directly from the operating system via the `getrandom` crate, or the
+/// corresponding bindings of a crypto library.
+///
+/// When generating passwords or keys, it is important to consider the threat
+/// model and in some cases the memorability of the password. This is out of
+/// scope of the Rand project, and therefore we defer to the following
+/// references:
+///
+/// - [Wikipedia article on Password Strength](https://en.wikipedia.org/wiki/Password_strength)
+/// - [Diceware for generating memorable passwords](https://en.wikipedia.org/wiki/Diceware)
 #[derive(Debug)]
+#[cfg_attr(feature = "serde1", derive(Serialize, Deserialize))]
 pub struct Alphanumeric;
 
 
@@ -60,8 +82,8 @@ impl Distribution<char> for Standard {
     }
 }
 
-impl Distribution<char> for Alphanumeric {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> char {
+impl Distribution<u8> for Alphanumeric {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u8 {
         const RANGE: u32 = 26 + 26 + 10;
         const GEN_ASCII_STR_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                 abcdefghijklmnopqrstuvwxyz\
@@ -73,7 +95,7 @@ impl Distribution<char> for Alphanumeric {
         loop {
             let var = rng.next_u32() >> (32 - 6);
             if var < RANGE {
-                return GEN_ASCII_STR_CHARSET[var as usize] as char;
+                return GEN_ASCII_STR_CHARSET[var as usize];
             }
         }
     }
@@ -184,7 +206,7 @@ where Standard: Distribution<T>
 mod tests {
     use super::*;
     use crate::RngCore;
-    #[cfg(all(not(feature = "std"), feature = "alloc"))] use alloc::string::String;
+    #[cfg(feature = "alloc")] use alloc::string::String;
 
     #[test]
     fn test_misc() {
@@ -217,7 +239,7 @@ mod tests {
         // take the rejection sampling path.
         let mut incorrect = false;
         for _ in 0..100 {
-            let c = rng.sample(Alphanumeric);
+            let c: char = rng.sample(Alphanumeric).into();
             incorrect |= !((c >= '0' && c <= '9') ||
                            (c >= 'A' && c <= 'Z') ||
                            (c >= 'a' && c <= 'z') );
@@ -245,7 +267,7 @@ mod tests {
             '\u{ed692}',
             '\u{35888}',
         ]);
-        test_samples(&Alphanumeric, 'a', &['h', 'm', 'e', '3', 'M']);
+        test_samples(&Alphanumeric, 0, &[104, 109, 101, 51, 77]);
         test_samples(&Standard, false, &[true, true, false, true, false]);
         test_samples(&Standard, None as Option<bool>, &[
             Some(true),

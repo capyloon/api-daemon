@@ -984,6 +984,7 @@ pub const IP_RECVORIGDSTADDR: ::c_int = IP_ORIGDSTADDR;
 
 pub const IP_RECVTOS: ::c_int = 68;
 
+pub const IPV6_BINDANY: ::c_int = 64;
 pub const IPV6_ORIGDSTADDR: ::c_int = 72;
 pub const IPV6_RECVORIGDSTADDR: ::c_int = IPV6_ORIGDSTADDR;
 
@@ -1209,6 +1210,18 @@ safe_f! {
 extern "C" {
     pub fn __error() -> *mut ::c_int;
 
+    pub fn aio_cancel(fd: ::c_int, aiocbp: *mut aiocb) -> ::c_int;
+    pub fn aio_error(aiocbp: *const aiocb) -> ::c_int;
+    pub fn aio_fsync(op: ::c_int, aiocbp: *mut aiocb) -> ::c_int;
+    pub fn aio_read(aiocbp: *mut aiocb) -> ::c_int;
+    pub fn aio_return(aiocbp: *mut aiocb) -> ::ssize_t;
+    pub fn aio_suspend(
+        aiocb_list: *const *const aiocb,
+        nitems: ::c_int,
+        timeout: *const ::timespec,
+    ) -> ::c_int;
+    pub fn aio_write(aiocbp: *mut aiocb) -> ::c_int;
+
     pub fn extattr_delete_fd(
         fd: ::c_int,
         attrnamespace: ::c_int,
@@ -1297,6 +1310,13 @@ extern "C" {
         iov: *mut ::iovec,
         niov: ::c_uint,
         flags: ::c_int,
+    ) -> ::c_int;
+
+    pub fn lio_listio(
+        mode: ::c_int,
+        aiocb_list: *const *mut aiocb,
+        nitems: ::c_int,
+        sevp: *mut sigevent,
     ) -> ::c_int;
 
     pub fn posix_fallocate(
@@ -1502,7 +1522,7 @@ extern "C" {
     pub fn nmount(
         iov: *mut ::iovec,
         niov: ::c_uint,
-        flags: ::c_int
+        flags: ::c_int,
     ) -> ::c_int;
 }
 

@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#[cfg(target_os = "linux")]
+use std::ffi::{CStr, CString};
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown};
@@ -373,7 +375,7 @@ impl Socket {
     ///
     /// The `TCP_MAXSEG` option denotes the TCP Maximum Segment
     /// Size and is only available on TCP sockets.
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "redox")))]
     pub fn mss(&self) -> io::Result<u32> {
         self.inner.mss()
     }
@@ -382,7 +384,7 @@ impl Socket {
     ///
     /// The `TCP_MAXSEG` option denotes the TCP Maximum Segment
     /// Size and is only available on TCP sockets.
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "redox")))]
     pub fn set_mss(&self, mss: u32) -> io::Result<()> {
         self.inner.set_mss(mss)
     }
@@ -410,6 +412,30 @@ impl Socket {
     #[cfg(target_os = "linux")]
     pub fn set_mark(&self, mark: u32) -> io::Result<()> {
         self.inner.set_mark(mark)
+    }
+
+    /// Gets the value for the `SO_BINDTODEVICE` option on this socket.
+    ///
+    /// This value gets the socket binded device's interface name.
+    ///
+    /// This function is only available on Linux.
+    #[cfg(target_os = "linux")]
+    pub fn device(&self) -> io::Result<Option<CString>> {
+        self.inner.device()
+    }
+
+    /// Sets the value for the `SO_BINDTODEVICE` option on this socket.
+    ///
+    /// If a socket is bound to an interface, only packets received from that
+    /// particular interface are processed by the socket. Note that this only
+    /// works for some socket types, particularly `AF_INET` sockets.
+    ///
+    /// If `interface` is `None` or an empty string it removes the binding.
+    ///
+    /// This function is only available on Linux.
+    #[cfg(target_os = "linux")]
+    pub fn bind_device(&self, interface: Option<&CStr>) -> io::Result<()> {
+        self.inner.bind_device(interface)
     }
 
     /// Gets the value of the `IPV6_UNICAST_HOPS` option for this socket.

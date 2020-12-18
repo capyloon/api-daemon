@@ -1,7 +1,0 @@
-# Refactor
-
-* [ ] Move all the function of `sys::Socket` as stand-alone functions.
-* [ ] Remove `sys::Socket`.
-* [ ] Rename `sys::SysSocket` to `sys::Socket`.
-* [ ] Look at `SockAddr`.
-  * [ ] Add docs about its size.

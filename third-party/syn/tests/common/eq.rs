@@ -20,7 +20,7 @@ use rustc_ast::ast::{
     WherePredicate, WhereRegionPredicate,
 };
 use rustc_ast::ptr::P;
-use rustc_ast::token::{self, CommentKind, DelimToken, Token, TokenKind};
+use rustc_ast::token::{self, CommentKind, DelimToken, Nonterminal, Token, TokenKind};
 use rustc_ast::tokenstream::{self, DelimSpan, LazyTokenStream, TokenStream, TokenTree};
 use rustc_data_structures::sync::Lrc;
 use rustc_data_structures::thin_vec::ThinVec;
@@ -347,7 +347,7 @@ spanless_eq_enum!(ForeignItemKind; Static(0 1 2) Fn(0 1 2 3) TyAlias(0 1 2 3) Ma
 spanless_eq_enum!(GenericArg; Lifetime(0) Type(0) Const(0));
 spanless_eq_enum!(GenericArgs; AngleBracketed(0) Parenthesized(0));
 spanless_eq_enum!(GenericBound; Trait(0 1) Outlives(0));
-spanless_eq_enum!(GenericParamKind; Lifetime Type(default) Const(ty kw_span));
+spanless_eq_enum!(GenericParamKind; Lifetime Type(default) Const(ty kw_span default));
 spanless_eq_enum!(ImplPolarity; Positive Negative(0));
 spanless_eq_enum!(InlineAsmRegOrRegClass; Reg(0) RegClass(0));
 spanless_eq_enum!(InlineAsmTemplatePiece; String(0) Placeholder(operand_idx modifier span));
@@ -452,6 +452,14 @@ impl SpanlessEq for TokenKind {
                 TokenKind::DotDotEq | TokenKind::DotDotDot => true,
                 _ => false,
             },
+            (TokenKind::Interpolated(this), TokenKind::Interpolated(other)) => {
+                match (this.as_ref(), other.as_ref()) {
+                    (Nonterminal::NtExpr(this), Nonterminal::NtExpr(other)) => {
+                        SpanlessEq::eq(this, other)
+                    }
+                    _ => this == other,
+                }
+            }
             _ => self == other,
         }
     }
@@ -534,30 +542,36 @@ fn doc_comment<'a>(
 }
 
 fn is_escaped_literal(mut trees: tokenstream::CursorRef, unescaped: Symbol) -> bool {
-    match trees.next() {
+    match match trees.next() {
         Some(TokenTree::Token(Token {
-            kind:
-                TokenKind::Literal(
-                    lit
-                    @
-                    token::Lit {
-                        kind: token::LitKind::Str,
-                        symbol: _,
-                        suffix: None,
-                    },
-                ),
+            kind: TokenKind::Literal(lit),
             span: _,
-        })) => match Lit::from_lit_token(*lit, DUMMY_SP) {
-            Ok(Lit {
-                token: _,
-                kind: LitKind::Str(symbol, StrStyle::Cooked),
-                span: _,
-            }) => {
-                symbol.as_str().replace('\r', "") == unescaped.as_str().replace('\r', "")
-                    && trees.next().is_none()
-            }
-            _ => false,
+        })) => Lit::from_lit_token(*lit, DUMMY_SP),
+        Some(TokenTree::Token(Token {
+            kind: TokenKind::Interpolated(nonterminal),
+            span: _,
+        })) => match nonterminal.as_ref() {
+            Nonterminal::NtExpr(expr) => match &expr.kind {
+                ExprKind::Lit(lit) => Ok(lit.clone()),
+                _ => return false,
+            },
+            _ => return false,
         },
+        _ => return false,
+    } {
+        Ok(Lit {
+            token:
+                token::Lit {
+                    kind: token::LitKind::Str,
+                    symbol: _,
+                    suffix: None,
+                },
+            kind: LitKind::Str(symbol, StrStyle::Cooked),
+            span: _,
+        }) => {
+            symbol.as_str().replace('\r', "") == unescaped.as_str().replace('\r', "")
+                && trees.next().is_none()
+        }
         _ => false,
     }
 }

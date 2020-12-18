@@ -15,10 +15,7 @@ ast_enum_of_structs! {
     ///
     /// This type is a [syntax tree enum].
     ///
-    /// [syntax tree enum]: enum.Expr.html#syntax-tree-enums
-    //
-    // TODO: change syntax-tree-enum link to an intra rustdoc link, currently
-    // blocked on https://github.com/rust-lang/rust/issues/62833
+    /// [syntax tree enum]: Expr#syntax-tree-enums
     #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
     pub enum Item {
         /// A constant item: `const MAX: u16 = 65535`.
@@ -454,10 +451,7 @@ ast_enum_of_structs! {
     ///
     /// This type is a [syntax tree enum].
     ///
-    /// [syntax tree enum]: enum.Expr.html#syntax-tree-enums
-    //
-    // TODO: change syntax-tree-enum link to an intra rustdoc link, currently
-    // blocked on https://github.com/rust-lang/rust/issues/62833
+    /// [syntax tree enum]: Expr#syntax-tree-enums
     #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
     pub enum UseTree {
         /// A path prefix of imports in a `use` item: `std::...`.
@@ -541,10 +535,7 @@ ast_enum_of_structs! {
     ///
     /// This type is a [syntax tree enum].
     ///
-    /// [syntax tree enum]: enum.Expr.html#syntax-tree-enums
-    //
-    // TODO: change syntax-tree-enum link to an intra rustdoc link, currently
-    // blocked on https://github.com/rust-lang/rust/issues/62833
+    /// [syntax tree enum]: Expr#syntax-tree-enums
     #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
     pub enum ForeignItem {
         /// A foreign function in an `extern` block.
@@ -632,10 +623,7 @@ ast_enum_of_structs! {
     ///
     /// This type is a [syntax tree enum].
     ///
-    /// [syntax tree enum]: enum.Expr.html#syntax-tree-enums
-    //
-    // TODO: change syntax-tree-enum link to an intra rustdoc link, currently
-    // blocked on https://github.com/rust-lang/rust/issues/62833
+    /// [syntax tree enum]: Expr#syntax-tree-enums
     #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
     pub enum TraitItem {
         /// An associated constant within the definition of a trait.
@@ -725,10 +713,7 @@ ast_enum_of_structs! {
     ///
     /// This type is a [syntax tree enum].
     ///
-    /// [syntax tree enum]: enum.Expr.html#syntax-tree-enums
-    //
-    // TODO: change syntax-tree-enum link to an intra rustdoc link, currently
-    // blocked on https://github.com/rust-lang/rust/issues/62833
+    /// [syntax tree enum]: Expr#syntax-tree-enums
     #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
     pub enum ImplItem {
         /// An associated constant within an impl block.
@@ -2387,15 +2372,26 @@ pub mod parsing {
             None
         };
 
-        let first_ty: Type = input.parse()?;
+        let mut first_ty: Type = input.parse()?;
         let self_ty: Type;
         let trait_;
 
         let is_impl_for = input.peek(Token![for]);
         if is_impl_for {
             let for_token: Token![for] = input.parse()?;
-            if let Type::Path(TypePath { qself: None, path }) = first_ty {
-                trait_ = Some((polarity, path, for_token));
+            let mut first_ty_ref = &first_ty;
+            while let Type::Group(ty) = first_ty_ref {
+                first_ty_ref = &ty.elem;
+            }
+            if let Type::Path(_) = first_ty_ref {
+                while let Type::Group(ty) = first_ty {
+                    first_ty = *ty.elem;
+                }
+                if let Type::Path(TypePath { qself: None, path }) = first_ty {
+                    trait_ = Some((polarity, path, for_token));
+                } else {
+                    unreachable!()
+                }
             } else {
                 trait_ = None;
             }
