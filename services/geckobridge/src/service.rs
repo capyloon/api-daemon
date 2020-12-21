@@ -63,6 +63,12 @@ getDelegateWrapper!(
     NetworkManagerDelegate,
     NetworkManagerDelegateProxy
 );
+getDelegateWrapper!(
+    GeckoBridgeService,
+    get_preference_delegate,
+    PreferenceDelegate,
+    PreferenceDelegateProxy
+);
 
 impl GeckoBridge for GeckoBridgeService {
     fn get_proxy_tracker(&mut self) -> Arc<Mutex<GeckoBridgeProxyTracker>> {
@@ -188,6 +194,25 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             self.state
                 .lock()
                 .set_networkmanager_delegate(network_delegate);
+            responder.resolve();
+        } else {
+            responder.reject();
+        }
+    }
+
+    fn set_preference_delegate(
+        &mut self,
+        responder: &GeckoFeaturesSetPreferenceDelegateResponder,
+        delegate: ObjectRef,
+    ) {
+        if self.only_register_token {
+            responder.reject();
+            return;
+        }
+
+        // Get the proxy and update our state.
+        if let Some(pref_delegate) = self.get_preference_delegate(delegate) {
+            self.state.lock().set_preference_delegate(pref_delegate);
             responder.resolve();
         } else {
             responder.reject();

@@ -100,11 +100,21 @@ dictionary SimContactInfo {
   category: str
 }
 
+callback PreferenceDelegate {
+  fn get_int(pref_name: str) -> int
+  fn get_char(pref_name: str) -> str
+  fn get_bool(pref_name: str) -> bool
+  fn set_int(pref_name: str, value: int)
+  fn set_char(pref_name: str, value: str)
+  fn set_bool(pref_name: str, value: bool)
+}
+
 #[rust:not-tracked]
 interface GeckoFeatures {
   fn set_apps_service_delegate(delegate: AppsServiceDelegate)
 
   fn set_power_manager_delegate(delegate: PowerManagerDelegate)
+  fn set_preference_delegate(delegate: PreferenceDelegate)
   fn set_mobile_manager_delegate(delegate: MobileManagerDelegate)
   fn set_network_manager_delegate(delegate: NetworkManagerDelegate)
 

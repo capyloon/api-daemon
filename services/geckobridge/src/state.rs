@@ -4,7 +4,7 @@
 use crate::generated::common::{
     AppsServiceDelegateProxy, CardInfoType, MobileManagerDelegateProxy, NetworkInfo,
     NetworkManagerDelegateProxy, NetworkOperator, ObjectRef, PowerManagerDelegateProxy,
-    WakelockProxy,
+    PreferenceDelegateProxy, WakelockProxy,
 };
 use crate::generated::service::{GeckoBridgeProxy, GeckoBridgeProxyTracker};
 use crate::service::PROXY_TRACKER;
@@ -46,6 +46,7 @@ pub struct GeckoBridgeState {
     prefs: HashMap<String, PrefValue>,
     appsservice: Option<AppsServiceDelegateProxy>,
     powermanager: Option<PowerManagerDelegateProxy>,
+    preference: Option<PreferenceDelegateProxy>,
     mobilemanager: Option<MobileManagerDelegateProxy>,
     networkmanager: Option<NetworkManagerDelegateProxy>,
     observers: Vec<Sender<()>>,
@@ -62,6 +63,7 @@ impl GeckoBridgeState {
     pub fn reset(&mut self) {
         self.prefs = HashMap::new();
         self.powermanager = None;
+        self.preference = None;
         self.appsservice = None;
         self.mobilemanager = None;
         self.networkmanager = None;
@@ -75,7 +77,7 @@ impl GeckoBridgeState {
 
     /// Delegates that are common to device and desktop builds.
     pub fn common_delegates_ready(&self) -> bool {
-        self.appsservice.is_some() && self.powermanager.is_some()
+        self.appsservice.is_some() && self.powermanager.is_some() && self.preference.is_some()
     }
 
     /// Delegates that are only available on device builds.
@@ -416,6 +418,90 @@ impl GeckoBridgeState {
         } else {
             Err(DelegateError::InvalidDelegator)
         }
+    }
+
+    // Preference delegate management.
+    pub fn set_preference_delegate(&mut self, delegate: PreferenceDelegateProxy) {
+        self.preference = Some(delegate);
+        self.notify_readyness_observers();
+    }
+
+    pub fn preference_get_int(&mut self, pref_name: String) -> Result<i64, DelegateError> {
+        self.preference
+            .as_mut()
+            .map_or(Err(DelegateError::InvalidDelegator), |p| {
+                p.get_int(pref_name)
+                    .recv()
+                    .map_err(|_| DelegateError::InvalidChannel)
+                    .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService))
+            })
+    }
+
+    pub fn preference_get_char(&mut self, pref_name: String) -> Result<String, DelegateError> {
+        self.preference
+            .as_mut()
+            .map_or(Err(DelegateError::InvalidDelegator), |p| {
+                p.get_char(pref_name)
+                    .recv()
+                    .map_err(|_| DelegateError::InvalidChannel)
+                    .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService))
+            })
+    }
+
+    pub fn preference_get_bool(&mut self, pref_name: String) -> Result<bool, DelegateError> {
+        self.preference
+            .as_mut()
+            .map_or(Err(DelegateError::InvalidDelegator), |p| {
+                p.get_bool(pref_name)
+                    .recv()
+                    .map_err(|_| DelegateError::InvalidChannel)
+                    .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService))
+            })
+    }
+
+    pub fn preference_set_int(
+        &mut self,
+        pref_name: String,
+        value: i64,
+    ) -> Result<(), DelegateError> {
+        self.preference
+            .as_mut()
+            .map_or(Err(DelegateError::InvalidDelegator), |p| {
+                p.set_int(pref_name, value)
+                    .recv()
+                    .map_err(|_| DelegateError::InvalidChannel)
+                    .map(|_| ())
+            })
+    }
+
+    pub fn preference_set_char(
+        &mut self,
+        pref_name: String,
+        value: String,
+    ) -> Result<(), DelegateError> {
+        self.preference
+            .as_mut()
+            .map_or(Err(DelegateError::InvalidDelegator), |p| {
+                p.set_char(pref_name, value)
+                    .recv()
+                    .map_err(|_| DelegateError::InvalidChannel)
+                    .map(|_| ())
+            })
+    }
+
+    pub fn preference_set_bool(
+        &mut self,
+        pref_name: String,
+        value: bool,
+    ) -> Result<(), DelegateError> {
+        self.preference
+            .as_mut()
+            .map_or(Err(DelegateError::InvalidDelegator), |p| {
+                p.set_bool(pref_name, value)
+                    .recv()
+                    .map_err(|_| DelegateError::InvalidChannel)
+                    .map(|_| ())
+            })
     }
 
     pub fn register_token(&mut self, token: &str, origin_attribute: OriginAttributes) -> bool {
