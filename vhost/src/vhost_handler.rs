@@ -9,14 +9,14 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::Arc;
 use zip::read::{ZipArchive, ZipFile};
 
 #[derive(Default)]
 pub struct AppData {
     pub root_path: String,
     pub csp: String,
-    pub zips: HashMap<String, Arc<ZipArchive<File>>>,
+    // Map a host name to the zip.
+    pub zips: HashMap<String, ZipArchive<File>>,
 }
 
 #[inline]
@@ -207,7 +207,7 @@ pub async fn vhost(
                 // Now add it to the map.
                 let archive = ZipArchive::new(file).map_err(|_| ())?;
                 let mut data = data.lock();
-                data.zips.insert(host.into(), Arc::new(archive));
+                data.zips.insert(host.into(), archive);
             } else {
                 // No application.zip found, try a direct path mapping.
                 let filename = req.match_info().query("filename");
@@ -243,7 +243,6 @@ pub async fn vhost(
 
         match readlock.zips.get_mut(host) {
             Some(archive) => {
-                let archive = Arc::get_mut(&mut *archive).ok_or_else(internal_server_error)?;
                 let filename = req.match_info().query("filename");
 
                 match check_lang_files(&languages, filename, &mut |lang_file| {

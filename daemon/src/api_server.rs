@@ -5,7 +5,7 @@ use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler};
 use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::middleware::{Compress, Logger};
-use actix_web::web::Bytes;
+use actix_web::web::{Bytes, Data};
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use async_std::fs::File;
@@ -20,7 +20,7 @@ use futures_core::{
 };
 use futures_util::io::AsyncReadExt;
 use log::{debug, error};
-use std::sync::RwLock;
+use parking_lot::Mutex;
 use vhost_server::vhost_handler::{maybe_not_modified, vhost, AppData};
 
 async fn etag_for_file(file: &File) -> String {
@@ -120,10 +120,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsHandler {
     }
 }
 
-#[derive(Clone)]
+// #[derive(Clone)]
 pub struct SharedWsData {
     pub global_context: GlobalContext,
-    session_id_factory: Shared<IdFactory>,
+    session_id_factory: Mutex<IdFactory>,
 }
 
 // A dummy message sender used when we initially create the session.
@@ -140,14 +140,10 @@ impl MessageEmitter for DummySender {
 
 // Starts a WS session.
 async fn ws_index(
-    data: web::Data<RwLock<SharedWsData>>,
+    data: Data<SharedWsData>,
     req: HttpRequest,
     stream: web::Payload,
 ) -> Result<HttpResponse, Error> {
-    let data = data
-        .read()
-        .map_err(|_| HttpResponse::InternalServerError().finish())?;
-
     let global_context = &data.global_context;
 
     let session = Session::websocket(
@@ -214,14 +210,7 @@ impl Stream for ChunkedFile {
     }
 }
 
-async fn http_index(
-    data: web::Data<RwLock<SharedWsData>>,
-    req: HttpRequest,
-) -> Result<HttpResponse, Error> {
-    let data = data
-        .read()
-        .map_err(|_| HttpResponse::InternalServerError().finish())?;
-
+async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpResponse, Error> {
     let mut full_path = data.global_context.config.http.root_path.clone();
     full_path.push_str(req.path());
 
@@ -315,13 +304,15 @@ pub fn start(global_context: &GlobalContext, vhost_data: Shared<AppData>) {
     let addr = format!("{}:{}", config.general.host, port);
 
     let sys = actix_rt::System::new("ws-server");
-    let shared_data = SharedWsData {
+    let shared_data = Data::new(SharedWsData {
         global_context: global_context.clone(),
-        session_id_factory: Shared::adopt(IdFactory::new(0)),
-    };
+        session_id_factory: Mutex::new(IdFactory::new(0)),
+    });
 
     HttpServer::new(move || {
         App::new()
+            .app_data(shared_data.clone())
+            .app_data(vhost_data.clone())
             .wrap(Logger::new("\"%r\" %{Host}i %s %b %D")) // Custom log to display the vhost
             .wrap(Cors::new().send_wildcard().finish())
             .wrap(Compress::default())
@@ -334,7 +325,6 @@ pub fn start(global_context: &GlobalContext, vhost_data: Shared<AppData>) {
             )
             .service(
                 web::scope("/")
-                    .data(RwLock::new(shared_data.clone()))
                     .route("*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route("/ws", web::get().to(ws_index))
                     .route("/*", web::get().to(http_index)),
