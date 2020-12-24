@@ -1,5 +1,17 @@
+default:
 # Start with a rustup image providing the nightly release.
-image: "kaiostech/sidl-new:latest"
+  image: ${CI_REGISTRY}/kaios/sidl:latest
+  tags:
+    - sidl
+  before_script:
+    - |
+      echo -e "machine ${CI_SERVER_HOST}\nlogin gitlab-ci-token\npassword ${CI_JOB_TOKEN}" > ~/.netrc
+      git config --global url."${CI_SERVER_URL}/".insteadOf "git@${CI_SERVER_HOST}:"
+    - |
+      if ${CI_USE_MIRROR}; then
+        echo -e "\033[1;33mAlternatively use ${LOCAL_GIT_MIRROR} for git-clone. \033[0m"
+        git config --global url."${LOCAL_GIT_MIRROR}/KaiOS".insteadOf "git@${CI_SERVER_HOST}:KaiOS"
+      fi
 
 # Environment variables
 variables:
@@ -54,12 +66,23 @@ build:daemon:
   except:
     variables:
       - $CI_COMMIT_MESSAGE =~ /skip-build/
+  needs: []
+
+.tests_job_base:
+  stage: tests
+  needs:
+    - job: 'build:daemon'
+      artifacts: true
+  only:
+    - merge_requests
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /skip-test/
+      - $CI_COMMIT_MESSAGE =~ /skip-build/
 
 # Use cargo to test the project
 test:cargo:
-  stage: tests
-  tags:
-    - sidl
+  extends: .tests_job_base
   script:
     - rustc --version && cargo --version
 # Force build.rs to run despite the cache.
@@ -77,17 +100,9 @@ test:cargo:
     - cd $CI_PROJECT_DIR/tcpsocket-service && cargo test -- --nocapture
     - cd $CI_PROJECT_DIR/services/settings && cargo test -- --nocapture
     - cd $CI_PROJECT_DIR/vhost && cargo test -- --nocapture
-  only:
-    - merge_requests
-  except:
-    variables:
-      - $CI_COMMIT_MESSAGE =~ /skip-test/
-      - $CI_COMMIT_MESSAGE =~ /skip-build/
 
 test:js-clients:
-  stage: tests
-  tags:
-    - sidl
+  extends: .tests_job_base
   script:
     - cd $CI_PROJECT_DIR
     - git clone git@git.kaiostech.com:vincent.chang/echo-server.git
@@ -112,15 +127,13 @@ test:js-clients:
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/tcpsocket/client/test/tests.html
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/test/client/test/tests.html
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/time/client/test/tests.html
-  except:
-    variables:
-      - $CI_COMMIT_MESSAGE =~ /skip-test/
-      - $CI_COMMIT_MESSAGE =~ /skip-build/
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_server_error.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_no_package.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_check_update.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_full.html
 
 # test-libsignal:
-#   stage: tests
-#   tags:
-#     - sidl
+#   extends: .tests_job_base
 #   script:
 #     - cd $CI_PROJECT_DIR
 #     - ./release_libs.sh
@@ -139,6 +152,11 @@ test:js-clients:
 #     - rm $CI_PROJECT_DIR/prebuilts/http_root/war_and_peace.enc
 # # the last test kills api-daemon
 
+.clone_build_sidl: &clone_build_sidl
+  - |
+    git clone git@git.kaiostech.com:KaiOS/build-sidl.git -b multi-arch
+    cd build-sidl
+  - git log -1 --decorate
 
 build:targets:
   stage: xbuild
@@ -153,36 +171,27 @@ build:targets:
     expire_in: 1 week
     paths:
       - production
-
-verify:build:targets:
-  extends: .build_targets_base
   only:
     - merge_requests
+    - branches@KaiOS/sidl
   except:
     variables:
       - $CI_COMMIT_MESSAGE =~ /skip-build/
-
-build:targets:
-  extends:
-    - .using_local_mirror
-    - .build_targets_base
-  only:
-    - branches@KaiOS/sidl
-
-.production_job:
-  extends: .using_local_mirror
-  stage: production
+  needs: []
 
 update:targets:
-  extends: .production_job
-  only:
-    - branches@KaiOS/sidl
+  stage: production
   script:
     - *clone_build_sidl
     - ./update_api-daemon.sh
+  only:
+    - branches@KaiOS/sidl
+  needs:
+    - job: 'build:targets'
+      artifacts: true
 
 update:tag:
-  extends: .production_job
+  stage: production
   variables:
     # source of sidl in this job is absolutely unnecessary
     GIT_STRATEGY: none
@@ -191,8 +200,12 @@ update:tag:
     # hence we self-define here
     API_DAEMON_DEST_BRANCH: next
   before_script:
-    # re-override as local mirror is unnecessary here
-    - *ssh-setting
+    # re-override as local mirror is unnecessary but write-access here
+    - |
+      eval $(ssh-agent -s)
+      ssh-add <(echo "$SSH_PRIVATE_KEY")
+      mkdir -p ~/.ssh
+      [[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
     - |
       ret=$(git ls-remote --tags --exit-code \
         git@${CI_SERVER_HOST}:${API_DAEMON_DEST_REPO} ${CI_COMMIT_TAG})
@@ -200,11 +213,14 @@ update:tag:
         echo "${CI_COMMIT_TAG} already exists in ${API_DAEMON_DEST_REPO} !"
         exit 1
       fi
-  only:
-    - tags@KaiOS/sidl
   script:
     - echo ${CI_COMMIT_TAG}
-    - git clone "git@${CI_SERVER_HOST}:${API_DAEMON_DEST_REPO}" -b ${API_DAEMON_DEST_BRANCH}
+    - |
+      git_url="git@${CI_SERVER_HOST}:"
+      if ${CI_USE_MIRROR}; then
+        git_url="${LOCAL_GIT_MIRROR}/"
+      fi
+    - git clone "${git_url}${API_DAEMON_DEST_REPO}" -b ${API_DAEMON_DEST_BRANCH}
     - cd api-daemon
     - 'coresponding_commit=$(git rev-list HEAD --grep="Source: ${CI_PROJECT_PATH}@${CI_COMMIT_SHA}" -F -1)'
     - |
@@ -221,7 +237,10 @@ update:tag:
       echo
       echo "Corresponding commit that was automatically submitted to api-daemon:"
       git show ${coresponding_commit} -q
+    - git remote set-url --push origin "git@${CI_SERVER_HOST}:${API_DAEMON_DEST_REPO}"
     - git push origin ${coresponding_commit}:refs/tags/${CI_COMMIT_TAG}
+  only:
+    - tags@KaiOS/sidl
 
 .build_docker:
   image: docker:19.03.1
