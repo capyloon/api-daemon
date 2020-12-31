@@ -13,6 +13,7 @@ use log::{error, info};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::thread;
 
 lazy_static! {
     pub(crate) static ref PROXY_TRACKER: Arc<Mutex<GeckoBridgeProxyTracker>> =
@@ -163,7 +164,9 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
         // Get the proxy and update our state.
         if let Some(mobile_delegate) = self.get_mobile_manager_delegate(delegate) {
-            self.state.lock().set_mobilemanager_delegate(mobile_delegate);
+            self.state
+                .lock()
+                .set_mobilemanager_delegate(mobile_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -182,7 +185,9 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
         // Get the proxy and update our state.
         if let Some(network_delegate) = self.get_network_manager_delegate(delegate) {
-            self.state.lock().set_networkmanager_delegate(network_delegate);
+            self.state
+                .lock()
+                .set_networkmanager_delegate(network_delegate);
             responder.resolve();
         } else {
             responder.reject();
@@ -208,12 +213,20 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             None => HashSet::new(),
         };
         let origin_attributes = OriginAttributes::new(&url, permissions_set);
-        let mut state = self.state.lock();
-        if state.register_token(&token, origin_attributes) {
-            responder.resolve()
-        } else {
-            responder.reject();
-        }
+        let shared_state = self.state.clone();
+        let res = responder.clone();
+        let _ = thread::Builder::new()
+            .name("register_token".to_string())
+            .spawn(move || {
+                if shared_state
+                    .lock()
+                    .register_token(&token, origin_attributes)
+                {
+                    res.resolve();
+                } else {
+                    res.reject();
+                }
+            });
     }
 
     fn import_sim_contacts(
