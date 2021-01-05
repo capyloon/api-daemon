@@ -153,14 +153,14 @@
       );
 
       await tester.assert_eq(
-        "has number true",
-        (service) => service.hasNumber("181777777"),
+        "matches true",
+        (service) => service.matches(lib_contacts.FilterByOption.TEL, lib_contacts.FilterOption.EQUALS, "181777777"),
         true
       );
 
       await tester.assert_eq(
-        "has number false",
-        (service) => service.hasNumber("181777888"),
+        "matches false",
+        (service) => service.matches(lib_contacts.FilterByOption.TEL, lib_contacts.FilterOption.EQUALS, "181777888"),
         false
       );
 

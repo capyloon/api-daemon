@@ -208,22 +208,31 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn has_number(&mut self, responder: &ContactsFactoryHasNumberResponder, number: String) {
-        debug!("has_number number: {}", number);
+    fn matches(
+        &mut self,
+        responder: &ContactsFactoryMatchesResponder,
+        filter_by_option: FilterByOption,
+        filter: FilterOption,
+        value: String,
+    ) {
+        debug!(
+            "matches filter_by_option: {:?}, filter_option: {:?}, value: {}",
+            filter_by_option, filter, value
+        );
 
         let options = ContactFindSortOptions {
             sort_by: SortOption::Name,
             sort_order: Order::Ascending,
             sort_language: "".into(),
-            filter_value: number,
-            filter_option: FilterOption::Equals,
-            filter_by: vec![FilterByOption::Tel],
+            filter_value: value,
+            filter_option: filter,
+            filter_by: vec![filter_by_option],
             only_main_data: true,
         };
 
         if let Some(mut db_cursor) = self.state.lock().db.find(options, 1) {
             if let Some(info) = db_cursor.next() {
-                debug!("has_number info.len: {}", info.len());
+                debug!("matches info.len: {}", info.len());
                 responder.resolve(!info.is_empty());
             }
         } else {
