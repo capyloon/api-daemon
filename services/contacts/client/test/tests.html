@@ -335,6 +335,56 @@
         "David"
       );
 
+      let contact_with_group = {
+        published: new Date(),
+        updated: new Date(),
+        bday: new Date(),
+        anniversary: new Date(),
+        photoBlob: [],
+        name: "contact_with_group",
+        groups: [group_colleague.id]
+      }
+
+      await tester.assert_eq(
+        "add contact with group",
+        (service) => service.add([contact_with_group]),
+        {}
+      );
+
+      let with_group_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.DESCENDING,
+        filterValue: "contact_with_group",
+        filterOption: lib_contacts.FilterOption.EQUALS,
+        filterBy: [lib_contacts.FilterByOption.NAME],
+        onlyMainData: false
+      }, 20);
+
+      let results = await with_group_cursor.next();
+      console.log(results);
+
+      await tester.assert_eq(
+        "verify contact_with_group add sucessful",
+        service => {
+          return new Promise((resolve, reject) => {
+            let names = [];
+            results.forEach(function (contact) {
+              names.push(contact.name);
+            })
+            resolve(names);
+          });
+        },
+        [contact_with_group.name]
+      );
+
+      with_group_cursor.release();
+
+      await tester.assert_eq(
+        "verify remove contact with group",
+        (service) => service.remove([results[0].id]),
+        {}
+      );
+
       await tester.assert_eq(
         "verify remove group colleague ",
         (service) => service.removeGroup(group_colleague.id),

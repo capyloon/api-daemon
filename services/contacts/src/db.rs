@@ -74,7 +74,7 @@ static UPGRADE_0_1_SQL: [&str; 14] = [
         contact_id TEXT NOT NULL,
         data_type TEXT NOT NULL,
         value TEXT DEFAULT '',
-        FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id)
+        FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id) ON DELETE CASCADE
     )"#,
     r#"CREATE INDEX idx_additional ON contact_additional(contact_id)"#,
     r#"CREATE TABLE IF NOT EXISTS blocked_numbers (number TEXT NOT NULL UNIQUE)"#,
@@ -88,13 +88,13 @@ static UPGRADE_0_1_SQL: [&str; 14] = [
        id INTEGER PRIMARY KEY ASC, 
        group_id TEXT NOT NULL, 
        contact_id TEXT NOT NULL,
-       FOREIGN KEY(group_id) REFERENCES groups(id),
-       FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id)
+       FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE,
+       FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id) ON DELETE CASCADE
     )"#,
     r#"CREATE TABLE IF NOT EXISTS sim_contact_hash (
         id TEXT PRIMARY KEY,
         hash TEXT,
-        FOREIGN KEY(id) REFERENCES contact_main(contact_id)
+        FOREIGN KEY(id) REFERENCES contact_main(contact_id) ON DELETE CASCADE
     )"#,
 ];
 
@@ -810,10 +810,7 @@ impl ContactsDb {
         debug!("ContactsDb::clear_contacts");
         let conn = self.db.mut_connection();
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM sim_contact_hash", NO_PARAMS)?;
         tx.execute("UPDATE speed_dials SET contact_id = ''", NO_PARAMS)?;
-        tx.execute("DELETE FROM contact_additional", NO_PARAMS)?;
-        tx.execute("DELETE FROM group_contacts", NO_PARAMS)?;
         tx.execute("DELETE FROM contact_main", NO_PARAMS)?;
         tx.commit()?;
         Ok(())
@@ -846,21 +843,12 @@ impl ContactsDb {
         let tx = connection.transaction()?;
         {
             for contact_id in contact_ids {
-                tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&contact_id])?;
-                tx.execute(
-                    "DELETE FROM contact_additional WHERE contact_id = ?",
-                    &[&contact_id],
-                )?;
                 tx.execute(
                     "UPDATE speed_dials SET contact_id = '' WHERE contact_id = ?",
                     &[&contact_id],
                 )?;
                 tx.execute(
                     "DELETE FROM contact_main WHERE contact_id = ?",
-                    &[&contact_id],
-                )?;
-                tx.execute(
-                    "DELETE FROM group_contacts WHERE contact_id = ?",
                     &[&contact_id],
                 )?;
                 let mut contact = ContactInfo::default();
