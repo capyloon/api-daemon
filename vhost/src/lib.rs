@@ -155,6 +155,36 @@ mod test {
         lang_request(url, expected, mime, None, Some(if_none_match))
     }
 
+    // Return the redirect URL.
+    fn redirect_request(
+        url: &str,
+        expected: StatusCode,
+    ) -> Result<String, ()> {
+        use actix_web::HttpMessage;
+        use log::error;
+
+        let url = url.to_owned();
+
+        let fut = async move {
+            let url2 = url.clone();
+            let response = http_client(None, None).get(url).send().await;
+            response
+                .map_err(move |err| {
+                    error!("HTTP Request failed: {}", err);
+                    panic!("Failed to retrieve {}", url2.clone());
+                })
+                .and_then(|response| {
+                    assert_eq!(response.status(), expected);
+                    let location = match response.headers().get("Location") {
+                        Some(location) => location.to_str().unwrap(),
+                        None => "",
+                    };
+                    Ok(location.to_string())
+                })
+        };
+        System::new("test").block_on(fut)
+    }
+
     #[test]
     fn valid_vhost() {
         let _ = env_logger::try_init();
@@ -270,16 +300,16 @@ mod test {
             "text/html",
         )
         .unwrap();
-        assert_eq!(&etag, "W/\"1600817409.49581208-0\"");
+        assert_eq!(&etag, "W/\"1609980977.107365048-0\"");
 
         let etag = request_if_none_match(
             "http://missing-zip.localhost:7443/index.html",
             StatusCode::NOT_MODIFIED,
             "text/html",
-            "W/\"1600817409.49581208-0\"",
+            "W/\"1609980977.107365048-0\"",
         )
         .unwrap();
-        assert_eq!(&etag, "W/\"1600817409.49581208-0\"");
+        assert_eq!(&etag, "W/\"1609980977.107365048-0\"");
 
         // Testing etag from zip.
         let etag = request(
@@ -298,5 +328,31 @@ mod test {
         )
         .unwrap();
         assert_eq!(&etag, "W/\"2927261257-87\"");
+
+        // Testing redirect URL.
+        let url = redirect_request(
+            "http://localhost:7443/redirect/valid/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
+            StatusCode::MOVED_PERMANENTLY,
+        )
+        .unwrap();
+        assert_eq!(
+            &url,
+            "http://valid.localhost:7443/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
+        );
+
+        let url = redirect_request(
+            "http://localhost:7443/redirect/valid/path/to/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
+            StatusCode::MOVED_PERMANENTLY,
+        )
+        .unwrap();
+        assert_eq!(
+            &url,
+            "http://valid.localhost:7443/path/to/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
+        );
+
+        let url = redirect_request(
+            "http://localhost:7443/valid/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
+            StatusCode::BAD_REQUEST,
+        );
     }
 }

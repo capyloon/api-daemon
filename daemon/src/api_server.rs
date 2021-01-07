@@ -267,10 +267,13 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
 }
 
 // A Guard that checks if a request should be handled by the vhost server.
-// This checks if the Host header is of the pattern: xxxxx.localhost:$port
-// or xxxxx.localhost if running on the default http port (80).
+// This checks if the Host header and path are of the pattern:
+// xxxxx.localhost:$port or localhost:$port/redirect/xxxxx,
+// or if running on the default http port (80),
+// xxxxx.localhost or localhost/redirect/xxx.
 struct VhostChecker {
     check: String,
+    redirect: String,
 }
 
 impl VhostChecker {
@@ -278,10 +281,12 @@ impl VhostChecker {
         if port != 80 {
             Self {
                 check: format!("localhost:{}", port),
+                redirect: "redirect".to_owned(),
             }
         } else {
             Self {
                 check: "localhost".to_owned(),
+                redirect: "redirect".to_owned(),
             }
         }
     }
@@ -291,6 +296,13 @@ impl actix_web::guard::Guard for VhostChecker {
     fn check(&self, request: &actix_web::dev::RequestHead) -> bool {
         if let Some(host) = request.headers().get("Host") {
             let parts: Vec<&str> = host.to_str().unwrap_or_else(|_| &"").split('.').collect();
+            if parts.len() == 1 && parts[0] == self.check {
+                let path = request.uri.path();
+                let paths: Vec<&str> = path.split('/').collect();
+                if paths.len() > 2 && paths[1] == self.redirect {
+                    return true;
+                }
+            }
             parts.len() == 2 && parts[1] == self.check
         } else {
             false

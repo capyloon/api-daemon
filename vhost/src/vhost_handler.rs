@@ -1,7 +1,7 @@
 /// A actix-web vhost handler
 use crate::etag::Etag;
 use actix_web::http::header::{self, Header, HeaderValue};
-use actix_web::{web, Error, HttpRequest, HttpResponse};
+use actix_web::{web, Error, http, HttpRequest, HttpResponse};
 use common::traits::Shared;
 use log::{debug, error};
 use mime_guess::{Mime, MimeGuess};
@@ -156,17 +156,38 @@ pub async fn vhost(
     let if_none_match = req.headers().get(header::IF_NONE_MATCH);
 
     if let Some(host) = req.headers().get(header::HOST) {
-        let host = host
+        let full_host = host
             .to_str()
             .map_err(|_| HttpResponse::BadRequest().finish())?;
         debug!("Full Host is {:?}", host);
         // Remove the port if there is one.
-        let mut parts = host.split(':');
+        let mut parts = full_host.split(':');
         // TODO: make more robust for cases where the host part can include ':' like ipv6 addresses.
         let host = parts
             .next()
             .ok_or_else(|| HttpResponse::BadRequest().finish())?;
         debug!("Host is {:?}", host);
+
+        if host == "localhost" {
+            // mapping the redirect url
+            // from: http://localhost[:port]/redirect/app/file.html?...
+            // to: http://app.localhost[:port]/file.html?...
+            let path = req.path();
+            let parts: Vec<&str> = path.split('/').collect();
+            if parts.len() < 2 ||
+               parts[1] != "redirect" {
+                return Ok(HttpResponse::BadRequest().finish());
+            }
+            let replace_path = format!("{}/{}/", parts[1], parts[2]);
+            let path = path.replace(&replace_path, "");
+            let params = req.query_string();
+            let redirect_url = format!("http://{}.{}{}?{}", parts[2], full_host, path, params);
+            return Ok(
+                HttpResponse::MovedPermanently()
+                   .header(http::header::LOCATION, redirect_url)
+                   .finish()
+            );
+        }
 
         // Now extract our vhost, which is the leftmost part of the domain name.
         let mut parts = host.split('.');

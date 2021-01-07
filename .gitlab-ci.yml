@@ -74,6 +74,9 @@ test:cargo:
     - cd $CI_PROJECT_DIR/services/devicecapability && cargo test -- --nocapture
     - cd $CI_PROJECT_DIR/tcpsocket-service && cargo test -- --nocapture
     - cd $CI_PROJECT_DIR/services/settings && cargo test -- --nocapture
+    - cd $CI_PROJECT_DIR/vhost && cargo test -- --nocapture
+  only:
+    - merge_requests
   except:
     variables:
       - $CI_COMMIT_MESSAGE =~ /skip-test/
