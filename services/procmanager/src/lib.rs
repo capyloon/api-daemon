@@ -1,4 +1,5 @@
 mod cgroups;
+pub mod config;
 pub mod generated;
 pub mod service;
 #[cfg(test)]

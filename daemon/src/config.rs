@@ -62,6 +62,8 @@ pub struct Config {
     pub vhost: vhost_server::config::Config,
     #[cfg(feature = "apps-service")]
     pub apps_service: AppsConfig,
+    #[cfg(feature = "procmanager-service")]
+    pub procmanager_service: procmanager_service::config::Config,
 }
 
 impl Config {
@@ -102,6 +104,11 @@ impl Config {
                 "".into(),
                 false,
             ),
+            #[cfg(feature = "procmanager-service")]
+            procmanager_service: procmanager_service::config::Config {
+                socket_path: "".into(),
+                hints_path: "".into(),
+            },
         }
     }
 }
@@ -155,6 +162,11 @@ mod test {
             assert_eq!(config.apps_service.data_path(), PathBuf::from("/tmp/apps"));
             assert_eq!(config.apps_service.uds_path, "/tmp/uds_tmp.sock");
             assert_eq!(config.apps_service.cert_type, "test");
+        }
+        #[cfg(feature = "procmanager-service")]
+        {
+            assert_eq!(config.procmanager_service.socket_path, "/tmp/b2gkiller_hints");
+            assert_eq!(config.procmanager_service.hints_path, "/tmp/prochints.dat");
         }
     }
 }

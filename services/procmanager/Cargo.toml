@@ -12,6 +12,7 @@ common = { path = "../../common" }
 log = "0.4"
 serde = "1.0"
 thiserror = "1.0"
+itertools = "0.9.0"
 
 [build-dependencies]
 common = { path = "../../common" }

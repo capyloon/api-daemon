@@ -191,6 +191,13 @@ fn main() {
             apps_service::start_registry(shared, config.general.port);
         }
 
+        #[cfg(feature = "procmanager-service")]
+        {
+            let shared = procmanager_service::service::ProcManagerService::shared_state();
+            shared.lock().hints.config = config.procmanager_service;
+            shared.lock().hints.after_config();
+        }
+
         // Starts the web socket server in its own thread.
         let ws_context = global_context.clone();
         let actix_handle = thread::Builder::new()

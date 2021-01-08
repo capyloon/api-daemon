@@ -23,3 +23,7 @@ cert_type = "production"
 updater_socket = "/dev/socket/updater_socket"
 user_agent = "Mozilla/5.0 (Mobile; rv:90.0) Gecko/90.0 Firefox/90.0 B2GOS/3.2"
 allow_remove_preloaded = true
+
+[procmanager_service]
+socket_path = "/dev/socket/b2gkiller_hints"
+hints_path = "/data/local/tmp/prochints.dat"

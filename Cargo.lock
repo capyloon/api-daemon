@@ -2919,6 +2919,7 @@ name = "procmanager_service"
 version = "0.1.0"
 dependencies = [
  "common",
+ "itertools",
  "log",
  "serde",
  "thiserror",

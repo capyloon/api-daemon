@@ -51,6 +51,22 @@ interface ProcessService {
   // to reuse it.
   //
   fn pending() -> bool
+
+  // Modify hints to b2gkiller
+  //
+  // |hints| is a list of strings that looks like ["+boot", "-launch" ]to tell the
+  // killer what is going on at the gecko side.
+  // "+" means to add the hint following it, and "-" remove the hint
+  // after it.
+  // "+ring=<pid>" is a form to associate a value, a pid, to the hint.
+  // It should be removed by "-ring=<pid>".
+  fn modify_hints(hints: str+)
+
+  // Remove all hints.
+  fn reset_hints()
+
+  // Return all hints
+  fn hints() -> str
 }
 
 #[permission=process-manager]
