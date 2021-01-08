@@ -4,7 +4,7 @@
 
 use blake2::{Blake2s, Digest};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use zip::read::ZipFile;
 
 pub(crate) struct Etag {}
@@ -16,6 +16,7 @@ impl Etag {
         let mut hasher = Blake2s::new();
         let mut buffer = Vec::new();
         if file.read_to_end(&mut buffer).is_ok() {
+            let _ = file.seek(SeekFrom::Start(0));
             hasher.update(&buffer);
             let res = hasher.finalize();
             format!("W/\"{:x}\"", res)
