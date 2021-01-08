@@ -3,6 +3,7 @@ name = "tcpsocket_service"
 version = "0.1.0"
 authors = ["fei gao <fei.gao@kaiostech.com> "]
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
 common = { path = "../../common" }

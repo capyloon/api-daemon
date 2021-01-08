@@ -209,13 +209,21 @@
 //! will require an explicit `.map_err(Error::msg)` when working with a
 //! non-Anyhow error type inside a function that returns Anyhow's error type.
 
-#![doc(html_root_url = "https://docs.rs/anyhow/1.0.37")]
+#![doc(html_root_url = "https://docs.rs/anyhow/1.0.38")]
 #![cfg_attr(backtrace, feature(backtrace))]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(
+    clippy::doc_markdown,
+    clippy::enum_glob_use,
+    clippy::missing_errors_doc,
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
     clippy::needless_doctest_main,
     clippy::new_ret_no_self,
+    clippy::unused_self,
+    clippy::used_underscore_binding,
+    clippy::wildcard_imports,
     clippy::wrong_self_convention
 )]
 
@@ -238,12 +246,12 @@ mod error;
 mod fmt;
 mod kind;
 mod macros;
+mod ptr;
 mod wrapper;
 
-use crate::alloc::Box;
 use crate::error::ErrorImpl;
+use crate::ptr::Own;
 use core::fmt::Display;
-use core::mem::ManuallyDrop;
 
 #[cfg(not(feature = "std"))]
 use core::fmt::Debug;
@@ -363,7 +371,7 @@ pub use anyhow as format_err;
 /// ```
 #[repr(transparent)]
 pub struct Error {
-    inner: ManuallyDrop<Box<ErrorImpl<()>>>,
+    inner: Own<ErrorImpl>,
 }
 
 /// Iterator of a chain of source errors.

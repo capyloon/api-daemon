@@ -3,6 +3,7 @@ name = "apps_service"
 version = "0.1.0"
 authors = ["Seinlin Li<seinlin.li@kaiostech.com> "]
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
 actix-rt = "1.0"

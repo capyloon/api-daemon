@@ -70,16 +70,6 @@ impl WakerSet {
         key
     }
 
-    /// Removes the waker of an operation.
-    #[cold]
-    pub fn remove(&self, key: usize) {
-        let mut inner = self.lock();
-
-        if inner.entries.remove(key).is_some() {
-            inner.notifiable -= 1;
-        }
-    }
-
     /// If the waker for this key is still waiting for a notification, then update
     /// the waker for the entry, and return false. If the waker has been notified,
     /// treat the entry as completed and return true.
@@ -125,21 +115,6 @@ impl WakerSet {
         }
 
         false
-    }
-
-    /// Notifies a blocked operation if none have been notified already.
-    ///
-    /// Returns `true` if an operation was notified.
-    #[inline]
-    pub fn notify_any(&self) -> bool {
-        // Use `SeqCst` ordering to synchronize with `Lock::drop()`.
-        let flag = self.flag.load(Ordering::SeqCst);
-
-        if flag & NOTIFIED == 0 && flag & NOTIFIABLE != 0 {
-            self.notify(Notify::Any)
-        } else {
-            false
-        }
     }
 
     /// Notifies one additional blocked operation.

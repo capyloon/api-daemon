@@ -3,6 +3,7 @@ name = "devicecapability_service"
 version = "0.1.0"
 authors = ["The KaiOS Team"]
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
 android_utils = { path = "../../support/android-utils" }

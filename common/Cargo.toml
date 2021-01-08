@@ -3,6 +3,7 @@ name = "common"
 version = "0.2.0"
 authors = ["Fabrice Desré <fabrice@desre.org>"]
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
 actix = "0.10"

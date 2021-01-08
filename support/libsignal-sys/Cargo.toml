@@ -3,6 +3,8 @@ name = "libsignal-sys"
 version = "0.1.0"
 authors = ["Fabrice Desré <fabrice@desre.org>"]
 edition = "2018"
+license = "KaiOS"
+publish = false
 
 [dependencies]
 arrayref = "0.3"

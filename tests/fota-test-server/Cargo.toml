@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Cliff Han(Xian) <cliff.han@kaiostech.com>"]
 description = "KaiOS Fota Test Server for web-driver test"
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
 # clap 3.0 is not officially published, but seems it's almost ready
