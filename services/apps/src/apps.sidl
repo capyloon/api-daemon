@@ -63,6 +63,7 @@ dictionary AppsObject {
   name: str
   installState: AppsInstallState
   manifestURL: str
+  removable: bool
   status: AppsStatus
   updateState: AppsUpdateState
   updateURL: str

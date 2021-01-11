@@ -26,6 +26,8 @@ pub struct AppsItem {
     package_hash: String,
     #[serde(default = "AppsItem::default_string")]
     version: String,
+    #[serde(default = "AppsItem::default_false")]
+    removable: bool,
 }
 
 impl AppsItem {
@@ -42,6 +44,7 @@ impl AppsItem {
             manifest_hash: AppsItem::default_string(),
             package_hash: AppsItem::default_string(),
             version: AppsItem::default_string(),
+            removable: true,
         }
     }
 
@@ -69,6 +72,10 @@ impl AppsItem {
         self.manifest_url.clone()
     }
 
+    pub fn set_removable(&mut self, removable: bool) {
+        self.removable = removable;
+    }
+
     pub fn get_update_url(&self) -> String {
         self.update_url.clone()
     }
@@ -91,6 +98,10 @@ impl AppsItem {
 
     pub fn get_version(&self) -> String {
         self.version.clone()
+    }
+
+    pub fn get_removable(&self) -> bool {
+        self.removable
     }
 
     pub fn get_status(&self) -> AppsStatus {
@@ -145,6 +156,10 @@ impl AppsItem {
         String::new()
     }
 
+    fn default_false() -> bool {
+        false
+    }
+
     fn default_update_state() -> AppsUpdateState {
         AppsUpdateState::Idle
     }
@@ -190,6 +205,7 @@ impl From<&AppsItem> for AppsObject {
             name: app.name.clone(),
             install_state: app.install_state,
             manifest_url: app.manifest_url.clone(),
+            removable: app.removable,
             status: app.status,
             update_state: app.update_state,
             update_url: app.update_url.clone(),

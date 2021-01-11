@@ -18,6 +18,7 @@
 {
   "name": "gallery",
   "manifest_url": "http://gallery.localhost/manifest.webmanifest",
+  "removable": true,
   "update_url": "https://store.server/gallery/manifest.webmanifest",
   "install_time": 1584670494752,
   "manifest_hash": "64a6dc4c342bbf1805f6c324ebc82b09",

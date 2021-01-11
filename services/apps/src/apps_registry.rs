@@ -1750,6 +1750,7 @@ fn test_apply_pwa() {
     match registry.download_and_apply_pwa(&_test_dir, app_url) {
         Ok(app) => {
             assert_eq!(app.name, "hellopwa");
+            assert_eq!(app.removable, true);
         }
         Err(err) => {
             println!("err: {:?}", err);

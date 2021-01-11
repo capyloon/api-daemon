@@ -123,6 +123,7 @@ impl FromSql for AppsUpdateState {
 // {
 // "name": "system",
 // "version": "",
+// "removable": false,
 // "manifest_url": "http://system.localhost/manifest.webmanifest",
 // "update_url": "https://store.server/system/manifest.webmanifest",
 // "status": "Enabled",
@@ -139,6 +140,7 @@ pub struct AppsSchemaManager {}
 static UPGRADE_0_1_SQL: [&str; 1] = [r#"CREATE TABLE IF NOT EXISTS apps (
                                         name TEXT NOT NULL,
                                         version TEXT,
+                                        removable BOOL,
                                         manifest_url TEXT NOT NULL UNIQUE,
                                         update_url TEXT NOT NULL,
                                         status TEXT NOT NULL,
@@ -171,6 +173,7 @@ impl DatabaseUpgrader for AppsSchemaManager {
 fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let name: String = row.get("name")?;
     let version: String = row.get("version")?;
+    let removable: bool = row.get("removable")?;
     let manifest_url: String = row.get("manifest_url")?;
     let update_url: String = row.get("update_url")?;
     let install_time: i64 = row.get("install_time")?;
@@ -181,6 +184,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let mut item = AppsItem::new(&name);
     item.set_manifest_url(&manifest_url);
     item.set_version(&version);
+    item.set_removable(removable);
     item.set_update_url(&update_url);
     item.set_status(row.get("status")?);
     item.set_install_state(row.get("install_state")?);
@@ -223,6 +227,7 @@ impl RegistryDb {
             let mut stmt_ins = tx.prepare(
                 r#"INSERT OR REPLACE INTO apps (name,
                                      version,
+                                     removable,
                                      manifest_url,
                                      update_url,
                                      status,
@@ -234,6 +239,7 @@ impl RegistryDb {
                                      package_hash)
                              VALUES(:name,
                                     :version,
+                                    :removable,
                                     :manifest_url,
                                     :update_url,
                                     :status,
@@ -251,6 +257,7 @@ impl RegistryDb {
             stmt_ins.execute_named(named_params! {
                 ":name": &app.get_name(),
                 ":version": &app.get_version(),
+                ":removable": &app.get_removable(),
                 ":manifest_url": &app.get_manifest_url(),
                 ":update_url": &app.get_update_url(),
                 ":status": &status,

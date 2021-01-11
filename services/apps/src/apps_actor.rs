@@ -673,20 +673,20 @@ fn test_install_app() {
             assert_eq!(5, shared.registry.count());
         }
 
-        let mut manifest_url = String::new();
-        {
+        let manifest_url = {
             let shared = shared_data.lock();
             let app_name: String = "helloworld".into();
             let vhost_port = shared.registry.get_vhost_port();
             let apps_item = AppsItem::default(&app_name, vhost_port);
-            manifest_url = apps_item.get_manifest_url();
+            let manifest_url = apps_item.get_manifest_url();
             if let Ok(app) = shared.get_by_manifest_url(&manifest_url) {
                 assert_eq!(app_name, app.name);
             } else {
                 println!("get_by_manifest_url failed.");
                 assert!(false);
             }
-        }
+            manifest_url
+        };
 
         // Uninstall
         if let Ok(_) = uninstall(&shared_data, &manifest_url) {
@@ -756,7 +756,7 @@ fn test_get_all() {
     }
 
     let app_list = get_all(&shared_data).unwrap();
-    let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"http://calculator.localhost:8443/manifest.webmanifest\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"http://system.localhost:8443/manifest.webmanifest\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"http://gallery.localhost:8443/manifest.webmanifest\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"http://launcher.localhost:8443/manifest.webmanifest\",\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
+    let expected = "[{\"name\":\"calculator\",\"install_state\":\"Installed\",\"manifest_url\":\"http://calculator.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/calculator/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"system\",\"install_state\":\"Installed\",\"manifest_url\":\"http://system.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/system/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"gallery\",\"install_state\":\"Installed\",\"manifest_url\":\"http://gallery.localhost:8443/manifest.webmanifest\",\"removable\":true,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"https://store.server/gallery/manifest.webmanifest\",\"allowed_auto_download\":false},{\"name\":\"launcher\",\"install_state\":\"Installed\",\"manifest_url\":\"http://launcher.localhost:8443/manifest.webmanifest\",\"removable\":false,\"status\":\"Enabled\",\"update_state\":\"Idle\",\"update_url\":\"\",\"allowed_auto_download\":false}]";
 
     assert_eq!(app_list, expected);
 }
