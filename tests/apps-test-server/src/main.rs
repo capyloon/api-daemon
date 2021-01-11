@@ -106,6 +106,8 @@ async fn apps_responses(
     req: HttpRequest,
     web::Path((name,)): web::Path<(String,)>,
 ) -> HttpResponse {
+    // For cancel API test
+    std::thread::sleep(std::time::Duration::from_millis(200));
     if !validate(req) {
         return HttpResponse::Unauthorized().finish();
     }

@@ -13,6 +13,7 @@ use crate::shared_state::AppsSharedData;
 use crate::update_scheduler;
 use common::traits::{DispatcherId, Shared};
 use common::JsonValue;
+use crate::downloader::DownloadError;
 use log::{debug, error, info};
 use serde_json::json;
 use std::collections::hash_map::DefaultHasher;
@@ -60,8 +61,8 @@ pub enum AppsError {
 pub enum AppsMgmtError {
     #[error("AppsMgmtError")]
     DiskSpaceNotEnough,
-    #[error("AppsMgmtError")]
-    ManifestDownloadFailed,
+    #[error("ManifestDownloadFailed {:?}", 0)]
+    ManifestDownloadFailed(DownloadError),
     #[error("AppsMgmtError")]
     ManifestReadFailed,
     #[error("AppsMgmtError")]
@@ -72,12 +73,18 @@ pub enum AppsMgmtError {
     DownloadNotMoidified,
     #[error("AppsMgmtError")]
     PackageCorrupt,
-    #[error("AppsMgmtError")]
-    PackageDownloadFailed,
+    #[error("PackageDownloadFailed {:?}", 0)]
+    PackageDownloadFailed(DownloadError),
     #[error("IO Error: {0}")]
     Io(#[from] io::Error),
     #[error("Json Error: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+impl AppsMgmtError {
+    pub fn is_equal(&self, right: AppsMgmtError) -> bool {
+        format!("{:?}", self) == format!("{:?}", right)
+    }
 }
 
 #[derive(Error, Debug)]
@@ -161,6 +168,19 @@ impl AppsRegistry {
             self.event_broadcaster.broadcast_app_updating(apps_object);
         } else {
             self.event_broadcaster.broadcast_app_installing(apps_object);
+        }
+    }
+
+    pub fn restore_apps_status(
+        &mut self,
+        is_update: bool,
+        apps_item: &AppsItem,
+        manifest: &Manifest,
+    ) {
+        if is_update {
+            let _ = self.save_app(is_update, &apps_item, &manifest);
+        } else {
+            let _ = self.unregister(&apps_item.get_manifest_url());
         }
     }
 
@@ -1185,10 +1205,8 @@ fn test_apply_download() {
     }
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(update_url);
-    let expected_update_manfiest_url = format!(
-        "http://cached.localhost/{}/update.webmanifest",
-        &app_name
-    );
+    let expected_update_manfiest_url =
+        format!("http://cached.localhost/{}/update.webmanifest", &app_name);
 
     if registry
         .apply_download(

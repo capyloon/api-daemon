@@ -13,10 +13,13 @@ use hex_slice::AsHex;
 use crate::downloader::{DownloadError, Downloader};
 use log::{debug, error, info};
 use md5::{Digest, Md5};
+use std::collections::HashMap;
 use std::convert::From;
 use std::fs::{remove_dir_all, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
+use std::time::Duration;
 use url::Url;
 use version_compare::{CompOp, Version};
 use zip_utils::verify_zip;
@@ -52,11 +55,71 @@ impl Drop for DirRemover {
     }
 }
 
+struct SenderRemover {
+    shared_data: Shared<AppsSharedData>,
+    app_update_url: String,
+}
+
+impl Drop for SenderRemover {
+    fn drop(&mut self) {
+        let _ = self
+            .shared_data
+            .lock()
+            .downloadings
+            .remove(&self.app_update_url);
+    }
+}
+
+// A simpler struct to restore apps status when error happens
+// during download_and_apply
+struct AppsStatusRestorer {
+    need_restore: bool,
+    shared_data: Shared<AppsSharedData>,
+    is_update: bool,
+    apps_item: AppsItem,
+    manifest: Manifest,
+}
+
+impl AppsStatusRestorer {
+    fn new(
+        shared_data: Shared<AppsSharedData>,
+        is_update: bool,
+        apps_item: AppsItem,
+        manifest: Manifest,
+    ) -> Self {
+        Self {
+            need_restore: true,
+            shared_data,
+            is_update,
+            apps_item,
+            manifest,
+        }
+    }
+
+    fn dont_restore(&mut self) {
+        self.need_restore = false;
+    }
+}
+
+impl Drop for AppsStatusRestorer {
+    fn drop(&mut self) {
+        if self.need_restore {
+            self.shared_data.lock().registry.restore_apps_status(
+                self.is_update,
+                &self.apps_item,
+                &self.manifest,
+            );
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct AppsRequest {
     pub downloader: Downloader, // Keeping the downloader around for reuse.
     pub shared_data: Shared<AppsSharedData>,
 }
+
+const DOWNLOAD_TIMEOUT: u64 = 600; // 10 mins
 
 impl AppsRequest {
     pub fn new(shared_data: Shared<AppsSharedData>) -> Self {
@@ -66,19 +129,45 @@ impl AppsRequest {
         }
     }
 
-    fn get_available_zip(&mut self, url: &str, path: &Path) -> Result<PathBuf, AppsMgmtError> {
+    // Create app_update_url to cancel_sender map in shared data
+    // Cancel the downloading process is available by calling cancel_sender.send()
+    // before the downloading finishes.
+    fn get_available_zip(
+        &mut self,
+        app_update_url: &str,
+        url: &str,
+        path: &Path,
+    ) -> Result<PathBuf, AppsMgmtError> {
         let zip_path = path.join("application.zip");
         debug!("Dowloading {} to {}", url, zip_path.as_path().display());
 
-        if let Err(err) = self.downloader.download(url, zip_path.as_path()) {
-            error!(
-                "Downloading {} to {} failed: {:?}",
-                url,
-                zip_path.as_path().display(),
-                err
-            );
-            return Err(AppsMgmtError::PackageDownloadFailed);
+        let (result_recv, cancel_sender) =
+            self.downloader.cancelable_download(url, zip_path.as_path());
+        {
+            let downloadings = &mut self.shared_data.lock().downloadings;
+            set_or_update_canceller(downloadings, &app_update_url, cancel_sender);
         }
+        let _sender_remover = SenderRemover {
+            shared_data: self.shared_data.clone(),
+            app_update_url: app_update_url.into(),
+        };
+        // Wait for 10 mins
+        if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
+            if let Err(err) = rec {
+                error!(
+                    "Downloading {} to {} failed: {:?}",
+                    url,
+                    zip_path.as_path().display(),
+                    err
+                );
+                return Err(AppsMgmtError::PackageDownloadFailed(err));
+            }
+        } else {
+            return Err(AppsMgmtError::PackageDownloadFailed(DownloadError::Other(
+                "Timed Out".into(),
+            )));
+        }
+
         Ok(zip_path)
     }
 
@@ -92,18 +181,37 @@ impl AppsRequest {
 
         let update_manifest = available_dir.join("update.webmanifest");
         debug!("dowload {} to {}", url, available_dir.display());
-        if let Err(err) = self.downloader.download(url, update_manifest.as_path()) {
-            error!(
-                "Downloading {} to {} failed: {:?}",
-                url,
-                update_manifest.as_path().display(),
-                err
-            );
-            if format!("{:?}", DownloadError::Http("304".into())) == format!("{:?}", err) {
-                return Err(AppsMgmtError::DownloadNotMoidified);
-            }
-            return Err(AppsMgmtError::ManifestDownloadFailed);
+
+        let (result_recv, cancel_sender) = self
+            .downloader
+            .cancelable_download(url, update_manifest.as_path());
+        {
+            let downloadings = &mut self.shared_data.lock().downloadings;
+            set_or_update_canceller(downloadings, &url, cancel_sender);
         }
+        let _sender_remover = SenderRemover {
+            shared_data: self.shared_data.clone(),
+            app_update_url: url.into(),
+        };
+        if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
+            if let Err(err) = rec {
+                error!(
+                    "Downloading {} to {} failed: {:?}",
+                    url,
+                    update_manifest.as_path().display(),
+                    err
+                );
+                if format!("{:?}", DownloadError::Http("304".into())) == format!("{:?}", err) {
+                    return Err(AppsMgmtError::DownloadNotMoidified);
+                }
+                return Err(AppsMgmtError::ManifestDownloadFailed(err));
+            }
+        } else {
+            return Err(AppsMgmtError::ManifestDownloadFailed(DownloadError::Other(
+                "Timed Out".into(),
+            )));
+        }
+
         Ok((available_dir, update_manifest))
     }
 
@@ -114,17 +222,12 @@ impl AppsRequest {
         is_auto_update: bool,
     ) -> Result<Option<AppsObject>, AppsServiceError> {
         debug!("check_for_update is_auto_update {}", is_auto_update);
-        let app = match self
+        let app = self
             .shared_data
             .lock()
             .registry
-            .get_by_update_url(update_url)
-        {
-            Some(app) => app,
-            None => {
-                return Err(AppsServiceError::AppNotFound);
-            }
-        };
+            .get_by_update_url(&update_url)
+            .ok_or(AppsServiceError::AppNotFound)?;
 
         let path = Path::new(&webapp_path);
         let (_, update_manifest) = match self.get_update_manifest(update_url, &path) {
@@ -154,31 +257,60 @@ impl AppsRequest {
         is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let path = Path::new(&webapp_path);
-        let (available_dir, update_manifest) = self
-            .get_update_manifest(update_url, &path)
-            .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
+        let (available_dir, update_manifest) = match self.get_update_manifest(update_url, &path) {
+            Ok((available_dir, update_manifest)) => (available_dir, update_manifest),
+            Err(err) => {
+                debug!("get_update_manifest err {:?}", err);
+                if err.is_equal(AppsMgmtError::ManifestDownloadFailed(
+                    DownloadError::Canceled,
+                )) {
+                    return Err(AppsServiceError::Canceled);
+                }
+                return Err(AppsServiceError::DownloadManifestFailed);
+            }
+        };
         let manifest = Manifest::read_from(update_manifest.clone())
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
-        let app_name: String;
-        let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
         // Release lock before downloading zip package. Let downloading happen
         // asyc among other threads
+        let mut apps_item: AppsItem;
+        let apps_item_restore: AppsItem;
+        let mut restorer: AppsStatusRestorer;
         {
             let registry = &mut self.shared_data.lock().registry;
-            app_name = registry.get_unique_name(&manifest.get_name(), &update_url)?;
             // Need create appsItem object and add to db to reflect status
-            apps_item = AppsItem::default(&app_name, registry.get_vhost_port());
+            apps_item = if is_update {
+                let mut app = registry
+                    .get_by_update_url(&update_url)
+                    .ok_or(AppsServiceError::AppNotFound)?;
+                apps_item_restore = app.clone();
+                app.set_update_state(AppsUpdateState::Updating);
+
+                app
+            } else {
+                let app_name = registry.get_unique_name(&manifest.get_name(), &update_url)?;
+                let mut app = AppsItem::default(&app_name, registry.get_vhost_port());
+                app.set_update_url(&update_url);
+
+                apps_item_restore = app.clone();
+                app.set_install_state(AppsInstallState::Installing);
+
+                app
+            };
+
             if !manifest.get_version().is_empty() {
                 apps_item.set_version(&manifest.get_version());
             }
-            apps_item.set_update_url(update_url);
-            if is_update {
-                apps_item.set_update_state(AppsUpdateState::Updating);
-            } else {
-                apps_item.set_install_state(AppsInstallState::Installing);
-            }
+
+            restorer = AppsStatusRestorer::new(
+                self.shared_data.clone(),
+                is_update,
+                apps_item_restore,
+                manifest.clone(),
+            );
+
             let _ = registry.save_app(is_update, &apps_item, &manifest)?;
 
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
@@ -190,51 +322,37 @@ impl AppsRequest {
         let update_manifest = update_manifest.as_path();
         info!("update_manifest: {}", update_manifest.display());
 
-        let update_manifest = match UpdateManifest::read_from(update_manifest) {
-            Ok(manifest) => manifest,
-            Err(_) => {
-                let _ = self
-                    .shared_data
-                    .lock()
-                    .registry
-                    .unregister(&apps_item.get_manifest_url());
-                return Err(AppsServiceError::InvalidManifest);
-            }
-        };
+        let update_manifest = UpdateManifest::read_from(update_manifest)
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         if update_manifest.package_path.is_empty() {
             error!("No package path.");
-            let _ = self
-                .shared_data
-                .lock()
-                .registry
-                .unregister(&apps_item.get_manifest_url());
             return Err(AppsServiceError::InvalidManifest);
         }
 
         if AppsStorage::available_disk_space(&webapp_path) < update_manifest.packaged_size * 2 {
             error!("Do not have enough disk space.");
-            let _ = self
-                .shared_data
-                .lock()
-                .registry
-                .unregister(&apps_item.get_manifest_url());
             return Err(AppsServiceError::DiskSpaceNotEnough);
         }
 
-        let available_zip =
-            match self.get_available_zip(&update_manifest.package_path, available_dir) {
-                Ok(package) => package,
-                Err(_) => {
-                    apps_item.set_install_state(AppsInstallState::Pending);
-                    let _ = self
-                        .shared_data
-                        .lock()
-                        .registry
-                        .save_app(is_update, &apps_item, &manifest);
-                    return Err(AppsServiceError::DownloadPackageFailed);
+        let available_zip = match self.get_available_zip(
+            update_url,
+            &update_manifest.package_path,
+            available_dir,
+        ) {
+            Ok(package) => package,
+            Err(err) => {
+                let mut error = Err(AppsServiceError::DownloadPackageFailed);
+                debug!("get_available_zip error {}", err);
+                if err.is_equal(AppsMgmtError::PackageDownloadFailed(
+                    DownloadError::Canceled,
+                )) {
+                    error = Err(AppsServiceError::Canceled);
                 }
-            };
+
+                return error;
+            }
+        };
 
         info!("available_zip: {}", available_zip.display());
         // We can lock registry now, since no waiting job.
@@ -243,38 +361,26 @@ impl AppsRequest {
         let registry = &mut shared.registry;
         if let Err(err) = verify_zip(available_zip.as_path(), &config.cert_type, "inf") {
             error!("Verify zip error: {:?}", err);
-            apps_item.set_install_state(AppsInstallState::Pending);
-            let _ = registry.save_app(is_update, &apps_item, &manifest);
             return Err(AppsServiceError::InvalidSignature);
         }
 
-        let manifest = match validate_package(available_zip.as_path()) {
-            Ok(manifest) => manifest,
-            Err(_) => {
-                apps_item.set_install_state(AppsInstallState::Pending);
-                let _ = registry.save_app(is_update, &apps_item, &manifest);
-                return Err(AppsServiceError::InvalidPackage);
-            }
-        };
+        let manifest = validate_package(available_zip.as_path())
+            .map_err(|_| AppsServiceError::InvalidPackage)?;
 
         if !apps_utils::compare_manifests(&update_manifest, &manifest) {
-            apps_item.set_install_state(AppsInstallState::Pending);
-            let _ = registry.save_app(is_update, &apps_item, &manifest);
             return Err(AppsServiceError::InvalidManifest);
         }
 
         // Here we can emit ready to apply download if we have sparate steps
         // asking user to apply download
-        if let Err(err) =
-            registry.apply_download(&mut apps_item, &available_dir, &manifest, &path, is_update)
-        {
-            apps_item.set_install_state(AppsInstallState::Pending);
-            let _ = registry.save_app(is_update, &apps_item, &manifest);
-            return Err(err);
-        };
+        let _ =
+            registry.apply_download(&mut apps_item, &available_dir, &manifest, &path, is_update)?;
 
         // Everything went fine, don't remove the available_dir directory.
         available_dir_remover.keep();
+        // Everything went fine, keep current app status
+        restorer.dont_restore();
+
         Ok(AppsObject::from(&apps_item))
     }
 
@@ -291,7 +397,7 @@ impl AppsRequest {
         let downloader = Req::default();
 
         let is_update = false;
-        // 1. download manfiest to cache dir.
+        // 1. download manifest to cache dir.
         debug!("dowload {} to {}", update_url, download_manifest.display());
         if let Err(err) = downloader.download(update_url, download_manifest.as_path()) {
             error!(
@@ -302,9 +408,9 @@ impl AppsRequest {
             );
             return Err(AppsServiceError::DownloadManifestFailed);
         }
+
         let mut manifest = Manifest::read_from(&download_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
-
         let app_name: String;
         let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
@@ -371,6 +477,43 @@ impl AppsRequest {
         )?;
 
         Ok(AppsObject::from(&apps_item))
+    }
+
+    pub fn broadcast_download_failed(
+        &mut self,
+        update_url: &str,
+        reason: AppsServiceError,
+        some_app: Option<AppsObject>,
+    ) {
+        let apps_object = if let Some(app) = some_app {
+            app
+        } else {
+            let mut apps_item = AppsItem::default("", 0);
+            apps_item.set_update_url(&update_url);
+            AppsObject::from(&apps_item)
+        };
+
+        error!("broadcast event: app download failed {:?}", reason);
+        self.shared_data
+            .lock()
+            .registry
+            .event_broadcaster
+            .broadcast_app_download_failed(DownloadFailedReason {
+                apps_object,
+                reason,
+            });
+    }
+}
+
+fn set_or_update_canceller(
+    downloadings: &mut HashMap<String, Sender<()>>,
+    url: &str,
+    canceller: Sender<()>,
+) {
+    if let Some(sender) = downloadings.get_mut(url) {
+        *sender = canceller;
+    } else {
+        downloadings.insert(url.into(), canceller);
     }
 }
 

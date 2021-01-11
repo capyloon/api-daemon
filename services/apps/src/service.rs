@@ -3,8 +3,8 @@ use super::shared_state::*;
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::tasks::{
-    CheckForUpdateTask, ClearTask, InstallPackageTask, InstallPwaTask, SetEnabledTask,
-    UninstallTask, UpdateTask,
+    CancelDownloadTask, CheckForUpdateTask, ClearTask, InstallPackageTask, InstallPwaTask,
+    SetEnabledTask, UninstallTask, UpdateTask,
 };
 use crate::update_scheduler::{Config, SchedulerMessage};
 use common::core::BaseMessage;
@@ -83,6 +83,16 @@ impl AppsEngineMethods for AppsService {
             apps_option,
             Some(responder.clone()),
         );
+        self.shared_data.lock().registry.queue_task(task);
+    }
+
+    fn cancel_download(
+        &mut self,
+        responder: &AppsEngineCancelDownloadResponder,
+        update_url: String,
+    ) {
+        info!("cancel_download: {}", &update_url);
+        let task = CancelDownloadTask(self.shared_data.clone(), update_url, responder.clone());
         self.shared_data.lock().registry.queue_task(task);
     }
 

@@ -34,6 +34,11 @@ function install_pwa_expected(installState) {
   return {"name":"hellopwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/hellopwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/hellopwa/update.webmanifest","updateState":0,"updateUrl":"https://testpwa.github.io/manifest.webmanifest","allowedAutoDownload":false};
 }
 
+// reason and updateUrl is accurate anytime
+// some times apps Object is not properly constructed.
+// That's because it fails to get manifest.
+var download_canceled_event = {"appsObject":{"name":"","installState":0,"manifestUrl":"http://.localhost:0/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:0//update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/manifest.webmanifest","allowedAutoDownload":false},"reason":lib_apps.AppsServiceError.CANCELED};
+
 var get_all_expected2 = [ calculator_expected, gallery_expected, system_expected, launcher_expected, install_pwa_expected(0) ];
 
 var expected_sha1 = "93 37 60 C8 86 16 F0 A6 68 D8 9C 1C 2F E6 F6 7B 62 57 06 0F";

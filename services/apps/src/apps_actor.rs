@@ -572,7 +572,7 @@ fn test_install_app() {
     {
         let shared_data = AppsService::shared_state();
         let config = Config {
-            root_path: _root_dir.clone(),
+            root_path: _root_dir,
             data_path: _test_dir.clone(),
             uds_path: String::from("uds_path"),
             cert_type: String::from("test"),
@@ -730,7 +730,7 @@ fn test_get_all() {
         };
         {
             let mut shared = shared_data.lock();
-            shared.config = config.clone();
+            shared.config = config;
             shared.registry = registry;
             shared.state = AppsServiceState::Running;
         }

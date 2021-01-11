@@ -2,7 +2,7 @@ pub mod deviceinfo;
 pub mod downloader;
 
 // Provide the implementations to get_access_token and get_hawk_header.
-use crate::deviceinfo::{DeviceInfo, get_char_pref};
+use crate::deviceinfo::{get_char_pref, DeviceInfo};
 use hawk::{Credentials, Key, PayloadHasher, RequestBuilder, SHA256};
 use log::{debug, error};
 use reqwest::header::AUTHORIZATION;

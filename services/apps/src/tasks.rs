@@ -22,24 +22,16 @@ impl AppMgmtTask for InstallPackageTask {
         let url = &self.1;
         let responder = &self.2;
 
-        // Fall backs to getting token in downloader module
-        let _ = ensure_token(&mut request);
-
-        let some_app = request.shared_data.lock().registry.get_by_update_url(&url);
-        if let Some(app) = some_app {
+        if let Some(app) = request.shared_data.lock().registry.get_by_update_url(&url) {
             if app.get_install_state() == AppsInstallState::Installed
                 || app.get_install_state() == AppsInstallState::Installing
             {
-                info!("broadcast event: app_download_failed ReinstallForbidden");
-                request
-                    .shared_data
-                    .lock()
-                    .registry
-                    .event_broadcaster
-                    .broadcast_app_download_failed(AppsObject::from(&app));
                 return responder.reject(AppsServiceError::ReinstallForbidden);
             }
         }
+
+        // Fall backs to getting token in downloader module
+        let _ = ensure_token(&mut request);
 
         let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
@@ -56,18 +48,7 @@ impl AppMgmtTask for InstallPackageTask {
                     .broadcast_app_installed(app);
             }
             Err(err) => {
-                info!("InstallPackageTask error download_and_apply {:?}", err);
-                let shared = request.shared_data.lock();
-                if let Some(app) = shared.registry.get_by_update_url(&url) {
-                    if app.get_install_state() == AppsInstallState::Installed
-                        || app.get_install_state() == AppsInstallState::Installing
-                    {
-                        shared
-                            .registry
-                            .event_broadcaster
-                            .broadcast_app_download_failed(AppsObject::from(&app));
-                    }
-                }
+                request.broadcast_download_failed(&url, err, None);
                 responder.reject(err);
             }
         }
@@ -88,9 +69,6 @@ impl AppMgmtTask for InstallPwaTask {
         let url = &self.1;
         let responder = &self.2;
 
-        // Fall backs to getting token in downloader module
-        let _ = ensure_token(&mut request);
-
         if request
             .shared_data
             .lock()
@@ -100,6 +78,10 @@ impl AppMgmtTask for InstallPwaTask {
         {
             return responder.reject(AppsServiceError::ReinstallForbidden);
         }
+
+        // Fall backs to getting token in downloader module
+        let _ = ensure_token(&mut request);
+
         let data_path = request.shared_data.lock().config.data_path.clone();
         match request.download_and_apply_pwa(&data_path, &url) {
             Ok(app) => {
@@ -113,6 +95,7 @@ impl AppMgmtTask for InstallPwaTask {
                     .broadcast_app_installed(app);
             }
             Err(err) => {
+                request.broadcast_download_failed(url, err, None);
                 responder.reject(err);
             }
         }
@@ -175,9 +158,6 @@ impl AppMgmtTask for UpdateTask {
         let url = &self.1;
         let responder = &self.2;
 
-        // Fall backs to getting token in downloader module
-        let _ = ensure_token(&mut request);
-
         let old_app = match request.shared_data.lock().get_by_manifest_url(&url) {
             Ok(app) => app,
             Err(err) => {
@@ -186,7 +166,10 @@ impl AppMgmtTask for UpdateTask {
             }
         };
 
-        let update_url = &old_app.update_url;
+        // Fall backs to getting token in downloader module
+        let _ = ensure_token(&mut request);
+
+        let update_url = old_app.update_url.clone();
 
         let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
@@ -200,12 +183,7 @@ impl AppMgmtTask for UpdateTask {
                 shared.registry.event_broadcaster.broadcast_app_updated(app);
             }
             Err(err) => {
-                info!("broadcast event: app_updated failed. Reason: {:?}", err);
-                let shared = request.shared_data.lock();
-                shared
-                    .registry
-                    .event_broadcaster
-                    .broadcast_app_download_failed(old_app);
+                request.broadcast_download_failed(&update_url, err, Some(old_app));
                 responder.reject(err);
             }
         }
@@ -251,7 +229,7 @@ impl AppMgmtTask for CheckForUpdateTask {
                 }
             }
             Err(err) => {
-                info!("CheckForUpdateTask error {:?}", err);
+                error!("CheckForUpdateTask error {:?}", err);
                 if let Some(responder) = some_responder {
                     responder.reject(err);
                 }
@@ -319,6 +297,35 @@ impl AppMgmtTask for ClearTask {
         match shared.registry.clear(manifest_url, datatype) {
             Ok(_) => responder.resolve(true),
             Err(err) => responder.reject(err),
+        };
+    }
+}
+
+pub struct CancelDownloadTask(
+    pub Shared<AppsSharedData>,
+    pub String,                            // update url
+    pub AppsEngineCancelDownloadResponder, // responder
+);
+
+impl AppMgmtTask for CancelDownloadTask {
+    fn run(&self) {
+        let mut shared = self.0.lock();
+        let update_url = &self.1;
+        let responder = &self.2;
+
+        info!("cancel dwonload {}", &update_url);
+        let app = match shared.registry.get_by_update_url(&update_url) {
+            Some(app) => app,
+            None => return responder.reject(AppsServiceError::AppNotFound),
+        };
+
+        match shared.downloadings.get(update_url) {
+            Some(cancel_sender) => {
+                let _ = cancel_sender.send(());
+                shared.downloadings.remove(update_url);
+                responder.resolve(AppsObject::from(&app));
+            }
+            None => responder.reject(AppsServiceError::AppNotFound),
         };
     }
 }

@@ -27,6 +27,7 @@ enum AppsServiceState {
 
 enum AppsServiceError {
   AppNotFound             // App is not in the list
+  Canceled                // App install or update is canceld by user
   ClearDataError          // Failed to clear app data
   DependenciesError       // Dependencies are not met
   DiskSpaceNotEnough      // Do not have enough disk space
@@ -87,6 +88,11 @@ dictionary AppsObject {
   allowedAutoDownload: bool
 }
 
+dictionary DownloadFailedReason {
+  appsObject: AppsObject
+  reason: AppsServiceError
+}
+
 dictionary AppsOptions {
   autoInstall: bool?
 }
@@ -130,6 +136,10 @@ interface AppsEngine {
   // Return: the app object or an error string.
   fn update(manifest_url: str) -> AppsObject, AppsServiceError
 
+  // In: the URL of an app in store server
+  // Return: the app object or an error string.
+  fn cancel_download(update_url: str) -> AppsObject, AppsServiceError
+
   // In: enabled to enable/disable auto update check.
   // allowed_type, the types of network are allow to use
   // delay, update check for certain time after a success check in seconds
@@ -148,7 +158,7 @@ interface AppsEngine {
   // Report the app object which is being updated
   event appUpdating -> AppsObject
   // Report AppsObject when app failed to download
-  event appDownloadFailed -> AppsObject
+  event appDownloadFailed -> DownloadFailedReason
   // Report AppsObject when an update is available
   event appUpdateAvailable -> AppsObject
   // Report the manifest URL which is uninstalled successfully.
