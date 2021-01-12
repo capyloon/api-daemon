@@ -16,6 +16,10 @@ function update_expected(updateState) {
   return {"name":"ciautotest","installState":0,"manifestUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateState":updateState,"updateUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","status":0,"updateState":0,"updateUrl":"http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json","allowedAutoDownload":false};
 }
 
+function updating_expected(updateState) {
+  return {"name":"ciautotest","installState":0,"manifestUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateState":updateState,"updateUrl":"https://api.kaiostech.com/apps/manifest/RZzvAt4g1Je76j4CycaM","allowedAutoDownload":false};
+}
+
 function status_expected(status) {
   return {"name":"ciautotest","installState":0,"manifestUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","removable":true,"status":status,"updateState":0,"updateUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","status":0,"updateState":0,"updateUrl":"http://127.0.0.1:8081/tests/fixtures/packaged_app_manifest.json","allowedAutoDownload":false};
 }

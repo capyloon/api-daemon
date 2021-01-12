@@ -196,6 +196,14 @@ impl AppsRegistry {
         self.event_broadcaster.remove(id)
     }
 
+    fn broadcast_installing(&self, is_update: bool, apps_object: AppsObject) {
+        if is_update {
+            self.event_broadcaster.broadcast_app_updating(apps_object);
+        } else {
+            self.event_broadcaster.broadcast_app_installing(apps_object);
+        }
+    }
+
     pub fn initialize(config: &Config, vhost_port: u16) -> Result<Self, AppsError> {
         let current = env::current_dir().unwrap();
         let root_dir = current.join(config.root_path.clone());
@@ -462,11 +470,14 @@ impl AppsRegistry {
             apps_item.set_version(&manifest.get_version());
         }
         apps_item.set_update_url(update_url);
-        apps_item.set_install_state(AppsInstallState::Installing);
+        if is_update {
+            apps_item.set_update_state(AppsUpdateState::Updating);
+        } else {
+            apps_item.set_install_state(AppsInstallState::Installing);
+        }
         let _ = self.save_app(is_update, &apps_item, &manifest)?;
 
-        self.event_broadcaster
-            .broadcast_app_installing(AppsObject::from(&apps_item));
+        self.broadcast_installing(is_update, AppsObject::from(&apps_item));
         let mut available_dir_remover = DirRemover::new(&available_dir);
 
         let available_dir = available_dir.as_path();
@@ -614,6 +625,9 @@ impl AppsRegistry {
         }
 
         apps_item.set_install_state(AppsInstallState::Installed);
+        if is_update {
+            apps_item.set_update_state(AppsUpdateState::Idle);
+        }
         let _ = self.save_app(is_update, &apps_item, &manifest);
 
         // Relay the request to Gecko using the bridge.
@@ -648,6 +662,7 @@ impl AppsRegistry {
         let download_manifest = download_dir.join("manifest.webmanifest");
         let downloader = Downloader::default();
 
+        let is_update = false;
         // 1. download manfiest to cache dir.
         debug!("dowload {} to {}", update_url, download_manifest.display());
         if let Err(err) = downloader.download(update_url, download_manifest.as_path()) {
@@ -665,8 +680,8 @@ impl AppsRegistry {
         let mut apps_item = AppsItem::default_pwa(&app_name, self.get_vhost_port());
         apps_item.set_install_state(AppsInstallState::Installing);
         apps_item.set_update_url(&update_url);
-        self.event_broadcaster
-            .broadcast_app_installing(AppsObject::from(&apps_item));
+
+        self.broadcast_installing(is_update, AppsObject::from(&apps_item));
 
         // 2-1. download icons to cached dir.
         let update_url_base =

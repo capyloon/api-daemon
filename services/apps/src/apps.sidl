@@ -125,6 +125,8 @@ interface AppsEngine {
   event appInstalled -> AppsObject
   // Report the app object which is being installed
   event appInstalling -> AppsObject
+  // Report the app object which is being updated
+  event appUpdating -> AppsObject
   // Report AppsObject when app failed to download
   event appDownloadFailed -> AppsObject
   // Report AppsObject when an update is available
