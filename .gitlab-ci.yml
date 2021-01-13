@@ -16,6 +16,8 @@ stages:
   - buildDaemon
   - tests
   - xbuild
+  - production
+  - dockerBuild
 
 build:daemon:
   stage: buildDaemon
@@ -51,7 +53,7 @@ build:daemon:
       - services/time/client/generated/time_service.js
   except:
     variables:
-      - $CI_COMMIT_MESSAGE =~ /xbuild-only/
+      - $CI_COMMIT_MESSAGE =~ /skip-build/
 
 # Use cargo to test the project
 test:cargo:
@@ -80,6 +82,7 @@ test:cargo:
   except:
     variables:
       - $CI_COMMIT_MESSAGE =~ /skip-test/
+      - $CI_COMMIT_MESSAGE =~ /skip-build/
 
 test:js-clients:
   stage: tests
@@ -112,6 +115,7 @@ test:js-clients:
   except:
     variables:
       - $CI_COMMIT_MESSAGE =~ /skip-test/
+      - $CI_COMMIT_MESSAGE =~ /skip-build/
 
 # test-libsignal:
 #   stage: tests
@@ -149,3 +153,116 @@ build:targets:
     expire_in: 1 week
     paths:
       - production
+
+verify:build:targets:
+  extends: .build_targets_base
+  only:
+    - merge_requests
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /skip-build/
+
+build:targets:
+  extends:
+    - .using_local_mirror
+    - .build_targets_base
+  only:
+    - branches@KaiOS/sidl
+
+.production_job:
+  extends: .using_local_mirror
+  stage: production
+
+update:targets:
+  extends: .production_job
+  only:
+    - branches@KaiOS/sidl
+  script:
+    - *clone_build_sidl
+    - ./update_api-daemon.sh
+
+update:tag:
+  extends: .production_job
+  variables:
+    # source of sidl in this job is absolutely unnecessary
+    GIT_STRATEGY: none
+    API_DAEMON_DEST_REPO: KaiOS/api-daemon.git
+    # unable to acquire CI_BRANCH_NAME from predefined variables when triggered by "tags"
+    # hence we self-define here
+    API_DAEMON_DEST_BRANCH: next
+  before_script:
+    # re-override as local mirror is unnecessary here
+    - *ssh-setting
+    - |
+      ret=$(git ls-remote --tags --exit-code \
+        git@${CI_SERVER_HOST}:${API_DAEMON_DEST_REPO} ${CI_COMMIT_TAG})
+      if [ ${ret} -eq 0 ]; then
+        echo "${CI_COMMIT_TAG} already exists in ${API_DAEMON_DEST_REPO} !"
+        exit 1
+      fi
+  only:
+    - tags@KaiOS/sidl
+  script:
+    - echo ${CI_COMMIT_TAG}
+    - git clone "git@${CI_SERVER_HOST}:${API_DAEMON_DEST_REPO}" -b ${API_DAEMON_DEST_BRANCH}
+    - cd api-daemon
+    - 'coresponding_commit=$(git rev-list HEAD --grep="Source: ${CI_PROJECT_PATH}@${CI_COMMIT_SHA}" -F -1)'
+    - |
+      if [[ -z ${coresponding_commit} ]]; then
+        echo "Unable to filter out with the pattern \"Source: ${CI_PROJECT_PATH}@${CI_COMMIT_SHA}\""
+        echo "Alternatively look for the corresponding commit by CI_COMMIT_TITLE"
+        coresponding_commit=$(git rev-list HEAD --grep="${CI_COMMIT_TITLE}" -F -1)
+        if [[ -z ${coresponding_commit} ]]; then
+          echo "Unable to find the coresponding commit by either SHA1 or commit message title."
+          exit -1
+        fi
+      fi
+    - |
+      echo
+      echo "Corresponding commit that was automatically submitted to api-daemon:"
+      git show ${coresponding_commit} -q
+    - git push origin ${coresponding_commit}:refs/tags/${CI_COMMIT_TAG}
+
+.build_docker:
+  image: docker:19.03.1
+  stage: dockerBuild
+  tags:
+    - releng
+  variables:
+    GIT_DEPTH: "1"
+    DOCKER_BUILD_TAG: ${CI_REGISTRY_IMAGE}:$CI_COMMIT_SHA
+  before_script:
+    - echo "nothing to do. Override default before_script."
+  script:
+    - docker build --no-cache -t $DOCKER_BUILD_TAG - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1
+  artifacts:
+    name: ${CI_PIPELINE_ID}
+    when: always
+    expire_in: 1 day
+    paths:
+      - "${CI_PIPELINE_ID}-${CI_JOB_NAME}.log"
+
+verify:build:docker:
+  extends: .build_docker
+  only:
+    refs:
+      - merge_requests
+    changes:
+      - docker/Dockerfile
+
+build:docker:
+  extends: .build_docker
+  variables:
+    CONTAINER_RELEASE_TAG: ${CI_REGISTRY_IMAGE}
+  before_script:
+    - 'echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin'
+  script:
+    - |
+      RELEASETAG=`cat docker/Dockerfile | grep RELEASETAG | cut -f 2 -d ' '`
+      docker build --no-cache -t ${CI_REGISTRY_IMAGE}:${RELEASETAG} - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1
+      docker push ${CI_REGISTRY_IMAGE}:${RELEASETAG}
+  only:
+    refs:
+      - branches@KaiOS/sidl
+    changes:
+      - docker/Dockerfile

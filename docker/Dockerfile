@@ -1,63 +1,65 @@
-FROM debian:stretch
+FROM ubuntu:18.04
 
-MAINTAINER Viga <viga.li@kaiostech.com>
+LABEL maintainer="viga.li@kaiostech.com"
 
 WORKDIR /home
 
 # common packages
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-    ca-certificates curl file \
-    build-essential \
-    zlib1g-dev \
-    pkg-config \
-    libssl-dev openssh-server \
-    git cmake gpg wget xvfb \
-    zip unzip \
-    clang libclang-dev \
-    libgtk-3-0 \
-    autoconf automake autotools-dev libtool xutils-dev libselinux1-dev && \
+    ca-certificates curl clang libclang-dev build-essential \
+    git cmake gnupg2 gpg-agent wget xvfb zlib1g-dev \
+    pkg-config zip unzip libssl-dev openssh-server \
+    autoconf automake autotools-dev libtool xutils-dev \
+    libfreetype6 libfontconfig1 libxrender1 libasound-dev \
+    libgtk-3-0 libdbus-glib-1-dev libgtk2.0-0 libxt6 python-pip \
+    gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 wine64 \
+    apt-transport-https libselinux1-dev
+
+#install node
+ENV NODE_VERSION 9.11.2
+RUN wget https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz && \
+    tar -xJf "node-v${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 --no-same-owner && \
+    ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
+    rm "node-v${NODE_VERSION}-linux-x64.tar.xz"
+
+#install yarn
+RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add && \
+    echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list && \
+    apt-get update && \
+    apt-get install -y yarn && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -sL https://deb.nodesource.com/setup_9.x | bash - && \
-    apt-get install -y nodejs
-
-RUN apt-get update && apt-get install -y apt-transport-https
-RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
-RUN echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
-RUN apt-get update && apt-get install yarn
-
-# install toolchain
+# install rust toolchain
 RUN curl https://sh.rustup.rs -sSf | \
     sh -s -- --default-toolchain stable -y
 
 ENV PATH=/root/.cargo/bin:$PATH
 
 # Install the binding generator
-RUN cargo install --version 0.41.0 bindgen
+RUN cargo install --version 0.41.0 bindgen && \
+    cargo install cargo-deny && \
+    rustup target add armv7-linux-androideabi && \
+    rustup target add aarch64-linux-android && \
+    rustup target add x86_64-linux-android && \
+    rustup target add x86_64-pc-windows-gnu && \
+    rustup toolchain install stable-x86_64-pc-windows-gnu
 
-RUN apt-get update
-RUN apt-get install -y wget libfreetype6 libfontconfig1 libxrender1 libasound-dev libdbus-glib-1-dev libgtk2.0-0 libxt6 python-pip
-RUN pip install selenium==2.48.0 robotframework==3.0 requests robotframework-requests robotframework-selenium2library==1.8.0 pymysql robotframework-databaselibrary robotframework-excellibrary
-RUN pip install requests --upgrade
-RUN pip install awscli --upgrade --user
-
-RUN wget https://ftp.mozilla.org/pub/firefox/releases/70.0/linux-x86_64/en-US/firefox-70.0.tar.bz2
-RUN tar -xjf firefox-70.0.tar.bz2
-RUN mv firefox /opt/firefox70
-RUN ln -s /opt/firefox70/firefox /usr/bin/firefox
+RUN wget https://ftp.mozilla.org/pub/firefox/releases/70.0/linux-x86_64/en-US/firefox-70.0.tar.bz2 && \
+    tar -xjf firefox-70.0.tar.bz2 && \
+    mv firefox /opt/firefox70 && \
+    ln -s /opt/firefox70/firefox /usr/bin/firefox && \
+    rm -f firefox-70.0.tar.bz2
 
 # Install geckodriver to a location in $PATH
-RUN wget https://github.com/mozilla/geckodriver/releases/download/v0.26.0/geckodriver-v0.26.0-linux64.tar.gz
-RUN tar xzf geckodriver-v0.26.0-linux64.tar.gz
-RUN mv geckodriver /usr/bin/geckodriver
-
-RUN firefox --version
-
-# Needed to link the selinux stuff
-RUN apt-get install libselinux1-dev
+RUN wget https://github.com/mozilla/geckodriver/releases/download/v0.26.0/geckodriver-v0.26.0-linux64.tar.gz && \
+    tar xzf geckodriver-v0.26.0-linux64.tar.gz && \
+    mv geckodriver /usr/bin/geckodriver && \
+    rm -f geckodriver-v0.26.0-linux64.tar.gz
 
 # Add the vhosts mapping that are expected by tests.
-RUN echo "127.0.0.1       valid.local" >> /etc/hosts
-RUN echo "127.0.0.1       unknown.local" >> /etc/hosts
-RUN echo "127.0.0.1       missing-zip.local" >> /etc/hosts
+RUN echo "127.0.0.1       valid.local" >> /etc/hosts && \
+    echo "127.0.0.1       unknown.local" >> /etc/hosts && \
+    echo "127.0.0.1       missing-zip.local" >> /etc/hosts
+
+#RELEASETAG 1.49.0
