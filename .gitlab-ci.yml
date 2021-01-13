@@ -1,8 +1,7 @@
 default:
-# Start with a rustup image providing the nightly release.
-  image: ${CI_REGISTRY}/kaios/sidl:latest
+  image: ${CI_REGISTRY}/kaios/sidl:1.47.0
   tags:
-    - sidl
+    - hk-fantastic4
   before_script:
     - |
       echo -e "machine ${CI_SERVER_HOST}\nlogin gitlab-ci-token\npassword ${CI_JOB_TOKEN}" > ~/.netrc
@@ -12,6 +11,7 @@ default:
         echo -e "\033[1;33mAlternatively use ${LOCAL_GIT_MIRROR} for git-clone. \033[0m"
         git config --global url."${LOCAL_GIT_MIRROR}/KaiOS".insteadOf "git@${CI_SERVER_HOST}:KaiOS"
       fi
+    - rustc --version && cargo --version
 
 # Environment variables
 variables:
@@ -26,33 +26,35 @@ before_script:
 
 stages:
   - buildDaemon
-  - tests
+  - test-js
+  - cargo_tests
   - xbuild
   - production
   - dockerBuild
 
-build:daemon:
+.build_base:
   stage: buildDaemon
+  only:
+    - merge_requests
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /skip-build/
+  needs: []
+
+build:daemon:
+  extends: .build_base
   tags:
-    - sidl
+    - gecko-dev
   script:
-    - rustc --version && cargo --version
     - cd $CI_PROJECT_DIR/daemon
     # Fail when encountering clippy warnings.
     - cargo clippy --all-targets -- -D warnings
     - cargo build --release --features=fake-tokens
-    - cd $CI_PROJECT_DIR/child-test-daemon
-    - cargo build --release
-    - cd $CI_PROJECT_DIR/tests/driver
-    - cargo build --release
-    - cargo build --release
   artifacts:
     expire_in: 1 week
     paths:
       - target/release/api-daemon
-      - target/release/driver
-      # Needed to run the services/test tests.
-      - target/release/child-test-daemon
+      - services/accounts/client/generated/accounts_service.js
       - services/apps/client/generated/apps_service.js
       - services/audiovolumemanager/client/generated/audiovolume_service.js
       - services/contacts/client/generated/contacts_service.js
@@ -60,19 +62,30 @@ build:daemon:
       - services/powermanager/client/generated/powermanager_service.js
       - services/procmanager/client/generated/procmanager_service.js
       - services/settings/client/generated/settings_service.js
-      - services/test/client/generated/test_service.js
+      - services/telephony/client/generated/telephony_service.js
       - services/tcpsocket/client/generated/tcpsocket_service.js
       - services/time/client/generated/time_service.js
-  except:
-    variables:
-      - $CI_COMMIT_MESSAGE =~ /skip-build/
-  needs: []
+      - services/fota/client/generated/fota_service.js
+
+build:daemon:test:essentials:
+  extends: .build_base
+  variables:
+    test_essentials: "child-test-daemon tests/driver tests/fota-test-server"
+  script:
+    - |
+      for te in ${test_essentials}; do
+        echo -e "\033[1;33mBuilding ${te}\033[0m"
+        cargo build --manifest-path ${CI_PROJECT_DIR}/${te}/Cargo.toml --release
+      done
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - target/release/child-test-daemon
+      - target/release/fota_test_server
+      - target/release/driver
+      - services/test/client/generated/test_service.js
 
 .tests_job_base:
-  stage: tests
-  needs:
-    - job: 'build:daemon'
-      artifacts: true
   only:
     - merge_requests
   except:
@@ -81,28 +94,80 @@ build:daemon:
       - $CI_COMMIT_MESSAGE =~ /skip-build/
 
 # Use cargo to test the project
-test:cargo:
+.test_cargo:
   extends: .tests_job_base
+  stage: cargo_tests
   script:
-    - rustc --version && cargo --version
 # Force build.rs to run despite the cache.
-    - touch ./services/test/build.rs
-    - cd $CI_PROJECT_DIR/services/apps && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/daemon && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/common && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/support/android-utils && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/support/sqlite-utils && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/codegen && cargo test -- --nocapture
-    # - cd $CI_PROJECT_DIR/libsignal-service && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/support/libsignal-sys && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/parser && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/services/devicecapability && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/tcpsocket-service && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/services/settings && cargo test -- --nocapture
-    - cd $CI_PROJECT_DIR/vhost && cargo test -- --nocapture
+    - touch ./services/libsignal/build.rs ./support/libsignal-sys/build.rs ./services/telephony/build.rs ./services/test/build.rs
+    - cd ${CI_PROJECT_DIR}/$(sed 's/\:/\//' <<< ${CI_JOB_NAME#"test:cargo:"})
+    - cargo test -- --nocapture
+  needs:
+    - job: 'build:daemon'
+
+test:cargo:services:apps:
+  extends: .test_cargo
+
+test:cargo:daemon:
+  extends: .test_cargo
+
+test:cargo:common:
+  extends: .test_cargo
+
+test:cargo:support:android-utils:
+  extends: .test_cargo
+
+test:cargo:support:kauth:
+  extends: .test_cargo
+
+test:cargo:support:kus:
+  extends: .test_cargo
+
+test:cargo:support:hamster:
+  extends: .test_cargo
+
+test:cargo:support:sqlite-utils:
+  extends: .test_cargo
+
+test:cargo:support:kota:
+  extends: .test_cargo
+
+test:cargo:codegen:
+  extends: .test_cargo
+
+# test:cargo:libsignal-service:
+#   extends: .test_cargo
+
+test:cargo:support:libsignal-sys:
+  extends: .test_cargo
+
+test:cargo:parser:
+  extends: .test_cargo
+
+test:cargo:telemetry:
+  extends: .test_cargo
+
+# test:cargo:tcpsocket-service:
+#   extends: .test_cargo
+
+test:cargo:services:devicecapability:
+  extends: .test_cargo
+
+test:cargo:services:deviceconfig:
+  extends: .test_cargo
+
+test:cargo:services:settings:
+  extends: .test_cargo
+
+test:cargo:services:telephony:
+  extends: .test_cargo
+
+test:cargo:vhost:
+  extends: .test_cargo
 
 test:js-clients:
   extends: .tests_job_base
+  stage: test-js
   script:
     - cd $CI_PROJECT_DIR
     - git clone git@git.kaiostech.com:vincent.chang/echo-server.git
@@ -131,6 +196,9 @@ test:js-clients:
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_no_package.html
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_check_update.html
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_full.html
+  needs:
+    - job: 'build:daemon'
+    - job: 'build:daemon:test:essentials'
 
 # test-libsignal:
 #   extends: .tests_job_base
@@ -158,10 +226,9 @@ test:js-clients:
     cd build-sidl
   - git log -1 --decorate
 
-build:targets:
+.build_targets_base:
   stage: xbuild
-  tags:
-    - sidl
+  tags: ['gecko-dev']
   script:
     - cd $CI_PROJECT_DIR
     - git clone git@git.kaiostech.com:kaios/build-sidl.git -b multi-arch
@@ -171,13 +238,20 @@ build:targets:
     expire_in: 1 week
     paths:
       - production
+  needs: []
+
+verify:build:targets:
+  extends: .build_targets_base
   only:
     - merge_requests
-    - branches@KaiOS/sidl
   except:
     variables:
       - $CI_COMMIT_MESSAGE =~ /skip-build/
-  needs: []
+
+build:targets:
+  extends: .build_targets_base
+  only:
+    - branches@KaiOS/sidl
 
 update:targets:
   stage: production
@@ -188,7 +262,6 @@ update:targets:
     - branches@KaiOS/sidl
   needs:
     - job: 'build:targets'
-      artifacts: true
 
 update:tag:
   stage: production
