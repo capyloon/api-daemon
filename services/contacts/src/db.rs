@@ -1,15 +1,19 @@
 /// DB interface for the Contacts
 use crate::generated::common::*;
 use crate::preload::*;
+use android_utils::{AndroidProperties, PropertyGetter};
 use common::traits::DispatcherId;
 use common::SystemTime;
 use log::{debug, error};
+use phonenumber::country::Id;
+use phonenumber::Mode;
 use rusqlite::{Connection, Row, Statement, NO_PARAMS};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::BufReader;
+use std::str::FromStr;
 use std::sync::mpsc::{channel, Sender};
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
@@ -119,6 +123,31 @@ impl DatabaseUpgrader for ContactsSchemaManager {
         }
 
         true
+    }
+}
+
+// This function creates a concatenated form of the phone number,
+// to ensure that we don't consider equals numbers that have 
+// the same national representation but different international representations.
+fn format_phone_number(number: &str) -> String {
+    let countr_code = match AndroidProperties::get("gsm.operator.iso-country", "US") {
+        Ok(value) => match Id::from_str(&value) {
+            Ok(code) => code,
+            Err(_) => Id::US,
+        },
+        Err(_) => Id::US,
+    };
+    
+    if let Ok(phone_number) = phonenumber::parse(Some(countr_code), &number) {
+        let mut result = "".to_string();
+        result.push_str(&phone_number.format().mode(Mode::International).to_string());
+        result.push_str(&phone_number.format().mode(Mode::National).to_string());
+        result.push_str(&phone_number.format().mode(Mode::Rfc3966).to_string());
+        result.push_str(&phone_number.format().mode(Mode::E164).to_string());
+        result
+    } else {
+        // Parse error,use origin number.
+        number.to_string()
     }
 }
 
@@ -480,6 +509,10 @@ impl ContactInfo {
             for tel in tels {
                 tel_number += &tel.value;
                 // Seperate with unprintable character, used for find.
+                tel_number.push_str("\u{001E}");
+
+                // Store the International, National, Rfc3966, E164 format of number used for search.
+                tel_number.push_str(&format_phone_number(&tel.value));
                 tel_number.push_str("\u{001E}");
             }
             // The tel_json is used for restore the tel struct.
@@ -1068,7 +1101,19 @@ impl ContactsDb {
                                 options.filter_value.to_string()
                             }
                         }
-                        FilterOption::Match => "".to_string(),
+                        FilterOption::Match => {
+                            // Match only used for Tel.
+                            if *filter_by == FilterByOption::Tel {
+                                // The tel number will store like:"\u{001E}88888\u{001E}99999\u{001E}".
+                                // Convert to the International, National, Rfc3966, E164 format.
+                                format!(
+                                    "%\u{001E}{}\u{001E}%",
+                                    format_phone_number(&options.filter_value)
+                                )
+                            } else {
+                                "".to_string()
+                            }
+                        }
                     };
 
                     debug!("find filter value is {}", value);

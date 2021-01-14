@@ -3,14 +3,8 @@
 //!
 //! In particular we test the tedious size_hint and exact size correctness.
 
-#[macro_use] extern crate itertools;
-
-extern crate quickcheck;
-extern crate rand;
-
-use std::default::Default;
-
 use quickcheck as qc;
+use std::default::Default;
 use std::ops::Range;
 use std::cmp::{max, min, Ordering};
 use std::collections::HashSet;
@@ -18,6 +12,8 @@ use itertools::Itertools;
 use itertools::{
     multizip,
     EitherOrBoth,
+    iproduct,
+    izip,
 };
 use itertools::free::{
     cloned,
@@ -86,7 +82,7 @@ impl qc::Arbitrary for Inexact {
         }
     }
 
-    fn shrink(&self) -> Box<Iterator<Item=Self>> {
+    fn shrink(&self) -> Box<dyn Iterator<Item=Self>> {
         let underestimate_value = self.underestimate;
         let overestimate_value = self.overestimate;
         Box::new(
@@ -124,7 +120,7 @@ impl<T, HK> Iter<T, HK> where HK: HintKind
         Iter {
             iterator: it,
             fuse_flag: 0,
-            hint_kind: hint_kind
+            hint_kind,
         }
     }
 }
@@ -177,7 +173,7 @@ impl<T, HK> qc::Arbitrary for Iter<T, HK>
         Iter::new(T::arbitrary(g)..T::arbitrary(g), HK::arbitrary(g))
     }
 
-    fn shrink(&self) -> Box<Iterator<Item=Iter<T, HK>>>
+    fn shrink(&self) -> Box<dyn Iterator<Item=Iter<T, HK>>>
     {
         let r = self.iterator.clone();
         let hint_kind = self.hint_kind;
@@ -239,12 +235,12 @@ impl<HK> qc::Arbitrary for ShiftRange<HK>
         let hint_kind = qc::Arbitrary::arbitrary(g);
 
         ShiftRange {
-            range_start: range_start,
-            range_end: range_end,
-            start_step: start_step,
-            end_step: end_step,
-            iter_count: iter_count,
-            hint_kind: hint_kind
+            range_start,
+            range_end,
+            start_step,
+            end_step,
+            iter_count,
+            hint_kind,
         }
     }
 }
@@ -1076,7 +1072,7 @@ impl qc::Arbitrary for Val {
         let (x, y) = <(u32, u32)>::arbitrary(g);
         Val(x, y)
     }
-    fn shrink(&self) -> Box<Iterator<Item = Self>> {
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         Box::new((self.0, self.1).shrink().map(|(x, y)| Val(x, y)))
     }
 }

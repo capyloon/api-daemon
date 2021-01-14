@@ -1,19 +1,8 @@
-
-use size_hint;
-use Itertools;
+use crate::size_hint;
+use crate::Itertools;
 
 use std::mem::replace;
 use std::fmt;
-
-macro_rules! clone_fields {
-    ($name:ident, $base:expr, $($field:ident),+) => (
-        $name {
-            $(
-                $field : $base . $field .clone()
-            ),*
-        }
-    );
-}
 
 /// Head element and Tail iterator pair
 ///
@@ -65,9 +54,7 @@ impl<I> Clone for HeadTail<I>
     where I: Iterator + Clone,
           I::Item: Clone
 {
-    fn clone(&self) -> Self {
-        clone_fields!(HeadTail, self, head, tail)
-    }
+    clone_fields!(head, tail);
 }
 
 /// Make `data` a heap (min-heap w.r.t the sorting).
@@ -189,7 +176,7 @@ pub fn kmerge_by<I, F>(iterable: I, mut less_than: F)
     let mut heap: Vec<_> = Vec::with_capacity(lower);
     heap.extend(iter.filter_map(|it| HeadTail::new(it.into_iter())));
     heapify(&mut heap, |a, b| less_than.kmerge_pred(&a.head, &b.head));
-    KMergeBy { heap: heap, less_than: less_than }
+    KMergeBy { heap, less_than }
 }
 
 impl<I, F> Clone for KMergeBy<I, F>
@@ -197,9 +184,7 @@ impl<I, F> Clone for KMergeBy<I, F>
           I::Item: Clone,
           F: Clone,
 {
-    fn clone(&self) -> KMergeBy<I, F> {
-        clone_fields!(KMergeBy, self, heap, less_than)
-    }
+    clone_fields!(heap, less_than);
 }
 
 impl<I, F> Iterator for KMergeBy<I, F>

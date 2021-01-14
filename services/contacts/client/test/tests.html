@@ -595,6 +595,119 @@
         200
       );
 
+      // Search with International format: +86 56185849.
+      let match_with_international_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "+86 56185849",
+        filterOption: lib_contacts.FilterOption.MATCH,
+        filterBy: [lib_contacts.FilterByOption.TEL],
+        onlyMainData: false
+      }, 20);
+
+      let match_international_result = await match_with_international_cursor.next();
+
+      for (let i = 0; i < match_international_result.length; i++) {
+        await tester.assert_eq(
+          `match international number: +86 56185849 #${i + 1}/1`,
+          () => Promise.resolve(match_international_result[i].name),
+          "Elaine J. Bryner"
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items mtach international number: +86 56185849`,
+        () => match_with_international_cursor.next(),
+        []
+      );
+
+      match_with_international_cursor.release();
+
+      // Search with National format: 5618 5849.
+      let match_with_national_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "5618 5849",
+        filterOption: lib_contacts.FilterOption.MATCH,
+        filterBy: [lib_contacts.FilterByOption.TEL],
+        onlyMainData: false
+      }, 20);
+
+      let match_national_result = await match_with_national_cursor.next();
+
+
+      for (let i = 0; i < match_national_result.length; i++) {
+        await tester.assert_eq(
+          `match national number: 5618 5849 #${i + 1}/1`,
+          () => Promise.resolve(match_national_result[i].name),
+          "Elaine J. Bryner"
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items mtach national number: 5618 5849`,
+        () => match_with_national_cursor.next(),
+        []
+      );
+
+      match_with_national_cursor.release();
+
+      // Search with Rfc3966 format tel:+86-56185849.
+      let match_with_rfc_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "tel:+86-56185849",
+        filterOption: lib_contacts.FilterOption.MATCH,
+        filterBy: [lib_contacts.FilterByOption.TEL],
+        onlyMainData: false
+      }, 20);
+
+      let match_rfc_result = await match_with_rfc_cursor.next();
+
+      for (let i = 0; i < match_rfc_result.length; i++) {
+        await tester.assert_eq(
+          `match rfc number: tel:+86-56185849 #${i + 1}/1`,
+          () => Promise.resolve(match_rfc_result[i].name),
+          "Elaine J. Bryner"
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items mtach rfc number: tel:+86-56185849`,
+        () => match_with_rfc_cursor.next(),
+        []
+      );
+
+      match_with_rfc_cursor.release();
+
+      // Search with E164 format: +8656185849.
+      let match_with_e164_cursor = await tester.service.find({
+        sortBy: lib_contacts.SortOption.NAME,
+        sortOrder: lib_contacts.Order.ASCENDING,
+        filterValue: "+8656185849",
+        filterOption: lib_contacts.FilterOption.MATCH,
+        filterBy: [lib_contacts.FilterByOption.TEL],
+        onlyMainData: false
+      }, 20);
+
+      let match_e164_result = await match_with_e164_cursor.next();
+
+      for (let i = 0; i < match_e164_result.length; i++) {
+        await tester.assert_eq(
+          `match e164 number: +8656185849 #${i + 1}/1`,
+          () => Promise.resolve(match_e164_result[i].name),
+          "Elaine J. Bryner"
+        );
+      }
+
+      await tester.assert_eq(
+        `no more items mtach e164 number: +8656185849`,
+        () => match_with_e164_cursor.next(),
+        []
+      );
+
+      match_with_e164_cursor.release();
+
       let find_contain_name_cursor = await tester.service.find({
         sortBy: lib_contacts.SortOption.NAME,
         sortOrder: lib_contacts.Order.ASCENDING,
@@ -798,7 +911,7 @@
 
       let find_contains_181_result = await find_contain_181_cursor.next();
 
-      let expect_contain_181_names = ["zhangsan", "Harry", "Bob", "Alex"];
+      let expect_contain_181_names = ["zhangsan", "Nathaniel R. Allen", "Harry", "Bob", "Alex"];
 
       // To verify contact's name who's tel contain 181 order by name desc.
       for (let i = 0; i < expect_contain_181_names.length; i++) {

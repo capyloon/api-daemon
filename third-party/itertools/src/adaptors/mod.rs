@@ -12,17 +12,7 @@ use std::fmt;
 use std::mem::replace;
 use std::iter::{Fuse, Peekable, FromIterator};
 use std::marker::PhantomData;
-use size_hint;
-
-macro_rules! clone_fields {
-    ($name:ident, $base:expr, $($field:ident),+) => (
-        $name {
-            $(
-                $field : $base . $field .clone()
-            ),*
-        }
-    );
-}
+use crate::size_hint;
 
 /// An iterator adaptor that alternates elements from two iterators until both
 /// run out.
@@ -243,6 +233,28 @@ impl<I> Iterator for PutBack<I>
         size_hint::add_scalar(self.iter.size_hint(), self.top.is_some() as usize)
     }
 
+    fn count(self) -> usize {
+        self.iter.count() + (self.top.is_some() as usize)
+    }
+
+    fn last(self) -> Option<Self::Item> {
+        self.iter.last().or(self.top)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        match self.top {
+            None => self.iter.nth(n),
+            ref mut some => {
+                if n == 0 {
+                    some.take()
+                } else {
+                    *some = None;
+                    self.iter.nth(n - 1)
+                }
+            }
+        }
+    }
+
     fn all<G>(&mut self, mut f: G) -> bool
         where G: FnMut(Self::Item) -> bool
     {
@@ -380,7 +392,7 @@ impl<I, F> fmt::Debug for Batching<I, F> where I: fmt::Debug {
 
 /// Create a new Batching iterator.
 pub fn batching<I, F>(iter: I, f: F) -> Batching<I, F> {
-    Batching { f: f, iter: iter }
+    Batching { f, iter }
 }
 
 impl<B, F, I> Iterator for Batching<I, F>
@@ -544,7 +556,7 @@ pub fn merge_by_new<I, J, F>(a: I, b: J, cmp: F) -> MergeBy<I::IntoIter, J::Into
         a: a.into_iter().peekable(),
         b: b.into_iter().peekable(),
         fused: None,
-        cmp: cmp,
+        cmp,
     }
 }
 
@@ -555,9 +567,7 @@ impl<I, J, F> Clone for MergeBy<I, J, F>
           Peekable<J>: Clone,
           F: Clone
 {
-    fn clone(&self) -> Self {
-        clone_fields!(MergeBy, self, a, b, fused, cmp)
-    }
+    clone_fields!(a, b, fused, cmp);
 }
 
 impl<I, J, F> Iterator for MergeBy<I, J, F>
@@ -650,9 +660,7 @@ impl<I: Clone, F: Clone> Clone for Coalesce<I, F>
     where I: Iterator,
           I::Item: Clone
 {
-    fn clone(&self) -> Self {
-        clone_fields!(Coalesce, self, iter, f)
-    }
+    clone_fields!(iter, f);
 }
 
 impl<I, F> fmt::Debug for Coalesce<I, F>
@@ -669,9 +677,9 @@ pub fn coalesce<I, F>(mut iter: I, f: F) -> Coalesce<I, F>
     Coalesce {
         iter: CoalesceCore {
             last: iter.next(),
-            iter: iter,
+            iter,
         },
-        f: f,
+        f,
     }
 }
 
@@ -729,9 +737,7 @@ impl<I: Clone, Pred: Clone> Clone for DedupBy<I, Pred>
     where I: Iterator,
           I::Item: Clone,
 {
-    fn clone(&self) -> Self {
-        clone_fields!(DedupBy, self, iter, dedup_pred)
-    }
+    clone_fields!(iter, dedup_pred);
 }
 
 /// Create a new `DedupBy`.
@@ -741,7 +747,7 @@ pub fn dedup_by<I, Pred>(mut iter: I, dedup_pred: Pred) -> DedupBy<I, Pred>
     DedupBy {
         iter: CoalesceCore {
             last: iter.next(),
-            iter: iter,
+            iter,
         },
         dedup_pred,
     }
@@ -763,7 +769,6 @@ impl<I, Pred> fmt::Debug for DedupBy<I, Pred>
 
 impl<I, Pred> Iterator for DedupBy<I, Pred>
     where I: Iterator,
-          I::Item: PartialEq,
           Pred: DedupPredicate<I::Item>,
 {
     type Item = I::Item;
@@ -818,7 +823,7 @@ impl<'a, I, F> fmt::Debug for TakeWhileRef<'a, I, F>
 pub fn take_while_ref<I, F>(iter: &mut I, f: F) -> TakeWhileRef<I, F>
     where I: Iterator + Clone
 {
-    TakeWhileRef { iter: iter, f: f }
+    TakeWhileRef { iter, f }
 }
 
 impl<'a, I, F> Iterator for TakeWhileRef<'a, I, F>
@@ -860,7 +865,7 @@ pub struct WhileSome<I> {
 
 /// Create a new `WhileSome<I>`.
 pub fn while_some<I>(iter: I) -> WhileSome<I> {
-    WhileSome { iter: iter }
+    WhileSome { iter }
 }
 
 impl<I, A> Iterator for WhileSome<I>
@@ -886,7 +891,7 @@ impl<I, A> Iterator for WhileSome<I>
 ///
 /// See [`.tuple_combinations()`](../trait.Itertools.html#method.tuple_combinations) for more
 /// information.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct TupleCombinations<I, T>
     where I: Iterator,
@@ -925,14 +930,14 @@ impl<I, T> Iterator for TupleCombinations<I, T>
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Tuple1Combination<I> {
     iter: I,
 }
 
 impl<I> From<I> for Tuple1Combination<I> {
     fn from(iter: I) -> Self {
-        Tuple1Combination { iter: iter }
+        Tuple1Combination { iter }
     }
 }
 
@@ -950,7 +955,7 @@ impl<I: Iterator> HasCombination<I> for (I::Item,) {
 
 macro_rules! impl_tuple_combination {
     ($C:ident $P:ident ; $A:ident, $($I:ident),* ; $($X:ident)*) => (
-        #[derive(Debug)]
+        #[derive(Clone, Debug)]
         pub struct $C<I: Iterator> {
             item: Option<I::Item>,
             iter: I,
@@ -1014,6 +1019,7 @@ impl_tuple_combination!(Tuple4Combination Tuple3Combination ; A, A, A, A, A; a b
 /// An iterator adapter to apply `Into` conversion to each element.
 ///
 /// See [`.map_into()`](../trait.Itertools.html#method.map_into) for more information.
+#[derive(Clone)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct MapInto<I, R> {
     iter: I,
@@ -1023,7 +1029,7 @@ pub struct MapInto<I, R> {
 /// Create a new [`MapInto`](struct.MapInto.html) iterator.
 pub fn map_into<I, R>(iter: I) -> MapInto<I, R> {
     MapInto {
-        iter: iter,
+        iter,
         _res: PhantomData,
     }
 }
@@ -1071,6 +1077,7 @@ where
 /// An iterator adapter to apply a transformation within a nested `Result`.
 ///
 /// See [`.map_results()`](../trait.Itertools.html#method.map_results) for more information.
+#[derive(Clone)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct MapResults<I, F> {
     iter: I,
@@ -1083,8 +1090,8 @@ pub fn map_results<I, F, T, U, E>(iter: I, f: F) -> MapResults<I, F>
           F: FnMut(T) -> U,
 {
     MapResults {
-        iter: iter,
-        f: f,
+        iter,
+        f,
     }
 }
 
@@ -1120,6 +1127,7 @@ impl<I, F, T, U, E> Iterator for MapResults<I, F>
 /// An iterator adapter to get the positions of each element that matches a predicate.
 ///
 /// See [`.positions()`](../trait.Itertools.html#method.positions) for more information.
+#[derive(Clone)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct Positions<I, F> {
     iter: I,
@@ -1133,8 +1141,8 @@ pub fn positions<I, F>(iter: I, f: F) -> Positions<I, F>
           F: FnMut(I::Item) -> bool,
 {
     Positions {
-        iter: iter,
-        f: f,
+        iter,
+        f,
         count: 0
     }
 }
@@ -1178,6 +1186,7 @@ impl<I, F> DoubleEndedIterator for Positions<I, F>
 /// An iterator adapter to apply a mutating function to each element before yielding it.
 ///
 /// See [`.update()`](../trait.Itertools.html#method.update) for more information.
+#[derive(Clone)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct Update<I, F> {
     iter: I,
@@ -1190,7 +1199,7 @@ where
     I: Iterator,
     F: FnMut(&mut I::Item),
 {
-    Update { iter: iter, f: f }
+    Update { iter, f }
 }
 
 impl<I, F> Iterator for Update<I, F>
