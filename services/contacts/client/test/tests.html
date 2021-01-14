@@ -1179,7 +1179,7 @@
       let testBlockedNumbers = [
         "1111111111",
         "2226662222",
-        "3333333333",
+        "+16503903655",
         "4444444444",
         "4448885555",
         "4348885555",
@@ -1222,7 +1222,7 @@
             );
           });
         },
-        testBlockedNumbers
+        ["+16503903655", "1111111111", "2226662222", "4348885555", "4444444444", "4446666666", "4448885555"]
       );
 
       await tester.assert_eq(
@@ -1258,12 +1258,7 @@
             );
           });
         },
-        ["2226662222",
-          "3333333333",
-          "4444444444",
-          "4448885555",
-          "4348885555",
-          "4446666666",]
+        ["+16503903655", "2226662222", "4348885555", "4444444444", "4446666666", "4448885555"]
       );
 
       await tester.assert_eq(
@@ -1283,7 +1278,7 @@
             );
           });
         },
-        ["4448885555", "4348885555"]
+        ["4348885555", "4448885555"]
       );
 
       await tester.assert_eq(
@@ -1343,7 +1338,27 @@
             );
           });
         },
-        ["4444444444", "4448885555", "4446666666"]
+        ["4444444444", "4446666666", "4448885555"]
+      );
+
+      await tester.assert_eq(
+        `find blocked numbers use Match filterOption`,
+        service => {
+          return new Promise((resolve, reject) => {
+            service.findBlockedNumbers({ filterValue: "6503903655", filterOption: lib_contacts.FilterOption.MATCH }).then(
+              numbers => {
+                if (numbers.length > 0) {
+                  console.log("found blocked numbers length use Match:" + numbers.length);
+                  resolve(numbers);
+                } else {
+                  console.log("found blocked numbers length use Match: none");
+                  reject("found blocked numbers length use Match: none");
+                }
+              },
+            );
+          });
+        },
+        ["+16503903655"]
       );
 
       let get_all_cursor = await tester.service.getAll({

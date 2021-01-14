@@ -81,7 +81,10 @@ static UPGRADE_0_1_SQL: [&str; 14] = [
         FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id) ON DELETE CASCADE
     )"#,
     r#"CREATE INDEX idx_additional ON contact_additional(contact_id)"#,
-    r#"CREATE TABLE IF NOT EXISTS blocked_numbers (number TEXT NOT NULL UNIQUE)"#,
+    r#"CREATE TABLE IF NOT EXISTS blocked_numbers (
+        number TEXT NOT NULL UNIQUE,
+        match_key TEXT NOT NULL
+    )"#,
     r#"CREATE TABLE IF NOT EXISTS speed_dials (
         dial_key TEXT NOT NULL UNIQUE, 
         tel TEXT NOT NULL, 
@@ -1305,8 +1308,9 @@ impl ContactsDb {
         debug!("ContactsDb::add_blocked_number number:{}", number);
 
         let conn = self.db.connection();
-        let mut stmt = conn.prepare("INSERT INTO blocked_numbers (number) VALUES (?)")?;
-        let size = stmt.execute(&[number])?;
+        let match_key = format_phone_number(number);
+        let mut stmt = conn.prepare("INSERT INTO blocked_numbers (number, match_key) VALUES (?, ?)")?;
+        let size = stmt.execute(&[number, &match_key])?;
         if size > 0 {
             let event = BlockedNumberChangeEvent {
                 reason: ChangeReason::Create,
@@ -1350,8 +1354,12 @@ impl ContactsDb {
     ) -> Result<Vec<String>, Error> {
         debug!("ContactsDb::find_blocked_numbers options:{:?}", &options);
         let conn = self.db.connection();
-        let mut stmt =
-            conn.prepare("SELECT number FROM blocked_numbers WHERE number LIKE :param")?;
+        let mut stmt;
+        if options.filter_option == FilterOption::Match {
+            stmt = conn.prepare("SELECT number FROM blocked_numbers WHERE match_key LIKE :param")?;
+        } else {
+            stmt = conn.prepare("SELECT number FROM blocked_numbers WHERE number LIKE :param")?;
+        }
 
         let param = match options.filter_option {
             FilterOption::StartsWith => format!("{}%", options.filter_value),
@@ -1370,7 +1378,7 @@ impl ContactsDb {
             FilterOption::Contains => format!("%{}%", options.filter_value),
             FilterOption::Equals => options.filter_value,
             FilterOption::Match => {
-                return Err(Error::InvalidFilterOption("Match".into()));
+                format_phone_number(&options.filter_value)
             }
         };
 
