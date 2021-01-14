@@ -81,6 +81,7 @@ dictionary AppsObject {
   manifestURL: str
   removable: bool
   status: AppsStatus
+  updateManifestURL: str
   updateState: AppsUpdateState
   updateURL: str
   allowedAutoDownload: bool

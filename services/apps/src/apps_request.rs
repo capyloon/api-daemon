@@ -90,7 +90,7 @@ impl AppsRequest {
         let base_path = path.join("downloading");
         let available_dir = AppsStorage::get_app_dir(&base_path, &hash(url).to_string())?;
 
-        let update_manifest = available_dir.join("update.manifest");
+        let update_manifest = available_dir.join("update.webmanifest");
         debug!("dowload {} to {}", url, available_dir.display());
         if let Err(err) = self.downloader.download(url, update_manifest.as_path()) {
             error!(

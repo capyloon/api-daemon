@@ -405,6 +405,27 @@ impl AppsRegistry {
             return Err(AppsServiceError::FilesystemFailure);
         }
 
+        // Cannot serve a flat file in the same dir as zip.
+        // Save the downloaded update manifest file in cached dir.
+        let download_update_manifest = installed_dir.join("update.webmanifest");
+        if download_update_manifest.exists() {
+            let cached_dir = path.join("cached").join(&app_name);
+            let cached_update_manifest = cached_dir.join("update.webmanifest");
+            let _ = AppsStorage::ensure_dir(&cached_dir);
+            if let Err(err) = fs::rename(&download_update_manifest, &cached_update_manifest) {
+                error!(
+                    "Rename update manifest failed: {} -> {} : {:?}",
+                    download_update_manifest.display(),
+                    cached_update_manifest.display(),
+                    err
+                );
+                return Err(AppsServiceError::FilesystemFailure);
+            }
+        } else {
+            // Install via cmd do not have update manifest.
+            apps_item.set_update_manifest_url(&String::new());
+        }
+
         apps_item.set_install_state(AppsInstallState::Installed);
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
@@ -1141,14 +1162,17 @@ fn test_apply_download() {
     assert_eq!(4, registry.count());
 
     let src_app = current.join("test-fixtures/apps-from/helloworld/application.zip");
+    let src_manifest = current.join("test-fixtures/apps-from/helloworld/update.webmanifest");
     let available_dir = test_path.join("downloading/helloworld");
     let available_app = available_dir.join("application.zip");
+    let update_manifest = available_dir.join("update.webmanifest");
 
     // Test 1: new app name new updat_url.
     if let Err(err) = fs::create_dir_all(available_dir.as_path()) {
         println!("{:?}", err);
     }
     let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
+    let _ = fs::copy(src_manifest.as_path(), update_manifest.as_path()).unwrap();
     let manifest = validate_package(&available_app.as_path()).unwrap();
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 
@@ -1161,6 +1185,10 @@ fn test_apply_download() {
     }
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(update_url);
+    let expected_update_manfiest_url = format!(
+        "http://cached.localhost/{}/update.webmanifest",
+        &app_name
+    );
 
     if registry
         .apply_download(
@@ -1177,6 +1205,9 @@ fn test_apply_download() {
         panic!();
     }
 
+    let app = registry.get_by_update_url(update_url).unwrap();
+    assert_eq!(app.get_update_manifest_url(), expected_update_manfiest_url);
+
     // Test 2: same app name different updat_url 1 - 100.
     let mut count = 1;
     loop {
@@ -1184,6 +1215,7 @@ fn test_apply_download() {
             println!("{:?}", err);
         }
         let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
+        let _ = fs::copy(src_manifest.as_path(), update_manifest.as_path()).unwrap();
         let manifest = validate_package(&available_app.as_path()).unwrap();
         let update_url = &format!("https://test{}.helloworld/manifest.webmanifest", count);
         let app_name = registry
@@ -1221,6 +1253,7 @@ fn test_apply_download() {
         println!("{:?}", err);
     }
     let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
+    let _ = fs::copy(src_manifest.as_path(), update_manifest.as_path()).unwrap();
     let manifest = validate_package(&available_app.as_path()).unwrap();
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 

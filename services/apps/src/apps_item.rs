@@ -11,6 +11,8 @@ pub struct AppsItem {
     #[serde(default = "AppsItem::default_install_state")]
     install_state: AppsInstallState,
     #[serde(default = "AppsItem::default_string")]
+    update_manifest_url: String,
+    #[serde(default = "AppsItem::default_string")]
     update_url: String,
     #[serde(default = "AppsItem::default_status")]
     status: AppsStatus,
@@ -36,6 +38,7 @@ impl AppsItem {
             name: name.into(),
             manifest_url: AppsItem::default_string(),
             install_state: AppsItem::default_install_state(),
+            update_manifest_url: AppsItem::default_string(),
             update_url: AppsItem::default_string(),
             status: AppsItem::default_status(),
             update_state: AppsItem::default_update_state(),
@@ -51,12 +54,14 @@ impl AppsItem {
     pub fn default(name: &str, vhost_port: u16) -> AppsItem {
         let mut app = AppsItem::new(name);
         app.set_manifest_url(&AppsItem::new_manifest_url(name, vhost_port));
+        app.set_update_manifest_url(&AppsItem::new_update_manifest_url(name, vhost_port));
         app
     }
 
     pub fn default_pwa(name: &str, vhost_port: u16) -> AppsItem {
         let mut app = AppsItem::new(name);
         app.set_manifest_url(&AppsItem::new_pwa_url(name, vhost_port));
+        app.set_update_manifest_url(&AppsItem::new_update_manifest_url(name, vhost_port));
         app
     }
 
@@ -76,8 +81,16 @@ impl AppsItem {
         self.removable = removable;
     }
 
+    pub fn get_update_manifest_url(&self) -> String {
+        self.update_manifest_url.clone()
+    }
+
     pub fn get_update_url(&self) -> String {
         self.update_url.clone()
+    }
+
+    pub fn set_update_manifest_url(&mut self, url: &str) {
+        self.update_manifest_url = url.into();
     }
 
     pub fn set_update_url(&mut self, url: &str) {
@@ -197,6 +210,17 @@ impl AppsItem {
             )
         }
     }
+
+    pub fn new_update_manifest_url(app_name: &str, vhost_port: u16) -> String {
+        if vhost_port == 80 {
+            format!("http://cached.localhost/{}/update.webmanifest", &app_name)
+        } else {
+            format!(
+                "http://cached.localhost:{}/{}/update.webmanifest",
+                vhost_port, &app_name
+            )
+        }
+    }
 }
 
 impl From<&AppsItem> for AppsObject {
@@ -209,6 +233,7 @@ impl From<&AppsItem> for AppsObject {
             status: app.status,
             update_state: app.update_state,
             update_url: app.update_url.clone(),
+            update_manifest_url: app.update_manifest_url.clone(),
             allowed_auto_download: false,
         }
     }
