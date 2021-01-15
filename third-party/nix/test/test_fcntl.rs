@@ -1,14 +1,26 @@
+#[cfg(not(target_os = "redox"))]
 use nix::Error;
+#[cfg(not(target_os = "redox"))]
 use nix::errno::*;
-use nix::fcntl::{openat, open, OFlag, readlink, readlinkat, renameat};
+#[cfg(not(target_os = "redox"))]
+use nix::fcntl::{open, OFlag, readlink};
+#[cfg(not(target_os = "redox"))]
+use nix::fcntl::{openat, readlinkat, renameat};
+#[cfg(not(target_os = "redox"))]
 use nix::sys::stat::Mode;
+#[cfg(not(target_os = "redox"))]
 use nix::unistd::{close, read};
+#[cfg(not(target_os = "redox"))]
 use tempfile::{self, NamedTempFile};
+#[cfg(not(target_os = "redox"))]
 use std::fs::File;
+#[cfg(not(target_os = "redox"))]
 use std::io::prelude::*;
+#[cfg(not(target_os = "redox"))]
 use std::os::unix::fs;
 
 #[test]
+#[cfg(not(target_os = "redox"))]
 fn test_openat() {
     const CONTENTS: &[u8] = b"abcd";
     let mut tmp = NamedTempFile::new().unwrap();
@@ -31,6 +43,7 @@ fn test_openat() {
 }
 
 #[test]
+#[cfg(not(target_os = "redox"))]
 fn test_renameat() {
     let old_dir = tempfile::tempdir().unwrap();
     let old_dirfd = open(old_dir.path(), OFlag::empty(), Mode::empty()).unwrap();
@@ -47,6 +60,7 @@ fn test_renameat() {
 }
 
 #[test]
+#[cfg(not(target_os = "redox"))]
 fn test_readlink() {
     let tempdir = tempfile::tempdir().unwrap();
     let src = tempdir.path().join("a");
@@ -65,13 +79,15 @@ fn test_readlink() {
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux_android {
+    use std::fs::File;
     use std::io::prelude::*;
-    use std::io::SeekFrom;
+    use std::io::{BufRead, BufReader, SeekFrom};
     use std::os::unix::prelude::*;
 
     use libc::loff_t;
 
     use nix::fcntl::*;
+    use nix::sys::stat::fstat;
     use nix::sys::uio::IoVec;
     use nix::unistd::{close, pipe, read, write};
 
@@ -196,6 +212,113 @@ mod linux_android {
         // Check if we read exactly 100 bytes
         let mut buf = [0u8; 200];
         assert_eq!(100, read(fd, &mut buf).unwrap());
+    }
+
+    // The tests below are disabled for the listed targets
+    // due to OFD locks not being available in the kernel/libc
+    // versions used in the CI environment, probably because
+    // they run under QEMU.
+
+    #[test]
+    #[cfg(not(any(target_arch = "aarch64",
+                  target_arch = "arm",
+                  target_arch = "armv7",
+                  target_arch = "x86",
+                  target_arch = "mips",
+                  target_arch = "mips64",
+                  target_arch = "mips64el",
+                  target_arch = "powerpc64",
+                  target_arch = "powerpc64le",
+                  target_env = "musl")))]
+    fn test_ofd_write_lock() {
+        let tmp = NamedTempFile::new().unwrap();
+
+        let fd = tmp.as_raw_fd();
+        let statfs = nix::sys::statfs::fstatfs(&tmp).unwrap();
+        if statfs.filesystem_type() == nix::sys::statfs::OVERLAYFS_SUPER_MAGIC {
+            // OverlayFS is a union file system.  It returns one inode value in
+            // stat(2), but a different one shows up in /proc/locks.  So we must
+            // skip the test.
+            skip!("/proc/locks does not work on overlayfs");
+        }
+        let inode = fstat(fd).expect("fstat failed").st_ino as usize;
+
+        let mut flock = libc::flock {
+            l_type: libc::F_WRLCK as libc::c_short,
+            l_whence: libc::SEEK_SET as libc::c_short,
+            l_start: 0,
+            l_len: 0,
+            l_pid: 0,
+        };
+        fcntl(fd, FcntlArg::F_OFD_SETLKW(&flock)).expect("write lock failed");
+        assert_eq!(
+            Some(("OFDLCK".to_string(), "WRITE".to_string())),
+            lock_info(inode)
+        );
+
+        flock.l_type = libc::F_UNLCK as libc::c_short;
+        fcntl(fd, FcntlArg::F_OFD_SETLKW(&flock)).expect("write unlock failed");
+        assert_eq!(None, lock_info(inode));
+    }
+
+    #[test]
+    #[cfg(not(any(target_arch = "aarch64",
+                  target_arch = "arm",
+                  target_arch = "armv7",
+                  target_arch = "x86",
+                  target_arch = "mips",
+                  target_arch = "mips64",
+                  target_arch = "mips64el",
+                  target_arch = "powerpc64",
+                  target_arch = "powerpc64le",
+                  target_env = "musl")))]
+    fn test_ofd_read_lock() {
+        let tmp = NamedTempFile::new().unwrap();
+
+        let fd = tmp.as_raw_fd();
+        let statfs = nix::sys::statfs::fstatfs(&tmp).unwrap();
+        if statfs.filesystem_type() == nix::sys::statfs::OVERLAYFS_SUPER_MAGIC {
+            // OverlayFS is a union file system.  It returns one inode value in
+            // stat(2), but a different one shows up in /proc/locks.  So we must
+            // skip the test.
+            skip!("/proc/locks does not work on overlayfs");
+        }
+        let inode = fstat(fd).expect("fstat failed").st_ino as usize;
+
+        let mut flock = libc::flock {
+            l_type: libc::F_RDLCK as libc::c_short,
+            l_whence: libc::SEEK_SET as libc::c_short,
+            l_start: 0,
+            l_len: 0,
+            l_pid: 0,
+        };
+        fcntl(fd, FcntlArg::F_OFD_SETLKW(&flock)).expect("read lock failed");
+        assert_eq!(
+            Some(("OFDLCK".to_string(), "READ".to_string())),
+            lock_info(inode)
+        );
+
+        flock.l_type = libc::F_UNLCK as libc::c_short;
+        fcntl(fd, FcntlArg::F_OFD_SETLKW(&flock)).expect("read unlock failed");
+        assert_eq!(None, lock_info(inode));
+    }
+
+    fn lock_info(inode: usize) -> Option<(String, String)> {
+        let file = File::open("/proc/locks").expect("open /proc/locks failed");
+        let buf = BufReader::new(file);
+
+        for line in buf.lines() {
+            let line = line.unwrap();
+            let parts: Vec<_> = line.split_whitespace().collect();
+            let lock_type = parts[1];
+            let lock_access = parts[3];
+            let ino_parts: Vec<_> = parts[5].split(':').collect();
+            let ino: usize = ino_parts[2].parse().unwrap();
+            if ino == inode {
+                return Some((lock_type.to_string(), lock_access.to_string()));
+            }
+        }
+        None
     }
 }
 

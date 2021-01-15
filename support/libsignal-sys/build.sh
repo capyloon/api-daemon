@@ -12,14 +12,13 @@ cmd() {
 
 set -e
 
-if [ "${TARGET}" = "armv7-linux-androideabi" ];
+if [ "${TARGET}" = "x86_64-unknown-linux-gnu" ];
 then
-	source ../utils.sh
-	setup_xcompile_envs
-    CC=${TOOLCHAIN_PREFIX}gcc
+       CC=cc
+       XCFLAGS=
 else
-	CC=cc
-	XCFLAGS=
+       source ../../utils.sh
+       setup_xcompile_envs
 fi
 
 # Download and enter C library directory

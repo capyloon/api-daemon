@@ -1,15 +1,19 @@
 //! Bindings to IOCP, I/O Completion Ports
 
 use std::cmp;
+use std::fmt;
 use std::io;
 use std::mem;
 use std::os::windows::io::*;
 use std::time::Duration;
 
-use handle::Handle;
-use winapi::*;
-use kernel32::*;
-use Overlapped;
+use crate::handle::Handle;
+use crate::Overlapped;
+use winapi::shared::basetsd::*;
+use winapi::shared::ntdef::*;
+use winapi::um::handleapi::*;
+use winapi::um::ioapiset::*;
+use winapi::um::minwinbase::*;
 
 /// A handle to an Windows I/O Completion Port.
 #[derive(Debug)]
@@ -22,8 +26,14 @@ pub struct CompletionPort {
 /// These statuses can be created via the `new` or `empty` constructors and then
 /// provided to a completion port, or they are read out of a completion port.
 /// The fields of each status are read through its accessor methods.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct CompletionStatus(OVERLAPPED_ENTRY);
+
+impl fmt::Debug for CompletionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CompletionStatus(OVERLAPPED_ENTRY)")
+    }
+}
 
 unsafe impl Send for CompletionStatus {}
 unsafe impl Sync for CompletionStatus {}
@@ -35,14 +45,13 @@ impl CompletionPort {
     /// allowed for threads associated with this port. Consult the Windows
     /// documentation for more information about this value.
     pub fn new(threads: u32) -> io::Result<CompletionPort> {
-        let ret = unsafe {
-            CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0 as *mut _,
-                                   0, threads)
-        };
+        let ret = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0 as *mut _, 0, threads) };
         if ret.is_null() {
             Err(io::Error::last_os_error())
         } else {
-            Ok(CompletionPort { handle: Handle::new(ret) })
+            Ok(CompletionPort {
+                handle: Handle::new(ret),
+            })
         }
     }
 
@@ -55,8 +64,7 @@ impl CompletionPort {
     /// Any object which is convertible to a `HANDLE` via the `AsRawHandle`
     /// trait can be provided to this function, such as `std::fs::File` and
     /// friends.
-    pub fn add_handle<T: AsRawHandle + ?Sized>(&self, token: usize,
-                                               t: &T) -> io::Result<()> {
+    pub fn add_handle<T: AsRawHandle + ?Sized>(&self, token: usize, t: &T) -> io::Result<()> {
         self._add(token, t.as_raw_handle())
     }
 
@@ -69,17 +77,14 @@ impl CompletionPort {
     /// Any object which is convertible to a `SOCKET` via the `AsRawSocket`
     /// trait can be provided to this function, such as `std::net::TcpStream`
     /// and friends.
-    pub fn add_socket<T: AsRawSocket + ?Sized>(&self, token: usize,
-                                               t: &T) -> io::Result<()> {
+    pub fn add_socket<T: AsRawSocket + ?Sized>(&self, token: usize, t: &T) -> io::Result<()> {
         self._add(token, t.as_raw_socket() as HANDLE)
     }
 
     fn _add(&self, token: usize, handle: HANDLE) -> io::Result<()> {
         assert_eq!(mem::size_of_val(&token), mem::size_of::<ULONG_PTR>());
-        let ret = unsafe {
-            CreateIoCompletionPort(handle, self.handle.raw(),
-                                   token as ULONG_PTR, 0)
-        };
+        let ret =
+            unsafe { CreateIoCompletionPort(handle, self.handle.raw(), token as ULONG_PTR, 0) };
         if ret.is_null() {
             Err(io::Error::last_os_error())
         } else {
@@ -105,15 +110,17 @@ impl CompletionPort {
         let mut bytes = 0;
         let mut token = 0;
         let mut overlapped = 0 as *mut _;
-        let timeout = ::dur2ms(timeout);
+        let timeout = crate::dur2ms(timeout);
         let ret = unsafe {
-            GetQueuedCompletionStatus(self.handle.raw(),
-                                      &mut bytes,
-                                      &mut token,
-                                      &mut overlapped,
-                                      timeout)
+            GetQueuedCompletionStatus(
+                self.handle.raw(),
+                &mut bytes,
+                &mut token,
+                &mut overlapped,
+                timeout,
+            )
         };
-        ::cvt(ret).map(|_| {
+        crate::cvt(ret).map(|_| {
             CompletionStatus(OVERLAPPED_ENTRY {
                 dwNumberOfBytesTransferred: bytes,
                 lpCompletionKey: token,
@@ -132,25 +139,29 @@ impl CompletionPort {
     /// function does not wait to fill up the entire list of statuses provided.
     ///
     /// Like with `get`, a timeout may be specified for this operation.
-    pub fn get_many<'a>(&self,
-                        list: &'a mut [CompletionStatus],
-                        timeout: Option<Duration>)
-                        -> io::Result<&'a mut [CompletionStatus]>
-    {
-        debug_assert_eq!(mem::size_of::<CompletionStatus>(),
-                         mem::size_of::<OVERLAPPED_ENTRY>());
+    pub fn get_many<'a>(
+        &self,
+        list: &'a mut [CompletionStatus],
+        timeout: Option<Duration>,
+    ) -> io::Result<&'a mut [CompletionStatus]> {
+        debug_assert_eq!(
+            mem::size_of::<CompletionStatus>(),
+            mem::size_of::<OVERLAPPED_ENTRY>()
+        );
         let mut removed = 0;
-        let timeout = ::dur2ms(timeout);
+        let timeout = crate::dur2ms(timeout);
         let len = cmp::min(list.len(), <ULONG>::max_value() as usize) as ULONG;
         let ret = unsafe {
-            GetQueuedCompletionStatusEx(self.handle.raw(),
-                                        list.as_ptr() as *mut _,
-                                        len,
-                                        &mut removed,
-                                        timeout,
-                                        FALSE)
+            GetQueuedCompletionStatusEx(
+                self.handle.raw(),
+                list.as_ptr() as *mut _,
+                len,
+                &mut removed,
+                timeout,
+                FALSE as i32,
+            )
         };
-        match ::cvt(ret) {
+        match crate::cvt(ret) {
             Ok(_) => Ok(&mut list[..removed as usize]),
             Err(e) => Err(e),
         }
@@ -163,12 +174,14 @@ impl CompletionPort {
     /// this status.
     pub fn post(&self, status: CompletionStatus) -> io::Result<()> {
         let ret = unsafe {
-            PostQueuedCompletionStatus(self.handle.raw(),
-                                       status.0.dwNumberOfBytesTransferred,
-                                       status.0.lpCompletionKey,
-                                       status.0.lpOverlapped)
+            PostQueuedCompletionStatus(
+                self.handle.raw(),
+                status.0.dwNumberOfBytesTransferred,
+                status.0.lpCompletionKey,
+                status.0.lpOverlapped,
+            )
         };
-        ::cvt(ret).map(|_| ())
+        crate::cvt(ret).map(|_| ())
     }
 }
 
@@ -180,7 +193,9 @@ impl AsRawHandle for CompletionPort {
 
 impl FromRawHandle for CompletionPort {
     unsafe fn from_raw_handle(handle: HANDLE) -> CompletionPort {
-        CompletionPort { handle: Handle::new(handle) }
+        CompletionPort {
+            handle: Handle::new(handle),
+        }
     }
 }
 
@@ -196,8 +211,7 @@ impl CompletionStatus {
     /// This function is useful when creating a status to send to a port with
     /// the `post` method. The parameters are opaquely passed through and not
     /// interpreted by the system at all.
-    pub fn new(bytes: u32, token: usize, overlapped: *mut Overlapped)
-               -> CompletionStatus {
+    pub fn new(bytes: u32, token: usize, overlapped: *mut Overlapped) -> CompletionStatus {
         assert_eq!(mem::size_of_val(&token), mem::size_of::<ULONG_PTR>());
         CompletionStatus(OVERLAPPED_ENTRY {
             dwNumberOfBytesTransferred: bytes,
@@ -256,9 +270,10 @@ mod tests {
     use std::mem;
     use std::time::Duration;
 
-    use winapi::*;
+    use winapi::shared::basetsd::*;
+    use winapi::shared::winerror::*;
 
-    use iocp::{CompletionPort, CompletionStatus};
+    use crate::iocp::{CompletionPort, CompletionStatus};
 
     #[test]
     fn is_send_sync() {

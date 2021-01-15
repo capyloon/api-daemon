@@ -479,7 +479,7 @@ impl Codegen {
             let error = rust_type_for_param(&method.returns.error);
             writeln!(
                 sink,
-                "pub(crate) {}_requests: Shared<HashMap<u64, Sender<Result<{}, {}>>>>,",
+                "pub(crate) {}_requests: ProxyRequest<{}, {}>,",
                 method.name, success, error
             )?;
         }
@@ -580,7 +580,7 @@ impl Codegen {
         codegen.gecko_client(sink)
     }
 
-    fn gecko_client<'a, W: Write>(&mut self, sink: &'a mut W) -> Result<()> {
+    fn gecko_client<W: Write>(&mut self, sink: &mut W) -> Result<()> {
         sink.write_all(
             b"/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -638,7 +638,7 @@ use serde::{Deserialize, Serialize};
         Ok(())
     }
 
-    fn top_level<'a, W: Write>(&mut self, sink: &'a mut W) -> Result<()> {
+    fn top_level<W: Write>(&mut self, sink: &mut W) -> Result<()> {
         let need_object_tracker =
             self.ast
                 .interfaces
@@ -692,7 +692,11 @@ impl From<ObjectRef> for TrackerId {
     fn from(val: ObjectRef) -> Self {
         val.0
     }
-}\n\n",
+}
+
+#[allow(dead_code)]
+type ProxyRequest<T, E> = Shared<HashMap<u64, Sender<Result<T, E>>>>;
+\n\n",
         )?;
 
         // Check if any interface uses a "rust:shared" annotation, and if so emit appropriate `use` statements.

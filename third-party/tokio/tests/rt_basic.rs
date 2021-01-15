@@ -2,17 +2,21 @@
 #![cfg(feature = "full")]
 
 use tokio::runtime::Runtime;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio_test::{assert_err, assert_ok};
 
 use std::thread;
 use std::time::Duration;
 
+mod support {
+    pub(crate) mod mpsc_stream;
+}
+
 #[test]
 fn spawned_task_does_not_progress_without_block_on() {
     let (tx, mut rx) = oneshot::channel();
 
-    let mut rt = rt();
+    let rt = rt();
 
     rt.spawn(async move {
         assert_ok!(tx.send("hello"));
@@ -36,7 +40,7 @@ fn no_extra_poll() {
         Arc,
     };
     use std::task::{Context, Poll};
-    use tokio::stream::{Stream, StreamExt};
+    use tokio_stream::{Stream, StreamExt};
 
     pin_project! {
         struct TrackPolls<S> {
@@ -58,14 +62,17 @@ fn no_extra_poll() {
         }
     }
 
-    let (tx, rx) = mpsc::unbounded_channel();
-    let mut rx = TrackPolls {
+    let (tx, rx) = support::mpsc_stream::unbounded_channel_stream::<()>();
+    let rx = TrackPolls {
         npolls: Arc::new(AtomicUsize::new(0)),
         s: rx,
     };
     let npolls = Arc::clone(&rx.npolls);
 
-    let mut rt = rt();
+    let rt = rt();
+
+    // TODO: could probably avoid this, but why not.
+    let mut rx = Box::pin(rx);
 
     rt.spawn(async move { while rx.next().await.is_some() {} });
     rt.block_on(async {
@@ -100,7 +107,7 @@ fn acquire_mutex_in_drop() {
     let (tx1, rx1) = oneshot::channel();
     let (tx2, rx2) = oneshot::channel();
 
-    let mut rt = rt();
+    let rt = rt();
 
     rt.spawn(async move {
         let _ = rx2.await;
@@ -129,8 +136,7 @@ fn acquire_mutex_in_drop() {
 }
 
 fn rt() -> Runtime {
-    tokio::runtime::Builder::new()
-        .basic_scheduler()
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()

@@ -1,6 +1,6 @@
 //! In-process memory IO types.
 
-use crate::io::{AsyncRead, AsyncWrite};
+use crate::io::{AsyncRead, AsyncWrite, ReadBuf};
 use crate::loom::sync::Mutex;
 
 use bytes::{Buf, BytesMut};
@@ -98,9 +98,9 @@ impl AsyncRead for DuplexStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut *self.read.lock().unwrap()).poll_read(cx, buf)
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut *self.read.lock()).poll_read(cx, buf)
     }
 }
 
@@ -111,7 +111,7 @@ impl AsyncWrite for DuplexStream {
         cx: &mut task::Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut *self.write.lock().unwrap()).poll_write(cx, buf)
+        Pin::new(&mut *self.write.lock()).poll_write(cx, buf)
     }
 
     #[allow(unused_mut)]
@@ -119,7 +119,7 @@ impl AsyncWrite for DuplexStream {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut *self.write.lock().unwrap()).poll_flush(cx)
+        Pin::new(&mut *self.write.lock()).poll_flush(cx)
     }
 
     #[allow(unused_mut)]
@@ -127,14 +127,14 @@ impl AsyncWrite for DuplexStream {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut *self.write.lock().unwrap()).poll_shutdown(cx)
+        Pin::new(&mut *self.write.lock()).poll_shutdown(cx)
     }
 }
 
 impl Drop for DuplexStream {
     fn drop(&mut self) {
         // notify the other side of the closure
-        self.write.lock().unwrap().close();
+        self.write.lock().close();
     }
 }
 
@@ -163,11 +163,12 @@ impl AsyncRead for Pipe {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         if self.buffer.has_remaining() {
-            let max = self.buffer.remaining().min(buf.len());
-            self.buffer.copy_to_slice(&mut buf[..max]);
+            let max = self.buffer.remaining().min(buf.remaining());
+            buf.put_slice(&self.buffer[..max]);
+            self.buffer.advance(max);
             if max > 0 {
                 // The passed `buf` might have been empty, don't wake up if
                 // no bytes have been moved.
@@ -175,9 +176,9 @@ impl AsyncRead for Pipe {
                     waker.wake();
                 }
             }
-            Poll::Ready(Ok(max))
+            Poll::Ready(Ok(()))
         } else if self.is_closed {
-            Poll::Ready(Ok(0))
+            Poll::Ready(Ok(()))
         } else {
             self.read_waker = Some(cx.waker().clone());
             Poll::Pending

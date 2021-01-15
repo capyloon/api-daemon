@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 // Location of GIT submodule with C library
-static C_LIBRARY_DIR: &'static str = "libsignal-protocol-c";
+static C_LIBRARY_DIR: &str = "libsignal-protocol-c";
 
 // Check if file1 is newer than file2
 // If file2 doesn't exist, return true.

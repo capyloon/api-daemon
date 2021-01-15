@@ -14,7 +14,7 @@ cfg_io_util! {
         /// Equivalent to:
         ///
         /// ```ignore
-        /// async fn read_until(&mut self, buf: &mut Vec<u8>) -> io::Result<usize>;
+        /// async fn read_until(&mut self, byte: u8, buf: &mut Vec<u8>) -> io::Result<usize>;
         /// ```
         ///
         /// This function will read bytes from the underlying stream until the
@@ -228,7 +228,6 @@ cfg_io_util! {
         ///
         /// ```
         /// use tokio::io::AsyncBufReadExt;
-        /// use tokio::stream::StreamExt;
         ///
         /// use std::io::Cursor;
         ///
@@ -236,12 +235,12 @@ cfg_io_util! {
         /// async fn main() {
         ///     let cursor = Cursor::new(b"lorem\nipsum\r\ndolor");
         ///
-        ///     let mut lines = cursor.lines().map(|res| res.unwrap());
+        ///     let mut lines = cursor.lines();
         ///
-        ///     assert_eq!(lines.next().await, Some(String::from("lorem")));
-        ///     assert_eq!(lines.next().await, Some(String::from("ipsum")));
-        ///     assert_eq!(lines.next().await, Some(String::from("dolor")));
-        ///     assert_eq!(lines.next().await, None);
+        ///     assert_eq!(lines.next_line().await.unwrap(), Some(String::from("lorem")));
+        ///     assert_eq!(lines.next_line().await.unwrap(), Some(String::from("ipsum")));
+        ///     assert_eq!(lines.next_line().await.unwrap(), Some(String::from("dolor")));
+        ///     assert_eq!(lines.next_line().await.unwrap(), None);
         /// }
         /// ```
         ///

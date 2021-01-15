@@ -122,6 +122,7 @@ impl MethodWriter {
 pub struct Codegen {
     ast: Ast,
     fingerprint: String,
+    unique_id: u32,
 }
 
 fn js_type(typ: &ConcreteType) -> String {
@@ -135,7 +136,7 @@ fn js_type(typ: &ConcreteType) -> String {
         ConcreteType::Binary => res.push_str("u8_array"),
         ConcreteType::Json => res.push_str("json"),
         ConcreteType::Date => res.push_str("date"),
-        _ => unimplemented!("No js type for this concrete type!"),
+        _ => unimplemented!("No js type for this concrete type: {:?}", typ),
     }
     res
 }
@@ -143,7 +144,7 @@ fn js_type(typ: &ConcreteType) -> String {
 impl Codegen {
     // path is the current "root" seeding the JS property.
     fn write_encoder_for_item<'a, W: Write>(
-        &self,
+        &mut self,
         path: &str,
         item: &'a TypeItem,
         sink: &'a mut W,
@@ -198,12 +199,17 @@ impl Codegen {
         match item.typ.typ {
             ConcreteType::Dictionary(ref utype) => {
                 // For dictionaries, we serialize each field in sequence.
-                let dict = self.ast.dictionaries.get(utype).unwrap();
+                let dict = self.ast.dictionaries.get(utype).unwrap().clone();
                 // If the full path is just "item" that means we are in an array
                 // loop already, so no need to create another dictionary holder.
+
+                sink.write_all(b"{\n")?;
+
+                let dict_name = format!("dict{}", self.unique_id);
+                self.unique_id += 1;
                 if full_path != "item" {
-                    writeln!(sink, "let dict = {};", full_path)?;
-                    full_path = "dict".into();
+                    writeln!(sink, "let {} = {};", dict_name, full_path)?;
+                    full_path = dict_name;
                 }
 
                 // Create a new item type for each property.
@@ -214,6 +220,8 @@ impl Codegen {
                         sink,
                     )?;
                 }
+
+                sink.write_all(b"}\n")?;
             }
             ConcreteType::Enumeration(_) => {
                 // Enumerations are just variant tag values.
@@ -447,7 +455,7 @@ impl Codegen {
 
     // Returns the updated index for requests and responses.
     pub fn generate_messages_for_interface<'a, W: Write>(
-        &self,
+        &mut self,
         name: &str,
         messages: &[TypedMessage],
         req_index: usize,
@@ -532,7 +540,7 @@ impl Codegen {
     // Interfaces are mapped to a class extending SessionObject.
     // Returns the updated index for requests and responses.
     pub fn generate_interface<'a, W: Write>(
-        &self,
+        &mut self,
         interface: &Interface,
         req_index: usize,
         resp_index: usize,
@@ -689,7 +697,7 @@ impl Codegen {
     // Callbacks are mapped to a class extending SessionObject.
     // Returns the updated index for requests and responses.
     pub fn generate_callback<'a, W: Write>(
-        &self,
+        &mut self,
         callback: &Callback,
         req_index: usize,
         resp_index: usize,
@@ -716,7 +724,7 @@ impl Codegen {
         writeln!(
             sink,
             r#"on_message(message) {{
-            console.log(`Message for {} ${{this.display()}}: %o`, message);"#,
+            // console.log(`Message for {} ${{this.display()}}: %o`, message);"#,
             callback.name
         )?;
 
@@ -724,8 +732,8 @@ impl Codegen {
             sink,
             r#"let decoder = new Decoder(message.content);
         let variant = decoder.enum_tag();
-        console.log(`Starting at index {}`);
-        console.log(`we got variant ${{variant}}`);
+        // console.log(`Starting at index {}`);
+        // console.log(`we got variant ${{variant}}`);
         // Dispatch based on message.content which is the real payload.
         "#,
             resp_index
@@ -749,7 +757,7 @@ impl Codegen {
             writeln!(sink, "case {}: {{", resp_index)?;
             writeln!(
                 sink,
-                "console.log(`Extracting parameters for {}(...)`);",
+                "// console.log(`Extracting parameters for {}(...)`);",
                 method.name
             )?;
             writeln!(
@@ -787,7 +795,7 @@ impl Codegen {
             // Success case.
             writeln!(
                 sink,
-                "success => {{ console.log(`{}.{} success: ${{success}}`);",
+                "success => {{ // console.log(`{}.{} success: ${{success}}`);",
                 callback.name, method.name
             )?;
             writeln!(sink, "let encoder = new Encoder();")?;
@@ -803,7 +811,7 @@ impl Codegen {
             // Error case.
             writeln!(
                 sink,
-                "error => {{ console.error(`{}.{} error: ${{error}}`);",
+                "error => {{ // console.error(`{}.{} error: ${{error}}`);",
                 callback.name, method.name
             )?;
             writeln!(sink, "let encoder = new Encoder();")?;
@@ -876,7 +884,7 @@ impl Codegen {
         Ok(())
     }
 
-    pub fn generate<'a, W: Write>(&self, sink: &'a mut W) -> Result<()> {
+    pub fn generate<W: Write>(&mut self, sink: &mut W) -> Result<()> {
         sink.write_all(
             b"// This file is generated. Do not edit.
               // @generated\n\n
@@ -893,7 +901,7 @@ impl Codegen {
         let mut req_index = 0;
         let mut resp_index = 0;
         // Generate session objects for each interface.
-        for interface in self.ast.interfaces.values() {
+        for interface in self.ast.interfaces.clone().values() {
             // We need to keep track of the current request and response indexes because
             // they need to match the variant index of the Rust side.
             let (new_req, new_resp) =
@@ -903,7 +911,7 @@ impl Codegen {
         }
 
         // Generate session objects for each callback.
-        for callback in self.ast.callbacks.values() {
+        for callback in self.ast.callbacks.clone().values() {
             // We need to keep track of the current request and response indexes because
             // they need to match the variant index of the Rust side.
             let (new_req, new_resp) =
@@ -925,6 +933,7 @@ impl Codegen {
         Codegen {
             ast: normalize_rust_case(&ast, &JavascriptCaseNormalizer),
             fingerprint,
+            unique_id: 0,
         }
     }
 }
@@ -967,7 +976,7 @@ mod test {
         use sidl_parser::ast::Ast;
 
         let ast = Ast::parse_str("test", CONTENT, None).unwrap();
-        let generator = Codegen::new(ast);
+        let mut generator = Codegen::new(ast);
 
         generator
             .generate(&mut ::std::io::stdout())

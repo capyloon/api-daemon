@@ -230,17 +230,18 @@ impl CaseNormalizer for JavascriptCaseNormalizer {
 // This reduces the use of .to_snake_case() and .to_camel_case() in the
 // code generator.
 pub fn normalize_rust_case<N: CaseNormalizer>(ast: &Ast, normalizer: &N) -> Ast {
-    let mut dest = Ast::default();
-
-    dest.services = ast
-        .services
-        .iter()
-        .map(|service| Service {
-            annotation: service.annotation.clone(),
-            name: normalizer.service_name(&service.name),
-            interface: normalizer.interface_name(&service.interface),
-        })
-        .collect();
+    let mut dest = Ast {
+        services: ast
+            .services
+            .iter()
+            .map(|service| Service {
+                annotation: service.annotation.clone(),
+                name: normalizer.service_name(&service.name),
+                interface: normalizer.interface_name(&service.interface),
+            })
+            .collect(),
+        ..Default::default()
+    };
 
     for enumeration in &ast.enumerations {
         let name = enumeration.0;

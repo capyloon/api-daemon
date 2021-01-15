@@ -57,7 +57,7 @@ pub fn generate_javascript_code(src: &Path, dest: &Path) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let mut file = File::create(dest)?;
-    let generator = javascript::Codegen::new(ast);
+    let mut generator = javascript::Codegen::new(ast);
     generator.generate(&mut file)?;
     Ok(())
 }

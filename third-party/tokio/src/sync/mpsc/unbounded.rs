@@ -1,6 +1,6 @@
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::sync::mpsc::chan;
-use crate::sync::mpsc::error::{SendError, TryRecvError};
+use crate::sync::mpsc::error::SendError;
 
 use std::fmt;
 use std::task::{Context, Poll};
@@ -47,7 +47,7 @@ impl<T> fmt::Debug for UnboundedReceiver<T> {
 }
 
 /// Creates an unbounded mpsc channel for communicating between asynchronous
-/// tasks.
+/// tasks without backpressure.
 ///
 /// A `send` on this channel will always succeed as long as the receive half has
 /// not been closed. If the receiver falls behind, messages will be arbitrarily
@@ -71,11 +71,6 @@ type Semaphore = AtomicUsize;
 impl<T> UnboundedReceiver<T> {
     pub(crate) fn new(chan: chan::Rx<T, Semaphore>) -> UnboundedReceiver<T> {
         UnboundedReceiver { chan }
-    }
-
-    #[doc(hidden)] // TODO: doc
-    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
-        self.chan.recv(cx)
     }
 
     /// Receives the next value for this receiver.
@@ -123,19 +118,34 @@ impl<T> UnboundedReceiver<T> {
         poll_fn(|cx| self.poll_recv(cx)).await
     }
 
-    /// Attempts to return a pending value on this receiver without blocking.
+    /// Blocking receive to call outside of asynchronous contexts.
     ///
-    /// This method will never block the caller in order to wait for data to
-    /// become available. Instead, this will always return immediately with
-    /// a possible option of pending data on the channel.
+    /// # Panics
     ///
-    /// This is useful for a flavor of "optimistic check" before deciding to
-    /// block on a receiver.
+    /// This function panics if called within an asynchronous execution
+    /// context.
     ///
-    /// Compared with recv, this function has two failure cases instead of
-    /// one (one for disconnection, one for an empty buffer).
-    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        self.chan.try_recv()
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread;
+    /// use tokio::sync::mpsc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let (tx, mut rx) = mpsc::unbounded_channel::<u8>();
+    ///
+    ///     let sync_code = thread::spawn(move || {
+    ///         assert_eq!(Some(10), rx.blocking_recv());
+    ///     });
+    ///
+    ///     let _ = tx.send(10);
+    ///     sync_code.join().unwrap();
+    /// }
+    /// ```
+    #[cfg(feature = "sync")]
+    pub fn blocking_recv(&mut self) -> Option<T> {
+        crate::future::block_on(self.recv())
     }
 
     /// Closes the receiving half of a channel, without dropping it.
@@ -145,14 +155,24 @@ impl<T> UnboundedReceiver<T> {
     pub fn close(&mut self) {
         self.chan.close();
     }
-}
 
-#[cfg(feature = "stream")]
-impl<T> crate::stream::Stream for UnboundedReceiver<T> {
-    type Item = T;
-
-    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
-        self.poll_recv(cx)
+    /// Polls to receive the next message on this channel.
+    ///
+    /// This method returns:
+    ///
+    ///  * `Poll::Pending` if no messages are available but the channel is not
+    ///    closed.
+    ///  * `Poll::Ready(Some(message))` if a message is available.
+    ///  * `Poll::Ready(None)` if the channel has been closed and all messages
+    ///    sent before it was closed have been received.
+    ///
+    /// When the method returns `Poll::Pending`, the `Waker` in the provided
+    /// `Context` is scheduled to receive a wakeup when a message is sent on any
+    /// receiver, or when the channel is closed.  Note that on multiple calls to
+    /// `poll_recv`, only the `Waker` from the `Context` passed to the most
+    /// recent call is scheduled to receive a wakeup.
+    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        self.chan.recv(cx)
     }
 }
 
@@ -174,7 +194,97 @@ impl<T> UnboundedSender<T> {
     /// [`close`]: UnboundedReceiver::close
     /// [`UnboundedReceiver`]: UnboundedReceiver
     pub fn send(&self, message: T) -> Result<(), SendError<T>> {
-        self.chan.send_unbounded(message)?;
+        if !self.inc_num_messages() {
+            return Err(SendError(message));
+        }
+
+        self.chan.send(message);
         Ok(())
+    }
+
+    fn inc_num_messages(&self) -> bool {
+        use std::process;
+        use std::sync::atomic::Ordering::{AcqRel, Acquire};
+
+        let mut curr = self.chan.semaphore().load(Acquire);
+
+        loop {
+            if curr & 1 == 1 {
+                return false;
+            }
+
+            if curr == usize::MAX ^ 1 {
+                // Overflowed the ref count. There is no safe way to recover, so
+                // abort the process. In practice, this should never happen.
+                process::abort()
+            }
+
+            match self
+                .chan
+                .semaphore()
+                .compare_exchange(curr, curr + 2, AcqRel, Acquire)
+            {
+                Ok(_) => return true,
+                Err(actual) => {
+                    curr = actual;
+                }
+            }
+        }
+    }
+
+    /// Completes when the receiver has dropped.
+    ///
+    /// This allows the producers to get notified when interest in the produced
+    /// values is canceled and immediately stop doing work.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokio::sync::mpsc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let (tx1, rx) = mpsc::unbounded_channel::<()>();
+    ///     let tx2 = tx1.clone();
+    ///     let tx3 = tx1.clone();
+    ///     let tx4 = tx1.clone();
+    ///     let tx5 = tx1.clone();
+    ///     tokio::spawn(async move {
+    ///         drop(rx);
+    ///     });
+    ///
+    ///     futures::join!(
+    ///         tx1.closed(),
+    ///         tx2.closed(),
+    ///         tx3.closed(),
+    ///         tx4.closed(),
+    ///         tx5.closed()
+    ///     );
+    ////     println!("Receiver dropped");
+    /// }
+    /// ```
+    pub async fn closed(&self) {
+        self.chan.closed().await
+    }
+    /// Checks if the channel has been closed. This happens when the
+    /// [`UnboundedReceiver`] is dropped, or when the
+    /// [`UnboundedReceiver::close`] method is called.
+    ///
+    /// [`UnboundedReceiver`]: crate::sync::mpsc::UnboundedReceiver
+    /// [`UnboundedReceiver::close`]: crate::sync::mpsc::UnboundedReceiver::close
+    ///
+    /// ```
+    /// let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    /// assert!(!tx.is_closed());
+    ///
+    /// let tx2 = tx.clone();
+    /// assert!(!tx2.is_closed());
+    ///
+    /// drop(rx);
+    /// assert!(tx.is_closed());
+    /// assert!(tx2.is_closed());
+    /// ```
+    pub fn is_closed(&self) -> bool {
+        self.chan.is_closed()
     }
 }

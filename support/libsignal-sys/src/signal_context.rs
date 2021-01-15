@@ -1,10 +1,22 @@
-use crate::generated::ffi::*;
-use std::ptr::null_mut;
 use crate::crypto_provider::get_crypto_provider;
+use crate::generated::ffi::*;
+use std::fmt;
 use std::os::raw::{c_char, c_int, c_void};
+use std::ptr::null_mut;
 
 // Wrapper around the Signal context.
 pub type SignalContextPtr = *mut signal_context;
+
+#[derive(Debug)]
+pub struct SignalError;
+
+impl fmt::Display for SignalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Generic Signal Error")
+    }
+}
+
+impl std::error::Error for SignalError {}
 
 pub struct SignalContext {
     native: SignalContextPtr,
@@ -90,7 +102,7 @@ impl SignalContext {
     }
 
     // Returns the registration id.
-    pub fn get_registration_id(&self, extended_range: bool) -> Result<u32, ()> {
+    pub fn get_registration_id(&self, extended_range: bool) -> Result<u32, SignalError> {
         let mut id: u32 = 0;
         let ext: c_int = if extended_range { 1 } else { 0 };
 
@@ -99,11 +111,11 @@ impl SignalContext {
         {
             return Ok(id);
         }
-        Err(())
+        Err(SignalError)
     }
 
     // Returns a (public_key, private_key)
-    pub fn generate_identity_key_pair(&self) -> Result<(KeyArray, KeyArray), ()> {
+    pub fn generate_identity_key_pair(&self) -> Result<(KeyArray, KeyArray), SignalError> {
         let mut key_pair: *mut ratchet_identity_key_pair = null_mut();
         unsafe {
             if signal_protocol_key_helper_generate_identity_key_pair(&mut key_pair, self.native)
@@ -118,7 +130,7 @@ impl SignalContext {
             }
         }
 
-        Err(())
+        Err(SignalError)
     }
 
     // Returns a Vec of (id, public_key, private_key)
@@ -126,7 +138,7 @@ impl SignalContext {
         &self,
         start: u32,
         count: u32,
-    ) -> Result<Vec<(u32, KeyArray, KeyArray)>, ()> {
+    ) -> Result<Vec<(u32, KeyArray, KeyArray)>, SignalError> {
         let mut key_list: *mut signal_protocol_key_helper_pre_key_list_node = null_mut();
         unsafe {
             if signal_protocol_key_helper_generate_pre_keys(
@@ -157,17 +169,18 @@ impl SignalContext {
             }
         }
 
-        Err(())
+        Err(SignalError)
     }
 
     // Returns a (id, public_key, private_key, timestamp, signature)
+    #[allow(clippy::field_reassign_with_default)]
     pub fn generate_signed_pre_key(
         &self,
         public_key: &[u8],
         private_key: &[u8],
         key_id: u32,
         timestamp: u64,
-    ) -> Result<(u32, KeyArray, KeyArray, u64, Vec<u8>), ()> {
+    ) -> Result<(u32, KeyArray, KeyArray, u64, Vec<u8>), SignalError> {
         let mut pre_key: *mut session_signed_pre_key = null_mut();
         build_key!(pub_key, ec_public_key, public_key);
         build_key!(priv_key, ec_private_key, private_key);
@@ -217,11 +230,11 @@ impl SignalContext {
             }
         }
 
-        Err(())
+        Err(SignalError)
     }
 
     // Returns a (public_key, private_key)
-    pub fn generate_sender_signing_key(&self) -> Result<(KeyArray, KeyArray), ()> {
+    pub fn generate_sender_signing_key(&self) -> Result<(KeyArray, KeyArray), SignalError> {
         let mut key_pair: *mut ec_key_pair = null_mut();
         unsafe {
             if signal_protocol_key_helper_generate_sender_signing_key(&mut key_pair, self.native)
@@ -238,40 +251,41 @@ impl SignalContext {
             }
         }
 
-        Err(())
+        Err(SignalError)
     }
 
-    pub fn generate_sender_key(&self) -> Result<Vec<u8>, ()> {
+    pub fn generate_sender_key(&self) -> Result<Vec<u8>, SignalError> {
         let mut buffer: *mut signal_buffer = null_mut();
         unsafe {
             if signal_protocol_key_helper_generate_sender_key(&mut buffer, self.native) == 0 {
-                let res = (*buffer).data_slice().to_vec().clone();
+                let res = (*buffer).data_slice().to_vec();
 
                 signal_buffer_free(buffer);
 
                 return Ok(res);
             }
         }
-        Err(())
+        Err(SignalError)
     }
 
-    pub fn generate_sender_key_id(&self) -> Result<u32, ()> {
+    pub fn generate_sender_key_id(&self) -> Result<u32, SignalError> {
         unsafe {
             let mut res: u32 = 42;
             if signal_protocol_key_helper_generate_sender_key_id(&mut res, self.native) == 0 {
                 return Ok(res);
             }
         }
-        Err(())
+        Err(SignalError)
     }
 
+    #[allow(clippy::field_reassign_with_default)]
     pub fn curve_calculate_agreement(
         public_key: &[u8],
         private_key: &[u8],
-    ) -> Result<KeyArray, ()> {
+    ) -> Result<KeyArray, SignalError> {
         // Check that the keys size is 32 bytes.
         if public_key.len() != 32 || private_key.len() != 32 {
-            return Err(());
+            return Err(SignalError);
         }
 
         build_key!(pub_key, ec_public_key, public_key);
@@ -294,7 +308,7 @@ impl SignalContext {
                 Ok(array)
             } else {
                 error!("curve_calculate_agreement failed with {}", out);
-                Err(())
+                Err(SignalError)
             }
         }
     }

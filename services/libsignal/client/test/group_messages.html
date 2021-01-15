@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LibSignal Tests</title>
+
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/libsignal/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="data.js"></script>
+    <script src="store.js"></script>
+
+    <script>
+      async function createUser(tester, address) {
+        let context;
+        let deviceId = address.deviceId;
+        await tester.assert_eq(
+          `getContext for user ${address.name} (${address.deviceId})`,
+          (service) => (context = service.newGlobalContext()),
+          true,
+          (result) => {
+            context = result;
+            return !!result;
+          }
+        );
+
+        let registrationId = await context.generateRegistrationId();
+        let preKeys = await context.generatePreKeys(1, 100);
+        let preKey = preKeys[0];
+        let identityKey = await context.generateIdentityKeyPair();
+        let signedPreKey = await context.generateSignedPreKey(
+          identityKey,
+          1,
+          Date.now()
+        );
+
+        let preKeyBundle = {
+          registrationId,
+          deviceId,
+          preKeyId: preKey.id,
+          preKeyPublic: preKey.keyPair.publicKey,
+          signedPreKeyId: signedPreKey.id,
+          signedPreKeyPublic: signedPreKey.keyPair.publicKey,
+          signedPreKeySignature: signedPreKey.signature,
+          identityKey: identityKey.publicKey,
+        };
+
+        // Create a store context.
+        let storeContext = createStoreContextFor(tester);
+        storeContext.identityKeyStore.setKeyPair(identityKey);
+
+        return {
+          context,
+          registrationId,
+          preKeys,
+          identityKey,
+          signedPreKey,
+          preKeyBundle,
+          storeContext,
+        };
+      }
+
+      async function run_tests() {
+        let tester = await test_service(
+          lib_libsignal.Signal,
+          "test-client-signal"
+        );
+
+        let aliceAddress = {
+          name: "Alice",
+          deviceId: 42,
+        };
+        let alice = await createUser(tester, aliceAddress);
+
+        let bobAddress = {
+          name: "Bob",
+          deviceId: 66,
+        };
+        let bob = await createUser(tester, bobAddress);
+
+        const groupAddress = {
+          name: "sender 1",
+          deviceId: 32,
+        };
+        const groupSenderKeyName = {
+          groupId: "group 1",
+          sender: groupAddress,
+        };
+
+        let aliceGroupSession = await alice.context.groupSessionBuilder(
+          alice.storeContext
+        );
+        let bobGroupSession = await bob.context.groupSessionBuilder(
+          bob.storeContext
+        );
+
+        let aliceDecryptor = new DecryptionCallbackWrapper(
+          tester,
+          (plaintext) => {
+            console.log(`Alice Decrypted: ${plaintext}`);
+            return Promise.resolve();
+          }
+        );
+
+        let bobDecryptor = new DecryptionCallbackWrapper(
+          tester,
+          (plaintext) => {
+            console.log(`Bob Decrypted: ${plaintext}`);
+            return Promise.resolve();
+          }
+        );
+
+        let aliceCipher = await alice.context.groupCipher(
+          alice.storeContext,
+          groupSenderKeyName,
+          aliceDecryptor
+        );
+        let bobCipher = await bob.context.groupCipher(
+          bob.storeContext,
+          groupSenderKeyName,
+          bobDecryptor
+        );
+
+        let newSession = await aliceGroupSession.createSession(
+          groupSenderKeyName
+        );
+        await bobGroupSession.processSession(groupSenderKeyName, newSession);
+
+        let message = "Here is Alice talking to Bob";
+        let encoder = new TextEncoder();
+        let cipherText = await aliceCipher.encrypt(encoder.encode(message));
+
+        await tester.assert_eq(
+          `decrypt message from Alice to Bob`,
+          (service) => bobCipher.decrypt(cipherText),
+          message,
+          (result) => {
+            let decoder = new TextDecoder();
+            return decoder.decode(result);
+          }
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

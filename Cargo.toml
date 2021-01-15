@@ -11,7 +11,7 @@ members = [
   "services/contacts",
   "services/devicecapability",
   "services/geckobridge",
-  # "services/libsignal",
+  "services/libsignal",
   "services/powermanager",
   "services/procmanager",
   "services/settings",

@@ -8,7 +8,7 @@ mkdir -p src/generated
 
 INCPATH="-I ./libsignal-protocol-c/src/"
 
-if [ "${TARGET}" = "armv7-linux-androideabi" ];
+if [ "${TARGET}" != "x86_64-unknown-linux-gnu" ];
 then
     INCPATH="${INCPATH} -I ${SYS_INCLUDE_DIR}"
 fi

@@ -9,10 +9,11 @@ use crate::loom::rand::seed;
 use crate::loom::sync::{Arc, Mutex};
 use crate::park::{Park, Unpark};
 use crate::runtime;
+use crate::runtime::enter::EnterContext;
 use crate::runtime::park::{Parker, Unparker};
 use crate::runtime::thread_pool::{AtomicCell, Idle};
 use crate::runtime::{queue, task};
-use crate::util::linked_list::LinkedList;
+use crate::util::linked_list::{Link, LinkedList};
 use crate::util::FastRand;
 
 use std::cell::RefCell;
@@ -53,7 +54,7 @@ struct Core {
     is_shutdown: bool,
 
     /// Tasks owned by the core
-    tasks: LinkedList<Task>,
+    tasks: LinkedList<Task, <Task as Link>::Target>,
 
     /// Parker
     ///
@@ -77,11 +78,12 @@ pub(super) struct Shared {
     /// Coordinates idle workers
     idle: Idle,
 
-    /// Workers have have observed the shutdown signal
+    /// Cores that have observed the shutdown signal
     ///
     /// The core is **not** placed back in the worker to avoid it from being
     /// stolen by a thread that was spawned as part of `block_in_place`.
-    shutdown_workers: Mutex<Vec<(Box<Core>, Arc<Worker>)>>,
+    #[allow(clippy::vec_box)] // we're moving an already-boxed value
+    shutdown_cores: Mutex<Vec<Box<Core>>>,
 }
 
 /// Used to communicate with a worker from other threads.
@@ -156,7 +158,7 @@ pub(super) fn create(size: usize, park: Parker) -> (Arc<Shared>, Launch) {
         remotes: remotes.into_boxed_slice(),
         inject: queue::Inject::new(),
         idle: Idle::new(size),
-        shutdown_workers: Mutex::new(vec![]),
+        shutdown_cores: Mutex::new(vec![]),
     });
 
     let mut launch = Launch(vec![]);
@@ -172,100 +174,96 @@ pub(super) fn create(size: usize, park: Parker) -> (Arc<Shared>, Launch) {
     (shared, launch)
 }
 
-cfg_blocking! {
-    use crate::runtime::enter::EnterContext;
+pub(crate) fn block_in_place<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    // Try to steal the worker core back
+    struct Reset(coop::Budget);
 
-    pub(crate) fn block_in_place<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        // Try to steal the worker core back
-        struct Reset(coop::Budget);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CURRENT.with(|maybe_cx| {
+                if let Some(cx) = maybe_cx {
+                    let core = cx.worker.core.take();
+                    let mut cx_core = cx.core.borrow_mut();
+                    assert!(cx_core.is_none());
+                    *cx_core = core;
 
-        impl Drop for Reset {
-            fn drop(&mut self) {
-                CURRENT.with(|maybe_cx| {
-                    if let Some(cx) = maybe_cx {
-                        let core = cx.worker.core.take();
-                        let mut cx_core = cx.core.borrow_mut();
-                        assert!(cx_core.is_none());
-                        *cx_core = core;
-
-                        // Reset the task budget as we are re-entering the
-                        // runtime.
-                        coop::set(self.0);
-                    }
-                });
-            }
+                    // Reset the task budget as we are re-entering the
+                    // runtime.
+                    coop::set(self.0);
+                }
+            });
         }
+    }
 
-        let mut had_entered = false;
+    let mut had_entered = false;
 
-        CURRENT.with(|maybe_cx| {
-            match (crate::runtime::enter::context(),  maybe_cx.is_some()) {
-                (EnterContext::Entered { .. }, true) => {
-                    // We are on a thread pool runtime thread, so we just need to set up blocking.
+    CURRENT.with(|maybe_cx| {
+        match (crate::runtime::enter::context(), maybe_cx.is_some()) {
+            (EnterContext::Entered { .. }, true) => {
+                // We are on a thread pool runtime thread, so we just need to set up blocking.
+                had_entered = true;
+            }
+            (EnterContext::Entered { allow_blocking }, false) => {
+                // We are on an executor, but _not_ on the thread pool.
+                // That is _only_ okay if we are in a thread pool runtime's block_on method:
+                if allow_blocking {
                     had_entered = true;
-                }
-                (EnterContext::Entered { allow_blocking }, false) => {
-                    // We are on an executor, but _not_ on the thread pool.
-                    // That is _only_ okay if we are in a thread pool runtime's block_on method:
-                    if allow_blocking {
-                        had_entered = true;
-                        return;
-                    } else {
-                        // This probably means we are on the basic_scheduler or in a LocalSet,
-                        // where it is _not_ okay to block.
-                        panic!("can call blocking only when running on the multi-threaded runtime");
-                    }
-                }
-                (EnterContext::NotEntered, true) => {
-                    // This is a nested call to block_in_place (we already exited).
-                    // All the necessary setup has already been done.
                     return;
-                }
-                (EnterContext::NotEntered, false) => {
-                    // We are outside of the tokio runtime, so blocking is fine.
-                    // We can also skip all of the thread pool blocking setup steps.
-                    return;
+                } else {
+                    // This probably means we are on the basic_scheduler or in a LocalSet,
+                    // where it is _not_ okay to block.
+                    panic!("can call blocking only when running on the multi-threaded runtime");
                 }
             }
-
-            let cx = maybe_cx.expect("no .is_some() == false cases above should lead here");
-
-            // Get the worker core. If none is set, then blocking is fine!
-            let core = match cx.core.borrow_mut().take() {
-                Some(core) => core,
-                None => return,
-            };
-
-            // The parker should be set here
-            assert!(core.park.is_some());
-
-            // In order to block, the core must be sent to another thread for
-            // execution.
-            //
-            // First, move the core back into the worker's shared core slot.
-            cx.worker.core.set(core);
-
-            // Next, clone the worker handle and send it to a new thread for
-            // processing.
-            //
-            // Once the blocking task is done executing, we will attempt to
-            // steal the core back.
-            let worker = cx.worker.clone();
-            runtime::spawn_blocking(move || run(worker));
-        });
-
-        if had_entered {
-            // Unset the current task's budget. Blocking sections are not
-            // constrained by task budgets.
-            let _reset = Reset(coop::stop());
-
-            crate::runtime::enter::exit(f)
-        } else {
-            f()
+            (EnterContext::NotEntered, true) => {
+                // This is a nested call to block_in_place (we already exited).
+                // All the necessary setup has already been done.
+                return;
+            }
+            (EnterContext::NotEntered, false) => {
+                // We are outside of the tokio runtime, so blocking is fine.
+                // We can also skip all of the thread pool blocking setup steps.
+                return;
+            }
         }
+
+        let cx = maybe_cx.expect("no .is_some() == false cases above should lead here");
+
+        // Get the worker core. If none is set, then blocking is fine!
+        let core = match cx.core.borrow_mut().take() {
+            Some(core) => core,
+            None => return,
+        };
+
+        // The parker should be set here
+        assert!(core.park.is_some());
+
+        // In order to block, the core must be sent to another thread for
+        // execution.
+        //
+        // First, move the core back into the worker's shared core slot.
+        cx.worker.core.set(core);
+
+        // Next, clone the worker handle and send it to a new thread for
+        // processing.
+        //
+        // Once the blocking task is done executing, we will attempt to
+        // steal the core back.
+        let worker = cx.worker.clone();
+        runtime::spawn_blocking(move || run(worker));
+    });
+
+    if had_entered {
+        // Unset the current task's budget. Blocking sections are not
+        // constrained by task budgets.
+        let _reset = Reset(coop::stop());
+
+        crate::runtime::enter::exit(f)
+    } else {
+        f()
     }
 }
 
@@ -331,8 +329,10 @@ impl Context {
             }
         }
 
+        core.pre_shutdown(&self.worker);
+
         // Signal shutdown
-        self.worker.shared.shutdown(core, self.worker.clone());
+        self.worker.shared.shutdown(core);
         Err(())
     }
 
@@ -549,11 +549,9 @@ impl Core {
         }
     }
 
-    // Shutdown the core
-    fn shutdown(&mut self, worker: &Worker) {
-        // Take the core
-        let mut park = self.park.take().expect("park missing");
-
+    // Signals all tasks to shut down, and waits for them to complete. Must run
+    // before we enter the single-threaded phase of shutdown processing.
+    fn pre_shutdown(&mut self, worker: &Worker) {
         // Signal to all tasks to shut down.
         for header in self.tasks.iter() {
             header.shutdown();
@@ -567,8 +565,17 @@ impl Core {
             }
 
             // Wait until signalled
+            let park = self.park.as_mut().expect("park missing");
             park.park().expect("park failed");
         }
+    }
+
+    // Shutdown the core
+    fn shutdown(&mut self) {
+        assert!(self.tasks.is_empty());
+
+        // Take the core
+        let mut park = self.park.take().expect("park missing");
 
         // Drain the queue
         while self.next_local_task().is_some() {}
@@ -632,52 +639,73 @@ impl task::Schedule for Arc<Worker> {
     fn release(&self, task: &Task) -> Option<Task> {
         use std::ptr::NonNull;
 
-        CURRENT.with(|maybe_cx| {
-            let cx = maybe_cx.expect("scheduler context missing");
+        enum Immediate {
+            // Task has been synchronously removed from the Core owned by the
+            // current thread
+            Removed(Option<Task>),
+            // Task is owned by another thread, so we need to notify it to clean
+            // up the task later.
+            MaybeRemote,
+        }
 
-            if self.eq(&cx.worker) {
-                let mut maybe_core = cx.core.borrow_mut();
+        let immediate = CURRENT.with(|maybe_cx| {
+            let cx = match maybe_cx {
+                Some(cx) => cx,
+                None => return Immediate::MaybeRemote,
+            };
 
-                if let Some(core) = &mut *maybe_core {
-                    // Directly remove the task
-                    //
-                    // safety: the task is inserted in the list in `bind`.
-                    unsafe {
-                        let ptr = NonNull::from(task.header());
-                        return core.tasks.remove(ptr);
-                    }
+            if !self.eq(&cx.worker) {
+                // Task owned by another core, so we need to notify it.
+                return Immediate::MaybeRemote;
+            }
+
+            let mut maybe_core = cx.core.borrow_mut();
+
+            if let Some(core) = &mut *maybe_core {
+                // Directly remove the task
+                //
+                // safety: the task is inserted in the list in `bind`.
+                unsafe {
+                    let ptr = NonNull::from(task.header());
+                    return Immediate::Removed(core.tasks.remove(ptr));
                 }
             }
 
-            // Track the task to be released by the worker that owns it
-            //
-            // Safety: We get a new handle without incrementing the ref-count.
-            // A ref-count is held by the "owned" linked list and it is only
-            // ever removed from that list as part of the release process: this
-            // method or popping the task from `pending_drop`. Thus, we can rely
-            // on the ref-count held by the linked-list to keep the memory
-            // alive.
-            //
-            // When the task is removed from the stack, it is forgotten instead
-            // of dropped.
-            let task = unsafe { Task::from_raw(task.header().into()) };
+            Immediate::MaybeRemote
+        });
 
-            self.remote().pending_drop.push(task);
+        // Checks if we were called from within a worker, allowing for immediate
+        // removal of a scheduled task. Else we have to go through the slower
+        // process below where we remotely mark a task as dropped.
+        match immediate {
+            Immediate::Removed(task) => return task,
+            Immediate::MaybeRemote => (),
+        };
 
-            if cx.core.borrow().is_some() {
-                return None;
-            }
+        // Track the task to be released by the worker that owns it
+        //
+        // Safety: We get a new handle without incrementing the ref-count.
+        // A ref-count is held by the "owned" linked list and it is only
+        // ever removed from that list as part of the release process: this
+        // method or popping the task from `pending_drop`. Thus, we can rely
+        // on the ref-count held by the linked-list to keep the memory
+        // alive.
+        //
+        // When the task is removed from the stack, it is forgotten instead
+        // of dropped.
+        let task = unsafe { Task::from_raw(task.header().into()) };
 
-            // The worker core has been handed off to another thread. In the
-            // event that the scheduler is currently shutting down, the thread
-            // that owns the task may be waiting on the release to complete
-            // shutdown.
-            if self.inject().is_closed() {
-                self.remote().unpark.unpark();
-            }
+        self.remote().pending_drop.push(task);
 
-            None
-        })
+        // The worker core has been handed off to another thread. In the
+        // event that the scheduler is currently shutting down, the thread
+        // that owns the task may be waiting on the release to complete
+        // shutdown.
+        if self.inject().is_closed() {
+            self.remote().unpark.unpark();
+        }
+
+        None
     }
 
     fn schedule(&self, task: Notified) {
@@ -782,16 +810,16 @@ impl Shared {
     /// its core back into its handle.
     ///
     /// If all workers have reached this point, the final cleanup is performed.
-    fn shutdown(&self, core: Box<Core>, worker: Arc<Worker>) {
-        let mut workers = self.shutdown_workers.lock().unwrap();
-        workers.push((core, worker));
+    fn shutdown(&self, core: Box<Core>) {
+        let mut cores = self.shutdown_cores.lock();
+        cores.push(core);
 
-        if workers.len() != self.remotes.len() {
+        if cores.len() != self.remotes.len() {
             return;
         }
 
-        for (mut core, worker) in workers.drain(..) {
-            core.shutdown(&worker);
+        for mut core in cores.drain(..) {
+            core.shutdown();
         }
 
         // Drain the injection queue

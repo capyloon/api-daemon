@@ -22,7 +22,7 @@ hamster = { path = "../hamster" }
 kus = { path = "../kus" }
 parking_lot = "0.11"
 sha-1 = "0.9"
-nix = "0.17"
+nix = "0.19"
 
 [dev-dependencies]
 mockito = "0.23"

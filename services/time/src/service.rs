@@ -71,7 +71,7 @@ impl SharedObj {
             delta: time_delta,
         };
 
-        if info.timezone == "" {
+        if info.timezone.is_empty() {
             // caller doesn't specify timezone, get local timezone setting
             if let Ok(tz) = AndroidProperties::get("persist.sys.timezone", "") {
                 info.timezone = tz;

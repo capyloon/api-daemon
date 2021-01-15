@@ -2,7 +2,7 @@
 #![cfg(feature = "full")]
 
 use std::cell::Cell;
-use std::io::Cursor;
+use std::io::{Cursor, SeekFrom};
 use std::net::SocketAddr;
 use std::rc::Rc;
 use tokio::net::TcpStream;
@@ -16,9 +16,18 @@ type BoxFutureSend<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + 
 type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T>>>;
 
 #[allow(dead_code)]
+type BoxAsyncRead = std::pin::Pin<Box<dyn tokio::io::AsyncBufRead>>;
+#[allow(dead_code)]
+type BoxAsyncSeek = std::pin::Pin<Box<dyn tokio::io::AsyncSeek>>;
+#[allow(dead_code)]
+type BoxAsyncWrite = std::pin::Pin<Box<dyn tokio::io::AsyncWrite>>;
+
+#[allow(dead_code)]
 fn require_send<T: Send>(_t: &T) {}
 #[allow(dead_code)]
 fn require_sync<T: Sync>(_t: &T) {}
+#[allow(dead_code)]
+fn require_unpin<T: Unpin>(_t: &T) {}
 
 #[allow(dead_code)]
 struct Invalid;
@@ -34,6 +43,12 @@ trait AmbiguousIfSync<A> {
 }
 impl<T: ?Sized> AmbiguousIfSync<()> for T {}
 impl<T: ?Sized + Sync> AmbiguousIfSync<Invalid> for T {}
+
+trait AmbiguousIfUnpin<A> {
+    fn some_item(&self) {}
+}
+impl<T: ?Sized> AmbiguousIfUnpin<()> for T {}
+impl<T: ?Sized + Unpin> AmbiguousIfUnpin<Invalid> for T {}
 
 macro_rules! into_todo {
     ($typ:ty) => {{
@@ -78,6 +93,14 @@ macro_rules! assert_value {
             AmbiguousIfSync::some_item(&f);
         };
     };
+    ($type:ty: Unpin) => {
+        #[allow(unreachable_code)]
+        #[allow(unused_variables)]
+        const _: fn() = || {
+            let f: $type = todo!();
+            require_unpin(&f);
+        };
+    };
 }
 macro_rules! async_assert_fn {
     ($($f:ident $(< $($generic:ty),* > )? )::+($($arg:ty),*): Send & Sync) => {
@@ -116,6 +139,22 @@ macro_rules! async_assert_fn {
             AmbiguousIfSync::some_item(&f);
         };
     };
+    ($($f:ident $(< $($generic:ty),* > )? )::+($($arg:ty),*): !Unpin) => {
+        #[allow(unreachable_code)]
+        #[allow(unused_variables)]
+        const _: fn() = || {
+            let f = $($f $(::<$($generic),*>)? )::+( $( into_todo!($arg) ),* );
+            AmbiguousIfUnpin::some_item(&f);
+        };
+    };
+    ($($f:ident $(< $($generic:ty),* > )? )::+($($arg:ty),*): Unpin) => {
+        #[allow(unreachable_code)]
+        #[allow(unused_variables)]
+        const _: fn() = || {
+            let f = $($f $(::<$($generic),*>)? )::+( $( into_todo!($arg) ),* );
+            require_unpin(&f);
+        };
+    };
 }
 
 async_assert_fn!(tokio::io::copy(&mut TcpStream, &mut TcpStream): Send & Sync);
@@ -152,7 +191,6 @@ async_assert_fn!(tokio::fs::DirEntry::file_type(_): Send & Sync);
 
 async_assert_fn!(tokio::fs::File::open(&str): Send & Sync);
 async_assert_fn!(tokio::fs::File::create(&str): Send & Sync);
-async_assert_fn!(tokio::fs::File::seek(_, std::io::SeekFrom): Send & Sync);
 async_assert_fn!(tokio::fs::File::sync_all(_): Send & Sync);
 async_assert_fn!(tokio::fs::File::sync_data(_): Send & Sync);
 async_assert_fn!(tokio::fs::File::set_len(_, u64): Send & Sync);
@@ -173,10 +211,6 @@ async_assert_fn!(tokio::net::UdpSocket::send(_, &[u8]): Send & Sync);
 async_assert_fn!(tokio::net::UdpSocket::recv(_, &mut [u8]): Send & Sync);
 async_assert_fn!(tokio::net::UdpSocket::send_to(_, &[u8], SocketAddr): Send & Sync);
 async_assert_fn!(tokio::net::UdpSocket::recv_from(_, &mut [u8]): Send & Sync);
-async_assert_fn!(tokio::net::udp::RecvHalf::recv(_, &mut [u8]): Send & Sync);
-async_assert_fn!(tokio::net::udp::RecvHalf::recv_from(_, &mut [u8]): Send & Sync);
-async_assert_fn!(tokio::net::udp::SendHalf::send(_, &[u8]): Send & Sync);
-async_assert_fn!(tokio::net::udp::SendHalf::send_to(_, &[u8], &SocketAddr): Send & Sync);
 
 #[cfg(unix)]
 mod unix_datagram {
@@ -195,10 +229,6 @@ async_assert_fn!(tokio::signal::ctrl_c(): Send & Sync);
 #[cfg(unix)]
 async_assert_fn!(tokio::signal::unix::Signal::recv(_): Send & Sync);
 
-async_assert_fn!(tokio::stream::empty<Rc<u8>>(): Send & Sync);
-async_assert_fn!(tokio::stream::pending<Rc<u8>>(): Send & Sync);
-async_assert_fn!(tokio::stream::iter(std::vec::IntoIter<u8>): Send & Sync);
-
 async_assert_fn!(tokio::sync::Barrier::wait(_): Send & Sync);
 async_assert_fn!(tokio::sync::Mutex<u8>::lock(_): Send & Sync);
 async_assert_fn!(tokio::sync::Mutex<Cell<u8>>::lock(_): Send & Sync);
@@ -206,7 +236,7 @@ async_assert_fn!(tokio::sync::Mutex<Rc<u8>>::lock(_): !Send & !Sync);
 async_assert_fn!(tokio::sync::Mutex<u8>::lock_owned(_): Send & Sync);
 async_assert_fn!(tokio::sync::Mutex<Cell<u8>>::lock_owned(_): Send & Sync);
 async_assert_fn!(tokio::sync::Mutex<Rc<u8>>::lock_owned(_): !Send & !Sync);
-async_assert_fn!(tokio::sync::Notify::notified(_): Send & !Sync);
+async_assert_fn!(tokio::sync::Notify::notified(_): Send & Sync);
 async_assert_fn!(tokio::sync::RwLock<u8>::read(_): Send & Sync);
 async_assert_fn!(tokio::sync::RwLock<u8>::write(_): Send & Sync);
 async_assert_fn!(tokio::sync::RwLock<Cell<u8>>::read(_): !Send & !Sync);
@@ -230,9 +260,7 @@ async_assert_fn!(tokio::sync::mpsc::UnboundedReceiver<u8>::recv(_): Send & Sync)
 async_assert_fn!(tokio::sync::mpsc::UnboundedReceiver<Cell<u8>>::recv(_): Send & Sync);
 async_assert_fn!(tokio::sync::mpsc::UnboundedReceiver<Rc<u8>>::recv(_): !Send & !Sync);
 
-async_assert_fn!(tokio::sync::watch::Receiver<u8>::recv(_): Send & Sync);
-async_assert_fn!(tokio::sync::watch::Receiver<Cell<u8>>::recv(_): !Send & !Sync);
-async_assert_fn!(tokio::sync::watch::Receiver<Rc<u8>>::recv(_): !Send & !Sync);
+async_assert_fn!(tokio::sync::watch::Receiver<u8>::changed(_): Send & Sync);
 async_assert_fn!(tokio::sync::watch::Sender<u8>::closed(_): Send & Sync);
 async_assert_fn!(tokio::sync::watch::Sender<Cell<u8>>::closed(_): !Send & !Sync);
 async_assert_fn!(tokio::sync::watch::Sender<Rc<u8>>::closed(_): !Send & !Sync);
@@ -250,8 +278,8 @@ async_assert_fn!(tokio::task::LocalSet::run_until(_, BoxFutureSync<()>): !Send &
 assert_value!(tokio::task::LocalSet: !Send & !Sync);
 
 async_assert_fn!(tokio::time::advance(Duration): Send & Sync);
-async_assert_fn!(tokio::time::delay_for(Duration): Send & Sync);
-async_assert_fn!(tokio::time::delay_until(Instant): Send & Sync);
+async_assert_fn!(tokio::time::sleep(Duration): Send & Sync);
+async_assert_fn!(tokio::time::sleep_until(Instant): Send & Sync);
 async_assert_fn!(tokio::time::timeout(Duration, BoxFutureSync<()>): Send & Sync);
 async_assert_fn!(tokio::time::timeout(Duration, BoxFutureSend<()>): Send & !Sync);
 async_assert_fn!(tokio::time::timeout(Duration, BoxFuture<()>): !Send & !Sync);
@@ -260,5 +288,56 @@ async_assert_fn!(tokio::time::timeout_at(Instant, BoxFutureSend<()>): Send & !Sy
 async_assert_fn!(tokio::time::timeout_at(Instant, BoxFuture<()>): !Send & !Sync);
 async_assert_fn!(tokio::time::Interval::tick(_): Send & Sync);
 
-#[cfg(tokio_unstable)]
-assert_value!(tokio::sync::CancellationToken: Send & Sync);
+assert_value!(tokio::time::Interval: Unpin);
+async_assert_fn!(tokio::time::sleep(Duration): !Unpin);
+async_assert_fn!(tokio::time::sleep_until(Instant): !Unpin);
+async_assert_fn!(tokio::time::timeout(Duration, BoxFuture<()>): !Unpin);
+async_assert_fn!(tokio::time::timeout_at(Instant, BoxFuture<()>): !Unpin);
+async_assert_fn!(tokio::time::Interval::tick(_): !Unpin);
+async_assert_fn!(tokio::io::AsyncBufReadExt::read_until(&mut BoxAsyncRead, u8, &mut Vec<u8>): !Unpin);
+async_assert_fn!(tokio::io::AsyncBufReadExt::read_line(&mut BoxAsyncRead, &mut String): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read(&mut BoxAsyncRead, &mut [u8]): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_exact(&mut BoxAsyncRead, &mut [u8]): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u8(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i8(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u16(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i16(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u32(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i32(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u64(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i64(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u128(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i128(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u16_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i16_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u32_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i32_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u64_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i64_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_u128_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_i128_le(&mut BoxAsyncRead): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_to_end(&mut BoxAsyncRead, &mut Vec<u8>): !Unpin);
+async_assert_fn!(tokio::io::AsyncReadExt::read_to_string(&mut BoxAsyncRead, &mut String): !Unpin);
+async_assert_fn!(tokio::io::AsyncSeekExt::seek(&mut BoxAsyncSeek, SeekFrom): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write(&mut BoxAsyncWrite, &[u8]): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_all(&mut BoxAsyncWrite, &[u8]): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u8(&mut BoxAsyncWrite, u8): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i8(&mut BoxAsyncWrite, i8): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u16(&mut BoxAsyncWrite, u16): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i16(&mut BoxAsyncWrite, i16): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u32(&mut BoxAsyncWrite, u32): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i32(&mut BoxAsyncWrite, i32): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u64(&mut BoxAsyncWrite, u64): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i64(&mut BoxAsyncWrite, i64): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u128(&mut BoxAsyncWrite, u128): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i128(&mut BoxAsyncWrite, i128): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u16_le(&mut BoxAsyncWrite, u16): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i16_le(&mut BoxAsyncWrite, i16): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u32_le(&mut BoxAsyncWrite, u32): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i32_le(&mut BoxAsyncWrite, i32): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u64_le(&mut BoxAsyncWrite, u64): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i64_le(&mut BoxAsyncWrite, i64): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_u128_le(&mut BoxAsyncWrite, u128): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::write_i128_le(&mut BoxAsyncWrite, i128): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::flush(&mut BoxAsyncWrite): !Unpin);
+async_assert_fn!(tokio::io::AsyncWriteExt::shutdown(&mut BoxAsyncWrite): !Unpin);

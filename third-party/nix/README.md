@@ -58,7 +58,6 @@ Tier 1:
   * mips64-unknown-linux-gnuabi64
   * mips64el-unknown-linux-gnuabi64
   * mipsel-unknown-linux-gnu
-  * powerpc64-unknown-linux-gnu
   * powerpc64le-unknown-linux-gnu
   * x86_64-apple-darwin
   * x86_64-unknown-freebsd
@@ -81,21 +80,18 @@ Tier 2:
   * x86_64-linux-android
   * x86_64-unknown-netbsd
 
+Tier 3:
+  * x86_64-unknown-redox
+
 ## Usage
 
 `nix` requires Rust 1.36.0 or newer.
 
-To use `nix`, first add this to your `Cargo.toml`:
+To use `nix`, add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nix = "0.17.0"
-```
-
-Then, add this to your crate root:
-
-```rust,ignore
-extern crate nix;
+nix = "0.19.1"
 ```
 
 ## Contributing

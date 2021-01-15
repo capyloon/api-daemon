@@ -40,6 +40,8 @@ pub enum AppsActorError {
     WrongManifest(ManifestError),
     #[error("Io error, {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Internal Error")]
+    Internal,
 }
 
 #[derive(Error, Debug)]
@@ -369,22 +371,22 @@ pub fn uninstall(
     Ok(())
 }
 
-pub fn get_all(shared_data: &Shared<AppsSharedData>) -> Result<String, ()> {
+pub fn get_all(shared_data: &Shared<AppsSharedData>) -> Result<String, AppsActorError> {
     let shared = shared_data.lock();
     match shared.get_all_apps() {
         Ok(apps) => {
             if apps.is_empty() {
-                info!("Empty application list");
+                debug!("Empty application list");
                 return Ok("".to_string());
             }
-            let apps_str = serde_json::to_string(&apps).map_err(|_| ())?;
+            let apps_str = serde_json::to_string(&apps).map_err(|_| AppsActorError::Internal)?;
             debug!("serialized apps is {}", apps_str);
 
             Ok(apps_str)
         }
         Err(err) => {
             error!("{:?}", err);
-            Err(())
+            Err(AppsActorError::Internal)
         }
     }
 }
@@ -416,15 +418,7 @@ fn test_manifest() {
             "{}/test-fixtures/apps-from/success/application.zip",
             current.display()
         );
-        match validate_package(&app_zip) {
-            Ok(_) => {
-                assert!(true);
-            }
-            Err(err) => {
-                assert!(false);
-                println!("{}2", err);
-            }
-        }
+        validate_package(&app_zip).unwrap();
     }
     // ZipPackageNotFound
     {
@@ -434,11 +428,11 @@ fn test_manifest() {
         );
         match validate_package(&app_zip) {
             Ok(_) => {
-                assert!(false);
+                panic!();
             }
             Err(err) => assert_eq!(
-                format!("{}", err),
-                format!("{}", "Io error, No such file or directory (os error 2)")
+                &format!("{}", err),
+                "Io error, No such file or directory (os error 2)"
             ),
         }
     }
@@ -451,7 +445,7 @@ fn test_manifest() {
         );
         match validate_package(&app_zip) {
             Ok(_) => {
-                assert!(false);
+                panic!();
             }
             Err(err) => {
                 assert_eq!(
@@ -470,7 +464,7 @@ fn test_manifest() {
         );
         match validate_package(&app_zip) {
             Ok(_) => {
-                assert!(false);
+                panic!();
             }
             Err(err) => {
                 assert_eq!(
@@ -490,7 +484,7 @@ fn test_manifest() {
             );
             match validate_package(&app_zip) {
                 Ok(_) => {
-                    assert!(false);
+                    panic!();
                 }
                 Err(err) => {
                     assert_eq!(format!("{}", err),
@@ -508,7 +502,7 @@ fn test_manifest() {
         );
         match validate_package(&app_zip) {
             Ok(_) => {
-                assert!(false);
+                panic!();
             }
             Err(err) => {
                 assert_eq!(
@@ -544,11 +538,9 @@ fn test_install_app() {
     // Tring to remove it at the beginning to make the test at local easy.
     if let Err(err) = fs::remove_dir_all(&_test_path) {
         println!("test_install_app error: {:?}", err);
-        assert!(true);
     }
     if let Err(err) = fs::create_dir_all(&_test_path) {
         println!("test_install_app error: {:?}", err);
-        assert!(true);
     }
 
     let src_app = current.join("test-fixtures/apps-from/helloworld/application.zip");
@@ -580,12 +572,11 @@ fn test_install_app() {
             .unwrap()
             .as_millis() as u64;
 
-        if let Ok(_) = install_package(&shared_data, &src_app.as_path(), &manifest) {
+        if install_package(&shared_data, &src_app.as_path(), &manifest).is_ok() {
             println!("App installed");
-            assert!(true);
         } else {
             println!("App installed failed");
-            assert!(false);
+            panic!();
         }
         {
             let shared = shared_data.lock();
@@ -604,7 +595,7 @@ fn test_install_app() {
                 }
                 None => {
                     println!("Installation, failed");
-                    assert!(false);
+                    panic!();
                 }
             }
 
@@ -618,12 +609,11 @@ fn test_install_app() {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        if let Ok(_) = install_package(&shared_data, &src_app.as_path(), &manifest) {
+        if install_package(&shared_data, &src_app.as_path(), &manifest).is_ok() {
             println!("App re-installed");
-            assert!(true);
         } else {
             println!("App re-installed failed");
-            assert!(false);
+            panic!();
         }
         {
             let shared = shared_data.lock();
@@ -634,7 +624,7 @@ fn test_install_app() {
                 }
                 None => {
                     println!("Installation, failed");
-                    assert!(false);
+                    panic!();
                 }
             }
 
@@ -650,12 +640,12 @@ fn test_install_app() {
     {
         if !_test_path.is_dir() {
             println!("Webapp dir does not exist.");
-            assert!(false);
+            panic!();
         }
 
         let shared_data = AppsService::shared_state();
         let config = Config {
-            root_path: _root_dir.clone(),
+            root_path: _root_dir,
             data_path: _test_dir.clone(),
             uds_path: String::from("uds_path"),
             cert_type: String::from("test"),
@@ -683,13 +673,13 @@ fn test_install_app() {
                 assert_eq!(app_name, app.name);
             } else {
                 println!("get_by_manifest_url failed.");
-                assert!(false);
+                panic!();
             }
             manifest_url
         };
 
         // Uninstall
-        if let Ok(_) = uninstall(&shared_data, &manifest_url) {
+        if uninstall(&shared_data, &manifest_url).is_ok() {
             let shared = shared_data.lock();
             println!(
                 "After uninstall, shared.apps_objects.len: {}",
@@ -698,7 +688,7 @@ fn test_install_app() {
             assert_eq!(4, shared.registry.count());
         } else {
             println!("uninstall failed");
-            assert!(false);
+            panic!();
         }
     }
 }
@@ -715,28 +705,26 @@ fn test_get_all() {
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
-    let _root_dir = format!("{}/test-fixtures/webapps", current.display());
-    let _test_dir = format!("{}/test-fixtures/test-apps-dir-get-all", current.display());
+    let root_path = format!("{}/test-fixtures/webapps", current.display());
+    let test_dir = format!("{}/test-fixtures/test-apps-dir-get-all", current.display());
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
-    if let Err(err) = fs::remove_dir_all(Path::new(&_test_dir)) {
+    if let Err(err) = fs::remove_dir_all(Path::new(&test_dir)) {
         println!("test_get_all error: {:?}", err);
-        assert!(true);
     }
 
-    if let Err(err) = fs::create_dir_all(PathBuf::from(_test_dir.clone())) {
+    if let Err(err) = fs::create_dir_all(PathBuf::from(test_dir.clone())) {
         println!("test_get_all error: {:?}", err);
-        assert!(true);
     }
 
-    println!("Register from: {}", &_root_dir);
+    println!("Register from: {}", &root_path);
 
-    println!("test_get_all dir: {}", &_test_dir);
+    println!("test_get_all dir: {}", &test_dir);
     let shared_data = AppsService::shared_state();
     let config = Config {
-        root_path: _root_dir.clone(),
-        data_path: _test_dir.clone(),
+        root_path,
+        data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
     };
@@ -748,7 +736,7 @@ fn test_get_all() {
             Ok(registry) => registry,
             Err(err) => {
                 println!("AppsRegistry::initialize error: {:?}", err);
-                return assert!(true);
+                return;
             }
         };
         shared.registry = registry;

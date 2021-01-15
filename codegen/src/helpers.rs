@@ -64,7 +64,7 @@ pub fn rust_type(full_type: &FullConcreteType) -> String {
     }
 
     match full_type.arity {
-        Arity::Optional | Arity::OneOrMore => res.push_str(">"),
+        Arity::Optional | Arity::OneOrMore => res.push('>'),
         Arity::ZeroOrMore => res.push_str(">>"),
         Arity::Unary => {}
     }
@@ -98,7 +98,7 @@ pub fn rust_type_for_param(full_type: &FullConcreteType) -> String {
     }
 
     match full_type.arity {
-        Arity::Optional | Arity::OneOrMore => res.push_str(">"),
+        Arity::Optional | Arity::OneOrMore => res.push('>'),
         Arity::ZeroOrMore => res.push_str(">>"),
         Arity::Unary => {}
     }
@@ -117,7 +117,7 @@ impl MethodWriter {
             let (_stype, itype) = rust_type_with_reqresp(&param.typ);
             req_tuple.push_str(&format!("{},", itype));
         }
-        req_tuple.push_str(")");
+        req_tuple.push(')');
         let (_stype, mut stype) = rust_type_with_reqresp(&method.returns.success);
         let (_etype, mut etype) = rust_type_with_reqresp(&method.returns.error);
 

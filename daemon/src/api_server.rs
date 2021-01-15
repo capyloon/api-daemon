@@ -295,7 +295,7 @@ impl VhostChecker {
 impl actix_web::guard::Guard for VhostChecker {
     fn check(&self, request: &actix_web::dev::RequestHead) -> bool {
         if let Some(host) = request.headers().get("Host") {
-            let parts: Vec<&str> = host.to_str().unwrap_or_else(|_| &"").split('.').collect();
+            let parts: Vec<&str> = host.to_str().unwrap_or(&"").split('.').collect();
             if parts.len() == 1 && parts[0] == self.check {
                 let path = request.uri.path();
                 let paths: Vec<&str> = path.split('/').collect();

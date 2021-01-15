@@ -25,7 +25,10 @@ cfg_io_util! {
     mod chain;
 
     mod copy;
-    pub use copy::{copy, Copy};
+    pub use copy::copy;
+
+    mod copy_buf;
+    pub use copy_buf::copy_buf;
 
     mod empty;
     pub use empty::{empty, Empty};
@@ -62,14 +65,6 @@ cfg_io_util! {
 
     mod split;
     pub use split::Split;
-
-    cfg_stream! {
-        mod stream_reader;
-        pub use stream_reader::{stream_reader, StreamReader};
-
-        mod reader_stream;
-        pub use reader_stream::{reader_stream, ReaderStream};
-    }
 
     mod take;
     pub use take::Take;

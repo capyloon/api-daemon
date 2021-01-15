@@ -412,9 +412,11 @@ impl Parseable for Callback {
         ast: &mut Ast,
         annotation: Option<Annotation>,
     ) -> Result<Self> {
-        let mut callback = Callback::default();
-        callback.annotation = annotation;
-        callback.name = ctxt.next_token(TokenKind::Identifier)?.as_str();
+        let mut callback = Callback {
+            annotation,
+            name: ctxt.next_token(TokenKind::Identifier)?.as_str(),
+            ..Default::default()
+        };
         let _ = ctxt.next_token(TokenKind::Expected("{".to_owned()))?;
 
         // Add an empty interface to get the type recognized.
@@ -464,9 +466,11 @@ impl Parseable for Interface {
         ast: &mut Ast,
         annotation: Option<Annotation>,
     ) -> Result<Self> {
-        let mut interface = Interface::default();
-        interface.annotation = annotation;
-        interface.name = ctxt.next_token(TokenKind::Identifier)?.as_str();
+        let mut interface = Interface {
+            annotation,
+            name: ctxt.next_token(TokenKind::Identifier)?.as_str(),
+            ..Default::default()
+        };
         let _ = ctxt.next_token(TokenKind::Expected("{".to_owned()))?;
 
         // Add an empty interface to get the type recognized.
@@ -541,9 +545,11 @@ impl Parseable for Dictionary {
         ast: &mut Ast,
         annotation: Option<Annotation>,
     ) -> Result<Self> {
-        let mut dictionary = Dictionary::default();
-        dictionary.annotation = annotation;
-        dictionary.name = ctxt.next_token(TokenKind::Identifier)?.as_str();
+        let mut dictionary = Dictionary {
+            annotation,
+            name: ctxt.next_token(TokenKind::Identifier)?.as_str(),
+            ..Default::default()
+        };
         let _ = ctxt.next_token(TokenKind::Expected("{".to_owned()))?;
 
         // Add an empty interface to get the type recognized.
@@ -597,9 +603,11 @@ impl Parseable for Enumeration {
         ast: &mut Ast,
         annotation: Option<Annotation>,
     ) -> Result<Self> {
-        let mut enumeration = Enumeration::default();
-        enumeration.annotation = annotation;
-        enumeration.name = ctxt.next_token(TokenKind::Identifier)?.as_str();
+        let mut enumeration = Enumeration {
+            annotation,
+            name: ctxt.next_token(TokenKind::Identifier)?.as_str(),
+            ..Default::default()
+        };
         let _ = ctxt.next_token(TokenKind::Expected("{".to_owned()))?;
 
         // Add an empty interface to get the type recognized.
@@ -659,9 +667,11 @@ impl Parseable for Service {
         ast: &mut Ast,
         annotation: Option<Annotation>,
     ) -> Result<Self> {
-        let mut service = Service::default();
-        service.annotation = annotation;
-        service.name = ctxt.next_token(TokenKind::Identifier)?.as_str();
+        let mut service = Service {
+            annotation,
+            name: ctxt.next_token(TokenKind::Identifier)?.as_str(),
+            ..Default::default()
+        };
         let _ = ctxt.next_token(TokenKind::Expected(":".to_owned()))?;
         let full_type = get_type_arity(ctxt, ast)?;
         let (ctype, arity) = (full_type.typ, full_type.arity);

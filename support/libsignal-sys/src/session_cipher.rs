@@ -25,6 +25,7 @@ unsafe impl Sync for SessionCipher {}
 unsafe impl Send for SessionCipher {}
 
 impl SessionCipher {
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn new(
         store: &StoreContext,
         remote_address: *const signal_protocol_address,
@@ -69,9 +70,8 @@ impl SessionCipher {
                 &mut encrypted,
             );
             if res == 0 {
-                let vec = (*(*encrypted).serialized).data_slice().to_vec().clone();
+                let vec = (*(*encrypted).serialized).data_slice().to_vec();
                 let m_type = (*encrypted).message_type as u32;
-                ::std::mem::forget(encrypted);
                 ciphertext_message_destroy(encrypted);
                 Ok((m_type, vec))
             } else {
@@ -105,7 +105,7 @@ impl SessionCipher {
                     );
                     signal_message_destroy(message as *mut signal_type_base);
                     if res == 0 {
-                        let ret = (*plaintext).data_slice().to_vec().clone();
+                        let ret = (*plaintext).data_slice().to_vec();
                         signal_buffer_free(plaintext as *mut signal_buffer);
                         Ok(ret)
                     } else {
@@ -144,7 +144,7 @@ impl SessionCipher {
                     );
                     pre_key_signal_message_destroy(message as *mut signal_type_base);
                     if res == 0 {
-                        let ret = (*plaintext).data_slice().to_vec().clone();
+                        let ret = (*plaintext).data_slice().to_vec();
                         signal_buffer_free(plaintext as *mut signal_buffer);
                         Ok(ret)
                     } else {

@@ -1,13 +1,12 @@
 pub use libc::{dev_t, mode_t};
 pub use libc::stat as FileStat;
 
-use {Result, NixPath};
-use errno::Errno;
-use fcntl::{AtFlags, at_rawfd};
-use libc;
+use crate::{Result, NixPath, errno::Errno};
+#[cfg(not(target_os = "redox"))]
+use crate::fcntl::{AtFlags, at_rawfd};
 use std::mem;
 use std::os::unix::io::RawFd;
-use sys::time::{TimeSpec, TimeVal};
+use crate::sys::time::{TimeSpec, TimeVal};
 
 libc_bitflags!(
     pub struct SFlag: mode_t {
@@ -112,6 +111,7 @@ pub fn fstat(fd: RawFd) -> Result<FileStat> {
     Ok(unsafe{dst.assume_init()})
 }
 
+#[cfg(not(target_os = "redox"))]
 pub fn fstatat<P: ?Sized + NixPath>(dirfd: RawFd, pathname: &P, f: AtFlags) -> Result<FileStat> {
     let mut dst = mem::MaybeUninit::uninit();
     let res = pathname.with_nix_path(|cstr| {
@@ -150,13 +150,14 @@ pub enum FchmodatFlags {
 /// If `flag` is `FchmodatFlags::NoFollowSymlink` and `path` names a symbolic link,
 /// then the mode of the symbolic link is changed.
 ///
-/// `fchmod(None, path, mode, FchmodatFlags::FollowSymlink)` is identical to
+/// `fchmodat(None, path, mode, FchmodatFlags::FollowSymlink)` is identical to
 /// a call `libc::chmod(path, mode)`. That's why `chmod` is unimplemented
 /// in the `nix` crate.
 ///
 /// # References
 ///
 /// [fchmodat(2)](http://pubs.opengroup.org/onlinepubs/9699919799/functions/fchmodat.html).
+#[cfg(not(target_os = "redox"))]
 pub fn fchmodat<P: ?Sized + NixPath>(
     dirfd: Option<RawFd>,
     path: &P,
@@ -260,6 +261,7 @@ pub enum UtimensatFlags {
 /// # References
 ///
 /// [utimensat(2)](http://pubs.opengroup.org/onlinepubs/9699919799/functions/utimens.html).
+#[cfg(not(target_os = "redox"))]
 pub fn utimensat<P: ?Sized + NixPath>(
     dirfd: Option<RawFd>,
     path: &P,
@@ -285,6 +287,7 @@ pub fn utimensat<P: ?Sized + NixPath>(
     Errno::result(res).map(drop)
 }
 
+#[cfg(not(target_os = "redox"))]
 pub fn mkdirat<P: ?Sized + NixPath>(fd: RawFd, path: &P, mode: Mode) -> Result<()> {
     let res = path.with_nix_path(|cstr| {
         unsafe { libc::mkdirat(fd, cstr.as_ptr(), mode.bits() as mode_t) }

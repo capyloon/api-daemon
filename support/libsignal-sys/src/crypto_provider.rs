@@ -1,18 +1,18 @@
-
 use crate::generated::ffi::*;
+use block_modes::block_padding::Pkcs7;
+use block_modes::cipher::{NewStreamCipher, SyncStreamCipher};
+use block_modes::{BlockMode, Cbc};
+use hmac::{Hmac, Mac, NewMac};
 use ring::digest;
 use ring::rand::{SecureRandom, SystemRandom};
-use crypto::mac::Mac;
-use crypto::digest::Digest;
-use crypto::hmac::Hmac;
-use crypto::sha2::Sha256;
-use crypto::blockmodes::PkcsPadding;
-use crypto::aes::{cbc_decryptor, cbc_encryptor, ctr, KeySize};
-use crypto::buffer::{BufferResult, ReadBuffer, RefReadBuffer, RefWriteBuffer, WriteBuffer};
-use std::slice;
+use sha2::Sha256;
 use std::mem;
 use std::os::raw::{c_int, c_void};
 use std::ptr::null_mut;
+use std::slice;
+
+type Aes256Cbc = Cbc<aes::Aes256, Pkcs7>;
+type Aes128Ctr = ctr::Ctr128<aes::Aes128>;
 
 // cipher used for AES encryption and decryption.
 const SG_CIPHER_AES_CTR_NOPADDING: c_int = 1;
@@ -36,17 +36,7 @@ extern "C" fn random_func(data: *mut u8, len: usize, _user_data: *mut c_void) ->
     }
 }
 
-struct HmacWrapper<D: Digest> {
-    ctxt: Hmac<D>,
-}
-
-impl<D: Digest> HmacWrapper<D> {
-    fn new(digest: D, key: &[u8]) -> Self {
-        HmacWrapper {
-            ctxt: Hmac::new(digest, key),
-        }
-    }
-}
+type HmacSha256 = Hmac<Sha256>;
 
 /// Callback for an HMAC-SHA256 implementation.
 /// This function shall initialize an HMAC context with the provided key.
@@ -63,13 +53,20 @@ extern "C" fn hmac_sha256_init_func(
 ) -> c_int {
     debug!("hmac_sha256_init_func");
     let hkey = unsafe { slice::from_raw_parts_mut(key as *mut u8, key_len) };
-    let hmac = HmacWrapper::new(Sha256::new(), hkey);
 
-    // "leak" the pointer to let the C side manage its lifetime.
-    let addr = Box::into_raw(Box::new(hmac)) as *mut c_void;
-    // copy the address of our pointer to the right place.
-    unsafe { *hmac_context = addr };
-    0
+    match HmacSha256::new_varkey(hkey) {
+        Ok(hmac) => {
+            // "leak" the pointer to let the C side manage its lifetime.
+            let addr = Box::into_raw(Box::new(hmac)) as *mut c_void;
+            // copy the address of our pointer to the right place.
+            unsafe { *hmac_context = addr };
+            0
+        }
+        Err(err) => {
+            error!("Failure in HmacSha256::new_varkey() : {}", err);
+            -1
+        }
+    }
 }
 
 /// Callback for an HMAC-SHA256 implementation.
@@ -86,9 +83,9 @@ extern "C" fn hmac_sha256_update_func(
     _user_data: *mut c_void,
 ) -> c_int {
     debug!("hmac_sha256_update_func");
-    let wrapper: &mut HmacWrapper<Sha256> = unsafe { mem::transmute(hmac_context as usize) };
+    let wrapper: &mut HmacSha256 = unsafe { &mut *(hmac_context as *mut Hmac<Sha256>) };
     let array = unsafe { slice::from_raw_parts_mut(data as *mut _, data_len) };
-    wrapper.ctxt.input(array);
+    wrapper.update(array);
     0
 }
 
@@ -105,12 +102,11 @@ extern "C" fn hmac_sha256_final_func(
     _user_data: *mut c_void,
 ) -> c_int {
     debug!("hmac_sha256_final_func");
-    let wrapper: &mut HmacWrapper<Sha256> = unsafe { mem::transmute(hmac_context as usize) };
-    let mut buffer: [u8; 32] = [0; 32];
-    wrapper.ctxt.raw_result(&mut buffer);
+    let wrapper: &mut HmacSha256 = unsafe { &mut *(hmac_context as *mut Hmac<Sha256>) };
+    let result = wrapper.finalize_reset();
 
     unsafe {
-        *output = signal_buffer::from_slice(&buffer);
+        *output = signal_buffer::from_slice(&result.into_bytes());
     }
     0
 }
@@ -123,8 +119,7 @@ extern "C" fn hmac_sha256_final_func(
 extern "C" fn hmac_sha256_cleanup_func(hmac_context: *mut c_void, _user_data: *mut c_void) {
     debug!("hmac_sha256_cleanup_func");
     // This transfers ownership of the service back to Rust which will drop it.
-    let _wrapper: Box<HmacWrapper<Sha256>> =
-        unsafe { Box::from_raw(hmac_context as *mut HmacWrapper<Sha256>) };
+    let _wrapper: Box<HmacSha256> = unsafe { Box::from_raw(hmac_context as *mut HmacSha256) };
 }
 
 struct DigestWrapper {
@@ -238,41 +233,23 @@ extern "C" fn encrypt_func(
 ) -> c_int {
     debug!(
         "encrypt_func key_len is {}, plaintext size is {}",
-        key_len,
-        plaintext_len
+        key_len, plaintext_len
     );
-    let ekey = unsafe { slice::from_raw_parts_mut(key as *mut u8, key_len) };
-    let eiv = unsafe { slice::from_raw_parts_mut(iv as *mut u8, iv_len) };
+    let ekey = unsafe { slice::from_raw_parts(key as *mut u8, key_len) };
+    let eiv = unsafe { slice::from_raw_parts(iv as *mut u8, iv_len) };
     let eplain = unsafe { slice::from_raw_parts_mut(plaintext as *mut u8, plaintext_len) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
-        let mut encryptor = cbc_encryptor(KeySize::KeySize256, ekey, eiv, PkcsPadding);
-        let mut buffer = [0; 4096];
-        let mut final_result = Vec::<u8>::new();
-        let mut write_buffer = RefWriteBuffer::new(&mut buffer);
-        let mut read_buffer = RefReadBuffer::new(eplain);
-        loop {
-            if let Ok(result) = encryptor.encrypt(&mut read_buffer, &mut write_buffer, true) {
-                // "write_buffer.take_read_buffer().take_remaining()" means:
-                // from the writable buffer, create a new readable buffer which
-                // contains all data that has been written, and then access all
-                // of that data as a slice.
-                final_result.extend(
-                    write_buffer
-                        .take_read_buffer()
-                        .take_remaining()
-                        .iter()
-                        .cloned(),
-                );
-
-                match result {
-                    BufferResult::BufferUnderflow => break,
-                    BufferResult::BufferOverflow => {}
-                }
-            } else {
-                return -3; // TODO: figure out a better error code.
+        let cipher = match Aes256Cbc::new_var(&ekey, &eiv) {
+            Ok(cipher) => cipher,
+            Err(err) => {
+                error!("Failure in Aes256Cbc::new_var() : {}", err);
+                return -3;
             }
-        }
+        };
+
+        let final_result = cipher.encrypt_vec(eplain);
+
         // If we haven't returned early from Error, set the output to
         // the content of the buffer.
         // Create a signal buffer and copy the Rust slice into it.
@@ -280,11 +257,11 @@ extern "C" fn encrypt_func(
             *output = signal_buffer::from_slice(&final_result);
         }
     } else if cipher == SG_CIPHER_AES_CTR_NOPADDING {
-        let mut encryptor = ctr(KeySize::KeySize256, ekey, eiv);
-        let mut buffer = vec![];
-        encryptor.process(eplain, &mut buffer);
+        let mut cipher = Aes128Ctr::new(ekey.into(), eiv.into());
+        cipher.apply_keystream(eplain);
+
         unsafe {
-            *output = signal_buffer::from_slice(&buffer);
+            *output = signal_buffer::from_slice(&eplain);
         }
     } else {
         error!("Unexpected cipher: {}", cipher);
@@ -319,36 +296,26 @@ extern "C" fn decrypt_func(
     _user_data: *mut c_void,
 ) -> c_int {
     debug!("decrypt_func key_len is {}", key_len);
-    let ekey = unsafe { slice::from_raw_parts_mut(key as *mut u8, key_len) };
-    let eiv = unsafe { slice::from_raw_parts_mut(iv as *mut u8, iv_len) };
+    let ekey = unsafe { slice::from_raw_parts(key as *mut u8, key_len) };
+    let eiv = unsafe { slice::from_raw_parts(iv as *mut u8, iv_len) };
     let ecipher = unsafe { slice::from_raw_parts_mut(ciphertext as *mut u8, ciphertext_len) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
-        let mut decryptor = cbc_decryptor(KeySize::KeySize256, ekey, eiv, PkcsPadding);
-        let mut buffer = [0; 4096];
-        let mut final_result = Vec::<u8>::new();
-        let mut write_buffer = RefWriteBuffer::new(&mut buffer);
-        let mut read_buffer = RefReadBuffer::new(ecipher);
-        loop {
-            if let Ok(result) = decryptor.decrypt(&mut read_buffer, &mut write_buffer, true) {
-                // "write_buffer.take_read_buffer().take_remaining()" means:
-                // from the writable buffer, create a new readable buffer which
-                // contains all data that has been written, and then access all
-                // of that data as a slice.
-                final_result.extend(
-                    write_buffer
-                        .take_read_buffer()
-                        .take_remaining()
-                );
-
-                match result {
-                    BufferResult::BufferUnderflow => break,
-                    BufferResult::BufferOverflow => {}
-                }
-            } else {
-                return -3; // TODO: figure out a better error code.
+        let cipher = match Aes256Cbc::new_var(&ekey, &eiv) {
+            Ok(cipher) => cipher,
+            Err(err) => {
+                error!("Failure in Aes256Cbc::new_var() : {}", err);
+                return -3;
             }
-        }
+        };
+
+        let final_result = match cipher.decrypt_vec(ecipher) {
+            Ok(final_result) => final_result,
+            Err(err) => {
+                error!("Failure in decrypt_vec() : {}", err);
+                return -3;
+            }
+        };
 
         // If we haven't returned early from Error, set the output to
         // the content of the buffer.
@@ -357,11 +324,10 @@ extern "C" fn decrypt_func(
             *output = signal_buffer::from_slice(&final_result);
         }
     } else if cipher == SG_CIPHER_AES_CTR_NOPADDING {
-        let mut decryptor = ctr(KeySize::KeySize256, ekey, eiv);
-        let mut buffer = vec![];
-        decryptor.process(ecipher, &mut buffer);
+        let mut cipher = Aes128Ctr::new(ekey.into(), eiv.into());
+        cipher.apply_keystream(ecipher);
         unsafe {
-            *output = signal_buffer::from_slice(&buffer);
+            *output = signal_buffer::from_slice(&ecipher);
         }
     } else {
         error!("Unexpected cipher: {}", cipher);

@@ -1,0 +1,181 @@
+// SIDL for libsignal primitives.
+// See https://github.com/WhisperSystems/libsignal-protocol-c
+
+// A ratchet identity key pair. 
+dictionary RatchetIdentityKeyPair {
+    public_key: binary
+    private_key: binary
+}
+
+// An EC key pair. 
+dictionary EcKeyPair {
+    public_key: binary
+    private_key: binary
+}
+
+// A Signal address
+dictionary Address {
+    name: str
+    device_id: int
+}
+
+dictionary SessionPreKey {
+    id: int
+    key_pair: EcKeyPair
+}
+
+dictionary SessionSignedPreKey {
+    id: int
+    key_pair: EcKeyPair
+    timestamp: int
+    signature: binary
+}
+
+dictionary SessionPreKeyBundle {
+    registration_id: int
+    device_id: int
+    pre_key_id: int
+    pre_key_public: binary
+    signed_pre_key_id: int
+    signed_pre_key_public: binary
+    signed_pre_key_signature: binary
+    identity_key: binary
+}
+
+interface SessionBuilder {
+    fn process_pre_key_bundle(bundle: SessionPreKeyBundle)
+}
+
+dictionary CiphertextMessage {
+    message_type: int
+    serialized: binary
+}
+
+// A decryption callback, which will be called once the plaintext
+// is available but before the session store is updated.
+// Reject the call if storing the message fails.
+callback DecryptionCallback {
+    fn callback(plaintext: binary)
+}
+
+interface SessionCipher {
+    fn encrypt(padded_message: binary) -> CiphertextMessage, int
+    fn decrypt_pre_key_message(ciphertext: binary) -> binary, int
+    fn decrypt_message(ciphertext: binary) -> binary, int
+    fn remote_registration_id() -> int
+}
+
+dictionary SenderKeyName {
+    group_id: str
+    sender: Address
+}
+
+dictionary SenderKeyDistributionMessage {
+    serialized: binary
+}
+
+interface GroupSessionBuilder {
+    fn process_session(sender_key_name: SenderKeyName, distribution_message: SenderKeyDistributionMessage)
+    fn create_session(sender_key_name: SenderKeyName) -> SenderKeyDistributionMessage
+}
+
+interface GroupCipher {
+    fn encrypt(padded_plaintext: binary) -> binary, int
+    fn decrypt(ciphertext: binary) -> binary, int
+}
+
+// Session storage callbacks.
+callback SessionStore {
+    fn load(address: Address) -> binary
+    fn get_sub_device_sessions(name: str) -> int*
+    fn store(address: Address, record: binary)
+    fn contains(address: Address) -> bool
+    fn delete(address: Address) -> bool // API Change
+    fn delete_all_sessions(name: str) -> int
+}
+
+// Key storage callbacks.
+// Used for both the pre key store and the signed pre key store.
+callback KeyStore {
+    fn load(pre_key_id: int) -> binary
+    fn contains(pre_key_id: int) -> bool
+    fn remove(pre_key_id: int)
+}
+
+// Identity Key store callbacks.
+callback IdentityKeyStore {
+    fn get_key_pair() -> EcKeyPair
+    fn get_local_registration_id() -> int
+    fn save_identity(address: Address, key_data: binary)
+    fn is_trusted_identity(address: Address, key_data: binary) -> bool
+}
+
+// Sender Key store callbacks.
+callback SenderKeyStore {
+    fn store(sender_key_name: SenderKeyName, record: binary) -> bool
+    fn load(sender_key_name: SenderKeyName) -> binary
+}
+
+dictionary StoreContext {
+    session_store: SessionStore
+    pre_key_store: KeyStore
+    signed_pre_key_store: KeyStore
+    identity_key_store: IdentityKeyStore
+    sender_key_store: SenderKeyStore
+}
+
+interface HmacSha256 {
+    fn update(data: binary)
+    fn finalize() -> binary
+}
+
+interface Sha512Digest {
+    fn update(data: binary)
+    fn finalize() -> binary
+}
+
+dictionary DownloadDecryptResult {
+    tail: binary
+    plain_text_hash: binary
+    hmac: binary
+}
+
+interface GlobalContext {
+    fn generate_identity_key_pair() -> RatchetIdentityKeyPair // tested
+    fn generate_registration_id(extended_range: bool) -> int // tested
+    fn generate_pre_keys(start: int, count: int) -> SessionPreKey+ // tested
+    fn generate_signed_pre_key(identity_key_pair: RatchetIdentityKeyPair,
+                               signed_pre_key_id: int,
+                               timestamp: int) -> SessionSignedPreKey // tested
+    fn generate_sender_signing_key() -> EcKeyPair // tested
+    fn generate_sender_key() -> binary // tested
+    fn generate_sender_key_id() -> int // tested
+
+    fn session_builder(address: Address, store_context: StoreContext) -> SessionBuilder // tested
+
+    fn session_cipher(address: Address, store_context: StoreContext, callback: DecryptionCallback) -> SessionCipher
+
+    fn group_session_builder(store_context: StoreContext) -> GroupSessionBuilder
+
+    fn group_cipher(store_context: StoreContext, sender_key_name: SenderKeyName, callback: DecryptionCallback) -> GroupCipher
+}
+
+#[rust:not-tracked]
+interface LibSignal {
+    fn new_global_context() -> GlobalContext
+
+    fn curve_calculate_agreement(public_key: binary, private_key: binary) -> binary
+    fn curve_verify_signature(public_key: binary, message: binary, signature: binary) -> bool // tested
+    fn start_hmac_sha256(key: binary) -> HmacSha256
+    fn start_sha512_digest() -> Sha512Digest
+    fn download_and_decrypt(url: str,
+                            iv: binary,
+                            cipher_key: binary,
+                            hmac_key: binary,
+                            num_ciphertext_bytes: int,
+                            num_tail_bytes: int,
+                            callback: DecryptionCallback) -> DownloadDecryptResult, str
+}
+
+#[rust:shared-tracker,rust:shared-proxy-tracker]
+service Signal: LibSignal

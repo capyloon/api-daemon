@@ -21,8 +21,8 @@ type Result<T> = std::result::Result<T, Error>;
 pub fn js_type(typ: &ConcreteType, arity: Arity) -> Vec<String> {
     let mut res = String::new();
     match arity {
-        Arity::OneOrMore => res.push_str("["),
-        Arity::ZeroOrMore => res.push_str("["),
+        Arity::OneOrMore => res.push('['),
+        Arity::ZeroOrMore => res.push('['),
         Arity::Unary | Arity::Optional => {}
     }
 
@@ -44,8 +44,8 @@ pub fn js_type(typ: &ConcreteType, arity: Arity) -> Vec<String> {
     }
 
     match arity {
-        Arity::Optional => res.push_str("?"),
-        Arity::OneOrMore => res.push_str("]"),
+        Arity::Optional => res.push('?'),
+        Arity::OneOrMore => res.push(']'),
         Arity::ZeroOrMore => res.push_str("]?"),
         Arity::Unary => {}
     }
@@ -78,7 +78,7 @@ pub struct Codegen {
 }
 
 impl Codegen {
-    pub fn generate<'a, W: Write>(&self, sink: &'a mut W) -> Result<()> {
+    pub fn generate<W: Write>(&self, sink: &mut W) -> Result<()> {
         if self.ast.services.len() > 1 {
             error!(
                 "Only one service supported, but found {}",

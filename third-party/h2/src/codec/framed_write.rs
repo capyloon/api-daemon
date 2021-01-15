@@ -3,15 +3,12 @@ use crate::codec::UserError::*;
 use crate::frame::{self, Frame, FrameSize};
 use crate::hpack;
 
-use bytes::{
-    buf::{BufExt, BufMutExt},
-    Buf, BufMut, BytesMut,
-};
+use bytes::{Buf, BufMut, BytesMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use std::io::{self, Cursor};
+use std::io::{self, Cursor, IoSlice};
 
 // A macro to get around a method needing to borrow &mut self
 macro_rules! limited_write_buf {
@@ -42,6 +39,9 @@ pub struct FramedWrite<T, B> {
 
     /// Max frame size, this is specified by the peer
     max_frame_size: FrameSize,
+
+    /// Whether or not the wrapped `AsyncWrite` supports vectored IO.
+    is_write_vectored: bool,
 }
 
 #[derive(Debug)]
@@ -71,6 +71,7 @@ where
     B: Buf,
 {
     pub fn new(inner: T) -> FramedWrite<T, B> {
+        let is_write_vectored = inner.is_write_vectored();
         FramedWrite {
             inner,
             hpack: hpack::Encoder::default(),
@@ -78,6 +79,7 @@ where
             next: None,
             last_data_frame: None,
             max_frame_size: frame::DEFAULT_MAX_FRAME_SIZE,
+            is_write_vectored,
         }
     }
 
@@ -185,6 +187,8 @@ where
 
     /// Flush buffered data to the wire
     pub fn flush(&mut self, cx: &mut Context) -> Poll<io::Result<()>> {
+        const MAX_IOVS: usize = 64;
+
         let span = tracing::trace_span!("FramedWrite::flush");
         let _e = span.enter();
 
@@ -194,11 +198,29 @@ where
                     Some(Next::Data(ref mut frame)) => {
                         tracing::trace!(queued_data_frame = true);
                         let mut buf = (&mut self.buf).chain(frame.payload_mut());
-                        ready!(Pin::new(&mut self.inner).poll_write_buf(cx, &mut buf))?;
+                        // TODO(eliza): when tokio-util 0.5.1 is released, this
+                        // could just use `poll_write_buf`...
+                        let n = if self.is_write_vectored {
+                            let mut bufs = [IoSlice::new(&[]); MAX_IOVS];
+                            let cnt = buf.chunks_vectored(&mut bufs);
+                            ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, &bufs[..cnt]))?
+                        } else {
+                            ready!(Pin::new(&mut self.inner).poll_write(cx, buf.chunk()))?
+                        };
+                        buf.advance(n);
                     }
                     _ => {
                         tracing::trace!(queued_data_frame = false);
-                        ready!(Pin::new(&mut self.inner).poll_write_buf(cx, &mut self.buf))?;
+                        let n = if self.is_write_vectored {
+                            let mut iovs = [IoSlice::new(&[]); MAX_IOVS];
+                            let cnt = self.buf.chunks_vectored(&mut iovs);
+                            ready!(
+                                Pin::new(&mut self.inner).poll_write_vectored(cx, &mut iovs[..cnt])
+                            )?
+                        } else {
+                            ready!(Pin::new(&mut self.inner).poll_write(cx, &mut self.buf.chunk()))?
+                        };
+                        self.buf.advance(n);
                     }
                 }
             }
@@ -290,24 +312,12 @@ impl<T, B> FramedWrite<T, B> {
 }
 
 impl<T: AsyncRead + Unpin, B> AsyncRead for FramedWrite<T, B> {
-    unsafe fn prepare_uninitialized_buffer(&self, buf: &mut [std::mem::MaybeUninit<u8>]) -> bool {
-        self.inner.prepare_uninitialized_buffer(buf)
-    }
-
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_read(cx, buf)
-    }
-
-    fn poll_read_buf<Buf: BufMut>(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut Buf,
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_read_buf(cx, buf)
     }
 }
 

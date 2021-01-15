@@ -203,10 +203,7 @@ impl AppMgmtTask for CheckForUpdateTask {
         let some_responder = &self.3;
 
         let data_path = shared.config.data_path.clone();
-        let is_auto_update = match apps_option.auto_install {
-            Some(is_auto) => is_auto,
-            None => false,
-        };
+        let is_auto_update = apps_option.auto_install.unwrap_or(false);
         match shared
             .registry
             .check_for_update(&data_path, &url, is_auto_update)

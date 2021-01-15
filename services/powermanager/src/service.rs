@@ -108,7 +108,7 @@ impl PowerManager {
             "screen_brightness: brightness {} is external {}",
             value, is_external
         );
-        if !(0 <= value && value <= 100) {
+        if !(0..=100).contains(&value) {
             error!("set_screen_brightness: invalid brightness {}", value);
             return Err(());
         }

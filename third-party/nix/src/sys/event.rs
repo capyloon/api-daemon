@@ -1,12 +1,11 @@
 /* TOOD: Implement for other kqueue based systems
  */
 
-use {Errno, Result};
+use crate::{Errno, Result};
 #[cfg(not(target_os = "netbsd"))]
 use libc::{timespec, time_t, c_int, c_long, intptr_t, uintptr_t};
 #[cfg(target_os = "netbsd")]
 use libc::{timespec, time_t, c_long, intptr_t, uintptr_t, size_t};
-use libc;
 use std::os::unix::io::RawFd;
 use std::ptr;
 use std::mem;
@@ -28,7 +27,7 @@ type type_of_data = intptr_t;
 #[cfg(any(target_os = "netbsd"))]
 type type_of_udata = intptr_t;
 #[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
-type type_of_data = libc::int64_t;
+type type_of_data = i64;
 
 #[cfg(target_os = "netbsd")]
 type type_of_event_filter = u32;
@@ -90,14 +89,9 @@ libc_bitflags!{
         EV_CLEAR;
         EV_DELETE;
         EV_DISABLE;
-        // No released version of OpenBSD supports EV_DISPATCH or EV_RECEIPT.
-        // These have been commited to the -current branch though and are
-        // expected to be part of the OpenBSD 6.2 release in Nov 2017.
-        // See: https://marc.info/?l=openbsd-tech&m=149621427511219&w=2
-        // https://github.com/rust-lang/libc/pull/613
         #[cfg(any(target_os = "dragonfly", target_os = "freebsd",
                   target_os = "ios", target_os = "macos",
-                  target_os = "netbsd"))]
+                  target_os = "netbsd", target_os = "openbsd"))]
         EV_DISPATCH;
         #[cfg(target_os = "freebsd")]
         EV_DROP;
@@ -116,7 +110,7 @@ libc_bitflags!{
         EV_POLL;
         #[cfg(any(target_os = "dragonfly", target_os = "freebsd",
                   target_os = "ios", target_os = "macos",
-                  target_os = "netbsd"))]
+                  target_os = "netbsd", target_os = "openbsd"))]
         EV_RECEIPT;
         EV_SYSFLAGS;
     }
@@ -133,10 +127,6 @@ libc_bitflags!(
         NOTE_EOF;
         NOTE_EXEC;
         NOTE_EXIT;
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        #[deprecated( since="0.14.0", note="Deprecated since OSX 10.9")]
-        #[allow(deprecated)]
-        NOTE_EXIT_REPARENTED;
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         NOTE_EXITSTATUS;
         NOTE_EXTEND;
@@ -183,11 +173,6 @@ libc_bitflags!(
         NOTE_OOB;
         NOTE_PCTRLMASK;
         NOTE_PDATAMASK;
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        #[deprecated( since="0.14.0", note="Deprecated since OSX 10.9")]
-        #[allow(deprecated)]
-        NOTE_REAP;
         NOTE_RENAME;
         NOTE_REVOKE;
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]

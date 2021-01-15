@@ -178,7 +178,7 @@ mod group_b {
     #[test]
     fn join_output() {
         loom::model(|| {
-            let mut rt = mk_pool(1);
+            let rt = mk_pool(1);
 
             rt.block_on(async {
                 let t = crate::spawn(track(async { "hello" }));
@@ -192,7 +192,7 @@ mod group_b {
     #[test]
     fn poll_drop_handle_then_drop() {
         loom::model(|| {
-            let mut rt = mk_pool(1);
+            let rt = mk_pool(1);
 
             rt.block_on(async move {
                 let mut t = crate::spawn(track(async { "hello" }));
@@ -209,7 +209,7 @@ mod group_b {
     #[test]
     fn complete_block_on_under_load() {
         loom::model(|| {
-            let mut pool = mk_pool(1);
+            let pool = mk_pool(1);
 
             pool.block_on(async {
                 // Trigger a re-schedule
@@ -296,9 +296,8 @@ mod group_d {
 }
 
 fn mk_pool(num_threads: usize) -> Runtime {
-    runtime::Builder::new()
-        .threaded_scheduler()
-        .core_threads(num_threads)
+    runtime::Builder::new_multi_thread()
+        .worker_threads(num_threads)
         .build()
         .unwrap()
 }

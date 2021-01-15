@@ -2,12 +2,20 @@
 
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![doc(html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo_small.png")]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg"
+)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
 #[cfg(feature = "std")]
 extern crate std;
+
+#[cfg(feature = "cipher")]
+pub use cipher;
+#[cfg(feature = "cipher")]
+use cipher::{BlockCipher, NewBlockCipher};
 
 #[cfg(feature = "dev")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dev")))]
@@ -118,20 +126,34 @@ impl<M: Mac> PartialEq for Output<M> {
 
 impl<M: Mac> Eq for Output<M> {}
 
-#[macro_export]
-/// Implements `std::io::Write` trait for implementer of [`Mac`]
-macro_rules! impl_write {
-    ($mac:ident) => {
-        #[cfg(feature = "std")]
-        impl std::io::Write for $mac {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                Mac::update(self, buf);
-                Ok(buf.len())
-            }
+#[cfg(feature = "cipher")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cipher")))]
+/// Trait for MAC functions which can be created from block cipher.
+pub trait FromBlockCipher {
+    /// Block cipher type
+    type Cipher: BlockCipher;
 
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-    };
+    /// Create new MAC isntance from provided block cipher.
+    fn from_cipher(cipher: Self::Cipher) -> Self;
+}
+
+#[cfg(feature = "cipher")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cipher")))]
+impl<T> NewMac for T
+where
+    T: FromBlockCipher,
+    T::Cipher: NewBlockCipher,
+{
+    type KeySize = <<Self as FromBlockCipher>::Cipher as NewBlockCipher>::KeySize;
+
+    fn new(key: &Key<Self>) -> Self {
+        let cipher = <Self as FromBlockCipher>::Cipher::new(key);
+        Self::from_cipher(cipher)
+    }
+
+    fn new_varkey(key: &[u8]) -> Result<Self, InvalidKeyLength> {
+        <Self as FromBlockCipher>::Cipher::new_varkey(key)
+            .map_err(|_| InvalidKeyLength)
+            .map(Self::from_cipher)
+    }
 }

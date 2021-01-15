@@ -25,7 +25,7 @@
 //! ```
 //! # use self::nix::sys::termios::SpecialCharacterIndices::VEOF;
 //! # use self::nix::sys::termios::{_POSIX_VDISABLE, Termios};
-//! # let mut termios = unsafe { Termios::default_uninit() };
+//! # let mut termios: Termios = unsafe { std::mem::zeroed() };
 //! termios.control_chars[VEOF as usize] = _POSIX_VDISABLE;
 //! ```
 //!
@@ -38,7 +38,7 @@
 //!
 //! ```
 //! # use self::nix::sys::termios::{ControlFlags, Termios};
-//! # let mut termios = unsafe { Termios::default_uninit() };
+//! # let mut termios: Termios = unsafe { std::mem::zeroed() };
 //! termios.control_flags & ControlFlags::CSIZE == ControlFlags::CS5;
 //! termios.control_flags |= ControlFlags::CS5;
 //! ```
@@ -61,10 +61,9 @@
 //! platforms:
 //!
 //! ```rust
-//! # #[macro_use] extern crate nix;
 //! # use nix::sys::termios::{BaudRate, cfsetispeed, cfsetospeed, cfsetspeed, Termios};
 //! # fn main() {
-//! # let mut t = unsafe { Termios::default_uninit() };
+//! # let mut t: Termios = unsafe { std::mem::zeroed() };
 //! cfsetispeed(&mut t, BaudRate::B9600);
 //! cfsetospeed(&mut t, BaudRate::B9600);
 //! cfsetspeed(&mut t, BaudRate::B9600);
@@ -74,10 +73,9 @@
 //! Additionally round-tripping baud rates is consistent across platforms:
 //!
 //! ```rust
-//! # extern crate nix;
 //! # use nix::sys::termios::{BaudRate, cfgetispeed, cfgetospeed, cfsetispeed, cfsetspeed, Termios};
 //! # fn main() {
-//! # let mut t = unsafe { Termios::default_uninit() };
+//! # let mut t: Termios = unsafe { std::mem::zeroed() };
 //! # cfsetspeed(&mut t, BaudRate::B9600);
 //! let speed = cfgetispeed(&t);
 //! assert_eq!(speed, cfgetospeed(&t));
@@ -93,10 +91,9 @@
 #![cfg_attr(not(any(target_os = "freebsd", target_os = "dragonfly", target_os = "ios",
                     target_os = "macos", target_os = "netbsd", target_os = "openbsd")),
             doc = " ```rust")]
-//! # extern crate nix;
 //! # use nix::sys::termios::{BaudRate, cfgetispeed, cfgetospeed, cfsetspeed, Termios};
 //! # fn main() {
-//! # let mut t = unsafe { Termios::default_uninit() };
+//! # let mut t: Termios = unsafe { std::mem::zeroed() };
 //! # cfsetspeed(&mut t, BaudRate::B9600);
 //! assert_eq!(cfgetispeed(&t), BaudRate::B9600);
 //! assert_eq!(cfgetospeed(&t), BaudRate::B9600);
@@ -111,10 +108,9 @@
 #![cfg_attr(not(any(target_os = "freebsd", target_os = "dragonfly", target_os = "ios",
                     target_os = "macos", target_os = "netbsd", target_os = "openbsd")),
             doc = " ```rust,ignore")]
-//! # extern crate nix;
 //! # use nix::sys::termios::{BaudRate, cfgetispeed, cfgetospeed, cfsetspeed, Termios};
 //! # fn main() {
-//! # let mut t = unsafe { Termios::default_uninit() };
+//! # let mut t: Termios = unsafe { std::mem::zeroed() };
 //! # cfsetspeed(&mut t, 9600u32);
 //! assert_eq!(cfgetispeed(&t), 9600u32);
 //! assert_eq!(cfgetospeed(&t), 9600u32);
@@ -129,10 +125,9 @@
 #![cfg_attr(not(any(target_os = "freebsd", target_os = "dragonfly", target_os = "ios",
                     target_os = "macos", target_os = "netbsd", target_os = "openbsd")),
             doc = " ```rust,ignore")]
-//! # extern crate nix;
 //! # use nix::sys::termios::{BaudRate, cfgetispeed, cfsetspeed, Termios};
 //! # fn main() {
-//! # let mut t = unsafe { Termios::default_uninit() };
+//! # let mut t: Termios = unsafe { std::mem::zeroed() };
 //! # cfsetspeed(&mut t, 9600u32);
 //! assert_eq!(cfgetispeed(&t), BaudRate::B9600.into());
 //! assert_eq!(u32::from(BaudRate::B9600), 9600u32);
@@ -148,24 +143,24 @@
 #![cfg_attr(not(any(target_os = "freebsd", target_os = "dragonfly", target_os = "ios",
                     target_os = "macos", target_os = "netbsd", target_os = "openbsd")),
             doc = " ```rust,ignore")]
-//! # extern crate nix;
 //! # use nix::sys::termios::{cfsetispeed, cfsetospeed, cfsetspeed, Termios};
 //! # fn main() {
-//! # let mut t = unsafe { Termios::default_uninit() };
+//! # let mut t: Termios = unsafe { std::mem::zeroed() };
 //! cfsetispeed(&mut t, 9600u32);
 //! cfsetospeed(&mut t, 9600u32);
 //! cfsetspeed(&mut t, 9600u32);
 //! # }
 //! ```
-use {Error, Result};
-use errno::Errno;
+use cfg_if::cfg_if;
+use crate::{Error, Result};
+use crate::errno::Errno;
 use libc::{self, c_int, tcflag_t};
 use std::cell::{Ref, RefCell};
 use std::convert::{From, TryFrom};
 use std::mem;
 use std::os::unix::io::RawFd;
 
-use ::unistd::Pid;
+use crate::unistd::Pid;
 
 /// Stores settings for the termios API
 ///
@@ -190,24 +185,9 @@ pub struct Termios {
 impl Termios {
     /// Exposes an immutable reference to the underlying `libc::termios` data structure.
     ///
-    /// This can be used for interfacing with other FFI functions like:
-    ///
-    /// ```rust
-    /// # extern crate libc;
-    /// # extern crate nix;
-    /// # fn main() {
-    /// # use nix::sys::termios::Termios;
-    /// # let mut termios = unsafe { Termios::default_uninit() };
-    /// let inner_termios = termios.get_libc_termios();
-    /// unsafe { libc::cfgetispeed(&*inner_termios) };
-    /// # }
-    /// ```
-    ///
-    /// There is no public API exposed for functions that modify the underlying `libc::termios`
-    /// data because it requires additional work to maintain type safety.
-    // FIXME: Switch this over to use pub(crate)
-    #[doc(hidden)]
-    pub fn get_libc_termios(&self) -> Ref<libc::termios> {
+    /// This is not part of `nix`'s public API because it requires additional work to maintain type
+    /// safety.
+    pub(crate) fn get_libc_termios(&self) -> Ref<libc::termios> {
         {
             let mut termios = self.inner.borrow_mut();
             termios.c_iflag = self.input_flags.bits();
@@ -221,12 +201,11 @@ impl Termios {
 
     /// Exposes the inner `libc::termios` datastore within `Termios`.
     ///
-    /// This is unsafe because if this is used to modify the inner libc::termios struct, it will not
-    /// automatically update the safe wrapper type around it. Therefore we disable docs to
-    /// effectively limit its use to nix internals. In this case it should also be paired with a
-    /// call to `update_wrapper()` so that the wrapper-type and internal representation stay
-    /// consistent.
-    unsafe fn get_libc_termios_mut(&mut self) -> *mut libc::termios {
+    /// This is unsafe because if this is used to modify the inner `libc::termios` struct, it will
+    /// not automatically update the safe wrapper type around it. In this case it should also be
+    /// paired with a call to `update_wrapper()` so that the wrapper-type and internal
+    /// representation stay consistent.
+    pub(crate) unsafe fn get_libc_termios_mut(&mut self) -> *mut libc::termios {
         {
             let mut termios = self.inner.borrow_mut();
             termios.c_iflag = self.input_flags.bits();
@@ -238,26 +217,8 @@ impl Termios {
         self.inner.as_ptr()
     }
 
-    /// Allows for easily creating new `Termios` structs that will be overwritten with real data.
-    ///
-    /// This should only be used when the inner libc::termios struct will be overwritten before it's
-    /// read.
-    // FIXME: Switch this over to use pub(crate)
-    #[doc(hidden)]
-    pub unsafe fn default_uninit() -> Self {
-        Termios {
-            inner: RefCell::new(mem::zeroed()),
-            input_flags: InputFlags::empty(),
-            output_flags: OutputFlags::empty(),
-            control_flags: ControlFlags::empty(),
-            local_flags: LocalFlags::empty(),
-            control_chars: [0 as libc::cc_t; NCCS],
-        }
-    }
-
     /// Updates the wrapper values from the internal `libc::termios` data structure.
-    #[doc(hidden)]
-    pub fn update_wrapper(&mut self) {
+    pub(crate) fn update_wrapper(&mut self) {
         let termios = *self.inner.borrow_mut();
         self.input_flags = InputFlags::from_bits_truncate(termios.c_iflag);
         self.output_flags = OutputFlags::from_bits_truncate(termios.c_oflag);
@@ -818,6 +779,7 @@ libc_bitflags! {
         PARODD;
         HUPCL;
         CLOCAL;
+        #[cfg(not(target_os = "redox"))]
         CRTSCTS;
         #[cfg(any(target_os = "android", target_os = "linux"))]
         CBAUD;
@@ -868,12 +830,15 @@ libc_bitflags! {
 libc_bitflags! {
     /// Flags for setting any local modes
     pub struct LocalFlags: tcflag_t {
+        #[cfg(not(target_os = "redox"))]
         ECHOKE;
         ECHOE;
         ECHOK;
         ECHO;
         ECHONL;
+        #[cfg(not(target_os = "redox"))]
         ECHOPRT;
+        #[cfg(not(target_os = "redox"))]
         ECHOCTL;
         ISIG;
         ICANON;
@@ -885,8 +850,10 @@ libc_bitflags! {
                   target_os = "openbsd"))]
         ALTWERASE;
         IEXTEN;
+        #[cfg(not(target_os = "redox"))]
         EXTPROC;
         TOSTOP;
+        #[cfg(not(target_os = "redox"))]
         FLUSHO;
         #[cfg(any(target_os = "freebsd",
                   target_os = "dragonfly",
@@ -895,6 +862,7 @@ libc_bitflags! {
                   target_os = "netbsd",
                   target_os = "openbsd"))]
         NOKERNINFO;
+        #[cfg(not(target_os = "redox"))]
         PENDIN;
         NOFLSH;
     }

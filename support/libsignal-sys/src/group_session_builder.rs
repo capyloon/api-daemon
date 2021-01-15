@@ -1,8 +1,8 @@
 use crate::generated::ffi::*;
-use std::ptr::null_mut;
-use crate::store_context::StoreContext;
 use crate::signal_context::{SignalContext, SignalContextPtr};
+use crate::store_context::StoreContext;
 use std::os::raw::c_int;
+use std::ptr::null_mut;
 
 // Wrapper around a group session_builder
 pub type GroupSessionBuilderPtr = *mut group_session_builder;
@@ -131,7 +131,7 @@ impl SenderKeyDistributionMessage {
             let buffer =
                 ciphertext_message_get_serialized(self.native as *const ciphertext_message);
 
-            (*buffer).data_slice().to_vec().clone()
+            (*buffer).data_slice().to_vec()
         }
     }
 
@@ -170,9 +170,9 @@ mod test {
     use crate::signal_context::SignalContext;
     use crate::store_context::StoreContext;
     use std::cell::Cell;
-    use std::rc::Rc;
-    use std::os::raw::c_void;
     use std::os::raw::c_int;
+    use std::os::raw::c_void;
+    use std::rc::Rc;
 
     extern "C" fn decrypt_callback(
         _cipher: *mut group_cipher,
@@ -237,7 +237,7 @@ mod test {
 
         let res = unsafe {
             let vec = &*data.record.as_ptr();
-            if vec.len() == 0 {
+            if vec.is_empty() {
                 0
             } else {
                 // println!("vec len={}", vec.len());
@@ -285,7 +285,7 @@ mod test {
 
         // Make sure we don't leak.
         unsafe {
-            let _ : Rc<TestStoreData> = Rc::from_raw(bob_user_data as *const _);
+            let _: Rc<TestStoreData> = Rc::from_raw(bob_user_data as *const _);
         }
     }
 
@@ -310,7 +310,7 @@ mod test {
 
         // Make sure we don't leak.
         unsafe {
-            let _ : Rc<TestStoreData> = Rc::from_raw(bob_user_data as *const _);
+            let _: Rc<TestStoreData> = Rc::from_raw(bob_user_data as *const _);
         }
     }
 
@@ -372,8 +372,8 @@ mod test {
 
         // Make sure we don't leak.
         unsafe {
-            let _ : Rc<TestStoreData> = Rc::from_raw(alice_user_data as *const _);
-            let _ : Rc<TestStoreData> = Rc::from_raw(bob_user_data as *const _);
+            let _: Rc<TestStoreData> = Rc::from_raw(alice_user_data as *const _);
+            let _: Rc<TestStoreData> = Rc::from_raw(bob_user_data as *const _);
         }
 
         assert_eq!(plaintext, message);

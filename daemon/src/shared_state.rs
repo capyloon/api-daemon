@@ -22,6 +22,7 @@ declare_services!(
     "contacts-service";contacts_service;ContactsService,
     "devicecapability-service";devicecapability_service;DeviceCapabilityService,
     "geckobridge-service";geckobridge;GeckoBridgeService,
+    "libsignal-service";libsignal_service;SignalService,
     "powermanager-service";powermanager_service;PowerManager,
     "procmanager-service";procmanager_service;ProcManagerService,
     "tcpsocket-service";tcpsocket_service;TcpSocketService,

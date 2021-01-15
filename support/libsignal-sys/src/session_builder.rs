@@ -15,6 +15,7 @@ unsafe impl Sync for SessionBuilder {}
 unsafe impl Send for SessionBuilder {}
 
 impl SessionBuilder {
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn new(
         store: &StoreContext,
         remote_address: *const signal_protocol_address,
@@ -199,7 +200,7 @@ mod test {
     fn create_test_store_data(ctxt: &SignalContext, name: &str) -> TestStoreData {
         let (id_public, id_private) = ctxt.generate_identity_key_pair().unwrap();
 
-        return TestStoreData {
+        TestStoreData {
             public_key: id_public,
             private_key: id_private,
             registration_id: ctxt.get_registration_id(false).unwrap(),
@@ -207,7 +208,7 @@ mod test {
             session: Cell::new(vec![]),
             signed_pre_key: Cell::new(vec![]),
             name: name.to_owned(),
-        };
+        }
     }
 
     // Setup for a test identity store.
@@ -282,7 +283,7 @@ mod test {
         println!("load_session_func for {}", data.name);
         let res = unsafe {
             let vec = &*data.session.as_ptr();
-            if vec.len() == 0 {
+            if vec.is_empty() {
                 0
             } else {
                 // println!("vec len={}", vec.len());
@@ -339,7 +340,7 @@ mod test {
         let data: Rc<TestStoreData> = unsafe { Rc::from_raw(user_data as *const TestStoreData) };
         let res = unsafe {
             let vec = &*data.signed_pre_key.as_ptr();
-            if vec.len() == 0 {
+            if vec.is_empty() {
                 -1003 // SG_ERR_INVALID_KEY_ID
             } else {
                 // println!("vec len={}", vec.len());
@@ -386,7 +387,7 @@ mod test {
         let res = unsafe {
             let vec = &*data.pre_key.as_ptr();
             // panic!("load_pre_key len={}", vec.len());
-            if vec.len() == 0 {
+            if vec.is_empty() {
                 -1003 // SG_ERR_INVALID_KEY_ID
             } else {
                 // println!("vec len={}", vec.len());

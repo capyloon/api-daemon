@@ -1,7 +1,7 @@
 //! Runs `!Send` futures on the current thread.
 use crate::runtime::task::{self, JoinHandle, Task};
 use crate::sync::AtomicWaker;
-use crate::util::linked_list::LinkedList;
+use crate::util::linked_list::{Link, LinkedList};
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -14,7 +14,7 @@ use std::task::Poll;
 
 use pin_project_lite::pin_project;
 
-cfg_rt_util! {
+cfg_rt! {
     /// A set of tasks which are executed on the same thread.
     ///
     /// In some cases, it is necessary to run one or more futures that do not
@@ -95,7 +95,7 @@ cfg_rt_util! {
     ///     });
     ///
     ///     local.spawn_local(async move {
-    ///         time::delay_for(time::Duration::from_millis(100)).await;
+    ///         time::sleep(time::Duration::from_millis(100)).await;
     ///         println!("goodbye {}", unsend_data)
     ///     });
     ///
@@ -132,7 +132,7 @@ struct Context {
 
 struct Tasks {
     /// Collection of all active tasks spawned onto this executor.
-    owned: LinkedList<Task<Arc<Shared>>>,
+    owned: LinkedList<Task<Arc<Shared>>, <Task<Arc<Shared>> as Link>::Target>,
 
     /// Local run queue sender and receiver.
     queue: VecDeque<task::Notified<Arc<Shared>>>,
@@ -158,7 +158,7 @@ pin_project! {
 
 scoped_thread_local!(static CURRENT: Context);
 
-cfg_rt_util! {
+cfg_rt! {
     /// Spawns a `!Send` future on the local task set.
     ///
     /// The spawned future will be run on the same thread that called `spawn_local.`
@@ -190,6 +190,7 @@ cfg_rt_util! {
     ///     }).await;
     /// }
     /// ```
+    #[cfg_attr(tokio_track_caller, track_caller)]
     pub fn spawn_local<F>(future: F) -> JoinHandle<F::Output>
     where
         F: Future + 'static,
@@ -273,6 +274,7 @@ impl LocalSet {
     /// }
     /// ```
     /// [`spawn_local`]: fn@spawn_local
+    #[cfg_attr(tokio_track_caller, track_caller)]
     pub fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + 'static,
@@ -312,9 +314,9 @@ impl LocalSet {
     /// use tokio::runtime::Runtime;
     /// use tokio::task;
     ///
-    /// let mut rt = Runtime::new().unwrap();
+    /// let rt  = Runtime::new().unwrap();
     /// let local = task::LocalSet::new();
-    /// local.block_on(&mut rt, async {
+    /// local.block_on(&rt, async {
     ///     let join = task::spawn_local(async {
     ///         let blocking_result = task::block_in_place(|| {
     ///             // ...
@@ -329,9 +331,9 @@ impl LocalSet {
     /// use tokio::runtime::Runtime;
     /// use tokio::task;
     ///
-    /// let mut rt = Runtime::new().unwrap();
+    /// let rt  = Runtime::new().unwrap();
     /// let local = task::LocalSet::new();
-    /// local.block_on(&mut rt, async {
+    /// local.block_on(&rt, async {
     ///     let join = task::spawn_local(async {
     ///         let blocking_result = task::spawn_blocking(|| {
     ///             // ...
@@ -346,7 +348,9 @@ impl LocalSet {
     /// [`Runtime::block_on`]: method@crate::runtime::Runtime::block_on
     /// [in-place blocking]: fn@crate::task::block_in_place
     /// [`spawn_blocking`]: fn@crate::task::spawn_blocking
-    pub fn block_on<F>(&self, rt: &mut crate::runtime::Runtime, future: F) -> F::Output
+    #[cfg(feature = "rt")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
+    pub fn block_on<F>(&self, rt: &crate::runtime::Runtime, future: F) -> F::Output
     where
         F: Future,
     {

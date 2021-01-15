@@ -68,7 +68,7 @@ fn test_ptrace_cont() {
 
     require_capability!(CAP_SYS_PTRACE);
 
-    let _m = ::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
 
     // FIXME: qemu-user doesn't implement ptrace on all architectures
     // and retunrs ENOSYS in this case.
@@ -81,7 +81,7 @@ fn test_ptrace_cont() {
         return;
     }
 
-    match fork().expect("Error: Fork Failed") {
+    match unsafe{fork()}.expect("Error: Fork Failed") {
         Child => {
             ptrace::traceme().unwrap();
             // As recommended by ptrace(2), raise SIGTRAP to pause the child
@@ -128,9 +128,11 @@ fn test_ptrace_syscall() {
     use nix::unistd::getpid;
     use nix::unistd::ForkResult::*;
 
-    let _m = ::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    require_capability!(CAP_SYS_PTRACE);
 
-    match fork().expect("Error: Fork Failed") {
+    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+
+    match unsafe{fork()}.expect("Error: Fork Failed") {
         Child => {
             ptrace::traceme().unwrap();
             // first sigstop until parent is ready to continue

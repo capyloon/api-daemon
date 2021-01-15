@@ -1,5 +1,4 @@
-#![allow(clippy::blacklisted_name, clippy::stable_sort_primitive)]
-
+#![allow(clippy::blacklisted_name)]
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
 use tokio_test::{assert_ok, assert_pending, assert_ready};
@@ -153,7 +152,7 @@ async fn select_streams() {
         }
     }
 
-    msgs.sort();
+    msgs.sort_unstable();
     assert_eq!(&msgs[..], &[1, 2, 3]);
 }
 
@@ -360,12 +359,14 @@ async fn join_with_select() {
 async fn use_future_in_if_condition() {
     use tokio::time::{self, Duration};
 
-    let mut delay = time::delay_for(Duration::from_millis(50));
+    let sleep = time::sleep(Duration::from_millis(50));
+    tokio::pin!(sleep);
 
     tokio::select! {
-        _ = &mut delay, if !delay.is_elapsed() => {
+        _ = time::sleep(Duration::from_millis(50)), if false => {
+            panic!("if condition ignored")
         }
-        _ = async { 1 } => {
+        _ = async { 1u32 } => {
         }
     }
 }
@@ -460,6 +461,23 @@ async fn async_noop() {}
 async fn async_never() -> ! {
     use tokio::time::Duration;
     loop {
-        tokio::time::delay_for(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+// From https://github.com/tokio-rs/tokio/issues/2857
+#[tokio::test]
+async fn mut_on_left_hand_side() {
+    let v = async move {
+        let ok = async { 1 };
+        tokio::pin!(ok);
+        tokio::select! {
+            mut a = &mut ok => {
+                a += 1;
+                a
+            }
+        }
+    }
+    .await;
+    assert_eq!(v, 2);
 }

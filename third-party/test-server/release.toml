@@ -1,0 +1,11 @@
+sign-commit = true
+disable-push = true
+upload-doc = false
+no-dev-version = true
+tag-message = "{{version}}"
+tag-prefix = ""
+pre-release-commit-message = "{{version}}"
+pre-release-replacements = [
+    {file="CHANGELOG.md", search="Unreleased", replace="{{version}}"},
+    {file="README.md", search="tag = \"[0-9\\.]+\"", replace="tag = \"{{version}}\""},
+]

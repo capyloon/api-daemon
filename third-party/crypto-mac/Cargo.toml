@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "crypto-mac"
-version = "0.8.0"
+version = "0.10.0"
 authors = ["RustCrypto Developers"]
 description = "Trait for Message Authentication Code (MAC) algorithms"
 documentation = "https://docs.rs/crypto-mac"
@@ -26,7 +26,11 @@ repository = "https://github.com/RustCrypto/traits"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 [dependencies.blobby]
-version = "0.1"
+version = "0.3"
+optional = true
+
+[dependencies.cipher]
+version = "0.2"
 optional = true
 
 [dependencies.generic-array]

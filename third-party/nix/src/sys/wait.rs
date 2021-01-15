@@ -1,10 +1,10 @@
+use cfg_if::cfg_if;
 use libc::{self, c_int};
-use Result;
-use errno::Errno;
+use crate::Result;
+use crate::errno::Errno;
+use crate::unistd::Pid;
+use crate::sys::signal::Signal;
 use std::convert::TryFrom;
-use unistd::Pid;
-
-use sys::signal::Signal;
 
 libc_bitflags!(
     pub struct WaitPidFlag: c_int {
@@ -15,6 +15,7 @@ libc_bitflags!(
                   target_os = "haiku",
                   target_os = "ios",
                   target_os = "linux",
+                  target_os = "redox",
                   target_os = "macos",
                   target_os = "netbsd"))]
         WEXITED;
@@ -24,6 +25,7 @@ libc_bitflags!(
                   target_os = "haiku",
                   target_os = "ios",
                   target_os = "linux",
+                  target_os = "redox",
                   target_os = "macos",
                   target_os = "netbsd"))]
         WSTOPPED;
@@ -33,16 +35,17 @@ libc_bitflags!(
                   target_os = "haiku",
                   target_os = "ios",
                   target_os = "linux",
+                  target_os = "redox",
                   target_os = "macos",
                   target_os = "netbsd"))]
         WNOWAIT;
         /// Don't wait on children of other threads in this group
-        #[cfg(any(target_os = "android", target_os = "linux"))]
+        #[cfg(any(target_os = "android", target_os = "linux", target_os = "redox"))]
         __WNOTHREAD;
         /// Wait on all children, regardless of type
-        #[cfg(any(target_os = "android", target_os = "linux"))]
+        #[cfg(any(target_os = "android", target_os = "linux", target_os = "redox"))]
         __WALL;
-        #[cfg(any(target_os = "android", target_os = "linux"))]
+        #[cfg(any(target_os = "android", target_os = "linux", target_os = "redox"))]
         __WCLONE;
     }
 );
@@ -114,35 +117,43 @@ impl WaitStatus {
     }
 }
 
+#[allow(unused_unsafe)]
 fn exited(status: i32) -> bool {
     unsafe { libc::WIFEXITED(status) }
 }
 
+#[allow(unused_unsafe)]
 fn exit_status(status: i32) -> i32 {
     unsafe { libc::WEXITSTATUS(status) }
 }
 
+#[allow(unused_unsafe)]
 fn signaled(status: i32) -> bool {
     unsafe { libc::WIFSIGNALED(status) }
 }
 
+#[allow(unused_unsafe)]
 fn term_signal(status: i32) -> Result<Signal> {
     Signal::try_from(unsafe { libc::WTERMSIG(status) })
 }
 
+#[allow(unused_unsafe)]
 fn dumped_core(status: i32) -> bool {
     unsafe { libc::WCOREDUMP(status) }
 }
 
+#[allow(unused_unsafe)]
 fn stopped(status: i32) -> bool {
     unsafe { libc::WIFSTOPPED(status) }
 }
 
+#[allow(unused_unsafe)]
 fn stop_signal(status: i32) -> Result<Signal> {
     Signal::try_from(unsafe { libc::WSTOPSIG(status) })
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
+#[allow(unused_unsafe)]
 fn syscall_stop(status: i32) -> bool {
     // From ptrace(2), setting PTRACE_O_TRACESYSGOOD has the effect
     // of delivering SIGTRAP | 0x80 as the signal number for syscall
@@ -156,6 +167,7 @@ fn stop_additional(status: i32) -> c_int {
     (status >> 16) as c_int
 }
 
+#[allow(unused_unsafe)]
 fn continued(status: i32) -> bool {
     unsafe { libc::WIFCONTINUED(status) }
 }

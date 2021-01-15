@@ -4,10 +4,7 @@ use std::os::unix::io::AsRawFd;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 use std::ffi::CStr;
 
-use libc;
-
-use {NixPath, Result};
-use errno::Errno;
+use crate::{NixPath, Result, errno::Errno};
 
 #[cfg(target_os = "android")]
 pub type fsid_t = libc::__fsid_t;
@@ -20,19 +17,19 @@ pub struct Statfs(libc::statfs);
 
 #[cfg(target_os = "freebsd")]
 #[derive(Eq, Copy, Clone, PartialEq, Debug)]
-pub struct FsType(u32);
+pub struct FsType(pub u32);
 #[cfg(target_os = "android")]
 #[derive(Eq, Copy, Clone, PartialEq, Debug)]
-pub struct FsType(libc::c_ulong);
+pub struct FsType(pub libc::c_ulong);
 #[cfg(all(target_os = "linux", target_arch = "s390x"))]
 #[derive(Eq, Copy, Clone, PartialEq, Debug)]
-pub struct FsType(u32);
+pub struct FsType(pub u32);
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 #[derive(Eq, Copy, Clone, PartialEq, Debug)]
-pub struct FsType(libc::c_ulong);
+pub struct FsType(pub libc::c_ulong);
 #[cfg(all(target_os = "linux", not(any(target_arch = "s390x", target_env = "musl"))))]
 #[derive(Eq, Copy, Clone, PartialEq, Debug)]
-pub struct FsType(libc::c_long);
+pub struct FsType(pub libc::c_long);
 
 #[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
 pub const ADFS_SUPER_MAGIC: FsType = FsType(libc::ADFS_SUPER_MAGIC);
@@ -75,6 +72,8 @@ pub const NFS_SUPER_MAGIC: FsType = FsType(libc::NFS_SUPER_MAGIC);
 #[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
 pub const OPENPROM_SUPER_MAGIC: FsType = FsType(libc::OPENPROM_SUPER_MAGIC);
 #[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
+pub const OVERLAYFS_SUPER_MAGIC: FsType = FsType(libc::OVERLAYFS_SUPER_MAGIC);
+#[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
 pub const PROC_SUPER_MAGIC: FsType = FsType(libc::PROC_SUPER_MAGIC);
 #[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
 pub const QNX4_SUPER_MAGIC: FsType = FsType(libc::QNX4_SUPER_MAGIC);
@@ -86,11 +85,16 @@ pub const SMB_SUPER_MAGIC: FsType = FsType(libc::SMB_SUPER_MAGIC);
 pub const TMPFS_MAGIC: FsType = FsType(libc::TMPFS_MAGIC);
 #[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
 pub const USBDEVICE_SUPER_MAGIC: FsType = FsType(libc::USBDEVICE_SUPER_MAGIC);
+#[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
+pub const CGROUP_SUPER_MAGIC: FsType = FsType(libc::CGROUP_SUPER_MAGIC);
+#[cfg(all(target_os = "linux", not(target_env = "musl"), not(target_arch = "s390x")))]
+pub const CGROUP2_SUPER_MAGIC: FsType = FsType(libc::CGROUP2_SUPER_MAGIC);
 
 impl Statfs {
     /// Magic code defining system type
     #[cfg(not(any(
         target_os = "openbsd",
+        target_os = "dragonfly",
         target_os = "ios",
         target_os = "macos"
     )))]
@@ -456,8 +460,8 @@ pub fn fstatfs<T: AsRawFd>(fd: &T) -> Result<Statfs> {
 mod test {
     use std::fs::File;
 
-    use sys::statfs::*;
-    use sys::statvfs::*;
+    use crate::sys::statfs::*;
+    use crate::sys::statvfs::*;
     use std::path::Path;
 
     #[test]

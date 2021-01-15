@@ -1,10 +1,11 @@
 use libc;
 #[cfg(not(target_env = "musl"))]
-use Result;
+use crate::Result;
 #[cfg(not(target_env = "musl"))]
-use errno::Errno;
+use crate::errno::Errno;
+#[cfg(not(target_env = "musl"))]
 use std::mem;
-use sys::signal::SigSet;
+use crate::sys::signal::SigSet;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct UContext {
@@ -30,10 +31,14 @@ impl UContext {
     }
 
     pub fn sigmask_mut(&mut self) -> &mut SigSet {
-        unsafe { mem::transmute(&mut self.context.uc_sigmask) }
+        unsafe {
+            &mut *(&mut self.context.uc_sigmask as *mut libc::sigset_t as *mut SigSet)
+        }
     }
 
     pub fn sigmask(&self) -> &SigSet {
-        unsafe { mem::transmute(&self.context.uc_sigmask) }
+        unsafe {
+            &*(&self.context.uc_sigmask as *const libc::sigset_t as *const SigSet)
+        }
     }
 }

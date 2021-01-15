@@ -14,9 +14,21 @@ use common::JsonValue;
 use log::{debug, error};
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use thiserror::Error;
+
+#[derive(Debug)]
+pub struct BridgeError;
+
+impl fmt::Display for BridgeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GeckoBridge Error")
+    }
+}
+
+impl std::error::Error for BridgeError {}
 
 #[derive(Error, Debug)]
 pub enum DelegateError {
@@ -168,18 +180,18 @@ impl GeckoBridgeState {
         &mut self,
         value: bool,
         is_external_screen: bool,
-    ) -> Result<(), ()> {
+    ) -> Result<(), BridgeError> {
         if let Some(powermanager) = &mut self.powermanager {
             let rx = powermanager.set_screen_enabled(value, is_external_screen);
             if let Ok(result) = rx.recv() {
-                result
+                result.map_err(|_| BridgeError)
             } else {
                 error!("Failed to set screen : invalid delegate channel.");
-                Err(())
+                Err(BridgeError)
             }
         } else {
             error!("The powermanager delegate is not set!");
-            Err(())
+            Err(BridgeError)
         }
     }
 

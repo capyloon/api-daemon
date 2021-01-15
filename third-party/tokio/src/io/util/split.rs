@@ -65,7 +65,23 @@ impl<R> Split<R>
 where
     R: AsyncBufRead,
 {
-    #[doc(hidden)]
+    /// Polls for the next segment in the stream.
+    ///
+    /// This method returns:
+    ///
+    ///  * `Poll::Pending` if the next segment is not yet available.
+    ///  * `Poll::Ready(Ok(Some(segment)))` if the next segment is available.
+    ///  * `Poll::Ready(Ok(None))` if there are no more segments in this stream.
+    ///  * `Poll::Ready(Err(err))` if an IO error occurred while reading the
+    ///    next segment.
+    ///
+    /// When the method returns `Poll::Pending`, the `Waker` in the provided
+    /// `Context` is scheduled to receive a wakeup when more bytes become
+    /// available on the underlying IO resource.
+    ///
+    /// Note that on multiple calls to `poll_next_segment`, only the `Waker`
+    /// from the `Context` passed to the most recent call is scheduled to
+    /// receive a wakeup.
     pub fn poll_next_segment(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -87,19 +103,6 @@ where
         }
 
         Poll::Ready(Ok(Some(mem::replace(me.buf, Vec::new()))))
-    }
-}
-
-#[cfg(feature = "stream")]
-impl<R: AsyncBufRead> crate::stream::Stream for Split<R> {
-    type Item = io::Result<Vec<u8>>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(match ready!(self.poll_next_segment(cx)) {
-            Ok(Some(segment)) => Some(Ok(segment)),
-            Ok(None) => None,
-            Err(err) => Some(Err(err)),
-        })
     }
 }
 

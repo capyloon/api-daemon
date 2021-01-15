@@ -1,4 +1,4 @@
-//! Networking primitives
+//! Networking primitives.
 //!
 //! The types provided in this module are non-blocking by default and are
 //! designed to be portable across all supported Mio platforms. As long as the
@@ -8,7 +8,12 @@
 //! [portability guidelines]: ../struct.Poll.html#portability
 
 mod tcp;
-mod udp;
+pub use self::tcp::{TcpListener, TcpSocket, TcpStream, TcpKeepalive};
 
-pub use self::tcp::{TcpListener, TcpStream};
+mod udp;
 pub use self::udp::UdpSocket;
+
+#[cfg(unix)]
+mod uds;
+#[cfg(unix)]
+pub use self::uds::{SocketAddr, UnixDatagram, UnixListener, UnixStream};

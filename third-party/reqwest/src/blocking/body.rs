@@ -1,11 +1,14 @@
 use std::fmt;
 use std::fs::File;
 use std::future::Future;
-use std::io::{self, Cursor, Read};
-use std::mem::{self, MaybeUninit};
+use std::io::{self, Read};
+#[cfg(feature = "multipart")]
+use std::io::Cursor;
+use std::mem;
 use std::ptr;
 
 use bytes::Bytes;
+use bytes::buf::UninitSlice;
 
 use crate::async_impl;
 
@@ -112,6 +115,7 @@ impl Body {
         }
     }
 
+    #[cfg(feature = "multipart")]
     pub(crate) fn len(&self) -> Option<u64> {
         match self.kind {
             Kind::Reader(_, len) => len,
@@ -119,6 +123,7 @@ impl Body {
         }
     }
 
+    #[cfg(feature = "multipart")]
     pub(crate) fn into_reader(self) -> Reader {
         match self.kind {
             Kind::Reader(r, _) => Reader::Reader(r),
@@ -203,6 +208,14 @@ impl From<File> for Body {
         }
     }
 }
+impl From<Bytes> for Body {
+    #[inline]
+    fn from(b: Bytes) -> Body {
+        Body {
+            kind: Kind::Bytes(b),
+        }
+    }
+}
 
 impl fmt::Debug for Kind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -227,11 +240,13 @@ impl<'a> fmt::Debug for DebugLength<'a> {
     }
 }
 
+#[cfg(feature = "multipart")]
 pub(crate) enum Reader {
     Reader(Box<dyn Read + Send>),
     Bytes(Cursor<Bytes>),
 }
 
+#[cfg(feature = "multipart")]
 impl Read for Reader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match *self {
@@ -281,14 +296,14 @@ async fn send_future(sender: Sender) -> Result<(), crate::Error> {
             if buf.remaining_mut() == 0 {
                 buf.reserve(8192);
                 // zero out the reserved memory
+                let uninit = buf.chunk_mut();
                 unsafe {
-                    let uninit = mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(buf.bytes_mut());
                     ptr::write_bytes(uninit.as_mut_ptr(), 0, uninit.len());
                 }
             }
 
             let bytes = unsafe {
-                mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(buf.bytes_mut())
+                mem::transmute::<&mut UninitSlice, &mut [u8]>(buf.chunk_mut())
             };
             match body.read(bytes) {
                 Ok(0) => {

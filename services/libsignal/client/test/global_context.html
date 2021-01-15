@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LibSignal Tests</title>
+
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/libsignal/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="data.js"></script>
+
+    <script>
+      async function run_tests() {
+        let alice = await test_service(
+          lib_libsignal.Signal,
+          "test-client-alice"
+        );
+
+        let aliceContext;
+        await alice.assert_eq(
+          "Alice getContext",
+          (service) => (aliceContext = service.newGlobalContext()),
+          true,
+          (result) => {
+            aliceContext = result;
+            return !!result;
+          }
+        );
+
+        await alice.assert_eq(
+          "curveVerifySignature ok",
+          (service) =>
+            service.curveVerifySignature(
+              aliceIdentityPublic,
+              aliceEphemeralPublic,
+              aliceSignature
+            ),
+          true
+        );
+
+        // Force a failure.
+        aliceSignature[0] = 0;
+        await alice.assert_eq(
+          "curveVerifySignature ko",
+          (service) =>
+            service.curveVerifySignature(
+              aliceIdentityPublic,
+              aliceEphemeralPublic,
+              aliceSignature
+            ),
+          false
+        );
+
+        // Check the validity of a registration id
+        await alice.assert_eq(
+          "generateRegistrationId",
+          (service) => aliceContext.generateRegistrationId(),
+          true,
+          (value) => {
+            return value !== 0;
+          }
+        );
+
+        // Check that the sender key id is not 0.
+        await alice.assert_eq(
+          "generateSenderKeyId",
+          (service) => aliceContext.generateSenderKeyId(),
+          true,
+          (value) => {
+            return value !== 0;
+          }
+        );
+
+        // Check the size of the sender key.
+        await alice.assert_eq(
+          "generateSenderKey",
+          (service) => aliceContext.generateSenderKey(),
+          32,
+          (value) => {
+            return value.length;
+          }
+        );
+
+        // Check the size of identity keys.
+        let aliceIdKeyPair = null;
+        await alice.assert_eq(
+          "generateIdentityKeyPair",
+          (service) => aliceContext.generateIdentityKeyPair(),
+          [32, 32],
+          (value) => {
+            aliceIdKeyPair = value;
+            return [value.publicKey.length, value.privateKey.length];
+          }
+        );
+
+        // Check the size of signing keys.
+        await alice.assert_eq(
+          "generateSenderSigningKey",
+          (service) => aliceContext.generateSenderSigningKey(),
+          [32, 32],
+          (value) => {
+            return [value.publicKey.length, value.privateKey.length];
+          }
+        );
+
+        await alice.assert_eq(
+          "generatePreKeys",
+          (service) => aliceContext.generatePreKeys(2, 3),
+          [
+            { id: 2, keys: [32, 32] },
+            { id: 3, keys: [32, 32] },
+            { id: 4, keys: [32, 32] },
+          ],
+          (preKeys) => {
+            let res = [];
+            preKeys.forEach((preKey) => {
+              res.push({
+                id: preKey.id,
+                keys: [
+                  preKey.keyPair.publicKey.length,
+                  preKey.keyPair.privateKey.length,
+                ],
+              });
+            });
+            return res;
+          }
+        );
+
+        let timestamp = Date.now();
+        await alice.assert_eq(
+          "generateSignedPreKey",
+          (service) =>
+            aliceContext.generateSignedPreKey(aliceIdKeyPair, 1, timestamp),
+          { id: 1, keyPair: [32, 32], timestamp, signature: 64 },
+          (value) => {
+            return {
+              id: value.id,
+              keyPair: [
+                value.keyPair.publicKey.length,
+                value.keyPair.privateKey.length,
+              ],
+              timestamp: value.timestamp,
+              signature: value.signature.length,
+            };
+          }
+        );
+
+        // Test HMAC SHA256
+        let crypto = window.crypto.subtle;
+
+        // Create a test vector for hmac sha256
+        let key = await crypto.generateKey(
+          {
+            name: "HMAC",
+            hash: { name: "SHA-256" },
+            length: 256, // key length.
+          },
+          true, // make key extractable
+          ["sign", "verify"]
+        );
+        let raw = await crypto.exportKey("raw", key);
+        let signature = await crypto.sign(
+          { name: "HMAC" },
+          key, //from generateKey or importKey above
+          HMAC_TEST_VECTOR //ArrayBuffer of data you want to sign
+        );
+
+        let hkey = new Uint8Array(raw);
+
+        let hasher = null;
+        await alice.assert_eq(
+          "startHmacSha256",
+          (service) => service.startHmacSha256(hkey),
+          true,
+          (value) => {
+            hasher = value;
+            return true;
+          }
+        );
+
+        await alice.assert_eq(
+          "hasher update",
+          () => hasher.update(HMAC_TEST_VECTOR),
+          {}
+        );
+
+        await alice.assert_eq(
+          "hasher finalize",
+          () => hasher.finalize(),
+          new Uint8Array(signature)
+        );
+
+        // Test Sha512 digest
+        let digest = await crypto.digest(
+          {
+            name: "SHA-512",
+          },
+          DIGEST_TEST_VECTOR
+        );
+        let hash = new Uint8Array(digest);
+
+        let digester = null;
+        await alice.assert_eq(
+          "startSha512Digest",
+          (service) => service.startSha512Digest(),
+          true,
+          (value) => {
+            digester = value;
+            return true;
+          }
+        );
+
+        await alice.assert_eq(
+          "update sha512 digest",
+          () => digester.update(DIGEST_TEST_VECTOR),
+          {}
+        );
+
+        await alice.assert_eq(
+          "update sha512 finalize",
+          () => digester.finalize(),
+          hash
+        );
+
+        // Test download and decrypt
+        class DecryptionCallback extends lib_libsignal.DecryptionCallbackBase {
+          constructor(service, session) {
+            super(service.id, session);
+            this.downloaded = 0;
+          }
+
+          callback(chunk) {
+            this.downloaded += chunk.length;
+            return Promise.resolve();
+          }
+
+          display() {
+            return "decryption callback";
+          }
+        }
+
+        let callback = new DecryptionCallback(alice.service, alice.session);
+
+        await alice.assert_eq(
+          "downloadAndDecrypt success",
+          (service) =>
+            service.downloadAndDecrypt(
+              "http://localhost:8081/tests/fixtures/example3",
+              new Uint8Array([
+                23,
+                154,
+                27,
+                217,
+                23,
+                171,
+                155,
+                5,
+                191,
+                138,
+                216,
+                105,
+                212,
+                238,
+                136,
+                39,
+              ]),
+              new Uint8Array([
+                217,
+                20,
+                56,
+                61,
+                17,
+                241,
+                40,
+                228,
+                180,
+                139,
+                47,
+                166,
+                237,
+                209,
+                148,
+                163,
+                143,
+                97,
+                224,
+                164,
+                237,
+                181,
+                112,
+                109,
+                77,
+                248,
+                113,
+                132,
+                16,
+                157,
+                250,
+                10,
+              ]),
+              new Uint8Array([
+                16,
+                67,
+                107,
+                57,
+                211,
+                105,
+                230,
+                158,
+                97,
+                178,
+                82,
+                164,
+                193,
+                64,
+                103,
+                76,
+                19,
+                131,
+                132,
+                34,
+                224,
+                41,
+                222,
+                97,
+                7,
+                98,
+                229,
+                62,
+                230,
+                191,
+                178,
+                191,
+              ]),
+              3291648,
+              10,
+              callback
+            ),
+          3291641,
+          (value) => {
+            return callback.downloaded;
+          }
+        );
+
+        await alice.assert_rej_eq(
+          "downloadAndDecrypt bad url",
+          (service) =>
+            service.downloadAndDecrypt(
+              "http://localhost:8081/tests/fixtures/example42",
+              new Uint8Array([
+                23,
+                154,
+                27,
+                217,
+                23,
+                171,
+                155,
+                5,
+                191,
+                138,
+                216,
+                105,
+                212,
+                238,
+                136,
+                39,
+              ]),
+              new Uint8Array([
+                217,
+                20,
+                56,
+                61,
+                17,
+                241,
+                40,
+                228,
+                180,
+                139,
+                47,
+                166,
+                237,
+                209,
+                148,
+                163,
+                143,
+                97,
+                224,
+                164,
+                237,
+                181,
+                112,
+                109,
+                77,
+                248,
+                113,
+                132,
+                16,
+                157,
+                250,
+                10,
+              ]),
+              new Uint8Array([
+                16,
+                67,
+                107,
+                57,
+                211,
+                105,
+                230,
+                158,
+                97,
+                178,
+                82,
+                164,
+                193,
+                64,
+                103,
+                76,
+                19,
+                131,
+                132,
+                34,
+                224,
+                41,
+                222,
+                97,
+                7,
+                98,
+                229,
+                62,
+                230,
+                191,
+                178,
+                191,
+              ]),
+              3291648,
+              10,
+              callback
+            ),
+          "http_error=404"
+        );
+
+        let reporter = new TestReporter([alice]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

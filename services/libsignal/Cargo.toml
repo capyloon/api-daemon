@@ -1,0 +1,29 @@
+[package]
+name = "libsignal_service"
+version = "0.1.0"
+authors = ["Fabrice Desré <fabrice@desre.org>"]
+edition = "2018"
+license = "KaiOS"
+publish = false
+
+[dependencies]
+aes = "0.6"
+android_utils = { path = "../../support/android-utils" }
+block-cipher = "0.8"
+block-modes = "0.7"
+buf_redux = "0.8"
+common = { path = "../../common" }
+hmac = "0.10"
+libsignal-sys = { path = "../../support/libsignal-sys" }
+log = "0.4"
+parking_lot = "0.11"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] } 
+ring = "0.16"
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.9"
+
+[build-dependencies]
+common = { path = "../../common" }
+
+[dev-dependencies]
+test-server = { git = "https://github.com/ChriFo/test-server-rs", tag = "0.9.1" }

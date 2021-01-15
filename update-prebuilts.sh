@@ -10,6 +10,7 @@ audiovolumemanager-service,\
 contacts-service,\
 devicecapability-service,\
 geckobridge-service,\
+libsignal-service,\
 powermanager-service,\
 procmanager-service,\
 settings-service,\

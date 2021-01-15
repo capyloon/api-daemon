@@ -7,9 +7,9 @@ use std::os::unix::io::AsRawFd;
 
 use libc::{self, c_ulong};
 
-use {Result, NixPath};
-use errno::Errno;
+use crate::{Result, NixPath, errno::Errno};
 
+#[cfg(not(target_os = "redox"))]
 libc_bitflags!(
     /// File system mount Flags
     #[repr(C)]
@@ -108,6 +108,7 @@ impl Statvfs {
     }
 
     /// Get the mount flags
+    #[cfg(not(target_os = "redox"))]
     pub fn flags(&self) -> FsFlags {
         FsFlags::from_bits_truncate(self.0.f_flag)
     }
@@ -145,7 +146,7 @@ pub fn fstatvfs<T: AsRawFd>(fd: &T) -> Result<Statvfs> {
 #[cfg(test)]
 mod test {
     use std::fs::File;
-    use sys::statvfs::*;
+    use crate::sys::statvfs::*;
 
     #[test]
     fn statvfs_call() {

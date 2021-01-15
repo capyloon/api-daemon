@@ -39,10 +39,8 @@ cfg_io_util! {
     /// [`AsyncWrite`] types. Callers will tend to import this trait instead of
     /// [`AsyncWrite`].
     ///
-    /// As a convenience, this trait may be imported using the [`prelude`]:
-    ///
     /// ```no_run
-    /// use tokio::prelude::*;
+    /// use tokio::io::{self, AsyncWriteExt};
     /// use tokio::fs::File;
     ///
     /// #[tokio::main]
@@ -64,7 +62,6 @@ cfg_io_util! {
     /// See [module][crate::io] documentation for more details.
     ///
     /// [`AsyncWrite`]: AsyncWrite
-    /// [`prelude`]: crate::prelude
     pub trait AsyncWriteExt: AsyncWrite {
         /// Writes a buffer into this writer, returning how many bytes were
         /// written.
@@ -119,6 +116,7 @@ cfg_io_util! {
             write(self, src)
         }
 
+
         /// Writes a buffer into this writer, advancing the buffer's internal
         /// cursor.
         ///
@@ -134,7 +132,7 @@ cfg_io_util! {
         /// internal cursor is advanced by the number of bytes written. A
         /// subsequent call to `write_buf` using the **same** `buf` value will
         /// resume from the point that the first call to `write_buf` completed.
-        /// A call to `write` represents *at most one* attempt to write to any
+        /// A call to `write_buf` represents *at most one* attempt to write to any
         /// wrapped object.
         ///
         /// # Return

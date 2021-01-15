@@ -4,7 +4,7 @@ use crate::signal::os::{OsExtraData, OsStorage};
 
 use crate::sync::mpsc::Sender;
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use std::ops;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -165,12 +165,12 @@ where
     OsExtraData: 'static + Send + Sync + Init,
     OsStorage: 'static + Send + Sync + Init,
 {
-    lazy_static! {
-        static ref GLOBALS: Pin<Box<Globals>> = Box::pin(Globals {
+    static GLOBALS: Lazy<Pin<Box<Globals>>> = Lazy::new(|| {
+        Box::pin(Globals {
             extra: OsExtraData::init(),
             registry: Registry::new(OsStorage::init()),
-        });
-    }
+        })
+    });
 
     GLOBALS.as_ref()
 }
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn smoke() {
-        let mut rt = rt();
+        let rt = rt();
         rt.block_on(async move {
             let registry = Registry::new(vec![
                 EventInfo::default(),
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn broadcast_cleans_up_disconnected_listeners() {
-        let mut rt = Runtime::new().unwrap();
+        let rt = Runtime::new().unwrap();
 
         rt.block_on(async {
             let registry = Registry::new(vec![EventInfo::default()]);
@@ -306,7 +306,7 @@ mod tests {
     }
 
     fn rt() -> Runtime {
-        runtime::Builder::new().basic_scheduler().build().unwrap()
+        runtime::Builder::new_current_thread().build().unwrap()
     }
 
     async fn collect(mut rx: crate::sync::mpsc::Receiver<()>) -> Vec<()> {

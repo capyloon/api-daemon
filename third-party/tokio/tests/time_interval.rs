@@ -4,6 +4,7 @@
 use tokio::time::{self, Duration, Instant};
 use tokio_test::{assert_pending, assert_ready_eq, task};
 
+use std::future::Future;
 use std::task::Poll;
 
 #[tokio::test]
@@ -43,22 +44,13 @@ async fn usage() {
     assert_pending!(poll_next(&mut i));
 }
 
-#[tokio::test]
-async fn usage_stream() {
-    use tokio::stream::StreamExt;
-
-    let start = Instant::now();
-    let mut interval = time::interval(ms(10));
-
-    for _ in 0..3 {
-        interval.next().await.unwrap();
-    }
-
-    assert!(start.elapsed() > ms(20));
-}
-
 fn poll_next(interval: &mut task::Spawn<time::Interval>) -> Poll<Instant> {
-    interval.enter(|cx, mut interval| interval.poll_tick(cx))
+    interval.enter(|cx, mut interval| {
+        tokio::pin! {
+            let fut = interval.tick();
+        }
+        fut.poll(cx)
+    })
 }
 
 fn ms(n: u64) -> Duration {

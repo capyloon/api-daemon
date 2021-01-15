@@ -298,6 +298,21 @@ mod cutils {
 }
 
 pub mod hidl {
+    use std::fmt;
+
+    #[derive(Debug)]
+    pub struct HidlError;
+
+    impl fmt::Display for HidlError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "Hidl Error")
+        }
+    }
+
+    impl std::error::Error for HidlError {}
+
+    type Result<T> = std::result::Result<T, HidlError>;
+
     pub struct Parcel {
         parcel: *mut crate::cutils::CParcel,
         managed: Vec<Vec<u8>>,
@@ -321,7 +336,7 @@ pub mod hidl {
             unsafe { crate::cutils::parcel_set_data_position(self.parcel, pos) }
         }
 
-        pub fn write_iface_token(&mut self, iface: &str) -> Result<(), ()> {
+        pub fn write_iface_token(&mut self, iface: &str) -> Result<()> {
             let c_str = std::ffi::CString::new(iface).unwrap();
             if unsafe {
                 crate::cutils::parcel_write_interface_token(
@@ -333,156 +348,156 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn write_i8(&mut self, v: i8) -> Result<(), ()> {
+        pub fn write_i8(&mut self, v: i8) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_int8(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_i8(&mut self, v: &mut i8) -> Result<(), ()> {
+        pub fn read_i8(&mut self, v: &mut i8) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_int8(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn write_u8(&mut self, v: u8) -> Result<(), ()> {
+        pub fn write_u8(&mut self, v: u8) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_uint8(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_u8(&mut self, v: &mut u8) -> Result<(), ()> {
+        pub fn read_u8(&mut self, v: &mut u8) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_uint8(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn write_i16(&mut self, v: i16) -> Result<(), ()> {
+        pub fn write_i16(&mut self, v: i16) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_int16(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_i16(&mut self, v: &mut i16) -> Result<(), ()> {
+        pub fn read_i16(&mut self, v: &mut i16) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_int16(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn write_u16(&mut self, v: u16) -> Result<(), ()> {
+        pub fn write_u16(&mut self, v: u16) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_uint16(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_u16(&mut self, v: &mut u16) -> Result<(), ()> {
+        pub fn read_u16(&mut self, v: &mut u16) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_uint16(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn write_i32(&mut self, v: i32) -> Result<(), ()> {
+        pub fn write_i32(&mut self, v: i32) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_int32(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_i32(&mut self, v: &mut i32) -> Result<(), ()> {
+        pub fn read_i32(&mut self, v: &mut i32) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_int32(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn write_u32(&mut self, v: u32) -> Result<(), ()> {
+        pub fn write_u32(&mut self, v: u32) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_uint32(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_u32(&mut self, v: &mut u32) -> Result<(), ()> {
+        pub fn read_u32(&mut self, v: &mut u32) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_uint32(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn write_i64(&mut self, v: i64) -> Result<(), ()> {
+        pub fn write_i64(&mut self, v: i64) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_int64(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_i64(&mut self, v: &mut i64) -> Result<(), ()> {
+        pub fn read_i64(&mut self, v: &mut i64) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_int64(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn write_u64(&mut self, v: u64) -> Result<(), ()> {
+        pub fn write_u64(&mut self, v: u64) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_uint64(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_u64(&mut self, v: &mut u64) -> Result<(), ()> {
+        pub fn read_u64(&mut self, v: &mut u64) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_uin64(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn write_f32(&mut self, v: f32) -> Result<(), ()> {
+        pub fn write_f32(&mut self, v: f32) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_float(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_f32(&mut self, v: &mut f32) -> Result<(), ()> {
+        pub fn read_f32(&mut self, v: &mut f32) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_float(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn write_f64(&mut self, v: f64) -> Result<(), ()> {
+        pub fn write_f64(&mut self, v: f64) -> Result<()> {
             if unsafe { crate::cutils::parcel_write_double(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
-        pub fn read_f64(&mut self, v: &mut f64) -> Result<(), ()> {
+        pub fn read_f64(&mut self, v: &mut f64) -> Result<()> {
             if unsafe { crate::cutils::parcel_read_double(self.parcel, v) } == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn write_buffer<T>(&mut self, buffer: &T, buffer_handle: &mut usize) -> Result<(), ()> {
+        pub fn write_buffer<T>(&mut self, buffer: &T, buffer_handle: &mut usize) -> Result<()> {
             if unsafe {
                 crate::cutils::parcel_write_buffer(
                     self.parcel,
@@ -494,14 +509,14 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
         pub fn read_buffer<T>(
             &mut self,
             buffer_handle: &mut usize,
             buffer: &mut T,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             if unsafe {
                 crate::cutils::parcel_read_buffer(
                     self.parcel,
@@ -513,7 +528,7 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
@@ -523,7 +538,7 @@ pub mod hidl {
             buffer_handle: &mut usize,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             if unsafe {
                 crate::cutils::parcel_write_embedded_buffer(
                     self.parcel,
@@ -537,7 +552,7 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
         pub fn read_embedded_buffer<T>(
@@ -546,7 +561,7 @@ pub mod hidl {
             parent_handle: usize,
             parent_offset: usize,
             buffer: &mut T,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             if unsafe {
                 crate::cutils::parcel_read_embedded_buffer(
                     self.parcel,
@@ -560,7 +575,7 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
@@ -571,7 +586,7 @@ pub mod hidl {
             buffer_handle: &mut usize,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             if crate::cutils::parcel_write_embedded_buffer(
                 self.parcel,
                 buffer,
@@ -583,7 +598,7 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
         pub unsafe fn read_embedded_u8p(
@@ -593,7 +608,7 @@ pub mod hidl {
             parent_handle: usize,
             parent_offset: usize,
             buffer: *mut u8,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             if crate::cutils::parcel_read_embedded_buffer(
                 self.parcel,
                 buffer_size,
@@ -605,11 +620,11 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn write_handle(&mut self, handle: &HidlHandle) -> Result<(), ()> {
+        pub fn write_handle(&mut self, handle: &HidlHandle) -> Result<()> {
             let nhandle = HidlNativeHandle::from(handle);
             if unsafe {
                 crate::cutils::parcel_write_native_handle_no_dup(
@@ -623,7 +638,7 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
@@ -632,7 +647,7 @@ pub mod hidl {
             embedded: bool,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<HidlHandle, ()> {
+        ) -> Result<HidlHandle> {
             let mut nhandle: *const crate::cutils::CNativeHandle = std::ptr::null();
             if unsafe {
                 crate::cutils::parcel_read_nullable_native_handle_no_dup(
@@ -660,11 +675,11 @@ pub mod hidl {
                     Ok(HidlHandle { fds, ints })
                 }
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
-        pub fn read_handle(&mut self) -> Result<HidlHandle, ()> {
+        pub fn read_handle(&mut self) -> Result<HidlHandle> {
             self._read_handle(false, 0, 0)
         }
 
@@ -673,7 +688,7 @@ pub mod hidl {
             handle: &HidlHandle,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             let nhandle = HidlNativeHandle::from(handle);
             if unsafe {
                 crate::cutils::parcel_write_native_handle_no_dup(
@@ -687,7 +702,7 @@ pub mod hidl {
             {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
 
@@ -695,7 +710,7 @@ pub mod hidl {
             &mut self,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<HidlHandle, ()> {
+        ) -> Result<HidlHandle> {
             self._read_handle(true, parent_handle, parent_offset)
         }
 
@@ -735,8 +750,8 @@ pub mod hidl {
      * These are helper functions too complicated to be generated by hidl-gen.
      */
     pub trait ParcelHelper {
-        fn write_hidl_string(&mut self, buffer_handle: &mut usize, value: &str) -> Result<(), ()>;
-        fn read_hidl_string(&mut self, buffer_handle: &mut usize) -> Result<String, ()>;
+        fn write_hidl_string(&mut self, buffer_handle: &mut usize, value: &str) -> Result<()>;
+        fn read_hidl_string(&mut self, buffer_handle: &mut usize) -> Result<String>;
 
         fn write_embedded<T: EmbeddedOps<T>>(
             &mut self,
@@ -744,13 +759,13 @@ pub mod hidl {
             em_struct: *const T::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()>;
+        ) -> Result<()>;
         fn read_embedded<T: EmbeddedOps<T>>(
             &mut self,
             em_struct: *const T::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<T, ()>;
+        ) -> Result<T>;
     }
     #[derive(Clone)]
     #[repr(C)]
@@ -763,7 +778,7 @@ pub mod hidl {
         pub owns_buffer: bool,
     }
     impl ParcelHelper for Parcel {
-        fn write_hidl_string(&mut self, buffer_handle: &mut usize, value: &str) -> Result<(), ()> {
+        fn write_hidl_string(&mut self, buffer_handle: &mut usize, value: &str) -> Result<()> {
             let value = String::from(value);
 
             *buffer_handle = 0;
@@ -773,7 +788,7 @@ pub mod hidl {
             let mut handle: usize = 0;
             let r = self.write_buffer(unsafe { &*hidl_str }, &mut handle);
             if r.is_err() {
-                return Err(());
+                return Err(HidlError);
             }
             let r = self.write_embedded(&value, hidl_str, handle, 0);
 
@@ -782,7 +797,7 @@ pub mod hidl {
             r
         }
 
-        fn read_hidl_string(&mut self, buffer_handle: &mut usize) -> Result<String, ()> {
+        fn read_hidl_string(&mut self, buffer_handle: &mut usize) -> Result<String> {
             let mut hidl_str = HidlString {
                 bufaddr1: 0,
                 bufaddr2: 0,
@@ -793,7 +808,7 @@ pub mod hidl {
             *buffer_handle = 0;
             let r = self.read_buffer(&mut handle, &mut hidl_str);
             if r.is_err() {
-                return Err(());
+                return Err(HidlError);
             }
             let out = self.read_embedded(&hidl_str, handle, 0);
             *buffer_handle = handle;
@@ -806,7 +821,7 @@ pub mod hidl {
             em_struct: *const T::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             buffer.write_embedded_to(self, em_struct, parent_handle, parent_offset)
         }
         fn read_embedded<T: EmbeddedOps<T>>(
@@ -814,7 +829,7 @@ pub mod hidl {
             em_struct: *const T::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<T, ()> {
+        ) -> Result<T> {
             T::read_embedded_from(self, em_struct, parent_handle, parent_offset)
         }
     }
@@ -847,7 +862,7 @@ pub mod hidl {
             data: &Parcel,
             reply: &mut Parcel,
             flags: u32,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             let r = unsafe {
                 crate::cutils::ibinder_transact(
                     self.ibinder,
@@ -860,7 +875,7 @@ pub mod hidl {
             if r == 0 {
                 Ok(())
             } else {
-                Err(())
+                Err(HidlError)
             }
         }
     }
@@ -919,8 +934,8 @@ pub mod hidl {
             _em_struct: *const Self::EmStruct,
             _parent_handle: usize,
             _parent_offset: usize,
-        ) -> Result<(), ()> {
-            Err(())
+        ) -> Result<()> {
+            Err(HidlError)
         }
 
         // Does this type need to be converted from Rust to native?
@@ -936,8 +951,8 @@ pub mod hidl {
         // This type is used to convert rust type to native
         // type/EmStruct if need_conversion() returns true.
         //
-        fn prepare_embedded(&self, _em_struct: *mut Self::EmStruct) -> Result<(), ()> {
-            Err(())
+        fn prepare_embedded(&self, _em_struct: *mut Self::EmStruct) -> Result<()> {
+            Err(HidlError)
         }
 
         // Read embedded buffers pointed from EmStruct from a parcel.
@@ -947,8 +962,8 @@ pub mod hidl {
             _em_struct: *const Self::EmStruct,
             _parent_handle: usize,
             _parent_offset: usize,
-        ) -> Result<T, ()> {
-            Err(())
+        ) -> Result<T> {
+            Err(HidlError)
         }
     }
 
@@ -1039,7 +1054,7 @@ pub mod hidl {
             em_struct: *const Self::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             // Elements in a vec may need to a conversion before writting to the parcel.
             // They may also contain embedded buffers.
             //
@@ -1099,7 +1114,7 @@ pub mod hidl {
             true
         }
 
-        fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<(), ()> {
+        fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<()> {
             let data = unsafe { &mut *em_struct };
             data.bufaddr1 = 0;
             data.bufaddr2 = 0;
@@ -1113,7 +1128,7 @@ pub mod hidl {
             em_struct: *const Self::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<Vec<T>, ()> {
+        ) -> Result<Vec<T>> {
             let mut handle: usize = 0;
             let elements = unsafe { (*em_struct).sz as usize };
 
@@ -1181,7 +1196,7 @@ pub mod hidl {
             true
         }
 
-        fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<(), ()> {
+        fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<()> {
             let data = unsafe { &mut *em_struct };
             data.bufaddr1 = 0;
             data.bufaddr2 = 0;
@@ -1196,7 +1211,7 @@ pub mod hidl {
             em_struct: *const Self::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             assert!(unsafe { (*em_struct).sz as usize } == self.len());
             let raw_str = parcel.alloc_u8(self.len() + 1);
             let mut handle: usize = 0;
@@ -1221,7 +1236,7 @@ pub mod hidl {
             em_struct: *const Self::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<String, ()> {
+        ) -> Result<String> {
             let sz = unsafe { (*em_struct).sz };
             let mut buf = String::with_capacity((sz + 1) as usize);
             let mut handle: usize = 0;
@@ -1322,7 +1337,7 @@ pub mod hidl {
             true
         }
 
-        fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<(), ()> {
+        fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<()> {
             let es = unsafe { &mut *em_struct };
             es.bufaddr1 = 0;
             es.bufaddr2 = 0;
@@ -1335,7 +1350,7 @@ pub mod hidl {
             _em_struct: *const Self::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             parcel.write_embedded_handle(self, parent_handle, parent_offset)
         }
         fn read_embedded_from(
@@ -1343,7 +1358,7 @@ pub mod hidl {
             _em_struct: *const Self::EmStruct,
             parent_handle: usize,
             parent_offset: usize,
-        ) -> Result<Self, ()> {
+        ) -> Result<Self> {
             parcel.read_embedded_handle(parent_handle, parent_offset)
         }
     }

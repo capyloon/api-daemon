@@ -1,18 +1,17 @@
-use libc;
-use {Errno, Result};
+use crate::{Errno, Result};
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub use self::sched_linux_like::*;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod sched_linux_like {
-    use errno::Errno;
+    use crate::errno::Errno;
     use libc::{self, c_int, c_void};
     use std::mem;
     use std::option::Option;
     use std::os::unix::io::RawFd;
-    use unistd::Pid;
-    use {Error, Result};
+    use crate::unistd::Pid;
+    use crate::{Error, Result};
 
     // For some functions taking with a parameter of type CloneFlags,
     // only a subset of these flags have an effect.
@@ -81,7 +80,8 @@ mod sched_linux_like {
             if field >= CpuSet::count() {
                 Err(Error::Sys(Errno::EINVAL))
             } else {
-                Ok(unsafe { libc::CPU_SET(field, &mut self.cpu_set) })
+                unsafe { libc::CPU_SET(field, &mut self.cpu_set); }
+                Ok(())
             }
         }
 
@@ -91,13 +91,20 @@ mod sched_linux_like {
             if field >= CpuSet::count() {
                 Err(Error::Sys(Errno::EINVAL))
             } else {
-                Ok(unsafe { libc::CPU_CLR(field, &mut self.cpu_set) })
+                unsafe { libc::CPU_CLR(field, &mut self.cpu_set);}
+                Ok(())
             }
         }
 
         /// Return the maximum number of CPU in CpuSet
         pub fn count() -> usize {
             8 * mem::size_of::<libc::cpu_set_t>()
+        }
+    }
+
+    impl Default for CpuSet {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
@@ -182,8 +189,8 @@ mod sched_linux_like {
 
         let res = unsafe {
             let combined = flags.bits() | signal.unwrap_or(0);
-            let ptr = stack.as_mut_ptr().offset(stack.len() as isize);
-            let ptr_aligned = ptr.offset((ptr as usize % 16) as isize * -1);
+            let ptr = stack.as_mut_ptr().add(stack.len());
+            let ptr_aligned = ptr.sub(ptr as usize % 16);
             libc::clone(
                 mem::transmute(
                     callback as extern "C" fn(*mut Box<dyn FnMut() -> isize>) -> i32,

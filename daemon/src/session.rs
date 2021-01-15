@@ -262,15 +262,12 @@ impl Session {
 
     fn disable_event(&mut self, req: &DisableEventListenerRequest, message: &mut BaseMessage) {
         debug!("{}-{} disable event:{}", req.service, req.object, req.event);
-        let success = match self
+        let success = self
             .session_helper
             .event_map()
             .lock()
             .remove(&EventMapKey::from_ids(req))
-        {
-            Some(val) => val,
-            None => false,
-        };
+            .unwrap_or(false);
 
         let response = CoreResponse::DisableEvent(DisableEventListenerResponse { success });
         message.kind = BaseMessageKind::Response(message.request());

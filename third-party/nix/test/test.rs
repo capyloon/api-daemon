@@ -1,38 +1,35 @@
-extern crate bytes;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-extern crate caps;
 #[macro_use]
 extern crate cfg_if;
-#[macro_use]
+#[cfg_attr(not(target_os = "redox"), macro_use)]
 extern crate nix;
 #[macro_use]
 extern crate lazy_static;
-extern crate libc;
-extern crate rand;
-#[cfg(target_os = "freebsd")]
-extern crate sysctl;
-extern crate tempfile;
+
+macro_rules! skip {
+    ($($reason: expr),+) => {
+        use ::std::io::{self, Write};
+
+        let stderr = io::stderr();
+        let mut handle = stderr.lock();
+        writeln!(handle, $($reason),+).unwrap();
+        return;
+    }
+}
 
 cfg_if! {
     if #[cfg(any(target_os = "android", target_os = "linux"))] {
         macro_rules! require_capability {
             ($capname:ident) => {
                 use ::caps::{Capability, CapSet, has_cap};
-                use ::std::io::{self, Write};
 
                 if !has_cap(None, CapSet::Effective, Capability::$capname)
                     .unwrap()
                 {
-                    let stderr = io::stderr();
-                    let mut handle = stderr.lock();
-                    writeln!(handle,
-                        "Insufficient capabilities. Skipping test.")
-                        .unwrap();
-                    return;
+                    skip!("Insufficient capabilities. Skipping test.");
                 }
             }
         }
-    } else {
+    } else if #[cfg(not(target_os = "redox"))] {
         macro_rules! require_capability {
             ($capname:ident) => {}
         }
@@ -47,26 +44,18 @@ macro_rules! skip_if_jailed {
         if let CtlValue::Int(1) = ::sysctl::value("security.jail.jailed")
             .unwrap()
         {
-            use ::std::io::Write;
-            let stderr = ::std::io::stderr();
-            let mut handle = stderr.lock();
-            writeln!(handle, "{} cannot run in a jail. Skipping test.", $name)
-                .unwrap();
-            return;
+            skip!("{} cannot run in a jail. Skipping test.", $name);
         }
     }
 }
 
+#[cfg(not(target_os = "redox"))]
 macro_rules! skip_if_not_root {
     ($name:expr) => {
         use nix::unistd::Uid;
 
         if !Uid::current().is_root() {
-            use ::std::io::Write;
-            let stderr = ::std::io::stderr();
-            let mut handle = stderr.lock();
-            writeln!(handle, "{} requires root privileges. Skipping test.", $name).unwrap();
-            return;
+            skip!("{} requires root privileges. Skipping test.", $name);
         }
     };
 }
@@ -81,26 +70,48 @@ cfg_if! {
                         if fields.next() == Some("Seccomp:") &&
                             fields.next() != Some("0")
                         {
-                            use ::std::io::Write;
-                            let stderr = ::std::io::stderr();
-                            let mut handle = stderr.lock();
-                            writeln!(handle,
-                                "{} cannot be run in Seccomp mode.  Skipping test.",
-                                stringify!($name)).unwrap();
-                            return;
+                            skip!("{} cannot be run in Seccomp mode.  Skipping test.",
+                                stringify!($name));
                         }
                     }
                 }
             }
         }
-    } else {
+    } else if #[cfg(not(target_os = "redox"))] {
         macro_rules! skip_if_seccomp {
             ($name:expr) => {}
         }
     }
 }
 
+cfg_if! {
+    if #[cfg(target_os = "linux")] {
+        macro_rules! require_kernel_version {
+            ($name:expr, $version_requirement:expr) => {
+                use semver::{Version, VersionReq};
+
+                let version_requirement = VersionReq::parse($version_requirement)
+                        .expect("Bad match_version provided");
+
+                let uname = nix::sys::utsname::uname();
+
+                let mut version = Version::parse(uname.release()).unwrap();
+
+                //Keep only numeric parts
+                version.pre.clear();
+                version.build.clear();
+
+                if !version_requirement.matches(&version) {
+                    skip!("Skip {} because kernel version `{}` doesn't match the requirement `{}`",
+                        stringify!($name), version, version_requirement);
+                }
+            }
+        }
+    }
+}
+
 mod sys;
+#[cfg(not(target_os = "redox"))]
 mod test_dir;
 mod test_fcntl;
 #[cfg(any(target_os = "android",
@@ -112,9 +123,11 @@ mod test_kmod;
           target_os = "linux",
           target_os = "netbsd"))]
 mod test_mq;
+#[cfg(not(target_os = "redox"))]
 mod test_net;
 mod test_nix_path;
 mod test_poll;
+#[cfg(not(target_os = "redox"))]
 mod test_pty;
 #[cfg(any(target_os = "android",
           target_os = "linux"))]
@@ -126,6 +139,7 @@ mod test_sched;
           target_os = "macos"))]
 mod test_sendfile;
 mod test_stat;
+mod test_time;
 mod test_unistd;
 
 use std::os::unix::io::RawFd;
@@ -170,7 +184,7 @@ struct DirRestore<'a> {
 
 impl<'a> DirRestore<'a> {
     fn new() -> Self {
-        let guard = ::CWD_LOCK.write()
+        let guard = crate::CWD_LOCK.write()
             .expect("Lock got poisoned by another test");
         DirRestore{
             _g: guard,

@@ -114,7 +114,10 @@ where
     hasher.finish()
 }
 
-fn read_zip_manifest<P: AsRef<Path>>(zip_file: P, manifest_name: &str) -> Result<Manifest, AppsError> {
+fn read_zip_manifest<P: AsRef<Path>>(
+    zip_file: P,
+    manifest_name: &str,
+) -> Result<Manifest, AppsError> {
     let file = File::open(zip_file)?;
     let mut archive = ZipArchive::new(file)?;
     let manifest = archive.by_name(manifest_name)?;
@@ -1094,21 +1097,21 @@ fn test_init_apps_from_system() {
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
-    let _root_dir = format!("{}/test-fixtures/webapps", current.display());
-    let _test_dir = format!("{}/test-fixtures/test-apps-dir", current.display());
+    let root_path = format!("{}/test-fixtures/webapps", current.display());
+    let test_dir = format!("{}/test-fixtures/test-apps-dir", current.display());
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
-    let _ = remove_dir_all(Path::new(&_test_dir));
+    let _ = remove_dir_all(Path::new(&test_dir));
 
-    if let Err(err) = fs::create_dir_all(PathBuf::from(_test_dir.clone())) {
+    if let Err(err) = fs::create_dir_all(PathBuf::from(test_dir.clone())) {
         println!("{:?}", err);
     }
 
-    println!("Register from: {}", &_root_dir);
+    println!("Register from: {}", &root_path);
     let config = Config {
-        root_path: _root_dir.clone(),
-        data_path: _test_dir.clone(),
+        root_path: root_path.clone(),
+        data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("production"),
     };
@@ -1123,7 +1126,7 @@ fn test_init_apps_from_system() {
     println!("registry.count: {}", registry.count());
     assert_eq!(4, registry.count());
 
-    let test_json = Path::new(&_root_dir).join("webapps.json");
+    let test_json = Path::new(&root_path).join("webapps.json");
     if let Ok(test_items) = read_webapps(&test_json) {
         for item in &test_items {
             assert!(registry.get_first_by_name(&item.get_name()).is_some());
@@ -1143,7 +1146,7 @@ fn test_init_apps_from_system() {
             );
         }
     } else {
-        assert!(false, "Wrong apps config in data.");
+        panic!("Wrong apps config in data.");
     }
 }
 
@@ -1156,21 +1159,21 @@ fn test_register_app() {
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
-    let _root_dir = format!("{}/test-fixtures/webapps", current.display());
-    let _test_dir = format!("{}/test-fixtures/test-apps-dir-actor", current.display());
+    let root_path = format!("{}/test-fixtures/webapps", current.display());
+    let test_dir = format!("{}/test-fixtures/test-apps-dir-actor", current.display());
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
-    let _ = remove_dir_all(Path::new(&_test_dir));
+    let _ = remove_dir_all(Path::new(&test_dir));
 
-    if let Err(err) = fs::create_dir_all(PathBuf::from(_test_dir.clone())) {
+    if let Err(err) = fs::create_dir_all(PathBuf::from(test_dir.clone())) {
         println!("{:?}", err);
     }
 
-    println!("Register from: {}", &_root_dir);
+    println!("Register from: {}", &root_path);
     let config = Config {
-        root_path: _root_dir.clone(),
-        data_path: _test_dir.clone(),
+        root_path,
+        data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
     };
@@ -1217,13 +1220,13 @@ fn test_register_app() {
             format!("{}", RegistrationError::UpdateUrlMissing)
         );
     } else {
-        assert!(false);
+        panic!();
     }
 
     // 1. Normal register install
     // 2. Re-register as update
     // 3. Unregister
-    let update_url = format!("https://store.helloworld.local/manifest.webmanifest");
+    let update_url = "https://store.helloworld.local/manifest.webmanifest";
 
     // Normal register an app
     let name = "helloworld";
@@ -1231,30 +1234,30 @@ fn test_register_app() {
     let version = "1.0.0";
     let manifest = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), update_url)
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
-    apps_item.set_update_url(&update_url);
+    apps_item.set_update_url(update_url);
     if !manifest.get_version().is_empty() {
         apps_item.set_version(&manifest.get_version());
     } else {
-        assert!(false, "No version found.");
+        panic!("No version found.");
     }
 
     registry.register_app(&apps_item, &manifest).unwrap();
 
     // Verify the manifet url is as expeced
-    let expected_manifest_url = format!("http://helloworld.localhost/manifest.webmanifest");
+    let expected_manifest_url = "http://helloworld.localhost/manifest.webmanifest";
     let manifest_url = apps_item.get_manifest_url();
-    assert_eq!(manifest_url, expected_manifest_url);
+    assert_eq!(&manifest_url, expected_manifest_url);
 
     match registry.get_by_manifest_url(&manifest_url) {
         Some(test) => {
             assert_eq!(test.get_name(), name);
             assert_eq!(test.get_version(), version);
         }
-        None => assert!(false, "helloworld is not found."),
+        None => panic!("helloworld is not found."),
     }
 
     // Re-register an app
@@ -1271,7 +1274,7 @@ fn test_register_app() {
     if !manifest1.get_version().is_empty() {
         apps_item.set_version(&manifest1.get_version());
     } else {
-        assert!(false, "No version found.");
+        panic!("No version found.");
     }
 
     registry.register_app(&apps_item, &manifest1).unwrap();
@@ -1282,7 +1285,7 @@ fn test_register_app() {
             assert_eq!(test.get_name(), app_name);
             assert_eq!(test.get_version(), version);
         }
-        None => assert!(false, "helloworld is not found."),
+        None => panic!("helloworld is not found."),
     }
 
     // Unregister an app
@@ -1292,9 +1295,8 @@ fn test_register_app() {
     assert_eq!(4, registry.count());
 
     let manifest_url = apps_item.get_manifest_url();
-    match registry.get_by_manifest_url(&manifest_url) {
-        Some(_) => assert!(false, "helloworld should be unregisterd"),
-        None => {}
+    if registry.get_by_manifest_url(&manifest_url).is_some() {
+        panic!("helloworld should be unregisterd");
     }
 }
 
@@ -1309,24 +1311,24 @@ fn test_unregister_app() {
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
-    let _root_dir = format!("{}/test-fixtures/webapps", current.display());
-    let _test_dir = format!(
+    let root_path = format!("{}/test-fixtures/webapps", current.display());
+    let test_dir = format!(
         "{}/test-fixtures/test-unregister-apps-dir",
         current.display()
     );
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
-    let _ = remove_dir_all(Path::new(&_test_dir));
+    let _ = remove_dir_all(Path::new(&test_dir));
 
-    if let Err(err) = fs::create_dir_all(PathBuf::from(_test_dir.clone())) {
+    if let Err(err) = fs::create_dir_all(PathBuf::from(test_dir.clone())) {
         println!("{:?}", err);
     }
 
-    println!("Register from: {}", &_root_dir);
+    println!("Register from: {}", &root_path);
     let config = Config {
-        root_path: _root_dir.clone(),
-        data_path: _test_dir.clone(),
+        root_path,
+        data_path: test_dir,
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
     };
@@ -1342,18 +1344,18 @@ fn test_unregister_app() {
             format!("{}", RegistrationError::UpdateUrlMissing),
         );
     } else {
-        assert!(false);
+        panic!();
     }
 
     // Test unregister_app - invalid updater url
-    let update_url = format!("https://store.helloworld.local/manifest.webmanifest");
-    if let Err(err) = registry.unregister_app(&update_url) {
+    let update_url = "https://store.helloworld.local/manifest.webmanifest";
+    if let Err(err) = registry.unregister_app(update_url) {
         assert_eq!(
             format!("{}", err),
             format!("{}", RegistrationError::ManifestURLNotFound),
         );
     } else {
-        assert!(false);
+        panic!();
     }
 
     // Normal case
@@ -1370,7 +1372,7 @@ fn test_unregister_app() {
     if !manifest1.get_version().is_empty() {
         apps_item.set_version(&manifest1.get_version());
     } else {
-        assert!(false, "No version found.");
+        panic!("No version found.");
     }
 
     registry.register_app(&apps_item, &manifest1).unwrap();
@@ -1378,16 +1380,16 @@ fn test_unregister_app() {
     assert_eq!(5, registry.count());
 
     // Verify the manifet url is as expeced
-    let expected_manfiest_url = format!("http://helloworld.localhost:8081/manifest.webmanifest");
+    let expected_manfiest_url = "http://helloworld.localhost:8081/manifest.webmanifest";
     let manifest_url = apps_item.get_manifest_url();
-    assert_eq!(manifest_url, expected_manfiest_url);
+    assert_eq!(&manifest_url, expected_manfiest_url);
 
     match registry.get_by_manifest_url(&manifest_url) {
         Some(test) => {
             assert_eq!(test.get_name(), name);
             assert_eq!(test.get_version(), version);
         }
-        None => assert!(false, "helloworld is not found."),
+        None => panic!("helloworld is not found."),
     }
 
     // Uninstall it
@@ -1398,9 +1400,8 @@ fn test_unregister_app() {
     assert_eq!(4, registry.count());
 
     let manifest_url = apps_item.get_manifest_url();
-    match registry.get_by_manifest_url(&manifest_url) {
-        Some(_) => assert!(false, "helloworld should be unregisterd"),
-        None => {}
+    if registry.get_by_manifest_url(&manifest_url).is_some() {
+        panic!("helloworld should be unregistered");
     }
 }
 
@@ -1467,16 +1468,19 @@ fn test_apply_download() {
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(update_url);
 
-    if let Ok(_) = registry.apply_download(
-        &mut apps_item,
-        &available_dir.as_path(),
-        &manifest,
-        &test_path,
-        false,
-    ) {
+    if registry
+        .apply_download(
+            &mut apps_item,
+            &available_dir.as_path(),
+            &manifest,
+            &test_path,
+            false,
+        )
+        .is_ok()
+    {
         assert_eq!(app_name, "helloworld");
     } else {
-        assert!(false);
+        panic!();
     }
 
     // Test 2: same app name different updat_url 1 - 100.
@@ -1497,19 +1501,20 @@ fn test_apply_download() {
         }
         apps_item.set_install_state(AppsInstallState::Installing);
         apps_item.set_update_url(update_url);
-        if let Ok(_) = registry.apply_download(
-            &mut apps_item,
-            &available_dir.as_path(),
-            &manifest,
-            &test_path,
-            false,
-        ) {
+        if registry
+            .apply_download(
+                &mut apps_item,
+                &available_dir.as_path(),
+                &manifest,
+                &test_path,
+                false,
+            )
+            .is_ok()
+        {
             let expected_name = format!("helloworld{}", count);
             assert_eq!(app_name, expected_name);
-        } else {
-            if count <= 999 {
-                assert!(false);
-            }
+        } else if count <= 999 {
+            panic!();
         }
         if count == 100 {
             break;
@@ -1534,16 +1539,19 @@ fn test_apply_download() {
     }
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(update_url);
-    if let Ok(_) = registry.apply_download(
-        &mut apps_item,
-        &available_dir.as_path(),
-        &manifest,
-        &test_path,
-        true,
-    ) {
+    if registry
+        .apply_download(
+            &mut apps_item,
+            &available_dir.as_path(),
+            &manifest,
+            &test_path,
+            true,
+        )
+        .is_ok()
+    {
         assert_eq!(app_name, "helloworld");
     } else {
-        assert!(false);
+        panic!();
     }
 
     // Test 4: app name is reserved and not allowed.
@@ -1553,9 +1561,8 @@ fn test_apply_download() {
     }
     let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
     let manifest = validate_package(&available_app.as_path()).unwrap();
-    let update_url = "https://invalidname.localhost/manifest.webapp";
-    let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url);
+    let update_url = "https://invalidname.localhost/manifest.webmanifest";
+    let app_name = registry.get_unique_name(&manifest.get_name(), &update_url);
     assert_eq!(app_name, Err(AppsServiceError::InvalidAppName));
 
     {
@@ -1565,7 +1572,7 @@ fn test_apply_download() {
             Some(app) => {
                 assert_eq!(app.get_status(), AppsStatus::Enabled);
             }
-            None => assert!(false),
+            None => panic!(),
         }
 
         if let Ok((app, changed)) =
@@ -1574,7 +1581,7 @@ fn test_apply_download() {
             assert_eq!(app.status, AppsStatus::Enabled);
             assert!(!changed);
         } else {
-            assert!(false);
+            panic!();
         }
 
         if let Ok((app, changed)) =
@@ -1583,14 +1590,14 @@ fn test_apply_download() {
             assert_eq!(app.status, AppsStatus::Disabled);
             assert!(changed);
         } else {
-            assert!(false);
+            panic!();
         }
 
         match registry.get_by_manifest_url(&manifest_url) {
             Some(app) => {
                 assert_eq!(app.get_status(), AppsStatus::Disabled);
             }
-            None => assert!(false),
+            None => panic!(),
         }
 
         if let Ok((app, changed)) =
@@ -1599,14 +1606,14 @@ fn test_apply_download() {
             assert_eq!(app.status, AppsStatus::Enabled);
             assert!(changed);
         } else {
-            assert!(false);
+            panic!();
         }
 
         match registry.get_by_manifest_url(&manifest_url) {
             Some(app) => {
                 assert_eq!(app.get_status(), AppsStatus::Enabled);
             }
-            None => assert!(false),
+            None => panic!(),
         }
     }
 }
@@ -1675,7 +1682,7 @@ fn test_apply_pwa() {
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir-pwa.
     let current = env::current_dir().unwrap();
-    let _root_dir = format!("{}/test-fixtures/webapps", current.display());
+    let root_path = format!("{}/test-fixtures/webapps", current.display());
     let _test_dir = format!("{}/test-fixtures/test-apps-dir-pwa", current.display());
     let test_path = Path::new(&_test_dir);
 
@@ -1683,9 +1690,9 @@ fn test_apply_pwa() {
     // Tring to remove it at the beginning to make the test at local easy.
     let _ = fs::remove_dir_all(&test_path);
 
-    println!("Register from: {}", &_root_dir);
+    println!("Register from: {}", &root_path);
     let config = Config {
-        root_path: _root_dir.clone(),
+        root_path,
         data_path: _test_dir.clone(),
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
@@ -1723,7 +1730,7 @@ fn test_apply_pwa() {
         let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
         assert_eq!(4, icons.len());
     } else {
-        assert!(false);
+        panic!();
     }
     let mut apps_item = AppsItem::default(&app_name, registry.get_vhost_port());
     apps_item.set_install_state(AppsInstallState::Installing);
@@ -1741,7 +1748,7 @@ fn test_apply_pwa() {
         }
         Err(err) => {
             println!("err: {:?}", err);
-            assert!(false);
+            panic!();
         }
     }
 
@@ -1754,7 +1761,7 @@ fn test_apply_pwa() {
         }
         Err(err) => {
             println!("err: {:?}", err);
-            assert!(false);
+            panic!();
         }
     }
     if let Some(app) = registry.get_by_update_url(app_url) {
@@ -1781,9 +1788,9 @@ fn test_apply_pwa() {
                 assert_eq!(icon_url_base, manifest_url_base);
             }
         } else {
-            assert!(false);
+            panic!();
         }
     } else {
-        assert!(false);
+        panic!();
     }
 }

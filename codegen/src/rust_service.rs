@@ -44,6 +44,24 @@ impl Codegen {
         false
     }
 
+    pub fn find_tracked_interfaces(
+        &self,
+        interface: &sidl_parser::ast::Interface,
+        set: &mut HashSet<TrackedInterfaceInfo>,
+    ) {
+        for method in &interface.methods {
+            let method = method.1;
+            if let ConcreteType::Interface(name) = &method.returns.success.typ {
+                set.insert(TrackedInterfaceInfo::by_name(&self.ast, name));
+                self.find_tracked_interfaces(self.ast.interfaces.get(name).unwrap(), set);
+            }
+            if let ConcreteType::Interface(name) = &method.returns.error.typ {
+                set.insert(TrackedInterfaceInfo::by_name(&self.ast, name));
+                self.find_tracked_interfaces(self.ast.interfaces.get(name).unwrap(), set);
+            }
+        }
+    }
+
     // Services are mapped to trait that implement both their defining interface and the
     // core common one.
     pub fn generate_service<'a, W: Write>(
@@ -52,18 +70,10 @@ impl Codegen {
         sink: &'a mut W,
     ) -> Result<()> {
         // Find all interfaces that will be tracked objects for this service.
-        // These are all success/error returned interfaces.
+        // These are all success/error returned interfaces, with a recursive descent.
         let mut tracked_interfaces = HashSet::new();
         let interface = self.ast.interfaces.get(&service.interface).unwrap();
-        for method in &interface.methods {
-            let method = method.1;
-            if let ConcreteType::Interface(name) = &method.returns.success.typ {
-                tracked_interfaces.insert(TrackedInterfaceInfo::by_name(&self.ast, name));
-            }
-            if let ConcreteType::Interface(name) = &method.returns.error.typ {
-                tracked_interfaces.insert(TrackedInterfaceInfo::by_name(&self.ast, name));
-            }
-        }
+        self.find_tracked_interfaces(&interface, &mut tracked_interfaces);
 
         // Check the "rust:shared-tracker" annotation to decide if we will use
         // Arc<Mutex<TrackerType>> or TrackerType.
@@ -261,7 +271,7 @@ impl Codegen {
             let mut variant_params = String::new();
             let mut bootstrap = String::new();
             if !method.params.is_empty() {
-                req_name.push_str("(");
+                req_name.push('(');
                 for param in &method.params {
                     // If the parameter is a callback, use a proxy instead of the raw parameter
                     // which is the object id.
@@ -280,7 +290,7 @@ impl Codegen {
                     variant_params.push_str(&format!("{}, ", param.name));
                 }
                 req_name.push_str(&variant_params);
-                req_name.push_str(")");
+                req_name.push(')');
             }
             writeln!(
                 sink,
@@ -326,7 +336,7 @@ impl Codegen {
                 let mut variant_params = String::new();
                 let mut bootstrap = String::new();
                 if !method.params.is_empty() {
-                    req_name.push_str("(");
+                    req_name.push('(');
                     for param in &method.params {
                         // If the parameter is an interface, use a proxy instead of the raw parameter
                         // which is the object id.
@@ -345,7 +355,7 @@ impl Codegen {
                         variant_params.push_str(&format!("{}, ", param.name));
                     }
                     req_name.push_str(&variant_params);
-                    req_name.push_str(")");
+                    req_name.push(')');
                 }
                 writeln!(sink, "Req::{} => {{", req_name)?;
                 // Get the object from the tracker, and call the method on the object if possible.
@@ -658,7 +668,7 @@ impl Codegen {
         codegen.top_level(sink)
     }
 
-    pub fn top_level<'a, W: Write>(&mut self, sink: &'a mut W) -> Result<()> {
+    pub fn top_level<W: Write>(&mut self, sink: &mut W) -> Result<()> {
         sink.write_all(
             b"// This file is generated. Do not edit.
 // @generated\n\n

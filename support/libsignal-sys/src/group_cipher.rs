@@ -84,8 +84,7 @@ impl GroupCipher {
             let res =
                 group_cipher_encrypt(self.native, message.as_ptr(), message.len(), &mut encrypted);
             if res == 0 {
-                let vec = (*(*encrypted).serialized).data_slice().to_vec().clone();
-                ::std::mem::forget(encrypted);
+                let vec = (*(*encrypted).serialized).data_slice().to_vec();
                 ciphertext_message_destroy(encrypted);
                 Ok(vec)
             } else {
@@ -118,7 +117,7 @@ impl GroupCipher {
                 );
                 sender_key_message_destroy(message as *mut signal_type_base);
                 if res == 0 {
-                    let ret = (*plaintext).data_slice().to_vec().clone();
+                    let ret = (*plaintext).data_slice().to_vec();
                     signal_buffer_free(plaintext as *mut signal_buffer);
                     Ok(ret)
                 } else {

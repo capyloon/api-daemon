@@ -35,8 +35,16 @@ impl Clone for PairedStream {
         match self.fd.try_clone() {
             Ok(fd) => PairedStream { fd },
             Err(err) => {
-                log::error!("PairedStream cloning fd {} failed: {}", self.fd.as_raw_fd(), err);
-                panic!("PairedStream cloning fd {} failed: {}", self.fd.as_raw_fd(), err);
+                log::error!(
+                    "PairedStream cloning fd {} failed: {}",
+                    self.fd.as_raw_fd(),
+                    err
+                );
+                panic!(
+                    "PairedStream cloning fd {} failed: {}",
+                    self.fd.as_raw_fd(),
+                    err
+                );
             }
         }
     }
@@ -106,24 +114,26 @@ fn socket_pair_fork() {
     let mut parent = pair.0;
     let mut child = pair.1;
 
-    match fork() {
-        Ok(ForkResult::Parent { .. }) => {
-            parent.write(b"From Parent").unwrap();
+    unsafe {
+        match fork() {
+            Ok(ForkResult::Parent { .. }) => {
+                parent.write(b"From Parent").unwrap();
 
-            let mut response = [0; 10];
-            parent.read(&mut response).unwrap();
-            let s = String::from_utf8_lossy(&response);
-            assert_eq!(s, "From Child".to_owned());
-        }
-        Ok(ForkResult::Child) => {
-            let mut response = [0; 11];
-            child.read(&mut response).unwrap();
-            let s = String::from_utf8_lossy(&response);
-            assert_eq!(s, "From Parent".to_owned());
+                let mut response = [0; 10];
+                parent.read(&mut response).unwrap();
+                let s = String::from_utf8_lossy(&response);
+                assert_eq!(s, "From Child".to_owned());
+            }
+            Ok(ForkResult::Child) => {
+                let mut response = [0; 11];
+                child.read(&mut response).unwrap();
+                let s = String::from_utf8_lossy(&response);
+                assert_eq!(s, "From Parent".to_owned());
 
-            child.write(b"From Child").unwrap();
+                child.write(b"From Child").unwrap();
+            }
+            Err(_) => panic!("Fork failed"),
         }
-        Err(_) => panic!("Fork failed"),
     }
 }
 
@@ -145,36 +155,38 @@ fn socket_pair_bincode() {
     let parent = pair.0;
     let child = pair.1;
 
-    match fork() {
-        Ok(ForkResult::Parent { .. }) => {
-            let msg1 = TestMessage {
-                msg: "From Parent".into(),
-                id: 42,
-                error: false,
-            };
-            let _ = bincode::serialize_into(parent.clone(), &msg1);
+    unsafe {
+        match fork() {
+            Ok(ForkResult::Parent { .. }) => {
+                let msg1 = TestMessage {
+                    msg: "From Parent".into(),
+                    id: 42,
+                    error: false,
+                };
+                let _ = bincode::serialize_into(parent.clone(), &msg1);
 
-            let response: TestMessage = bincode::deserialize_from(parent).unwrap();
+                let response: TestMessage = bincode::deserialize_from(parent).unwrap();
 
-            assert_eq!(response.msg, "From Child".to_owned());
-            assert_eq!(response.id, 21);
-            assert_eq!(response.error, true);
-        }
-        Ok(ForkResult::Child) => {
-            {
-                let response: TestMessage = bincode::deserialize_from(child.clone()).unwrap();
-                assert_eq!(response.msg, "From Parent".to_owned());
-                assert_eq!(response.id, 42);
-                assert_eq!(response.error, false);
+                assert_eq!(response.msg, "From Child".to_owned());
+                assert_eq!(response.id, 21);
+                assert_eq!(response.error, true);
             }
+            Ok(ForkResult::Child) => {
+                {
+                    let response: TestMessage = bincode::deserialize_from(child.clone()).unwrap();
+                    assert_eq!(response.msg, "From Parent".to_owned());
+                    assert_eq!(response.id, 42);
+                    assert_eq!(response.error, false);
+                }
 
-            let msg2 = TestMessage {
-                msg: "From Child".into(),
-                id: 21,
-                error: true,
-            };
-            let _ = bincode::serialize_into(child, &msg2);
+                let msg2 = TestMessage {
+                    msg: "From Child".into(),
+                    id: 21,
+                    error: true,
+                };
+                let _ = bincode::serialize_into(child, &msg2);
+            }
+            Err(_) => panic!("Fork failed"),
         }
-        Err(_) => panic!("Fork failed"),
     }
 }

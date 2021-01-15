@@ -222,7 +222,7 @@ fn check_kernel_version() {
 fn system_state() {
     let mut file = File::open("test-fixtures/valid_build_props.txt").unwrap();
     let mut lists = String::new();
-    file.read_to_string(&mut lists);
+    file.read_to_string(&mut lists).unwrap();
 
     // First call will fail because the ro.build property is set to "invalid build".
     let res = check_system_state(false, Some(&lists));

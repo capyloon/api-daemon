@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LibSignal Tests</title>
+
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/libsignal/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="data.js"></script>
+    <script src="store.js"></script>
+
+    <script>
+      async function run_tests() {
+        let alice = await test_service(
+          lib_libsignal.Signal,
+          "test-client-alice"
+        );
+
+        const aliceDeviceId = 42;
+
+        // Get Alice's signal context.
+        let aliceContext;
+        await alice.assert_eq(
+          "Alice getContext",
+          (service) => (aliceContext = service.newGlobalContext()),
+          true,
+          (result) => {
+            aliceContext = result;
+            return !!result;
+          }
+        );
+
+        // Get all the data needed to build a SessionPreKeyBundle
+        let registrationId = await aliceContext.generateRegistrationId();
+        let deviceId = aliceDeviceId;
+        let preKeys = await aliceContext.generatePreKeys(1, 1);
+        let preKey = preKeys[0];
+        let identityKey = await aliceContext.generateIdentityKeyPair();
+        let signedPreKey = await aliceContext.generateSignedPreKey(
+          identityKey,
+          1,
+          Date.now()
+        );
+
+        let alicePreKeyBundle = {
+          registrationId,
+          deviceId,
+          preKeyId: preKey.id,
+          preKeyPublic: preKey.keyPair.publicKey,
+          signedPreKeyId: signedPreKey.id,
+          signedPreKeyPublic: signedPreKey.keyPair.publicKey,
+          signedPreKeySignature: signedPreKey.signature,
+          identityKey: identityKey.publicKey,
+        };
+
+        // Create a store context.
+        let storeContext = createStoreContextFor(alice);
+        storeContext.identityKeyStore.setKeyPair(identityKey);
+
+        let aliceAddress = {
+          name: "Alice",
+          deviceId: aliceDeviceId,
+        };
+        let sessionBuilder = await aliceContext.sessionBuilder(
+          aliceAddress,
+          storeContext
+        );
+        console.log(`sessionBuilder is `, sessionBuilder);
+
+        await alice.assert_eq(
+          "Alice processPreKeyBundle",
+          (service) => sessionBuilder.processPreKeyBundle(alicePreKeyBundle),
+          {}
+        );
+
+        // Now create a session cipher and use it to encrypt.
+        let decryptionCallback = new DecryptionCallbackWrapper(
+          alice,
+          (plaintext) => {
+            console.log(`Decrypted: ${plaintext}`);
+            return Promise.resolve();
+          }
+        );
+
+        let sessionCipher = await aliceContext.sessionCipher(
+          aliceAddress,
+          storeContext,
+          decryptionCallback
+        );
+
+        let encoder = new TextEncoder();
+        await alice.assert_eq(
+          "Alice cipher.encrypt()",
+          (service) =>
+            sessionCipher.encrypt(
+              encoder.encode("L'homme est condamné à être libre")
+            ),
+          {
+            messageType: 3,
+            length: 177,
+            start: [51, 8, 1, 18, 0, 48, 1],
+          },
+          (result) => {
+            let serialized = result.serialized;
+            let length = serialized.length;
+            return {
+              messageType: result.messageType,
+              length,
+              start: [
+                serialized[0],
+                serialized[1],
+                serialized[2],
+                serialized[3],
+                serialized[length - 3],
+                serialized[length - 2],
+                serialized[length - 1],
+              ],
+            };
+          }
+        );
+
+        let reporter = new TestReporter([alice]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

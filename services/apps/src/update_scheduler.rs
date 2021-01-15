@@ -167,7 +167,7 @@ impl UpdateScheduler {
         shared.registry.get_all().iter().for_each(|app| {
             debug!("checking apps");
             let update_url: String = app.update_url.to_owned();
-            if update_url != "" {
+            if !update_url.is_empty() {
                 // Create tasks and check for update
                 let apps_options = AppsOptions {
                     auto_install: Some(true),

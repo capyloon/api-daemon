@@ -295,12 +295,13 @@ impl From<&ContactInfo> for SimContactInfo {
 
 impl From<&SimContactInfo> for ContactInfo {
     fn from(sim_contact_info: &SimContactInfo) -> Self {
-        let mut contact = ContactInfo::default();
-
-        contact.id = sim_contact_info.id.to_string();
-        contact.name = sim_contact_info.name.to_string();
-        contact.family_name = sim_contact_info.name.to_string();
-        contact.given_name = sim_contact_info.name.to_string();
+        let mut contact = ContactInfo {
+            id: sim_contact_info.id.to_string(),
+            name: sim_contact_info.name.to_string(),
+            family_name: sim_contact_info.name.to_string(),
+            given_name: sim_contact_info.name.to_string(),
+            ..Default::default()
+        };
 
         let sim_tels: Vec<&str> = sim_contact_info.tel.split('\u{001E}').collect();
         let tels = sim_tels
@@ -512,11 +513,11 @@ impl ContactInfo {
             for tel in tels {
                 tel_number += &tel.value;
                 // Seperate with unprintable character, used for find.
-                tel_number.push_str("\u{001E}");
+                tel_number.push('\u{001E}');
 
                 // Store the International, National, Rfc3966, E164 format of number used for search.
                 tel_number.push_str(&format_phone_number(&tel.value));
-                tel_number.push_str("\u{001E}");
+                tel_number.push('\u{001E}');
             }
             // The tel_json is used for restore the tel struct.
             tel_json = serde_json::to_string(tels)?;
@@ -528,7 +529,7 @@ impl ContactInfo {
             for email in emails {
                 email_address += &email.value;
                 // Seperate with unprintable character, used for find.
-                email_address.push_str("\u{001E}");
+                email_address.push('\u{001E}');
             }
             // The email_json is used for restore the email struct.
             email_json = serde_json::to_string(emails)?;
@@ -540,7 +541,7 @@ impl ContactInfo {
             for item in categories {
                 category += item;
                 // Seperate with unprintable character, used for find.
-                category.push_str("\u{001E}");
+                category.push('\u{001E}');
             }
             // The category_json is used for restore the category array.
             category_json = serde_json::to_string(categories)?;
@@ -887,8 +888,10 @@ impl ContactsDb {
                     "DELETE FROM contact_main WHERE contact_id = ?",
                     &[&contact_id],
                 )?;
-                let mut contact = ContactInfo::default();
-                contact.id = contact_id.to_string();
+                let contact = ContactInfo {
+                    id: contact_id.to_string(),
+                    ..Default::default()
+                };
                 contacts.push(contact);
             }
         }
@@ -1677,11 +1680,15 @@ mod test {
         }
         assert_eq!(db.count().unwrap(), 0);
 
-        let mut bob = ContactInfo::default();
-        bob.name = "Bob".to_string();
+        let bob = ContactInfo {
+            name: "Bob".to_string(),
+            ..Default::default()
+        };
 
-        let mut alice = ContactInfo::default();
-        alice.name = "alice".to_string();
+        let alice = ContactInfo {
+            name: "alice".to_string(),
+            ..Default::default()
+        };
 
         db.save(&[bob, alice], false).unwrap();
 
