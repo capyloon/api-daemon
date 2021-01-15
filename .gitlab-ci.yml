@@ -4,6 +4,14 @@ default:
     - hk-fantastic4
   before_script:
     - |
+      if [[ ${CI_JOB_NAME%%:*} == update ]]; then
+        echo -e "\033[1;33mFor job [${CI_JOB_NAME}], restore ssh-settings for git-push. \033[0m"
+        eval $(ssh-agent -s)
+        ssh-add <(echo "$SSH_PRIVATE_KEY")
+        mkdir -p ~/.ssh
+        [[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+      fi
+    - |
       echo -e "machine ${CI_SERVER_HOST}\nlogin gitlab-ci-token\npassword ${CI_JOB_TOKEN}" > ~/.netrc
       git config --global url."${CI_SERVER_URL}/".insteadOf "git@${CI_SERVER_HOST}:"
     - |
