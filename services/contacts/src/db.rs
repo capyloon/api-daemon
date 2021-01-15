@@ -130,17 +130,17 @@ impl DatabaseUpgrader for ContactsSchemaManager {
 }
 
 // This function creates a concatenated form of the phone number,
-// to ensure that we don't consider equals numbers that have 
+// to ensure that we don't consider equals numbers that have
 // the same national representation but different international representations.
 fn format_phone_number(number: &str) -> String {
-    let countr_code = match AndroidProperties::get("gsm.operator.iso-country", "US") {
+    let countr_code = match AndroidProperties::get("persist.device.countrycode", "US") {
         Ok(value) => match Id::from_str(&value) {
             Ok(code) => code,
             Err(_) => Id::US,
         },
         Err(_) => Id::US,
     };
-    
+
     if let Ok(phone_number) = phonenumber::parse(Some(countr_code), &number) {
         let mut result = "".to_string();
         result.push_str(&phone_number.format().mode(Mode::International).to_string());
@@ -1309,7 +1309,8 @@ impl ContactsDb {
 
         let conn = self.db.connection();
         let match_key = format_phone_number(number);
-        let mut stmt = conn.prepare("INSERT INTO blocked_numbers (number, match_key) VALUES (?, ?)")?;
+        let mut stmt =
+            conn.prepare("INSERT INTO blocked_numbers (number, match_key) VALUES (?, ?)")?;
         let size = stmt.execute(&[number, &match_key])?;
         if size > 0 {
             let event = BlockedNumberChangeEvent {
@@ -1356,7 +1357,8 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt;
         if options.filter_option == FilterOption::Match {
-            stmt = conn.prepare("SELECT number FROM blocked_numbers WHERE match_key LIKE :param")?;
+            stmt =
+                conn.prepare("SELECT number FROM blocked_numbers WHERE match_key LIKE :param")?;
         } else {
             stmt = conn.prepare("SELECT number FROM blocked_numbers WHERE number LIKE :param")?;
         }
@@ -1377,9 +1379,7 @@ impl ContactsDb {
             }
             FilterOption::Contains => format!("%{}%", options.filter_value),
             FilterOption::Equals => options.filter_value,
-            FilterOption::Match => {
-                format_phone_number(&options.filter_value)
-            }
+            FilterOption::Match => format_phone_number(&options.filter_value),
         };
 
         let rows = stmt.query_map_named(&[(":param", &param)], |row| row.get(0))?;
