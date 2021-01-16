@@ -45,21 +45,23 @@ RUN cargo install --version 0.41.0 bindgen && \
     rustup target add x86_64-pc-windows-gnu && \
     rustup toolchain install stable-x86_64-pc-windows-gnu
 
-RUN wget https://ftp.mozilla.org/pub/firefox/releases/70.0/linux-x86_64/en-US/firefox-70.0.tar.bz2 && \
-    tar -xjf firefox-70.0.tar.bz2 && \
-    mv firefox /opt/firefox70 && \
-    ln -s /opt/firefox70/firefox /usr/bin/firefox && \
-    rm -f firefox-70.0.tar.bz2
+ENV FX_VERSION 84.0.2
+RUN wget https://ftp.mozilla.org/pub/firefox/releases/${FX_VERSION}/linux-x86_64/en-US/firefox-${FX_VERSION}.tar.bz2 && \
+    tar -xjf firefox-${FX_VERSION}.tar.bz2 && \
+    mv firefox /opt/firefox${FX_VERSION} && \
+    ln -s /opt/firefox${FX_VERSION}/firefox /usr/bin/firefox && \
+    rm -f firefox-${FX_VERSION}.tar.bz2
 
 # Install geckodriver to a location in $PATH
-RUN wget https://github.com/mozilla/geckodriver/releases/download/v0.26.0/geckodriver-v0.26.0-linux64.tar.gz && \
-    tar xzf geckodriver-v0.26.0-linux64.tar.gz && \
+ENV GECKODRIVER v0.29.0
+RUN wget https://github.com/mozilla/geckodriver/releases/download/${GECKODRIVER}/geckodriver-${GECKODRIVER}-linux64.tar.gz && \
+    tar xzf geckodriver-${GECKODRIVER}-linux64.tar.gz && \
     mv geckodriver /usr/bin/geckodriver && \
-    rm -f geckodriver-v0.26.0-linux64.tar.gz
+    rm -f geckodriver-${GECKODRIVER}-linux64.tar.gz
 
 # Add the vhosts mapping that are expected by tests.
 RUN echo "127.0.0.1       valid.local" >> /etc/hosts && \
     echo "127.0.0.1       unknown.local" >> /etc/hosts && \
     echo "127.0.0.1       missing-zip.local" >> /etc/hosts
 
-#RELEASETAG 1.49.0
+#RELEASETAG 1.49.0_1
