@@ -13,58 +13,9 @@
     <script src="http://127.0.0.1:8081/api/v1/libsignal/service.js"></script>
     <script src="http://127.0.0.1:8081/tests/testing.js"></script>
     <script src="data.js"></script>
-    <script src="store.js"></script>
+    <script src="utils.js"></script>
 
     <script>
-      async function createUser(tester, address) {
-        let context;
-        let deviceId = address.deviceId;
-        await tester.assert_eq(
-          `getContext for user ${address.name} (${address.deviceId})`,
-          (service) => (context = service.newGlobalContext()),
-          true,
-          (result) => {
-            context = result;
-            return !!result;
-          }
-        );
-
-        let registrationId = await context.generateRegistrationId();
-        let preKeys = await context.generatePreKeys(1, 100);
-        let preKey = preKeys[0];
-        let identityKey = await context.generateIdentityKeyPair();
-        let signedPreKey = await context.generateSignedPreKey(
-          identityKey,
-          1,
-          Date.now()
-        );
-
-        let preKeyBundle = {
-          registrationId,
-          deviceId,
-          preKeyId: preKey.id,
-          preKeyPublic: preKey.keyPair.publicKey,
-          signedPreKeyId: signedPreKey.id,
-          signedPreKeyPublic: signedPreKey.keyPair.publicKey,
-          signedPreKeySignature: signedPreKey.signature,
-          identityKey: identityKey.publicKey,
-        };
-
-        // Create a store context.
-        let storeContext = createStoreContextFor(tester);
-        storeContext.identityKeyStore.setKeyPair(identityKey);
-
-        return {
-          context,
-          registrationId,
-          preKeys,
-          identityKey,
-          signedPreKey,
-          preKeyBundle,
-          storeContext,
-        };
-      }
-
       async function run_tests() {
         let tester = await test_service(
           lib_libsignal.Signal,

@@ -11,60 +11,12 @@
     <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
     <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
     <script src="http://127.0.0.1:8081/api/v1/libsignal/service.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/libsignal/text_secure.js"></script>
     <script src="http://127.0.0.1:8081/tests/testing.js"></script>
     <script src="data.js"></script>
-    <script src="store.js"></script>
+    <script src="utils.js"></script>
 
     <script>
-      async function createUser(tester, address) {
-        let context;
-        let deviceId = address.deviceId;
-        await tester.assert_eq(
-          `getContext for user ${address.name} (${address.deviceId})`,
-          (service) => (context = service.newGlobalContext()),
-          true,
-          (result) => {
-            context = result;
-            return !!result;
-          }
-        );
-
-        let registrationId = await context.generateRegistrationId();
-        let preKeys = await context.generatePreKeys(1, 100);
-        let preKey = preKeys[0];
-        let identityKey = await context.generateIdentityKeyPair();
-        let signedPreKey = await context.generateSignedPreKey(
-          identityKey,
-          1,
-          Date.now()
-        );
-
-        let preKeyBundle = {
-          registrationId,
-          deviceId,
-          preKeyId: preKey.id,
-          preKeyPublic: preKey.keyPair.publicKey,
-          signedPreKeyId: signedPreKey.id,
-          signedPreKeyPublic: signedPreKey.keyPair.publicKey,
-          signedPreKeySignature: signedPreKey.signature,
-          identityKey: identityKey.publicKey,
-        };
-
-        // Create a store context.
-        let storeContext = createStoreContextFor(tester);
-        storeContext.identityKeyStore.setKeyPair(identityKey);
-
-        return {
-            context,
-            registrationId,
-            preKeys,
-            identityKey,
-            signedPreKey,
-            preKeyBundle,
-            storeContext,
-        }
-      }
-
       async function run_tests() {
         let tester = await test_service(
           lib_libsignal.Signal,
@@ -75,33 +27,98 @@
           name: "Alice",
           deviceId: 42,
         };
-
         let alice = await createUser(tester, aliceAddress);
-        let sessionBuilder = await alice.context.sessionBuilder(
-          aliceAddress,
-          alice.storeContext
-        );
-        console.log(`sessionBuilder is `, sessionBuilder);
 
-        await tester.assert_eq(
-          "Alice processPreKeyBundle",
-          (service) => sessionBuilder.processPreKeyBundle(alice.preKeyBundle),
-          {}
+        let bobAddress = {
+          name: "Bob",
+          deviceId: 66,
+        };
+        let bob = await createUser(tester, bobAddress);
+
+        let textSecure = new TextSecure();
+
+        bob.storeContext.preKeyStore.store(
+          bob.preKeys[0].id,
+          textSecure.serializePreKey(bob.preKeys[0])
         );
 
-        // Now create a session cipher and use it to encrypt.
+        // A common decryption callback.
         let decryptionCallback = new DecryptionCallbackWrapper(
           tester,
           (plaintext) => {
-            console.log(`Decrypted: ${plaintext}`);
+            console.log(`Alice Decrypted: ${plaintext}`);
             return Promise.resolve();
           }
         );
 
-        let sessionCipher = await alice.context.sessionCipher(
+        // Get session ciphers for both users.
+        let aliceCipher = await alice.context.sessionCipher(
           aliceAddress,
           alice.storeContext,
           decryptionCallback
+        );
+
+        let bobCipher = await bob.context.sessionCipher(
+          bobAddress,
+          bob.storeContext,
+          decryptionCallback
+        );
+
+        // Serialize the signed pre key and store it.
+        bob.storeContext.signedPreKeyStore.store(
+          bob.signedPreKey.id,
+          textSecure.serializeSignedPreKey(bob.signedPreKey)
+        );
+
+        let aliceSessionBuilder = await alice.context.sessionBuilder(
+          aliceAddress,
+          alice.storeContext
+        );
+
+        await tester.assert_eq(
+          "Alice processPreKeyBundle",
+          (service) =>
+            aliceSessionBuilder.processPreKeyBundle(bob.preKeyBundle),
+          {}
+        );
+
+        await tester.assert_eq(
+          "Check registration id",
+          (service) => aliceCipher.remoteRegistrationId(),
+          bob.registrationId
+        );
+
+        let message = "Here is Alice talking to Bob";
+
+        // Encrypt a message from Alice.
+        let encoder = new TextEncoder();
+        let cipherText;
+        await tester.assert_eq(
+          "Check cipher text",
+          (service) => aliceCipher.encrypt(encoder.encode(message)),
+          3,
+          (result) => {
+            cipherText = result;
+            return cipherText.messageType;
+          }
+        );
+
+        // Verify that Bob can decrypt it.
+        await tester.assert_eq(
+          "Bob decrypting",
+          (service) => bobCipher.decryptPreKeyMessage(cipherText.serialized),
+          message,
+          (result) => {
+            let decoder = new TextDecoder();
+            return decoder.decode(result);
+          }
+        );
+
+        // Verify that Alice can't decrypt it.
+        await tester.assert_rej_eq(
+          "Alice decrypting",
+          (service) => aliceCipher.decryptPreKeyMessage(cipherText.serialized),
+          -1005, // SG_ERR_INVALID_MESSAGE
         );
 
         let reporter = new TestReporter([tester]);

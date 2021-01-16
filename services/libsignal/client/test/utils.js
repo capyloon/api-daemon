@@ -1,10 +1,11 @@
 // Implementation of store callbacks.
 
 class SessionStore extends lib_libsignal.SessionStoreBase {
-  constructor(service, session) {
+  constructor(service, session, name) {
     super(service.id, session);
 
     this.data = {};
+    this.name = name;
   }
 
   display() {
@@ -12,7 +13,7 @@ class SessionStore extends lib_libsignal.SessionStoreBase {
   }
 
   log() {
-    console.log(`SessionStore: `, ...arguments);
+    console.log(`${this.name} SessionStore: `, ...arguments);
   }
 
   // fn load(address: Address) -> binary
@@ -58,8 +59,10 @@ class SessionStore extends lib_libsignal.SessionStoreBase {
 }
 
 class KeyStore extends lib_libsignal.KeyStoreBase {
-  constructor(service, session) {
+  constructor(service, session, name) {
     super(service.id, session);
+    this.record = {};
+    this.name = name;
   }
 
   display() {
@@ -67,33 +70,41 @@ class KeyStore extends lib_libsignal.KeyStoreBase {
   }
 
   log() {
-    console.log(`KeyStore: `, ...arguments);
+    console.log(`${this.name} KeyStore: `, ...arguments);
+  }
+
+  store(preKeyId, record) {
+    this.log(`store`, preKeyId);
+    this.record[preKeyId] = record;
   }
 
   // fn load(preKey_id: int) -> binary
   load(preKeyId) {
-    this.log(`load`, preKeyId);
-    return Promise.resolve([]);
+    this.log(`load`, preKeyId, this.record[preKeyId]);
+    return Promise.resolve(this.record[preKeyId] || []);
   }
 
   // fn contains(preKey_id: int) -> bool
   contains(preKeyId) {
     this.log(`contains`, preKeyId);
-    return Promise.resolve(true);
+    return Promise.resolve(!!this.record[preKeyId]);
   }
 
   // fn remove(preKey_id: int)
   remove(preKeyId) {
     this.log(`remove`, preKeyId);
+    delete this.record[preKeyId];
     return Promise.resolve();
   }
 }
 
 class IdentityKeyStore extends lib_libsignal.IdentityKeyStoreBase {
-  constructor(service, session) {
+  constructor(service, session, name = "User") {
     super(service.id, session);
 
     this.identity = {};
+    this.registrationId = null;
+    this.name = name;
   }
 
   display() {
@@ -101,7 +112,7 @@ class IdentityKeyStore extends lib_libsignal.IdentityKeyStoreBase {
   }
 
   log() {
-    console.log(`IdentityKeyStore: `, ...arguments);
+    console.log(`${this.name} IdentityKeyStore: `, ...arguments);
   }
 
   setKeyPair(keyPair) {
@@ -119,14 +130,18 @@ class IdentityKeyStore extends lib_libsignal.IdentityKeyStoreBase {
   }
 
   setLocalRegistrationId(id) {
-    this.log(`setLocalRegistrationId`);
+    this.log(`setLocalRegistrationId ${id}`);
     this.registrationId = id;
   }
 
   // fn get_local_registration_id() -> int
   getLocalRegistrationId() {
-    this.log(`getLocalRegistrationId`);
-    return Promise.resolve(this.registrationId);
+    this.log(`getLocalRegistrationId -> ${this.registrationId}`);
+    if (this.registration_id !== null) {
+      return Promise.resolve(this.registration_id);
+    } else {
+      return Promise.reject();
+    }
   }
 
   // fn save_identity(address: Address, key_data: binary)
@@ -170,12 +185,16 @@ class SenderKeyStore extends lib_libsignal.SenderKeyStoreBase {
   }
 }
 
-function createStoreContextFor(tester) {
+function createStoreContextFor(tester, name) {
   return {
-    sessionStore: new SessionStore(tester.service, tester.session),
-    preKeyStore: new KeyStore(tester.service, tester.session),
-    signedPreKeyStore: new KeyStore(tester.service, tester.session),
-    identityKeyStore: new IdentityKeyStore(tester.service, tester.session),
+    sessionStore: new SessionStore(tester.service, tester.session, name),
+    preKeyStore: new KeyStore(tester.service, tester.session, name),
+    signedPreKeyStore: new KeyStore(tester.service, tester.session, name),
+    identityKeyStore: new IdentityKeyStore(
+      tester.service,
+      tester.session,
+      name
+    ),
     senderKeyStore: new SenderKeyStore(tester.service, tester.session),
   };
 }
@@ -195,38 +214,58 @@ class DecryptionCallbackWrapper extends lib_libsignal.DecryptionCallbackBase {
   }
 }
 
-// class TextSecure {
-//   // Serializes a signed pre key in the TextSecure protobuf format.
-//   serializeSignedPrekey(preKey) {
-//     // The public key needs an extra byte in front when serialized...
-//     let pubKeyBuffer = new Uint8Array(33);
-//     pubKeyBuffer[0] = 0x05;
-//     pubKeyBuffer.set(preKey.keyPair.publicKey, 1);
+function cryptoRandomUint32() {
+  const randomKeyArray = new Uint32Array(1);
+  window.crypto.getRandomValues(randomKeyArray);
+  return randomKeyArray[0];
+}
 
-//     let record = textsecure.SignedPreKeyRecordStructure.create({
-//       id: preKey.id,
-//       publicKey: pubKeyBuffer,
-//       privateKey: preKey.keyPair.privateKey,
-//       signature: preKey.signature,
-//       timestamp: preKey.timestamp,
-//     });
+async function createUser(tester, address) {
+  let context;
+  let deviceId = address.deviceId;
+  await tester.assert_eq(
+    `getContext for user ${address.name} (${address.deviceId})`,
+    (service) => service.newGlobalContext(),
+    true,
+    (result) => {
+      context = result;
+      return !!result;
+    }
+  );
 
-//     return textsecure.SignedPreKeyRecordStructure.encode(record).finish();
-//   }
+  let registrationId = await context.generateRegistrationId();
+  let preKeys = await context.generatePreKeys(1, 100);
+  let preKey = preKeys[0];
+  let identityKey = await context.generateIdentityKeyPair();
+  let signedPreKey = await context.generateSignedPreKey(
+    identityKey,
+    cryptoRandomUint32(),
+    Date.now()
+  );
 
-//   // Serializes a pre key in the TextSecure protobuf format.
-//   serializePreKey(preKey) {
-//     // The public key needs an extra byte in front when serialized...
-//     let pubKeyBuffer = new Uint8Array(33);
-//     pubKeyBuffer[0] = 0x05;
-//     pubKeyBuffer.set(preKey.keyPair.publicKey, 1);
+  let preKeyBundle = {
+    registrationId,
+    deviceId,
+    preKeyId: preKey.id,
+    preKeyPublic: preKey.keyPair.publicKey,
+    signedPreKeyId: signedPreKey.id,
+    signedPreKeyPublic: signedPreKey.keyPair.publicKey,
+    signedPreKeySignature: signedPreKey.signature,
+    identityKey: identityKey.publicKey,
+  };
 
-//     let record = textsecure.PreKeyRecordStructure.create({
-//       id: preKey.id,
-//       publicKey: pubKeyBuffer,
-//       privateKey: preKey.keyPair.privateKey,
-//     });
+  // Create a store context.
+  let storeContext = createStoreContextFor(tester, address.name);
+  storeContext.identityKeyStore.setKeyPair(identityKey);
+  storeContext.identityKeyStore.setLocalRegistrationId(registrationId);
 
-//     return textsecure.PreKeyRecordStructure.encode(record).finish();
-//   }
-// }
+  return {
+    context,
+    registrationId,
+    preKeys,
+    identityKey,
+    signedPreKey,
+    preKeyBundle,
+    storeContext,
+  };
+}

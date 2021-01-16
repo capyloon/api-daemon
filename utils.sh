@@ -4,6 +4,8 @@ function pack_lib() {
     local dst=$2
     mkdir -p ${dst}
     cp ${src}/dist/*.js ${dst}
+    # libsignal has a non bundled file under ${src}/src that we need to copy.
+    [ -d ${src}/js ] &&  cp ${src}/js/*.js ${dst}
     rm -rf ${dst}/*.gz
     # Install generated documentation if present
     [ -f ${src}/generated/*_service.html ] && cp ${src}/generated/*_service.html ${dst}/docs.html
