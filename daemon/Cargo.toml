@@ -91,7 +91,7 @@ procmanager_service = { path = "../services/procmanager", optional = true }
 vhost_server = { path = "../vhost", optional = true }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-env_logger = "0.7"
+env_logger = "0.8"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.5"

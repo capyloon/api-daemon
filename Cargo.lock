@@ -446,7 +446,7 @@ dependencies = [
  "actix-rt",
  "assert-json-diff",
  "common",
- "env_logger 0.7.1",
+ "env_logger 0.8.2",
  "geckobridge",
  "hex-slice",
  "http",
@@ -964,7 +964,7 @@ dependencies = [
  "android_logger",
  "bincode",
  "common",
- "env_logger 0.7.1",
+ "env_logger 0.8.2",
  "futures 0.1.30",
  "log 0.4.13",
  "nix 0.14.1",
@@ -1063,7 +1063,7 @@ dependencies = [
  "android_utils",
  "chrono",
  "common",
- "env_logger 0.7.1",
+ "env_logger 0.8.2",
  "ical",
  "lazy_static",
  "log 0.4.13",
@@ -1224,7 +1224,7 @@ dependencies = [
  "contacts_service",
  "daemonize",
  "devicecapability_service",
- "env_logger 0.7.1",
+ "env_logger 0.8.2",
  "futures-core",
  "futures-util",
  "geckobridge",
@@ -1312,13 +1312,12 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 name = "driver"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.7.1",
+ "env_logger 0.8.2",
  "fantoccini",
- "futures 0.1.30",
  "log 0.4.13",
  "serde",
  "serde_json",
- "tokio 0.2.24",
+ "tokio 1.0.2",
  "yansi",
 ]
 
@@ -1368,7 +1367,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15b0a4d2e39f8420210be8b27eeda28029729e2fd4291019455016c348240c38"
 dependencies = [
  "atty",
- "humantime",
+ "humantime 1.3.0",
  "log 0.4.13",
  "regex 1.4.3",
  "termcolor",
@@ -1376,12 +1375,12 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.7.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44533bbbb3bb3c1fa17d9f2e4e38bbbaf8396ba82193c4cb1b6445d711445d36"
+checksum = "f26ecb66b4bdca6c1409b40fb255eefc2bd4f6d135dab3c3124f80ffa2a9661e"
 dependencies = [
  "atty",
- "humantime",
+ "humantime 2.1.0",
  "log 0.4.13",
  "regex 1.4.3",
  "termcolor",
@@ -1435,21 +1434,21 @@ checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fantoccini"
-version = "0.14.2"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc4eadcfdf79804c8be3835451fa83d3e41ba0ec10c33355b7670e49fdc40c08"
+checksum = "1852845813edb25094c321568422700d78ff1c6b6480b69af8f662a9fb5e7a10"
 dependencies = [
- "base64 0.12.3",
+ "base64 0.13.0",
  "cookie 0.14.3",
  "futures-core",
  "futures-util",
  "http",
- "hyper 0.13.9",
+ "hyper 0.14.2",
  "hyper-tls",
  "mime",
  "serde",
  "serde_json",
- "tokio 0.2.24",
+ "tokio 1.0.2",
  "url",
  "webdriver",
 ]
@@ -1934,6 +1933,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "humantime"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
+
+[[package]]
 name = "hyper"
 version = "0.13.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1998,15 +2003,15 @@ dependencies = [
 
 [[package]]
 name = "hyper-tls"
-version = "0.4.3"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d979acc56dcb5b8dddba3917601745e877576475aa046df3226eabdecef78eed"
+checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
 dependencies = [
- "bytes 0.5.6",
- "hyper 0.13.9",
+ "bytes 1.0.1",
+ "hyper 0.14.2",
  "native-tls",
- "tokio 0.2.24",
- "tokio-tls",
+ "tokio 1.0.2",
+ "tokio-native-tls",
 ]
 
 [[package]]
@@ -3511,7 +3516,7 @@ name = "sidl_codegen"
 version = "0.1.0"
 dependencies = [
  "clap",
- "env_logger 0.7.1",
+ "env_logger 0.8.2",
  "handlebars",
  "heck",
  "log 0.4.13",
@@ -3917,7 +3922,6 @@ dependencies = [
  "pin-project-lite 0.1.11",
  "signal-hook-registry",
  "slab",
- "tokio-macros",
  "winapi 0.3.9",
 ]
 
@@ -3934,17 +3938,28 @@ dependencies = [
  "mio 0.7.7",
  "num_cpus",
  "pin-project-lite 0.2.4",
+ "tokio-macros",
 ]
 
 [[package]]
 name = "tokio-macros"
-version = "0.2.6"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e44da00bfc73a25f814cd8d7e57a68a5c31b74b3152a0a1d1f590c97ed06265a"
+checksum = "42517d2975ca3114b22a16192634e8241dc5cc1f130be194645970cc1c371494"
 dependencies = [
  "proc-macro2",
  "quote 1.0.8",
  "syn",
+]
+
+[[package]]
+name = "tokio-native-tls"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7d995660bd2b7f8c1568414c1126076c13fbb725c40112dc0120b78eb9b717b"
+dependencies = [
+ "native-tls",
+ "tokio 1.0.2",
 ]
 
 [[package]]
@@ -3979,16 +3994,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite 0.2.4",
  "tokio 1.0.2",
-]
-
-[[package]]
-name = "tokio-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a70f4fcd7b3b24fb194f837560168208f669ca8cb70d0c4b862944452396343"
-dependencies = [
- "native-tls",
- "tokio 0.2.24",
 ]
 
 [[package]]
@@ -4265,7 +4270,7 @@ dependencies = [
  "actix-web",
  "blake2",
  "common",
- "env_logger 0.7.1",
+ "env_logger 0.8.2",
  "futures 0.3.12",
  "log 0.4.13",
  "mime_guess",
@@ -4425,9 +4430,9 @@ dependencies = [
 
 [[package]]
 name = "webdriver"
-version = "0.41.0"
+version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "450919616bd28359aeee2f48c1f1396e4c5a3826d14066d33f795173a1ac6101"
+checksum = "a0ac60d4eaeda569da30b4377926ff9add146e598d5058b1f2dd33f971da9c33"
 dependencies = [
  "base64 0.12.3",
  "bytes 0.5.6",

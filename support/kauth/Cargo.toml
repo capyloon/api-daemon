@@ -21,4 +21,4 @@ geckobridge = { path = "../../services/geckobridge" }
 settings_service = { path = "../../services/settings" }
 
 [dev-dependencies]
-env_logger = "0.7"
+env_logger = "0.8"

@@ -573,6 +573,24 @@ impl Codegen {
         for method in interface.methods.values() {
             let (req, resp) = MethodWriter::declare(&method, sink)?;
             writeln!(sink, "{{")?;
+            // Check if this is a callback with a single function that could be
+            // simplified to a simple function.
+            for param in &method.params {
+                if let ConcreteType::Callback(callback_name) = &param.typ.typ {
+                    if self.ast.callbacks.get(callback_name).unwrap().methods.len() == 1 {
+                        // shadow the function parameter if needed.
+                        let pname = param.name.clone();
+                        writeln!(sink, "let {}__ = {};", pname, pname)?;
+                        writeln!(sink, "if (typeof {} === 'function') {{", pname)?;
+                        writeln!(
+                            sink,
+                            "{} = {}Base.fromFunction(this.service_id, this.session, {}__);",
+                            pname, callback_name, pname
+                        )?;
+                        writeln!(sink, "}}")?;
+                    }
+                }
+            }
 
             writeln!(
                 sink,
@@ -677,9 +695,9 @@ impl Codegen {
         }
 
         // Debug
-        write!(sink, "/*\n\n")?;
-        write!(sink, "Messages: {:?}\n\n", messages)?;
-        write!(sink, "*/\n\n")?;
+        // write!(sink, "/*\n\n")?;
+        // write!(sink, "Messages: {:?}\n\n", messages)?;
+        // write!(sink, "*/\n\n")?;
 
         let res = self.generate_messages_for_interface(
             &interface.name,
@@ -713,6 +731,21 @@ impl Codegen {
         writeln!(sink, "session.track(this);")?;
         writeln!(sink, "this.service_id = service_id;")?;
         writeln!(sink, "}}")?;
+
+        // If a callback has a single function, it can be used as wrapper for pure
+        // functions instead of forcing the caller to create a subclass.
+        if callback.methods.len() == 1 {
+            writeln!(sink, "static fromFunction(service_id, session, fn) {{")?;
+            writeln!(
+                sink,
+                "let obj = new {}Base(service_id, session);",
+                callback.name
+            )?;
+            let method_name = callback.methods.iter().next().unwrap().0;
+            writeln!(sink, "obj.{} = fn.bind(obj);", method_name)?;
+            writeln!(sink, "return obj;")?;
+            writeln!(sink, "}}")?;
+        }
 
         // Callback base classes don't implement methods themselves, since
         // they are expected to be implemented by the user.
@@ -861,10 +894,7 @@ impl Codegen {
                 }});
             }},
         }};"#,
-            service.name,
-            service.name,
-            self.fingerprint,
-            service.interface
+            service.name, service.name, self.fingerprint, service.interface
         )?;
         writeln!(sink)?;
 

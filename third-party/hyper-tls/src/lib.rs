@@ -10,7 +10,7 @@
 //! use hyper_tls::HttpsConnector;
 //! use hyper::Client;
 //!
-//! #[tokio::main]
+//! #[tokio::main(flavor = "current_thread")]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>>{
 //!     let https = HttpsConnector::new();
 //!     let client = Client::builder().build::<_, hyper::Body>(https);
@@ -20,7 +20,7 @@
 //!     Ok(())
 //! }
 //! ```
-#![doc(html_root_url = "https://docs.rs/hyper-tls/0.4.3")]
+#![doc(html_root_url = "https://docs.rs/hyper-tls/0.5.0")]
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]

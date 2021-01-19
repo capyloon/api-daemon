@@ -190,9 +190,6 @@ test:js-clients:
     - WITH_TEST_SERVICE=1 ./release_libs.sh
     - mkdir -p ./daemon/remote/TestService
     - cp ./target/release/child-test-daemon $CI_PROJECT_DIR/daemon/remote/TestService/daemon
-    # FIXME: For some reason the first webdriver test is often very slow and times out, so instead
-    # we run a dummy one to warm things up.
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/tests/dummy.html
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/apps/client/test/tests.html
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/audiovolumemanager/client/test/tests.html
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/contacts/client/test/tests.html

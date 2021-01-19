@@ -1,7 +1,5 @@
 # tokio-tls
 
-**Deprecated** in favor of `tokio-native-tls`.
-
 An implementation of TLS/SSL streams for Tokio built on top of the [`native-tls`
 crate]
 

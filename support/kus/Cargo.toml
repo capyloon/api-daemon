@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 chrono = { version = "0.4.9", features = ["serde"] }
-env_logger = "0.7"
+env_logger = "0.8"
 json = "0.11.15"
 log = "0.4"
 rand = "0.7"

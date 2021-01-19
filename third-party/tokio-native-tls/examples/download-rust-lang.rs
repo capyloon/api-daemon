@@ -5,7 +5,6 @@ use std::error::Error;
 use std::net::ToSocketAddrs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio_tls;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -16,7 +15,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let socket = TcpStream::connect(&addr).await?;
     let cx = TlsConnector::builder().build()?;
-    let cx = tokio_tls::TlsConnector::from(cx);
+    let cx = tokio_native_tls::TlsConnector::from(cx);
 
     let mut socket = cx.connect("www.rust-lang.org", socket).await?;
 

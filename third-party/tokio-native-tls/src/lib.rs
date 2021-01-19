@@ -1,20 +1,17 @@
-#![doc(html_root_url = "https://docs.rs/tokio-tls/0.3.1")]
+#![doc(html_root_url = "https://docs.rs/tokio-native-tls/0.3.0")]
 #![warn(
     missing_debug_implementations,
     missing_docs,
     rust_2018_idioms,
     unreachable_pub
 )]
-#![deny(intra_doc_link_resolution_failure)]
+#![deny(broken_intra_doc_links)]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
 ))]
 
 //! Async TLS streams
-//!
-//! > **Note:** This crate is **deprecated** and has been moved
-//! into the [`tokio-native-tls`] crate.
 //!
 //! This library is an implementation of TLS streams using the most appropriate
 //! system library by default for negotiating the connection. That is, on
@@ -31,22 +28,34 @@
 //! built. Configuration of TLS parameters is still primarily done through the
 //! `native-tls` crate.
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use native_tls::{Error, HandshakeError, MidHandshakeTlsStream};
+use crate::native_tls::{Error, HandshakeError, MidHandshakeTlsStream};
 use std::fmt;
 use std::future::Future;
 use std::io::{self, Read, Write};
 use std::marker::Unpin;
-use std::mem::MaybeUninit;
 use std::pin::Pin;
 use std::ptr::null_mut;
 use std::task::{Context, Poll};
 
+/// An intermediate wrapper for the inner stream `S`.
 #[derive(Debug)]
-struct AllowStd<S> {
+pub struct AllowStd<S> {
     inner: S,
     context: *mut (),
+}
+
+impl<S> AllowStd<S> {
+    /// Returns a shared reference to the inner stream.
+    pub fn get_ref(&self) -> &S {
+        &self.inner
+    }
+
+    /// Returns a mutable reference to the inner stream.
+    pub fn get_mut(&mut self) -> &mut S {
+        &mut self.inner
+    }
 }
 
 /// A wrapper around an underlying raw stream which implements the TLS or SSL
@@ -103,14 +112,17 @@ impl<S> AllowStd<S>
 where
     S: Unpin,
 {
-    fn with_context<F, R>(&mut self, f: F) -> R
+    fn with_context<F, R>(&mut self, f: F) -> io::Result<R>
     where
-        F: FnOnce(&mut Context<'_>, Pin<&mut S>) -> R,
+        F: FnOnce(&mut Context<'_>, Pin<&mut S>) -> Poll<io::Result<R>>,
     {
         unsafe {
             assert!(!self.context.is_null());
             let waker = &mut *(self.context as *mut _);
-            f(waker, Pin::new(&mut self.inner))
+            match f(waker, Pin::new(&mut self.inner)) {
+                Poll::Ready(r) => r,
+                Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            }
         }
     }
 }
@@ -120,10 +132,9 @@ where
     S: AsyncRead + Unpin,
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self.with_context(|ctx, stream| stream.poll_read(ctx, buf)) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        }
+        let mut buf = ReadBuf::new(buf);
+        self.with_context(|ctx, stream| stream.poll_read(ctx, &mut buf))?;
+        Ok(buf.filled().len())
     }
 }
 
@@ -132,53 +143,43 @@ where
     S: AsyncWrite + Unpin,
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.with_context(|ctx, stream| stream.poll_write(ctx, buf)) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        }
+        self.with_context(|ctx, stream| stream.poll_write(ctx, buf))
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        match self.with_context(|ctx, stream| stream.poll_flush(ctx)) {
-            Poll::Ready(r) => r,
-            Poll::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-        }
-    }
-}
-
-fn cvt<T>(r: io::Result<T>) -> Poll<io::Result<T>> {
-    match r {
-        Ok(v) => Poll::Ready(Ok(v)),
-        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-        Err(e) => Poll::Ready(Err(e)),
+        self.with_context(|ctx, stream| stream.poll_flush(ctx))
     }
 }
 
 impl<S> TlsStream<S> {
-    fn with_context<F, R>(&mut self, ctx: &mut Context<'_>, f: F) -> R
+    fn with_context<F, R>(&mut self, ctx: &mut Context<'_>, f: F) -> Poll<io::Result<R>>
     where
-        F: FnOnce(&mut native_tls::TlsStream<AllowStd<S>>) -> R,
+        F: FnOnce(&mut native_tls::TlsStream<AllowStd<S>>) -> io::Result<R>,
         AllowStd<S>: Read + Write,
     {
         self.0.get_mut().context = ctx as *mut _ as *mut ();
         let g = Guard(self);
-        f(&mut (g.0).0)
+        match f(&mut (g.0).0) {
+            Ok(v) => Poll::Ready(Ok(v)),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
+            Err(e) => Poll::Ready(Err(e)),
+        }
     }
 
     /// Returns a shared reference to the inner stream.
-    pub fn get_ref(&self) -> &S
+    pub fn get_ref(&self) -> &native_tls::TlsStream<AllowStd<S>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        &self.0.get_ref().inner
+        &self.0
     }
 
     /// Returns a mutable reference to the inner stream.
-    pub fn get_mut(&mut self) -> &mut S
+    pub fn get_mut(&mut self) -> &mut native_tls::TlsStream<AllowStd<S>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        &mut self.0.get_mut().inner
+        &mut self.0
     }
 }
 
@@ -186,19 +187,16 @@ impl<S> AsyncRead for TlsStream<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    unsafe fn prepare_uninitialized_buffer(&self, _: &mut [MaybeUninit<u8>]) -> bool {
-        // Note that this does not forward to `S` because the buffer is
-        // unconditionally filled in by OpenSSL, not the actual object `S`.
-        // We're decrypting bytes from `S` into the buffer above!
-        false
-    }
-
     fn poll_read(
         mut self: Pin<&mut Self>,
         ctx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        self.with_context(ctx, |s| cvt(s.read(buf)))
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        self.with_context(ctx, |s| {
+            let n = s.read(buf.initialize_unfilled())?;
+            buf.advance(n);
+            Ok(())
+        })
     }
 }
 
@@ -211,19 +209,15 @@ where
         ctx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.with_context(ctx, |s| cvt(s.write(buf)))
+        self.with_context(ctx, |s| s.write(buf))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.with_context(ctx, |s| cvt(s.flush()))
+        self.with_context(ctx, |s| s.flush())
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.with_context(ctx, |s| s.shutdown()) {
-            Ok(()) => Poll::Ready(Ok(())),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
-            Err(e) => Poll::Ready(Err(e)),
-        }
+        self.with_context(ctx, |s| s.shutdown())
     }
 }
 
@@ -352,13 +346,21 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Future for MidHandshake<S> {
 
         s.get_mut().context = cx as *mut _ as *mut ();
         match s.handshake() {
-            Ok(stream) => Poll::Ready(Ok(TlsStream(stream))),
-            Err(HandshakeError::Failure(e)) => Poll::Ready(Err(e)),
+            Ok(mut s) => {
+                s.get_mut().context = null_mut();
+                Poll::Ready(Ok(TlsStream(s)))
+            }
             Err(HandshakeError::WouldBlock(mut s)) => {
                 s.get_mut().context = null_mut();
                 mut_self.0 = Some(s);
                 Poll::Pending
             }
+            Err(HandshakeError::Failure(e)) => Poll::Ready(Err(e)),
         }
     }
+}
+
+/// re-export native_tls
+pub mod native_tls {
+    pub use native_tls::*;
 }

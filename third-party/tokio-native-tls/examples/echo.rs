@@ -6,7 +6,6 @@ use native_tls::Identity;
 use tokio;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio_tls;
 
 /**
 an example to setup a tls server.
@@ -17,13 +16,13 @@ wget https://127.0.0.1:12345 --no-check-certificate
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bind the server's socket
     let addr = "127.0.0.1:12345".to_string();
-    let mut tcp: TcpListener = TcpListener::bind(&addr).await?;
+    let tcp: TcpListener = TcpListener::bind(&addr).await?;
 
     // Create the TLS acceptor.
     let der = include_bytes!("identity.p12");
     let cert = Identity::from_pkcs12(der, "mypass")?;
     let tls_acceptor =
-        tokio_tls::TlsAcceptor::from(native_tls::TlsAcceptor::builder(cert).build()?);
+        tokio_native_tls::TlsAcceptor::from(native_tls::TlsAcceptor::builder(cert).build()?);
     loop {
         // Asynchronously wait for an inbound socket.
         let (socket, remote_addr) = tcp.accept().await?;
