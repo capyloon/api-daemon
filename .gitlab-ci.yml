@@ -1,6 +1,6 @@
 default:
 # Use stable Rust
-  image: ${CI_REGISTRY}/kaios/sidl:1.49.0
+  image: ${CI_REGISTRY}/kaios/sidl:1.49.0_1
   tags:
     - hk-fantastic4
   before_script:
