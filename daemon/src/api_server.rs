@@ -326,7 +326,7 @@ pub fn start(global_context: &GlobalContext, vhost_data: Shared<AppData>) {
             .app_data(shared_data.clone())
             .app_data(vhost_data.clone())
             .wrap(Logger::new("\"%r\" %{Host}i %s %b %D")) // Custom log to display the vhost
-            .wrap(Cors::new().send_wildcard().finish())
+            .wrap(Cors::default().allow_any_origin().send_wildcard())
             .wrap(Compress::default())
             .service(
                 web::scope("/")

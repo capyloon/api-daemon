@@ -1,10 +1,11 @@
 // Test driver that provides the capability to run
-// a SIDL test and au¨tomatically wrap it with
+// one or several SIDL test and automatically wrap it with
 // a WebDriver layer.
 // Both geckodriver and Firefox need to be in the $PATH
 // and the env variable TEST_FIREFOX_PROFILE needs to be
 // set to the path of the profile to use.
 
+use fantoccini::error::CmdError;
 use fantoccini::{Client, Locator};
 use log::{error, info};
 use serde::Deserialize;
@@ -23,19 +24,91 @@ struct TestData {
     elapsed: Option<u32>,
 }
 
+async fn test_script(script: &str, client: &mut Client) -> Result<(), CmdError> {
+    println!(
+        "{}",
+        Paint::blue(format!("WebDriver test of {}", script)).bold()
+    );
+
+    client.goto(&script).await?;
+    println!("{}", Paint::blue(format!("Navigated to {}", script)).bold());
+
+    let mut element = loop {
+        match client.find(Locator::Css(".json")).await {
+            Ok(element) => break element,
+            Err(_) => {
+                println!("{}", Paint::white("Waiting for .json to be available..."));
+                ::std::thread::sleep(::std::time::Duration::from_secs(2));
+            }
+        }
+    };
+
+    println!("{}", Paint::blue("Get json element").bold());
+    let json = element.text().await?;
+    println!("{}", Paint::blue("Get json text").bold());
+    println!("{}", json);
+
+    let tests: Vec<TestData> = match serde_json::from_str(&json) {
+        Ok(value) => value,
+        Err(err) => {
+            println!(
+                "{} : {}",
+                Paint::red("Failed to get test data, error").bold(),
+                Paint::white(err)
+            );
+            exit(4);
+        }
+    };
+
+    let success = tests.iter().filter(|item| item.success).count() == tests.len();
+
+    for test in tests {
+        if test.success {
+            println!(
+                "{} ({}ms)",
+                Paint::green(test.description).bold(),
+                test.elapsed.unwrap()
+            );
+        } else if test.error.is_none() {
+            println!(
+                "{} : expected {} but got {}",
+                Paint::red(test.description).bold(),
+                Paint::white(test.expected.unwrap()),
+                Paint::white(test.observed.unwrap())
+            );
+        } else {
+            println!(
+                "{} : {}",
+                Paint::red(test.description).bold(),
+                Paint::white(test.error.unwrap())
+            );
+        }
+    }
+
+    if !success {
+        println!("{}", Paint::blue("WebDriver test failed").bold());
+        exit(4);
+    }
+
+    println!("{}", Paint::blue("WebDriver test successful").bold());
+
+    Ok(())
+}
+
 #[tokio::main]
-async fn main() -> Result<(), fantoccini::error::CmdError> {
+async fn main() -> Result<(), CmdError> {
     env_logger::init();
 
     info!("Starting SIDL integration tests driver.");
 
-    let script = match env::args().nth(1) {
-        Some(value) => value,
-        None => {
-            error!("Usage: {} <path_to_test.html>", env::args().next().unwrap());
-            exit(1);
-        }
-    };
+    // Check that we have at least one script parameter
+    if env::args().nth(1).is_none() {
+        error!(
+            "Usage: {} <path_to_test1.html> ... <path_to_testN.html>",
+            env::args().next().unwrap()
+        );
+        exit(1);
+    }
 
     let geckodriver = match env::var("GECKODRIVER_BIN") {
         Ok(value) => value,
@@ -112,17 +185,9 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
             exit(5);
         }
         retries += 1;
-        info!(
-            "Retrying to connect to geckodriver for the {} time",
-            retries
-        );
+        info!("Retrying to connect to geckodriver: {}", retries);
     }
     info!("Connectivity to geckodriver verified.");
-
-    println!(
-        "{}",
-        Paint::blue(format!("WebDriver test of {}", script)).bold()
-    );
 
     let mut client = Client::new("http://localhost:4444")
         .await
@@ -134,20 +199,9 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
         Paint::blue("Client connected to http://localhost:4444").bold()
     );
 
-    client.goto(&script).await?;
-    println!("{}", Paint::blue(format!("Navigated to {}", script)).bold());
-
-    let mut element = loop {
-        match client.find(Locator::Css(".json")).await {
-            Ok(element) => break element,
-            Err(_) => ::std::thread::sleep(::std::time::Duration::from_secs(2)),
-        }
-    };
-
-    println!("{}", Paint::blue("Get json element").bold());
-    let json = element.text().await?;
-    println!("{}", Paint::blue("Get json text").bold());
-    println!("{}", json);
+    for script in env::args().into_iter().skip(1) {
+        test_script(&script, &mut client).await?;
+    }
 
     let res = client.close().await;
     println!(
@@ -160,50 +214,6 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
     info!("geckodriver killed");
     let _ = firefox_handle.kill();
     info!("firefox killed");
-
-    let tests: Vec<TestData> = match serde_json::from_str(&json) {
-        Ok(value) => value,
-        Err(err) => {
-            println!(
-                "{} : {}",
-                Paint::red("Failed to get test data, error").bold(),
-                Paint::white(err)
-            );
-            exit(4);
-        }
-    };
-
-    let success = tests.iter().filter(|item| item.success).count() == tests.len();
-
-    for test in tests {
-        if test.success {
-            println!(
-                "{} ({}ms)",
-                Paint::green(test.description).bold(),
-                test.elapsed.unwrap()
-            );
-        } else if test.error.is_none() {
-            println!(
-                "{} : expected {} but got {}",
-                Paint::red(test.description).bold(),
-                Paint::white(test.expected.unwrap()),
-                Paint::white(test.observed.unwrap())
-            );
-        } else {
-            println!(
-                "{} : {}",
-                Paint::red(test.description).bold(),
-                Paint::white(test.error.unwrap())
-            );
-        }
-    }
-
-    if !success {
-        println!("{}", Paint::blue("WebDriver test failed").bold());
-        exit(4);
-    }
-
-    println!("{}", Paint::blue("WebDriver test successful").bold());
 
     res
 }

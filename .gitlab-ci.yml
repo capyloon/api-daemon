@@ -191,19 +191,18 @@ test:js-clients:
     - mkdir -p ./daemon/remote/TestService
     - cp ./target/release/child-test-daemon $CI_PROJECT_DIR/daemon/remote/TestService/daemon
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/apps/client/test/tests.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/audiovolumemanager/client/test/tests.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/contacts/client/test/tests.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/devicecapability/client/test/tests.html
-    # There are several test files for libsignal to break down features.
-    # TODO: run them in parallel
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/libsignal/client/test/global_context.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/libsignal/client/test/session_builder_cipher.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/libsignal/client/test/group_messages.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/powermanager/client/test/tests.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/settings/client/test/tests.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/tcpsocket/client/test/tests.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/test/client/test/tests.html
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/time/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/audiovolumemanager/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/contacts/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/devicecapability/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/libsignal/client/test/global_context.html
+      file://$CI_PROJECT_DIR/services/libsignal/client/test/session_builder_cipher.html
+      file://$CI_PROJECT_DIR/services/libsignal/client/test/group_messages.html
+      file://$CI_PROJECT_DIR/services/powermanager/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/settings/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/tcpsocket/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/test/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/time/client/test/tests.html
+    # TODO: figure out why tess_no_package.html fails when running grouped.
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_server_error.html
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_no_package.html
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_check_update.html
@@ -211,26 +210,6 @@ test:js-clients:
   needs:
     - job: 'build:daemon'
     - job: 'build:daemon:test:essentials'
-
-# test-libsignal:
-#   extends: .tests_job_base
-#   script:
-#     - cd $CI_PROJECT_DIR
-#     - ./release_libs.sh
-#     - cp $CI_PROJECT_DIR/libsignal-service/test-fixtures/example3 $CI_PROJECT_DIR/prebuilts/http_root/war_and_peace.enc
-#     - cd $CI_PROJECT_DIR/daemon
-#     - export WS_RUNTIME_TOKEN=secrettoken
-#     - RUST_LOG=info ../target/debug/api-daemon &
-#     - cd $CI_PROJECT_DIR/libsignal-service/client/
-#     - export DISPLAY=:99
-#     - Xvfb :99 > /dev/null 2>&1 &
-#     - export RESTART_DAEMON_FLAG_FILE=restart_daemon_flag_file
-#     - ./test/restartDaemon.sh &
-#     - export KILL_DAEMON_FLAG_FILE=kill_daemon_flag_file
-#     - ./test/killDaemon.sh &
-#     - yarn ci-test
-#     - rm $CI_PROJECT_DIR/prebuilts/http_root/war_and_peace.enc
-# # the last test kills api-daemon
 
 .clone_build_sidl: &clone_build_sidl
   - |

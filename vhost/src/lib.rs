@@ -61,7 +61,7 @@ mod test {
                 HttpServer::new(move || {
                     App::new()
                         .data(app_data.clone())
-                        .wrap(Cors::new().send_wildcard().finish())
+                        .wrap(Cors::default().allow_any_origin().send_wildcard())
                         .route("/{filename:.*}", web::get().to(vhost))
                 })
                 .disable_signals() // For now, since that's causing us issues with Ctrl-C
@@ -157,10 +157,7 @@ mod test {
     }
 
     // Return the redirect URL.
-    fn redirect_request(
-        url: &str,
-        expected: StatusCode,
-    ) -> Result<String, ()> {
+    fn redirect_request(url: &str, expected: StatusCode) -> Result<String, ()> {
         use log::error;
 
         let url = url.to_owned();
@@ -300,7 +297,10 @@ mod test {
             "text/html",
         )
         .unwrap();
-        assert_eq!(&etag, "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\"");
+        assert_eq!(
+            &etag,
+            "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\""
+        );
 
         let etag = request_if_none_match(
             "http://missing-zip.localhost:7443/index.html",
@@ -309,7 +309,10 @@ mod test {
             "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\"",
         )
         .unwrap();
-        assert_eq!(&etag, "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\"");
+        assert_eq!(
+            &etag,
+            "W/\"69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9\""
+        );
 
         // Testing etag from zip.
         let etag = request(

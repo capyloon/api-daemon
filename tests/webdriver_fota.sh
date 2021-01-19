@@ -28,6 +28,6 @@ mkdir ./test-workspace
 cp $KOTAJSON ./test-workspace/kota.json
 cp $CONFIGJSON ./test-workspace/config.json
 
-$CI_PROJECT_DIR/tests/webdriver.sh $1
+$CI_PROJECT_DIR/tests/webdriver.sh $@
 
-echo "WebDriver fota test successful for $1"
+echo "WebDriver fota test successful for $@"

@@ -56,7 +56,7 @@ virtual-host = ["vhost_server"]
 
 [dependencies]
 actix = "0.10"
-actix-cors = "0.3"
+actix-cors = "0.5"
 actix-web = { version = "3.0", features = ["rust-tls"] }
 actix-web-actors = "3.0"
 actix-rt = "1.1"

@@ -256,7 +256,7 @@ async fn main() -> Result<()> {
                 let route_file1: String = format!("/{}", file1);
                 let route_file2: String = format!("/{}", file2);
                 App::new()
-                    .wrap(Cors::new().finish())
+                    .wrap(Cors::default().allow_any_origin())
                     .service(check_php)
                     .service(download_request_php)
                     .service(api_last_chk_query)
@@ -272,7 +272,7 @@ async fn main() -> Result<()> {
             let route_file1: String = format!("/{}", file1);
             HttpServer::new(move || {
                 App::new()
-                    .wrap(Cors::new().finish())
+                    .wrap(Cors::default().allow_any_origin())
                     .service(check_php)
                     .service(download_request_php)
                     .service(api_last_chk_query)
@@ -286,7 +286,7 @@ async fn main() -> Result<()> {
         _ => {
             HttpServer::new(move || {
                 App::new()
-                    .wrap(Cors::new().finish())
+                    .wrap(Cors::default().allow_any_origin())
                     .service(check_php)
                     .service(download_request_php)
                     .service(api_last_chk_query)

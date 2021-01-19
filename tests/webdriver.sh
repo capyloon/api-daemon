@@ -15,9 +15,9 @@ mkdir ./tmp-profile
 export TEST_FIREFOX_PROFILE=$CI_PROJECT_DIR/daemon/tmp-profile
 export RUST_LOG=info
 export RUST_BACKTRACE=1
-$CI_PROJECT_DIR/target/release/driver $1
+$CI_PROJECT_DIR/target/release/driver $@
 rm -rf ./tmp-profile
 $CI_PROJECT_DIR/tests/kill_daemon.sh
 
 sleep 5
-echo "WebDriver test successful for $1"
+echo "WebDriver test successful for $@"

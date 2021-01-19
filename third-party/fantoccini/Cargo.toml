@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "fantoccini"
-version = "0.15.0"
+version = "0.16.0"
 authors = ["Jon Gjengset <jon@thesquareplanet.com>"]
 description = "High-level API for programmatically interacting with web pages through WebDriver."
 homepage = "https://github.com/jonhoo/fantoccini"
@@ -64,7 +64,8 @@ features = ["sync", "rt"]
 version = "2.0.0"
 
 [dependencies.webdriver]
-version = "0.42.0"
+version = "0.43.0"
+default-features = false
 [dev-dependencies.hyper]
 version = "0.14"
 features = ["server"]
