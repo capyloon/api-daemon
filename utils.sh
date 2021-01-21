@@ -132,6 +132,11 @@ EOF
     export TARGET_CC=${TOOLCHAIN_CC}
     export TARGET_LD=${TOOLCHAIN_CC}
 
+    # To add /usr/bin to $PATH, in order for host builds
+    # of Rust crates to find 'cc' as a linker.
+    # TODO: find a proper fix.
+    export PATH=${PATH}:/usr/bin
+
     cat <<EOF >$(pwd)/env.txt
 export CARGO_BUILD_TARGET=${TARGET_TRIPLE}
 export CARGO_CONFIG=$(pwd)/.cargo/config
