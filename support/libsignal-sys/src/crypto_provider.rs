@@ -24,11 +24,11 @@ const SG_CIPHER_AES_CBC_PKCS5: c_int = 2;
 /// @param data pointer to the output buffer
 /// @param len size of the output buffer
 /// @return 0 on success, negative on failure
-extern "C" fn random_func(data: *mut u8, len: usize, _user_data: *mut c_void) -> c_int {
+extern "C" fn random_func(data: *mut u8, len: size_t, _user_data: *mut c_void) -> c_int {
     // debug!("random_func len={}", len);
     let rng = SystemRandom::new();
 
-    let array = unsafe { slice::from_raw_parts_mut(data, len) };
+    let array = unsafe { slice::from_raw_parts_mut(data, len as _) };
 
     match rng.fill(array) {
         Ok(_) => 0,
@@ -48,11 +48,11 @@ type HmacSha256 = Hmac<Sha256>;
 extern "C" fn hmac_sha256_init_func(
     hmac_context: *mut *mut c_void,
     key: *const u8,
-    key_len: usize,
+    key_len: size_t,
     _user_data: *mut c_void,
 ) -> c_int {
     debug!("hmac_sha256_init_func");
-    let hkey = unsafe { slice::from_raw_parts_mut(key as *mut u8, key_len) };
+    let hkey = unsafe { slice::from_raw_parts_mut(key as *mut u8, key_len as _) };
 
     match HmacSha256::new_varkey(hkey) {
         Ok(hmac) => {
@@ -79,12 +79,12 @@ extern "C" fn hmac_sha256_init_func(
 extern "C" fn hmac_sha256_update_func(
     hmac_context: *mut c_void,
     data: *const u8,
-    data_len: usize,
+    data_len: size_t,
     _user_data: *mut c_void,
 ) -> c_int {
     debug!("hmac_sha256_update_func");
     let wrapper: &mut HmacSha256 = unsafe { &mut *(hmac_context as *mut Hmac<Sha256>) };
-    let array = unsafe { slice::from_raw_parts_mut(data as *mut _, data_len) };
+    let array = unsafe { slice::from_raw_parts_mut(data as *mut _, data_len as _) };
     wrapper.update(array);
     0
 }
@@ -162,12 +162,12 @@ extern "C" fn sha512_digest_init_func(
 extern "C" fn sha512_digest_update_func(
     digest_context: *mut c_void,
     data: *const u8,
-    data_len: usize,
+    data_len: size_t,
     _user_data: *mut c_void,
 ) -> c_int {
     debug!("sha512_digest_update_func");
     let wrapper: &mut DigestWrapper = unsafe { mem::transmute(digest_context as usize) };
-    let array = unsafe { slice::from_raw_parts_mut(data as *mut _, data_len) };
+    let array = unsafe { slice::from_raw_parts_mut(data as *mut _, data_len as _) };
     wrapper.ctxt.update(array);
     0
 }
@@ -224,20 +224,20 @@ extern "C" fn encrypt_func(
     output: *mut *mut signal_buffer,
     cipher: c_int,
     key: *const u8,
-    key_len: usize,
+    key_len: size_t,
     iv: *const u8,
-    iv_len: usize,
+    iv_len: size_t,
     plaintext: *const u8,
-    plaintext_len: usize,
+    plaintext_len: size_t,
     _user_data: *mut c_void,
 ) -> c_int {
     debug!(
         "encrypt_func key_len is {}, plaintext size is {}",
         key_len, plaintext_len
     );
-    let ekey = unsafe { slice::from_raw_parts(key as *mut u8, key_len) };
-    let eiv = unsafe { slice::from_raw_parts(iv as *mut u8, iv_len) };
-    let eplain = unsafe { slice::from_raw_parts_mut(plaintext as *mut u8, plaintext_len) };
+    let ekey = unsafe { slice::from_raw_parts(key as *mut u8, key_len as _) };
+    let eiv = unsafe { slice::from_raw_parts(iv as *mut u8, iv_len as _) };
+    let eplain = unsafe { slice::from_raw_parts_mut(plaintext as *mut u8, plaintext_len as _) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
         let cipher = match Aes256Cbc::new_var(&ekey, &eiv) {
@@ -288,17 +288,17 @@ extern "C" fn decrypt_func(
     output: *mut *mut signal_buffer,
     cipher: c_int,
     key: *const u8,
-    key_len: usize,
+    key_len: size_t,
     iv: *const u8,
-    iv_len: usize,
+    iv_len: size_t,
     ciphertext: *const u8,
-    ciphertext_len: usize,
+    ciphertext_len: size_t,
     _user_data: *mut c_void,
 ) -> c_int {
     debug!("decrypt_func key_len is {}", key_len);
-    let ekey = unsafe { slice::from_raw_parts(key as *mut u8, key_len) };
-    let eiv = unsafe { slice::from_raw_parts(iv as *mut u8, iv_len) };
-    let ecipher = unsafe { slice::from_raw_parts_mut(ciphertext as *mut u8, ciphertext_len) };
+    let ekey = unsafe { slice::from_raw_parts(key as *mut u8, key_len as _) };
+    let eiv = unsafe { slice::from_raw_parts(iv as *mut u8, iv_len as _) };
+    let ecipher = unsafe { slice::from_raw_parts_mut(ciphertext as *mut u8, ciphertext_len as _) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
         let cipher = match Aes256Cbc::new_var(&ekey, &eiv) {

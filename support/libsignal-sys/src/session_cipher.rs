@@ -1,9 +1,9 @@
 use crate::generated::ffi::*;
 use crate::signal_context::SignalContext;
+use crate::store_context::StoreContext;
 use std::cell::Cell;
 use std::os::raw::{c_int, c_void};
 use std::ptr::null_mut;
-use crate::store_context::StoreContext;
 
 // Wrapper around a session_cipher
 pub type SessionCipherPtr = *mut session_cipher;
@@ -66,7 +66,7 @@ impl SessionCipher {
             let res = session_cipher_encrypt(
                 self.native,
                 message.as_ptr(),
-                message.len(),
+                message.len() as _,
                 &mut encrypted,
             );
             if res == 0 {
@@ -92,7 +92,7 @@ impl SessionCipher {
                 if signal_message_deserialize(
                     &mut message,
                     ciphertext.as_ptr(),
-                    ciphertext.len(),
+                    ciphertext.len() as _,
                     gctxt.native(),
                 ) == 0
                 {
@@ -131,7 +131,7 @@ impl SessionCipher {
                 if pre_key_signal_message_deserialize(
                     &mut message,
                     ciphertext.as_ptr(),
-                    ciphertext.len(),
+                    ciphertext.len() as _,
                     gctxt.native(),
                 ) == 0
                 {

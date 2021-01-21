@@ -1,8 +1,8 @@
 use crate::generated::ffi::*;
-use std::ptr::null_mut;
-use crate::store_context::StoreContext;
 use crate::signal_context::SignalContext;
+use crate::store_context::StoreContext;
 use std::os::raw::c_int;
+use std::ptr::null_mut;
 
 // Wrapper around a session_builder
 pub type SessionBuilderPtr = *mut session_builder;
@@ -127,7 +127,7 @@ impl SessionPreKeyBundle {
                 signed_pre_key_id,
                 sp_k_p,
                 signed_pre_key_signature.as_ptr(),
-                signed_pre_key_signature.len(),
+                signed_pre_key_signature.len() as _,
                 id_key,
             );
 
@@ -162,14 +162,14 @@ impl Drop for SessionPreKeyBundle {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::ffi::DecryptionError;
     use crate::session_cipher::SessionCipher;
     use crate::signal_context::SignalContext;
     use crate::store_context::StoreContext;
-    use std::rc::Rc;
-    use std::os::raw::c_void;
     use std::cell::Cell;
-    use super::*;
+    use std::os::raw::c_void;
+    use std::rc::Rc;
 
     extern "C" fn decrypt_callback(
         _cipher: *mut session_cipher,
@@ -215,7 +215,7 @@ mod test {
     extern "C" fn is_trusted_identity(
         address: *const signal_protocol_address,
         _key_data: *mut u8,
-        _key_len: usize,
+        _key_len: size_t,
         _user_data: *mut c_void,
     ) -> c_int {
         println!("is_trusted_identity {}", unsafe { (*address).to_string() });
@@ -252,7 +252,7 @@ mod test {
     extern "C" fn save_identity(
         _address: *const signal_protocol_address,
         _key_data: *mut u8,
-        _key_len: usize,
+        _key_len: size_t,
         _user_data: *mut c_void,
     ) -> c_int {
         println!("save_identity");
@@ -298,9 +298,9 @@ mod test {
     extern "C" fn store_session_func(
         _address: *const signal_protocol_address,
         record: *mut u8,
-        record_len: usize,
+        record_len: size_t,
         _user_record: *mut u8,
-        _user_record_len: usize,
+        _user_record_len: size_t,
         user_data: *mut c_void,
     ) -> c_int {
         let data: Rc<TestStoreData> = unsafe { Rc::from_raw(user_data as *const TestStoreData) };
@@ -309,7 +309,7 @@ mod test {
             data.name, record_len
         );
         unsafe {
-            let vec = Vec::from_raw_parts(record, record_len, record_len);
+            let vec = Vec::from_raw_parts(record, record_len as _, record_len as _);
             data.session.set(vec.clone());
             ::std::mem::forget(vec);
         }
@@ -462,7 +462,8 @@ mod test {
             &signed_pre_key.1,
             &signed_pre_key.4,
             &id_public,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(session_builder.process_pre_key_bundle(&bundle));
 
@@ -487,7 +488,7 @@ mod test {
 
         address.destroy();
         unsafe {
-            let _ : Rc<TestStoreData> = Rc::from_raw(user_data as *const _);
+            let _: Rc<TestStoreData> = Rc::from_raw(user_data as *const _);
         }
     }
 
@@ -534,9 +535,7 @@ mod test {
         let pre_key = bob_context.generate_pre_keys(1, 1).unwrap()[0];
 
         bob_user_data.pre_key.set(session_pre_key::serialize(
-            pre_key.0,
-            &pre_key.1,
-            &pre_key.2,
+            pre_key.0, &pre_key.1, &pre_key.2,
         ));
 
         // return (id, public_key, private_key, timestamp, signature)
@@ -569,7 +568,8 @@ mod test {
             &signed_pre_key.1,
             &signed_pre_key.4,
             &bob_user_data.public_key,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(alice_session_builder.process_pre_key_bundle(&bundle));
 
@@ -601,7 +601,8 @@ mod test {
             &signed_pre_key.1,
             &signed_pre_key.4,
             &bob_user_data.public_key,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(alice_session_builder.process_pre_key_bundle(&bundle));
 

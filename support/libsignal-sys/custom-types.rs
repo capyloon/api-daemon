@@ -34,7 +34,7 @@ impl signal_buffer {
     }
 
     pub fn from_slice(data: &[u8]) -> *mut signal_buffer {
-        unsafe { signal_buffer_create(data.as_ptr(), data.len()) }
+        unsafe { signal_buffer_create(data.as_ptr(), data.len() as _) }
     }
 
     pub fn from_public_key(data: &[u8]) -> *mut signal_buffer {
@@ -67,7 +67,7 @@ impl signal_protocol_address {
         let ffi_name = CString::new(name).unwrap();
         signal_protocol_address {
             name: ffi_name.into_raw(),
-            name_len: name.len(),
+            name_len: name.len() as _,
             device_id,
         }
     }
@@ -99,7 +99,7 @@ impl signal_protocol_sender_key_name {
         let ffi_group = CString::new(group_id).unwrap();
         signal_protocol_sender_key_name {
             group_id: ffi_group.into_raw(),
-            group_id_len: group_id.len(),
+            group_id_len: group_id.len() as _,
             sender: signal_protocol_address::new(sender_name, device_id),
         }
     }

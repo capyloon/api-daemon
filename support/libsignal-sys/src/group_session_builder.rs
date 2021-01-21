@@ -143,7 +143,7 @@ impl SenderKeyDistributionMessage {
             let res = sender_key_distribution_message_deserialize(
                 &mut native,
                 buffer.as_ptr(),
-                buffer.len(),
+                buffer.len() as _,
                 global_context,
             );
 
@@ -208,16 +208,16 @@ mod test {
     extern "C" fn store_sender_key(
         _sender_key_name: *const signal_protocol_sender_key_name,
         record: *mut u8,
-        record_len: usize,
+        record_len: size_t,
         _user_record: *mut u8,
-        _user_record_len: usize,
+        _user_record_len: size_t,
         user_data: *mut c_void,
     ) -> c_int {
         let data: Rc<TestStoreData> = unsafe { Rc::from_raw(user_data as *const TestStoreData) };
         println!("store_sender_key {}", data.name);
 
         unsafe {
-            let vec = Vec::from_raw_parts(record, record_len, record_len);
+            let vec = Vec::from_raw_parts(record, record_len as _, record_len as _);
             data.record.set(vec.clone());
             ::std::mem::forget(vec);
         }

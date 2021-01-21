@@ -101,4 +101,9 @@ bindgen --whitelist-function "signal_context_create" \
         wrapper.h \
         -- ${INCPATH}
 
-cat custom-types.rs >> src/generated/ffi.rs
+# Add a #[allow(non_camel_case_types)] to silence warning for size_t
+
+echo "#[allow(non_camel_case_types)]" > src/generated/ffi_.rs
+cat src/generated/ffi.rs >> src/generated/ffi_.rs
+cat custom-types.rs >> src/generated/ffi_.rs
+mv src/generated/ffi_.rs src/generated/ffi.rs

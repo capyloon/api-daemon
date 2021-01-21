@@ -32,10 +32,10 @@ pub struct SignalContext {
 extern "C" fn signal_log_rs(
     level: c_int,
     message: *const c_char,
-    len: usize,
+    len: size_t,
     _user_data: *mut c_void,
 ) {
-    let msg = unsafe { String::from_raw_parts(message as *mut u8, len, len) };
+    let msg = unsafe { String::from_raw_parts(message as *mut u8, len as _, len as _) };
 
     match level {
         0 => error!("SignalLog: {}", msg),
@@ -330,7 +330,7 @@ impl SignalContext {
             curve_decode_point(
                 &mut decoded_key,
                 full_key.as_ptr(),
-                full_key.len(),
+                full_key.len() as _,
                 ctx.native(),
             )
         };
@@ -343,9 +343,9 @@ impl SignalContext {
             curve_verify_signature(
                 decoded_key,
                 message.as_ptr(),
-                message.len(),
+                message.len() as _,
                 signature.as_ptr(),
-                signature.len(),
+                signature.len() as _,
             )
         };
         // Return 1 if valid, 0 if invalid, negative on failure

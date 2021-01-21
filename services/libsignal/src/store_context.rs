@@ -163,13 +163,14 @@ extern "C" fn session_store_load_session(
 extern "C" fn session_store_get_sub_device_sessions(
     sessions: *mut *mut signal_int_list,
     name: *const c_char,
-    name_len: usize,
+    name_len: size_t,
     user_data: *mut c_void,
 ) -> c_int {
     let mut ctxt: Rc<StoreProxies> = unsafe { Rc::from_raw(user_data as *const StoreProxies) };
     error!("session_store_get_sub_device_sessions");
 
-    let session_name = unsafe { String::from_raw_parts(name as *mut u8, name_len, name_len) };
+    let session_name =
+        unsafe { String::from_raw_parts(name as *mut u8, name_len as _, name_len as _) };
     let name = session_name.clone();
 
     // The session_name lifetime is managed by signal, so forget it.
@@ -204,9 +205,9 @@ extern "C" fn session_store_get_sub_device_sessions(
 extern "C" fn session_store_store_session(
     address: *const signal_protocol_address,
     record: *mut u8,
-    record_len: usize,
+    record_len: size_t,
     _user_record: *mut u8,
-    _user_record_len: usize,
+    _user_record_len: size_t,
     user_data: *mut c_void,
 ) -> c_int {
     let mut ctxt: Rc<StoreProxies> = unsafe { Rc::from_raw(user_data as *const StoreProxies) };
@@ -217,7 +218,7 @@ extern "C" fn session_store_store_session(
         device_id: unsafe { (*address).device_id } as i64,
     };
 
-    let vec = unsafe { Vec::from_raw_parts(record, record_len, record_len) };
+    let vec = unsafe { Vec::from_raw_parts(record, record_len as _, record_len as _) };
     let data = vec.clone();
 
     // libsignal manages the lifetime of this array.
@@ -288,13 +289,14 @@ extern "C" fn session_store_delete_session(
 /// @return the number of deleted sessions on success, negative on failure
 extern "C" fn session_store_delete_all_sessions(
     name: *const c_char,
-    name_len: usize,
+    name_len: size_t,
     user_data: *mut c_void,
 ) -> c_int {
     let mut ctxt: Rc<StoreProxies> = unsafe { Rc::from_raw(user_data as *const StoreProxies) };
     error!("session_store_delete_all_sessions");
 
-    let target_name = unsafe { String::from_raw_parts(name as *mut u8, name_len, name_len) };
+    let target_name =
+        unsafe { String::from_raw_parts(name as *mut u8, name_len as _, name_len as _) };
 
     let name = target_name.clone();
 
@@ -380,7 +382,7 @@ extern "C" fn id_key_store_get_local_registration_id(
 extern "C" fn id_key_store_save_identity(
     address: *const signal_protocol_address,
     key_data: *mut u8,
-    key_len: usize,
+    key_len: size_t,
     user_data: *mut c_void,
 ) -> c_int {
     debug!("id_key_store_save_identity");
@@ -390,7 +392,7 @@ extern "C" fn id_key_store_save_identity(
         name: unsafe { (*address).to_string() },
         device_id: unsafe { (*address).device_id } as i64,
     };
-    let key = unsafe { Vec::from_raw_parts(key_data, key_len, key_len) };
+    let key = unsafe { Vec::from_raw_parts(key_data, key_len as _, key_len as _) };
     let data = key.clone();
 
     // The key lifetime is managed by signal, so forget it.
@@ -410,7 +412,7 @@ extern "C" fn id_key_store_save_identity(
 extern "C" fn id_key_store_is_trusted_identity(
     address: *const signal_protocol_address,
     key_data: *mut u8,
-    key_len: usize,
+    key_len: size_t,
     user_data: *mut c_void,
 ) -> c_int {
     debug!("id_key_store_is_trusted_identity {}", unsafe {
@@ -422,7 +424,7 @@ extern "C" fn id_key_store_is_trusted_identity(
         name: unsafe { (*address).to_string() },
         device_id: unsafe { (*address).device_id } as i64,
     };
-    let key = unsafe { Vec::from_raw_parts(key_data, key_len, key_len) };
+    let key = unsafe { Vec::from_raw_parts(key_data, key_len as _, key_len as _) };
     let data = key.clone();
 
     // The key lifetime is managed by signal, so forget it.
@@ -459,9 +461,9 @@ extern "C" fn id_key_store_destroy(_user_data: *mut c_void) {
 extern "C" fn store_sender_key(
     sender_key_name: *const signal_protocol_sender_key_name,
     record: *mut u8,
-    record_len: usize,
+    record_len: size_t,
     _user_record: *mut u8,
-    _user_record_len: usize,
+    _user_record_len: size_t,
     user_data: *mut c_void,
 ) -> c_int {
     debug!("store_sender_key");
@@ -470,16 +472,16 @@ extern "C" fn store_sender_key(
     let group_id = unsafe {
         String::from_raw_parts(
             (*sender_key_name).group_id as *mut u8,
-            (*sender_key_name).group_id_len,
-            (*sender_key_name).group_id_len,
+            (*sender_key_name).group_id_len as _,
+            (*sender_key_name).group_id_len as _,
         )
     };
 
     let name = unsafe {
         String::from_raw_parts(
             (*sender_key_name).sender.name as *mut u8,
-            (*sender_key_name).sender.name_len,
-            (*sender_key_name).sender.name_len,
+            (*sender_key_name).sender.name_len as _,
+            (*sender_key_name).sender.name_len as _,
         )
     };
 
@@ -491,7 +493,7 @@ extern "C" fn store_sender_key(
         },
     };
 
-    let vec = unsafe { Vec::from_raw_parts(record, record_len, record_len) };
+    let vec = unsafe { Vec::from_raw_parts(record, record_len as _, record_len as _) };
     let data = vec.clone();
 
     // These lifetimes are managed by signal, so forget them.
@@ -532,16 +534,16 @@ extern "C" fn load_sender_key(
     let group_id = unsafe {
         String::from_raw_parts(
             (*sender_key_name).group_id as *mut u8,
-            (*sender_key_name).group_id_len,
-            (*sender_key_name).group_id_len,
+            (*sender_key_name).group_id_len as _,
+            (*sender_key_name).group_id_len as _,
         )
     };
 
     let name = unsafe {
         String::from_raw_parts(
             (*sender_key_name).sender.name as *mut u8,
-            (*sender_key_name).sender.name_len,
-            (*sender_key_name).sender.name_len,
+            (*sender_key_name).sender.name_len as _,
+            (*sender_key_name).sender.name_len as _,
         )
     };
 

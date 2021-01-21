@@ -81,8 +81,12 @@ impl GroupCipher {
     pub fn encrypt(&self, message: &[u8]) -> Result<Vec<u8>, c_int> {
         let mut encrypted: CiphertextMessagePtr = null_mut();
         unsafe {
-            let res =
-                group_cipher_encrypt(self.native, message.as_ptr(), message.len(), &mut encrypted);
+            let res = group_cipher_encrypt(
+                self.native,
+                message.as_ptr(),
+                message.len() as _,
+                &mut encrypted,
+            );
             if res == 0 {
                 let vec = (*(*encrypted).serialized).data_slice().to_vec();
                 ciphertext_message_destroy(encrypted);
@@ -104,7 +108,7 @@ impl GroupCipher {
             if sender_key_message_deserialize(
                 &mut message,
                 ciphertext.as_ptr(),
-                ciphertext.len(),
+                ciphertext.len() as _,
                 self.native_ctxt,
             ) == 0
             {
