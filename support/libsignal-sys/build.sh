@@ -43,7 +43,16 @@ else
 	cmake_build_type="Release"
 fi
 
-cmd cmake -DCMAKE_BUILD_TYPE="${cmake_build_type}" \
+# When building in the aosp build system, use the prebuilt cmake
+# that is configured properly.
+if [ -f ${GONK_DIR}/prebuilts/cmake/linux-x86/bin/cmake ];
+then
+  cmake_prog="${GONK_DIR}/prebuilts/cmake/linux-x86/bin/cmake"
+else
+  cmake_prog="cmake"
+fi
+
+cmd ${cmake_prog} -DCMAKE_BUILD_TYPE="${cmake_build_type}" \
           -DCMAKE_C_COMPILER="${CC}" \
           -DCMAKE_C_FLAGS="-fPIC -O${OPT_LEVEL} ${XCFLAGS}" "${cmake_library_dir}"
 cmd make -j"${NUM_JOBS}"
