@@ -1,6 +1,8 @@
 FROM ubuntu:18.04
 
-LABEL maintainer="viga.li@kaiostech.com"
+LABEL maintainer="viga.li@kaiostech.com" \
+# Update that value for automation to pick up the new tag.
+      RELEASETAG="1.49.0_2"
 
 WORKDIR /home
 
@@ -63,6 +65,3 @@ RUN wget https://github.com/mozilla/geckodriver/releases/download/${GECKODRIVER}
 RUN echo "127.0.0.1       valid.local" >> /etc/hosts && \
     echo "127.0.0.1       unknown.local" >> /etc/hosts && \
     echo "127.0.0.1       missing-zip.local" >> /etc/hosts
-
-# Update that value for automation to pick up the new tag.
-#RELEASETAG 1.49.0_2

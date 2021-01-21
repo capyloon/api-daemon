@@ -26,6 +26,7 @@ default:
 variables:
   GIT_SUBMODULE_STRATEGY: normal
   CARGO_HOME: $CI_PROJECT_DIR/cargo
+  DOCKER_BUILD_TAG: ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
 
 before_script:
   - eval $(ssh-agent -s)
@@ -306,18 +307,22 @@ update:tag:
   only:
     - tags@KaiOS/sidl
 
+include:
+  - project: 'releng/ci-util/docker-helper'
+    ref: master
+    file: 'docker-prerequisite.yml'
+
 .build_docker:
-  image: docker:19.03.1
+  extends: .docker_setup
   stage: dockerBuild
-  tags:
-    - releng
   variables:
-    GIT_DEPTH: "1"
-    DOCKER_BUILD_TAG: ${CI_REGISTRY_IMAGE}:$CI_COMMIT_SHA
-  before_script:
-    - echo "nothing to do. Override default before_script."
+    GIT_DEPTH: 1
   script:
-    - docker build --no-cache -t $DOCKER_BUILD_TAG - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1
+    - 'docker build --no-cache -t ${DOCKER_BUILD_TAG} - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1'
+    - |
+      RELEASETAG=$(docker image inspect --format \
+        '{{ index .Config.Labels "RELEASETAG"}}' ${DOCKER_BUILD_TAG})
+      echo "RELEASETAG from Dockerfile: ${RELEASETAG}"
   artifacts:
     name: ${CI_PIPELINE_ID}
     when: always
@@ -335,17 +340,21 @@ verify:build:docker:
 
 build:docker:
   extends: .build_docker
-  variables:
-    CONTAINER_RELEASE_TAG: ${CI_REGISTRY_IMAGE}
-  before_script:
-    - 'echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin'
   script:
+    # rebuild the staged image if not found locally
     - |
-      RELEASETAG=`cat docker/Dockerfile | grep RELEASETAG | cut -f 2 -d ' '`
-      docker build --no-cache -t ${CI_REGISTRY_IMAGE}:${RELEASETAG} - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1
-      docker push ${CI_REGISTRY_IMAGE}:${RELEASETAG}
+      docker image inspect ${DOCKER_BUILD_TAG} 1>/dev/null || \
+      docker build --no-cache -t ${DOCKER_BUILD_TAG} - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1
+    - |
+      RELEASETAG=$(docker image inspect --format \
+        '{{ index .Config.Labels "RELEASETAG"}}' ${DOCKER_BUILD_TAG})
+      echo "RELEASETAG from ${DOCKER_BUILD_TAG}: ${RELEASETAG}"
+    - 'docker tag ${DOCKER_BUILD_TAG} ${CI_REGISTRY_IMAGE}:${RELEASETAG} && docker push ${CI_REGISTRY_IMAGE}:${RELEASETAG}'
+    - 'docker tag ${DOCKER_BUILD_TAG} ${CI_REGISTRY_IMAGE}:latest && docker push ${CI_REGISTRY_IMAGE}:latest'
+  after_script:
+    - docker rmi -f ${DOCKER_BUILD_TAG}
   only:
     refs:
-      - branches@KaiOS/sidl
+      - next@KaiOS/sidl # docker image should only get updated along with changes made on dev branch
     changes:
       - docker/Dockerfile
