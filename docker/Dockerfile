@@ -37,7 +37,7 @@ RUN curl https://sh.rustup.rs -sSf | \
 ENV PATH=/root/.cargo/bin:$PATH
 
 # Install the binding generator
-RUN cargo install --version 0.41.0 bindgen && \
+RUN cargo install --version 0.56.0 bindgen && \
     cargo install cargo-deny && \
     rustup target add armv7-linux-androideabi && \
     rustup target add aarch64-linux-android && \
@@ -64,4 +64,5 @@ RUN echo "127.0.0.1       valid.local" >> /etc/hosts && \
     echo "127.0.0.1       unknown.local" >> /etc/hosts && \
     echo "127.0.0.1       missing-zip.local" >> /etc/hosts
 
-#RELEASETAG 1.49.0_1
+# Update that value for automation to pick up the new tag.
+#RELEASETAG 1.49.0_2
