@@ -3,11 +3,12 @@ use crate::global_context::GlobalContext;
 use crate::session::Session;
 use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler};
 use actix_cors::Cors;
+use actix_http::ws::Codec;
 use actix_web::http::header;
 use actix_web::middleware::{Compress, Logger};
 use actix_web::web::{Bytes, Data};
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer};
-use actix_web_actors::ws;
+use actix_web_actors::ws::{self, WebsocketContext};
 use async_std::fs::File;
 use common::traits::{
     IdFactory, MessageEmitter, MessageKind, MessageSender, SendMessageError, Shared,
@@ -156,7 +157,14 @@ async fn ws_index(
         global_context.service_state(),
     );
 
-    ws::start(WsHandler { session }, &req, stream)
+    let mut res = ws::handshake(&req)?;
+    // Use a max size of 10M for messages.
+    let codec = Codec::new().max_size(1_000_000);
+    Ok(res.streaming(WebsocketContext::with_codec(
+        WsHandler { session },
+        stream,
+        codec,
+    )))
 }
 
 // Returns the File and whether this is the gzip version.
