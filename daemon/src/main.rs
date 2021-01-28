@@ -152,7 +152,11 @@ fn main() {
         let actix_handle = thread::Builder::new()
             .name("actix ws server".into())
             .spawn(move || {
-                api_server::start(&ws_context, vhost_data);
+                #[cfg(feature = "device-telemetry")]
+                api_server::start(&ws_context, vhost_data, telemetry_sender);
+
+                #[cfg(not(feature = "device-telemetry"))]
+                api_server::start(&ws_context, vhost_data, ());
             })
             .expect("Failed to start ws server thread");
 
@@ -160,7 +164,11 @@ fn main() {
         let uds_handle = thread::Builder::new()
             .name("uds server".into())
             .spawn(move || {
-                uds_server::start(&global_context);
+                #[cfg(feature = "device-telemetry")]
+                uds_server::start(&global_context, telemetry);
+
+                #[cfg(not(feature = "device-telemetry"))]
+                uds_server::start(&global_context, ());
             })
             .expect("Failed to start uds server thread");
 

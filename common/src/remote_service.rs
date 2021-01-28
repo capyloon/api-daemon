@@ -339,7 +339,10 @@ impl RemoteServiceManager {
                 let upstream_sessions = upstream_senders2.lock();
                 for session in &(*upstream_sessions) {
                     let sender = session.1;
-                    sender.send_raw_message(MessageKind::ChildDaemonCrash(service_name4.clone()));
+                    sender.send_raw_message(MessageKind::ChildDaemonCrash(
+                        service_name4.clone(),
+                        child_pid,
+                    ));
                 }
 
                 info!("Exiting watchdog thread for `{}`", &service_name4);

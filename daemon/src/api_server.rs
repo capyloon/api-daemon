@@ -24,6 +24,15 @@ use log::{debug, error};
 use parking_lot::Mutex;
 use vhost_server::vhost_handler::{maybe_not_modified, vhost, AppData};
 
+// When telemetry is enabled, we need to get a handle to the
+// event sender, but the type is not available when the telemetry
+// feature is disabled.
+#[cfg(feature = "device-telemetry")]
+pub(crate) type TelemetrySender = telemetry::KillEventSender;
+
+#[cfg(not(feature = "device-telemetry"))]
+pub(crate) type TelemetrySender = ();
+
 async fn etag_for_file(file: &File) -> String {
     if let Ok(metadata) = file.metadata().await {
         match metadata.modified().map(|modified| {
@@ -67,6 +76,8 @@ impl MessageEmitter for ActorSender {
 /// Define our WS actor, keeping track of the session.
 struct WsHandler {
     session: Session,
+    #[allow(dead_code)]
+    telemetry: TelemetrySender,
 }
 
 impl Actor for WsHandler {
@@ -89,8 +100,15 @@ impl Handler<MessageKind> for WsHandler {
     fn handle(&mut self, msg: MessageKind, ctx: &mut Self::Context) {
         match msg {
             MessageKind::Data(_, val) => ctx.binary(val),
-            MessageKind::ChildDaemonCrash(name) => {
-                error!("Child daemon `{}` died, closing ws connection", name);
+            MessageKind::ChildDaemonCrash(name, pid) => {
+                error!(
+                    "Child daemon `{}` (pid {}) died, closing ws connection",
+                    name, pid
+                );
+
+                #[cfg(feature = "device-telemetry")]
+                self.telemetry.send(&format!("child-{}", name), pid);
+
                 ctx.close(None);
             }
             MessageKind::Close => ctx.close(None),
@@ -125,6 +143,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsHandler {
 pub struct SharedWsData {
     pub global_context: GlobalContext,
     session_id_factory: Mutex<IdFactory>,
+    telemetry: TelemetrySender,
 }
 
 // A dummy message sender used when we initially create the session.
@@ -161,7 +180,10 @@ async fn ws_index(
     // Use a max size of 10M for messages.
     let codec = Codec::new().max_size(1_000_000);
     Ok(res.streaming(WebsocketContext::with_codec(
-        WsHandler { session },
+        WsHandler {
+            session,
+            telemetry: data.telemetry,
+        },
         stream,
         codec,
     )))
@@ -318,7 +340,11 @@ impl actix_web::guard::Guard for VhostChecker {
     }
 }
 
-pub fn start(global_context: &GlobalContext, vhost_data: Shared<AppData>) {
+pub fn start(
+    global_context: &GlobalContext,
+    vhost_data: Shared<AppData>,
+    telemetry: TelemetrySender,
+) {
     let config = global_context.config.clone();
     let port = config.general.port;
     let addr = format!("{}:{}", config.general.host, port);
@@ -327,6 +353,7 @@ pub fn start(global_context: &GlobalContext, vhost_data: Shared<AppData>) {
     let shared_data = Data::new(SharedWsData {
         global_context: global_context.clone(),
         session_id_factory: Mutex::new(IdFactory::new(0)),
+        telemetry,
     });
 
     HttpServer::new(move || {
@@ -386,6 +413,7 @@ mod test {
             api_server::start(
                 &GlobalContext::new(&Config::test_on_port(port)),
                 Shared::adopt(AppData::default()),
+                (),
             );
         });
 

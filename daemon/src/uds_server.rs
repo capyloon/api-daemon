@@ -1,5 +1,6 @@
 /// Unix domain server endpoint.
 /// It shares the same session implementation as the WebSocket endpoint.
+use crate::api_server::TelemetrySender;
 use crate::global_context::GlobalContext;
 use crate::session::Session;
 use common::frame::Frame;
@@ -11,7 +12,13 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc;
 use std::thread;
 
-fn handle_client(mut stream: UnixStream, context: GlobalContext, session_id: u32) {
+fn handle_client(
+    mut stream: UnixStream,
+    context: GlobalContext,
+    session_id: u32,
+    #[allow(unused_variables)]
+    telemetry: TelemetrySender,
+) {
     // We will need a stream handle copy in our sending thread.
     let mut base_stream = match stream.try_clone() {
         Ok(stream) => stream,
@@ -55,8 +62,15 @@ fn handle_client(mut stream: UnixStream, context: GlobalContext, session_id: u32
                         error!("Failed to send data: {}", err);
                     }
                 }
-                Ok(MessageKind::ChildDaemonCrash(name)) => {
-                    error!("Child daemon `{}` died, closing uds connection", name);
+                Ok(MessageKind::ChildDaemonCrash(name, pid)) => {
+                    error!(
+                        "Child daemon `{}` (pid {}) died, closing uds connection",
+                        name, pid
+                    );
+
+                    #[cfg(feature = "device-telemetry")]
+                    telemetry.send(&format!("child-{}", name), pid);
+
                     break;
                 }
                 Ok(MessageKind::Close) => {
@@ -98,7 +112,7 @@ fn handle_client(mut stream: UnixStream, context: GlobalContext, session_id: u32
     let _ = sender2.send(MessageKind::Close);
 }
 
-pub fn start(run_context: &GlobalContext) {
+pub fn start(run_context: &GlobalContext, telemetry: TelemetrySender) {
     if run_context.config.general.socket_path.is_none() {
         info!("No socket path configured.");
         return;
@@ -129,7 +143,8 @@ pub fn start(run_context: &GlobalContext) {
                 match stream {
                     Ok(stream) => {
                         let context = run_context.clone();
-                        thread::spawn(move || handle_client(stream, context, session_id as u32));
+                        #[allow(clippy::unit_arg)]
+                        thread::spawn(move || handle_client(stream, context, session_id as u32, telemetry));
                     }
                     Err(err) => {
                         error!("Failure getting uds client: {}", err);
@@ -169,7 +184,7 @@ mod test {
         let _uds_handle = thread::Builder::new()
             .name("uds server".into())
             .spawn(move || {
-                start(&uds_context);
+                start(&uds_context, ());
             })
             .expect("Failed to start uds server thread");
 

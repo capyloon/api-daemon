@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 android_utils = { path = "../support/android-utils" }
 base64 = "0.11"
+common = { path = "../common" }
 kauth = { path = "../support/kauth" }
 libc = "0.2"
 log = "0.4"
