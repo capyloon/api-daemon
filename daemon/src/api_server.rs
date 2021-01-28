@@ -100,14 +100,15 @@ impl Handler<MessageKind> for WsHandler {
     fn handle(&mut self, msg: MessageKind, ctx: &mut Self::Context) {
         match msg {
             MessageKind::Data(_, val) => ctx.binary(val),
-            MessageKind::ChildDaemonCrash(name, pid) => {
+            MessageKind::ChildDaemonCrash(name, exit_code, pid) => {
                 error!(
-                    "Child daemon `{}` (pid {}) died, closing ws connection",
-                    name, pid
+                    "Child daemon `{}` (pid {}) died with exit code {}, closing websocket connection",
+                    name, pid, exit_code
                 );
 
                 #[cfg(feature = "device-telemetry")]
-                self.telemetry.send(&format!("child-{}", name), pid);
+                self.telemetry
+                    .send(&format!("child-{}", name), exit_code, pid);
 
                 ctx.close(None);
             }

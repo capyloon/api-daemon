@@ -21,7 +21,7 @@ pub type DispatcherId = u32;
 #[rtype(result = "()")]
 pub enum MessageKind {
     Data(SessionTrackerId, Vec<u8>),
-    ChildDaemonCrash(String, u32), // (service name, pid)
+    ChildDaemonCrash(String, i32, u32), // (service name, exit code, pid)
     Close,
 }
 

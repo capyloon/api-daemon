@@ -313,20 +313,22 @@ impl RemoteServiceManager {
                 service_name
             ))
             .spawn(move || {
-                match child.wait() {
+                let exit_code = match child.wait() {
                     Ok(status) => {
                         info!(
-                            "child  daemon for `{}` service exited with status {}",
+                            "child daemon for `{}` service exited with status {}",
                             &service_name4, status
                         );
+                        status.code().unwrap_or(-1)
                     }
                     Err(err) => {
                         error!(
                             "child daemon for `{}` service died with error: {}",
                             &service_name4, err
                         );
+                        -2
                     }
-                }
+                };
 
                 // The child exited. We can't really recover from that since we don't
                 // know if it's holding state, so we send an event to the service
@@ -341,6 +343,7 @@ impl RemoteServiceManager {
                     let sender = session.1;
                     sender.send_raw_message(MessageKind::ChildDaemonCrash(
                         service_name4.clone(),
+                        exit_code,
                         child_pid,
                     ));
                 }

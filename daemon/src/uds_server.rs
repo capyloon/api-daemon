@@ -16,8 +16,7 @@ fn handle_client(
     mut stream: UnixStream,
     context: GlobalContext,
     session_id: u32,
-    #[allow(unused_variables)]
-    telemetry: TelemetrySender,
+    #[allow(unused_variables)] telemetry: TelemetrySender,
 ) {
     // We will need a stream handle copy in our sending thread.
     let mut base_stream = match stream.try_clone() {
@@ -62,14 +61,14 @@ fn handle_client(
                         error!("Failed to send data: {}", err);
                     }
                 }
-                Ok(MessageKind::ChildDaemonCrash(name, pid)) => {
+                Ok(MessageKind::ChildDaemonCrash(name, exit_code, pid)) => {
                     error!(
-                        "Child daemon `{}` (pid {}) died, closing uds connection",
-                        name, pid
+                        "Child daemon `{}` (pid {}) died with exit code {}, closing uds connection",
+                        name, pid, exit_code
                     );
 
                     #[cfg(feature = "device-telemetry")]
-                    telemetry.send(&format!("child-{}", name), pid);
+                    telemetry.send(&format!("child-{}", name), exit_code, pid);
 
                     break;
                 }
@@ -144,7 +143,9 @@ pub fn start(run_context: &GlobalContext, telemetry: TelemetrySender) {
                     Ok(stream) => {
                         let context = run_context.clone();
                         #[allow(clippy::unit_arg)]
-                        thread::spawn(move || handle_client(stream, context, session_id as u32, telemetry));
+                        thread::spawn(move || {
+                            handle_client(stream, context, session_id as u32, telemetry)
+                        });
                     }
                     Err(err) => {
                         error!("Failure getting uds client: {}", err);
