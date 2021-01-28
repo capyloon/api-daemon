@@ -155,7 +155,7 @@ impl TimeMethods for Time {
             let mut time_delta = 0;
             match TimeManager::get_system_clock() {
                 Ok(cur) => {
-                    time_delta = cur - (since_epoch as i64);
+                    time_delta = (since_epoch as i64) - cur;
                 }
                 Err(e) => {
                     error!("get time failed {:?}", e);
