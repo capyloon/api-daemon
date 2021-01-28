@@ -14,7 +14,7 @@ use std::convert::TryInto;
 use std::fs::read_dir;
 use std::io::{self, BufReader, BufWriter};
 use std::os::unix::io::RawFd;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::mpsc::{channel, Sender};
@@ -319,7 +319,15 @@ impl RemoteServiceManager {
                             "child daemon for `{}` service exited with status {}",
                             &service_name4, status
                         );
-                        status.code().unwrap_or(-1)
+                        let mut code = status.code().unwrap_or(-1);
+                        if code == -1 {
+                            // try to get the signal number if it's available.
+                            // If so, return -1XX for XX
+                            if let Some(signal) = status.signal() {
+                                code = -100 - signal;
+                            }
+                        }
+                        code
                     }
                     Err(err) => {
                         error!(

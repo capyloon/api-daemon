@@ -109,6 +109,14 @@ impl RemoteServicesRegistrar {
         {
             use nix::sys::stat::{fchmodat, FchmodatFlags, Mode};
             use nix::unistd::{chown, Gid, Uid};
+            macro_rules! set_mode {
+                ($path:expr, $mode:expr) => {
+                    if let Err(err) = fchmodat(None, $path, $mode, FchmodatFlags::FollowSymlink) {
+                        error!("Failed to fchmodat {:?} : {}", $path, err);
+                    }
+                };
+            }
+
             for (service, id) in &services {
                 let mut path = root_dir.as_ref().join(service);
                 let id = (id + APP_ID_BASE).into();
@@ -117,9 +125,19 @@ impl RemoteServicesRegistrar {
                 if let Err(err) = chown(&path, Some(uid), Some(gid)) {
                     error!("Failed to chown {:?} : {}", path, err);
                 }
+                // chmod all dirs in the path.
+                // service/api-daemon/remote/{service_name}
+
                 let mode = Mode::from_bits(0o755).unwrap();
-                if let Err(err) = fchmodat(None, &path, mode, FchmodatFlags::FollowSymlink) {
-                    error!("Failed to fchmodat {:?} : {}", path, err);
+                set_mode!(&path, mode);
+                if let Some(parent) = path.parent() {
+                    set_mode!(parent, mode);
+                    if let Some(grand) = parent.parent() {
+                        set_mode!(grand, mode);
+                        if let Some(ggrand) = grand.parent() {
+                            set_mode!(ggrand, mode);
+                        }
+                    }
                 }
                 // Also chown the daemon executable.
                 path.push("daemon");
