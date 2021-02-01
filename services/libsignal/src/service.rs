@@ -6,8 +6,8 @@ use crate::generated::service::*;
 use crate::global_context::GlobalContext;
 use common::core::BaseMessage;
 use common::traits::{
-    ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
-    TrackerId,
+    CommonResponder, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
+    SharedSessionContext, TrackerId,
 };
 use libsignal_sys::SignalContext;
 use log::{error, info};
@@ -21,6 +21,7 @@ pub struct SignalService {
     tracker: Arc<Mutex<SignalTrackerType>>,
     proxy_tracker: Arc<Mutex<SignalProxyTracker>>,
     transport: SessionSupport,
+    origin_attributes: OriginAttributes,
 }
 
 impl Signal for SignalService {
@@ -78,6 +79,15 @@ impl LibSignalMethods for SignalService {
         num_tail_bytes: i64,
         callback: ObjectRef,
     ) {
+        // Since this is not doing CORS check, make sure the caller has the systemXHR permission.
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "systemXHR",
+            "download_and_decrypt",
+        ) {
+            return;
+        }
+
         // Check that we can access the callback proxy.
         let tracker = self.proxy_tracker.lock();
         let callback_proxy = match tracker.get(&callback) {
@@ -170,7 +180,7 @@ impl Service<SignalService> for SignalService {
     }
 
     fn create(
-        _attrs: &OriginAttributes,
+        origin_attributes: &OriginAttributes,
         _context: SharedSessionContext,
         _state: Shared<Self::State>,
         transport: SessionSupport,
@@ -183,6 +193,7 @@ impl Service<SignalService> for SignalService {
             tracker: Arc::default(),
             proxy_tracker: Arc::default(),
             transport,
+            origin_attributes: origin_attributes.clone(),
         })
     }
 
