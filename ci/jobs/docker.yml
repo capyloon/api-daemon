@@ -55,7 +55,7 @@ production:update_registry:docker:
       docker build \
         --no-cache \
         --build-arg "LAST_EDIT_COMMIT=${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_SHORT_SHA}" \
-        ${REGISTRY_REPOSITORY}:latest - < docker/Dockerfile
+        -t ${REGISTRY_REPOSITORY}:latest - < docker/Dockerfile
     - docker push ${REGISTRY_REPOSITORY}:latest
     - |
       RELEASE_TAG=$(docker image inspect --format \

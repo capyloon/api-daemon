@@ -4,7 +4,7 @@ ARG LAST_EDIT_COMMIT
 
 LABEL maintainer="viga.li@kaiostech.com" \
 # Update that value for automation to pick up the new tag.
-      RELEASE_TAG="1.49.0_3"
+      RELEASE_TAG="1.49.0_2"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LAST_EDIT_COMMIT=${LAST_EDIT_COMMIT}
@@ -19,7 +19,7 @@ RUN apt-get update && \
     libfreetype6 libfontconfig1 libxrender1 libasound-dev \
     libgtk-3-0 libdbus-glib-1-dev libgtk2.0-0 libxt6 python-pip \
     gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 wine64 \
-    apt-transport-https libselinux1-dev iproute2
+    apt-transport-https libselinux1-dev
 
 ## define the versions across essentials for test
 ENV NODE_VERSION="9.11.2" \
