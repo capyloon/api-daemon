@@ -1,0 +1,49 @@
+update:targets:
+  extends: .production_base
+  stage: production
+  script:
+    - |
+      git clone ${BUILD_SIDL_REPO_URL} -b ${BUILD_SIDL_BRANCH}
+      cd build-sidl
+    - git log -1 --decorate
+    - ./update_api-daemon.sh
+  needs: ['build:targets(production)']
+
+update:tag:api-daemon:
+  stage: production
+  variables:
+    # source of sidl in this job is absolutely unnecessary
+    GIT_STRATEGY: none
+    API_DAEMON_DEST_REPO: KaiOS/api-daemon.git
+    # unable to acquire CI_BRANCH_NAME from predefined variables when triggered by "tags"
+    # hence we self-define here
+    API_DAEMON_DEST_BRANCH: next
+  script:
+    - echo ${CI_COMMIT_TAG}
+    - 'git ls-remote --tags --exit-code ${CI_SERVER_URL}:${API_DAEMON_DEST_REPO} ${CI_COMMIT_TAG} && false'
+    - git clone "git@${CI_SERVER_HOST}:{API_DAEMON_DEST_REPO}" -b ${API_DAEMON_DEST_BRANCH}
+    - cd api-daemon
+    - 'coresponding_commit=$(git rev-list HEAD --grep="Source: ${CI_PROJECT_PATH}@${CI_COMMIT_SHA}" -F -1)'
+    - |
+      if [[ -z ${coresponding_commit} ]]; then
+        echo "Unable to filter out with the pattern \"Source: ${CI_PROJECT_PATH}@${CI_COMMIT_SHA}\""
+        echo "Alternatively look for the corresponding commit by CI_COMMIT_TITLE"
+        coresponding_commit=$(git rev-list HEAD --grep="${CI_COMMIT_TITLE}" -F -1)
+        if [[ -z ${coresponding_commit} ]]; then
+          echo "Unable to find the coresponding commit by either SHA1 or commit message title."
+          exit -1
+        fi
+      fi
+    - |
+      echo
+      echo "Corresponding commit that was automatically submitted to api-daemon:"
+      git show ${coresponding_commit} -q
+    - |
+      if ${CI_USE_MIRROR}; then
+        git config --global --remove-section url."${LOCAL_GIT_MIRROR}/KaiOS"
+      fi
+    - 'git config --global --remove-section url."${CI_SERVER_URL}/"'
+    - git remote get-url origin
+    - git push origin ${coresponding_commit}:refs/tags/${CI_COMMIT_TAG}
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^kaios_/ && $CI_PROJECT_PATH == "KaiOS/sidl"'

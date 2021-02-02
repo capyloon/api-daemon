@@ -1,0 +1,88 @@
+.build_daemon:
+  extends: .build_base
+  script:
+    - cd $CI_PROJECT_DIR/daemon
+    # Fail when encountering clippy warnings.
+    - cargo clippy --all-targets -- -D warnings
+    - cargo build --release --features=fake-tokens
+
+.build_daemon_test_essentials:
+  extends: .build_base
+  variables:
+    test_essentials: "child-test-daemon tests/driver tests/fota-test-server tests/apps-test-server"
+  script:
+    - |
+      for te in ${test_essentials}; do
+        echo -e "\033[1;33mBuilding ${te}\033[0m"
+        cargo build --manifest-path ${CI_PROJECT_DIR}/${te}/Cargo.toml --release
+      done
+
+.xbuild:
+  extends: .build_base
+  stage: xbuild
+  script:
+    - |
+      git clone ${BUILD_SIDL_REPO_URL} -b ${BUILD_SIDL_BRANCH}
+      cd build-sidl
+    - git log -1 --decorate
+    - ./build_api-daemon.sh
+
+.build_within_staged_container:
+  extends: .verify_within_staged_container
+  needs: ['verify:build:docker']
+
+build:daemon:
+  extends: .build_daemon
+  artifacts:
+    expire_in: 3 days
+    paths:
+      - target/release/api-daemon
+      - services/accounts/client/generated/accounts_service.js
+      - services/apps/client/generated/apps_service.js
+      - services/audiovolumemanager/client/generated/audiovolume_service.js
+      - services/contacts/client/generated/contacts_service.js
+      - services/devicecapability/client/generated/devicecapability_service.js
+      - services/deviceconfig/client/generated/deviceconfig_service.js
+      - services/libsignal/client/generated/libsignal_service.js
+      - services/powermanager/client/generated/powermanager_service.js
+      - services/procmanager/client/generated/procmanager_service.js
+      - services/settings/client/generated/settings_service.js
+      - services/telephony/client/generated/telephony_service.js
+      - services/tcpsocket/client/generated/tcpsocket_service.js
+      - services/time/client/generated/time_service.js
+      - services/fota/client/generated/fota_service.js
+
+build:daemon(within staged container):
+  extends: ['.build_daemon', '.build_within_staged_container']
+  # no need to upload built artifacts since tests won't be performed in verification within staged container
+
+build:daemon:test:essentials:
+  extends: .build_daemon_test_essentials
+  artifacts:
+    expire_in: 3 days
+    paths:
+      - target/release/child-test-daemon
+      - target/release/fota_test_server
+      - target/release/apps_test_server
+      - target/release/driver
+      - services/test/client/generated/test_service.js
+
+build:daemon:test:essentials(within staged container):
+  extends: ['.build_daemon_test_essentials', '.build_within_staged_container']
+
+build:targets:
+  extends: ['.xbuild']
+  artifacts:
+    expire_in: 3 days
+    paths:
+      - production
+
+build:targets(within staged container):
+  extends: ['.xbuild', '.build_within_staged_container']
+
+build:targets(production):
+  extends: ['.xbuild', '.production_base']
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - production

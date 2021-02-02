@@ -1,9 +1,10 @@
 default:
 # Use stable Rust
-  image: ${CI_REGISTRY}/kaios/sidl:1.49.0_2
+  image: ${CI_REGISTRY}/kaios/sidl:1.49.0_3
   tags:
     - hk-fantastic4
   before_script:
+    # for those jobs prefixed by "update", restore ssh-setting in order for git-push
     - |
       if [[ ${CI_JOB_NAME%%:*} == update ]]; then
         echo -e "\033[1;33mFor job [${CI_JOB_NAME}], restore ssh-settings for git-push. \033[0m"
@@ -20,13 +21,17 @@ default:
         echo -e "\033[1;33mAlternatively use ${LOCAL_GIT_MIRROR} for git-clone. \033[0m"
         git config --global url."${LOCAL_GIT_MIRROR}/KaiOS".insteadOf "git@${CI_SERVER_HOST}:KaiOS"
       fi
+    - echo "${CI_JOB_IMAGE}, Last edited in ${LAST_EDIT_COMMIT}"
     - rustc --version && cargo --version
+    - node --version && yarn --version
+    - geckodriver --version && firefox --version
 
 # Environment variables
 variables:
   GIT_SUBMODULE_STRATEGY: normal
   CARGO_HOME: $CI_PROJECT_DIR/cargo
-  DOCKER_BUILD_TAG: ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+  BUILD_SIDL_REPO_URL: git@git.kaiostech.com:KaiOS/build-sidl.git
+  BUILD_SIDL_BRANCH: multi-arch
 
 before_script:
   - eval $(ssh-agent -s)
@@ -35,10 +40,15 @@ before_script:
   - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
 
 stages:
-  - buildDaemon
+  - docker_production
+  # thanks to the magic provided by `needs:`, jobs marked as build and xbuild will always be in parallel.
+  #
+  # here we ensure the priority to acquire runners by making stage `xbuild` prior to `build` since `xbuild`
+  # always takes longer.
+  - xbuild
+  - build
   - test-js
   - cargo_tests
-  - xbuild
   - production
   - dockerBuild
 
@@ -314,53 +324,10 @@ update:tag:
     - tags@KaiOS/sidl
 
 include:
-  - project: 'releng/ci-util/docker-helper'
-    ref: master
-    file: 'docker-prerequisite.yml'
-
-.build_docker:
-  extends: .docker_setup
-  stage: dockerBuild
-  variables:
-    GIT_DEPTH: 1
-  script:
-    - 'docker build --no-cache -t ${DOCKER_BUILD_TAG} - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1'
-    - |
-      RELEASETAG=$(docker image inspect --format \
-        '{{ index .Config.Labels "RELEASETAG"}}' ${DOCKER_BUILD_TAG})
-      echo "RELEASETAG from Dockerfile: ${RELEASETAG}"
-  artifacts:
-    name: ${CI_PIPELINE_ID}
-    when: always
-    expire_in: 1 day
-    paths:
-      - "${CI_PIPELINE_ID}-${CI_JOB_NAME}.log"
-
-verify:build:docker:
-  extends: .build_docker
-  only:
-    refs:
-      - merge_requests
-    changes:
-      - docker/Dockerfile
-
-build:docker:
-  extends: .build_docker
-  script:
-    # rebuild the staged image if not found locally
-    - |
-      docker image inspect ${DOCKER_BUILD_TAG} 1>/dev/null || \
-      docker build --no-cache -t ${DOCKER_BUILD_TAG} - < docker/Dockerfile > ${CI_PIPELINE_ID}-${CI_JOB_NAME}.log 2>&1
-    - |
-      RELEASETAG=$(docker image inspect --format \
-        '{{ index .Config.Labels "RELEASETAG"}}' ${DOCKER_BUILD_TAG})
-      echo "RELEASETAG from ${DOCKER_BUILD_TAG}: ${RELEASETAG}"
-    - 'docker tag ${DOCKER_BUILD_TAG} ${CI_REGISTRY_IMAGE}:${RELEASETAG} && docker push ${CI_REGISTRY_IMAGE}:${RELEASETAG}'
-    - 'docker tag ${DOCKER_BUILD_TAG} ${CI_REGISTRY_IMAGE}:latest && docker push ${CI_REGISTRY_IMAGE}:latest'
-  after_script:
-    - docker rmi -f ${DOCKER_BUILD_TAG}
-  only:
-    refs:
-      - next@KaiOS/sidl # docker image should only get updated along with changes made on dev branch
-    changes:
-      - docker/Dockerfile
+  - 'ci/base/build.yml'
+  - 'ci/base/production.yml'
+  - 'ci/base/test.yml'
+  - 'ci/jobs/docker.yml'
+  - 'ci/jobs/build.yml'
+  - 'ci/jobs/tests.yml'
+  - 'ci/jobs/update.yml'

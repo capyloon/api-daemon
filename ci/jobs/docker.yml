@@ -1,0 +1,76 @@
+include:
+  - project: 'releng/ci-util/docker-helper'
+    ref: master
+    file: 'docker-prerequisite.yml'
+
+# base def of jobs that should be triggered when Dockerfile gets modified
+.dockerfile_modified_stage:
+  rules:
+    - if: '$CI_MERGE_REQUEST_PROJECT_PATH == "KaiOS/sidl" && $CI_JOB_NAME == "verify:cleanup_registry:docker"'
+      changes:
+        - docker/Dockerfile
+      when: always
+    - if: $CI_MERGE_REQUEST_PROJECT_PATH == "KaiOS/sidl"
+      changes:
+        - docker/Dockerfile
+
+.dockerfile_modified_prod:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "next" && $CI_PROJECT_PATH == "KaiOS/sidl"'
+      changes:
+        - docker/Dockerfile
+
+# base def of jobs that should be run within staged container
+.verify_within_staged_container:
+  extends: .dockerfile_modified_stage
+  image: ${STAGED_IMAGE}
+
+# note that the official image of `docker` has no bash
+verify:build:docker:
+  stage: .pre # global setup stage
+  extends: ['.docker_setup', '.dockerfile_modified_stage']
+  script:
+    - |
+      if [[ ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME} != next ]]; then
+        echo 'docker/Dockerfile is supposed to be modified on next only.'
+        exit -1
+      fi
+    - |
+      docker build \
+        --no-cache \
+        --build-arg "LAST_EDIT_COMMIT=${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_SHORT_SHA}" \
+        -t ${STAGED_IMAGE} - < docker/Dockerfile
+    - docker push ${STAGED_IMAGE}
+    - docker images ${STAGED_IMAGE}
+
+# note that STAGED_IMAGE will be removed daily by crontab set on runner
+
+production:update_registry:docker:
+  extends: ['.docker_setup', '.dockerfile_modified_prod']
+  image: ${CI_REGISTRY}/releng/ci-util/docker-helper:19.03.1-with-bash5
+  stage: docker_production
+  script:
+    # record commit within image by injecting with ARG
+    - |
+      docker build \
+        --no-cache \
+        --build-arg "LAST_EDIT_COMMIT=${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_SHORT_SHA}" \
+        ${REGISTRY_REPOSITORY}:latest - < docker/Dockerfile
+    - docker push ${REGISTRY_REPOSITORY}:latest
+    - |
+      RELEASE_TAG=$(docker image inspect --format \
+        '{{ index .Config.Labels "RELEASE_TAG"}}' ${REGISTRY_REPOSITORY}:latest)
+    - |
+      if [[ -n ${RELEASE_TAG} ]]; then
+        echo "RELEASE_TAG from Dockerfile: ${RELEASE_TAG}"
+        if reg tags "${REGISTRY_REPOSITORY}" | grep "${RELEASE_TAG}" -F; then
+          echo -e "\033[0;31mWARNING!! ${RELEASE_TAG} already exists in ${REGISTRY_REPOSITORY}.\033[0m"
+        fi
+        docker tag ${REGISTRY_REPOSITORY}:latest ${REGISTRY_REPOSITORY}:${RELEASE_TAG}
+        docker push ${REGISTRY_REPOSITORY}:${RELEASE_TAG}
+      else
+        echo No RELEASE_TAG extracted from Dockerfile
+      fi
+
+verify:cleanup_registry:docker:
+  extends: ['.cleanup_base', '.dockerfile_modified_stage']

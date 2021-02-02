@@ -1,0 +1,76 @@
+# Use cargo to test the project
+.test_cargo:
+  extends: .test_base
+  stage: cargo_tests
+  script:
+# Force build.rs to run despite the cache.
+    - touch ./services/libsignal/build.rs
+      ./support/libsignal-sys/build.rs
+      ./services/telephony/build.rs
+      ./services/test/build.rs
+    - cd ${CI_PROJECT_DIR}/$(sed 's/\:/\//' <<< ${CI_JOB_NAME#"test:cargo:"})
+    - cargo test -- --nocapture
+  needs:
+    - job: 'build:daemon'
+
+# TODO: though dynamic child pipeline isn't reliable enough,
+# perhaps for development, a tool that generates this file will be helpful.
+test:cargo:services:apps:
+  extends: .test_cargo
+
+test:cargo:daemon:
+  extends: .test_cargo
+
+test:cargo:support:android-utils:
+  extends: .test_cargo
+
+test:cargo:support:kauth:
+  extends: .test_cargo
+
+test:cargo:support:kus:
+  extends: .test_cargo
+
+test:cargo:support:hamster:
+  extends: .test_cargo
+
+test:cargo:support:sqlite-utils:
+  extends: .test_cargo
+
+test:cargo:support:kota:
+  extends: .test_cargo
+
+test:cargo:codegen:
+  extends: .test_cargo
+
+test:cargo:support:libsignal-sys:
+  extends: .test_cargo
+
+test:cargo:support:updater_client:
+  extends: .test_cargo
+
+test:cargo:parser:
+  extends: .test_cargo
+
+test:cargo:telemetry:
+  extends: .test_cargo
+
+# test:cargo:tcpsocket-service:
+#   extends: .test_cargo
+
+test:cargo:services:devicecapability:
+  extends: .test_cargo
+
+test:cargo:services:deviceconfig:
+  extends: .test_cargo
+
+test:cargo:services:libsignal:
+  extends: .test_cargo
+
+test:cargo:services:settings:
+  extends: .test_cargo
+
+test:cargo:services:telephony:
+  extends: .test_cargo
+
+test:cargo:vhost:
+  extends: .test_cargo

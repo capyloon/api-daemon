@@ -1,0 +1,4 @@
+.production_base:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "next" && $CI_PROJECT_PATH == "KaiOS/sidl"'
+    - if: '$CI_COMMIT_BRANCH == "v3.0" && $CI_PROJECT_PATH == "KaiOS/sidl"'

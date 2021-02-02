@@ -1,0 +1,54 @@
+.test_js_client:
+  extends: .test_base
+  stage: test-js
+  script:
+    - cd $CI_PROJECT_DIR
+    - git clone git@git.kaiostech.com:vincent.chang/echo-server.git
+    - cd echo-server
+    - cargo build
+    - ./target/debug/echo-server 7878&
+    - ./target/debug/echo-server 7879&
+    - ./target/debug/echo-server 7880&
+    - cd $CI_PROJECT_DIR/tests/apps-test-server
+    - $CI_PROJECT_DIR/target/release/apps_test_server &
+    # fota_test_server need to create file in mode "full" & "check-update"
+    # so we create separate workspace for these 2 modes
+    - mkdir $CI_PROJECT_DIR/tests/fota-test-server/workspace1
+    - mkdir $CI_PROJECT_DIR/tests/fota-test-server/workspace2
+    - cd $CI_PROJECT_DIR/tests/fota-test-server/workspace1
+    - $CI_PROJECT_DIR/target/release/fota_test_server -p 10098 -m check-update &
+    - cd $CI_PROJECT_DIR/tests/fota-test-server/workspace2
+    - $CI_PROJECT_DIR/target/release/fota_test_server -p 10095 -m full &
+    - cd $CI_PROJECT_DIR/tests/fota-test-server
+    - $CI_PROJECT_DIR/target/release/fota_test_server -p 10096 -m error &
+    - $CI_PROJECT_DIR/target/release/fota_test_server -p 10097 -m no-package &
+    - cd $CI_PROJECT_DIR
+    - WITH_TEST_SERVICE=1 ./release_libs.sh
+    - mkdir -p ./daemon/remote/TestService
+    - cp ./target/release/child-test-daemon $CI_PROJECT_DIR/daemon/remote/TestService/daemon
+    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/accounts/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/apps/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/audiovolumemanager/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/contacts/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/devicecapability/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/deviceconfig/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/libsignal/client/test/global_context.html
+      file://$CI_PROJECT_DIR/services/libsignal/client/test/session_builder_cipher.html
+      file://$CI_PROJECT_DIR/services/libsignal/client/test/group_messages.html
+      file://$CI_PROJECT_DIR/services/powermanager/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/settings/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/tcpsocket/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/telephony/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/test/client/test/tests.html
+      file://$CI_PROJECT_DIR/services/time/client/test/tests.html
+    # TODO: figure out why tests_no_package.html fails when running grouped.
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_server_error.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_no_package.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_check_update.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_full.html
+  needs:
+    - job: 'build:daemon'
+    - job: 'build:daemon:test:essentials'
+
+test:js-clients:
+  extends: .test_js_client
