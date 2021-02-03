@@ -649,9 +649,27 @@
         }
 
         await tester.assert_eq(
+          "current contact count is 4",
+          (service) => service.getCount(),
+          4
+        );
+
+        let clear_contacts_handler = tester.setup_event(
+          tester.service.CONTACTS_CHANGE_EVENT
+        );
+
+        await tester.assert_eq(
           "clear contacts db",
           (service) => service.clearContacts(),
           {}
+        );
+
+        let event_value = await tester.next_event_value(clear_contacts_handler);
+
+        await tester.assert_eq(
+          "clear contacts and verify the result from event",
+          () => Promise.resolve(event_value.contacts.length),
+          4
         );
 
         await tester.assert_eq(

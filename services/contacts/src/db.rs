@@ -846,10 +846,35 @@ impl ContactsDb {
     pub fn clear_contacts(&mut self) -> Result<(), Error> {
         debug!("ContactsDb::clear_contacts");
         let conn = self.db.mut_connection();
+        let contact_ids = {
+            let mut stmt = conn.prepare("SELECT contact_id FROM contact_main")?;
+            let rows = stmt.query_map(NO_PARAMS, |row| Ok(row_to_contact_id(row)))?;
+            rows_to_vec(rows)?
+        };
+
         let tx = conn.transaction()?;
         tx.execute("UPDATE speed_dials SET contact_id = ''", NO_PARAMS)?;
         tx.execute("DELETE FROM contact_main", NO_PARAMS)?;
         tx.commit()?;
+
+        if !contact_ids.is_empty() {
+            let contacts: Vec<ContactInfo> = contact_ids
+                .iter()
+                .map(|x| ContactInfo {
+                    id: match x {
+                        Ok(id) => id.to_string(),
+                        Err(_) => "".to_string(),
+                    },
+                    ..Default::default()
+                })
+                .collect();
+            let event = ContactsChangeEvent {
+                reason: ChangeReason::Remove,
+                contacts: Some(contacts),
+            };
+            self.event_broadcaster.broadcast_contacts_change(event);
+        }
+
         Ok(())
     }
 
