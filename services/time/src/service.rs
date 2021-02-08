@@ -5,8 +5,8 @@ use crate::time_manager::*;
 use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
 use common::traits::{
-    DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
-    TrackerId,
+    CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
+    SharedSessionContext, TrackerId,
 };
 use common::{JsonValue, SystemTime};
 use log::{debug, error, info};
@@ -134,6 +134,7 @@ pub struct Time {
     proxy_tracker: TimeServiceProxyTracker,
     observers: HashMap<ObjectRef, Vec<(CallbackReason, DispatcherId)>>,
     setting_observer: (SettingObserver, DispatcherId),
+    origin_attributes: OriginAttributes,
 }
 
 impl TimeService for Time {
@@ -144,6 +145,14 @@ impl TimeService for Time {
 
 impl TimeMethods for Time {
     fn set(&mut self, responder: &TimeSetResponder, time: SystemTime) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "system-time:write",
+            "set system time",
+        ) {
+            return;
+        }
+
         let responder = responder.clone();
         self.pool.execute(move || {
             let since_epoch = (*time)
@@ -203,6 +212,13 @@ impl TimeMethods for Time {
 
     fn set_timezone(&mut self, responder: &TimeSetTimezoneResponder, timezone: String) {
         info!("set time zone {:?}", timezone);
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "system-time:write",
+            "set system timezone",
+        ) {
+            return;
+        }
         match TimeManager::set_timezone(timezone.clone()) {
             Ok(_) => {
                 let mut shared_lock = self.shared_obj.lock();
@@ -292,7 +308,7 @@ impl Service<Time> for Time {
     }
 
     fn create(
-        _attrs: &OriginAttributes,
+        origin_attributes: &OriginAttributes,
         _context: SharedSessionContext,
         _shared_obj: Shared<Self::State>,
         helper: SessionSupport,
@@ -310,6 +326,7 @@ impl Service<Time> for Time {
             proxy_tracker: HashMap::new(),
             observers: HashMap::new(),
             setting_observer: (SettingObserver {}, 0),
+            origin_attributes: origin_attributes.clone(),
         };
 
         let setting_service = SettingsService::shared_state();

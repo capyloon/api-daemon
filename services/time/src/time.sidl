@@ -41,4 +41,5 @@ interface Time {
     event timezone_changed
 }
 
+#[permission=system-time:read]
 service TimeService: Time
