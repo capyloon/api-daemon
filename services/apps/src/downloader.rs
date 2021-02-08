@@ -1,13 +1,13 @@
 //! A simple Downloader
 use log::{debug, error};
+use nix::unistd;
+use reqwest::blocking::Response;
+use reqwest::header;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use reqwest::header;
-use nix::unistd;
 use std::thread;
-use reqwest::blocking::Response;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -64,17 +64,18 @@ impl Downloader {
     }
 
     // Downloads a resource at a given url and save it to the path.
-    pub fn cancelable_download<P: AsRef<Path>>(&self, url: &str, path: P) -> (Receiver<Result<(), DownloadError>>, Sender<()>) {
+    pub fn cancelable_download<P: AsRef<Path>>(
+        &self,
+        url: &str,
+        path: P,
+    ) -> (Receiver<Result<(), DownloadError>>, Sender<()>) {
         debug!("download: {}", url);
 
         let (cancel_sender, canceled_recv) = channel();
         let file_path_buf = path.as_ref().to_path_buf();
         let (sender, receiver) = channel();
 
-        let response = self
-            .client
-            .get(url)
-            .send();
+        let response = self.client.get(url).send();
 
         thread::Builder::new()
             .name("apps_download".into())
@@ -86,7 +87,6 @@ impl Downloader {
             .expect("Failed to start downloading thread");
 
         (receiver, cancel_sender)
-
     }
 
     fn single_download<P: AsRef<Path>>(
@@ -137,9 +137,8 @@ impl Downloader {
 
         fs::copy(&tmp_file.path, path).map_err(DownloadError::Io)?;
 
-        Ok(())   
+        Ok(())
     }
-
 }
 
 pub fn get_file_handle(fname: &str, resume_download: bool) -> io::Result<fs::File> {
