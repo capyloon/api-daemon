@@ -672,6 +672,12 @@
           4
         );
 
+        await tester.assert_rej_eq(
+          "verify can't get contact with invalid contact id ",
+          (service) => service.get("123456789", true),
+          {}
+        );
+
         await tester.assert_eq(
           "import 200 contacts from vcf",
           (service) => service.importVcf(contacts_vcf),

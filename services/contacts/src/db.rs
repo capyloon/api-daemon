@@ -397,6 +397,13 @@ impl ContactInfo {
             })
         })?;
 
+        let mut rows = rows.peekable();
+        if rows.peek().is_none() {
+            return Err(Error::InvalidContactId(
+                "Try to fill contact with invalid contact id".to_string(),
+            ));
+        }
+
         for result_row in rows {
             let row = result_row?;
             debug!("Current row data is {:#?}", row);
