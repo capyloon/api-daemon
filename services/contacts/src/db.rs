@@ -849,7 +849,7 @@ impl ContactsDb {
         let contact_ids = {
             let mut stmt = conn.prepare("SELECT contact_id FROM contact_main")?;
             let rows = stmt.query_map(NO_PARAMS, |row| Ok(row_to_contact_id(row)))?;
-            rows_to_vec(rows)?
+            rows_to_vec(rows)
         };
 
         let tx = conn.transaction()?;
@@ -1281,7 +1281,7 @@ impl ContactsDb {
             })
         })?;
 
-        rows_to_vec(rows)
+        Ok(rows_to_vec(rows))
     }
 
     pub fn import_vcf(&mut self, vcf: &str) -> Result<usize, Error> {
@@ -1374,7 +1374,7 @@ impl ContactsDb {
         let mut stmt = conn.prepare("SELECT number FROM blocked_numbers")?;
 
         let rows = stmt.query_map(NO_PARAMS, |row| row.get(0))?;
-        rows_to_vec(rows)
+        Ok(rows_to_vec(rows))
     }
 
     pub fn find_blocked_numbers(
@@ -1411,7 +1411,7 @@ impl ContactsDb {
         };
 
         let rows = stmt.query_map_named(&[(":param", &param)], |row| row.get(0))?;
-        rows_to_vec(rows)
+        Ok(rows_to_vec(rows))
     }
 
     pub fn get_speed_dials(&mut self) -> Result<Vec<SpeedDialInfo>, Error> {
@@ -1427,7 +1427,7 @@ impl ContactsDb {
             })
         })?;
 
-        rows_to_vec(rows)
+        Ok(rows_to_vec(rows))
     }
 
     pub fn add_speed_dial(
@@ -1579,7 +1579,7 @@ impl ContactsDb {
             conn.prepare("SELECT contact_id FROM group_contacts WHERE group_id IS :group_id")?;
         let rows = stmt.query_map(&[group_id], |row| Ok(row.get(0)?))?;
 
-        rows_to_vec(rows)
+        Ok(rows_to_vec(rows))
     }
 
     pub fn get_all_groups(&mut self) -> Result<Vec<GroupInfo>, Error> {
@@ -1594,7 +1594,7 @@ impl ContactsDb {
             })
         })?;
 
-        rows_to_vec(rows)
+        Ok(rows_to_vec(rows))
     }
 
     pub fn import_sim_contacts(&mut self, sim_contacts: &[SimContactInfo]) -> Result<(), Error> {
@@ -1657,16 +1657,16 @@ impl ContactsDb {
     }
 }
 
-fn rows_to_vec<I, R>(source: I) -> Result<Vec<R>, Error>
+fn rows_to_vec<I, R>(source: I) -> Vec<R>
 where
     I: core::iter::Iterator<Item = Result<R, rusqlite::Error>>,
 {
-    Ok(source
+    source
         .filter_map(|item| match item {
             Ok(val) => Some(val),
             _ => None,
         })
-        .collect())
+        .collect()
 }
 
 #[cfg(test)]

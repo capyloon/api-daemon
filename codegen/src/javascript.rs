@@ -75,7 +75,7 @@ struct MethodWriter;
 
 impl MethodWriter {
     // Returns Request, Response as TypedMessage
-    fn get_types(method: &Method) -> Result<(TypedMessage, TypedMessage)> {
+    fn get_types(method: &Method) -> (TypedMessage, TypedMessage) {
         let camel_name = method.name.to_camel_case();
 
         // Request with all the parameters
@@ -92,10 +92,10 @@ impl MethodWriter {
 
         // Error response
         typed_resp.error = Some(TypeItem::from(None, &method.returns.error));
-        Ok((
+        (
             TypedMessage::Request(typed_req),
             TypedMessage::Response(typed_resp),
-        ))
+        )
     }
 
     // Returns Request, Response as TypedMessage and writes the method signature
@@ -115,7 +115,7 @@ impl MethodWriter {
         }
         write!(sink, ")")?;
 
-        MethodWriter::get_types(method)
+        Ok(MethodWriter::get_types(method))
     }
 }
 
@@ -777,7 +777,7 @@ impl Codegen {
 
         writeln!(sink, "switch (variant) {{")?;
         for method in callback.methods.values() {
-            let (req, resp) = MethodWriter::get_types(&method)?;
+            let (req, resp) = MethodWriter::get_types(&method);
             let req = match req {
                 TypedMessage::Request(req) => req,
                 _ => panic!("Expected TypedMessage::Request!"),

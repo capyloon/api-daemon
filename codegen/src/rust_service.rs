@@ -324,7 +324,6 @@ impl Codegen {
             )?;
         }
 
-        let single_variant = tracked_interfaces.len() == 1;
         for tracked in &tracked_interfaces {
             let interface = self.ast.interfaces.get(&tracked.interface_name()).unwrap();
 
@@ -365,23 +364,10 @@ impl Codegen {
                 }
                 writeln!(
                     sink,
-                    "if let Some(obj) = tracker.get_mut(message.object) {{"
+                    "if let Some({}TrackedObject::{}(ctxt)) = tracker.get_mut(message.object) {{",
+                    service_name,
+                    tracked.interface_name()
                 )?;
-                if single_variant {
-                    writeln!(
-                        sink,
-                        "let {}TrackedObject::{}(ctxt) = obj;",
-                        service_name,
-                        tracked.interface_name()
-                    )?;
-                } else {
-                    writeln!(
-                        sink,
-                        "if let {}TrackedObject::{}(ctxt) = obj {{",
-                        service_name,
-                        tracked.interface_name()
-                    )?;
-                }
                 if tracked.shared() {
                     writeln!(sink, "let mut mut_ctxt = ctxt.lock();")?;
                 } else {
@@ -395,9 +381,6 @@ impl Codegen {
                     method.name.to_camel_case(),
                     params
                 )?;
-                if !single_variant {
-                    writeln!(sink, "}}")?;
-                }
                 writeln!(sink, "}}")?;
 
                 writeln!(sink, "}}")?; // End of Req::() =>
@@ -416,11 +399,7 @@ impl Codegen {
                 }
                 writeln!(
                     sink,
-                    "if let Some(obj) = tracker.get_mut(message.object) {{"
-                )?;
-                writeln!(
-                    sink,
-                    "if let {}TrackedObject::{}(ctxt) = obj {{",
+                    "if let Some({}TrackedObject::{}(ctxt)) = tracker.get_mut(message.object) {{",
                     service_name,
                     tracked.interface_name()
                 )?;
@@ -433,7 +412,6 @@ impl Codegen {
                 writeln!(sink, "}} else {{")?;
                 writeln!(sink, "error!(\"Expected {}\");", tracked.interface_name())?;
                 writeln!(sink, "}}")?;
-                writeln!(sink, "}}")?;
 
                 writeln!(sink, "}}")?; // End of Req::() =>
 
@@ -445,11 +423,7 @@ impl Codegen {
                 }
                 writeln!(
                     sink,
-                    "if let Some(obj) = tracker.get_mut(message.object) {{"
-                )?;
-                writeln!(
-                    sink,
-                    "if let {}TrackedObject::{}(ctxt) = obj {{",
+                    "if let Some({}TrackedObject::{}(ctxt)) = tracker.get_mut(message.object) {{",
                     service_name,
                     tracked.interface_name()
                 )?;
@@ -465,7 +439,6 @@ impl Codegen {
                 )?;
                 writeln!(sink, "}} else {{")?;
                 writeln!(sink, "error!(\"Expected {}\");", tracked.interface_name())?;
-                writeln!(sink, "}}")?;
                 writeln!(sink, "}}")?;
 
                 writeln!(sink, "}}")?; // End of Req::() =>

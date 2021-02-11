@@ -465,7 +465,7 @@ impl Groups {
             // |move_process_out()| need borrowed references, we need
             // to clone |proc_ids| to stop borrowing from self.
             for proc_id in proc_ids.iter() {
-                self.move_process_out(*proc_id).unwrap();
+                self.move_process_out(*proc_id);
             }
         }
         if let Some(group) = self.names2groups.remove(group_name) {
@@ -554,7 +554,7 @@ impl Groups {
         }
     }
 
-    fn move_process_out(&mut self, proc_id: i32) -> Result<(), CGroupError> {
+    fn move_process_out(&mut self, proc_id: i32) {
         if let Some(group) = self.get_group_of_process(proc_id) {
             for (i, id) in group.proc_ids.iter().enumerate() {
                 if *id == proc_id {
@@ -564,7 +564,6 @@ impl Groups {
             }
             self.proc_ids2groups.remove(&proc_id);
         }
-        Ok(())
     }
 
     fn move_process_in(&mut self, proc_id: i32, group_name: &str) -> Result<(), CGroupError> {
@@ -579,7 +578,7 @@ impl Groups {
     }
 
     fn move_process(&mut self, proc_id: i32, group_name: String) -> Result<(), CGroupError> {
-        self.move_process_out(proc_id).unwrap();
+        self.move_process_out(proc_id);
         self.move_process_in(proc_id, &group_name)?;
         Ok(())
     }
@@ -592,7 +591,7 @@ impl Groups {
         self.phase = self.phase.move_to(CGroupsPhase::Processes)?;
 
         for proc_id in removings.iter() {
-            self.move_process_out(*proc_id)?;
+            self.move_process_out(*proc_id);
         }
         for (proc_id, group_name) in movings.iter() {
             self.move_process(*proc_id, group_name.clone())?;

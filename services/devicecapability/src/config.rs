@@ -110,17 +110,15 @@ fn get_from_prop(name: &str, default: Option<&serde_json::Value>) -> Result<Json
     }
 }
 
-fn get_from_pref(name: &str, default: Option<&serde_json::Value>) -> Result<JsonValue, Error> {
+fn get_from_pref(name: &str, default: Option<&serde_json::Value>) -> JsonValue {
     debug!("get_from_pref {}", name);
     let bridge = GeckoBridgeService::shared_state();
     let result = bridge.lock().get_pref(name);
     match result {
-        Some(PrefValue::Bool(value)) => Ok(JsonValue::from(serde_json::Value::Bool(value))),
-        Some(PrefValue::Int(value)) => Ok(JsonValue::from(serde_json::Value::Number(value.into()))),
-        Some(PrefValue::Str(value)) => Ok(JsonValue::from(serde_json::Value::String(value))),
-        None => Ok(JsonValue::from(json!(
-            default.unwrap_or(&serde_json::Value::Null)
-        ))),
+        Some(PrefValue::Bool(value)) => JsonValue::from(serde_json::Value::Bool(value)),
+        Some(PrefValue::Int(value)) => JsonValue::from(serde_json::Value::Number(value.into())),
+        Some(PrefValue::Str(value)) => JsonValue::from(serde_json::Value::String(value)),
+        None => JsonValue::from(json!(default.unwrap_or(&serde_json::Value::Null))),
     }
 }
 
@@ -172,7 +170,7 @@ impl DeviceCapabilityConfig {
                 match val.get(METHOD_KEY) {
                     Some(method) => match method.as_str() {
                         Some(METHOD_PROP) => get_from_prop(name, val.get(DEFAULT_KEY)),
-                        Some(METHOD_PREF) => get_from_pref(name, val.get(DEFAULT_KEY)),
+                        Some(METHOD_PREF) => Ok(get_from_pref(name, val.get(DEFAULT_KEY))),
                         Some(METHOD_HW_MEM) => {
                             debug!("get android_utils::total_memory");
                             Ok(JsonValue::from(serde_json::Value::Number(
