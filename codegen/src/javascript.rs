@@ -122,7 +122,6 @@ impl MethodWriter {
 pub struct Codegen {
     ast: Ast,
     fingerprint: String,
-    unique_id: u32,
 }
 
 fn js_type(typ: &ConcreteType) -> String {
@@ -144,7 +143,7 @@ fn js_type(typ: &ConcreteType) -> String {
 impl Codegen {
     // path is the current "root" seeding the JS property.
     fn write_encoder_for_item<'a, W: Write>(
-        &mut self,
+        &self,
         path: &str,
         item: &'a TypeItem,
         sink: &'a mut W,
@@ -154,6 +153,7 @@ impl Codegen {
             Some(val) => format!("{}.{}", path, val),
             None => path.into(),
         };
+        let is_dict = matches!(item.typ.typ, ConcreteType::Dictionary(_));
 
         let postfix = match item.typ.arity {
             Arity::Unary => "",
@@ -177,9 +177,13 @@ impl Codegen {
                     full_path, full_path
                 )?;
                 writeln!(sink, "result = result.u64({}.length);", full_path)?;
-                writeln!(sink, "{}.forEach(item => {{", full_path)?;
-
-                full_path = "item".into();
+                if is_dict {
+                    writeln!(sink, "{}.forEach({} => {{", full_path, path)?;
+                    full_path = path.into();
+                } else {
+                    writeln!(sink, "{}.forEach(item => {{", full_path)?;
+                    full_path = "item".into();
+                }
 
                 "});\n }\n"
             }
@@ -188,9 +192,13 @@ impl Codegen {
                 // First write the array length.
                 // TODO: Check that the full_path is an array.
                 writeln!(sink, "result = result.u64({}.length);", full_path)?;
-                writeln!(sink, "{}.forEach(item => {{", full_path)?;
-
-                full_path = "item".into();
+                if is_dict {
+                    writeln!(sink, "{}.forEach({} => {{", full_path, path)?;
+                    full_path = path.into();
+                } else {
+                    writeln!(sink, "{}.forEach(item => {{", full_path)?;
+                    full_path = "item".into();
+                }
 
                 "});\n"
             }
@@ -199,29 +207,27 @@ impl Codegen {
         match item.typ.typ {
             ConcreteType::Dictionary(ref utype) => {
                 // For dictionaries, we serialize each field in sequence.
-                let dict = self.ast.dictionaries.get(utype).unwrap().clone();
                 // If the full path is just "item" that means we are in an array
-                // loop already, so no need to create another dictionary holder.
-
-                sink.write_all(b"{\n")?;
-
-                let dict_name = format!("dict{}", self.unique_id);
-                self.unique_id += 1;
-                if full_path != "item" {
-                    writeln!(sink, "let {} = {};", dict_name, full_path)?;
-                    full_path = dict_name;
+                // loop already, so no need to create decode function for dictionary.
+                let dict_name = utype;
+                let local_var = format!("{}Item", dict_name);
+                if full_path != "item" && full_path != local_var {
+                    writeln!(sink, "// {}", utype)?;
+                    // let local_var = "item".to_string();
+                    writeln!(sink, "function Encode{}({}, result) {{", dict_name, local_var)?;
+                    let dict = self.ast.dictionaries.get(utype).unwrap();
+                    for member in &dict.members {
+                        self.write_encoder_for_item(
+                            &local_var,
+                            &TypeItem::from(Some(member.name.clone()), &member.typ),
+                            sink,
+                        )?;
+                    }
+                    writeln!(sink, "return result;")?;
+                    writeln!(sink, "}}")?;
                 }
 
-                // Create a new item type for each property.
-                for member in &dict.members {
-                    self.write_encoder_for_item(
-                        &full_path,
-                        &TypeItem::from(Some(member.name.clone()), &member.typ),
-                        sink,
-                    )?;
-                }
-
-                sink.write_all(b"}\n")?;
+                writeln!(sink, "result = Encode{}({}, result);", dict_name, full_path)?;
             }
             ConcreteType::Enumeration(_) => {
                 // Enumerations are just variant tag values.
@@ -251,15 +257,13 @@ impl Codegen {
         item: &'a TypeItem,
         sink: &'a mut W,
         var_name: &str,
-        nesting_level: u32,
     ) -> Result<()> {
         let name = item.name.clone().unwrap_or_else(|| "<no_name>".into());
-
-        let is_nested = nesting_level != 0 && matches!(item.typ.typ, ConcreteType::Dictionary(_));
+        let is_dict = matches!(item.typ.typ, ConcreteType::Dictionary(_));
 
         let full_name = match &item.name {
             Some(name) => {
-                if is_nested {
+                if is_dict && var_name != "result" {
                     format!("{}.{}", var_name, name)
                 } else {
                     var_name.to_owned()
@@ -278,7 +282,6 @@ impl Codegen {
                     sink,
                     false, /* is_array */
                     &full_name,
-                    nesting_level + 1,
                 )?
             }
             Arity::Optional => {
@@ -288,7 +291,6 @@ impl Codegen {
                     sink,
                     false, /* is_array */
                     &full_name,
-                    nesting_level + 1,
                 )?;
                 writeln!(sink, "}}")?;
             }
@@ -311,7 +313,6 @@ impl Codegen {
                     sink,
                     true, /* is_array */
                     var_name,
-                    nesting_level + 1,
                 )?;
                 writeln!(sink, "}}")?;
                 writeln!(sink, "}}")?;
@@ -335,7 +336,6 @@ impl Codegen {
                     sink,
                     true, /* is_array */
                     var_name,
-                    nesting_level + 1,
                 )?;
                 writeln!(sink, "}}")?;
                 writeln!(sink, "}} // let count = ... scope")?;
@@ -351,44 +351,40 @@ impl Codegen {
         sink: &'a mut W,
         is_array: bool,
         var_name: &str,
-        nesting_level: u32,
     ) -> Result<()> {
         let name = item.name.clone().unwrap_or_else(|| "<no_name>".into());
 
         match item.typ.typ {
             ConcreteType::Dictionary(ref utype) => {
-                if is_array {
-                    // need to create a local object inside the for loop.
-                    let local_var = format!("_{}", var_name);
-                    writeln!(sink, "let {} = {{}};", local_var)?;
+                // need to create a decode function for dictionary type before go into loop.
+                let dict_name = utype;
+                let local_var = &format!("{}Item", dict_name);
+                if var_name != local_var {
+                    writeln!(sink, "function Decode{}(decoder) {{", dict_name)?;
                     // For dictionaries, we read each field in sequence.
+                    // need to create a local object inside the decode function.
+                    writeln!(sink, "let {} = {{}};", local_var)?;
                     let dict = self.ast.dictionaries.get(utype).unwrap();
                     for member in &dict.members {
                         self.write_decoder_for_item(
                             &TypeItem::from(Some(member.name.clone()), &member.typ),
                             sink,
-                            &local_var,
-                            nesting_level + 1,
+                            local_var,
                         )?;
                     }
+                    writeln!(sink, "return {};", local_var)?;
+                    writeln!(sink, "}}")?;
+                }
+
+                if is_array {
                     if item.name.is_some() {
-                        writeln!(sink, "{}.{}.push({});", var_name, name, local_var)?;
+                        writeln!(sink, "{}.{}.push(Decode{}(decoder));", var_name, name, dict_name)?;
                     } else {
-                        writeln!(sink, "{}.push({});", var_name, local_var)?;
+                        writeln!(sink, "{}.push(Decode{}(decoder));", var_name, dict_name)?;
                     }
                 } else {
                     // For dictionaries, we read each field in sequence.
-                    let dict = self.ast.dictionaries.get(utype).unwrap();
-                    writeln!(sink, "{} = {{}};", var_name)?;
-                    // Create a new item type for each property.
-                    for member in &dict.members {
-                        self.write_decoder_for_item(
-                            &TypeItem::from(Some(member.name.clone()), &member.typ),
-                            sink,
-                            var_name,
-                            nesting_level + 1,
-                        )?;
-                    }
+                    writeln!(sink, "{} = Decode{}(decoder);", var_name, dict_name)?;
                 }
             }
             ConcreteType::Enumeration(_) => {
@@ -497,7 +493,7 @@ impl Codegen {
                         writeln!(sink, "// Success")?;
 
                         writeln!(sink, "let result = null;")?;
-                        self.write_decoder_for_item(&item, sink, "result", 0)?;
+                        self.write_decoder_for_item(&item, sink, "result")?;
                         writeln!(sink, "return {{ success: result }}")?;
                         writeln!(sink, "}}")?;
 
@@ -511,7 +507,7 @@ impl Codegen {
                         writeln!(sink, "// Error")?;
 
                         writeln!(sink, "let result = null;")?;
-                        self.write_decoder_for_item(&item, sink, "result", 0)?;
+                        self.write_decoder_for_item(&item, sink, "result")?;
                         writeln!(sink, "return {{ error: result }}")?;
                         writeln!(sink, "}}")?;
                         resp_index += 1;
@@ -671,7 +667,7 @@ impl Codegen {
                 writeln!(sink, "if (variant == {}) {{", i + resp_count)?;
                 writeln!(sink, "let result = null;")?;
                 let rtype = TypeItem::from(None, &event.returns);
-                self.write_decoder_for_item(&rtype, sink, "result", 0)?;
+                self.write_decoder_for_item(&rtype, sink, "result")?;
 
                 writeln!(sink, "this.dispatchEvent({}, result);", i)?;
                 writeln!(sink, "}}")?;
@@ -802,7 +798,7 @@ impl Codegen {
             // Decode the parameters, storing them in a temp struct.
             writeln!(sink, "let result = {{}};")?;
             for item in &req.types {
-                self.write_decoder_for_item(&item, sink, "result", 0)?;
+                self.write_decoder_for_item(&item, sink, "result")?;
             }
 
             writeln!(sink, "let output = this.{}(", method.name)?;
@@ -963,7 +959,6 @@ impl Codegen {
         Codegen {
             ast: normalize_rust_case(&ast, &JavascriptCaseNormalizer),
             fingerprint,
-            unique_id: 0,
         }
     }
 }
@@ -998,6 +993,37 @@ mod test {
 
             #[rust_name=do_it]
             fn doIt(what: binary?, which: SomeObject) -> Kind
+        }
+
+        dictionary BagOfThings {
+            one: int
+            two: str
+        }
+
+        enum Possibilities {
+            One
+            Two
+            Three
+        }
+
+        dictionary ArityDict {
+            optional: int?
+            zero_or_more: int*
+            one_or_more: int+
+            zero_or_more_bags: BagOfThings*
+            one_or_more_bags: BagOfThings+
+            enums: Possibilities+
+        }
+
+        dictionary MoreThings {
+            key: str
+            value: str
+            things: MoreThings*
+        }
+
+        interface SomeThings {
+            fn echo(some: ArityDict) -> ArityDict
+            fn set(some: MoreThings) -> MoreThings
         }
 
         service TestService: TestServiceInterface

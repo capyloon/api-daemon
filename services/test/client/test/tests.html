@@ -326,6 +326,56 @@
           );
         }
 
+
+        const some1 = {
+          key: "some1",
+          value: "value1",
+        };
+        const some2 = {
+          key: "some2",
+          value: "value2",
+          next: [some1]
+        };
+        const some3 = {
+          key: "some3",
+          value: "value3",
+          next: [some1, some2]
+        };
+        const somes = [ some1, some2, some3 ];
+
+        for (let i = 0; i < somes.length; i++) {
+          await tester.assert_eq(
+            `Test echo something some${i}`,
+            (service) => service.echoSomethings(somes[i]),
+            somes[i]
+          );
+        }
+
+        const more1 = {
+          key: "more1",
+          value: "value1",
+          next: []
+        };
+        const more2 = {
+          key: "more2",
+          value: "value2",
+          next: [more1]
+        };
+        const more3 = {
+          key: "more3",
+          value: "value3",
+          next: [more1, more2]
+        };
+        const mores = [ more1, more2, more3 ];
+
+        for (let i = 0; i < somes.length; i++) {
+          await tester.assert_eq(
+            `Test echo morething more${i}`,
+            (service) => service.echoMorethings(mores[i]),
+            mores[i]
+          );
+        }
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 

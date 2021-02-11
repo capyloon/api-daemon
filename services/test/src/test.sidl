@@ -20,6 +20,18 @@ dictionary ArityDict {
 	enums: Possibilities+
 }
 
+dictionary SomeThings {
+	key: str
+	value: str
+	next: SomeThings*
+}
+
+dictionary MoreThings {
+	key: str
+	value: str
+	next: MoreThings+
+}
+
 #[rust:shared-tracked]
 interface FooProvider {
 	fn do_it(what: str) -> int
@@ -127,6 +139,10 @@ interface TestFactory {
 	fn missing_permission()
 
 	fn echo_date(input: date) -> date
+
+	fn echo_somethings(some: SomeThings) -> SomeThings
+
+	fn echo_morethings(more: MoreThings) -> MoreThings
 }
 
 #[rust:use=crate::private_traits::*,rust:shared-tracker]

@@ -477,6 +477,14 @@ impl TestFactoryMethods for TestServiceImpl {
     fn echo_date(&mut self, responder: &TestFactoryEchoDateResponder, input: SystemTime) {
         responder.resolve(input);
     }
+
+    fn echo_somethings(&mut self, responder: &TestFactoryEchoSomethingsResponder, input: SomeThings) {
+        responder.resolve(input);
+    }
+
+    fn echo_morethings(&mut self, responder: &TestFactoryEchoMorethingsResponder, input: MoreThings) {
+        responder.resolve(input);
+    }
 }
 
 impl TestServiceImpl {
