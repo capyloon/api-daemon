@@ -32,7 +32,6 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libc libm libdl liblog libssl libcutils libc++_shared
 LOCAL_SRC_FILES := update-prebuilts.sh
 LOCAL_MODULE_PATH := $(TARGET_OUT)/api-daemon
-LOCAL_REQUIRED_MODULES := ca-bundle.crt
 
 API_DAEMON_LIB_DEPS := \
 	libhwbinder.so \
@@ -69,29 +68,3 @@ $(LOCAL_INSTALLED_MODULE):
 	@cp $(DAEMON_ROOT)/$(API_DAEMON_EXEC) $(TARGET_OUT)/bin/
 	@cp $(DAEMON_ROOT)/services/devicecapability/devicecapability.json $(TARGET_OUT)/b2g/defaults/devicecapability.json
 	@cp $(LOCAL_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$(TARGET_INCLUDE)/libc++_shared.so $(TARGET_OUT)/lib$(LIBSUFFIX)
-
-##################################
-# Build the ca-bundle.crt for api-daemon
-
-include $(CLEAR_VARS)
-
-LOCAL_MODULE := ca-bundle.crt
-LOCAL_MODULE_CLASS := ETC
-LOCAL_MODULE_TAGS := optional
-LOCAL_SRC_FILES := mk-ca-bundle.pl
-LOCAL_MODULE_PATH := $(TARGET_OUT)/etc
-include $(BUILD_PREBUILT)
-
-MK_CA_BUNDLE := $(LOCAL_PATH)/mk-ca-bundle.pl
-CERTDATA_FILE := file://$(GONK_DIR)/gecko/security/nss/lib/ckfw/builtins/certdata.txt
-
-$(LOCAL_BUILT_MODULE):
-	@echo "api-daemon: building ca-bundle.crt"
-
-$(LOCAL_INSTALLED_MODULE):
-	@mkdir -p $(@D)
-ifneq ($(PREBUILT_CA_BUNDLE),)
-	@cp $(PREBUILT_CA_BUNDLE) -f $@
-else
-	@perl $(MK_CA_BUNDLE) -d $(CERTDATA_FILE) -f $@
-endif
