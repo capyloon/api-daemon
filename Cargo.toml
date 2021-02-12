@@ -5,6 +5,7 @@ members = [
   "codegen/",
   "common/",
   "daemon/",
+  "native-build-deps/",
   "parser/",
   "services/apps",
   "services/audiovolumemanager",

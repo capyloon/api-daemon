@@ -122,6 +122,20 @@ rustflags = [
 ]
 EOF
 
+    # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
+    unset CFLAGS
+
+    # Build native build-dependencies without overriding CC, CXX,... etc.
+    if echo "$FEATURES" | grep "breakpad" > /dev/null 2>&1; then
+        cargo build --verbose --target=${TARGET_TRIPLE} ${OPT} \
+              -p native_build_deps
+    fi
+
+    # for `libcurl``
+    export PKG_CONFIG_ALLOW_CROSS=1
+
+    cargo build --verbose --target=${TARGET_TRIPLE} ${OPT} -p backtrace -p ring
+
     export CC=${TOOLCHAIN_CC}
     export CXX=${TOOLCHAIN_CXX}
     export LD=${TOOLCHAIN_CC}

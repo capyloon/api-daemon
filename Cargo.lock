@@ -2393,6 +2393,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "native_build_deps"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+]
+
+[[package]]
 name = "nb-connect"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

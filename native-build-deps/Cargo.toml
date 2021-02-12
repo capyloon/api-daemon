@@ -1,0 +1,25 @@
+#
+# This is an empty package just for building other native packages
+# that is required during build time.
+#
+# We have defined CC, CXX, ..., and various other environmemt
+# variables to override toolchains for cross compiling.  However,
+# build-dependencies are built against the host, not cross compiling,
+# to run them building a target, and these environment variables will
+# disturb them.  By making this empty package depends on these
+# build-dependencies and building it separately without these
+# varaibles, these build-dependencies will be built correctly without
+# disturbing of these variables.
+#
+
+[package]
+name = "native_build_deps"
+version = "0.1.0"
+authors = ["Thinker Lee <thinker@codemud.net>"]
+edition = "2018"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+libloading = { version="0.5" }

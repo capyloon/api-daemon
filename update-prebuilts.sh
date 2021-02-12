@@ -7,6 +7,7 @@ set -x -e
 BUILD_FEATURES=${BUILD_FEATURES:-"\
 apps-service,\
 audiovolumemanager-service,\
+breakpad,\
 contacts-service,\
 devicecapability-service,\
 geckobridge-service,\
