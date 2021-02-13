@@ -125,16 +125,16 @@ EOF
     # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
     unset CFLAGS
 
+    # To add /usr/bin to $PATH, in order for host builds
+    # of Rust crates to find 'cc' as a linker.
+    # TODO: find a proper fix.
+    export PATH=${PATH}:/usr/bin
+
     # Build native build-dependencies without overriding CC, CXX,... etc.
     if echo "$FEATURES" | grep "breakpad" > /dev/null 2>&1; then
         cargo build --verbose --target=${TARGET_TRIPLE} ${OPT} \
               -p native_build_deps
     fi
-
-    # for `libcurl``
-    export PKG_CONFIG_ALLOW_CROSS=1
-
-    cargo build --verbose --target=${TARGET_TRIPLE} ${OPT} -p backtrace -p ring
 
     export CC=${TOOLCHAIN_CC}
     export CXX=${TOOLCHAIN_CXX}
@@ -145,11 +145,6 @@ EOF
 
     export TARGET_CC=${TOOLCHAIN_CC}
     export TARGET_LD=${TOOLCHAIN_CC}
-
-    # To add /usr/bin to $PATH, in order for host builds
-    # of Rust crates to find 'cc' as a linker.
-    # TODO: find a proper fix.
-    export PATH=${PATH}:/usr/bin
 
     cat <<EOF >$(pwd)/env.txt
 export CARGO_BUILD_TARGET=${TARGET_TRIPLE}
