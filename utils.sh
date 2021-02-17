@@ -179,9 +179,9 @@ function generate_breakpad_symbols_armv7() {
         DUMP_SYMS=../tools/dump_syms/dump_syms
     fi
     echo python ../tools/dump_syms/generate_breakpad_symbols.py --dump-syms-dir ../tools/dump_syms \
-        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/kaios --binary $1
+        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/symbols --binary $1
     python ../tools/dump_syms/generate_breakpad_symbols.py --dump-syms-dir ../tools/dump_syms \
-        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/kaios --binary $1
+        --symbols-dir ../target/${TARGET_TRIPLE}/${BUILD_TYPE}/symbols --binary $1
 }
 
 function xstrip() {
