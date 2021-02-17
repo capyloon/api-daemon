@@ -28,6 +28,62 @@ fn rust_type_for_resolve_reject(ast: &Ast, full_type: &FullConcreteType) -> Stri
     }
 }
 
+pub trait SanitizedKeyword {
+   fn sanitized_keyword(&self) -> String;
+}
+
+impl SanitizedKeyword for str {
+    fn sanitized_keyword(&self) -> String {
+        static KEYWORDS: [&str; 39] = [
+            "as",
+            "async",
+            "await",
+            "break",
+            "const",
+            "continue",
+            "crate",
+            "dyn",
+            "else",
+            "enum",
+            "extern",
+            "false",
+            "fn",
+            "for",
+            "if",
+            "impl",
+            "in",
+            "let",
+            "loop",
+            "match",
+            "mod",
+            "move",
+            "mut",
+            "pub",
+            "ref",
+            "return",
+            "Self",
+            "self",
+            "static",
+            "struct",
+            "super",
+            "trait",
+            "true",
+            "type",
+            "union",
+            "unsafe",
+            "use",
+            "where",
+            "while",
+        ];
+
+        if KEYWORDS.iter().any(|v| v == &self) {
+            format!("r#{}", self)
+        } else {
+            self.to_string()
+        }
+    }
+}
+
 pub struct EnumWriter;
 
 impl EnumWriter {
@@ -50,7 +106,7 @@ impl EnumWriter {
         writeln!(sink, "pub enum {} {{", enumeration.name)?;
 
         for member in &enumeration.members {
-            writeln!(sink, "    {}, // #{}", member.name, member.order)?;
+            writeln!(sink, "    {}, // #{}", member.name.sanitized_keyword(), member.order)?;
         }
         writeln!(sink, "}}")?;
         writeln!(sink, "impl Copy for {} {{}}\n", enumeration.name)?;
@@ -68,7 +124,7 @@ impl DictWriter {
         writeln!(sink, "pub struct {} {{", dict.name)?;
 
         for member in &dict.members {
-            writeln!(sink, "    pub {}: {},", member.name, rust_type(&member.typ))?;
+            writeln!(sink, "    pub {}: {},", member.name.sanitized_keyword(), rust_type(&member.typ))?;
         }
         writeln!(sink, "}}\n")?;
 
