@@ -1,6 +1,9 @@
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use time::OffsetDateTime;
+use zeroize::Zeroizing;
+
+use crate::time_::YYYYMMDD;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -10,46 +13,48 @@ pub fn signature(
     region: &str,
     string_to_sign: &str,
 ) -> String {
-    let yyyymmdd = date.format("%Y%m%d");
+    let yyyymmdd = date.format(&YYYYMMDD).expect("invalid format");
 
-    let mut mac = HmacSha256::new_varkey(format!("AWS4{}", secret).as_bytes())
-        .expect("HMAC can take keys of any size");
+    let mut raw_date = String::with_capacity("AWS4".len() + secret.len());
+    raw_date.push_str("AWS4");
+    raw_date.push_str(secret);
+    let raw_date = Zeroizing::new(raw_date);
+
+    let mut mac =
+        HmacSha256::new_from_slice(raw_date.as_bytes()).expect("HMAC can take keys of any size");
     mac.update(yyyymmdd.as_bytes());
     let date_key = mac.finalize().into_bytes();
 
-    let mut mac = HmacSha256::new_varkey(&date_key).expect("HMAC can take keys of any size");
+    let mut mac = HmacSha256::new_from_slice(&date_key).expect("HMAC can take keys of any size");
     mac.update(region.as_bytes());
     let date_region_key = mac.finalize().into_bytes();
 
-    let mut mac = HmacSha256::new_varkey(&date_region_key).expect("HMAC can take keys of any size");
+    let mut mac =
+        HmacSha256::new_from_slice(&date_region_key).expect("HMAC can take keys of any size");
     mac.update(b"s3");
     let date_region_service_key = mac.finalize().into_bytes();
 
-    let mut mac =
-        HmacSha256::new_varkey(&date_region_service_key).expect("HMAC can take keys of any size");
+    let mut mac = HmacSha256::new_from_slice(&date_region_service_key)
+        .expect("HMAC can take keys of any size");
     mac.update(b"aws4_request");
     let signing_key = mac.finalize().into_bytes();
 
-    let mut mac = HmacSha256::new_varkey(&signing_key).expect("HMAC can take keys of any size");
+    let mut mac = HmacSha256::new_from_slice(&signing_key).expect("HMAC can take keys of any size");
     mac.update(string_to_sign.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    format!("{:x}", mac.finalize().into_bytes())
 }
 
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
-    use time::PrimitiveDateTime;
+    use time::OffsetDateTime;
 
     use super::*;
 
     #[test]
     fn aws_example() {
-        let date = PrimitiveDateTime::parse(
-            "Fri, 24 May 2013 00:00:00 GMT",
-            "%a, %d %b %Y %-H:%M:%S GMT",
-        )
-        .unwrap()
-        .assume_utc();
+        // Fri, 24 May 2013 00:00:00 GMT
+        let date = OffsetDateTime::from_unix_timestamp(1369353600).unwrap();
 
         let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         let region = "us-east-1";

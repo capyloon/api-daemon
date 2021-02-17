@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use rusty_s3::actions::{GetObject, S3Action};
-use rusty_s3::{Bucket, Credentials};
+use rusty_s3::{Bucket, Credentials, UrlStyle};
 
 const ONE_HOUR: Duration = Duration::from_secs(3600);
 
@@ -11,8 +11,8 @@ fn main() {
     let secret = "minioadmin";
     let region = "minio";
 
-    let bucket = Bucket::new(url, true, "test".into(), region.into()).unwrap();
-    let credential = Credentials::new(key.into(), secret.into());
+    let bucket = Bucket::new(url, UrlStyle::Path, "test", region).unwrap();
+    let credential = Credentials::new(key, secret);
 
     let mut action = GetObject::new(&bucket, Some(&credential), "img.jpg");
     action

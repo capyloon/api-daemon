@@ -44,6 +44,9 @@ pub(super) enum Kind {
     #[cfg(any(feature = "http1", feature = "http2"))]
     #[cfg(feature = "server")]
     Accept,
+    /// User took too long to send headers
+    #[cfg(all(feature = "http1", feature = "server", feature = "runtime"))]
+    HeaderTimeout,
     /// Error while reading a body from connection.
     #[cfg(any(feature = "http1", feature = "http2", feature = "stream"))]
     Body,
@@ -68,6 +71,8 @@ pub(super) enum Parse {
     #[cfg(feature = "http1")]
     VersionH2,
     Uri,
+    #[cfg_attr(not(all(feature = "http1", feature = "server")), allow(unused))]
+    UriTooLong,
     Header(Header),
     TooLarge,
     Status,
@@ -149,7 +154,10 @@ impl Error {
 
     /// Returns true if this was an HTTP parse error caused by a message that was too large.
     pub fn is_parse_too_large(&self) -> bool {
-        matches!(self.inner.kind, Kind::Parse(Parse::TooLarge))
+        matches!(
+            self.inner.kind,
+            Kind::Parse(Parse::TooLarge) | Kind::Parse(Parse::UriTooLong)
+        )
     }
 
     /// Returns true if this was an HTTP parse error caused by an invalid response status code or
@@ -310,6 +318,11 @@ impl Error {
         Error::new_user(User::UnexpectedHeader)
     }
 
+    #[cfg(all(feature = "http1", feature = "server", feature = "runtime"))]
+    pub(super) fn new_header_timeout() -> Error {
+        Error::new(Kind::HeaderTimeout)
+    }
+
     #[cfg(any(feature = "http1", feature = "http2"))]
     #[cfg(feature = "client")]
     pub(super) fn new_user_unsupported_version() -> Error {
@@ -390,6 +403,7 @@ impl Error {
             #[cfg(feature = "http1")]
             Kind::Parse(Parse::VersionH2) => "invalid HTTP version parsed (found HTTP2 preface)",
             Kind::Parse(Parse::Uri) => "invalid URI",
+            Kind::Parse(Parse::UriTooLong) => "URI too long",
             Kind::Parse(Parse::Header(Header::Token)) => "invalid HTTP header parsed",
             #[cfg(feature = "http1")]
             Kind::Parse(Parse::Header(Header::ContentLengthInvalid)) => {
@@ -419,6 +433,8 @@ impl Error {
             #[cfg(any(feature = "http1", feature = "http2"))]
             #[cfg(feature = "server")]
             Kind::Accept => "error accepting connection",
+            #[cfg(all(feature = "http1", feature = "server", feature = "runtime"))]
+            Kind::HeaderTimeout => "read header from client timeout",
             #[cfg(any(feature = "http1", feature = "http2", feature = "stream"))]
             Kind::Body => "error reading a body from connection",
             #[cfg(any(feature = "http1", feature = "http2"))]

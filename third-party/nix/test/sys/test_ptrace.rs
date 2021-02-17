@@ -1,4 +1,3 @@
-use nix::Error;
 use nix::errno::Errno;
 use nix::unistd::getpid;
 use nix::sys::ptrace;
@@ -8,41 +7,43 @@ use nix::sys::ptrace::Options;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use std::mem;
 
+use crate::*;
+
 #[test]
 fn test_ptrace() {
     // Just make sure ptrace can be called at all, for now.
     // FIXME: qemu-user doesn't implement ptrace on all arches, so permit ENOSYS
-    require_capability!(CAP_SYS_PTRACE);
+    require_capability!("test_ptrace", CAP_SYS_PTRACE);
     let err = ptrace::attach(getpid()).unwrap_err();
-    assert!(err == Error::Sys(Errno::EPERM) || err == Error::Sys(Errno::EINVAL) ||
-            err == Error::Sys(Errno::ENOSYS));
+    assert!(err == Errno::EPERM || err == Errno::EINVAL ||
+            err == Errno::ENOSYS);
 }
 
 // Just make sure ptrace_setoptions can be called at all, for now.
 #[test]
 #[cfg(any(target_os = "android", target_os = "linux"))]
 fn test_ptrace_setoptions() {
-    require_capability!(CAP_SYS_PTRACE);
+    require_capability!("test_ptrace_setoptions", CAP_SYS_PTRACE);
     let err = ptrace::setoptions(getpid(), Options::PTRACE_O_TRACESYSGOOD).unwrap_err();
-    assert!(err != Error::UnsupportedOperation);
+    assert!(err != Errno::EOPNOTSUPP);
 }
 
 // Just make sure ptrace_getevent can be called at all, for now.
 #[test]
 #[cfg(any(target_os = "android", target_os = "linux"))]
 fn test_ptrace_getevent() {
-    require_capability!(CAP_SYS_PTRACE);
+    require_capability!("test_ptrace_getevent", CAP_SYS_PTRACE);
     let err = ptrace::getevent(getpid()).unwrap_err();
-    assert!(err != Error::UnsupportedOperation);
+    assert!(err != Errno::EOPNOTSUPP);
 }
 
 // Just make sure ptrace_getsiginfo can be called at all, for now.
 #[test]
 #[cfg(any(target_os = "android", target_os = "linux"))]
 fn test_ptrace_getsiginfo() {
-    require_capability!(CAP_SYS_PTRACE);
-    if let Err(Error::UnsupportedOperation) = ptrace::getsiginfo(getpid()) {
-        panic!("ptrace_getsiginfo returns Error::UnsupportedOperation!");
+    require_capability!("test_ptrace_getsiginfo", CAP_SYS_PTRACE);
+    if let Err(Errno::EOPNOTSUPP) = ptrace::getsiginfo(getpid()) {
+        panic!("ptrace_getsiginfo returns Errno::EOPNOTSUPP!");
     }
 }
 
@@ -50,10 +51,10 @@ fn test_ptrace_getsiginfo() {
 #[test]
 #[cfg(any(target_os = "android", target_os = "linux"))]
 fn test_ptrace_setsiginfo() {
-    require_capability!(CAP_SYS_PTRACE);
+    require_capability!("test_ptrace_setsiginfo", CAP_SYS_PTRACE);
     let siginfo = unsafe { mem::zeroed() };
-    if let Err(Error::UnsupportedOperation) = ptrace::setsiginfo(getpid(), &siginfo) {
-        panic!("ptrace_setsiginfo returns Error::UnsupportedOperation!");
+    if let Err(Errno::EOPNOTSUPP) = ptrace::setsiginfo(getpid(), &siginfo) {
+        panic!("ptrace_setsiginfo returns Errno::EOPNOTSUPP!");
     }
 }
 
@@ -66,9 +67,9 @@ fn test_ptrace_cont() {
     use nix::unistd::fork;
     use nix::unistd::ForkResult::*;
 
-    require_capability!(CAP_SYS_PTRACE);
+    require_capability!("test_ptrace_cont", CAP_SYS_PTRACE);
 
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
 
     // FIXME: qemu-user doesn't implement ptrace on all architectures
     // and retunrs ENOSYS in this case.
@@ -77,7 +78,7 @@ fn test_ptrace_cont() {
     // On valid platforms the ptrace call should return Errno::EPERM, this
     // is already tested by `test_ptrace`.
     let err = ptrace::attach(getpid()).unwrap_err();
-    if err == Error::Sys(Errno::ENOSYS) {
+    if err == Errno::ENOSYS {
         return;
     }
 
@@ -98,10 +99,52 @@ fn test_ptrace_cont() {
             ptrace::cont(child, Some(Signal::SIGKILL)).unwrap();
             match waitpid(child, None) {
                 Ok(WaitStatus::Signaled(pid, Signal::SIGKILL, _)) if pid == child => {
-                    // FIXME It's been observed on some systems (apple) the 
+                    // FIXME It's been observed on some systems (apple) the
                     // tracee may not be killed but remain as a zombie process
                     // affecting other wait based tests. Add an extra kill just
                     // to make sure there are no zombies.
+                    let _ = waitpid(child, Some(WaitPidFlag::WNOHANG));
+                    while ptrace::cont(child, Some(Signal::SIGKILL)).is_ok() {
+                        let _ = waitpid(child, Some(WaitPidFlag::WNOHANG));
+                    }
+                }
+                _ => panic!("The process should have been killed"),
+            }
+        },
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_ptrace_interrupt() {
+    use nix::sys::ptrace;
+    use nix::sys::signal::Signal;
+    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+    use nix::unistd::fork;
+    use nix::unistd::ForkResult::*;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    require_capability!("test_ptrace_interrupt", CAP_SYS_PTRACE);
+
+    let _m = crate::FORK_MTX.lock();
+
+    match unsafe{fork()}.expect("Error: Fork Failed") {
+        Child => {
+            loop {
+                sleep(Duration::from_millis(1000));
+            }
+
+        },
+        Parent { child } => {
+            ptrace::seize(child, ptrace::Options::PTRACE_O_TRACESYSGOOD).unwrap();
+            ptrace::interrupt(child).unwrap();
+            assert_eq!(waitpid(child, None), Ok(WaitStatus::PtraceEvent(child, Signal::SIGTRAP, 128)));
+            ptrace::syscall(child, None).unwrap();
+            assert_eq!(waitpid(child, None), Ok(WaitStatus::PtraceSyscall(child)));
+            ptrace::detach(child, Some(Signal::SIGKILL)).unwrap();
+            match waitpid(child, None) {
+                Ok(WaitStatus::Signaled(pid, Signal::SIGKILL, _)) if pid == child => {
                     let _ = waitpid(child, Some(WaitPidFlag::WNOHANG));
                     while ptrace::cont(child, Some(Signal::SIGKILL)).is_ok() {
                         let _ = waitpid(child, Some(WaitPidFlag::WNOHANG));
@@ -128,9 +171,9 @@ fn test_ptrace_syscall() {
     use nix::unistd::getpid;
     use nix::unistd::ForkResult::*;
 
-    require_capability!(CAP_SYS_PTRACE);
+    require_capability!("test_ptrace_syscall", CAP_SYS_PTRACE);
 
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
 
     match unsafe{fork()}.expect("Error: Fork Failed") {
         Child => {
@@ -148,11 +191,11 @@ fn test_ptrace_syscall() {
             // set this option to recognize syscall-stops
             ptrace::setoptions(child, ptrace::Options::PTRACE_O_TRACESYSGOOD).unwrap();
 
-            #[cfg(target_pointer_width = "64")]
-            let get_syscall_id = || ptrace::getregs(child).unwrap().orig_rax as i64;
+            #[cfg(target_arch = "x86_64")]
+            let get_syscall_id = || ptrace::getregs(child).unwrap().orig_rax as libc::c_long;
 
-            #[cfg(target_pointer_width = "32")]
-            let get_syscall_id = || ptrace::getregs(child).unwrap().orig_eax as i32;
+            #[cfg(target_arch = "x86")]
+            let get_syscall_id = || ptrace::getregs(child).unwrap().orig_eax as libc::c_long;
 
             // kill entry
             ptrace::syscall(child, None).unwrap();

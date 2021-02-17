@@ -1,35 +1,34 @@
 #[cfg(not(target_os = "redox"))]
 use nix::fcntl::{self, open, readlink};
-use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
+use nix::fcntl::OFlag;
 use nix::unistd::*;
 use nix::unistd::ForkResult::*;
 #[cfg(not(target_os = "redox"))]
 use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 use nix::sys::wait::*;
 use nix::sys::stat::{self, Mode, SFlag};
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 use nix::pty::{posix_openpt, grantpt, unlockpt, ptsname};
 use nix::errno::Errno;
-#[cfg(not(target_os = "redox"))]
-use nix::Error;
-use std::{env, iter};
-#[cfg(not(target_os = "redox"))]
+use std::env;
+#[cfg(not(any(target_os = "fuchsia", target_os = "redox")))]
 use std::ffi::CString;
 #[cfg(not(target_os = "redox"))]
 use std::fs::DirBuilder;
 use std::fs::{self, File};
 use std::io::Write;
-use std::mem;
 use std::os::unix::prelude::*;
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "fuchsia", target_os = "redox")))]
 use std::path::Path;
 use tempfile::{tempdir, tempfile};
-use libc::{_exit, off_t};
+use libc::{_exit, mode_t, off_t};
+
+use crate::*;
 
 #[test]
 #[cfg(not(any(target_os = "netbsd")))]
 fn test_fork_and_waitpid() {
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
 
     // Safe: Child only calls `_exit`, which is signal-safe
     match unsafe{fork()}.expect("Error: Fork Failed") {
@@ -57,7 +56,7 @@ fn test_fork_and_waitpid() {
 #[test]
 fn test_wait() {
     // Grab FORK_MTX so wait doesn't reap a different test's child process
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
 
     // Safe: Child only calls `_exit`, which is signal-safe
     match unsafe{fork()}.expect("Error: Fork Failed") {
@@ -101,7 +100,7 @@ fn test_mkfifo() {
     mkfifo(&mkfifo_fifo, Mode::S_IRUSR).unwrap();
 
     let stats = stat::stat(&mkfifo_fifo).unwrap();
-    let typ = stat::SFlag::from_bits_truncate(stats.st_mode);
+    let typ = stat::SFlag::from_bits_truncate(stats.st_mode as mode_t);
     assert!(typ == SFlag::S_IFIFO);
 }
 
@@ -117,7 +116,7 @@ fn test_mkfifo_directory() {
     target_os = "macos", target_os = "ios",
     target_os = "android", target_os = "redox")))]
 fn test_mkfifoat_none() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
     let mkfifoat_fifo = tempdir.path().join("mkfifoat_fifo");
@@ -134,6 +133,8 @@ fn test_mkfifoat_none() {
     target_os = "macos", target_os = "ios",
     target_os = "android", target_os = "redox")))]
 fn test_mkfifoat() {
+    use nix::fcntl;
+
     let tempdir = tempdir().unwrap();
     let dirfd = open(tempdir.path(), OFlag::empty(), Mode::empty()).unwrap();
     let mkfifoat_name = "mkfifoat_name";
@@ -150,10 +151,10 @@ fn test_mkfifoat() {
     target_os = "macos", target_os = "ios",
     target_os = "android", target_os = "redox")))]
 fn test_mkfifoat_directory_none() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     // mkfifoat should fail if a directory is given
-    assert!(!mkfifoat(None, &env::temp_dir(), Mode::S_IRUSR).is_ok());
+    assert!(mkfifoat(None, &env::temp_dir(), Mode::S_IRUSR).is_err());
 }
 
 #[test]
@@ -167,7 +168,7 @@ fn test_mkfifoat_directory() {
     let mkfifoat_dir = "mkfifoat_dir";
     stat::mkdirat(dirfd, mkfifoat_dir, Mode::S_IRUSR).unwrap();
 
-    assert!(!mkfifoat(Some(dirfd), mkfifoat_dir, Mode::S_IRUSR).is_ok());
+    assert!(mkfifoat(Some(dirfd), mkfifoat_dir, Mode::S_IRUSR).is_err());
 }
 
 #[test]
@@ -200,12 +201,12 @@ mod linux_android {
 
 #[test]
 // `getgroups()` and `setgroups()` do not behave as expected on Apple platforms
-#[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
+#[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox", target_os = "fuchsia")))]
 fn test_setgroups() {
     // Skip this test when not run as root as `setgroups()` requires root.
     skip_if_not_root!("test_setgroups");
 
-    let _m = crate::GROUPS_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::GROUPS_MTX.lock();
 
     // Save the existing groups
     let old_groups = getgroups().unwrap();
@@ -223,13 +224,17 @@ fn test_setgroups() {
 
 #[test]
 // `getgroups()` and `setgroups()` do not behave as expected on Apple platforms
-#[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
+#[cfg(not(any(target_os = "ios",
+              target_os = "macos",
+              target_os = "redox",
+              target_os = "fuchsia",
+              target_os = "illumos")))]
 fn test_initgroups() {
     // Skip this test when not run as root as `initgroups()` and `setgroups()`
     // require root.
     skip_if_not_root!("test_initgroups");
 
-    let _m = crate::GROUPS_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::GROUPS_MTX.lock();
 
     // Save the existing groups
     let old_groups = getgroups().unwrap();
@@ -253,24 +258,30 @@ fn test_initgroups() {
     setgroups(&old_groups).unwrap();
 }
 
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "fuchsia", target_os = "redox")))]
 macro_rules! execve_test_factory(
     ($test_name:ident, $syscall:ident, $exe: expr $(, $pathname:expr, $flags:expr)*) => (
 
     #[cfg(test)]
     mod $test_name {
+    use std::ffi::CStr;
     use super::*;
+
+    const EMPTY: &'static [u8] = b"\0";
+    const DASH_C: &'static [u8] = b"-c\0";
+    const BIGARG: &'static [u8] = b"echo nix!!! && echo foo=$foo && echo baz=$baz\0";
+    const FOO: &'static [u8] = b"foo=bar\0";
+    const BAZ: &'static [u8] = b"baz=quux\0";
 
     fn syscall_cstr_ref() -> Result<std::convert::Infallible, nix::Error> {
         $syscall(
             $exe,
             $(CString::new($pathname).unwrap().as_c_str(), )*
-            &[CString::new(b"".as_ref()).unwrap().as_c_str(),
-              CString::new(b"-c".as_ref()).unwrap().as_c_str(),
-              CString::new(b"echo nix!!! && echo foo=$foo && echo baz=$baz"
-                           .as_ref()).unwrap().as_c_str()],
-            &[CString::new(b"foo=bar".as_ref()).unwrap().as_c_str(),
-              CString::new(b"baz=quux".as_ref()).unwrap().as_c_str()]
+            &[CStr::from_bytes_with_nul(EMPTY).unwrap(),
+              CStr::from_bytes_with_nul(DASH_C).unwrap(),
+              CStr::from_bytes_with_nul(BIGARG).unwrap()],
+            &[CStr::from_bytes_with_nul(FOO).unwrap(),
+              CStr::from_bytes_with_nul(BAZ).unwrap()]
             $(, $flags)*)
     }
 
@@ -278,12 +289,11 @@ macro_rules! execve_test_factory(
         $syscall(
             $exe,
             $(CString::new($pathname).unwrap().as_c_str(), )*
-            &[CString::new(b"".as_ref()).unwrap(),
-              CString::new(b"-c".as_ref()).unwrap(),
-              CString::new(b"echo nix!!! && echo foo=$foo && echo baz=$baz"
-                           .as_ref()).unwrap()],
-            &[CString::new(b"foo=bar".as_ref()).unwrap(),
-              CString::new(b"baz=quux".as_ref()).unwrap()]
+            &[CString::from(CStr::from_bytes_with_nul(EMPTY).unwrap()),
+              CString::from(CStr::from_bytes_with_nul(DASH_C).unwrap()),
+              CString::from(CStr::from_bytes_with_nul(BIGARG).unwrap())],
+            &[CString::from(CStr::from_bytes_with_nul(FOO).unwrap()),
+              CString::from(CStr::from_bytes_with_nul(BAZ).unwrap())]
             $(, $flags)*)
     }
 
@@ -294,7 +304,7 @@ macro_rules! execve_test_factory(
             skip_if_seccomp!($test_name);
         }
 
-        let m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+        let m = crate::FORK_MTX.lock();
         // The `exec`d process will write to `writer`, and we'll read that
         // data from `reader`.
         let (reader, writer) = pipe().unwrap();
@@ -329,11 +339,17 @@ macro_rules! execve_test_factory(
         }
     }
 
+    // These tests frequently fail on musl, probably due to
+        // https://github.com/nix-rust/nix/issues/555
+    #[cfg_attr(target_env = "musl", ignore)]
     #[test]
     fn test_cstr_ref() {
         common_test(syscall_cstr_ref);
     }
 
+    // These tests frequently fail on musl, probably due to
+        // https://github.com/nix-rust/nix/issues/555
+    #[cfg_attr(target_env = "musl", ignore)]
     #[test]
     fn test_cstring() {
         common_test(syscall_cstring);
@@ -349,13 +365,17 @@ cfg_if!{
         execve_test_factory!(test_fexecve, fexecve, File::open("/system/bin/sh").unwrap().into_raw_fd());
     } else if #[cfg(any(target_os = "freebsd",
                         target_os = "linux"))] {
+        // These tests frequently fail on musl, probably due to
+        // https://github.com/nix-rust/nix/issues/555
         execve_test_factory!(test_execve, execve, CString::new("/bin/sh").unwrap().as_c_str());
         execve_test_factory!(test_fexecve, fexecve, File::open("/bin/sh").unwrap().into_raw_fd());
     } else if #[cfg(any(target_os = "dragonfly",
+                        target_os = "illumos",
                         target_os = "ios",
                         target_os = "macos",
                         target_os = "netbsd",
-                        target_os = "openbsd"))] {
+                        target_os = "openbsd",
+                        target_os = "solaris"))] {
         execve_test_factory!(test_execve, execve, CString::new("/bin/sh").unwrap().as_c_str());
         // No fexecve() on DragonFly, ios, macos, NetBSD, OpenBSD.
         //
@@ -371,11 +391,14 @@ execve_test_factory!(test_execvpe, execvpe, &CString::new("sh").unwrap());
 cfg_if!{
     if #[cfg(target_os = "android")] {
         use nix::fcntl::AtFlags;
-        execve_test_factory!(test_execveat_empty, execveat, File::open("/system/bin/sh").unwrap().into_raw_fd(),
+        execve_test_factory!(test_execveat_empty, execveat,
+                             File::open("/system/bin/sh").unwrap().into_raw_fd(),
                              "", AtFlags::AT_EMPTY_PATH);
-        execve_test_factory!(test_execveat_relative, execveat, File::open("/system/bin/").unwrap().into_raw_fd(),
+        execve_test_factory!(test_execveat_relative, execveat,
+                             File::open("/system/bin/").unwrap().into_raw_fd(),
                              "./sh", AtFlags::empty());
-        execve_test_factory!(test_execveat_absolute, execveat, File::open("/").unwrap().into_raw_fd(),
+        execve_test_factory!(test_execveat_absolute, execveat,
+                             File::open("/").unwrap().into_raw_fd(),
                              "/system/bin/sh", AtFlags::empty());
     } else if #[cfg(all(target_os = "linux", any(target_arch ="x86_64", target_arch ="x86")))] {
         use nix::fcntl::AtFlags;
@@ -389,6 +412,7 @@ cfg_if!{
 }
 
 #[test]
+#[cfg(not(target_os = "fuchsia"))]
 fn test_fchdir() {
     // fchdir changes the process's cwd
     let _dr = crate::DirRestore::new();
@@ -417,9 +441,9 @@ fn test_getcwd() {
     // kicks in.  Note: One path cannot be longer than 255 bytes
     // (NAME_MAX) whole path cannot be longer than PATH_MAX (usually
     // 4096 on linux, 1024 on macos)
-    let mut inner_tmp_dir = tmpdir_path.to_path_buf();
+    let mut inner_tmp_dir = tmpdir_path;
     for _ in 0..5 {
-        let newdir = iter::repeat("a").take(100).collect::<String>();
+        let newdir = "a".repeat(100);
         inner_tmp_dir.push(newdir);
         assert!(mkdir(inner_tmp_dir.as_path(), Mode::S_IRWXU).is_ok());
     }
@@ -459,9 +483,7 @@ fn test_fchown() {
     fchown(fd, uid, gid).unwrap();
     fchown(fd, uid, None).unwrap();
     fchown(fd, None, gid).unwrap();
-
-    mem::drop(path);
-    fchown(fd, uid, gid).unwrap_err();
+    fchown(999999999, uid, gid).unwrap_err();
 }
 
 #[test]
@@ -527,7 +549,7 @@ cfg_if!{
     if #[cfg(any(target_os = "android", target_os = "linux"))] {
         macro_rules! require_acct{
             () => {
-                require_capability!(CAP_SYS_PACCT);
+                require_capability!("test_acct", CAP_SYS_PACCT);
             }
         }
     } else if #[cfg(target_os = "freebsd")] {
@@ -537,7 +559,7 @@ cfg_if!{
                 skip_if_jailed!("test_acct");
             }
         }
-    } else if #[cfg(not(target_os = "redox"))] {
+    } else if #[cfg(not(any(target_os = "redox", target_os = "fuchsia")))] {
         macro_rules! require_acct{
             () => {
                 skip_if_not_root!("test_acct");
@@ -547,13 +569,13 @@ cfg_if!{
 }
 
 #[test]
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 fn test_acct() {
     use tempfile::NamedTempFile;
     use std::process::Command;
     use std::{thread, time};
 
-    let _m = crate::FORK_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::FORK_MTX.lock();
     require_acct!();
 
     let file = NamedTempFile::new().unwrap();
@@ -602,15 +624,34 @@ fn test_sysconf_unsupported() {
     assert!(open_max.expect("sysconf failed").is_none())
 }
 
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[test]
+fn test_getresuid() {
+    let resuids = getresuid().unwrap();
+    assert!(resuids.real.as_raw() != libc::uid_t::max_value());
+    assert!(resuids.effective.as_raw() != libc::uid_t::max_value());
+    assert!(resuids.saved.as_raw() != libc::uid_t::max_value());
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[test]
+fn test_getresgid() {
+    let resgids = getresgid().unwrap();
+    assert!(resgids.real.as_raw() != libc::gid_t::max_value());
+    assert!(resgids.effective.as_raw() != libc::gid_t::max_value());
+    assert!(resgids.saved.as_raw() != libc::gid_t::max_value());
+}
+
 // Test that we can create a pair of pipes.  No need to verify that they pass
 // data; that's the domain of the OS, not nix.
 #[test]
 fn test_pipe() {
     let (fd0, fd1) = pipe().unwrap();
-    let m0 = stat::SFlag::from_bits_truncate(stat::fstat(fd0).unwrap().st_mode);
+    let m0 = stat::SFlag::from_bits_truncate(stat::fstat(fd0).unwrap().st_mode as mode_t);
     // S_IFIFO means it's a pipe
     assert_eq!(m0, SFlag::S_IFIFO);
-    let m1 = stat::SFlag::from_bits_truncate(stat::fstat(fd1).unwrap().st_mode);
+    let m1 = stat::SFlag::from_bits_truncate(stat::fstat(fd1).unwrap().st_mode as mode_t);
     assert_eq!(m1, SFlag::S_IFIFO);
 }
 
@@ -620,12 +661,16 @@ fn test_pipe() {
           target_os = "dragonfly",
           target_os = "emscripten",
           target_os = "freebsd",
+          target_os = "illumos",
           target_os = "linux",
           target_os = "netbsd",
           target_os = "openbsd",
-          target_os = "redox"))]
+          target_os = "redox",
+          target_os = "solaris"))]
 #[test]
 fn test_pipe2() {
+    use nix::fcntl::{fcntl, FcntlArg, FdFlag};
+
     let (fd0, fd1) = pipe2(OFlag::O_CLOEXEC).unwrap();
     let f0 = FdFlag::from_bits_truncate(fcntl(fd0, FcntlArg::F_GETFD).unwrap());
     assert!(f0.contains(FdFlag::FD_CLOEXEC));
@@ -634,7 +679,7 @@ fn test_pipe2() {
 }
 
 #[test]
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 fn test_truncate() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("file");
@@ -684,7 +729,13 @@ pub extern fn alarm_signal_handler(raw_signal: libc::c_int) {
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_alarm() {
-    let _m = crate::SIGNAL_MTX.lock().expect("Mutex got poisoned by another test");
+    use std::{
+        time::{Duration, Instant,},
+        thread
+    };
+
+    // Maybe other tests that fork interfere with this one?
+    let _m = crate::SIGNAL_MTX.lock();
 
     let handler = SigHandler::Handler(alarm_signal_handler);
     let signal_action = SigAction::new(handler, SaFlags::SA_RESTART, SigSet::empty());
@@ -699,10 +750,18 @@ fn test_alarm() {
     // Overwriting an alarm should return the old alarm.
     assert_eq!(alarm::set(1), Some(60));
 
-    // We should be woken up after 1 second by the alarm, so we'll sleep for 2
+    // We should be woken up after 1 second by the alarm, so we'll sleep for 3
     // seconds to be sure.
-    sleep(2);
-    assert_eq!(unsafe { ALARM_CALLED }, true, "expected our alarm signal handler to be called");
+    let starttime = Instant::now();
+    loop {
+        thread::sleep(Duration::from_millis(100));
+        if unsafe { ALARM_CALLED} {
+            break;
+        }
+        if starttime.elapsed() > Duration::from_secs(3) {
+            panic!("Timeout waiting for SIGALRM");
+        }
+    }
 
     // Reset the signal.
     unsafe {
@@ -714,7 +773,7 @@ fn test_alarm() {
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_canceling_alarm() {
-    let _m = crate::SIGNAL_MTX.lock().expect("Mutex got poisoned by another test");
+    let _m = crate::SIGNAL_MTX.lock();
 
     assert_eq!(alarm::cancel(), None);
 
@@ -725,7 +784,7 @@ fn test_canceling_alarm() {
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_symlinkat() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
 
@@ -824,7 +883,7 @@ fn test_linkat_newdirfd_none() {
 #[test]
 #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
 fn test_linkat_no_follow_symlink() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
     let oldfilename = "foo.txt";
@@ -861,7 +920,7 @@ fn test_linkat_no_follow_symlink() {
 #[test]
 #[cfg(not(target_os = "redox"))]
 fn test_linkat_follow_symlink() {
-    let _m = crate::CWD_LOCK.read().expect("Mutex got poisoned by another test");
+    let _m = crate::CWD_LOCK.read();
 
     let tempdir = tempdir().unwrap();
     let oldfilename = "foo.txt";
@@ -888,7 +947,9 @@ fn test_linkat_follow_symlink() {
     let newfilestat = stat::stat(&newfilepath).unwrap();
 
     // Check the file type of the new link
-    assert!((stat::SFlag::from_bits_truncate(newfilestat.st_mode) & SFlag::S_IFMT) ==  SFlag::S_IFREG);
+    assert_eq!((stat::SFlag::from_bits_truncate(newfilestat.st_mode as mode_t) & SFlag::S_IFMT),
+        SFlag::S_IFREG
+    );
 
     // Check the number of hard links to the original file
     assert_eq!(newfilestat.st_nlink, 2);
@@ -909,7 +970,7 @@ fn test_unlinkat_dir_noremovedir() {
 
     // Attempt unlink dir at relative path without proper flag
     let err_result = unlinkat(Some(dirfd), dirname, UnlinkatFlags::NoRemoveDir).unwrap_err();
-    assert!(err_result == Error::Sys(Errno::EISDIR) || err_result == Error::Sys(Errno::EPERM));
+    assert!(err_result == Errno::EISDIR || err_result == Errno::EPERM);
  }
 
 #[test]
@@ -952,7 +1013,7 @@ fn test_unlinkat_file() {
 fn test_access_not_existing() {
     let tempdir = tempdir().unwrap();
     let dir = tempdir.path().join("does_not_exist.txt");
-    assert_eq!(access(&dir, AccessFlags::F_OK).err().unwrap().as_errno().unwrap(),
+    assert_eq!(access(&dir, AccessFlags::F_OK).err().unwrap(),
                Errno::ENOENT);
 }
 
@@ -964,23 +1025,33 @@ fn test_access_file_exists() {
     assert!(access(&path, AccessFlags::R_OK | AccessFlags::W_OK).is_ok());
 }
 
+#[cfg(not(target_os = "redox"))]
+#[test]
+fn test_user_into_passwd() {
+    // get the UID of the "nobody" user
+    let nobody = User::from_name("nobody").unwrap().unwrap();
+    let pwd: libc::passwd = nobody.into();
+    let _: User = (&pwd).into();
+}
+
 /// Tests setting the filesystem UID with `setfsuid`.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 #[test]
 fn test_setfsuid() {
     use std::os::unix::fs::PermissionsExt;
     use std::{fs, io, thread};
-    require_capability!(CAP_SETUID);
+    require_capability!("test_setfsuid", CAP_SETUID);
 
     // get the UID of the "nobody" user
     let nobody = User::from_name("nobody").unwrap().unwrap();
 
     // create a temporary file with permissions '-rw-r-----'
-    let file = tempfile::NamedTempFile::new().unwrap();
+    let file = tempfile::NamedTempFile::new_in("/var/tmp").unwrap();
     let temp_path = file.into_temp_path();
+    dbg!(&temp_path);
     let temp_path_2 = (&temp_path).to_path_buf();
     let mut permissions = fs::metadata(&temp_path).unwrap().permissions();
-    permissions.set_mode(640);
+    permissions.set_mode(0o640);
 
     // spawn a new thread where to test setfsuid
     thread::spawn(move || {
@@ -1003,7 +1074,7 @@ fn test_setfsuid() {
 }
 
 #[test]
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 fn test_ttyname() {
     let fd = posix_openpt(OFlag::O_RDWR).expect("posix_openpt failed");
     assert!(fd.as_raw_fd() > 0);
@@ -1026,21 +1097,54 @@ fn test_ttyname() {
 }
 
 #[test]
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 fn test_ttyname_not_pty() {
     let fd = File::open("/dev/zero").unwrap();
     assert!(fd.as_raw_fd() > 0);
-    assert_eq!(ttyname(fd.as_raw_fd()), Err(Error::Sys(Errno::ENOTTY)));
+    assert_eq!(ttyname(fd.as_raw_fd()), Err(Errno::ENOTTY));
 }
 
 #[test]
-#[cfg(all(not(target_os = "redox"), not(target_env = "musl")))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 fn test_ttyname_invalid_fd() {
-    assert_eq!(ttyname(-1), Err(Error::Sys(Errno::EBADF)));
+    assert_eq!(ttyname(-1), Err(Errno::EBADF));
 }
 
 #[test]
-#[cfg(all(not(target_os = "redox"), target_env = "musl"))]
-fn test_ttyname_invalid_fd() {
-    assert_eq!(ttyname(-1), Err(Error::Sys(Errno::ENOTTY)));
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+))]
+fn test_getpeereid() {
+    use std::os::unix::net::UnixStream;
+    let (sock_a, sock_b) = UnixStream::pair().unwrap();
+
+    let (uid_a, gid_a) = getpeereid(sock_a.as_raw_fd()).unwrap();
+    let (uid_b, gid_b) = getpeereid(sock_b.as_raw_fd()).unwrap();
+
+    let uid = geteuid();
+    let gid = getegid();
+
+    assert_eq!(uid, uid_a);
+    assert_eq!(gid, gid_a);
+    assert_eq!(uid_a, uid_b);
+    assert_eq!(gid_a, gid_b);
+}
+
+#[test]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+))]
+fn test_getpeereid_invalid_fd() {
+    // getpeereid is not POSIX, so error codes are inconsistent between different Unices.
+    assert!(getpeereid(-1).is_err());
 }

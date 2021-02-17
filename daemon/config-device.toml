@@ -27,3 +27,7 @@ allow_remove_preloaded = true
 [procmanager_service]
 socket_path = "/dev/socket/b2gkiller_hints"
 hints_path = "/data/local/tmp/prochints.dat"
+
+[content_manager]
+storage_path = "/mnt/runtime/default/emulated/costaeres"
+metadata_cache_capacity = 250

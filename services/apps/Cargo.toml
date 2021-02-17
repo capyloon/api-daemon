@@ -10,13 +10,13 @@ actix-rt = "1.0"
 android_utils = { path = "../../support/android-utils" }
 assert-json-diff = "1.1.0"
 base64 = "0.13"
-blake2 = "0.9"
+blake2 = "0.10"
 common = { path = "../../common" }
 geckobridge = { path = "../geckobridge" }
 http = "0.2.1"
 log = "0.4"
 mkstemp-rs = "1.0.0"
-nix = "0.19"
+nix = "0.23"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.25", features = ["bundled", "url"] }
 serde = { version = "1.0", features = ["derive"] }

@@ -136,6 +136,7 @@
 //! [`Error`]: ../struct.Error.html
 
 use crate::codec::{Codec, SendError, UserError};
+use crate::ext::Protocol;
 use crate::frame::{Headers, Pseudo, Reason, Settings, StreamId};
 use crate::proto::{self, Error};
 use crate::{FlowControl, PingPong, RecvStream, SendStream};
@@ -318,6 +319,9 @@ pub struct Builder {
 
     /// Initial target window size for new connections.
     initial_target_connection_window_size: Option<u32>,
+
+    /// Maximum amount of bytes to "buffer" for writing per stream.
+    max_send_buffer_size: usize,
 
     /// Maximum number of locally reset streams to keep at a time.
     reset_stream_max: usize,
@@ -517,6 +521,19 @@ where
                 (response, stream)
             })
     }
+
+    /// Returns whether the [extended CONNECT protocol][1] is enabled or not.
+    ///
+    /// This setting is configured by the server peer by sending the
+    /// [`SETTINGS_ENABLE_CONNECT_PROTOCOL` parameter][2] in a `SETTINGS` frame.
+    /// This method returns the currently acknowledged value recieved from the
+    /// remote.
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/rfc8441#section-4
+    /// [2]: https://datatracker.ietf.org/doc/html/rfc8441#section-3
+    pub fn is_extended_connect_protocol_enabled(&self) -> bool {
+        self.inner.is_extended_connect_protocol_enabled()
+    }
 }
 
 impl<B> fmt::Debug for SendRequest<B>
@@ -614,6 +631,7 @@ impl Builder {
     /// ```
     pub fn new() -> Builder {
         Builder {
+            max_send_buffer_size: proto::DEFAULT_MAX_SEND_BUFFER_SIZE,
             reset_stream_duration: Duration::from_secs(proto::DEFAULT_RESET_STREAM_SECS),
             reset_stream_max: proto::DEFAULT_RESET_STREAM_MAX,
             initial_target_connection_window_size: None,
@@ -948,6 +966,24 @@ impl Builder {
         self
     }
 
+    /// Sets the maximum send buffer size per stream.
+    ///
+    /// Once a stream has buffered up to (or over) the maximum, the stream's
+    /// flow control will not "poll" additional capacity. Once bytes for the
+    /// stream have been written to the connection, the send buffer capacity
+    /// will be freed up again.
+    ///
+    /// The default is currently ~400MB, but may change.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `max` is larger than `u32::MAX`.
+    pub fn max_send_buffer_size(&mut self, max: usize) -> &mut Self {
+        assert!(max <= std::u32::MAX as usize);
+        self.max_send_buffer_size = max;
+        self
+    }
+
     /// Enables or disables server push promises.
     ///
     /// This value is included in the initial SETTINGS handshake. When set, the
@@ -1170,6 +1206,7 @@ where
             proto::Config {
                 next_stream_id: builder.stream_id,
                 initial_max_send_streams: builder.initial_max_send_streams,
+                max_send_buffer_size: builder.max_send_buffer_size,
                 reset_stream_duration: builder.reset_stream_duration,
                 reset_stream_max: builder.reset_stream_max,
                 settings: builder.settings.clone(),
@@ -1246,11 +1283,10 @@ where
     /// This method returns the currently acknowledged value recieved from the
     /// remote.
     ///
-    /// [settings]: https://tools.ietf.org/html/rfc7540#section-5.1.2
+    /// [1]: https://tools.ietf.org/html/rfc7540#section-5.1.2
     pub fn max_concurrent_send_streams(&self) -> usize {
         self.inner.max_send_streams()
     }
-
     /// Returns the maximum number of concurrent streams that may be initiated
     /// by the server on this connection.
     ///
@@ -1416,6 +1452,7 @@ impl Peer {
     pub fn convert_send_message(
         id: StreamId,
         request: Request<()>,
+        protocol: Option<Protocol>,
         end_of_stream: bool,
     ) -> Result<Headers, SendError> {
         use http::request::Parts;
@@ -1435,7 +1472,7 @@ impl Peer {
 
         // Build the set pseudo header set. All requests will include `method`
         // and `path`.
-        let mut pseudo = Pseudo::request(method, uri);
+        let mut pseudo = Pseudo::request(method, uri, protocol);
 
         if pseudo.scheme.is_none() {
             // If the scheme is not set, then there are a two options.

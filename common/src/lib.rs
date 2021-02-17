@@ -195,6 +195,13 @@ pub struct Blob {
 }
 
 impl Blob {
+    pub fn new(mime_type: &str, data: Vec<u8>) -> Self {
+        Self {
+            mime_type: mime_type.into(),
+            data,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -209,6 +216,10 @@ impl Blob {
 
     pub fn data(&self) -> &Vec<u8> {
         &self.data
+    }
+
+    pub fn take_data(self) -> Vec<u8> {
+        self.data
     }
 
     pub fn set_mime_type(&mut self, mime_type: &str) {

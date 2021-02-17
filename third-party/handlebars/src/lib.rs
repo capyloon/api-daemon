@@ -1,4 +1,4 @@
-#![doc(html_root_url = "https://docs.rs/handlebars/4.1.5")]
+#![doc(html_root_url = "https://docs.rs/handlebars/4.2.1")]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //! # Handlebars
 //!
@@ -165,6 +165,14 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! #### Additional features for loading template from
+//!
+//! * Feature `dir_source` enables template loading
+//! `register_templates_directory` from given directory.
+//! * Feature `rust-embed` enables template loading
+//! `register_embed_templates` from embedded resources in rust struct
+//! generated with `RustEmbed`.
 //!
 //! ### Rendering Something
 //!

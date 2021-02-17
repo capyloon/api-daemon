@@ -17,14 +17,12 @@ use hyper::client::ResponseFuture;
 #[cfg(feature = "native-tls-crate")]
 use native_tls_crate::TlsConnector;
 use pin_project_lite::pin_project;
-#[cfg(feature = "rustls-tls-native-roots")]
-use rustls::RootCertStore;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::time::Sleep;
 
-use log::debug;
+use log::{debug, trace};
 
 use super::decoder::Accepts;
 use super::request::{Request, RequestBuilder};
@@ -105,6 +103,7 @@ struct Config {
     #[cfg(feature = "__tls")]
     tls: TlsBackend,
     http_version_pref: HttpVersionPref,
+    http09_responses: bool,
     http1_title_case_headers: bool,
     http2_initial_stream_window_size: Option<u32>,
     http2_initial_connection_window_size: Option<u32>,
@@ -168,6 +167,7 @@ impl ClientBuilder {
                 #[cfg(feature = "__tls")]
                 tls: TlsBackend::default(),
                 http_version_pref: HttpVersionPref::All,
+                http09_responses: false,
                 http1_title_case_headers: false,
                 http2_initial_stream_window_size: None,
                 http2_initial_connection_window_size: None,
@@ -322,68 +322,94 @@ impl ClientBuilder {
                 TlsBackend::Rustls => {
                     use crate::tls::NoVerifier;
 
-                    let mut tls = rustls::ClientConfig::new();
-                    match config.http_version_pref {
-                        HttpVersionPref::Http1 => {
-                            tls.set_protocols(&["http/1.1".into()]);
-                        }
-                        HttpVersionPref::Http2 => {
-                            tls.set_protocols(&["h2".into()]);
-                        }
-                        HttpVersionPref::All => {
-                            tls.set_protocols(&["h2".into(), "http/1.1".into()]);
-                        }
-                    }
-                    #[cfg(feature = "rustls-tls-webpki-roots")]
-                    if config.tls_built_in_root_certs {
-                        tls.root_store
-                            .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
-                    }
-                    #[cfg(feature = "rustls-tls-native-roots")]
-                    if config.tls_built_in_root_certs {
-                        let roots_slice = NATIVE_ROOTS.as_ref().unwrap().roots.as_slice();
-                        tls.root_store.roots.extend_from_slice(roots_slice);
+                    // Set root certificates.
+                    let mut root_cert_store = rustls::RootCertStore::empty();
+                    for cert in config.root_certs {
+                        cert.add_to_rustls(&mut root_cert_store)?;
                     }
 
+                    #[cfg(feature = "rustls-tls-webpki-roots")]
+                    if config.tls_built_in_root_certs {
+                        use rustls::OwnedTrustAnchor;
+
+                        let trust_anchors =
+                            webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|trust_anchor| {
+                                OwnedTrustAnchor::from_subject_spki_name_constraints(
+                                    trust_anchor.subject,
+                                    trust_anchor.spki,
+                                    trust_anchor.name_constraints,
+                                )
+                            });
+
+                        root_cert_store.add_server_trust_anchors(trust_anchors);
+                    }
+
+                    #[cfg(feature = "rustls-tls-native-roots")]
+                    if config.tls_built_in_root_certs {
+                        for cert in rustls_native_certs::load_native_certs()
+                            .map_err(crate::error::builder)?
+                        {
+                            root_cert_store
+                                .add(&rustls::Certificate(cert.0))
+                                .map_err(crate::error::builder)?
+                        }
+                    }
+
+                    // Set TLS versions.
+                    let mut versions = rustls::ALL_VERSIONS.to_vec();
+
+                    if let Some(min_tls_version) = config.min_tls_version {
+                        versions.retain(|&supported_version| {
+                            match tls::Version::from_rustls(supported_version.version) {
+                                Some(version) => version >= min_tls_version,
+                                // Assume it's so new we don't know about it, allow it
+                                // (as of writing this is unreachable)
+                                None => true,
+                            }
+                        });
+                    }
+
+                    if let Some(max_tls_version) = config.max_tls_version {
+                        versions.retain(|&supported_version| {
+                            match tls::Version::from_rustls(supported_version.version) {
+                                Some(version) => version <= max_tls_version,
+                                None => false,
+                            }
+                        });
+                    }
+
+                    // Build TLS config
+                    let config_builder = rustls::ClientConfig::builder()
+                        .with_safe_default_cipher_suites()
+                        .with_safe_default_kx_groups()
+                        .with_protocol_versions(&versions)
+                        .map_err(crate::error::builder)?
+                        .with_root_certificates(root_cert_store);
+
+                    // Finalize TLS config
+                    let mut tls = if let Some(id) = config.identity {
+                        id.add_to_rustls(config_builder)?
+                    } else {
+                        config_builder.with_no_client_auth()
+                    };
+
+                    // Certificate verifier
                     if !config.certs_verification {
                         tls.dangerous()
                             .set_certificate_verifier(Arc::new(NoVerifier));
                     }
 
-                    for cert in config.root_certs {
-                        cert.add_to_rustls(&mut tls)?;
-                    }
-
-                    if let Some(id) = config.identity {
-                        id.add_to_rustls(&mut tls)?;
-                    }
-
-                    // rustls does not support TLS versions <1.2 and this is unlikely to change.
-                    // https://github.com/rustls/rustls/issues/33
-
-                    // As of writing, TLS 1.2 and 1.3 are the only implemented versions and are both
-                    // enabled by default.
-                    // rustls 0.20 will add ALL_VERSIONS and DEFAULT_VERSIONS. That will enable a more
-                    // sophisticated approach.
-                    // For now we assume the default tls.versions matches the future ALL_VERSIONS and
-                    // act based on that.
-
-                    if let Some(min_tls_version) = config.min_tls_version {
-                        tls.versions
-                            .retain(|&version| match tls::Version::from_rustls(version) {
-                                Some(version) => version >= min_tls_version,
-                                // Assume it's so new we don't know about it, allow it
-                                // (as of writing this is unreachable)
-                                None => true,
-                            });
-                    }
-
-                    if let Some(max_tls_version) = config.max_tls_version {
-                        tls.versions
-                            .retain(|&version| match tls::Version::from_rustls(version) {
-                                Some(version) => version <= max_tls_version,
-                                None => false,
-                            });
+                    // ALPN protocol
+                    match config.http_version_pref {
+                        HttpVersionPref::Http1 => {
+                            tls.alpn_protocols = vec!["http/1.1".into()];
+                        }
+                        HttpVersionPref::Http2 => {
+                            tls.alpn_protocols = vec!["h2".into()];
+                        }
+                        HttpVersionPref::All => {
+                            tls.alpn_protocols = vec!["h2".into(), "http/1.1".into()];
+                        }
                     }
 
                     Connector::new_rustls_tls(
@@ -433,6 +459,10 @@ impl ClientBuilder {
         builder.pool_idle_timeout(config.pool_idle_timeout);
         builder.pool_max_idle_per_host(config.pool_max_idle_per_host);
         connector.set_keepalive(config.tcp_keepalive);
+
+        if config.http09_responses {
+            builder.http09_responses(true);
+        }
 
         if config.http1_title_case_headers {
             builder.http1_title_case_headers(true);
@@ -815,6 +845,12 @@ impl ClientBuilder {
     /// Only use HTTP/1.
     pub fn http1_only(mut self) -> ClientBuilder {
         self.config.http_version_pref = HttpVersionPref::Http1;
+        self
+    }
+
+    /// Allow HTTP/0.9 responses
+    pub fn http09_responses(mut self) -> ClientBuilder {
+        self.config.http09_responses = true;
         self
     }
 
@@ -1394,6 +1430,8 @@ impl Client {
 
                 urls: Vec::new(),
 
+                retry_count: 0,
+
                 client: self.inner.clone(),
 
                 in_flight,
@@ -1604,6 +1642,8 @@ pin_project! {
 
         urls: Vec<Url>,
 
+        retry_count: usize,
+
         client: Arc<ClientRef>,
 
         #[pin]
@@ -1629,6 +1669,54 @@ impl PendingRequest {
     fn headers(self: Pin<&mut Self>) -> &mut HeaderMap {
         self.project().headers
     }
+
+    fn retry_error(mut self: Pin<&mut Self>, err: &(dyn std::error::Error + 'static)) -> bool {
+        if !is_retryable_error(err) {
+            return false;
+        }
+
+        trace!("can retry {:?}", err);
+
+        let body = match self.body {
+            Some(Some(ref body)) => Body::reusable(body.clone()),
+            Some(None) => {
+                debug!("error was retryable, but body not reusable");
+                return false;
+            }
+            None => Body::empty(),
+        };
+
+        if self.retry_count >= 2 {
+            trace!("retry count too high");
+            return false;
+        }
+        self.retry_count += 1;
+
+        let uri = expect_uri(&self.url);
+        let mut req = hyper::Request::builder()
+            .method(self.method.clone())
+            .uri(uri)
+            .body(body.into_stream())
+            .expect("valid request parts");
+
+        *req.headers_mut() = self.headers.clone();
+
+        *self.as_mut().in_flight().get_mut() = self.client.hyper.request(req);
+
+        true
+    }
+}
+
+fn is_retryable_error(err: &(dyn std::error::Error + 'static)) -> bool {
+    if let Some(cause) = err.source() {
+        if let Some(err) = cause.downcast_ref::<h2::Error>() {
+            // They sent us a graceful shutdown, try with a new connection!
+            return err.is_go_away()
+                && err.is_remote()
+                && err.reason() == Some(h2::Reason::NO_ERROR);
+        }
+    }
+    false
 }
 
 impl Pending {
@@ -1672,6 +1760,9 @@ impl Future for PendingRequest {
         loop {
             let res = match self.as_mut().in_flight().as_mut().poll(cx) {
                 Poll::Ready(Err(e)) => {
+                    if self.as_mut().retry_error(&e) {
+                        continue;
+                    }
                     return Poll::Ready(Err(crate::error::request(e).with_url(self.url.clone())));
                 }
                 Poll::Ready(Ok(res)) => res,
@@ -1846,12 +1937,6 @@ fn add_cookie_header(headers: &mut HeaderMap, cookie_store: &dyn cookie::CookieS
     if let Some(header) = cookie_store.cookies(url) {
         headers.insert(crate::header::COOKIE, header);
     }
-}
-
-#[cfg(feature = "rustls-tls-native-roots")]
-lazy_static! {
-    static ref NATIVE_ROOTS: std::io::Result<RootCertStore> =
-        rustls_native_certs::load_native_certs().map_err(|e| e.1);
 }
 
 #[cfg(test)]

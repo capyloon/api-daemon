@@ -1,4 +1,3 @@
-use std::iter;
 use std::time::Duration;
 
 use time::OffsetDateTime;
@@ -22,6 +21,7 @@ pub struct DeleteBucket<'a> {
     credentials: &'a Credentials,
 
     query: Map<'a>,
+    headers: Map<'a>,
 }
 
 impl<'a> DeleteBucket<'a> {
@@ -31,11 +31,20 @@ impl<'a> DeleteBucket<'a> {
             credentials,
 
             query: Map::new(),
+            headers: Map::new(),
         }
     }
+}
 
-    pub fn query_mut(&mut self) -> &mut Map<'a> {
+impl<'a> S3Action<'a> for DeleteBucket<'a> {
+    const METHOD: Method = Method::Delete;
+
+    fn query_mut(&mut self) -> &mut Map<'a> {
         &mut self.query
+    }
+
+    fn headers_mut(&mut self) -> &mut Map<'a> {
+        &mut self.headers
     }
 
     fn sign_with_time(&self, expires_in: Duration, time: &OffsetDateTime) -> Url {
@@ -51,45 +60,37 @@ impl<'a> DeleteBucket<'a> {
             self.bucket.region(),
             expires_in.as_secs(),
             self.query.iter(),
-            iter::empty(),
+            self.headers.iter(),
         )
-    }
-}
-
-impl<'a> S3Action for DeleteBucket<'a> {
-    const METHOD: Method = Method::Delete;
-
-    fn sign(&self, expires_in: Duration) -> Url {
-        let now = OffsetDateTime::now_utc();
-        self.sign_with_time(expires_in, &now)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use time::PrimitiveDateTime;
+    use time::OffsetDateTime;
 
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{Bucket, Credentials};
+    use crate::{Bucket, Credentials, UrlStyle};
 
     #[test]
     fn aws_example() {
-        let date = PrimitiveDateTime::parse(
-            "Fri, 24 May 2013 00:00:00 GMT",
-            "%a, %d %b %Y %-H:%M:%S GMT",
-        )
-        .unwrap()
-        .assume_utc();
+        // Fri, 24 May 2013 00:00:00 GMT
+        let date = OffsetDateTime::from_unix_timestamp(1369353600).unwrap();
         let expires_in = Duration::from_secs(86400);
 
         let endpoint = "https://s3.amazonaws.com".parse().unwrap();
-        let bucket =
-            Bucket::new(endpoint, false, "examplebucket".into(), "us-east-1".into()).unwrap();
+        let bucket = Bucket::new(
+            endpoint,
+            UrlStyle::VirtualHost,
+            "examplebucket",
+            "us-east-1",
+        )
+        .unwrap();
         let credentials = Credentials::new(
-            "AKIAIOSFODNN7EXAMPLE".into(),
-            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into(),
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         );
 
         let action = DeleteBucket::new(&bucket, &credentials);

@@ -44,7 +44,7 @@ API_DAEMON_LIB_DEPS := \
 include $(BUILD_PREBUILT)
 
 ifndef ANDROID_NDK
-LOCAL_NDK := $(HOME)/.mozbuild/android-ndk-r20b-canary
+LOCAL_NDK := $(HOME)/.mozbuild/android-ndk-r21d
 else
 LOCAL_NDK := $(ANDROID_NDK)
 endif

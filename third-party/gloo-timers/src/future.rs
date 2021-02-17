@@ -4,9 +4,11 @@ use crate::callback::{Interval, Timeout};
 
 use futures_channel::{mpsc, oneshot};
 use futures_core::stream::Stream;
+use std::convert::TryFrom;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
 /// A scheduled timeout as a `Future`.
@@ -41,7 +43,7 @@ use wasm_bindgen::prelude::*;
 #[derive(Debug)]
 #[must_use = "futures do nothing unless polled or spawned"]
 pub struct TimeoutFuture {
-    inner: Timeout,
+    _inner: Timeout,
     rx: oneshot::Receiver<()>,
 }
 
@@ -69,8 +71,30 @@ impl TimeoutFuture {
             // if the receiver was dropped we do nothing.
             tx.send(()).unwrap_throw();
         });
-        TimeoutFuture { inner, rx }
+        TimeoutFuture { _inner: inner, rx }
     }
+}
+
+/// Waits until the specified duration has elapsed.
+///
+/// # Panics
+///
+/// This function will panic if the specified [`Duration`] cannot be casted into a u32 in
+/// milliseconds.
+///
+/// # Example
+///
+/// ```compile_fail
+/// use std::time::Duration;
+/// use gloo_timers::future::sleep;
+///
+/// sleep(Duration::from_secs(1)).await;
+/// ```
+pub fn sleep(dur: Duration) -> TimeoutFuture {
+    let millis = u32::try_from(dur.as_millis())
+        .expect_throw("failed to cast the duration into a u32 with Duration::as_millis.");
+
+    TimeoutFuture::new(millis)
 }
 
 impl Future for TimeoutFuture {
@@ -92,7 +116,7 @@ impl Future for TimeoutFuture {
 #[must_use = "streams do nothing unless polled or spawned"]
 pub struct IntervalStream {
     receiver: mpsc::UnboundedReceiver<()>,
-    inner: Interval,
+    _inner: Interval,
 }
 
 impl IntervalStream {
@@ -104,7 +128,7 @@ impl IntervalStream {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// ```compile_fail
     /// use futures_util::stream::StreamExt;
     /// use gloo_timers::future::IntervalStream;
     /// use wasm_bindgen_futures::spawn_local;
@@ -122,7 +146,10 @@ impl IntervalStream {
             sender.unbounded_send(()).unwrap_throw();
         });
 
-        IntervalStream { receiver, inner }
+        IntervalStream {
+            receiver,
+            _inner: inner,
+        }
     }
 }
 

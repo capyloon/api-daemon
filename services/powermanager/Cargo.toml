@@ -20,5 +20,8 @@ light = { path = "../../support/light" }
 recovery = { path = "../../support/recovery" }
 power = { path = "../../support/power"}
 
+[target.'cfg(target_os = "linux")'.dependencies]
+b2ghald = { git = "https://github.com/capyloon/b2ghald.git" }
+
 [build-dependencies]
 common = { path = "../../common" }

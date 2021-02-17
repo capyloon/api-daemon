@@ -1,5 +1,23 @@
 # Change Log
 
+## [4.2.1](https://github.com/sunng87/handlebars-rust/compare/4.2.0...4.2.1) - 2022-01-17
+
+* [Fixed] Nested partial `@partial-block` referencing issue [#488]
+* [Fixed] Docs generation on docs.rs for `rust-embed` feature
+
+## [4.2.0](https://github.com/sunng87/handlebars-rust/compare/4.1.6...4.2.0) - 2022-01-05
+
+* [Added] RustEmbed support for loading templates from [#484]
+* [Fixed] Parser support for variables begins with digit [#479]
+* [Changed] Keep indent whitespaces for partial expression `{{>
+  partial}}` as default in handlebarsjs. A new option `prevent_indent`
+  is provided on `Handlebars` to turn off this behaviour. [#486]
+* [Changed] Update MSRV to 1.51 due to dependency changes
+
+## [4.1.6](https://github.com/sunng87/handlebars-rust/compare/4.1.5...4.1.6) - 2021-12-03
+
+* [Added] Create `Context` from owned `serde_json::Value` [#477]
+
 ## [4.1.5](https://github.com/sunng87/handlebars-rust/compare/4.1.4...4.1.5) - 2021-11-17
 
 * [Fixed] Single-quote string literal is supported, again [#475]

@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "hyper"
-version = "0.14.15"
+version = "0.14.16"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 include = ["Cargo.toml", "LICENSE", "src/**/*"]
 description = "A fast and correct HTTP library."
@@ -174,7 +174,7 @@ version = "0.3"
 default-features = false
 
 [dependencies.h2]
-version = "0.3.3"
+version = "0.3.9"
 optional = true
 
 [dependencies.http]
@@ -268,7 +268,7 @@ full = ["client", "http1", "http2", "server", "stream", "runtime"]
 http1 = []
 http2 = ["h2"]
 nightly = []
-runtime = ["tcp", "tokio/rt"]
+runtime = ["tcp", "tokio/rt", "tokio/time"]
 server = []
 stream = []
 tcp = ["socket2", "tokio/net", "tokio/rt", "tokio/time"]

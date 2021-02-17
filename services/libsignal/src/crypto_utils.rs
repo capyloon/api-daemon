@@ -1,6 +1,6 @@
 use crate::generated::common::*;
 use common::traits::{SimpleObjectTracker, TrackerId};
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use ring::digest;
 use sha2::Sha256;
 
@@ -12,7 +12,7 @@ pub struct HmacSha256 {
 
 impl HmacSha256 {
     pub fn new(id: TrackerId, key: &[u8]) -> Option<Self> {
-        Hmac::<Sha256>::new_varkey(key)
+        Hmac::<Sha256>::new_from_slice(key)
             .map(|ctxt| Self { ctxt, id })
             .ok()
     }

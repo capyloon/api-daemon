@@ -6,7 +6,7 @@ use crate::sys::time::TimeSpec;
     target_os = "android",
     target_os = "emscripten",
 ))]
-use crate::{unistd::Pid, Error};
+use crate::unistd::Pid;
 use crate::{Errno, Result};
 use libc::{self, clockid_t};
 use std::mem::MaybeUninit;
@@ -20,7 +20,7 @@ pub struct ClockId(clockid_t);
 
 impl ClockId {
     /// Creates `ClockId` from raw `clockid_t`
-    pub fn from_raw(clk_id: clockid_t) -> Self {
+    pub const fn from_raw(clk_id: clockid_t) -> Self {
         ClockId(clk_id)
     }
 
@@ -37,6 +37,7 @@ impl ClockId {
     }
 
     /// Returns resolution of the clock id
+    #[cfg(not(target_os = "redox"))]
     pub fn res(self) -> Result<TimeSpec> {
         clock_getres(self)
     }
@@ -60,7 +61,7 @@ impl ClockId {
     }
 
     /// Gets the raw `clockid_t` wrapped by `self`
-    pub fn as_raw(self) -> clockid_t {
+    pub const fn as_raw(self) -> clockid_t {
         self.0
     }
 
@@ -184,9 +185,9 @@ impl ClockId {
     pub const CLOCK_VIRTUAL: ClockId = ClockId(libc::CLOCK_VIRTUAL);
 }
 
-impl Into<clockid_t> for ClockId {
-    fn into(self) -> clockid_t {
-        self.as_raw()
+impl From<ClockId> for clockid_t {
+    fn from(clock_id: ClockId) -> Self {
+        clock_id.as_raw()
     }
 }
 
@@ -204,6 +205,7 @@ impl std::fmt::Display for ClockId {
 
 /// Get the resolution of the specified clock, (see
 /// [clock_getres(2)](https://pubs.opengroup.org/onlinepubs/7908799/xsh/clock_getres.html)).
+#[cfg(not(target_os = "redox"))]
 pub fn clock_getres(clock_id: ClockId) -> Result<TimeSpec> {
     let mut c_time: MaybeUninit<libc::timespec> = MaybeUninit::uninit();
     let ret = unsafe { libc::clock_getres(clock_id.as_raw(), c_time.as_mut_ptr()) };
@@ -253,6 +255,6 @@ pub fn clock_getcpuclockid(pid: Pid) -> Result<ClockId> {
         let res = unsafe { clk_id.assume_init() };
         Ok(ClockId::from(res))
     } else {
-        Err(Error::Sys(Errno::from_i32(ret)))
+        Err(Errno::from_i32(ret))
     }
 }

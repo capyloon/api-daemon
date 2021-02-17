@@ -5,111 +5,7 @@ extern crate nix;
 #[macro_use]
 extern crate lazy_static;
 
-macro_rules! skip {
-    ($($reason: expr),+) => {
-        use ::std::io::{self, Write};
-
-        let stderr = io::stderr();
-        let mut handle = stderr.lock();
-        writeln!(handle, $($reason),+).unwrap();
-        return;
-    }
-}
-
-cfg_if! {
-    if #[cfg(any(target_os = "android", target_os = "linux"))] {
-        macro_rules! require_capability {
-            ($capname:ident) => {
-                use ::caps::{Capability, CapSet, has_cap};
-
-                if !has_cap(None, CapSet::Effective, Capability::$capname)
-                    .unwrap()
-                {
-                    skip!("Insufficient capabilities. Skipping test.");
-                }
-            }
-        }
-    } else if #[cfg(not(target_os = "redox"))] {
-        macro_rules! require_capability {
-            ($capname:ident) => {}
-        }
-    }
-}
-
-#[cfg(target_os = "freebsd")]
-macro_rules! skip_if_jailed {
-    ($name:expr) => {
-        use ::sysctl::CtlValue;
-
-        if let CtlValue::Int(1) = ::sysctl::value("security.jail.jailed")
-            .unwrap()
-        {
-            skip!("{} cannot run in a jail. Skipping test.", $name);
-        }
-    }
-}
-
-#[cfg(not(target_os = "redox"))]
-macro_rules! skip_if_not_root {
-    ($name:expr) => {
-        use nix::unistd::Uid;
-
-        if !Uid::current().is_root() {
-            skip!("{} requires root privileges. Skipping test.", $name);
-        }
-    };
-}
-
-cfg_if! {
-    if #[cfg(any(target_os = "android", target_os = "linux"))] {
-        macro_rules! skip_if_seccomp {
-            ($name:expr) => {
-                if let Ok(s) = std::fs::read_to_string("/proc/self/status") {
-                    for l in s.lines() {
-                        let mut fields = l.split_whitespace();
-                        if fields.next() == Some("Seccomp:") &&
-                            fields.next() != Some("0")
-                        {
-                            skip!("{} cannot be run in Seccomp mode.  Skipping test.",
-                                stringify!($name));
-                        }
-                    }
-                }
-            }
-        }
-    } else if #[cfg(not(target_os = "redox"))] {
-        macro_rules! skip_if_seccomp {
-            ($name:expr) => {}
-        }
-    }
-}
-
-cfg_if! {
-    if #[cfg(target_os = "linux")] {
-        macro_rules! require_kernel_version {
-            ($name:expr, $version_requirement:expr) => {
-                use semver::{Version, VersionReq};
-
-                let version_requirement = VersionReq::parse($version_requirement)
-                        .expect("Bad match_version provided");
-
-                let uname = nix::sys::utsname::uname();
-
-                let mut version = Version::parse(uname.release()).unwrap();
-
-                //Keep only numeric parts
-                version.pre.clear();
-                version.build.clear();
-
-                if !version_requirement.matches(&version) {
-                    skip!("Skip {} because kernel version `{}` doesn't match the requirement `{}`",
-                        stringify!($name), version, version_requirement);
-                }
-            }
-        }
-    }
-}
-
+mod common;
 mod sys;
 #[cfg(not(target_os = "redox"))]
 mod test_dir;
@@ -117,6 +13,8 @@ mod test_fcntl;
 #[cfg(any(target_os = "android",
           target_os = "linux"))]
 mod test_kmod;
+#[cfg(target_os = "freebsd")]
+mod test_nmount;
 #[cfg(any(target_os = "dragonfly",
           target_os = "freebsd",
           target_os = "fushsia",
@@ -126,8 +24,9 @@ mod test_mq;
 #[cfg(not(target_os = "redox"))]
 mod test_net;
 mod test_nix_path;
+mod test_resource;
 mod test_poll;
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 mod test_pty;
 #[cfg(any(target_os = "android",
           target_os = "linux"))]
@@ -144,8 +43,9 @@ mod test_unistd;
 
 use std::os::unix::io::RawFd;
 use std::path::PathBuf;
-use std::sync::{Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use nix::unistd::{chdir, getcwd, read};
+
 
 /// Helper function analogous to `std::io::Read::read_exact`, but for `RawFD`s
 fn read_exact(f: RawFd, buf: &mut  [u8]) {
@@ -184,8 +84,7 @@ struct DirRestore<'a> {
 
 impl<'a> DirRestore<'a> {
     fn new() -> Self {
-        let guard = crate::CWD_LOCK.write()
-            .expect("Lock got poisoned by another test");
+        let guard = crate::CWD_LOCK.write();
         DirRestore{
             _g: guard,
             d: getcwd().unwrap(),

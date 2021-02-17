@@ -1,7 +1,11 @@
 use std::fmt::{self, Debug, Formatter};
+use std::mem;
 
 use serde::{Deserialize, Deserializer};
 use time::PrimitiveDateTime;
+use zeroize::Zeroize;
+
+use crate::time_::ISO8601_EXT;
 
 use super::{Credentials, RotatingCredentials};
 
@@ -23,7 +27,8 @@ where
     D: Deserializer<'de>,
 {
     let s: &str = Deserialize::deserialize(deserializer)?;
-    PrimitiveDateTime::parse(s, "%Y-%m-%dT%H:%M:%SZ").map_err(serde::de::Error::custom)
+
+    PrimitiveDateTime::parse(s, &ISO8601_EXT).map_err(serde::de::Error::custom)
 }
 
 impl Ec2SecurityCredentialsMetadataResponse {
@@ -61,14 +66,20 @@ impl Ec2SecurityCredentialsMetadataResponse {
 
     /// Convert this `Ec2SecurityCredentialsMetadataResponse` into [`Credentials`]
     #[inline]
-    pub fn into_credentials(self) -> Credentials {
-        Credentials::new_(self.key, self.secret, Some(self.token))
+    pub fn into_credentials(mut self) -> Credentials {
+        let key = mem::take(&mut self.key);
+        let secret = mem::take(&mut self.secret);
+        let token = mem::take(&mut self.token);
+        Credentials::new_with_token(key, secret, token)
     }
 
     /// Update a [`RotatingCredentials`] with the credentials of this `Ec2SecurityCredentialsMetadataResponse`
     #[inline]
-    pub fn rotate_credentials(self, rotating: &RotatingCredentials) {
-        rotating.update(self.key, self.secret, Some(self.token));
+    pub fn rotate_credentials(mut self, rotating: &RotatingCredentials) {
+        let key = mem::take(&mut self.key);
+        let secret = mem::take(&mut self.secret);
+        let token = mem::take(&mut self.token);
+        rotating.update(key, secret, Some(token));
     }
 }
 
@@ -77,6 +88,12 @@ impl Debug for Ec2SecurityCredentialsMetadataResponse {
         f.debug_struct("Ec2SecurityCredentialsMetadataResponse")
             .field("key", &self.key)
             .finish()
+    }
+}
+
+impl Drop for Ec2SecurityCredentialsMetadataResponse {
+    fn drop(&mut self) {
+        self.secret.zeroize();
     }
 }
 
@@ -102,9 +119,10 @@ mod tests {
         assert_eq!(deserialized.key(), "some_access_key");
         assert_eq!(deserialized.secret(), "some_secret_key");
         assert_eq!(deserialized.token(), "some_token");
+        //                                                                  2020-12-28T23:10:09Z
         assert_eq!(
-            deserialized.expiration().format("%Y-%m-%dT%H:%M:%SZ"),
-            "2020-12-28T23:10:09Z"
+            deserialized.expiration().assume_utc().unix_timestamp(),
+            1609197009
         );
 
         let debug_output = format!("{:?}", deserialized);

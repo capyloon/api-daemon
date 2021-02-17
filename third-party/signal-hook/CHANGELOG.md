@@ -1,3 +1,16 @@
+# 0.3.13
+
+* Add haiku support.
+
+# 0.3.12
+
+* Fix accidentally broken windows build.
+
+# 0.3.11
+
+* Provide fallback sigaddset, sigemptyset on certain androids, as they are
+  missing them.
+
 # 0.3.10
 
 * Doc link fixes.

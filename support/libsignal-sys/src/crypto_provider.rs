@@ -2,7 +2,7 @@ use crate::generated::ffi::*;
 use block_modes::block_padding::Pkcs7;
 use block_modes::cipher::{NewCipher, StreamCipher};
 use block_modes::{BlockMode, Cbc};
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use ring::digest;
 use ring::rand::{SecureRandom, SystemRandom};
 use sha2::Sha256;
@@ -54,7 +54,7 @@ extern "C" fn hmac_sha256_init_func(
     debug!("hmac_sha256_init_func");
     let hkey = unsafe { slice::from_raw_parts_mut(key as *mut u8, key_len as _) };
 
-    match HmacSha256::new_varkey(hkey) {
+    match HmacSha256::new_from_slice(hkey) {
         Ok(hmac) => {
             // "leak" the pointer to let the C side manage its lifetime.
             let addr = Box::into_raw(Box::new(hmac)) as *mut c_void;

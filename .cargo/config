@@ -15,6 +15,18 @@ git = "https://github.com/budziq/rust-skeptic.git"
 branch = "tempfile"
 replace-with = "vendored-sources"
 
+[source."https://github.com/capyloon/b2ghald.git"]
+git = "https://github.com/capyloon/b2ghald.git"
+replace-with = "vendored-sources"
+
+[source."https://github.com/capyloon/costaeres.git"]
+git = "https://github.com/capyloon/costaeres.git"
+replace-with = "vendored-sources"
+
+[source."https://github.com/capyloon/wspty.git"]
+git = "https://github.com/capyloon/wspty.git"
+replace-with = "vendored-sources"
+
 [source."https://github.com/fabricedesre/actix.git"]
 git = "https://github.com/fabricedesre/actix.git"
 branch = "0.10-bump-crossbeam"

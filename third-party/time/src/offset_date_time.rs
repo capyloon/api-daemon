@@ -149,7 +149,7 @@ impl OffsetDateTime {
             UNIX_EPOCH_JULIAN_DAY + div_floor!(timestamp, 86_400) as i32,
         );
 
-        let seconds_within_day = rem_euclid!(timestamp, 86_400);
+        let seconds_within_day = timestamp.rem_euclid(86_400);
         let time = Time::__from_hms_nanos_unchecked(
             (seconds_within_day / 3_600) as _,
             ((seconds_within_day % 3_600) / 60) as _,
@@ -185,7 +185,7 @@ impl OffsetDateTime {
                 datetime.utc_datetime.hour(),
                 datetime.utc_datetime.minute(),
                 datetime.utc_datetime.second(),
-                rem_euclid!(timestamp, 1_000_000_000) as u32,
+                timestamp.rem_euclid(1_000_000_000) as u32,
             ))
             .assume_utc())
     }
@@ -280,7 +280,7 @@ impl OffsetDateTime {
         cascade!(minute in 0..60 => hour);
 
         Time::__from_hms_nanos_unchecked(
-            rem_euclid!(hour, 24) as _,
+            hour.rem_euclid(24) as _,
             minute as _,
             second as _,
             self.utc_datetime.nanosecond(),
@@ -591,7 +591,7 @@ impl OffsetDateTime {
 
         cascade!(second in 0..60 => minute);
         cascade!(minute in 0..60 => hour);
-        rem_euclid!(hour, 24) as _
+        hour.rem_euclid(24) as _
     }
 
     /// Get the minute within the hour in the stored offset.
@@ -613,7 +613,7 @@ impl OffsetDateTime {
         let mut minute = self.utc_datetime.minute() as i8 + self.offset.minutes_past_hour();
 
         cascade!(second in 0..60 => minute);
-        rem_euclid!(minute, 60) as _
+        minute.rem_euclid(60) as _
     }
 
     /// Get the second within the minute in the stored offset.
@@ -632,7 +632,7 @@ impl OffsetDateTime {
     /// ```
     pub const fn second(self) -> u8 {
         let second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        rem_euclid!(second, 60) as _
+        second.rem_euclid(60) as _
     }
 
     // Because a `UtcOffset` is limited in resolution to one second, any subsecond value will not
@@ -691,15 +691,15 @@ impl OffsetDateTime {
     /// ```
     /// # use time::{Date, ext::NumericalDuration};
     /// # use time::macros::{datetime, offset};
-    /// let datetime = Date::MIN.midnight().assume_offset(offset!(+10:00));
+    /// let datetime = Date::MIN.midnight().assume_offset(offset!(+10));
     /// assert_eq!(datetime.checked_add((-2).days()), None);
     ///
-    /// let datetime = Date::MAX.midnight().assume_offset(offset!(+10:00));
+    /// let datetime = Date::MAX.midnight().assume_offset(offset!(+10));
     /// assert_eq!(datetime.checked_add(2.days()), None);
     ///
     /// assert_eq!(
-    ///     datetime!(2019 - 11 - 25 15:30 +10:00).checked_add(27.hours()),
-    ///     Some(datetime!(2019 - 11 - 26 18:30 +10:00))
+    ///     datetime!(2019 - 11 - 25 15:30 +10).checked_add(27.hours()),
+    ///     Some(datetime!(2019 - 11 - 26 18:30 +10))
     /// );
     /// ```
     pub const fn checked_add(self, duration: Duration) -> Option<Self> {
@@ -712,23 +712,92 @@ impl OffsetDateTime {
     /// ```
     /// # use time::{Date, ext::NumericalDuration};
     /// # use time::macros::{datetime, offset};
-    /// let datetime = Date::MIN.midnight().assume_offset(offset!(+10:00));
+    /// let datetime = Date::MIN.midnight().assume_offset(offset!(+10));
     /// assert_eq!(datetime.checked_sub(2.days()), None);
     ///
-    /// let datetime = Date::MAX.midnight().assume_offset(offset!(+10:00));
+    /// let datetime = Date::MAX.midnight().assume_offset(offset!(+10));
     /// assert_eq!(datetime.checked_sub((-2).days()), None);
     ///
     /// assert_eq!(
-    ///     datetime!(2019 - 11 - 25 15:30 +10:00).checked_sub(27.hours()),
-    ///     Some(datetime!(2019 - 11 - 24 12:30 +10:00))
+    ///     datetime!(2019 - 11 - 25 15:30 +10).checked_sub(27.hours()),
+    ///     Some(datetime!(2019 - 11 - 24 12:30 +10))
     /// );
     /// ```
     pub const fn checked_sub(self, duration: Duration) -> Option<Self> {
         let offset_datetime = self.utc_datetime.utc_to_offset(self.offset);
         Some(const_try_opt!(offset_datetime.checked_sub(duration)).assume_offset(self.offset))
     }
-
     // endregion: checked arithmetic
+
+    // region: saturating arithmetic
+    /// Computes `self + duration`, saturating value on overflow.
+    ///
+    /// ```
+    /// # use time::ext::NumericalDuration;
+    /// # use time::macros::datetime;
+    /// assert_eq!(
+    ///     datetime!(-999999 - 01 - 01 0:00 +10).saturating_add((-2).days()),
+    ///     datetime!(-999999 - 01 - 01 0:00 +10)
+    /// );
+    ///
+    /// assert_eq!(
+    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10).saturating_add(2.days()),
+    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10)
+    /// );
+    ///
+    /// assert_eq!(
+    ///     datetime!(2019 - 11 - 25 15:30 +10).saturating_add(27.hours()),
+    ///     datetime!(2019 - 11 - 26 18:30 +10)
+    /// );
+    /// ```
+    pub const fn saturating_add(self, duration: Duration) -> Self {
+        if let Some(datetime) = self.checked_add(duration) {
+            datetime
+        } else if duration.is_negative() {
+            PrimitiveDateTime::MIN
+                .assume_utc()
+                .replace_offset(self.offset)
+        } else {
+            PrimitiveDateTime::MAX
+                .assume_utc()
+                .replace_offset(self.offset)
+        }
+    }
+
+    /// Computes `self - duration`, saturating value on overflow.
+    ///
+    /// ```
+    /// # use time::ext::NumericalDuration;
+    /// # use time::macros::datetime;
+    /// assert_eq!(
+    ///     datetime!(-999999 - 01 - 01 0:00 +10).saturating_sub(2.days()),
+    ///     datetime!(-999999 - 01 - 01 0:00 +10)
+    /// );
+    ///
+    /// assert_eq!(
+    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10).saturating_sub((-2).days()),
+    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10)
+    /// );
+    ///
+    /// assert_eq!(
+    ///     datetime!(2019 - 11 - 25 15:30 +10).saturating_sub(27.hours()),
+    ///     datetime!(2019 - 11 - 24 12:30 +10)
+    /// );
+    /// ```
+    pub const fn saturating_sub(self, duration: Duration) -> Self {
+        if let Some(datetime) = self.checked_sub(duration) {
+            datetime
+        } else if duration.is_negative() {
+            PrimitiveDateTime::MAX
+                .assume_utc()
+                .replace_offset(self.offset)
+        } else {
+            PrimitiveDateTime::MIN
+                .assume_utc()
+                .replace_offset(self.offset)
+        }
+    }
+    // endregion: saturating arithmetic
 }
 
 // region: replacement

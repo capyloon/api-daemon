@@ -1,36 +1,40 @@
+#[cfg(unix)]
+use std::os::unix::io::{AsRawFd, RawFd};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawSocket, RawSocket};
+
 use super::*;
 use crate::common::IoSession;
-use rustls::Session;
 
 /// A wrapper around an underlying raw stream which implements the TLS or SSL
 /// protocol.
 #[derive(Debug)]
 pub struct TlsStream<IO> {
     pub(crate) io: IO,
-    pub(crate) session: ServerSession,
+    pub(crate) session: ServerConnection,
     pub(crate) state: TlsState,
 }
 
 impl<IO> TlsStream<IO> {
     #[inline]
-    pub fn get_ref(&self) -> (&IO, &ServerSession) {
+    pub fn get_ref(&self) -> (&IO, &ServerConnection) {
         (&self.io, &self.session)
     }
 
     #[inline]
-    pub fn get_mut(&mut self) -> (&mut IO, &mut ServerSession) {
+    pub fn get_mut(&mut self) -> (&mut IO, &mut ServerConnection) {
         (&mut self.io, &mut self.session)
     }
 
     #[inline]
-    pub fn into_inner(self) -> (IO, ServerSession) {
+    pub fn into_inner(self) -> (IO, ServerConnection) {
         (self.io, self.session)
     }
 }
 
 impl<IO> IoSession for TlsStream<IO> {
     type Io = IO;
-    type Session = ServerSession;
+    type Session = ServerConnection;
 
     #[inline]
     fn skip_handshake(&self) -> bool {
@@ -67,18 +71,17 @@ where
 
                 match stream.as_mut_pin().poll_read(cx, buf) {
                     Poll::Ready(Ok(())) => {
-                        if prev == buf.remaining() {
+                        if prev == buf.remaining() || stream.eof {
                             this.state.shutdown_read();
                         }
 
                         Poll::Ready(Ok(()))
                     }
-                    Poll::Ready(Err(ref err)) if err.kind() == io::ErrorKind::ConnectionAborted => {
+                    Poll::Ready(Err(err)) if err.kind() == io::ErrorKind::UnexpectedEof => {
                         this.state.shutdown_read();
-                        Poll::Ready(Ok(()))
+                        Poll::Ready(Err(err))
                     }
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => Poll::Pending,
+                    output => output,
                 }
             }
             TlsState::ReadShutdown | TlsState::FullyShutdown => Poll::Ready(Ok(())),
@@ -122,5 +125,25 @@ where
         let mut stream =
             Stream::new(&mut this.io, &mut this.session).set_eof(!this.state.readable());
         stream.as_mut_pin().poll_shutdown(cx)
+    }
+}
+
+#[cfg(unix)]
+impl<IO> AsRawFd for TlsStream<IO>
+where
+    IO: AsRawFd,
+{
+    fn as_raw_fd(&self) -> RawFd {
+        self.get_ref().0.as_raw_fd()
+    }
+}
+
+#[cfg(windows)]
+impl<IO> AsRawSocket for TlsStream<IO>
+where
+    IO: AsRawSocket,
+{
+    fn as_raw_socket(&self) -> RawSocket {
+        self.get_ref().0.as_raw_socket()
     }
 }

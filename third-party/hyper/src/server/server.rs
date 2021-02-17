@@ -1,7 +1,7 @@
 use std::fmt;
 #[cfg(feature = "tcp")]
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
-#[cfg(feature = "tcp")]
+#[cfg(any(feature = "tcp", feature = "http1"))]
 use std::time::Duration;
 
 #[cfg(all(feature = "tcp", any(feature = "http1", feature = "http2")))]
@@ -309,6 +309,17 @@ impl<I, E> Builder<I, E> {
         self
     }
 
+    /// Set a timeout for reading client request headers. If a client does not 
+    /// transmit the entire header within this time, the connection is closed.
+    ///
+    /// Default is None.
+    #[cfg(all(feature = "http1", feature = "runtime"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "http1", feature = "runtime"))))]
+    pub fn http1_header_read_timeout(mut self, read_timeout: Duration) -> Self {
+        self.protocol.http1_header_read_timeout(read_timeout);
+        self
+    }
+
     /// Sets whether HTTP/1 is required.
     ///
     /// Default is `false`.
@@ -425,6 +436,20 @@ impl<I, E> Builder<I, E> {
     #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
     pub fn http2_keep_alive_timeout(mut self, timeout: Duration) -> Self {
         self.protocol.http2_keep_alive_timeout(timeout);
+        self
+    }
+
+    /// Set the maximum write buffer size for each HTTP/2 stream.
+    ///
+    /// Default is currently ~400KB, but may change.
+    ///
+    /// # Panics
+    ///
+    /// The value must be no larger than `u32::MAX`.
+    #[cfg(feature = "http2")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+    pub fn http2_max_send_buf_size(mut self, max: usize) -> Self {
+        self.protocol.http2_max_send_buf_size(max);
         self
     }
 

@@ -1,0 +1,32 @@
+[package]
+authors = ["Jason NI (nixin) <jason.ni.py@gmail.com>"]
+categories = ["asynchronous", "os::unix-apis"]
+description = "xterm.js example with Rust Tokio and pty backend server"
+edition = "2018"
+homepage = "https://github.com/jason-ni/wspty/tree/master/"
+license = "MIT"
+name = "wspty"
+readme = "README.md"
+repository = "https://github.com/jason-ni/wspty"
+version = "0.1.1"
+
+[[bin]]
+name = "wsptyd"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+bytes = "1.1.0"
+env_logger = "0.8"
+futures = "0.3"
+futures-util = "0.3.8"
+libc = "0.2"
+log = "0.4"
+nix = "0.23.0"
+pretty-hex = "0.2.1"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+tokio = {version = "1", features = ["full"]}
+tokio-tungstenite = "0.15.0"
+tungstenite = "0.14.0"

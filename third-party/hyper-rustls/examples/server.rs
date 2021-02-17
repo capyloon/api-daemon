@@ -4,17 +4,14 @@
 //! Certificate and private key are hardcoded to sample files.
 //! hyper will automatically use HTTP/2 if a client starts talking HTTP/2,
 //! otherwise HTTP/1.1 will be used.
+use std::{env, fs, io, sync};
+
 use async_stream::stream;
-use core::task::{Context, Poll};
-use futures_util::{future::TryFutureExt, stream::Stream};
+use futures_util::future::TryFutureExt;
+use hyper::server::accept;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use rustls::internal::pemfile;
-use std::pin::Pin;
-use std::vec::Vec;
-use std::{env, fs, io, sync};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_rustls::server::TlsStream;
+use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
 fn main() {
@@ -45,12 +42,13 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Load private key.
         let key = load_private_key("examples/sample.rsa")?;
         // Do not use client certificate authentication.
-        let mut cfg = rustls::ServerConfig::new(rustls::NoClientAuth::new());
-        // Select a certificate to use.
-        cfg.set_single_cert(certs, key)
+        let mut cfg = rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
             .map_err(|e| error(format!("{}", e)))?;
         // Configure ALPN to accept HTTP/2, HTTP/1.1 in that order.
-        cfg.set_protocols(&[b"h2".to_vec(), b"http/1.1".to_vec()]);
+        cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         sync::Arc::new(cfg)
     };
 
@@ -70,32 +68,14 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             yield stream.await;
         }
     };
+    let acceptor = accept::from_stream(incoming_tls_stream);
     let service = make_service_fn(|_| async { Ok::<_, io::Error>(service_fn(echo)) });
-    let server = Server::builder(HyperAcceptor {
-        acceptor: Box::pin(incoming_tls_stream),
-    })
-    .serve(service);
+    let server = Server::builder(acceptor).serve(service);
 
     // Run the future, keep going until an error occurs.
     println!("Starting to serve on https://{}.", addr);
     server.await?;
     Ok(())
-}
-
-struct HyperAcceptor<'a> {
-    acceptor: Pin<Box<dyn Stream<Item = Result<TlsStream<TcpStream>, io::Error>> + 'a>>,
-}
-
-impl hyper::server::accept::Accept for HyperAcceptor<'_> {
-    type Conn = TlsStream<TcpStream>;
-    type Error = io::Error;
-
-    fn poll_accept(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-    ) -> Poll<Option<Result<Self::Conn, Self::Error>>> {
-        Pin::new(&mut self.acceptor).poll_next(cx)
-    }
 }
 
 // Custom echo service, handling two different routes and a
@@ -127,7 +107,12 @@ fn load_certs(filename: &str) -> io::Result<Vec<rustls::Certificate>> {
     let mut reader = io::BufReader::new(certfile);
 
     // Load and return certificate.
-    pemfile::certs(&mut reader).map_err(|_| error("failed to load certificate".into()))
+    let certs = rustls_pemfile::certs(&mut reader)
+        .map_err(|_| error("failed to load certificate".into()))?;
+    Ok(certs
+        .into_iter()
+        .map(rustls::Certificate)
+        .collect())
 }
 
 // Load private key from file.
@@ -138,10 +123,11 @@ fn load_private_key(filename: &str) -> io::Result<rustls::PrivateKey> {
     let mut reader = io::BufReader::new(keyfile);
 
     // Load and return a single private key.
-    let keys = pemfile::rsa_private_keys(&mut reader)
+    let keys = rustls_pemfile::rsa_private_keys(&mut reader)
         .map_err(|_| error("failed to load private key".into()))?;
     if keys.len() != 1 {
         return Err(error("expected a single private key".into()));
     }
-    Ok(keys[0].clone())
+
+    Ok(rustls::PrivateKey(keys[0].clone()))
 }

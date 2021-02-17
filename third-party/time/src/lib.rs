@@ -45,13 +45,21 @@
 //!
 //! - `serde`
 //!
-//!   Enables [serde](https://docs.rs/serde) support for all types.
+//!   Enables [serde](https://docs.rs/serde) support for all types except [`Instant`].
 //!
 //! - `serde-human-readable` (_implicitly enables `serde`, `formatting`, and `parsing`_)
 //!
 //!   Allows serde representations to use a human-readable format. This is determined by the
 //!   serializer, not the user. If this feature is not enabled or if the serializer requests a
 //!   non-human-readable format, a format optimized for binary representation will be used.
+//!
+//!   Libraries should never enable this feature, as the decision of what format to use should be up
+//!   to the user.
+//!
+//! - `serde-well-known` (_implicitly enables `serde/alloc`, `formatting`, and `parsing`_)
+//!
+//!   Enables support for serializing and deserializing well-known formats using serde's
+//!   [`#[with]` attribute](https://serde.rs/field-attrs.html#with).
 //!
 //! - `rand`
 //!
@@ -90,7 +98,7 @@
     trivial_numeric_casts,
     unreachable_pub,
     unsafe_code,
-    // unsafe_op_in_unsafe_fn, // requires Rust 1.51
+    unsafe_op_in_unsafe_fn,
     unused_extern_crates
 )]
 #![warn(
@@ -102,6 +110,7 @@
     clippy::print_stdout,
     clippy::todo,
     clippy::unimplemented,
+    clippy::unnested_or_patterns,
     clippy::unwrap_in_result,
     clippy::unwrap_used,
     clippy::use_debug,
@@ -174,20 +183,6 @@ macro_rules! div_floor {
             _quotient - 1
         } else {
             _quotient
-        }
-    }};
-}
-
-/// Euclidean remainder. Useful for `const` contexts.
-macro_rules! rem_euclid {
-    ($a:expr, $b:expr) => {{
-        let _a = $a;
-        let _b = $b;
-        let r = _a % _b;
-        if r < 0 {
-            if _b < 0 { r - _b } else { r + _b }
-        } else {
-            r
         }
     }};
 }

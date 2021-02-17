@@ -10,6 +10,8 @@
 #[cfg(feature = "apps-service")]
 use apps_service::config::Config as AppsConfig;
 use common::traits::EmptyConfig;
+#[cfg(feature = "contentmanager-service")]
+use contentmanager_service::config::Config as CmConfig;
 use serde::{Deserialize, Deserializer};
 use std::fs::File;
 use std::io::Read;
@@ -64,6 +66,8 @@ pub struct Config {
     pub apps_service: AppsConfig,
     #[cfg(feature = "procmanager-service")]
     pub procmanager_service: procmanager_service::config::Config,
+    #[cfg(feature = "contentmanager-service")]
+    pub content_manager: CmConfig,
 }
 
 impl Config {
@@ -126,6 +130,13 @@ impl From <&Config> for AppsConfig {
     }
 }
 
+#[cfg(feature = "contentmanager-service")]
+impl Into<CmConfig> for &Config {
+    fn into(self) -> CmConfig {
+        self.content_manager.clone()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::Config;
@@ -165,7 +176,10 @@ mod test {
         }
         #[cfg(feature = "procmanager-service")]
         {
-            assert_eq!(config.procmanager_service.socket_path, "/tmp/b2gkiller_hints");
+            assert_eq!(
+                config.procmanager_service.socket_path,
+                "/tmp/b2gkiller_hints"
+            );
             assert_eq!(config.procmanager_service.hints_path, "/tmp/prochints.dat");
         }
     }

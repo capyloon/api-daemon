@@ -1,4 +1,3 @@
-use std::iter;
 use std::time::Duration;
 
 use time::OffsetDateTime;
@@ -7,7 +6,7 @@ use url::Url;
 use super::S3Action;
 use crate::actions::Method;
 use crate::signing::sign;
-use crate::{Bucket, Credentials};
+use crate::{Bucket, Credentials, Map};
 
 /// Upload a file to S3, using a `PUT` request.
 ///
@@ -19,6 +18,9 @@ pub struct PutObject<'a> {
     bucket: &'a Bucket,
     credentials: Option<&'a Credentials>,
     object: &'a str,
+
+    query: Map<'a>,
+    headers: Map<'a>,
 }
 
 impl<'a> PutObject<'a> {
@@ -28,7 +30,22 @@ impl<'a> PutObject<'a> {
             bucket,
             credentials,
             object,
+
+            query: Map::new(),
+            headers: Map::new(),
         }
+    }
+}
+
+impl<'a> S3Action<'a> for PutObject<'a> {
+    const METHOD: Method = Method::Put;
+
+    fn query_mut(&mut self) -> &mut Map<'a> {
+        &mut self.query
+    }
+
+    fn headers_mut(&mut self) -> &mut Map<'a> {
+        &mut self.headers
     }
 
     fn sign_with_time(&self, expires_in: Duration, time: &OffsetDateTime) -> Url {
@@ -44,48 +61,40 @@ impl<'a> PutObject<'a> {
                 credentials.token(),
                 self.bucket.region(),
                 expires_in.as_secs(),
-                iter::empty(),
-                iter::empty(),
+                self.query.iter(),
+                self.headers.iter(),
             ),
             None => url,
         }
     }
 }
 
-impl<'a> S3Action for PutObject<'a> {
-    const METHOD: Method = Method::Put;
-
-    fn sign(&self, expires_in: Duration) -> Url {
-        let now = OffsetDateTime::now_utc();
-        self.sign_with_time(expires_in, &now)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use time::PrimitiveDateTime;
+    use time::OffsetDateTime;
 
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{Bucket, Credentials};
+    use crate::{Bucket, Credentials, UrlStyle};
 
     #[test]
     fn aws_example() {
-        let date = PrimitiveDateTime::parse(
-            "Fri, 24 May 2013 00:00:00 GMT",
-            "%a, %d %b %Y %-H:%M:%S GMT",
-        )
-        .unwrap()
-        .assume_utc();
+        // Fri, 24 May 2013 00:00:00 GMT
+        let date = OffsetDateTime::from_unix_timestamp(1369353600).unwrap();
         let expires_in = Duration::from_secs(86400);
 
         let endpoint = "https://s3.amazonaws.com".parse().unwrap();
-        let bucket =
-            Bucket::new(endpoint, false, "examplebucket".into(), "us-east-1".into()).unwrap();
+        let bucket = Bucket::new(
+            endpoint,
+            UrlStyle::VirtualHost,
+            "examplebucket",
+            "us-east-1",
+        )
+        .unwrap();
         let credentials = Credentials::new(
-            "AKIAIOSFODNN7EXAMPLE".into(),
-            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into(),
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         );
 
         let action = PutObject::new(&bucket, Some(&credentials), "test.txt");
@@ -101,8 +110,13 @@ mod tests {
         let expires_in = Duration::from_secs(86400);
 
         let endpoint = "https://s3.amazonaws.com".parse().unwrap();
-        let bucket =
-            Bucket::new(endpoint, false, "examplebucket".into(), "us-east-1".into()).unwrap();
+        let bucket = Bucket::new(
+            endpoint,
+            UrlStyle::VirtualHost,
+            "examplebucket",
+            "us-east-1",
+        )
+        .unwrap();
 
         let action = PutObject::new(&bucket, None, "test.txt");
         let url = action.sign(expires_in);

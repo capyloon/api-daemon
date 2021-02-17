@@ -1,30 +1,30 @@
 [package]
-name = "libsignal_service"
-version = "0.1.0"
 authors = ["Fabrice Desré <fabrice@desre.org>"]
 edition = "2018"
 license = "KaiOS"
+name = "libsignal_service"
 publish = false
+version = "0.1.0"
 
 [dependencies]
 aes = "0.7"
-android_utils = { path = "../../support/android-utils" }
+android_utils = {path = "../../support/android-utils"}
 block-modes = "0.8"
 buf_redux = "0.8"
 cipher = "0.3"
-common = { path = "../../common" }
-hmac = "0.10"
-libsignal-sys = { path = "../../support/libsignal-sys" }
+common = {path = "../../common"}
+hmac = {version = "0.12", features = ["reset"]}
+libsignal-sys = {path = "../../support/libsignal-sys"}
 log = "0.4"
 parking_lot = "0.11"
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] } 
+reqwest = {version = "0.11", default-features = false, features = ["blocking", "rustls-tls"]}
 ring = "0.16"
-serde = { version = "1.0", features = ["derive"] }
-sha2 = "0.9"
+serde = {version = "1.0", features = ["derive"]}
+sha2 = "0.10"
 threadpool = "1.8"
 
 [build-dependencies]
-common = { path = "../../common" }
+common = {path = "../../common"}
 
 [dev-dependencies]
-test-server = { git = "https://github.com/ChriFo/test-server-rs", tag = "0.9.1" }
+test-server = {git = "https://github.com/ChriFo/test-server-rs", tag = "0.9.1"}

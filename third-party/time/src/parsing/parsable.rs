@@ -4,16 +4,17 @@ use core::convert::TryInto;
 use core::ops::Deref;
 
 use crate::error::TryFromParsed;
-use crate::format_description::well_known::Rfc3339;
+use crate::format_description::well_known::{Rfc2822, Rfc3339};
 use crate::format_description::FormatItem;
 use crate::parsing::{Parsed, ParsedItem};
-use crate::{error, Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
+use crate::{error, Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset, Weekday};
 
 /// A type that can be parsed.
 #[cfg_attr(__time_03_docs, doc(notable_trait))]
 pub trait Parsable: sealed::Sealed {}
 impl Parsable for FormatItem<'_> {}
 impl Parsable for [FormatItem<'_>] {}
+impl Parsable for Rfc2822 {}
 impl Parsable for Rfc3339 {}
 impl<T: Deref> Parsable for T where T::Target: Parsable {}
 
@@ -112,6 +113,165 @@ where
 // endregion custom formats
 
 // region: well-known formats
+impl sealed::Sealed for Rfc2822 {
+    fn parse_into<'a>(
+        &self,
+        input: &'a [u8],
+        parsed: &mut Parsed,
+    ) -> Result<&'a [u8], error::Parse> {
+        use crate::error::ParseFromDescription::{InvalidComponent, InvalidLiteral};
+        use crate::parsing::combinator::rfc::rfc2822::{cfws, fws};
+        use crate::parsing::combinator::{
+            ascii_char, exactly_n_digits, first_match, n_to_m_digits, opt, sign,
+        };
+
+        let colon = ascii_char::<b':'>;
+        let comma = ascii_char::<b','>;
+
+        let input = opt(fws)(input).into_inner();
+        let input = first_match(
+            [
+                (&b"Mon"[..], Weekday::Monday),
+                (&b"Tue"[..], Weekday::Tuesday),
+                (&b"Wed"[..], Weekday::Wednesday),
+                (&b"Thu"[..], Weekday::Thursday),
+                (&b"Fri"[..], Weekday::Friday),
+                (&b"Sat"[..], Weekday::Saturday),
+                (&b"Sun"[..], Weekday::Sunday),
+            ],
+            false,
+        )(input)
+        .ok_or(InvalidComponent("weekday"))?
+        .assign_value_to(&mut parsed.weekday);
+        let input = comma(input).ok_or(InvalidLiteral)?.into_inner();
+        let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
+        let input = n_to_m_digits::<_, 1, 2>(input)
+            .ok_or(InvalidComponent("day"))?
+            .assign_value_to(&mut parsed.day);
+        let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
+        let input = first_match(
+            [
+                (&b"Jan"[..], Month::January),
+                (&b"Feb"[..], Month::February),
+                (&b"Mar"[..], Month::March),
+                (&b"Apr"[..], Month::April),
+                (&b"May"[..], Month::May),
+                (&b"Jun"[..], Month::June),
+                (&b"Jul"[..], Month::July),
+                (&b"Aug"[..], Month::August),
+                (&b"Sep"[..], Month::September),
+                (&b"Oct"[..], Month::October),
+                (&b"Nov"[..], Month::November),
+                (&b"Dec"[..], Month::December),
+            ],
+            false,
+        )(input)
+        .ok_or(InvalidComponent("month"))?
+        .assign_value_to(&mut parsed.month);
+        let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
+        let input = match exactly_n_digits::<u32, 4>(input) {
+            Some(item) => {
+                let input = item
+                    .flat_map_res(|year| {
+                        if year >= 1900 {
+                            Ok(year)
+                        } else {
+                            Err(InvalidComponent("year"))
+                        }
+                    })?
+                    .map(|year| year as _)
+                    .assign_value_to(&mut parsed.year);
+                let input = fws(input).ok_or(InvalidLiteral)?.into_inner();
+                input
+            }
+            None => {
+                let input = exactly_n_digits::<u32, 2>(input)
+                    .ok_or(InvalidComponent("year"))?
+                    .map(|year| if year < 50 { year + 2000 } else { year + 1900 })
+                    .map(|year| year as _)
+                    .assign_value_to(&mut parsed.year);
+                let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
+                input
+            }
+        };
+
+        let input = exactly_n_digits::<_, 2>(input)
+            .ok_or(InvalidComponent("hour"))?
+            .assign_value_to(&mut parsed.hour_24);
+        let input = opt(cfws)(input).into_inner();
+        let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
+        let input = opt(cfws)(input).into_inner();
+        let input = exactly_n_digits::<_, 2>(input)
+            .ok_or(InvalidComponent("minute"))?
+            .assign_value_to(&mut parsed.minute);
+
+        let input = if let Some(input) = colon(opt(cfws)(input).into_inner()) {
+            let input = input.into_inner(); // discard the colon
+            let input = opt(cfws)(input).into_inner();
+            let input = exactly_n_digits::<_, 2>(input)
+                .ok_or(InvalidComponent("second"))?
+                .assign_value_to(&mut parsed.second);
+            let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
+            input
+        } else {
+            cfws(input).ok_or(InvalidLiteral)?.into_inner()
+        };
+
+        // The RFC explicitly allows leap seconds. We don't currently support them, so treat it as
+        // the previous moment.
+        if parsed.second == Some(60) {
+            parsed.second = Some(59);
+            parsed.subsecond = Some(999_999_999);
+        }
+
+        let zone_literal = first_match(
+            [
+                (&b"UT"[..], 0),
+                (&b"GMT"[..], 0),
+                (&b"EST"[..], -5),
+                (&b"EDT"[..], -4),
+                (&b"CST"[..], -6),
+                (&b"CDT"[..], -5),
+                (&b"MST"[..], -7),
+                (&b"MDT"[..], -6),
+                (&b"PST"[..], -8),
+                (&b"PDT"[..], -7),
+            ],
+            false,
+        )(input)
+        .or_else(|| match input {
+            [
+                b'a'..=b'i' | b'k'..=b'z' | b'A'..=b'I' | b'K'..=b'Z',
+                rest @ ..,
+            ] => Some(ParsedItem(rest, 0)),
+            _ => None,
+        });
+        if let Some(zone_literal) = zone_literal {
+            let input = zone_literal.assign_value_to(&mut parsed.offset_hour);
+            parsed.offset_minute = Some(0);
+            parsed.offset_second = Some(0);
+            return Ok(input);
+        }
+
+        let ParsedItem(input, offset_sign) = sign(input).ok_or(InvalidComponent("offset hour"))?;
+        let input = exactly_n_digits::<u8, 2>(input)
+            .ok_or(InvalidComponent("offset hour"))?
+            .map(|offset_hour| {
+                if offset_sign == b'-' {
+                    -(offset_hour as i8)
+                } else {
+                    offset_hour as _
+                }
+            })
+            .assign_value_to(&mut parsed.offset_hour);
+        let input = exactly_n_digits::<_, 2>(input)
+            .ok_or(InvalidComponent("offset minute"))?
+            .assign_value_to(&mut parsed.offset_minute);
+
+        Ok(input)
+    }
+}
+
 impl sealed::Sealed for Rfc3339 {
     fn parse_into<'a>(
         &self,
@@ -153,11 +313,6 @@ impl sealed::Sealed for Rfc3339 {
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
         let input = exactly_n_digits::<_, 2>(input)
             .ok_or(InvalidComponent("second"))?
-            .map(|second|
-                // The RFC explicitly allows leap seconds. We don't support them, so treat it
-                // as the previous second.
-                if second == 60 { 59 } else { second }
-            )
             .assign_value_to(&mut parsed.second);
         let input = if let Some(ParsedItem(input, ())) = ascii_char::<b'.'>(input) {
             let ParsedItem(mut input, mut value) = any_digit(input)
@@ -175,6 +330,13 @@ impl sealed::Sealed for Rfc3339 {
         } else {
             input
         };
+
+        // The RFC explicitly allows leap seconds. We don't currently support them, so treat it as
+        // the previous moment.
+        if parsed.second == Some(60) {
+            parsed.second = Some(59);
+            parsed.subsecond = Some(999_999_999);
+        }
 
         if let Some(ParsedItem(input, ())) = ascii_char_ignore_case::<b'Z'>(input) {
             parsed.offset_hour = Some(0);
@@ -228,10 +390,9 @@ impl sealed::Sealed for Rfc3339 {
         let ParsedItem(input, minute) =
             exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("minute"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
-        let ParsedItem(input, second) = exactly_n_digits::<_, 2>(input)
-            .ok_or(InvalidComponent("second"))?
-            .map(|seconds| if seconds == 60 { 59 } else { seconds });
-        let ParsedItem(input, nanosecond) =
+        let ParsedItem(input, mut second) =
+            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("second"))?;
+        let ParsedItem(input, mut nanosecond) =
             if let Some(ParsedItem(input, ())) = ascii_char::<b'.'>(input) {
                 let ParsedItem(mut input, mut value) = any_digit(input)
                     .ok_or(InvalidComponent("subsecond"))?
@@ -284,6 +445,13 @@ impl sealed::Sealed for Rfc3339 {
 
         if !input.is_empty() {
             return Err(error::Parse::UnexpectedTrailingCharacters);
+        }
+
+        // The RFC explicitly allows leap seconds. We don't currently support them, so treat it as
+        // the previous moment.
+        if second == 60 {
+            second = 59;
+            nanosecond = 999_999_999;
         }
 
         Ok(Month::from_number(month)

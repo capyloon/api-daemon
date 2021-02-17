@@ -1,22 +1,22 @@
 [package]
-name = "libsignal-sys"
-version = "0.1.0"
 authors = ["Fabrice Desré <fabrice@desre.org>"]
 edition = "2018"
 license = "KaiOS"
+name = "libsignal-sys"
 publish = false
+version = "0.1.0"
 
 [dependencies]
 aes = "0.7"
 arrayref = "0.3"
 block-modes = "0.8"
 ctr = "0.7"
-hmac = "0.10"
+hmac = {version = "0.12", features = ["reset"]}
 log = "0.4"
 prost = "0.9"
 prost-derive = "0.9"
 ring = "0.16"
-sha2 = "0.9"
+sha2 = "0.10"
 
 [build-dependencies]
 cc = "1.0"

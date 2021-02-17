@@ -8,6 +8,7 @@ BUILD_FEATURES=${BUILD_FEATURES:-"\
 apps-service,\
 audiovolumemanager-service,\
 contacts-service,\
+contentmanager-service,\
 devicecapability-service,\
 geckobridge-service,\
 libsignal-service,\
@@ -29,6 +30,9 @@ elif [[ "${BUILD_TYPE}" == "beta" ]]; then
     BUILD_TYPE="release"
     BUILD_FEATURES="${BUILD_FEATURES},daemon"
 fi
+
+# Build sqlx-macros and its dependencies as a workspace level host crate.
+PATH=${PATH}:/usr/bin cargo build --release -p sqlx-macros
 
 cd daemon
 FEATURES=${BUILD_FEATURES} ./xcompile.sh ${OPT}

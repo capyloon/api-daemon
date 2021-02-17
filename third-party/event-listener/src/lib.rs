@@ -7,7 +7,7 @@
 //! for acquiring locks.
 //!
 //! [eventcounts]: http://www.1024cores.net/home/lock-free-algorithms/eventcounts
-//! [simple mutex]: https://github.com/stjepang/event-listener/blob/master/examples/mutex.rs
+//! [simple mutex]: https://github.com/smol-rs/event-listener/blob/master/examples/mutex.rs
 //!
 //! # Examples
 //!
@@ -175,7 +175,7 @@ impl Event {
         let inner = self.inner();
         let listener = EventListener {
             inner: unsafe { Arc::clone(&ManuallyDrop::new(Arc::from_raw(inner))) },
-            entry: Some(inner.lock().insert(inner.cache_ptr())),
+            entry: unsafe { Some((*inner).lock().insert((*inner).cache_ptr())) },
         };
 
         // Make sure the listener is registered before whatever happens next.
@@ -365,8 +365,11 @@ impl Event {
         unsafe { inner.as_ref() }
     }
 
-    /// Returns a reference to the inner state, initializing it if necessary.
-    fn inner(&self) -> &Inner {
+    /// Returns a raw pointer to the inner state, initializing it if necessary.
+    ///
+    /// This returns a raw pointer instead of reference because `from_raw`
+    /// requires raw/mut provenance: <https://github.com/rust-lang/rust/pull/67339>
+    fn inner(&self) -> *const Inner {
         let mut inner = self.inner.load(Ordering::Acquire);
 
         // Initialize the state if this is its first use.
@@ -392,7 +395,10 @@ impl Event {
             let new = Arc::into_raw(new) as *mut Inner;
 
             // Attempt to replace the null-pointer with the new state pointer.
-            inner = self.inner.compare_and_swap(inner, new, Ordering::AcqRel);
+            inner = self
+                .inner
+                .compare_exchange(inner, new, Ordering::AcqRel, Ordering::Acquire)
+                .unwrap_or_else(|x| x);
 
             // Check if the old pointer value was indeed null.
             if inner.is_null() {
@@ -407,7 +413,7 @@ impl Event {
             }
         }
 
-        unsafe { &*inner }
+        inner
     }
 }
 
@@ -970,7 +976,7 @@ fn full_fence() {
         // a `SeqCst` fence.
         //
         // 1. `atomic::fence(SeqCst)`, which compiles into a `mfence` instruction.
-        // 2. `_.compare_and_swap(_, _, SeqCst)`, which compiles into a `lock cmpxchg` instruction.
+        // 2. `_.compare_exchange(_, _, SeqCst, SeqCst)`, which compiles into a `lock cmpxchg` instruction.
         //
         // Both instructions have the effect of a full barrier, but empirical benchmarks have shown
         // that the second one is sometimes a bit faster.
@@ -979,7 +985,7 @@ fn full_fence() {
         // temporary atomic variable and compare-and-exchanging its value. No sane compiler to
         // x86 platforms is going to optimize this away.
         let a = AtomicUsize::new(0);
-        a.compare_and_swap(0, 1, Ordering::SeqCst);
+        let _ = a.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
     } else {
         atomic::fence(Ordering::SeqCst);
     }

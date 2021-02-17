@@ -10,7 +10,7 @@ use buf_redux::policy::MinBuffered;
 use buf_redux::BufReader;
 use cipher::generic_array::{ArrayLength, GenericArray};
 use core::slice;
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use log::error;
 use ring::digest;
 use sha2::Sha256;
@@ -117,7 +117,7 @@ where
     }
 
     // Prepare the HMAC, initializing it with the IV.
-    let mut hmac_ctxt = Hmac::<Sha256>::new_varkey(hmac_key).map_err(|_| "hmac_error")?;
+    let mut hmac_ctxt = Hmac::<Sha256>::new_from_slice(hmac_key).map_err(|_| "hmac_error")?;
     hmac_ctxt.update(iv);
 
     // Prepare the SHA256 hasher.

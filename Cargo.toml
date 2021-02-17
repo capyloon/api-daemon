@@ -11,6 +11,7 @@ members = [
   "services/apps/appscmd",
   "services/audiovolumemanager",
   "services/contacts",
+  "services/contentmanager",
   "services/devicecapability",
   "services/geckobridge",
   "services/libsignal",

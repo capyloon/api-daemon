@@ -1,0 +1,146 @@
+// A content management service.
+// This exposes a content repository for resources and
+// associated metadata.
+
+enum ResourceKind {
+    Leaf
+    Container
+}
+
+dictionary Variant {
+    name: str      // A semantic name for this variant (eg. "thumbnail" for an image).
+    mime_type: str // The mime type of this variant.
+    size: int      // The size in bytes of the resource.
+}
+
+
+// Not used until https://bugzilla.kaiostech.com/show_bug.cgi?id=125583 is fixed.
+dictionary Payload {
+    variant: str  // The variant name for this payload.
+    blob: blob    // Actual content.
+}
+
+dictionary Metadata {
+    id: str            // The unique resource identifier.
+    parent: str        // The identifier of this resource's parent.
+    name: str          // The resource name.
+    kind: ResourceKind // File or Directory       
+    created: date      // Creation date.
+    modified: date     // Modification date.
+    tags: str+         // Arbitrary tags for facet indexing.
+    variants: Variant+ // Available variants for this resource.
+}
+
+enum ModificationKind {
+    Created
+    Modified
+    Deleted
+}
+
+enum VisitPriority {
+    Normal
+    High
+    VeryHigh
+}
+
+dictionary ResourceModification {
+    kind: ModificationKind // The type of modification.
+    id: str                // The id of the modified resource.
+}
+
+// Subset of Metadata used for resource creation.
+dictionary CreationData {
+    parent: str
+    name: str
+    kind: ResourceKind
+    tags: str+
+}
+
+interface MetadataCursor {
+    // Returns eithe a batch of resources, or rejects if
+    // no resources are available anymore.
+    fn next() -> Metadata+
+}
+
+callback ModificationObserver {
+    fn modified(modifications: ResourceModification)
+}
+
+#[rust:not-tracked]
+interface ContentStore {
+    // Get a hold to the root of the resource tree.
+    fn get_root() -> Metadata
+
+    // Retrieve resources for a set of ids.
+    fn by_ids(ids: str+) -> MetadataCursor
+
+    // Retrieve the resources that are children of the given id.
+    // This is not recursive.
+    fn children_of(id: str) -> MetadataCursor
+
+    // Returns the metadata for a child with a given name.
+    fn child_by_name(parent: str, name: str) -> Metadata
+
+    // Setup an observer that will be notified when some change happens to a resource.
+    fn add_observer(resource: str, observer: ModificationObserver)
+
+    // Removes a previously set observer.
+    fn remove_observer(resource: str, observer: ModificationObserver)
+
+    // Listen to all resource modifications.
+    event onresourcemodified -> ResourceModification
+
+    // Returns the full metadata for a new resource.
+    fn createobj(data: CreationData, variant: str, blob: blob?) -> Metadata
+
+    // Update a variant of this resource.
+    fn update_variant(id: str, variant: str, blob: blob)
+
+    // Deletes a resource.
+    fn delete(id: str)
+
+    // Deletes a single variant of a resource.
+    fn delete_variant(id: str, variant_name: str)
+
+    // Get the content of this resource in a given variant.
+    // If no variant is given, the "default" one is returned.
+    fn get_variant(id: str, variant_name: str?) -> blob
+
+    // Get the content of a json resource in a given variant.
+    // If no variant is given, the "default" one is returned.
+    // If this variant is not a json mime type, an error is raised.
+    fn get_variant_json(id: str, variant_name: str?) -> json
+
+    // Get the metadata for this resource.
+    fn get_metadata(id: str) -> Metadata
+
+    // Search the best matches for a query.
+    fn search(query: str, max_count: int, tag: str?) -> MetadataCursor
+
+    // Update the frecency score by visiting a resource.
+    fn visit(id: str, visit: VisitPriority)
+    fn visit_by_name(parent: str, name: str, visit: VisitPriority)
+
+    // Get the most visited items.
+    fn top_by_frecency(max_count: int) -> MetadataCursor
+
+    // Get the most recently modified items.
+    fn last_modified(max_count: int) -> MetadataCursor
+
+    // Get the full path from this object to the root.
+    // This does not return a cursor since it's not expected to
+    // return a lot of metadata.
+    fn get_full_path(id: str) -> Metadata+
+
+    // Import a file from the local file system in an existing container.
+    fn import_from_path(parent: str, path: str, remove: bool) -> Metadata
+
+    // Get the size of all the resources variants in this container.
+    fn container_size(id: str) -> int
+
+    // Get the http key to use for http retrieval of resources.
+    fn http_key() -> str
+}
+
+#[rust:shared-tracker,permission=content-manager]
+service ContentManager: ContentStore

@@ -179,7 +179,7 @@ async fn ws_index(
 
     let mut res = ws::handshake(&req)?;
     // Use a max size of 10M for messages.
-    let codec = Codec::new().max_size(1_000_000);
+    let codec = Codec::new().max_size(10_000_000);
     Ok(res.streaming(WebsocketContext::with_codec(
         WsHandler {
             session,
@@ -345,6 +345,8 @@ pub fn start(
     vhost_data: Shared<AppData>,
     telemetry: TelemetrySender,
 ) {
+    use contentmanager_service::cmgr_http::*;
+
     let config = global_context.config.clone();
     let port = config.general.port;
     let addr = format!("{}:{}", config.general.host, port);
@@ -368,6 +370,12 @@ pub fn start(
                     .data(vhost_data.clone())
                     .route("*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route("/{filename:.*}", web::get().to(vhost)),
+            )
+            .service(
+                web::scope("/cmgr")
+                .data(contentmanager_service::service::ContentManagerService::get_http_state())
+                .route("*", web::post().to(HttpResponse::MethodNotAllowed))
+                .route(RESOURCE_PATTERN, web::get().to(resource_handler)),
             )
             .service(
                 web::scope("/")

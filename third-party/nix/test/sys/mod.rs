@@ -11,6 +11,8 @@ mod test_signal;
           target_os = "macos",
           target_os = "netbsd"))]
 mod test_aio;
+#[cfg(not(target_os = "redox"))]
+mod test_mman;
 #[cfg(target_os = "linux")]
 mod test_signalfd;
 #[cfg(not(target_os = "redox"))]
@@ -21,9 +23,9 @@ mod test_sockopt;
 mod test_select;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod test_sysinfo;
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 mod test_termios;
-#[cfg(not(target_os = "redox"))]
+#[cfg(not(any(target_os = "redox", target_os = "fuchsia")))]
 mod test_ioctl;
 mod test_wait;
 mod test_uio;

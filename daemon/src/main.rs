@@ -26,7 +26,7 @@ use crate::session_counter::SessionKind;
 use crate::shared_state::enabled_services;
 use common::remote_services_registrar::RemoteServicesRegistrar;
 use common::traits::SharedServiceState;
-use log::{error, info};
+use log::{debug, error, info};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
 use std::thread;
@@ -121,6 +121,20 @@ fn install_signal_handler() {
             }
         }
     });
+}
+
+fn start_wspty() {
+    let _ = thread::Builder::new()
+        .name("wspty server".into())
+        .spawn(move || {
+            debug!("start_wspty start");
+            let _ = tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let _ = wspty::start_server()
+                    .await
+                    .map_err(|e| error!("wspty server exit with error: {:?}", e));
+            });
+            debug!("start_wspty end");
+        });
 }
 
 fn main() {
@@ -222,6 +236,9 @@ fn main() {
                 uds_server::start(&global_context, ());
             })
             .expect("Failed to start uds server thread");
+
+        // Start the wspty server
+        let _ = start_wspty();
 
         uds_handle.join().expect("Failed to join the uds thread.");
         actix_handle

@@ -21,6 +21,7 @@ declare_services!(
     "apps-service";apps_service;AppsService,
     "audiovolumemanager-service";audiovolume_service;AudioVolume,
     "contacts-service";contacts_service;ContactsService,
+    "contentmanager-service";contentmanager_service;ContentManagerService,
     "devicecapability-service";devicecapability_service;DeviceCapabilityService,
     "geckobridge-service";geckobridge;GeckoBridgeService,
     "libsignal-service";libsignal_service;SignalService,

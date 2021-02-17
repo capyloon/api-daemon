@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use rusty_s3::{Bucket, Credentials, S3Action};
+use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Authenticated GetObject", |b| {
@@ -12,8 +12,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         let name = "examplebucket";
         let region = "us-east-1";
 
-        let credentials = Credentials::new(key.into(), secret.into());
-        let bucket = Bucket::new(url, true, name.into(), region.into()).unwrap();
+        let credentials = Credentials::new(key, secret);
+        let bucket = Bucket::new(url, UrlStyle::Path, name, region).unwrap();
 
         b.iter(|| {
             let object = "text.txt";

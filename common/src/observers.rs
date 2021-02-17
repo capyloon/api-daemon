@@ -5,12 +5,14 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 pub struct ServiceObserverTracker<K> {
-    observers: HashMap<TrackerId, Vec<(K, DispatcherId)>>
+    observers: HashMap<TrackerId, Vec<(K, DispatcherId)>>,
 }
 
 impl<K> Default for ServiceObserverTracker<K> {
     fn default() -> Self {
-        Self { observers: HashMap::new() }
+        Self {
+            observers: HashMap::new(),
+        }
     }
 }
 
@@ -23,11 +25,15 @@ where
             observers.push((key, id));
         } else {
             self.observers.insert(observer, vec![(key, id)]);
-        }        
+        }
     }
 
-    pub fn remove<P>(&mut self, observer: TrackerId, key: K, obt: &mut ObserverTracker<K, P>) -> bool
-    {
+    pub fn remove<P>(
+        &mut self,
+        observer: TrackerId,
+        key: K,
+        obt: &mut ObserverTracker<K, P>,
+    ) -> bool {
         match self.observers.get_mut(&observer) {
             Some(observers) => {
                 let mut i = 0;
@@ -40,14 +46,11 @@ where
                 }
                 true
             }
-            None => {
-                false
-            }
+            None => false,
         }
     }
 
-    pub fn clear<P>(&mut self, obt: &mut ObserverTracker<K, P>)
-    {
+    pub fn clear<P>(&mut self, obt: &mut ObserverTracker<K, P>) {
         for observers in self.observers.values() {
             for observer in observers {
                 obt.remove(&observer.0, observer.1);
@@ -58,6 +61,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct ObserverTracker<K, P> {
     id: DispatcherId,
     observers: HashMap<K, Vec<(P, DispatcherId)>>,

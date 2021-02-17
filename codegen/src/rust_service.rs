@@ -68,6 +68,7 @@ impl Codegen {
         &mut self,
         service: &Service,
         sink: &'a mut W,
+        wrote_shared: bool,
     ) -> Result<()> {
         // Find all interfaces that will be tracked objects for this service.
         // These are all success/error returned interfaces, with a recursive descent.
@@ -91,7 +92,7 @@ impl Codegen {
             false
         };
 
-        if use_shared_proxy_tracker {
+        if !wrote_shared && (use_shared_proxy_tracker || use_shared_tracker) {
             sink.write_all(b"use std::sync::Arc; use parking_lot::Mutex;")?;
         }
 
@@ -662,17 +663,21 @@ use std::rc::Rc;
         )?;
 
         // Check if any interface uses a "rust:shared" annotation, and if so emit appropriate `use` statements.
-        if self
-            .ast
-            .interfaces
-            .values()
-            .any(|interface| match &interface.annotation {
-                Some(annotation) => annotation.has("rust:shared"),
-                None => false,
-            })
-        {
-            sink.write_all(b"use std::sync::Arc; use parking_lot::Mutex;\n")?;
-        }
+        let wrote_shared =
+            if self
+                .ast
+                .interfaces
+                .values()
+                .any(|interface| match &interface.annotation {
+                    Some(annotation) => annotation.has("rust:shared"),
+                    None => false,
+                })
+            {
+                sink.write_all(b"use std::sync::Arc; use parking_lot::Mutex;\n")?;
+                true
+            } else {
+                false
+            };
 
         // Add custom "use" declarations from the service.
         if let Some(annotation) = &self.ast.services[0].annotation {
@@ -689,7 +694,7 @@ use std::rc::Rc;
 
         // Generate service trait.
         for service in &ast.services {
-            self.generate_service(service, sink)?;
+            self.generate_service(service, sink, wrote_shared)?;
         }
 
         Ok(())

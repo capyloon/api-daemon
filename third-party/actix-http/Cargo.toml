@@ -3,17 +3,16 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
 name = "actix-http"
-version = "2.2.1"
+version = "2.2.2"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
 description = "HTTP primitives for the Actix ecosystem"
 homepage = "https://actix.rs"
@@ -73,8 +72,8 @@ version = "0.13"
 [dependencies.bitflags]
 version = "1.2"
 
-[dependencies.brotli2]
-version = "0.3.2"
+[dependencies.brotli]
+version = "3.3.3"
 optional = true
 
 [dependencies.bytes]
@@ -176,7 +175,7 @@ default-features = false
 
 [features]
 actors = ["actix"]
-compress = ["flate2", "brotli2"]
+compress = ["flate2", "brotli"]
 default = []
 openssl = ["actix-tls/openssl", "actix-connect/openssl"]
 rustls = ["actix-tls/rustls", "actix-connect/rustls"]

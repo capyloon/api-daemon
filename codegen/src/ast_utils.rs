@@ -229,6 +229,7 @@ impl CaseNormalizer for JavascriptCaseNormalizer {
 // that will be used in the Rust generated code.
 // This reduces the use of .to_snake_case() and .to_camel_case() in the
 // code generator.
+// Also renames methods when findind a #[rust:rename=...] annotation.
 pub fn normalize_rust_case<N: CaseNormalizer>(ast: &Ast, normalizer: &N) -> Ast {
     let mut dest = Ast {
         services: ast
@@ -291,10 +292,17 @@ pub fn normalize_rust_case<N: CaseNormalizer>(ast: &Ast, normalizer: &N) -> Ast 
         other.name = normalizer.interface_name(&interface.name);
         other.methods.clear();
         for method in &interface.methods {
-            let name = method.0;
+            let mut name = method.0.to_owned();
             let method = method.1;
+            // Rename the method is needed.
+            if let Some(annotation) = &method.annotation {
+                let renaming = annotation.get_values("rust:rename");
+                if !renaming.is_empty() {
+                    name = renaming[0].into();
+                }
+            }
             let mut new_m = method.clone();
-            new_m.name = normalizer.method_name(&method.name);
+            new_m.name = normalizer.method_name(&name);
             new_m.params.clear();
             for param in &method.params {
                 let mut new_p = param.clone();

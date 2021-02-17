@@ -1,3 +1,5 @@
+use super::{Send, Sync};
+
 pub use ffi::c_void;
 
 pub type c_char = i8;
@@ -36,6 +38,14 @@ pub type blksize_t = c_long;
 pub type blkcnt_t = i64;
 pub type nfds_t = c_ulong;
 pub type wchar_t = i32;
+
+s_no_extra_traits! {
+    #[repr(align(16))]
+    #[allow(missing_debug_implementations)]
+    pub struct max_align_t {
+        priv_: [f64; 4]
+    }
+}
 
 pub type __wasi_rights_t = u64;
 
@@ -644,6 +654,8 @@ extern "C" {
     pub fn newlocale(mask: ::c_int, locale: *const ::c_char, base: ::locale_t) -> ::locale_t;
     pub fn uselocale(loc: ::locale_t) -> ::locale_t;
     pub fn sched_yield() -> ::c_int;
+    pub fn getcwd(buf: *mut c_char, size: ::size_t) -> *mut c_char;
+    pub fn chdir(dir: *const c_char) -> ::c_int;
 
     pub fn __wasilibc_register_preopened_fd(fd: c_int, path: *const c_char) -> c_int;
     pub fn __wasilibc_fd_renumber(fd: c_int, newfd: c_int) -> c_int;

@@ -3,11 +3,14 @@ This is an integration between the [rustls TLS stack](https://github.com/ctz/rus
 and the [hyper HTTP library](https://github.com/hyperium/hyper).
 
 [![Build Status](https://github.com/ctz/hyper-rustls/workflows/hyper-rustls/badge.svg)](https://github.com/ctz/hyper-rustls/actions)
-[![Build Status](https://dev.azure.com/ctz99/ctz/_apis/build/status/ctz.hyper-rustls?branchName=master)](https://dev.azure.com/ctz99/ctz/_build/latest?definitionId=4&branchName=master)
 [![Crate](https://img.shields.io/crates/v/hyper-rustls.svg)](https://crates.io/crates/hyper-rustls)
 [![Documentation](https://docs.rs/hyper-rustls/badge.svg)](https://docs.rs/hyper-rustls/)
 
 # Release history
+- 0.23.0 (2021-11-21):
+  * Upgrade to rustls 0.20. Thanks to @g2p.
+  * Add new HttpsConnectorBuilder API. Thanks to @g2p.
+  * Add the tls12, logging, http1 and http2 features. Thanks to @g2p and @marwes.
 - 0.22.1 (2020-12-27):
   * Fixing docs.rs build; no other changes.
 - 0.22.0 (2020-12-26):
@@ -41,4 +44,3 @@ hyper-rustls is distributed under the following three licenses:
 These are included as LICENSE-APACHE, LICENSE-MIT and LICENSE-ISC
 respectively.  You may use this software under the terms of any
 of these licenses, at your option.
-

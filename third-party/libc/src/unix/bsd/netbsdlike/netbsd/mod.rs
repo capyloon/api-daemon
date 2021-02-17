@@ -343,6 +343,14 @@ s! {
         pub sc_groups: [::gid_t; 1],
     }
 
+    pub struct uucred {
+        pub cr_unused: ::c_ushort,
+        pub cr_uid: ::uid_t,
+        pub cr_gid: ::gid_t,
+        pub cr_ngroups: ::c_int,
+        pub cr_groups: [::gid_t; NGROUPS_MAX as usize],
+    }
+
     pub struct unpcbid {
         pub unp_pid: ::pid_t,
         pub unp_euid: ::uid_t,
@@ -544,9 +552,38 @@ s! {
         pub pl_event: ::c_int,
     }
 
+    pub struct ptrace_lwpstatus {
+        pub pl_lwpid: lwpid_t,
+        pub pl_sigpend: sigset_t,
+        pub pl_sigmask: sigset_t,
+        pub pl_name: [::c_char; 20],
+        pub pl_private: *mut ::c_void,
+    }
+
     pub struct ptrace_siginfo {
         pub psi_siginfo: siginfo_t,
         pub psi_lwpid: lwpid_t,
+    }
+
+    pub struct ptrace_event {
+        pub pe_set_event: ::c_int,
+    }
+
+    pub struct sysctldesc {
+        pub descr_num: i32,
+        pub descr_ver: u32,
+        pub descr_len: u32,
+        pub descr_str: [::c_char; 1],
+    }
+
+    pub struct ifreq {
+        pub _priv: [[::c_char; 6]; 24],
+    }
+
+    pub struct ifconf {
+        pub ifc_len: ::c_int,
+        #[cfg(libc_union)]
+        pub ifc_ifcu: __c_anonymous_ifc_ifcu,
     }
 }
 
@@ -665,6 +702,12 @@ s_no_extra_traits! {
     pub union __c_anonymous_posix_spawn_fae {
         pub open: __c_anonymous_posix_spawn_fae_open,
         pub dup2: __c_anonymous_posix_spawn_fae_dup2,
+    }
+
+    #[cfg(libc_union)]
+    pub union __c_anonymous_ifc_ifcu {
+        pub ifcu_buf: *mut ::c_void,
+        pub ifcu_req: *mut ifreq,
     }
 }
 
@@ -1128,6 +1171,41 @@ cfg_if! {
                 }
             }
         }
+
+        #[cfg(libc_union)]
+        impl Eq for __c_anonymous_ifc_ifcu {}
+
+        #[cfg(libc_union)]
+        impl PartialEq for __c_anonymous_ifc_ifcu {
+            fn eq(&self, other: &__c_anonymous_ifc_ifcu) -> bool {
+                unsafe {
+                    self.ifcu_buf == other.ifcu_buf
+                        || self.ifcu_req == other.ifcu_req
+                }
+            }
+        }
+
+        #[cfg(libc_union)]
+        impl ::fmt::Debug for __c_anonymous_ifc_ifcu {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                unsafe {
+                    f.debug_struct("__c_anonymous_ifc_ifcu")
+                        .field("ifcu_buf", &self.ifcu_buf)
+                        .field("ifcu_req", &self.ifcu_req)
+                        .finish()
+                }
+            }
+        }
+
+        #[cfg(libc_union)]
+        impl ::hash::Hash for __c_anonymous_ifc_ifcu {
+            fn hash<H: ::hash::Hasher>(&self, state: &mut H) {
+                unsafe {
+                    self.ifcu_buf.hash(state);
+                    self.ifcu_req.hash(state);
+                }
+            }
+        }
     }
 }
 
@@ -1226,6 +1304,7 @@ pub const F_CLOSEM: ::c_int = 10;
 pub const F_GETNOSIGPIPE: ::c_int = 13;
 pub const F_SETNOSIGPIPE: ::c_int = 14;
 pub const F_MAXFD: ::c_int = 11;
+pub const F_GETPATH: ::c_int = 15;
 
 pub const IP_RECVDSTADDR: ::c_int = 7;
 pub const IP_SENDSRCADDR: ::c_int = IP_RECVDSTADDR;
@@ -1985,6 +2064,15 @@ pub const PT_SYSCALLEMU: ::c_int = 15;
 pub const PT_SET_EVENT_MASK: ::c_int = 16;
 pub const PT_GET_EVENT_MASK: ::c_int = 17;
 pub const PT_GET_PROCESS_STATE: ::c_int = 18;
+pub const PT_SET_SIGINFO: ::c_int = 19;
+pub const PT_GET_SIGINFO: ::c_int = 20;
+pub const PT_RESUME: ::c_int = 21;
+pub const PT_SUSPEND: ::c_int = 23;
+pub const PT_STOP: ::c_int = 23;
+pub const PT_LWPSTATUS: ::c_int = 24;
+pub const PT_LWPNEXT: ::c_int = 25;
+pub const PT_SET_SIGPASS: ::c_int = 26;
+pub const PT_GET_SIGPASS: ::c_int = 27;
 pub const PT_FIRSTMACH: ::c_int = 32;
 
 pub const POSIX_SPAWN_RESETIDS: ::c_int = 0x01;
@@ -2011,6 +2099,8 @@ pub const KVME_FLAG_NOCOREDUMP: ::c_int = 0x000000004;
 pub const KVME_FLAG_PAGEABLE: ::c_int = 0x000000008;
 pub const KVME_FLAG_GROWS_UP: ::c_int = 0x000000010;
 pub const KVME_FLAG_GROWS_DOWN: ::c_int = 0x000000020;
+
+pub const NGROUPS_MAX: ::c_int = 16;
 
 const_fn! {
     {const} fn _ALIGN(p: usize) -> usize {
@@ -2065,6 +2155,14 @@ f! {
             0
         };
         ::mem::size_of::<sockcred>() + ::mem::size_of::<::gid_t>() * ngrps
+    }
+
+    pub fn PROT_MPROTECT(x: ::c_int) -> ::c_int {
+        x << 3
+    }
+
+    pub fn PROT_MPROTECT_EXTRACT(x: ::c_int) -> ::c_int {
+        (x >> 3) & 0x7
     }
 }
 
@@ -2125,6 +2223,12 @@ extern "C" {
     pub fn chflags(path: *const ::c_char, flags: ::c_ulong) -> ::c_int;
     pub fn fchflags(fd: ::c_int, flags: ::c_ulong) -> ::c_int;
     pub fn lchflags(path: *const ::c_char, flags: ::c_ulong) -> ::c_int;
+
+    pub fn execvpe(
+        file: *const ::c_char,
+        argv: *const *const ::c_char,
+        envp: *const *const ::c_char,
+    ) -> ::c_int;
 
     pub fn extattr_delete_fd(
         fd: ::c_int,
