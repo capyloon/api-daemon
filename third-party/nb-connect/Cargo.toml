@@ -13,20 +13,19 @@
 [package]
 edition = "2018"
 name = "nb-connect"
-version = "1.0.2"
+version = "1.0.3"
 authors = ["Stjepan Glavina <stjepang@gmail.com>", "Jayce Fayne <jayce.fayne@mailbox.org>"]
 description = "Non-blocking TCP or Unix connect"
-homepage = "https://github.com/stjepang/nb-connect"
+homepage = "https://github.com/smol-rs/nb-connect"
 documentation = "https://docs.rs/nb-connect"
-readme = "README.md"
 keywords = ["TcpStream", "UnixStream", "socket2", "polling"]
 categories = ["asynchronous", "network-programming", "os"]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/stjepang/nb-connect"
+repository = "https://github.com/smol-rs/nb-connect"
+[dependencies.socket2]
+version = "0.3.19"
+features = ["unix"]
 [dev-dependencies.polling]
 version = "2.0.0"
 [target."cfg(unix)".dependencies.libc]
 version = "0.2.77"
-[target."cfg(windows)".dependencies.winapi]
-version = "0.3.9"
-features = ["handleapi", "ws2tcpip"]

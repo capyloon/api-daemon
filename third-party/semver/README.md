@@ -3,11 +3,11 @@ semver
 
 Semantic version parsing and comparison.
 
-[![Build Status](https://api.travis-ci.org/steveklabnik/semver.svg?branch=master)](https://travis-ci.org/steveklabnik/semver)
+![Build Status](https://github.com/steveklabnik/semver/workflows/CI/badge.svg)
 
 [Documentation](https://steveklabnik.github.io/semver)
 
-Semantic versioning (see http://semver.org/) is a set of rules for
+Semantic versioning (see https://semver.org/) is a set of rules for
 assigning version numbers.
 
 ## SemVer and the Rust ecosystem
@@ -23,7 +23,7 @@ packages you need installed.
 To use `semver`, add this to your `[dependencies]` section:
 
 ```toml
-semver = "0.7.0"
+semver = "0.9.0"
 ```
 
 And this to your crate root:
@@ -78,7 +78,7 @@ assert!(r.matches(&v))
 ```
 
 It also allows parsing of `~x.y.z` and `^x.y.z` requirements as defined at
-https://www.npmjs.org/doc/misc/semver.html
+https://www.npmjs.com/package/semver
 
 **Tilde requirements** specify a minimal version with some updates:
 

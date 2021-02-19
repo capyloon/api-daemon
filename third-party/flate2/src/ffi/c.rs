@@ -273,7 +273,7 @@ impl DeflateBackend for Deflate {
                 } else {
                     -(window_bits as c_int)
                 },
-                8,
+                9,
                 MZ_DEFAULT_STRATEGY,
             );
             assert_eq!(ret, 0);
@@ -345,10 +345,7 @@ mod c_backend {
 }
 
 /// Zlib specific
-#[cfg(any(
-    feature = "zlib-ng-compat",
-    all(feature = "zlib", not(feature = "cloudflare_zlib"))
-))]
+#[cfg(all(feature = "zlib", not(feature = "cloudflare_zlib")))]
 #[allow(bad_style)]
 mod c_backend {
     use libc::{c_char, c_int};
@@ -412,7 +409,7 @@ mod c_backend {
 }
 
 /// Cloudflare optimized Zlib specific
-#[cfg(all(feature = "cloudflare_zlib", not(feature = "zlib-ng-compat")))]
+#[cfg(feature = "cloudflare_zlib")]
 #[allow(bad_style)]
 mod c_backend {
     use libc::{c_char, c_int};

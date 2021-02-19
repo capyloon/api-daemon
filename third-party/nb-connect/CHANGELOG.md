@@ -1,3 +1,7 @@
+# Version 1.0.3
+
+- Fix invalid assumption of `std::net::SocketAddrV{4,6}` layout.
+
 # Version 1.0.2
 
 - Update `polling` in docs.

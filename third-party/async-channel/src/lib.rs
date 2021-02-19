@@ -231,36 +231,11 @@ impl<T> Sender<T> {
     /// assert_eq!(s.send(2).await, Err(SendError(2)));
     /// # });
     /// ```
-    pub async fn send(&self, msg: T) -> Result<(), SendError<T>> {
-        let mut listener = None;
-        let mut msg = msg;
-
-        loop {
-            // Attempt to send a message.
-            match self.try_send(msg) {
-                Ok(()) => {
-                    // If the capacity is larger than 1, notify another blocked send operation.
-                    match self.channel.queue.capacity() {
-                        Some(1) => {}
-                        Some(_) | None => self.channel.send_ops.notify(1),
-                    }
-                    return Ok(());
-                }
-                Err(TrySendError::Closed(msg)) => return Err(SendError(msg)),
-                Err(TrySendError::Full(m)) => msg = m,
-            }
-
-            // Sending failed - now start listening for notifications or wait for one.
-            match listener.take() {
-                None => {
-                    // Start listening and then try receiving again.
-                    listener = Some(self.channel.send_ops.listen());
-                }
-                Some(l) => {
-                    // Wait for a notification.
-                    l.await;
-                }
-            }
+    pub fn send(&self, msg: T) -> Send<'_, T> {
+        Send {
+            sender: self,
+            listener: None,
+            msg: Some(msg),
         }
     }
 
@@ -526,37 +501,10 @@ impl<T> Receiver<T> {
     /// assert_eq!(r.recv().await, Err(RecvError));
     /// # });
     /// ```
-    pub async fn recv(&self) -> Result<T, RecvError> {
-        let mut listener = None;
-
-        loop {
-            // Attempt to receive a message.
-            match self.try_recv() {
-                Ok(msg) => {
-                    // If the capacity is larger than 1, notify another blocked receive operation.
-                    // There is no need to notify stream operations because all of them get
-                    // notified every time a message is sent into the channel.
-                    match self.channel.queue.capacity() {
-                        Some(1) => {}
-                        Some(_) | None => self.channel.recv_ops.notify(1),
-                    }
-                    return Ok(msg);
-                }
-                Err(TryRecvError::Closed) => return Err(RecvError),
-                Err(TryRecvError::Empty) => {}
-            }
-
-            // Receiving failed - now start listening for notifications or wait for one.
-            match listener.take() {
-                None => {
-                    // Start listening and then try receiving again.
-                    listener = Some(self.channel.recv_ops.listen());
-                }
-                Some(l) => {
-                    // Wait for a notification.
-                    l.await;
-                }
-            }
+    pub fn recv(&self) -> Recv<'_, T> {
+        Recv {
+            receiver: self,
+            listener: None,
         }
     }
 
@@ -793,6 +741,12 @@ impl<T> Stream for Receiver<T> {
     }
 }
 
+impl<T> futures_core::stream::FusedStream for Receiver<T> {
+    fn is_terminated(&self) -> bool {
+        self.channel.queue.is_closed() && self.channel.queue.is_empty()
+    }
+}
+
 /// An error returned from [`Sender::send()`].
 ///
 /// Received because the channel is closed.
@@ -925,6 +879,116 @@ impl fmt::Display for TryRecvError {
         match *self {
             TryRecvError::Empty => write!(f, "receiving from an empty channel"),
             TryRecvError::Closed => write!(f, "receiving from an empty and closed channel"),
+        }
+    }
+}
+
+/// A future returned by [`Sender::send()`].
+#[derive(Debug)]
+#[must_use = "futures do nothing unless .awaited"]
+pub struct Send<'a, T> {
+    sender: &'a Sender<T>,
+    listener: Option<EventListener>,
+    msg: Option<T>,
+}
+
+impl<'a, T> Unpin for Send<'a, T> {}
+
+impl<'a, T> Future for Send<'a, T> {
+    type Output = Result<(), SendError<T>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = Pin::new(self);
+
+        loop {
+            let msg = this.msg.take().unwrap();
+            // Attempt to send a message.
+            match this.sender.try_send(msg) {
+                Ok(()) => {
+                    // If the capacity is larger than 1, notify another blocked send operation.
+                    match this.sender.channel.queue.capacity() {
+                        Some(1) => {}
+                        Some(_) | None => this.sender.channel.send_ops.notify(1),
+                    }
+                    return Poll::Ready(Ok(()));
+                }
+                Err(TrySendError::Closed(msg)) => return Poll::Ready(Err(SendError(msg))),
+                Err(TrySendError::Full(m)) => this.msg = Some(m),
+            }
+
+            // Sending failed - now start listening for notifications or wait for one.
+            match &mut this.listener {
+                None => {
+                    // Start listening and then try receiving again.
+                    this.listener = Some(this.sender.channel.send_ops.listen());
+                }
+                Some(l) => {
+                    // Wait for a notification.
+                    match Pin::new(l).poll(cx) {
+                        Poll::Ready(_) => {
+                            this.listener = None;
+                            continue;
+                        }
+
+                        Poll::Pending => return Poll::Pending,
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A future returned by [`Receiver::recv()`].
+#[derive(Debug)]
+#[must_use = "futures do nothing unless .awaited"]
+pub struct Recv<'a, T> {
+    receiver: &'a Receiver<T>,
+    listener: Option<EventListener>,
+}
+
+impl<'a, T> Unpin for Recv<'a, T> {}
+
+impl<'a, T> Future for Recv<'a, T> {
+    type Output = Result<T, RecvError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = Pin::new(self);
+
+        loop {
+            // Attempt to receive a message.
+            match this.receiver.try_recv() {
+                Ok(msg) => {
+                    // If the capacity is larger than 1, notify another blocked receive operation.
+                    // There is no need to notify stream operations because all of them get
+                    // notified every time a message is sent into the channel.
+                    match this.receiver.channel.queue.capacity() {
+                        Some(1) => {}
+                        Some(_) | None => this.receiver.channel.recv_ops.notify(1),
+                    }
+                    return Poll::Ready(Ok(msg));
+                }
+                Err(TryRecvError::Closed) => return Poll::Ready(Err(RecvError)),
+                Err(TryRecvError::Empty) => {}
+            }
+
+            // Receiving failed - now start listening for notifications or wait for one.
+            match &mut this.listener {
+                None => {
+                    // Start listening and then try receiving again.
+                    this.listener = Some(this.receiver.channel.recv_ops.listen());
+                }
+                Some(l) => {
+                    // Wait for a notification.
+                    match Pin::new(l).poll(cx) {
+                        Poll::Ready(_) => {
+                            this.listener = None;
+                            continue;
+                        }
+
+                        Poll::Pending => return Poll::Pending,
+                    }
+                }
+            }
         }
     }
 }

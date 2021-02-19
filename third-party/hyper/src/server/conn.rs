@@ -49,8 +49,7 @@ use std::fmt;
 use std::marker::PhantomData;
 #[cfg(feature = "tcp")]
 use std::net::SocketAddr;
-#[cfg(feature = "runtime")]
-#[cfg(feature = "http2")]
+#[cfg(all(feature = "runtime", feature = "http2"))]
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -63,8 +62,7 @@ use crate::common::exec::{ConnStreamExec, Exec, NewSvcExec};
 #[cfg(feature = "http2")]
 use crate::common::io::Rewind;
 use crate::common::{task, Future, Pin, Poll, Unpin};
-#[cfg(feature = "http1")]
-#[cfg(feature = "http2")]
+#[cfg(all(feature = "http1", feature = "http2"))]
 use crate::error::{Kind, Parse};
 use crate::proto;
 use crate::service::{HttpService, MakeServiceRef};
@@ -107,8 +105,7 @@ enum ConnectionMode {
     #[cfg(feature = "http2")]
     H2Only,
     /// Use HTTP/1 and try to upgrade to h2 when a parse error occurs.
-    #[cfg(feature = "http1")]
-    #[cfg(feature = "http2")]
+    #[cfg(all(feature = "http1", feature = "http2"))]
     Fallback,
 }
 
@@ -147,7 +144,7 @@ pub(super) struct SpawnAll<I, S, E> {
     //
     // See https://github.com/rust-lang/rust/issues/64705
     #[pin]
-    pub serve: Serve<I, S, E>,
+    pub(super) serve: Serve<I, S, E>,
 }
 
 /// A future binding a connection with a Service.
@@ -160,8 +157,7 @@ where
     S: HttpService<Body>,
 {
     pub(super) conn: Option<ProtoServer<T, S::ResBody, S, E>>,
-    #[cfg(feature = "http1")]
-    #[cfg(feature = "http2")]
+    #[cfg(all(feature = "http1", feature = "http2"))]
     fallback: Fallback<E>,
 }
 
@@ -186,16 +182,14 @@ where
     H2(#[pin] proto::h2::Server<Rewind<T>, S, B, E>),
 }
 
-#[cfg(feature = "http1")]
-#[cfg(feature = "http2")]
+#[cfg(all(feature = "http1", feature = "http2"))]
 #[derive(Clone, Debug)]
 enum Fallback<E> {
     ToHttp2(proto::h2::server::Config, E),
     Http1Only,
 }
 
-#[cfg(feature = "http1")]
-#[cfg(feature = "http2")]
+#[cfg(all(feature = "http1", feature = "http2"))]
 impl<E> Fallback<E> {
     fn to_h2(&self) -> bool {
         match *self {
@@ -205,8 +199,7 @@ impl<E> Fallback<E> {
     }
 }
 
-#[cfg(feature = "http1")]
-#[cfg(feature = "http2")]
+#[cfg(all(feature = "http1", feature = "http2"))]
 impl<E> Unpin for Fallback<E> {}
 
 /// Deconstructed parts of a `Connection`.
@@ -701,8 +694,7 @@ where
         })
     }
 
-    #[cfg(feature = "http1")]
-    #[cfg(feature = "http2")]
+    #[cfg(all(feature = "http1", feature = "http2"))]
     fn upgrade_h2(&mut self) {
         trace!("Trying to upgrade connection to h2");
         let conn = self.conn.take();
@@ -815,7 +807,7 @@ impl Default for ConnectionMode {
 impl<I, S, E> Serve<I, S, E> {
     /// Get a reference to the incoming stream.
     #[inline]
-    pub fn incoming_ref(&self) -> &I {
+    pub(super) fn incoming_ref(&self) -> &I {
         &self.incoming
     }
 
@@ -1025,7 +1017,7 @@ pub(crate) mod spawn_all {
     }
 
     #[pin_project(project = StateProj)]
-    pub enum State<I, N, S: HttpService<Body>, E, W: Watcher<I, S, E>> {
+    pub(super) enum State<I, N, S: HttpService<Body>, E, W: Watcher<I, S, E>> {
         Connecting(#[pin] Connecting<I, N, E>, W),
         Connected(#[pin] W::Future),
     }

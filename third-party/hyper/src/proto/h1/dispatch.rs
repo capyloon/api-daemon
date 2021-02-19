@@ -37,17 +37,15 @@ pub(crate) trait Dispatch {
 cfg_server! {
     use crate::service::HttpService;
 
-    pub struct Server<S: HttpService<B>, B> {
+    pub(crate) struct Server<S: HttpService<B>, B> {
         in_flight: Pin<Box<Option<S::Future>>>,
         pub(crate) service: S,
     }
 }
 
 cfg_client! {
-    #[pin_project::pin_project]
-    pub struct Client<B> {
+    pub(crate) struct Client<B> {
         callback: Option<crate::client::dispatch::Callback<Request<B>, http::Response<Body>>>,
-        #[pin]
         rx: ClientRx<B>,
         rx_closed: bool,
     }
@@ -58,17 +56,17 @@ cfg_client! {
 impl<D, Bs, I, T> Dispatcher<D, Bs, I, T>
 where
     D: Dispatch<
-            PollItem = MessageHead<T::Outgoing>,
-            PollBody = Bs,
-            RecvItem = MessageHead<T::Incoming>,
-        > + Unpin,
+        PollItem = MessageHead<T::Outgoing>,
+        PollBody = Bs,
+        RecvItem = MessageHead<T::Incoming>,
+    > + Unpin,
     D::PollError: Into<Box<dyn StdError + Send + Sync>>,
     I: AsyncRead + AsyncWrite + Unpin,
     T: Http1Transaction + Unpin,
     Bs: HttpBody + 'static,
     Bs::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
-    pub fn new(dispatch: D, conn: Conn<I, Bs::Data, T>) -> Self {
+    pub(crate) fn new(dispatch: D, conn: Conn<I, Bs::Data, T>) -> Self {
         Dispatcher {
             conn,
             dispatch,
@@ -79,14 +77,14 @@ where
     }
 
     #[cfg(feature = "server")]
-    pub fn disable_keep_alive(&mut self) {
+    pub(crate) fn disable_keep_alive(&mut self) {
         self.conn.disable_keep_alive();
         if self.conn.is_write_closed() {
             self.close();
         }
     }
 
-    pub fn into_inner(self) -> (I, Bytes, D) {
+    pub(crate) fn into_inner(self) -> (I, Bytes, D) {
         let (io, buf) = self.conn.into_inner();
         (io, buf, self.dispatch)
     }
@@ -405,10 +403,10 @@ where
 impl<D, Bs, I, T> Future for Dispatcher<D, Bs, I, T>
 where
     D: Dispatch<
-            PollItem = MessageHead<T::Outgoing>,
-            PollBody = Bs,
-            RecvItem = MessageHead<T::Incoming>,
-        > + Unpin,
+        PollItem = MessageHead<T::Outgoing>,
+        PollBody = Bs,
+        RecvItem = MessageHead<T::Incoming>,
+    > + Unpin,
     D::PollError: Into<Box<dyn StdError + Send + Sync>>,
     I: AsyncRead + AsyncWrite + Unpin,
     T: Http1Transaction + Unpin,
@@ -454,14 +452,14 @@ cfg_server! {
     where
         S: HttpService<B>,
     {
-        pub fn new(service: S) -> Server<S, B> {
+        pub(crate) fn new(service: S) -> Server<S, B> {
             Server {
                 in_flight: Box::pin(None),
                 service,
             }
         }
 
-        pub fn into_service(self) -> S {
+        pub(crate) fn into_service(self) -> S {
             self.service
         }
     }
@@ -492,7 +490,7 @@ cfg_server! {
                     version: parts.version,
                     subject: parts.status,
                     headers: parts.headers,
-                    extensions: http::Extensions::default(),
+                    extensions: parts.extensions,
                 };
                 Poll::Ready(Some(Ok((head, body))))
             } else {
@@ -538,7 +536,7 @@ cfg_server! {
 
 cfg_client! {
     impl<B> Client<B> {
-        pub fn new(rx: ClientRx<B>) -> Client<B> {
+        pub(crate) fn new(rx: ClientRx<B>) -> Client<B> {
             Client {
                 callback: None,
                 rx,
@@ -557,12 +555,12 @@ cfg_client! {
         type RecvItem = crate::proto::ResponseHead;
 
         fn poll_msg(
-            self: Pin<&mut Self>,
+            mut self: Pin<&mut Self>,
             cx: &mut task::Context<'_>,
         ) -> Poll<Option<Result<(Self::PollItem, Self::PollBody), crate::common::Never>>> {
-            let this = self.project();
-            debug_assert!(!*this.rx_closed);
-            match this.rx.poll_next(cx) {
+            let mut this = self.as_mut();
+            debug_assert!(!this.rx_closed);
+            match this.rx.poll_recv(cx) {
                 Poll::Ready(Some((req, mut cb))) => {
                     // check that future hasn't been canceled already
                     match cb.poll_canceled(cx) {
@@ -576,9 +574,9 @@ cfg_client! {
                                 version: parts.version,
                                 subject: crate::proto::RequestLine(parts.method, parts.uri),
                                 headers: parts.headers,
-                                extensions: http::Extensions::default(),
+                                extensions: parts.extensions,
                             };
-                            *this.callback = Some(cb);
+                            this.callback = Some(cb);
                             Poll::Ready(Some(Ok((head, body))))
                         }
                     }
@@ -586,7 +584,7 @@ cfg_client! {
                 Poll::Ready(None) => {
                     // user has dropped sender handle
                     trace!("client tx closed");
-                    *this.rx_closed = true;
+                    this.rx_closed = true;
                     Poll::Ready(None)
                 }
                 Poll::Pending => Poll::Pending,

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_channel::{bounded, RecvError, SendError, TryRecvError, TrySendError};
 use easy_parallel::Parallel;
-use futures_lite::*;
+use futures_lite::{future, prelude::*};
 
 fn ms(ms: u64) -> Duration {
     Duration::from_millis(ms)
@@ -364,7 +364,7 @@ fn mpmc_stream() {
 
     Parallel::new()
         .each(0..THREADS, {
-            let mut r = r.clone();
+            let mut r = r;
             move |_| {
                 for _ in 0..COUNT {
                     let n = future::block_on(r.next()).unwrap();

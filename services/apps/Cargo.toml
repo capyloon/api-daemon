@@ -27,7 +27,7 @@ time = "0.2"
 url = "2.1"
 version-compare = "0.0.10"
 vhost_server = { path = "../../vhost" }
-zip = { git = "ssh://git@git.kaiostech.com/rust-forks/zip-rs.git", branch="omni-ja", default-features = false, features = ["deflate", "omnija"]}
+zip = "0.5.10"
 zip_utils = { git = "ssh://git@git.kaiostech.com/KaiOS/zip_utils.git", branch="master" }
 
 [build-dependencies]

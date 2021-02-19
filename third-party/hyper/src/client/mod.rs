@@ -52,8 +52,7 @@
 pub use self::connect::HttpConnector;
 
 pub mod connect;
-#[cfg(test)]
-#[cfg(feature = "runtime")]
+#[cfg(all(test, feature = "runtime"))]
 mod tests;
 
 cfg_feature! {
@@ -63,7 +62,7 @@ cfg_feature! {
 
     mod client;
     pub mod conn;
-    pub(crate) mod dispatch;
+    pub(super) mod dispatch;
     mod pool;
     pub mod service;
 }

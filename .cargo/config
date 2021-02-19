@@ -16,6 +16,11 @@ git = "https://github.com/fabricedesre/actix.git"
 branch = "0.10-bump-crossbeam"
 replace-with = "vendored-sources"
 
+[source."https://github.com/taskcluster/rust-hawk.git"]
+git = "https://github.com/taskcluster/rust-hawk.git"
+rev = "c0760a0d78eca2695f77b16122fc21cc3dbfd195"
+replace-with = "vendored-sources"
+
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
 replace-with = "vendored-sources"
@@ -23,11 +28,6 @@ replace-with = "vendored-sources"
 [source."ssh://git@git.kaiostech.com/KaiOS/zip_utils.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/zip_utils.git"
 branch = "master"
-replace-with = "vendored-sources"
-
-[source."ssh://git@git.kaiostech.com/rust-forks/zip-rs.git"]
-git = "ssh://git@git.kaiostech.com/rust-forks/zip-rs.git"
-branch = "omni-ja"
 replace-with = "vendored-sources"
 
 [source.vendored-sources]

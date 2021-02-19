@@ -248,11 +248,21 @@ pub mod parsing {
                 return Ok(GenericArgument::Const(Expr::Lit(lit)));
             }
 
-            #[cfg(feature = "full")]
-            {
-                if input.peek(token::Brace) {
+            if input.peek(token::Brace) {
+                #[cfg(feature = "full")]
+                {
                     let block = input.call(expr::parsing::expr_block)?;
                     return Ok(GenericArgument::Const(Expr::Block(block)));
+                }
+
+                #[cfg(not(feature = "full"))]
+                {
+                    let begin = input.fork();
+                    let content;
+                    braced!(content in input);
+                    content.parse::<Expr>()?;
+                    let verbatim = verbatim::between(begin, input);
+                    return Ok(GenericArgument::Const(Expr::Verbatim(verbatim)));
                 }
             }
 
@@ -737,7 +747,7 @@ mod printing {
     }
 
     impl private {
-        pub fn print_path(tokens: &mut TokenStream, qself: &Option<QSelf>, path: &Path) {
+        pub(crate) fn print_path(tokens: &mut TokenStream, qself: &Option<QSelf>, path: &Path) {
             let qself = match qself {
                 Some(qself) => qself,
                 None => {

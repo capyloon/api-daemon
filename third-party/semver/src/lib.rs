@@ -38,8 +38,12 @@
 //!
 //! ## Versions
 //!
-//! At its simplest, the `semver` crate allows you to construct `Version`
-//! objects using the `parse` method:
+//! [`Version`]: struct.Version.html
+//!
+//! At its simplest, the `semver` crate allows you to construct [`Version`]
+//! objects using the [`parse`] method:
+//!
+//! [`parse`]: struct.Version.html#method.parse
 //!
 //! ```{rust}
 //! use semver::Version;
@@ -53,7 +57,7 @@
 //! }));
 //! ```
 //!
-//! If you have multiple `Version`s, you can use the usual comparison operators
+//! If you have multiple [`Version`]s, you can use the usual comparison operators
 //! to compare them:
 //!
 //! ```{rust}
@@ -63,7 +67,7 @@
 //! assert!(Version::parse("1.2.3-alpha2") >  Version::parse("1.2.0"));
 //! ```
 //!
-//! If you explicitly need to modify a Version, SemVer also allows you to
+//! If you explicitly need to modify a [`Version`], SemVer also allows you to
 //! increment the major, minor, and patch numbers in accordance with the spec.
 //!
 //! Please note that in order to do this, you must use a mutable Version:
@@ -71,10 +75,16 @@
 //! ```{rust}
 //! use semver::Version;
 //!
-//! let mut bugfix_release = Version::parse("1.0.0").unwrap();
+//! # fn try_increment_patch() -> Result<(), Box<::std::error::Error>> {
+//! let mut bugfix_release = Version::parse("1.0.0")?;
 //! bugfix_release.increment_patch();
 //!
 //! assert_eq!(Ok(bugfix_release), Version::parse("1.0.1"));
+//! #    Ok(())
+//! # }
+//! # fn main() {
+//! #    try_increment_patch().unwrap();
+//! # }
 //! ```
 //!
 //! When incrementing the minor version number, the patch number resets to zero
@@ -83,10 +93,16 @@
 //! ```{rust}
 //! use semver::Version;
 //!
-//! let mut feature_release = Version::parse("1.4.6").unwrap();
+//! # fn try_increment_minor() -> Result<(), Box<::std::error::Error>> {
+//! let mut feature_release = Version::parse("1.4.6")?;
 //! feature_release.increment_minor();
 //!
 //! assert_eq!(Ok(feature_release), Version::parse("1.5.0"));
+//! #   Ok(())
+//! # }
+//! # fn main() {
+//! #    try_increment_minor().unwrap();
+//! # }
 //! ```
 //!
 //! Similarly, when incrementing the major version number, the patch and minor
@@ -95,10 +111,16 @@
 //! ```{rust}
 //! use semver::Version;
 //!
-//! let mut chrome_release = Version::parse("41.5.5377").unwrap();
+//! # fn try_increment_major() -> Result<(), Box<::std::error::Error>> {
+//! let mut chrome_release = Version::parse("41.5.5377")?;
 //! chrome_release.increment_major();
 //!
 //! assert_eq!(Ok(chrome_release), Version::parse("42.0.0"));
+//! #    Ok(())
+//! # }
+//! # fn main() {
+//! #    try_increment_major().unwrap();
+//! # }
 //! ```
 //!
 //! ## Requirements
@@ -114,15 +136,21 @@
 //! use semver::Version;
 //! use semver::VersionReq;
 //!
-//! let r = VersionReq::parse(">= 1.0.0").unwrap();
-//! let v = Version::parse("1.0.0").unwrap();
+//! # fn try_compare() -> Result<(), Box<::std::error::Error>> {
+//! let r = VersionReq::parse(">=1.0.0")?;
+//! let v = Version::parse("1.0.0")?;
 //!
-//! assert!(r.to_string() == ">= 1.0.0".to_string());
-//! assert!(r.matches(&v))
+//! assert!(r.to_string() == ">=1.0.0".to_string());
+//! assert!(r.matches(&v));
+//! #    Ok(())
+//! # }
+//! # fn main() {
+//! #    try_compare().unwrap();
+//! # }
 //! ```
 //!
 //! It also allows parsing of `~x.y.z` and `^x.y.z` requirements as defined at
-//! https://www.npmjs.org/doc/misc/semver.html
+//! https://www.npmjs.com/package/semver
 //!
 //! **Tilde requirements** specify a minimal version with some updates:
 //!
@@ -157,8 +185,11 @@
 //! 1.2.* := >=1.2.0 <1.3.0
 //! ```
 
-#![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "https://www.rust-lang.org/favicon.ico")]
+#![doc(
+    html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+    html_favicon_url = "https://www.rust-lang.org/favicon.ico",
+    html_root_url = "https://docs.rs/semver"
+)]
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
 
@@ -168,15 +199,25 @@ extern crate semver_parser;
 #[cfg(feature = "serde")]
 extern crate serde;
 
+// Database support for version numbers
+#[cfg(feature = "diesel")]
+#[macro_use]
+extern crate diesel;
+
 // We take the common approach of keeping our own module system private, and
 // just re-exporting the interface that we want.
 
-pub use version::{Version, Identifier, SemVerError};
-pub use version::Identifier::{Numeric, AlphaNumeric};
-pub use version_req::{VersionReq, ReqParseError};
+pub use semver_parser::Compat;
+pub use version::Identifier::{AlphaNumeric, Numeric};
+pub use version::{Identifier, SemVerError, Version};
+pub use version_req::{ReqParseError, VersionReq};
 
 // SemVer-compliant versions.
 mod version;
 
 // advanced version comparisons
 mod version_req;
+
+#[cfg(feature = "diesel")]
+// Diesel support
+mod diesel_impls;

@@ -1,4 +1,5 @@
-use crate::sync::batch_semaphore::Semaphore;
+use crate::sync::batch_semaphore::{Semaphore, TryAcquireError};
+use crate::sync::mutex::TryLockError;
 use std::cell::UnsafeCell;
 use std::fmt;
 use std::marker;
@@ -244,7 +245,7 @@ impl<'a, T: ?Sized> RwLockWriteGuard<'a, T> {
     /// locks, since [`RwLock`] is fair and it is possible that a writer is next
     /// in line.
     ///
-    /// Returns an RAII guard which will drop the read access of this rwlock
+    /// Returns an RAII guard which will drop this read access of the `RwLock`
     /// when dropped.
     ///
     /// # Examples
@@ -397,12 +398,20 @@ impl<T: ?Sized> RwLock<T> {
         }
     }
 
-    /// Locks this rwlock with shared read access, causing the current task
+    /// Locks this `RwLock` with shared read access, causing the current task
     /// to yield until the lock has been acquired.
     ///
-    /// The calling task will yield until there are no more writers which
-    /// hold the lock. There may be other readers currently inside the lock when
-    /// this method returns.
+    /// The calling task will yield until there are no writers which hold the
+    /// lock. There may be other readers inside the lock when the task resumes.
+    ///
+    /// Note that under the priority policy of [`RwLock`], read locks are not
+    /// granted until prior write locks, to prevent starvation. Therefore
+    /// deadlock may occur if a read lock is held by the current task, a write
+    /// lock attempt is made, and then a subsequent read lock attempt is made
+    /// by the current task.
+    ///
+    /// Returns an RAII guard which will drop this read access of the `RwLock`
+    /// when dropped.
     ///
     /// # Examples
     ///
@@ -422,12 +431,13 @@ impl<T: ?Sized> RwLock<T> {
     ///         // While main has an active read lock, we acquire one too.
     ///         let r = c_lock.read().await;
     ///         assert_eq!(*r, 1);
-    ///     }).await.expect("The spawned task has paniced");
+    ///     }).await.expect("The spawned task has panicked");
     ///
     ///     // Drop the guard after the spawned task finishes.
     ///     drop(n);
     ///}
     /// ```
+    ///
     pub async fn read(&self) -> RwLockReadGuard<'_, T> {
         self.s.acquire(1).await.unwrap_or_else(|_| {
             // The semaphore was closed. but, we never explicitly close it, and we have a
@@ -441,13 +451,59 @@ impl<T: ?Sized> RwLock<T> {
         }
     }
 
-    /// Locks this rwlock with exclusive write access, causing the current task
-    /// to yield until the lock has been acquired.
+    /// Attempts to acquire this `RwLock` with shared read access.
     ///
-    /// This function will not return while other writers or other readers
+    /// If the access couldn't be acquired immediately, returns [`TryLockError`].
+    /// Otherwise, an RAII guard is returned which will release read access
+    /// when dropped.
+    ///
+    /// [`TryLockError`]: TryLockError
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use tokio::sync::RwLock;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let lock = Arc::new(RwLock::new(1));
+    ///     let c_lock = lock.clone();
+    ///
+    ///     let v = lock.try_read().unwrap();
+    ///     assert_eq!(*v, 1);
+    ///
+    ///     tokio::spawn(async move {
+    ///         // While main has an active read lock, we acquire one too.
+    ///         let n = c_lock.read().await;
+    ///         assert_eq!(*n, 1);
+    ///     }).await.expect("The spawned task has panicked");
+    ///
+    ///     // Drop the guard when spawned task finishes.
+    ///     drop(v);
+    /// }
+    /// ```
+    pub fn try_read(&self) -> Result<RwLockReadGuard<'_, T>, TryLockError> {
+        match self.s.try_acquire(1) {
+            Ok(permit) => permit,
+            Err(TryAcquireError::NoPermits) => return Err(TryLockError(())),
+            Err(TryAcquireError::Closed) => unreachable!(),
+        }
+
+        Ok(RwLockReadGuard {
+            s: &self.s,
+            data: self.c.get(),
+            marker: marker::PhantomData,
+        })
+    }
+
+    /// Locks this `RwLock` with exclusive write access, causing the current
+    /// task to yield until the lock has been acquired.
+    ///
+    /// The calling task will yield while other writers or readers
     /// currently have access to the lock.
     ///
-    /// Returns an RAII guard which will drop the write access of this rwlock
+    /// Returns an RAII guard which will drop the write access of this `RwLock`
     /// when dropped.
     ///
     /// # Examples
@@ -474,6 +530,43 @@ impl<T: ?Sized> RwLock<T> {
             data: self.c.get(),
             marker: marker::PhantomData,
         }
+    }
+
+    /// Attempts to acquire this `RwLock` with exclusive write access.
+    ///
+    /// If the access couldn't be acquired immediately, returns [`TryLockError`].
+    /// Otherwise, an RAII guard is returned which will release write access
+    /// when dropped.
+    ///
+    /// [`TryLockError`]: TryLockError
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokio::sync::RwLock;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let rw = RwLock::new(1);
+    ///
+    ///     let v = rw.read().await;
+    ///     assert_eq!(*v, 1);
+    ///
+    ///     assert!(rw.try_write().is_err());
+    /// }
+    /// ```
+    pub fn try_write(&self) -> Result<RwLockWriteGuard<'_, T>, TryLockError> {
+        match self.s.try_acquire(MAX_READS as u32) {
+            Ok(permit) => permit,
+            Err(TryAcquireError::NoPermits) => return Err(TryLockError(())),
+            Err(TryAcquireError::Closed) => unreachable!(),
+        }
+
+        Ok(RwLockWriteGuard {
+            s: &self.s,
+            data: self.c.get(),
+            marker: marker::PhantomData,
+        })
     }
 
     /// Returns a mutable reference to the underlying data.

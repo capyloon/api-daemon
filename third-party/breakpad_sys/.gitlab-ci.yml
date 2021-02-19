@@ -1,5 +1,5 @@
 # Start with a rustup image providing the stable release.
-image: "vigakaios/sidl_test"
+image: ${CI_REGISTRY}/kaios/sidl:1.49.0_3
 
 variables:
     CARGO_HOME: $CI_PROJECT_DIR/cargo

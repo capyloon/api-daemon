@@ -14,6 +14,10 @@ cfg_net! {
     /// You can accept a new connection by using the [`accept`](`TcpListener::accept`)
     /// method.
     ///
+    /// A `TcpListener` can be turned into a `Stream` with [`TcpListenerStream`].
+    ///
+    /// [`TcpListenerStream`]: https://docs.rs/tokio-stream/0.1/tokio_stream/wrappers/struct.TcpListenerStream.html
+    ///
     /// # Errors
     ///
     /// Note that accepting a connection can lead to various errors and not all
@@ -60,9 +64,6 @@ impl TcpListener {
     /// method.
     ///
     /// The address type can be any implementor of the [`ToSocketAddrs`] trait.
-    /// Note that strings only implement this trait when the **`net`** feature
-    /// is enabled, as strings may contain domain names that need to be resolved.
-    ///
     /// If `addr` yields multiple addresses, bind will be attempted with each of
     /// the addresses until one succeeds and returns the listener. If none of
     /// the addresses succeed in creating a listener, the error returned from
@@ -70,7 +71,11 @@ impl TcpListener {
     ///
     /// This function sets the `SO_REUSEADDR` option on the socket.
     ///
+    /// To configure the socket before binding, you can use the [`TcpSocket`]
+    /// type.
+    ///
     /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
+    /// [`TcpSocket`]: struct@crate::net::TcpSocket
     ///
     /// # Examples
     ///

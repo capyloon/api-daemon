@@ -22,6 +22,10 @@ use super::Result;
 /// * `cargo:rustc-rerun-if-changed=.git/HEAD`
 /// * `cargo:rustc-rerun-if-changed=<file .git/HEAD points to>`
 ///
+/// # Errors
+/// * rustc may throw errors
+/// * git commands may throw errors
+///
 /// # Example `build.rs`
 ///
 /// ```
@@ -57,7 +61,7 @@ pub fn generate_cargo_keys(flags: ConstantsFlags) -> Result<()> {
             let ref_vec: Vec<&str> = git_head_contents.split(": ").collect();
 
             if ref_vec.len() == 2 {
-                let current_head_file = ref_vec[1];
+                let current_head_file = ref_vec[1].trim();
                 let git_refs_path = PathBuf::from(".git").join(current_head_file);
                 println!("cargo:rerun-if-changed={}", git_refs_path.display());
             } else {
@@ -78,8 +82,8 @@ pub fn generate_cargo_keys(flags: ConstantsFlags) -> Result<()> {
 
             // Find out what the full path to the .git dir is.
             let mut actual_git_dir = PathBuf::from(git_path);
-            actual_git_dir.pop();
-            actual_git_dir.pop();
+            let _ = actual_git_dir.pop();
+            let _ = actual_git_dir.pop();
 
             // Determine where HEAD points and echo that path also.
             let mut f = File::open(&git_head_path)?;
@@ -89,7 +93,7 @@ pub fn generate_cargo_keys(flags: ConstantsFlags) -> Result<()> {
             let ref_vec: Vec<&str> = git_head_contents.split(": ").collect();
 
             if ref_vec.len() == 2 {
-                let current_head_file = ref_vec[1];
+                let current_head_file = ref_vec[1].trim();
                 let git_refs_path = actual_git_dir.join(current_head_file);
                 println!("cargo:rerun-if-changed={}", git_refs_path.display());
             } else {

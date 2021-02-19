@@ -13,19 +13,23 @@
 [package]
 edition = "2018"
 name = "vergen"
-version = "3.1.0"
+version = "3.2.0"
 authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "Generate version related functions"
 homepage = "http://github.com/rustyhorde/vergen"
 documentation = "http://docs.rs/vergen"
 readme = "README.md"
 keywords = ["version", "generation"]
+categories = ["build"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/rustyhorde/vergen"
 [dependencies.bitflags]
 version = "1"
 
 [dependencies.chrono]
+version = "0"
+
+[dependencies.rustc_version]
 version = "0"
 [dev-dependencies.lazy_static]
 version = "1"

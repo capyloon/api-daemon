@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "mio"
-version = "0.7.7"
+version = "0.7.8"
 authors = ["Carl Lerche <me@carllerche.com>", "Thomas de Zeeuw <thomasdezeeuw@gmail.com>", "Tokio Contributors <team@tokio.rs>"]
 include = ["Cargo.toml", "LICENSE", "README.md", "CHANGELOG.md", "src/**/*.rs", "examples/**/*.rs"]
 description = "Lightweight non-blocking IO"
@@ -60,7 +60,7 @@ tcp = ["net"]
 udp = ["net"]
 uds = ["net"]
 [target."cfg(unix)".dependencies.libc]
-version = "0.2.69"
+version = "0.2.86"
 [target."cfg(windows)".dependencies.miow]
 version = "0.3.6"
 

@@ -51,8 +51,7 @@ use std::fmt;
 #[cfg(feature = "http2")]
 use std::marker::PhantomData;
 use std::sync::Arc;
-#[cfg(feature = "runtime")]
-#[cfg(feature = "http2")]
+#[cfg(all(feature = "runtime", feature = "http2"))]
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -63,7 +62,10 @@ use tower_service::Service;
 
 use super::dispatch;
 use crate::body::HttpBody;
-use crate::common::{task, exec::{BoxSendFuture, Exec}, Future, Pin, Poll};
+use crate::common::{
+    exec::{BoxSendFuture, Exec},
+    task, Future, Pin, Poll,
+};
 use crate::proto;
 use crate::rt::Executor;
 #[cfg(feature = "http1")]
@@ -272,7 +274,7 @@ where
         ResponseFuture { inner }
     }
 
-    pub(crate) fn send_request_retryable(
+    pub(super) fn send_request_retryable(
         &mut self,
         req: Request<B>,
     ) -> impl Future<Output = Result<Response<Body>, (crate::Error, Option<Request<B>>)>> + Unpin

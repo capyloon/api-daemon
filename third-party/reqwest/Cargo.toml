@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "reqwest"
-version = "0.11.0"
+version = "0.11.1"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 autotests = true
 description = "higher level HTTP client library"
@@ -25,6 +25,7 @@ license = "MIT/Apache-2.0"
 repository = "https://github.com/seanmonstar/reqwest"
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [package.metadata.playground]
@@ -161,7 +162,7 @@ version = "0.4.0"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.hyper]
 version = "0.14"
-features = ["tcp", "http1", "http2", "client"]
+features = ["tcp", "http1", "http2", "client", "runtime"]
 default-features = false
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.hyper-rustls]
@@ -251,7 +252,7 @@ version = "0.8"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dev-dependencies.hyper]
 version = "0.14"
-features = ["tcp", "stream", "http1", "http2", "client", "server"]
+features = ["tcp", "stream", "http1", "http2", "client", "server", "runtime"]
 default-features = false
 
 [target."cfg(not(target_arch = \"wasm32\"))".dev-dependencies.libflate]

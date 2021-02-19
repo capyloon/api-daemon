@@ -1,10 +1,5 @@
 //! A utility to check the validity of signed zip archives.
 
-extern crate base64;
-extern crate ring;
-extern crate untrusted;
-extern crate zip;
-
 mod manifest_parser;
 mod sig_verification;
 
@@ -232,9 +227,9 @@ pub fn verify_zip<P: AsRef<Path>>(
         let root_cert = CertificateType::from(cert_type).as_vec();
         let fingerprint = sig_verification::verify(&rsa_file_buf, &sf_file_buf, &root_cert)?;
 
-        return Ok(fingerprint);
+        Ok(fingerprint)
     } else {
-        return Err(ZipVerificationError::InvalidManifest);
+        Err(ZipVerificationError::InvalidManifest)
     }
 }
 
@@ -340,29 +335,25 @@ fn test_longest_filename() {
 #[test]
 fn test_ven1() {
     if let Err(err) = verify_zip("test-fixtures/ven1-sample.zip", "ven1", "ven") {
-        println!("test ven1-sample.zip Err: {:?}", err);
-        assert!(false);
+        panic!("test ven1-sample.zip Err: {:?}", err);
     }
 }
 
 #[test]
 fn test_ven() {
     if let Err(err) = verify_zip("test-fixtures/ven-sample.zip", "ven2", "ven") {
-        println!("test ven-sample.zip Err: {:?}", err);
-        assert!(false);
+        panic!("test ven-sample.zip Err: {:?}", err);
     }
 }
 
 #[test]
 fn test_double() {
     if let Err(err) = verify_zip("test-fixtures/ven1-sample-double-signed.zip", "test", "INF") {
-        println!("test ven1-sample-double-signed META-INF Err: {:?}", err);
-        assert!(false);
+        panic!("test ven1-sample-double-signed META-INF Err: {:?}", err);
     }
 
     if let Err(err) = verify_zip("test-fixtures/ven1-sample-double-signed.zip", "ven1", "ven") {
-        println!("test ven1-sample-double-signed.zip META-INF Err: {:?}", err);
-        assert!(false);
+        panic!("test ven1-sample-double-signed.zip META-INF Err: {:?}", err);
     }
 }
 
@@ -370,8 +361,7 @@ fn test_double() {
 fn test_no_signature() {
     if let Err(err) = verify_zip("test-fixtures/hello.zip", "ven1", "ven1") {
         println!("test test_no_signature.zip  Err: {:?}", err);
-        assert!(true);
     } else {
-        assert!(false);
+        panic!("should not be ok");
     }
 }

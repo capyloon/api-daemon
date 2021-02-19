@@ -13,3 +13,4 @@ prebuilts
 services/**/service.json
 daemon/contacts.sqlite*
 !third-party/test-server/.vscode
+third-party/breakpad_sys/breakpad/

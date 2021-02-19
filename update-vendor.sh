@@ -6,7 +6,7 @@ rm -rf third-party/*
 rm .cargo/config
 
 cargo clean
-cargo update
+cargo update $@
 
 cargo vendor -- third-party > .cargo/config
 

@@ -1,6 +1,7 @@
-//! Structs for creating a new zip archive
+//! Types for creating ZIP archives
 
 use crate::compression::CompressionMethod;
+use crate::read::ZipFile;
 use crate::result::{ZipError, ZipResult};
 use crate::spec;
 use crate::types::{DateTime, System, ZipFileData, DEFAULT_VERSION};
@@ -34,29 +35,33 @@ enum GenericZipWriter<W: Write + io::Seek> {
     Bzip2(BzEncoder<W>),
 }
 
-/// Generator for ZIP files.
+/// ZIP archive generator
+///
+/// Handles the bookkeeping involved in building an archive, and provides an
+/// API to edit its contents.
 ///
 /// ```
-/// fn doit() -> zip::result::ZipResult<()>
-/// {
-///     use std::io::Write;
+/// # fn doit() -> zip::result::ZipResult<()>
+/// # {
+/// # use zip::ZipWriter;
+/// use std::io::Write;
+/// use zip::write::FileOptions;
 ///
-///     // For this example we write to a buffer, but normally you should use a File
-///     let mut buf: &mut [u8] = &mut [0u8; 65536];
-///     let mut w = std::io::Cursor::new(buf);
-///     let mut zip = zip::ZipWriter::new(w);
+/// // We use a buffer here, though you'd normally use a `File`
+/// let mut buf = [0; 65536];
+/// let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf[..]));
 ///
-///     let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-///     zip.start_file("hello_world.txt", options)?;
-///     zip.write(b"Hello, World!")?;
+/// let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+/// zip.start_file("hello_world.txt", options)?;
+/// zip.write(b"Hello, World!")?;
 ///
-///     // Optionally finish the zip. (this is also done on drop)
-///     zip.finish()?;
+/// // Apply the changes you've made.
+/// // Dropping the `ZipWriter` will have the same effect, but may silently fail
+/// zip.finish()?;
 ///
-///     Ok(())
-/// }
-///
-/// println!("Result: {:?}", doit().unwrap());
+/// # Ok(())
+/// # }
+/// # doit().unwrap();
 /// ```
 pub struct ZipWriter<W: Write + io::Seek> {
     inner: GenericZipWriter<W>,
@@ -64,6 +69,7 @@ pub struct ZipWriter<W: Write + io::Seek> {
     stats: ZipWriterStats,
     writing_to_file: bool,
     comment: String,
+    writing_raw: bool,
 }
 
 #[derive(Default)]
@@ -71,6 +77,12 @@ struct ZipWriterStats {
     hasher: Hasher,
     start: u64,
     bytes_written: u64,
+}
+
+struct ZipRawValues {
+    crc32: u32,
+    compressed_size: u64,
+    uncompressed_size: u64,
 }
 
 /// Metadata for a file to be written
@@ -183,9 +195,9 @@ impl ZipWriterStats {
 }
 
 impl<W: Write + io::Seek> ZipWriter<W> {
-    /// Initializes the ZipWriter.
+    /// Initializes the archive.
     ///
-    /// Before writing to this object, the start_file command should be called.
+    /// Before writing to this object, the [`ZipWriter::start_file`] function should be called.
     pub fn new(inner: W) -> ZipWriter<W> {
         ZipWriter {
             inner: GenericZipWriter::Storer(inner),
@@ -193,10 +205,11 @@ impl<W: Write + io::Seek> ZipWriter<W> {
             stats: Default::default(),
             writing_to_file: false,
             comment: String::new(),
+            writing_raw: false,
         }
     }
 
-    /// Set ZIP archive comment. Defaults to 'zip-rs' if not set.
+    /// Set ZIP archive comment.
     pub fn set_comment<S>(&mut self, comment: S)
     where
         S: Into<String>,
@@ -205,33 +218,44 @@ impl<W: Write + io::Seek> ZipWriter<W> {
     }
 
     /// Start a new file for with the requested options.
-    fn start_entry<S>(&mut self, name: S, options: FileOptions) -> ZipResult<()>
+    fn start_entry<S>(
+        &mut self,
+        name: S,
+        options: FileOptions,
+        raw_values: Option<ZipRawValues>,
+    ) -> ZipResult<()>
     where
         S: Into<String>,
     {
         self.finish_file()?;
+
+        let is_raw = raw_values.is_some();
+        let raw_values = raw_values.unwrap_or_else(|| ZipRawValues {
+            crc32: 0,
+            compressed_size: 0,
+            uncompressed_size: 0,
+        });
 
         {
             let writer = self.inner.get_plain();
             let header_start = writer.seek(io::SeekFrom::Current(0))?;
 
             let permissions = options.permissions.unwrap_or(0o100644);
-            let file_name = name.into();
-            let file_name_raw = file_name.clone().into_bytes();
             let mut file = ZipFileData {
                 system: System::Unix,
                 version_made_by: DEFAULT_VERSION,
                 encrypted: false,
                 compression_method: options.compression_method,
                 last_modified_time: options.last_modified_time,
-                crc32: 0,
-                compressed_size: 0,
-                uncompressed_size: 0,
-                file_name,
-                file_name_raw,
+                crc32: raw_values.crc32,
+                compressed_size: raw_values.compressed_size,
+                uncompressed_size: raw_values.uncompressed_size,
+                file_name: name.into(),
+                file_name_raw: Vec::new(), // Never used for saving
                 file_comment: String::new(),
                 header_start,
                 data_start: 0,
+                central_header_start: 0,
                 external_attributes: permissions << 16,
             };
             write_local_file_header(writer, &file)?;
@@ -246,7 +270,12 @@ impl<W: Write + io::Seek> ZipWriter<W> {
             self.files.push(file);
         }
 
-        self.inner.switch_to(options.compression_method)?;
+        self.writing_raw = is_raw;
+        self.inner.switch_to(if is_raw {
+            CompressionMethod::Stored
+        } else {
+            options.compression_method
+        })?;
 
         Ok(())
     }
@@ -255,24 +284,29 @@ impl<W: Write + io::Seek> ZipWriter<W> {
         self.inner.switch_to(CompressionMethod::Stored)?;
         let writer = self.inner.get_plain();
 
-        let file = match self.files.last_mut() {
-            None => return Ok(()),
-            Some(f) => f,
-        };
-        file.crc32 = self.stats.hasher.clone().finalize();
-        file.uncompressed_size = self.stats.bytes_written;
+        if !self.writing_raw {
+            let file = match self.files.last_mut() {
+                None => return Ok(()),
+                Some(f) => f,
+            };
+            file.crc32 = self.stats.hasher.clone().finalize();
+            file.uncompressed_size = self.stats.bytes_written;
 
-        let file_end = writer.seek(io::SeekFrom::Current(0))?;
-        file.compressed_size = file_end - self.stats.start;
+            let file_end = writer.seek(io::SeekFrom::Current(0))?;
+            file.compressed_size = file_end - self.stats.start;
 
-        update_local_file_header(writer, file)?;
-        writer.seek(io::SeekFrom::Start(file_end))?;
+            update_local_file_header(writer, file)?;
+            writer.seek(io::SeekFrom::Start(file_end))?;
+        }
 
         self.writing_to_file = false;
+        self.writing_raw = false;
         Ok(())
     }
 
-    /// Starts a file.
+    /// Create a file in the archive and start writing its' contents.
+    ///
+    /// The data should be written using the [`io::Write`] implementation on this [`ZipWriter`]
     pub fn start_file<S>(&mut self, name: S, mut options: FileOptions) -> ZipResult<()>
     where
         S: Into<String>,
@@ -281,7 +315,7 @@ impl<W: Write + io::Seek> ZipWriter<W> {
             options.permissions = Some(0o644);
         }
         *options.permissions.as_mut().unwrap() |= 0o100000;
-        self.start_entry(name, options)?;
+        self.start_entry(name, options, None)?;
         self.writing_to_file = true;
         Ok(())
     }
@@ -290,12 +324,95 @@ impl<W: Write + io::Seek> ZipWriter<W> {
     ///
     /// This function ensures that the '/' path seperator is used. It also ignores all non 'Normal'
     /// Components, such as a starting '/' or '..' and '.'.
+    #[deprecated(
+        since = "0.5.7",
+        note = "by stripping `..`s from the path, the meaning of paths can change. Use `start_file` instead."
+    )]
     pub fn start_file_from_path(
         &mut self,
         path: &std::path::Path,
         options: FileOptions,
     ) -> ZipResult<()> {
         self.start_file(path_to_string(path), options)
+    }
+
+    /// Add a new file using the already compressed data from a ZIP file being read and renames it, this
+    /// allows faster copies of the `ZipFile` since there is no need to decompress and compress it again.
+    /// Any `ZipFile` metadata is copied and not checked, for example the file CRC.
+
+    /// ```no_run
+    /// use std::fs::File;
+    /// use std::io::{Read, Seek, Write};
+    /// use zip::{ZipArchive, ZipWriter};
+    ///
+    /// fn copy_rename<R, W>(
+    ///     src: &mut ZipArchive<R>,
+    ///     dst: &mut ZipWriter<W>,
+    /// ) -> zip::result::ZipResult<()>
+    /// where
+    ///     R: Read + Seek,
+    ///     W: Write + Seek,
+    /// {
+    ///     // Retrieve file entry by name
+    ///     let file = src.by_name("src_file.txt")?;
+    ///
+    ///     // Copy and rename the previously obtained file entry to the destination zip archive
+    ///     dst.raw_copy_file_rename(file, "new_name.txt")?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn raw_copy_file_rename<S>(&mut self, mut file: ZipFile, name: S) -> ZipResult<()>
+    where
+        S: Into<String>,
+    {
+        let options = FileOptions::default()
+            .last_modified_time(file.last_modified())
+            .compression_method(file.compression());
+        if let Some(perms) = file.unix_mode() {
+            options.unix_permissions(perms);
+        }
+
+        let raw_values = ZipRawValues {
+            crc32: file.crc32(),
+            compressed_size: file.compressed_size(),
+            uncompressed_size: file.size(),
+        };
+
+        self.start_entry(name, options, Some(raw_values))?;
+        self.writing_to_file = true;
+
+        io::copy(file.get_raw_reader(), self)?;
+
+        Ok(())
+    }
+
+    /// Add a new file using the already compressed data from a ZIP file being read, this allows faster
+    /// copies of the `ZipFile` since there is no need to decompress and compress it again. Any `ZipFile`
+    /// metadata is copied and not checked, for example the file CRC.
+    ///
+    /// ```no_run
+    /// use std::fs::File;
+    /// use std::io::{Read, Seek, Write};
+    /// use zip::{ZipArchive, ZipWriter};
+    ///
+    /// fn copy<R, W>(src: &mut ZipArchive<R>, dst: &mut ZipWriter<W>) -> zip::result::ZipResult<()>
+    /// where
+    ///     R: Read + Seek,
+    ///     W: Write + Seek,
+    /// {
+    ///     // Retrieve file entry by name
+    ///     let file = src.by_name("src_file.txt")?;
+    ///
+    ///     // Copy the previously obtained file entry to the destination zip archive
+    ///     dst.raw_copy_file(file)?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn raw_copy_file(&mut self, file: ZipFile) -> ZipResult<()> {
+        let name = file.name().to_owned();
+        self.raw_copy_file_rename(file, name)
     }
 
     /// Add a directory entry.
@@ -318,7 +435,7 @@ impl<W: Write + io::Seek> ZipWriter<W> {
             _ => name_as_string + "/",
         };
 
-        self.start_entry(name_with_slash, options)?;
+        self.start_entry(name_with_slash, options, None)?;
         self.writing_to_file = false;
         Ok(())
     }
@@ -327,6 +444,10 @@ impl<W: Write + io::Seek> ZipWriter<W> {
     ///
     /// This function ensures that the '/' path seperator is used. It also ignores all non 'Normal'
     /// Components, such as a starting '/' or '..' and '.'.
+    #[deprecated(
+        since = "0.5.7",
+        note = "by stripping `..`s from the path, the meaning of paths can change. Use `add_directory` instead."
+    )]
     pub fn add_directory_from_path(
         &mut self,
         path: &std::path::Path,

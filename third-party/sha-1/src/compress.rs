@@ -9,15 +9,17 @@ cfg_if::cfg_if! {
         mod soft;
         mod aarch64;
         use aarch64::compress as compress_inner;
-    } else if #[cfg(all(feature = "asm", any(target_arch = "x86", target_arch = "x86_64")))] {
-        // TODO: replace after sha1-asm rework
-        fn compress_inner(state: &mut [u32; 5], blocks: &[[u8; 64]]) {
-            for block in blocks {
-                sha1_asm::compress(state, block);
+    } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
+        #[cfg(not(feature = "asm"))]
+        mod soft;
+        #[cfg(feature = "asm")]
+        mod soft {
+            pub(crate) fn compress(state: &mut [u32; 5], blocks: &[[u8; 64]]) {
+                for block in blocks {
+                    sha1_asm::compress(state, block);
+                }
             }
         }
-    } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        mod soft;
         mod x86;
         use x86::compress as compress_inner;
     } else {
@@ -26,6 +28,8 @@ cfg_if::cfg_if! {
     }
 }
 
+/// SHA-1 compression function
+#[cfg_attr(docsrs, doc(cfg(feature = "compress")))]
 pub fn compress(state: &mut [u32; 5], blocks: &[GenericArray<u8, U64>]) {
     // SAFETY: GenericArray<u8, U64> and [u8; 64] have
     // exactly the same memory layout

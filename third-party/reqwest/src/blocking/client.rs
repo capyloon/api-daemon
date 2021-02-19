@@ -20,7 +20,9 @@ use super::response::Response;
 use super::wait;
 use crate::{async_impl, header, IntoUrl, Method, Proxy, redirect};
 #[cfg(feature = "__tls")]
-use crate::{Certificate, Identity};
+use crate::Certificate;
+#[cfg(any(feature = "native-tls", feature = "__rustls"))]
+use crate::Identity;
 
 /// A `Client` to make Requests with.
 ///
@@ -92,6 +94,11 @@ impl ClientBuilder {
     ///
     /// This method fails if TLS backend cannot be initialized, or the resolver
     /// cannot load the system configuration.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if called from within an async runtime. See docs on
+    /// [`reqwest::blocking`][crate::blocking] for details.
     pub fn build(self) -> crate::Result<Client> {
         ClientHandle::new(self).map(|handle| Client { inner: handle })
     }
@@ -136,7 +143,13 @@ impl ClientBuilder {
     /// use reqwest::header;
     /// # fn build_client() -> Result<(), reqwest::Error> {
     /// let mut headers = header::HeaderMap::new();
+    /// headers.insert("X-MY-HEADER", header::HeaderValue::from_static("value"));
     /// headers.insert(header::AUTHORIZATION, header::HeaderValue::from_static("secret"));
+    ///
+    /// // Consider marking security-sensitive headers with `set_sensitive`.
+    /// let mut auth_value = header::HeaderValue::from_static("secret");
+    /// auth_value.set_sensitive(true);
+    /// headers.insert(header::AUTHORIZATION, auth_value);
     ///
     /// // get a client builder
     /// let client = reqwest::blocking::Client::builder()
@@ -153,7 +166,7 @@ impl ClientBuilder {
     /// use reqwest::header;
     /// # fn build_client() -> Result<(), reqwest::Error> {
     /// let mut headers = header::HeaderMap::new();
-    /// headers.insert(header::AUTHORIZATION, header::HeaderValue::from_static("secret"));
+    /// headers.insert("X-MY-HEADER", header::HeaderValue::from_static("value"));
     ///
     /// // get a client builder
     /// let client = reqwest::blocking::Client::builder()
@@ -161,7 +174,7 @@ impl ClientBuilder {
     ///     .build()?;
     /// let res = client
     ///     .get("https://www.rust-lang.org")
-    ///     .header(header::AUTHORIZATION, "token")
+    ///     .header("X-MY-HEADER", "new_value")
     ///     .send()?;
     /// # Ok(())
     /// # }
@@ -181,6 +194,7 @@ impl ClientBuilder {
     ///
     /// This requires the optional `cookies` feature to be enabled.
     #[cfg(feature = "cookies")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cookies")))]
     pub fn cookie_store(self, enable: bool) -> ClientBuilder {
         self.with_inner(|inner| inner.cookie_store(enable))
     }
@@ -202,6 +216,7 @@ impl ClientBuilder {
     ///
     /// This requires the optional `gzip` feature to be enabled
     #[cfg(feature = "gzip")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "gzip")))]
     pub fn gzip(self, enable: bool) -> ClientBuilder {
         self.with_inner(|inner| inner.gzip(enable))
     }
@@ -223,6 +238,7 @@ impl ClientBuilder {
     ///
     /// This requires the optional `brotli` feature to be enabled
     #[cfg(feature = "brotli")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "brotli")))]
     pub fn brotli(self, enable: bool) -> ClientBuilder { self.with_inner(|inner| inner.brotli(enable)) }
 
     /// Disable auto response body gzip decompression.
@@ -429,12 +445,36 @@ impl ClientBuilder {
     /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls(-...)`
     /// feature to be enabled.
     #[cfg(feature = "__tls")]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "default-tls", feature = "native-tls", feature = "rustls-tls"))))]
     pub fn add_root_certificate(self, cert: Certificate) -> ClientBuilder {
         self.with_inner(move |inner| inner.add_root_certificate(cert))
     }
 
-    /// Sets the identity to be used for client certificate authentication.
+    /// Controls the use of built-in system certificates during certificate validation.
+    ///         
+    /// Defaults to `true` -- built-in system certs will be used.
+    ///
+    /// # Optional
+    ///
+    /// This requires the optional `default-tls`, `native-tls`, or `rustls-tls(-...)`
+    /// feature to be enabled.
     #[cfg(feature = "__tls")]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "default-tls", feature = "native-tls", feature = "rustls-tls"))))]
+    pub fn tls_built_in_root_certs(
+        self,
+        tls_built_in_root_certs: bool,
+    ) -> ClientBuilder {
+        self.with_inner(move |inner| inner.tls_built_in_root_certs(tls_built_in_root_certs))
+    }
+
+    /// Sets the identity to be used for client certificate authentication.
+    ///
+    /// # Optional
+    ///
+    /// This requires the optional `native-tls` or `rustls-tls(-...)` feature to be
+    /// enabled.
+    #[cfg(any(feature = "native-tls", feature = "__rustls"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "native-tls", feature = "rustls-tls"))))]
     pub fn identity(self, identity: Identity) -> ClientBuilder {
         self.with_inner(move |inner| inner.identity(identity))
     }
@@ -454,6 +494,7 @@ impl ClientBuilder {
     ///
     /// This requires the optional `native-tls` feature to be enabled.
     #[cfg(feature = "native-tls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
     pub fn danger_accept_invalid_hostnames(self, accept_invalid_hostname: bool) -> ClientBuilder {
         self.with_inner(|inner| inner.danger_accept_invalid_hostnames(accept_invalid_hostname))
     }
@@ -470,6 +511,7 @@ impl ClientBuilder {
     /// introduces significant vulnerabilities, and should only be used
     /// as a last resort.
     #[cfg(feature = "__tls")]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "default-tls", feature = "native-tls", feature = "rustls-tls"))))]
     pub fn danger_accept_invalid_certs(self, accept_invalid_certs: bool) -> ClientBuilder {
         self.with_inner(|inner| inner.danger_accept_invalid_certs(accept_invalid_certs))
     }
@@ -483,6 +525,7 @@ impl ClientBuilder {
     ///
     /// This requires the optional `native-tls` feature to be enabled.
     #[cfg(feature = "native-tls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
     pub fn use_native_tls(self) -> ClientBuilder {
         self.with_inner(move |inner| inner.use_native_tls())
     }
@@ -496,6 +539,7 @@ impl ClientBuilder {
     ///
     /// This requires the optional `rustls-tls(-...)` feature to be enabled.
     #[cfg(feature = "__rustls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rustls-tls")))]
     pub fn use_rustls_tls(self) -> ClientBuilder {
         self.with_inner(move |inner| inner.use_rustls_tls())
     }
@@ -522,6 +566,7 @@ impl ClientBuilder {
         feature = "native-tls",
         feature = "__rustls",
     ))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "native-tls", feature = "rustls-tls"))))]
     pub fn use_preconfigured_tls(self, tls: impl Any) -> ClientBuilder {
         self.with_inner(move |inner| inner.use_preconfigured_tls(tls))
     }
@@ -534,6 +579,7 @@ impl ClientBuilder {
     ///
     /// This requires the optional `trust-dns` feature to be enabled
     #[cfg(feature = "trust-dns")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "trust-dns")))]
     pub fn trust_dns(self, enable: bool) -> ClientBuilder {
         self.with_inner(|inner| inner.trust_dns(enable))
     }
@@ -590,6 +636,9 @@ impl Client {
     ///
     /// Use `Client::builder()` if you wish to handle the failure as an `Error`
     /// instead of panicking.
+    ///
+    /// This method also panics if called from within an async runtime. See docs
+    /// on [`reqwest::blocking`][crate::blocking] for details.
     pub fn new() -> Client {
         ClientBuilder::new().build().expect("Client::new()")
     }

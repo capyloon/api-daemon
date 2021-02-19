@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "hyper"
-version = "0.14.2"
+version = "0.14.4"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 include = ["Cargo.toml", "LICENSE", "src/**/*"]
 description = "A fast and correct HTTP library."
@@ -37,6 +37,9 @@ incremental = false
 [profile.release]
 codegen-units = 1
 incremental = false
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [[example]]
 name = "client"
@@ -190,6 +193,10 @@ version = "0.3"
 [dependencies.itoa]
 version = "0.4.1"
 
+[dependencies.libc]
+version = "0.2"
+optional = true
+
 [dependencies.pin-project]
 version = "1.0"
 
@@ -258,6 +265,7 @@ version = "2.2"
 __internal_happy_eyeballs_tests = []
 client = []
 default = []
+ffi = ["libc"]
 full = ["client", "http1", "http2", "server", "stream", "runtime"]
 http1 = []
 http2 = ["h2"]
