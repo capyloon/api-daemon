@@ -242,3 +242,11 @@ class TestReporter {
     document.body.appendChild(hidden);
   }
 }
+
+function createAsyncTask() {
+  const asyncTask = {};
+  asyncTask.isFinished = new Promise((resolve) => {
+    asyncTask.finish = resolve;
+  });;
+  return asyncTask;
+}

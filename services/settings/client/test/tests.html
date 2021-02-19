@@ -182,6 +182,41 @@
         onchange_handler.stop();
         onchange_handler2.stop();
 
+        // Test if the event handler is working as expected after
+        // SessionObject re-enabled the event.
+        {
+          const asyncTask = createAsyncTask();
+          let counter = 0;
+          const handler = () => {
+            counter++;
+            asyncTask.finish();
+          };
+
+          // Add and remove the event listener to disable/re-enable the event.
+          tester.service.addEventListener(tester.service.CHANGE_EVENT, handler);
+          tester.service.removeEventListener(tester.service.CHANGE_EVENT, handler);
+
+          // Add another event listener for verification.
+          tester.service.addEventListener(tester.service.CHANGE_EVENT, handler);
+
+          await tester.service.set([{ name: "foo.bar", value: "hello" }]);
+          await asyncTask.isFinished;
+
+          await tester.assert_eq(
+            "it should get the value",
+            () => tester.service.get("foo.bar"),
+            { name: "foo.bar", value: "hello" }
+          );
+
+          await tester.assert_eq(
+            "it should trigger the callback if SessionObject ever disabled/re-enabled the event",
+            () => Promise.resolve(counter),
+            1
+          );
+
+          tester.service.removeEventListener(tester.service.CHANGE_EVENT, handler);
+        }
+
         // Verify get batch
         // TODO: ensure the order of the returned settings.
         await tester.assert_eq(

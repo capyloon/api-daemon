@@ -22,7 +22,7 @@ class SessionObject {
     this.session = session;
     this.service_id = service ? service.id : 0;
     this.wrapper_payload_message = wrapper_payload_message;
-    this.event_callbacks = [];
+    this.event_callbacks = Object.create(null);
   }
 
   /**
@@ -214,11 +214,15 @@ class SessionObject {
    *
    */
   addEventListener(event_id, callback) {
-    let key = this.get_event_key(event_id);
-    if (!(key in this.event_callbacks)) {
+    const key = this.get_event_key(event_id);
+    if (!Object.prototype.hasOwnProperty.call(this.event_callbacks, key)) {
       this.event_callbacks[key] = [];
       this.enable_event(event_id);
+    } else if (this.event_callbacks[key].includes(callback)) {
+      // Duplicated listeners are not allowed.
+      return;
     }
+
     this.event_callbacks[key].push(callback);
   }
 
@@ -230,19 +234,22 @@ class SessionObject {
    *
    */
   removeEventListener(event_id, callback) {
-    let key = this.get_event_key(event_id);
-    if (!(key in this.event_callbacks)) {
+    const key = this.get_event_key(event_id);
+    if (!Object.prototype.hasOwnProperty.call(this.event_callbacks, key)) {
       return;
     }
-    var stack = this.event_callbacks[key];
-    stack.forEach((element, index) => {
-      if (element === callback) {
-        stack.splice(index, 1);
-        if (stack.length === 0) {
-          this.disable_event(event_id);
-        }
-      }
-    });
+
+    // Get rid of matched callbacks.
+    this.event_callbacks[key] = this.event_callbacks[key].filter(
+      (element) => element !== callback
+    );
+
+    // Delete the entry as well as disable the event when
+    // no callbacks available.
+    if (this.event_callbacks[key].length === 0) {
+      delete this.event_callbacks[key];
+      this.disable_event(event_id);
+    }
   }
 
   /**
@@ -253,8 +260,8 @@ class SessionObject {
    *
    */
   dispatchEvent(event_id, data) {
-    let key = this.get_event_key(event_id);
-    var stack = this.event_callbacks[key];
+    const key = this.get_event_key(event_id);
+    const stack = this.event_callbacks[key];
     if (stack === undefined) {
       return;
     }

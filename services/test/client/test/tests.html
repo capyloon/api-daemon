@@ -48,6 +48,94 @@
 
         timeout_handler.stop();
 
+        // Test if the event handler is working as expected.
+        {
+          const asyncTask = createAsyncTask();
+          let counter = 0;
+          const handler = () => {
+            counter++;
+            asyncTask.finish();
+          };
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+          await asyncTask.isFinished;
+
+          await tester.assert_eq(
+            "it should trigger the callback given by addEventListener",
+            () => Promise.resolve(counter),
+            1
+          );
+
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+        }
+
+        // Multiple identical event listeners.
+        // https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener#multiple_identical_event_listeners
+        {
+          const asyncTask = createAsyncTask();
+          let counter = 0;
+          const handler = () => {
+            counter++;
+            asyncTask.finish();
+          };
+
+          // Try to call `addEventListener` multiple times with the same handler.
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+          await asyncTask.isFinished;
+
+          await tester.assert_eq(
+            "it should trigger only once when registering with \
+            the same listener multiple times",
+            () => Promise.resolve(counter),
+            1
+          );
+
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+
+          await tester.assert_eq(
+            "it should only call removeEventListener one time to stop the \
+            listener even if we registered the same listener multiple times",
+            () => Promise.resolve(counter),
+            1
+          );
+        }
+
+        // Test if the event handler is working as expected after
+        // SessionObject re-enabled the event.
+        {
+          const asyncTask = createAsyncTask();
+          let counter = 0;
+          const handler = () => {
+            counter++;
+            asyncTask.finish();
+          };
+
+          // Add and remove the event listener to disable/re-enable the event.
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          // Add another event listener for verification.
+          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+
+          await tester.service.postpone(1000);
+          await asyncTask.isFinished;
+
+          await tester.assert_eq(
+            "it should trigger the callback if SessionObject ever disabled/re-enabled the event",
+            () => Promise.resolve(counter),
+            1
+          );
+
+          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+        }
+
         let echo_obj = { foo: "bar", json: true, magic: 42 };
         await tester.assert_eq(
           "echo_json",
