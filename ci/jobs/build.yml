@@ -9,7 +9,7 @@
 .build_daemon_test_essentials:
   extends: .build_base
   variables:
-    test_essentials: "child-test-daemon tests/driver tests/fota-test-server tests/apps-test-server"
+    test_essentials: "child-test-daemon tests/driver tests/fota-test-server tests/apps-test-server services/apps/appscmd"
   script:
     - |
       for te in ${test_essentials}; do
@@ -64,6 +64,7 @@ build:daemon:test:essentials:
       - target/release/fota_test_server
       - target/release/apps_test_server
       - target/release/driver
+      - target/release/appscmd
       - services/test/client/generated/test_service.js
 
 build:daemon:test:essentials(within staged container):

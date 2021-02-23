@@ -1,0 +1,24 @@
+[package]
+name = "appscmd"
+version = "0.2.0"
+authors = ["viga.li <viga.li@kaiostech.com>"]
+edition = "2018"
+license = "Apache-2.0"
+
+[dependencies]
+clap = "2.33"
+dirs = "3.0"
+env_logger =  "0.8"
+log = "0.4"
+mozdevice = "0.3"
+prettytable-rs = "0.8"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+tinyfiledialogs = "3.3.10"
+walkdir = "2.3"
+zip = { version = "0.5", default-features = false, features = ["deflate"]}
+
+[[bin]]
+name = "appscmd"
+path = "src/appscmd.rs"

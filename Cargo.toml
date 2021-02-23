@@ -8,6 +8,7 @@ members = [
   "native-build-deps/",
   "parser/",
   "services/apps",
+  "services/apps/appscmd",
   "services/audiovolumemanager",
   "services/contacts",
   "services/devicecapability",
