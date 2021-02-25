@@ -294,7 +294,8 @@ impl AppMgmtTask for ClearTask {
             return responder.reject(AppsServiceError::AppNotFound);
         }
 
-        match shared.registry.clear(manifest_url, datatype) {
+        let data_path = shared.config.data_path.clone();
+        match shared.registry.clear(manifest_url, datatype, &data_path) {
             Ok(_) => responder.resolve(true),
             Err(err) => responder.reject(err),
         };

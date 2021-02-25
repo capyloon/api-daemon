@@ -300,10 +300,11 @@ impl GeckoBridgeState {
         &mut self,
         manifest_url: String,
         data_type: String,
+        value: JsonValue
     ) -> Result<(), DelegateError> {
         debug!("apps_service_on_clear: {}", &manifest_url);
         if let Some(service) = &mut self.appsservice {
-            let rx = service.on_clear(manifest_url, data_type);
+            let rx = service.on_clear(manifest_url, data_type, value);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(_) => Ok(()),

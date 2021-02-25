@@ -8,7 +8,7 @@ callback AppsServiceDelegate {
   // Called once we have called on_boot() for all apps.
   fn on_boot_done()
   // Called when app needs to clear app data.
-  fn on_clear(manifest_url: str, data_type: str)
+  fn on_clear(manifest_url: str, data_type: str, value: json)
   // Called when a new app is installed.
   fn on_install(manifest_url: str, value: json)
   // Called when an app is updated.

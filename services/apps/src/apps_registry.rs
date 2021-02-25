@@ -356,15 +356,18 @@ impl AppsRegistry {
         &mut self,
         manifest_url: &str,
         data_type: ClearType,
+        data_path: &str,
     ) -> Result<(), AppsServiceError> {
         let type_str = match data_type {
             ClearType::Browser => "Browser",
             ClearType::Storage => "Storage",
         };
 
+        let features = self.get_b2g_features(manifest_url, data_path);
+
         Ok(GeckoBridgeService::shared_state()
             .lock()
-            .apps_service_on_clear(manifest_url.to_string(), type_str.to_string())
+            .apps_service_on_clear(manifest_url.to_string(), type_str.to_string(), features)
             .map_err(|_| AppsServiceError::ClearDataError)?)
     }
 
@@ -518,6 +521,22 @@ impl AppsRegistry {
             }
         }
         vec![]
+    }
+
+    pub fn get_b2g_features(&self, manifest_url: &str, data_path: &str) -> JsonValue {
+        let vroot_dir = Path::new(&data_path).join("vroot");
+
+        if let Some(app) = &self.get_by_manifest_url(manifest_url) {
+            let app_dir = vroot_dir.join(&app.get_name());
+            if let Ok(manifest) = load_manifest(&app_dir) {
+                if let Some(b2g_features) = manifest.get_b2g_features() {
+                    return JsonValue::from(
+                        serde_json::to_value(&b2g_features).unwrap_or(json!(null)),
+                    );
+                };
+            };
+        }
+        JsonValue::from(json!(null))
     }
 
     pub fn get_by_manifest_url(&self, manifest_url: &str) -> Option<AppsItem> {
