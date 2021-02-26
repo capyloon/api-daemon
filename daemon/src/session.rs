@@ -442,15 +442,20 @@ impl Session {
                 self.on_request(message);
             }
         }
-        let elapsed = timer.elapsed().unwrap();
-        let millis = (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis())) as u32;
-        if millis > self.message_max_time {
-            let what = if is_handshake {
-                "Handshake".into()
-            } else {
-                self.format_request(message)
-            };
-            warn!("Processing '{}' took too long: {}ms", what, millis);
+
+        match timer.elapsed() {
+            Ok(elapsed) => {
+                let millis = (elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis())) as u32;
+                if millis > self.message_max_time {
+                    let what = if is_handshake {
+                        "Handshake".into()
+                    } else {
+                        self.format_request(message)
+                    };
+                    warn!("Processing '{}' took too long: {}ms", what, millis);
+                }
+            }
+            Err(err) => error!("Faled to get message processing time: {:?}", err.duration()),
         }
     }
 
