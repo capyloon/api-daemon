@@ -25,6 +25,23 @@ pub struct SharedObj {
 }
 
 impl SharedObj {
+    pub fn default() -> Self {
+        let setting_service = SettingsService::shared_state();
+
+        // the life time of SharedObj is the same as the process. We don't need to remove_observer
+        let id = setting_service.lock().db.add_observer(
+            "time.timezone",
+            ObserverType::FuncPtr(Box::new(SettingObserver{})),
+        );
+
+        info!("add_observer to SettingsService with id {}", id);
+        SharedObj {
+            event_broadcaster: TimeEventBroadcaster::default(),
+            id: 0,
+            observers: HashMap::new(),
+        }
+    }
+
     pub fn add_observer(
         &mut self,
         reason: CallbackReason,
@@ -93,11 +110,8 @@ impl SharedObj {
 }
 
 lazy_static! {
-    pub(crate) static ref TIME_SHARED_DATA: Shared<SharedObj> = Shared::adopt(SharedObj {
-        event_broadcaster: TimeEventBroadcaster::default(),
-        id: 0,
-        observers: HashMap::new(),
-    });
+    pub(crate) static ref TIME_SHARED_DATA: Shared<SharedObj> =
+        Shared::adopt(SharedObj::default());
 }
 
 #[derive(Clone, Copy)]
@@ -133,7 +147,6 @@ pub struct Time {
     dispatcher_id: DispatcherId,
     proxy_tracker: TimeServiceProxyTracker,
     observers: HashMap<ObjectRef, Vec<(CallbackReason, DispatcherId)>>,
-    setting_observer: (SettingObserver, DispatcherId),
     origin_attributes: OriginAttributes,
 }
 
@@ -313,29 +326,20 @@ impl Service<Time> for Time {
         _shared_obj: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<Time, String> {
-        info!("TimeoService::create");
+        info!("TimeService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = TimeEventDispatcher::from(helper, 0);
         let dispatcher_id = _shared_obj.lock().event_broadcaster.add(&event_dispatcher);
 
-        let mut service = Time {
+        Ok(Time {
             id: service_id,
             pool: ThreadPool::new(1),
             shared_obj: _shared_obj,
             dispatcher_id,
             proxy_tracker: HashMap::new(),
             observers: HashMap::new(),
-            setting_observer: (SettingObserver {}, 0),
             origin_attributes: origin_attributes.clone(),
-        };
-
-        let setting_service = SettingsService::shared_state();
-        service.setting_observer.1 = setting_service.lock().db.add_observer(
-            "time.timezone",
-            ObserverType::FuncPtr(Box::new(service.setting_observer.0)),
-        );
-
-        Ok(service)
+        })
     }
 
     fn format_request(&mut self, _transport: &SessionSupport, message: &BaseMessage) -> String {
@@ -369,10 +373,5 @@ impl Drop for Time {
         let shared_lock = &mut self.shared_obj.lock();
         shared_lock.event_broadcaster.remove(self.dispatcher_id);
 
-        let setting_service = SettingsService::shared_state();
-        setting_service
-            .lock()
-            .db
-            .remove_observer("time.timezone", self.setting_observer.1);
     }
 }
