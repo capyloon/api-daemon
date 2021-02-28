@@ -1,43 +1,93 @@
-use std::borrow::Cow;
-use std::cmp;
-use std::cmp::Ordering::{self, Equal, Greater, Less};
-use std::iter::repeat;
-use std::mem;
-use traits;
-use traits::{One, Zero};
+use crate::std_alloc::{Cow, Vec};
+use core::cmp;
+use core::cmp::Ordering::{self, Equal, Greater, Less};
+use core::iter::repeat;
+use core::mem;
+use num_traits::{One, PrimInt, Zero};
 
-use biguint::BigUint;
+#[cfg(all(use_addcarry, target_arch = "x86_64"))]
+use core::arch::x86_64 as arch;
 
-use bigint::BigInt;
-use bigint::Sign;
-use bigint::Sign::{Minus, NoSign, Plus};
+#[cfg(all(use_addcarry, target_arch = "x86"))]
+use core::arch::x86 as arch;
 
-use big_digit::{self, BigDigit, DoubleBigDigit, SignedDoubleBigDigit};
+use crate::biguint::biguint_from_vec;
+use crate::biguint::BigUint;
 
-// Generic functions for add/subtract/multiply with carry/borrow:
+use crate::bigint::BigInt;
+use crate::bigint::Sign;
+use crate::bigint::Sign::{Minus, NoSign, Plus};
+
+use crate::big_digit::{self, BigDigit, DoubleBigDigit};
+
+// only needed for the fallback implementation of `sbb`
+#[cfg(not(use_addcarry))]
+use crate::big_digit::SignedDoubleBigDigit;
+
+// Generic functions for add/subtract/multiply with carry/borrow. These are specialized
+// for some platforms to take advantage of intrinsics, etc.
 
 // Add with carry:
+#[cfg(all(use_addcarry, u64_digit))]
 #[inline]
-fn adc(a: BigDigit, b: BigDigit, acc: &mut DoubleBigDigit) -> BigDigit {
-    *acc += DoubleBigDigit::from(a);
-    *acc += DoubleBigDigit::from(b);
-    let lo = *acc as BigDigit;
-    *acc >>= big_digit::BITS;
-    lo
+fn adc(carry: u8, a: u64, b: u64, out: &mut u64) -> u8 {
+    // Safety: There are absolutely no safety concerns with calling `_addcarry_u64`.
+    // It's just unsafe for API consistency with other intrinsics.
+    unsafe { arch::_addcarry_u64(carry, a, b, out) }
+}
+
+#[cfg(all(use_addcarry, not(u64_digit)))]
+#[inline]
+fn adc(carry: u8, a: u32, b: u32, out: &mut u32) -> u8 {
+    // Safety: There are absolutely no safety concerns with calling `_addcarry_u32`.
+    // It's just unsafe for API consistency with other intrinsics.
+    unsafe { arch::_addcarry_u32(carry, a, b, out) }
+}
+
+// fallback for environments where we don't have an addcarry intrinsic
+#[cfg(not(use_addcarry))]
+#[inline]
+fn adc(carry: u8, a: BigDigit, b: BigDigit, out: &mut BigDigit) -> u8 {
+    let sum = DoubleBigDigit::from(a) + DoubleBigDigit::from(b) + DoubleBigDigit::from(carry);
+    *out = sum as BigDigit;
+    (sum >> big_digit::BITS) as u8
 }
 
 // Subtract with borrow:
+#[cfg(all(use_addcarry, u64_digit))]
 #[inline]
-fn sbb(a: BigDigit, b: BigDigit, acc: &mut SignedDoubleBigDigit) -> BigDigit {
-    *acc += SignedDoubleBigDigit::from(a);
-    *acc -= SignedDoubleBigDigit::from(b);
-    let lo = *acc as BigDigit;
-    *acc >>= big_digit::BITS;
-    lo
+fn sbb(borrow: u8, a: u64, b: u64, out: &mut u64) -> u8 {
+    // Safety: There are absolutely no safety concerns with calling `_subborrow_u64`.
+    // It's just unsafe for API consistency with other intrinsics.
+    unsafe { arch::_subborrow_u64(borrow, a, b, out) }
+}
+
+#[cfg(all(use_addcarry, not(u64_digit)))]
+#[inline]
+fn sbb(borrow: u8, a: u32, b: u32, out: &mut u32) -> u8 {
+    // Safety: There are absolutely no safety concerns with calling `_subborrow_u32`.
+    // It's just unsafe for API consistency with other intrinsics.
+    unsafe { arch::_subborrow_u32(borrow, a, b, out) }
+}
+
+// fallback for environments where we don't have a subborrow intrinsic
+#[cfg(not(use_addcarry))]
+#[inline]
+fn sbb(borrow: u8, a: BigDigit, b: BigDigit, out: &mut BigDigit) -> u8 {
+    let difference = SignedDoubleBigDigit::from(a)
+        - SignedDoubleBigDigit::from(b)
+        - SignedDoubleBigDigit::from(borrow);
+    *out = difference as BigDigit;
+    u8::from(difference < 0)
 }
 
 #[inline]
-pub fn mac_with_carry(a: BigDigit, b: BigDigit, c: BigDigit, acc: &mut DoubleBigDigit) -> BigDigit {
+pub(crate) fn mac_with_carry(
+    a: BigDigit,
+    b: BigDigit,
+    c: BigDigit,
+    acc: &mut DoubleBigDigit,
+) -> BigDigit {
     *acc += DoubleBigDigit::from(a);
     *acc += DoubleBigDigit::from(b) * DoubleBigDigit::from(c);
     let lo = *acc as BigDigit;
@@ -46,7 +96,7 @@ pub fn mac_with_carry(a: BigDigit, b: BigDigit, c: BigDigit, acc: &mut DoubleBig
 }
 
 #[inline]
-pub fn mul_with_carry(a: BigDigit, b: BigDigit, acc: &mut DoubleBigDigit) -> BigDigit {
+pub(crate) fn mul_with_carry(a: BigDigit, b: BigDigit, acc: &mut DoubleBigDigit) -> BigDigit {
     *acc += DoubleBigDigit::from(a) * DoubleBigDigit::from(b);
     let lo = *acc as BigDigit;
     *acc >>= big_digit::BITS;
@@ -68,43 +118,79 @@ fn div_wide(hi: BigDigit, lo: BigDigit, divisor: BigDigit) -> (BigDigit, BigDigi
     ((lhs / rhs) as BigDigit, (lhs % rhs) as BigDigit)
 }
 
-pub fn div_rem_digit(mut a: BigUint, b: BigDigit) -> (BigUint, BigDigit) {
+/// For small divisors, we can divide without promoting to `DoubleBigDigit` by
+/// using half-size pieces of digit, like long-division.
+#[inline]
+fn div_half(rem: BigDigit, digit: BigDigit, divisor: BigDigit) -> (BigDigit, BigDigit) {
+    use crate::big_digit::{HALF, HALF_BITS};
+    use num_integer::Integer;
+
+    debug_assert!(rem < divisor && divisor <= HALF);
+    let (hi, rem) = ((rem << HALF_BITS) | (digit >> HALF_BITS)).div_rem(&divisor);
+    let (lo, rem) = ((rem << HALF_BITS) | (digit & HALF)).div_rem(&divisor);
+    ((hi << HALF_BITS) | lo, rem)
+}
+
+#[inline]
+pub(crate) fn div_rem_digit(mut a: BigUint, b: BigDigit) -> (BigUint, BigDigit) {
     let mut rem = 0;
 
-    for d in a.data.iter_mut().rev() {
-        let (q, r) = div_wide(rem, *d, b);
-        *d = q;
-        rem = r;
+    if b <= big_digit::HALF {
+        for d in a.data.iter_mut().rev() {
+            let (q, r) = div_half(rem, *d, b);
+            *d = q;
+            rem = r;
+        }
+    } else {
+        for d in a.data.iter_mut().rev() {
+            let (q, r) = div_wide(rem, *d, b);
+            *d = q;
+            rem = r;
+        }
     }
 
     (a.normalized(), rem)
 }
 
-pub fn rem_digit(a: &BigUint, b: BigDigit) -> BigDigit {
-    let mut rem: DoubleBigDigit = 0;
-    for &digit in a.data.iter().rev() {
-        rem = (rem << big_digit::BITS) + DoubleBigDigit::from(digit);
-        rem %= DoubleBigDigit::from(b);
+#[inline]
+pub(crate) fn rem_digit(a: &BigUint, b: BigDigit) -> BigDigit {
+    let mut rem = 0;
+
+    if b <= big_digit::HALF {
+        for &digit in a.data.iter().rev() {
+            let (_, r) = div_half(rem, digit, b);
+            rem = r;
+        }
+    } else {
+        for &digit in a.data.iter().rev() {
+            let (_, r) = div_wide(rem, digit, b);
+            rem = r;
+        }
     }
 
-    rem as BigDigit
+    rem
 }
 
-// Only for the Add impl:
+/// Two argument addition of raw slices, `a += b`, returning the carry.
+///
+/// This is used when the data `Vec` might need to resize to push a non-zero carry, so we perform
+/// the addition first hoping that it will fit.
+///
+/// The caller _must_ ensure that `a` is at least as long as `b`.
 #[inline]
-pub fn __add2(a: &mut [BigDigit], b: &[BigDigit]) -> BigDigit {
+pub(crate) fn __add2(a: &mut [BigDigit], b: &[BigDigit]) -> BigDigit {
     debug_assert!(a.len() >= b.len());
 
     let mut carry = 0;
     let (a_lo, a_hi) = a.split_at_mut(b.len());
 
     for (a, b) in a_lo.iter_mut().zip(b) {
-        *a = adc(*a, *b, &mut carry);
+        carry = adc(carry, *a, *b, a);
     }
 
     if carry != 0 {
         for a in a_hi {
-            *a = adc(*a, 0, &mut carry);
+            carry = adc(carry, *a, 0, a);
             if carry == 0 {
                 break;
             }
@@ -119,13 +205,13 @@ pub fn __add2(a: &mut [BigDigit], b: &[BigDigit]) -> BigDigit {
 ///
 /// The caller _must_ ensure that a is big enough to store the result - typically this means
 /// resizing a to max(a.len(), b.len()) + 1, to fit a possible carry.
-pub fn add2(a: &mut [BigDigit], b: &[BigDigit]) {
+pub(crate) fn add2(a: &mut [BigDigit], b: &[BigDigit]) {
     let carry = __add2(a, b);
 
     debug_assert!(carry == 0);
 }
 
-pub fn sub2(a: &mut [BigDigit], b: &[BigDigit]) {
+pub(crate) fn sub2(a: &mut [BigDigit], b: &[BigDigit]) {
     let mut borrow = 0;
 
     let len = cmp::min(a.len(), b.len());
@@ -133,12 +219,12 @@ pub fn sub2(a: &mut [BigDigit], b: &[BigDigit]) {
     let (b_lo, b_hi) = b.split_at(len);
 
     for (a, b) in a_lo.iter_mut().zip(b_lo) {
-        *a = sbb(*a, *b, &mut borrow);
+        borrow = sbb(borrow, *a, *b, a);
     }
 
     if borrow != 0 {
         for a in a_hi {
-            *a = sbb(*a, 0, &mut borrow);
+            borrow = sbb(borrow, *a, 0, a);
             if borrow == 0 {
                 break;
             }
@@ -154,19 +240,19 @@ pub fn sub2(a: &mut [BigDigit], b: &[BigDigit]) {
 
 // Only for the Sub impl. `a` and `b` must have same length.
 #[inline]
-pub fn __sub2rev(a: &[BigDigit], b: &mut [BigDigit]) -> BigDigit {
+pub(crate) fn __sub2rev(a: &[BigDigit], b: &mut [BigDigit]) -> u8 {
     debug_assert!(b.len() == a.len());
 
     let mut borrow = 0;
 
     for (ai, bi) in a.iter().zip(b) {
-        *bi = sbb(*ai, *bi, &mut borrow);
+        borrow = sbb(borrow, *ai, *bi, bi);
     }
 
-    borrow as BigDigit
+    borrow
 }
 
-pub fn sub2rev(a: &[BigDigit], b: &mut [BigDigit]) {
+pub(crate) fn sub2rev(a: &[BigDigit], b: &mut [BigDigit]) {
     debug_assert!(b.len() >= a.len());
 
     let len = cmp::min(a.len(), b.len());
@@ -184,7 +270,7 @@ pub fn sub2rev(a: &[BigDigit], b: &mut [BigDigit]) {
     );
 }
 
-pub fn sub_sign(a: &[BigDigit], b: &[BigDigit]) -> (Sign, BigUint) {
+pub(crate) fn sub_sign(a: &[BigDigit], b: &[BigDigit]) -> (Sign, BigUint) {
     // Normalize:
     let a = &a[..a.iter().rposition(|&x| x != 0).map_or(0, |i| i + 1)];
     let b = &b[..b.iter().rposition(|&x| x != 0).map_or(0, |i| i + 1)];
@@ -193,12 +279,12 @@ pub fn sub_sign(a: &[BigDigit], b: &[BigDigit]) -> (Sign, BigUint) {
         Greater => {
             let mut a = a.to_vec();
             sub2(&mut a, b);
-            (Plus, BigUint::new(a))
+            (Plus, biguint_from_vec(a))
         }
         Less => {
             let mut b = b.to_vec();
             sub2(&mut b, a);
-            (Minus, BigUint::new(b))
+            (Minus, biguint_from_vec(b))
         }
         _ => (NoSign, Zero::zero()),
     }
@@ -206,7 +292,7 @@ pub fn sub_sign(a: &[BigDigit], b: &[BigDigit]) -> (Sign, BigUint) {
 
 /// Three argument multiply accumulate:
 /// acc += b * c
-pub fn mac_digit(acc: &mut [BigDigit], b: &[BigDigit], c: BigDigit) {
+pub(crate) fn mac_digit(acc: &mut [BigDigit], b: &[BigDigit], c: BigDigit) {
     if c == 0 {
         return;
     }
@@ -218,11 +304,47 @@ pub fn mac_digit(acc: &mut [BigDigit], b: &[BigDigit], c: BigDigit) {
         *a = mac_with_carry(*a, b, c, &mut carry);
     }
 
-    let mut a = a_hi.iter_mut();
-    while carry != 0 {
-        let a = a.next().expect("carry overflow during multiplication!");
-        *a = adc(*a, 0, &mut carry);
+    let (carry_hi, carry_lo) = big_digit::from_doublebigdigit(carry);
+
+    let final_carry = if carry_hi == 0 {
+        __add2(a_hi, &[carry_lo])
+    } else {
+        __add2(a_hi, &[carry_hi, carry_lo])
+    };
+    assert_eq!(final_carry, 0, "carry overflow during multiplication!");
+}
+
+/// Subtract a multiple.
+/// a -= b * c
+/// Returns a borrow (if a < b then borrow > 0).
+fn sub_mul_digit_same_len(a: &mut [BigDigit], b: &[BigDigit], c: BigDigit) -> BigDigit {
+    debug_assert!(a.len() == b.len());
+
+    // carry is between -big_digit::MAX and 0, so to avoid overflow we store
+    // offset_carry = carry + big_digit::MAX
+    let mut offset_carry = big_digit::MAX;
+
+    for (x, y) in a.iter_mut().zip(b) {
+        // We want to calculate sum = x - y * c + carry.
+        // sum >= -(big_digit::MAX * big_digit::MAX) - big_digit::MAX
+        // sum <= big_digit::MAX
+        // Offsetting sum by (big_digit::MAX << big_digit::BITS) puts it in DoubleBigDigit range.
+        let offset_sum = big_digit::to_doublebigdigit(big_digit::MAX, *x)
+            - big_digit::MAX as DoubleBigDigit
+            + offset_carry as DoubleBigDigit
+            - *y as DoubleBigDigit * c as DoubleBigDigit;
+
+        let (new_offset_carry, new_x) = big_digit::from_doublebigdigit(offset_sum);
+        offset_carry = new_offset_carry;
+        *x = new_x;
     }
+
+    // Return the borrow.
+    big_digit::MAX - offset_carry
+}
+
+fn bigint_from_slice(slice: &[BigDigit]) -> BigInt {
+    BigInt::from(biguint_from_vec(slice.to_vec()))
 }
 
 /// Three argument multiply accumulate:
@@ -247,81 +369,75 @@ fn mac3(acc: &mut [BigDigit], b: &[BigDigit], c: &[BigDigit]) {
             mac_digit(&mut acc[i..], y, *xi);
         }
     } else if x.len() <= 256 {
-        /*
-         * Karatsuba multiplication:
-         *
-         * The idea is that we break x and y up into two smaller numbers that each have about half
-         * as many digits, like so (note that multiplying by b is just a shift):
-         *
-         * x = x0 + x1 * b
-         * y = y0 + y1 * b
-         *
-         * With some algebra, we can compute x * y with three smaller products, where the inputs to
-         * each of the smaller products have only about half as many digits as x and y:
-         *
-         * x * y = (x0 + x1 * b) * (y0 + y1 * b)
-         *
-         * x * y = x0 * y0
-         *       + x0 * y1 * b
-         *       + x1 * y0 * b
-         *       + x1 * y1 * b^2
-         *
-         * Let p0 = x0 * y0 and p2 = x1 * y1:
-         *
-         * x * y = p0
-         *       + (x0 * y1 + x1 * y0) * b
-         *       + p2 * b^2
-         *
-         * The real trick is that middle term:
-         *
-         *         x0 * y1 + x1 * y0
-         *
-         *       = x0 * y1 + x1 * y0 - p0 + p0 - p2 + p2
-         *
-         *       = x0 * y1 + x1 * y0 - x0 * y0 - x1 * y1 + p0 + p2
-         *
-         * Now we complete the square:
-         *
-         *       = -(x0 * y0 - x0 * y1 - x1 * y0 + x1 * y1) + p0 + p2
-         *
-         *       = -((x1 - x0) * (y1 - y0)) + p0 + p2
-         *
-         * Let p1 = (x1 - x0) * (y1 - y0), and substitute back into our original formula:
-         *
-         * x * y = p0
-         *       + (p0 + p2 - p1) * b
-         *       + p2 * b^2
-         *
-         * Where the three intermediate products are:
-         *
-         * p0 = x0 * y0
-         * p1 = (x1 - x0) * (y1 - y0)
-         * p2 = x1 * y1
-         *
-         * In doing the computation, we take great care to avoid unnecessary temporary variables
-         * (since creating a BigUint requires a heap allocation): thus, we rearrange the formula a
-         * bit so we can use the same temporary variable for all the intermediate products:
-         *
-         * x * y = p2 * b^2 + p2 * b
-         *       + p0 * b + p0
-         *       - p1 * b
-         *
-         * The other trick we use is instead of doing explicit shifts, we slice acc at the
-         * appropriate offset when doing the add.
-         */
+        // Karatsuba multiplication:
+        //
+        // The idea is that we break x and y up into two smaller numbers that each have about half
+        // as many digits, like so (note that multiplying by b is just a shift):
+        //
+        // x = x0 + x1 * b
+        // y = y0 + y1 * b
+        //
+        // With some algebra, we can compute x * y with three smaller products, where the inputs to
+        // each of the smaller products have only about half as many digits as x and y:
+        //
+        // x * y = (x0 + x1 * b) * (y0 + y1 * b)
+        //
+        // x * y = x0 * y0
+        //       + x0 * y1 * b
+        //       + x1 * y0 * b
+        //       + x1 * y1 * b^2
+        //
+        // Let p0 = x0 * y0 and p2 = x1 * y1:
+        //
+        // x * y = p0
+        //       + (x0 * y1 + x1 * y0) * b
+        //       + p2 * b^2
+        //
+        // The real trick is that middle term:
+        //
+        //         x0 * y1 + x1 * y0
+        //
+        //       = x0 * y1 + x1 * y0 - p0 + p0 - p2 + p2
+        //
+        //       = x0 * y1 + x1 * y0 - x0 * y0 - x1 * y1 + p0 + p2
+        //
+        // Now we complete the square:
+        //
+        //       = -(x0 * y0 - x0 * y1 - x1 * y0 + x1 * y1) + p0 + p2
+        //
+        //       = -((x1 - x0) * (y1 - y0)) + p0 + p2
+        //
+        // Let p1 = (x1 - x0) * (y1 - y0), and substitute back into our original formula:
+        //
+        // x * y = p0
+        //       + (p0 + p2 - p1) * b
+        //       + p2 * b^2
+        //
+        // Where the three intermediate products are:
+        //
+        // p0 = x0 * y0
+        // p1 = (x1 - x0) * (y1 - y0)
+        // p2 = x1 * y1
+        //
+        // In doing the computation, we take great care to avoid unnecessary temporary variables
+        // (since creating a BigUint requires a heap allocation): thus, we rearrange the formula a
+        // bit so we can use the same temporary variable for all the intermediate products:
+        //
+        // x * y = p2 * b^2 + p2 * b
+        //       + p0 * b + p0
+        //       - p1 * b
+        //
+        // The other trick we use is instead of doing explicit shifts, we slice acc at the
+        // appropriate offset when doing the add.
 
-        /*
-         * When x is smaller than y, it's significantly faster to pick b such that x is split in
-         * half, not y:
-         */
+        // When x is smaller than y, it's significantly faster to pick b such that x is split in
+        // half, not y:
         let b = x.len() / 2;
         let (x0, x1) = x.split_at(b);
         let (y0, y1) = y.split_at(b);
 
-        /*
-         * We reuse the same BigUint for all the intermediate multiplies and have to size p
-         * appropriately here: x1.len() >= x0.len and y1.len() >= y0.len():
-         */
+        // We reuse the same BigUint for all the intermediate multiplies and have to size p
+        // appropriately here: x1.len() >= x0.len and y1.len() >= y0.len():
         let len = x1.len() + y1.len() + 1;
         let mut p = BigUint { data: vec![0; len] };
 
@@ -387,14 +503,14 @@ fn mac3(acc: &mut [BigDigit], b: &[BigDigit], c: &[BigDigit]) {
         // in place of multiplications.
         //
         // x(t) = x2*t^2 + x1*t + x0
-        let x0 = BigInt::from_slice(Plus, &x[..x0_len]);
-        let x1 = BigInt::from_slice(Plus, &x[x0_len..x0_len + x1_len]);
-        let x2 = BigInt::from_slice(Plus, &x[x0_len + x1_len..]);
+        let x0 = bigint_from_slice(&x[..x0_len]);
+        let x1 = bigint_from_slice(&x[x0_len..x0_len + x1_len]);
+        let x2 = bigint_from_slice(&x[x0_len + x1_len..]);
 
         // y(t) = y2*t^2 + y1*t + y0
-        let y0 = BigInt::from_slice(Plus, &y[..y0_len]);
-        let y1 = BigInt::from_slice(Plus, &y[y0_len..y0_len + y1_len]);
-        let y2 = BigInt::from_slice(Plus, &y[y0_len + y1_len..]);
+        let y0 = bigint_from_slice(&y[..y0_len]);
+        let y1 = bigint_from_slice(&y[y0_len..y0_len + y1_len]);
+        let y2 = bigint_from_slice(&y[y0_len + y1_len..]);
 
         // Let w(t) = x(t) * y(t)
         //
@@ -476,17 +592,18 @@ fn mac3(acc: &mut [BigDigit], b: &[BigDigit], c: &[BigDigit]) {
         // Recomposition. The coefficients of the polynomial are now known.
         //
         // Evaluate at w(t) where t is our given base to get the result.
+        let bits = u64::from(big_digit::BITS) * i as u64;
         let result = r0
-            + (comp1 << (32 * i))
-            + (comp2 << (2 * 32 * i))
-            + (comp3 << (3 * 32 * i))
-            + (r4 << (4 * 32 * i));
+            + (comp1 << bits)
+            + (comp2 << (2 * bits))
+            + (comp3 << (3 * bits))
+            + (r4 << (4 * bits));
         let result_pos = result.to_biguint().unwrap();
         add2(&mut acc[..], &result_pos.data);
     }
 }
 
-pub fn mul3(x: &[BigDigit], y: &[BigDigit]) -> BigUint {
+pub(crate) fn mul3(x: &[BigDigit], y: &[BigDigit]) -> BigUint {
     let len = x.len() + y.len() + 1;
     let mut prod = BigUint { data: vec![0; len] };
 
@@ -494,7 +611,7 @@ pub fn mul3(x: &[BigDigit], y: &[BigDigit]) -> BigUint {
     prod.normalized()
 }
 
-pub fn scalar_mul(a: &mut [BigDigit], b: BigDigit) -> BigDigit {
+pub(crate) fn scalar_mul(a: &mut [BigDigit], b: BigDigit) -> BigDigit {
     let mut carry = 0;
     for a in a.iter_mut() {
         *a = mul_with_carry(*a, b, &mut carry);
@@ -502,9 +619,9 @@ pub fn scalar_mul(a: &mut [BigDigit], b: BigDigit) -> BigDigit {
     carry as BigDigit
 }
 
-pub fn div_rem(mut u: BigUint, mut d: BigUint) -> (BigUint, BigUint) {
+pub(crate) fn div_rem(mut u: BigUint, mut d: BigUint) -> (BigUint, BigUint) {
     if d.is_zero() {
-        panic!()
+        panic!("attempt to divide by zero")
     }
     if u.is_zero() {
         return (Zero::zero(), Zero::zero());
@@ -538,6 +655,7 @@ pub fn div_rem(mut u: BigUint, mut d: BigUint) -> (BigUint, BigUint) {
     // want it to be the largest number we can efficiently divide by.
     //
     let shift = d.data.last().unwrap().leading_zeros() as usize;
+
     let (q, r) = if shift == 0 {
         // no need to clone d
         div_rem_core(u, &d)
@@ -548,9 +666,9 @@ pub fn div_rem(mut u: BigUint, mut d: BigUint) -> (BigUint, BigUint) {
     (q, r >> shift)
 }
 
-pub fn div_rem_ref(u: &BigUint, d: &BigUint) -> (BigUint, BigUint) {
+pub(crate) fn div_rem_ref(u: &BigUint, d: &BigUint) -> (BigUint, BigUint) {
     if d.is_zero() {
-        panic!()
+        panic!("attempt to divide by zero")
     }
     if u.is_zero() {
         return (Zero::zero(), Zero::zero());
@@ -590,82 +708,98 @@ pub fn div_rem_ref(u: &BigUint, d: &BigUint) -> (BigUint, BigUint) {
     (q, r >> shift)
 }
 
-/// an implementation of Knuth, TAOCP vol 2 section 4.3, algorithm D
-///
-/// # Correctness
-///
-/// This function requires the following conditions to run correctly and/or effectively
-///
-/// - `a > b`
-/// - `d.data.len() > 1`
-/// - `d.data.last().unwrap().leading_zeros() == 0`
+/// An implementation of the base division algorithm.
+/// Knuth, TAOCP vol 2 section 4.3.1, algorithm D, with an improvement from exercises 19-21.
 fn div_rem_core(mut a: BigUint, b: &BigUint) -> (BigUint, BigUint) {
-    // The algorithm works by incrementally calculating "guesses", q0, for part of the
-    // remainder. Once we have any number q0 such that q0 * b <= a, we can set
+    debug_assert!(
+        a.data.len() >= b.data.len()
+            && b.data.len() > 1
+            && b.data.last().unwrap().leading_zeros() == 0
+    );
+
+    // The algorithm works by incrementally calculating "guesses", q0, for the next digit of the
+    // quotient. Once we have any number q0 such that (q0 << j) * b <= a, we can set
     //
-    //     q += q0
-    //     a -= q0 * b
+    //     q += q0 << j
+    //     a -= (q0 << j) * b
     //
     // and then iterate until a < b. Then, (q, a) will be our desired quotient and remainder.
     //
-    // q0, our guess, is calculated by dividing the last few digits of a by the last digit of b
-    // - this should give us a guess that is "close" to the actual quotient, but is possibly
-    // greater than the actual quotient. If q0 * b > a, we simply use iterated subtraction
-    // until we have a guess such that q0 * b <= a.
+    // q0, our guess, is calculated by dividing the last three digits of a by the last two digits of
+    // b - this will give us a guess that is close to the actual quotient, but is possibly greater.
+    // It can only be greater by 1 and only in rare cases, with probability at most
+    // 2^-(big_digit::BITS-1) for random a, see TAOCP 4.3.1 exercise 21.
     //
+    // If the quotient turns out to be too large, we adjust it by 1:
+    // q -= 1 << j
+    // a += b << j
 
-    let bn = *b.data.last().unwrap();
+    // a0 stores an additional extra most significant digit of the dividend, not stored in a.
+    let mut a0 = 0;
+
+    // [b1, b0] are the two most significant digits of the divisor. They never change.
+    let b0 = *b.data.last().unwrap();
+    let b1 = b.data[b.data.len() - 2];
+
     let q_len = a.data.len() - b.data.len() + 1;
     let mut q = BigUint {
         data: vec![0; q_len],
     };
 
-    // We reuse the same temporary to avoid hitting the allocator in our inner loop - this is
-    // sized to hold a0 (in the common case; if a particular digit of the quotient is zero a0
-    // can be bigger).
-    //
-    let mut tmp = BigUint {
-        data: Vec::with_capacity(2),
-    };
-
     for j in (0..q_len).rev() {
-        /*
-         * When calculating our next guess q0, we don't need to consider the digits below j
-         * + b.data.len() - 1: we're guessing digit j of the quotient (i.e. q0 << j) from
-         * digit bn of the divisor (i.e. bn << (b.data.len() - 1) - so the product of those
-         * two numbers will be zero in all digits up to (j + b.data.len() - 1).
-         */
-        let offset = j + b.data.len() - 1;
-        if offset >= a.data.len() {
-            continue;
+        debug_assert!(a.data.len() == b.data.len() + j);
+
+        let a1 = *a.data.last().unwrap();
+        let a2 = a.data[a.data.len() - 2];
+
+        // The first q0 estimate is [a1,a0] / b0. It will never be too small, it may be too large
+        // by at most 2.
+        let (mut q0, mut r) = if a0 < b0 {
+            let (q0, r) = div_wide(a0, a1, b0);
+            (q0, r as DoubleBigDigit)
+        } else {
+            debug_assert!(a0 == b0);
+            // Avoid overflowing q0, we know the quotient fits in BigDigit.
+            // [a1,a0] = b0 * (1<<BITS - 1) + (a0 + a1)
+            (big_digit::MAX, a0 as DoubleBigDigit + a1 as DoubleBigDigit)
+        };
+
+        // r = [a1,a0] - q0 * b0
+        //
+        // Now we want to compute a more precise estimate [a2,a1,a0] / [b1,b0] which can only be
+        // less or equal to the current q0.
+        //
+        // q0 is too large if:
+        // [a2,a1,a0] < q0 * [b1,b0]
+        // (r << BITS) + a2 < q0 * b1
+        while r <= big_digit::MAX as DoubleBigDigit
+            && big_digit::to_doublebigdigit(r as BigDigit, a2)
+                < q0 as DoubleBigDigit * b1 as DoubleBigDigit
+        {
+            q0 -= 1;
+            r += b0 as DoubleBigDigit;
         }
 
-        /* just avoiding a heap allocation: */
-        let mut a0 = tmp;
-        a0.data.truncate(0);
-        a0.data.extend(a.data[offset..].iter().cloned());
+        // q0 is now either the correct quotient digit, or in rare cases 1 too large.
+        // Subtract (q0 << j) from a. This may overflow, in which case we will have to correct.
 
-        /*
-         * q0 << j * big_digit::BITS is our actual quotient estimate - we do the shifts
-         * implicitly at the end, when adding and subtracting to a and q. Not only do we
-         * save the cost of the shifts, the rest of the arithmetic gets to work with
-         * smaller numbers.
-         */
-        let (mut q0, _) = div_rem_digit(a0, bn);
-        let mut prod = b * &q0;
-
-        while cmp_slice(&prod.data[..], &a.data[j..]) == Greater {
-            let one: BigUint = One::one();
-            q0 -= one;
-            prod -= b;
+        let mut borrow = sub_mul_digit_same_len(&mut a.data[j..], &b.data, q0);
+        if borrow > a0 {
+            // q0 is too large. We need to add back one multiple of b.
+            q0 -= 1;
+            borrow -= __add2(&mut a.data[j..], &b.data);
         }
+        // The top digit of a, stored in a0, has now been zeroed.
+        debug_assert!(borrow == a0);
 
-        add2(&mut q.data[j..], &q0.data[..]);
-        sub2(&mut a.data[j..], &prod.data[..]);
-        a.normalize();
+        q.data[j] = q0;
 
-        tmp = q0;
+        // Pop off the next top digit of a.
+        a0 = a.data.pop().unwrap();
     }
+
+    a.data.push(a0);
+    a.normalize();
 
     debug_assert!(a < *b);
 
@@ -674,34 +808,46 @@ fn div_rem_core(mut a: BigUint, b: &BigUint) -> (BigUint, BigUint) {
 
 /// Find last set bit
 /// fls(0) == 0, fls(u32::MAX) == 32
-pub fn fls<T: traits::PrimInt>(v: T) -> usize {
-    mem::size_of::<T>() * 8 - v.leading_zeros() as usize
+pub(crate) fn fls<T: PrimInt>(v: T) -> u8 {
+    mem::size_of::<T>() as u8 * 8 - v.leading_zeros() as u8
 }
 
-pub fn ilog2<T: traits::PrimInt>(v: T) -> usize {
+pub(crate) fn ilog2<T: PrimInt>(v: T) -> u8 {
     fls(v) - 1
 }
 
 #[inline]
-pub fn biguint_shl(n: Cow<BigUint>, bits: usize) -> BigUint {
-    let n_unit = bits / big_digit::BITS;
-    let mut data = match n_unit {
+pub(crate) fn biguint_shl<T: PrimInt>(n: Cow<'_, BigUint>, shift: T) -> BigUint {
+    if shift < T::zero() {
+        panic!("attempt to shift left with negative");
+    }
+    if n.is_zero() {
+        return n.into_owned();
+    }
+    let bits = T::from(big_digit::BITS).unwrap();
+    let digits = (shift / bits).to_usize().expect("capacity overflow");
+    let shift = (shift % bits).to_u8().unwrap();
+    biguint_shl2(n, digits, shift)
+}
+
+fn biguint_shl2(n: Cow<'_, BigUint>, digits: usize, shift: u8) -> BigUint {
+    let mut data = match digits {
         0 => n.into_owned().data,
         _ => {
-            let len = n_unit + n.data.len() + 1;
+            let len = digits.saturating_add(n.data.len() + 1);
             let mut data = Vec::with_capacity(len);
-            data.extend(repeat(0).take(n_unit));
-            data.extend(n.data.iter().cloned());
+            data.extend(repeat(0).take(digits));
+            data.extend(n.data.iter());
             data
         }
     };
 
-    let n_bits = bits % big_digit::BITS;
-    if n_bits > 0 {
+    if shift > 0 {
         let mut carry = 0;
-        for elem in data[n_unit..].iter_mut() {
-            let new_carry = *elem >> (big_digit::BITS - n_bits);
-            *elem = (*elem << n_bits) | carry;
+        let carry_shift = big_digit::BITS as u8 - shift;
+        for elem in data[digits..].iter_mut() {
+            let new_carry = *elem >> carry_shift;
+            *elem = (*elem << shift) | carry;
             carry = new_carry;
         }
         if carry != 0 {
@@ -709,65 +855,65 @@ pub fn biguint_shl(n: Cow<BigUint>, bits: usize) -> BigUint {
         }
     }
 
-    BigUint::new(data)
+    biguint_from_vec(data)
 }
 
 #[inline]
-pub fn biguint_shr(n: Cow<BigUint>, bits: usize) -> BigUint {
-    let n_unit = bits / big_digit::BITS;
-    if n_unit >= n.data.len() {
-        return Zero::zero();
+pub(crate) fn biguint_shr<T: PrimInt>(n: Cow<'_, BigUint>, shift: T) -> BigUint {
+    if shift < T::zero() {
+        panic!("attempt to shift right with negative");
+    }
+    if n.is_zero() {
+        return n.into_owned();
+    }
+    let bits = T::from(big_digit::BITS).unwrap();
+    let digits = (shift / bits).to_usize().unwrap_or(core::usize::MAX);
+    let shift = (shift % bits).to_u8().unwrap();
+    biguint_shr2(n, digits, shift)
+}
+
+fn biguint_shr2(n: Cow<'_, BigUint>, digits: usize, shift: u8) -> BigUint {
+    if digits >= n.data.len() {
+        let mut n = n.into_owned();
+        n.set_zero();
+        return n;
     }
     let mut data = match n {
-        Cow::Borrowed(n) => n.data[n_unit..].to_vec(),
+        Cow::Borrowed(n) => n.data[digits..].to_vec(),
         Cow::Owned(mut n) => {
-            n.data.drain(..n_unit);
+            n.data.drain(..digits);
             n.data
         }
     };
 
-    let n_bits = bits % big_digit::BITS;
-    if n_bits > 0 {
+    if shift > 0 {
         let mut borrow = 0;
+        let borrow_shift = big_digit::BITS as u8 - shift;
         for elem in data.iter_mut().rev() {
-            let new_borrow = *elem << (big_digit::BITS - n_bits);
-            *elem = (*elem >> n_bits) | borrow;
+            let new_borrow = *elem << borrow_shift;
+            *elem = (*elem >> shift) | borrow;
             borrow = new_borrow;
         }
     }
 
-    BigUint::new(data)
+    biguint_from_vec(data)
 }
 
-pub fn cmp_slice(a: &[BigDigit], b: &[BigDigit]) -> Ordering {
+pub(crate) fn cmp_slice(a: &[BigDigit], b: &[BigDigit]) -> Ordering {
     debug_assert!(a.last() != Some(&0));
     debug_assert!(b.last() != Some(&0));
 
-    let (a_len, b_len) = (a.len(), b.len());
-    if a_len < b_len {
-        return Less;
+    match Ord::cmp(&a.len(), &b.len()) {
+        Equal => Iterator::cmp(a.iter().rev(), b.iter().rev()),
+        other => other,
     }
-    if a_len > b_len {
-        return Greater;
-    }
-
-    for (&ai, &bi) in a.iter().rev().zip(b.iter().rev()) {
-        if ai < bi {
-            return Less;
-        }
-        if ai > bi {
-            return Greater;
-        }
-    }
-    Equal
 }
 
 #[cfg(test)]
 mod algorithm_tests {
-    use big_digit::BigDigit;
-    use traits::Num;
-    use Sign::Plus;
-    use {BigInt, BigUint};
+    use crate::big_digit::BigDigit;
+    use crate::{BigInt, BigUint};
+    use num_traits::Num;
 
     #[test]
     fn test_sub_sign() {
@@ -780,8 +926,8 @@ mod algorithm_tests {
 
         let a = BigUint::from_str_radix("265252859812191058636308480000000", 10).unwrap();
         let b = BigUint::from_str_radix("26525285981219105863630848000000", 10).unwrap();
-        let a_i = BigInt::from_biguint(Plus, a.clone());
-        let b_i = BigInt::from_biguint(Plus, b.clone());
+        let a_i = BigInt::from(a.clone());
+        let b_i = BigInt::from(b.clone());
 
         assert_eq!(sub_sign_i(&a.data[..], &b.data[..]), &a_i - &b_i);
         assert_eq!(sub_sign_i(&b.data[..], &a.data[..]), &b_i - &a_i);

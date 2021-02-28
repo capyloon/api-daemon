@@ -12,6 +12,8 @@ use std::ptr;
 
 use crate::base::{Error, Result};
 #[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
+use crate::{cvt, key};
+#[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
 use core_foundation::base::FromVoid;
 #[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
 use core_foundation::number::CFNumber;
@@ -30,8 +32,6 @@ use security_framework_sys::trust::{
 };
 #[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
 use std::ops::Deref;
-#[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
-use crate::{cvt, key};
 
 declare_TCFType! {
     /// A type representing a certificate.
@@ -43,6 +43,7 @@ unsafe impl Sync for SecCertificate {}
 unsafe impl Send for SecCertificate {}
 
 impl fmt::Debug for SecCertificate {
+    #[cold]
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("SecCertificate")
             .field("subject", &self.subject_summary())

@@ -183,7 +183,7 @@ fn test_cdata() {
 fn test_cdata_open_close() {
     let mut r = Reader::from_str("<![CDATA[test <> test]]>");
     r.trim_text(true);
-    next_eq!(r, CData, b"test <> test");
+    next_eq!(r, CData, b"test &lt;&gt; test");
 }
 
 #[test]
@@ -255,6 +255,35 @@ fn test_writer_indent() {
 
     let result = writer.into_inner().into_inner();
     // println!("{:?}", String::from_utf8_lossy(&result));
+
+    #[cfg(windows)]
+    assert!(result.into_iter().eq(txt.bytes().filter(|b| *b != 13)));
+
+    #[cfg(not(windows))]
+    assert_eq!(result, txt.as_bytes());
+}
+
+#[test]
+fn test_writer_indent_cdata() {
+    let txt = include_str!("../tests/documents/test_writer_indent_cdata.xml");
+    let mut reader = Reader::from_str(txt);
+    reader.trim_text(true);
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 4);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event(&mut buf) {
+            Ok(Eof) => break,
+            Ok(e) => assert!(writer.write_event(e).is_ok()),
+            Err(e) => panic!(e),
+        }
+    }
+
+    let result = writer.into_inner().into_inner();
+
+    #[cfg(windows)]
+    assert!(result.into_iter().eq(txt.bytes().filter(|b| *b != 13)));
+
+    #[cfg(not(windows))]
     assert_eq!(result, txt.as_bytes());
 }
 
@@ -387,13 +416,13 @@ fn test_new_xml_decl_empty() {
 }
 
 #[test]
-fn test_buf_position() {
+fn test_buf_position_err_end_element() {
     let mut r = Reader::from_str("</a>");
     r.trim_text(true).check_end_names(true);
 
     let mut buf = Vec::new();
     match r.read_event(&mut buf) {
-        Err(_) if r.buffer_position() == 2 => assert!(true), // error at char 2: no opening tag
+        Err(_) if r.buffer_position() == 2 => (), // error at char 2: no opening tag
         Err(e) => panic!(
             "expecting buf_pos = 2, found {}, err: {:?}",
             r.buffer_position(),
@@ -401,15 +430,66 @@ fn test_buf_position() {
         ),
         e => panic!("expecting error, found {:?}", e),
     }
+}
 
-    r = Reader::from_str("<a><!--b>");
+#[test]
+fn test_buf_position_err_comment() {
+    let mut r = Reader::from_str("<a><!--b>");
     r.trim_text(true).check_end_names(true);
 
     next_eq!(r, Start, b"a");
+    assert_eq!(r.buffer_position(), 3);
 
     let mut buf = Vec::new();
     match r.read_event(&mut buf) {
-        Err(_) if r.buffer_position() == 5 => {
+        Err(_) if r.buffer_position() == 4 => {
+            // error at char 5: no closing --> tag found
+            assert!(true);
+        }
+        Err(e) => panic!(
+            "expecting buf_pos = 5, found {}, err: {:?}",
+            r.buffer_position(),
+            e
+        ),
+        e => assert!(false, "expecting error, found {:?}", e),
+    }
+}
+
+#[test]
+fn test_buf_position_err_comment_2_buf() {
+    let mut r = Reader::from_str("<a><!--b>");
+    r.trim_text(true).check_end_names(true);
+
+    let mut buf = Vec::new();
+    let _ = r.read_event(&mut buf).unwrap();
+    assert_eq!(r.buffer_position(), 3);
+
+    let mut buf = Vec::new();
+    match r.read_event(&mut buf) {
+        Err(_) if r.buffer_position() == 4 => {
+            // error at char 5: no closing --> tag found
+            assert!(true);
+        }
+        Err(e) => panic!(
+            "expecting buf_pos = 5, found {}, err: {:?}",
+            r.buffer_position(),
+            e
+        ),
+        e => assert!(false, "expecting error, found {:?}", e),
+    }
+}
+
+#[test]
+fn test_buf_position_err_comment_trim_text() {
+    let mut r = Reader::from_str("<a>\r\n <!--b>");
+    r.trim_text(true).check_end_names(true);
+
+    next_eq!(r, Start, b"a");
+    assert_eq!(r.buffer_position(), 3);
+
+    let mut buf = Vec::new();
+    match r.read_event(&mut buf) {
+        Err(_) if r.buffer_position() == 7 => {
             // error at char 5: no closing --> tag found
             assert!(true);
         }

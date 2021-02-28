@@ -11,6 +11,8 @@ use std::io::Write;
 mod services_macro;
 mod api_server;
 mod config;
+#[cfg(feature = "breakpad")]
+mod crash_uploader;
 mod global_context;
 mod session;
 mod shared_state;
@@ -111,20 +113,31 @@ fn main() {
         );
 
         display_build_info(&config, &registrar);
+
+        let global_context = GlobalContext::new(&config);
+
         // Init breakpad
         #[cfg(feature = "breakpad")]
         {
-            use std::panic;
-            let log_path = config.general.log_path.clone();
-            info!("save mini dump into file: {}", log_path);
-            let exception_handler = init_breakpad(log_path);
+            let mut log_path = config.general.log_path.clone();
+            log_path.push_str("/api-daemon-crashes");
+            info!("Saving mini dump into directory {}", log_path);
+            let _ = std::fs::create_dir_all(&log_path);
+            let exception_handler = init_breakpad(log_path.clone());
             // Write minidump while panic
-            panic::set_hook(Box::new(move |_| {
+            std::panic::set_hook(Box::new(move |_| {
                 write_minidump(exception_handler);
             }));
-        }
 
-        let global_context = GlobalContext::new(&config);
+            let uploader = crash_uploader::CrashUploader::new(&log_path);
+            let can_upload = uploader.can_upload(&global_context);
+            info!("Will upload crash reports: {}", can_upload);
+            if can_upload {
+                uploader.upload_reports();
+            } else {
+                uploader.wipe_reports();
+            }
+        }
 
         // Start the vhost server
         #[cfg(feature = "virtual-host")]

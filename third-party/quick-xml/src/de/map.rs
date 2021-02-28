@@ -17,8 +17,14 @@ enum MapValue {
 
 /// A deserializer for `Attributes`
 pub(crate) struct MapAccess<'a, R: BufRead> {
+    /// Tag -- owner of attributes
     start: BytesStart<'static>,
     de: &'a mut Deserializer<R>,
+    /// Position in flat byte slice of all attributes from which next
+    /// attribute should be parsed. This field is required because we
+    /// do not store reference to `Attributes` itself but instead create
+    /// a new object on each advance of `Attributes` iterator, so we need
+    /// to restore last position before advance.
     position: usize,
     value: MapValue,
 }
@@ -64,7 +70,27 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
         } else {
             // try getting from events (<key>value</key>)
             match self.de.peek()? {
-                Some(Event::Text(_)) | Some(Event::Start(_)) if has_value_field => {
+                Some(Event::Text(_)) => {
+                    self.value = MapValue::InnerValue;
+                    seed.deserialize(INNER_VALUE.into_deserializer()).map(Some)
+                }
+                // Used to deserialize collections of enums, like:
+                // <root>
+                //   <A/>
+                //   <B/>
+                //   <C/>
+                // </root>
+                //
+                // into
+                //
+                // enum Enum { A, B, С }
+                // struct Root {
+                //     #[serde(rename = "$value")]
+                //     items: Vec<Enum>,
+                // }
+                // TODO: This should be handled by #[serde(flatten)]
+                // See https://github.com/serde-rs/serde/issues/1905
+                Some(Event::Start(_)) if has_value_field => {
                     self.value = MapValue::InnerValue;
                     seed.deserialize(INNER_VALUE.into_deserializer()).map(Some)
                 }

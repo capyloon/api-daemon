@@ -40,6 +40,26 @@ fn sample_2_full() {
     );
 }
 
+#[cfg(all(not(windows), feature = "escape-html"))]
+#[test]
+fn html5() {
+    test(
+        include_bytes!("documents/html5.html"),
+        include_bytes!("documents/html5.txt"),
+        false,
+    );
+}
+
+#[cfg(all(windows, feature = "escape-html"))]
+#[test]
+fn html5() {
+    test(
+        include_bytes!("documents/html5.html"),
+        include_bytes!("documents/html5-windows.txt"),
+        false,
+    );
+}
+
 // #[test]
 // fn sample_3_short() {
 //     test(
@@ -160,7 +180,7 @@ fn issue_93_large_characters_in_entity_references() {
         r#"<hello>&𤶼;</hello>"#.as_bytes(),
         r#"
             |StartElement(hello)
-            |1:10 Error while escaping character at range 1..5: Unrecognized escape symbol: Ok("𤶼")
+            |1:10 FailedUnescape([38, 240, 164, 182, 188, 59]; Error while escaping character at range 1..5: Unrecognized escape symbol: Ok("𤶼"))
             |EndElement(hello)
             |EndDocument
         "#
@@ -383,8 +403,11 @@ fn xmlrs_display(opt_event: &Result<(Option<&[u8]>, Event)>) -> String {
         Ok((_, Event::Comment(ref e))) => format!("Comment({})", from_utf8(e).unwrap()),
         Ok((_, Event::CData(ref e))) => format!("CData({})", from_utf8(e).unwrap()),
         Ok((_, Event::Text(ref e))) => match e.unescaped() {
-            Ok(c) => format!("Characters({})", from_utf8(&*c).unwrap()),
-            Err(ref e) => format!("{}", e),
+            Ok(c) => match from_utf8(&*c) {
+                Ok(c) => format!("Characters({})", c),
+                Err(ref err) => format!("InvalidUtf8({:?}; {})", e.escaped(), err),
+            },
+            Err(ref err) => format!("FailedUnescape({:?}; {})", e.escaped(), err),
         },
         Ok((_, Event::Decl(ref e))) => {
             let version_cow = e.version().unwrap();
@@ -408,24 +431,23 @@ impl<'a> Iterator for SpecIter<'a> {
         let start = self
             .0
             .iter()
-            .position(|b| match *b {
-                b' ' | b'\r' | b'\n' | b'\t' | b'|' | b':' => false,
-                b'0'..=b'9' => false,
-                _ => true,
-            })
+            .position(|b| !matches!(*b, b' ' | b'\r' | b'\n' | b'\t' | b'|' | b':' | b'0'..=b'9'))
             .unwrap_or(0);
-        if let Some(p) = self.0.windows(2).position(|w| w == b")\n") {
+
+        if let Some(p) = self.0.windows(3).position(|w| w == b")\r\n") {
+            let (prev, next) = self.0.split_at(p + 1);
+            self.0 = &next[1..];
+            Some(from_utf8(&prev[start..]).expect("Error decoding to uft8"))
+        } else if let Some(p) = self.0.windows(2).position(|w| w == b")\n") {
             let (prev, next) = self.0.split_at(p + 1);
             self.0 = next;
             Some(from_utf8(&prev[start..]).expect("Error decoding to uft8"))
+        } else if self.0.is_empty() {
+            None
         } else {
-            if self.0.is_empty() {
-                None
-            } else {
-                let p = self.0;
-                self.0 = &[];
-                Some(from_utf8(&p[start..]).unwrap())
-            }
+            let p = self.0;
+            self.0 = &[];
+            Some(from_utf8(&p[start..]).unwrap())
         }
     }
 }

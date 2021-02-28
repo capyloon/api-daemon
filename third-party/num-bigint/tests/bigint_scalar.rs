@@ -1,6 +1,3 @@
-extern crate num_bigint;
-extern crate num_traits;
-
 use num_bigint::BigInt;
 use num_bigint::Sign::Plus;
 use num_traits::{Signed, ToPrimitive, Zero};
@@ -8,7 +5,7 @@ use num_traits::{Signed, ToPrimitive, Zero};
 use std::ops::Neg;
 
 mod consts;
-use consts::*;
+use crate::consts::*;
 
 #[macro_use]
 mod macros;
@@ -96,13 +93,13 @@ fn test_scalar_div_rem() {
         if !r.is_zero() {
             assert_eq!(r.sign(), a.sign());
         }
-        assert!(r.abs() <= From::from(b));
+        assert!(r.abs() <= BigInt::from(b));
         assert!(*a == b * &q + &r);
         assert!(q == *ans_q);
         assert!(r == *ans_r);
 
         let b = BigInt::from(b);
-        let (a, b, ans_q, ans_r) = (a.clone(), b.clone(), ans_q.clone(), ans_r.clone());
+        let (a, ans_q, ans_r) = (a.clone(), ans_q.clone(), ans_r.clone());
         assert_signed_scalar_op!(a / b == ans_q);
         assert_signed_scalar_op!(a % b == ans_r);
         assert_signed_scalar_assign_op!(a /= b == ans_q);

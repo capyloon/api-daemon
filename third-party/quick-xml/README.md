@@ -115,7 +115,7 @@ Here is an example deserializing crates.io source:
 // Cargo.toml
 // [dependencies]
 // serde = { version = "1.0", features = [ "derive" ] }
-// quick-xml = { version = "0.17", features = [ "serialize" ] }
+// quick-xml = { version = "0.21", features = [ "serialize" ] }
 extern crate serde;
 extern crate quick_xml;
 
@@ -255,7 +255,7 @@ test bench_serde_quick_xml      ... bench:   1,181,198 ns/iter (+/- 138,290)
 test bench_serde_xml_rs         ... bench:  15,039,564 ns/iter (+/- 783,485)
 ```
 
-For a feature and performance comparison, you can also have a look at RazrFalcon's [choose-your-xml-rs](https://github.com/RazrFalcon/choose-your-xml-rs).
+For a feature and performance comparison, you can also have a look at RazrFalcon's [parser comparison table](https://github.com/RazrFalcon/roxmltree#parsing).
 
 ## Contribute
 

@@ -6,6 +6,10 @@ git = "https://github.com/ChriFo/test-server-rs"
 tag = "0.9.1"
 replace-with = "vendored-sources"
 
+[source."https://github.com/acw/simple_asn1"]
+git = "https://github.com/acw/simple_asn1"
+replace-with = "vendored-sources"
+
 [source."https://github.com/budziq/rust-skeptic.git"]
 git = "https://github.com/budziq/rust-skeptic.git"
 branch = "tempfile"

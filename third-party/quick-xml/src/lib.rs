@@ -108,6 +108,7 @@
 //! quick-xml supports 2 additional features, non activated by default:
 //! - `encoding`: support non utf8 xmls
 //! - `serialize`: support serde `Serialize`/`Deserialize`
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 #![recursion_limit = "1024"]
 
@@ -116,11 +117,18 @@ extern crate encoding_rs;
 extern crate memchr;
 #[cfg(feature = "serialize")]
 extern crate serde;
+#[cfg(all(test, feature = "serialize"))]
+extern crate serde_value;
 
 #[cfg(feature = "serialize")]
 pub mod de;
 mod errors;
-mod escape;
+mod escapei;
+pub mod escape {
+    //! Manage xml character escapes
+    pub(crate) use escapei::{do_unescape, EscapeError};
+    pub use escapei::{escape, unescape, unescape_with};
+}
 pub mod events;
 mod reader;
 #[cfg(feature = "serialize")]

@@ -11,7 +11,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! h2 = "0.2"
+//! h2 = "0.3"
 //! ```
 //!
 //! # Layout
@@ -78,7 +78,7 @@
 //! [`server::handshake`]: server/fn.handshake.html
 //! [`client::handshake`]: client/fn.handshake.html
 
-#![doc(html_root_url = "https://docs.rs/h2/0.3.0")]
+#![doc(html_root_url = "https://docs.rs/h2/0.3.1")]
 #![deny(missing_debug_implementations, missing_docs)]
 #![cfg_attr(test, deny(warnings))]
 
@@ -126,7 +126,7 @@ pub use codec::{Codec, RecvError, SendError, UserError};
 use std::task::Poll;
 
 // TODO: Get rid of this trait once https://github.com/rust-lang/rust/pull/63512
-// is stablized.
+// is stabilized.
 trait PollExt<T, E> {
     /// Changes the success value of this `Poll` with the closure provided.
     fn map_ok_<U, F>(self, f: F) -> Poll<Option<Result<U, E>>>

@@ -29,8 +29,9 @@ type ExceptionHandler = usize;
 pub fn init_breakpad(path: String) -> ExceptionHandler {
     let mut content = vec![0];
     unsafe {
+        let cpath = CString::new(path.into_bytes()).unwrap();
         let descriptor =
-            root::rust_breakpad_descriptor_new(CString::new(path.into_bytes()).unwrap().as_ptr());
+            root::rust_breakpad_descriptor_new(cpath.as_ptr());
         let exception_handler = root::rust_breakpad_exceptionhandler_new(
             descriptor,
             filter_callback as *mut c_void,

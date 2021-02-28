@@ -92,6 +92,7 @@ macro_rules! impl_options {
     ($($(#[$a:meta])* const $opt:ident: $get:ident & $set:ident,)*) => {
         $(
             $(#[$a])*
+            #[inline]
             fn $set(&mut self, value: bool) -> Result<()> {
                 unsafe {
                     cvt(SSLSetSessionOption(self.as_inner(),
@@ -101,6 +102,7 @@ macro_rules! impl_options {
             }
 
             $(#[$a])*
+            #[inline]
             fn $get(&self) -> Result<bool> {
                 let mut value = 0;
                 unsafe { cvt(SSLGetSessionOption(self.as_inner(), $opt, &mut value))?; }
@@ -259,8 +261,7 @@ mod test {
         assert!(stream.server_auth_completed());
         let mut peer_trust = p!(stream.context().peer_trust2()).unwrap();
         p!(peer_trust.set_anchor_certificates(&[certificate()]));
-        let result = p!(peer_trust.evaluate());
-        assert!(result.success());
+        p!(peer_trust.evaluate_with_error());
 
         let mut stream = p!(stream.handshake());
         p!(stream.write_all(b"hello world!"));
@@ -269,6 +270,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn server_client_builders() {
         let listener = p!(TcpListener::bind("localhost:0"));
         let port = p!(listener.local_addr()).port();
@@ -299,6 +301,8 @@ mod test {
 
     #[test]
     fn client_bad_cert() {
+        let _ = env_logger::try_init();
+
         let listener = p!(TcpListener::bind("localhost:0"));
         let port = p!(listener.local_addr()).port();
 
@@ -325,6 +329,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn client() {
         let listener = p!(TcpListener::bind("localhost:0"));
         let port = p!(listener.local_addr()).port();
@@ -577,6 +582,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn close() {
         let listener = p!(TcpListener::bind("localhost:0"));
         let port = p!(listener.local_addr()).port();
@@ -605,6 +611,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn short_read() {
         let listener = p!(TcpListener::bind("localhost:0"));
         let port = p!(listener.local_addr()).port();

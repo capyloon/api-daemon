@@ -1,9 +1,7 @@
-byteorder
-=========
 This crate provides convenience methods for encoding and decoding
 numbers in either big-endian or little-endian order.
 
-[![Build status](https://github.com/BurntSushi/byteorder/workflows/ci/badge.svg)](https://github.com/BurntSushi/byteorder/actions)
+[![Build status](https://api.travis-ci.org/BurntSushi/byteorder.svg)](https://travis-ci.org/BurntSushi/byteorder)
 [![](http://meritbadge.herokuapp.com/byteorder)](https://crates.io/crates/byteorder)
 
 Dual-licensed under MIT or the [UNLICENSE](http://unlicense.org).
@@ -29,6 +27,8 @@ If you want to augment existing `Read` and `Write` traits, then import the
 extension methods like so:
 
 ```rust
+extern crate byteorder;
+
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
 ```
 

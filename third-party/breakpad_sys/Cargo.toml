@@ -8,4 +8,4 @@ cc = "1.0"
 bindgen = "0.33"
 
 [dependencies]
-log = "0.3"
+log = "0.4"
