@@ -6,17 +6,19 @@ edition = "2018"
 license = "Apache-2.0"
 
 [dependencies]
-android_utils = { path = "../../support/android-utils" }
 common = { path = "../../common" }
 geckobridge = { path = "../geckobridge" }
-hidl_utils = { path = "../../support/hidl-utils/" }
 libc = "0.2"
-light = { path = "../../support/light" }
 log = "0.4"
 parking_lot = "0.11"
+serde = "1.0"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_utils = { path = "../../support/android-utils" }
+hidl_utils = { path = "../../support/hidl-utils/" }
+light = { path = "../../support/light" }
 recovery = { path = "../../support/recovery" }
 power = { path = "../../support/power"}
-serde = "1.0"
 
 [build-dependencies]
 common = { path = "../../common" }
