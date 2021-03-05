@@ -118,6 +118,7 @@ impl Drop for AppsStatusRestorer {
 pub struct AppsRequest {
     pub downloader: Downloader, // Keeping the downloader around for reuse.
     pub shared_data: Shared<AppsSharedData>,
+    installing_apps_item: Option<AppsItem>, // Keep this field to report download failed
 }
 
 const DOWNLOAD_TIMEOUT: u64 = 600; // 10 mins
@@ -127,6 +128,7 @@ impl AppsRequest {
         Self {
             downloader: Downloader::default(),
             shared_data,
+            installing_apps_item: None,
         }
     }
 
@@ -300,7 +302,6 @@ impl AppsRequest {
 
                 app
             };
-
             if !manifest.get_version().is_empty() {
                 apps_item.set_version(&manifest.get_version());
             }
@@ -315,6 +316,7 @@ impl AppsRequest {
             let _ = registry.save_app(is_update, &apps_item, &manifest)?;
 
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
+            self.installing_apps_item = Some(apps_item.clone());
         }
 
         let mut available_dir_remover = DirRemover::new(&available_dir);
@@ -484,16 +486,11 @@ impl AppsRequest {
         Ok(AppsObject::from(&apps_item))
     }
 
-    pub fn broadcast_download_failed(
-        &mut self,
-        update_url: &str,
-        reason: AppsServiceError,
-        some_app: Option<AppsObject>,
-    ) {
-        let apps_object = if let Some(app) = some_app {
-            app
+    pub fn broadcast_download_failed(&mut self, update_url: &str, reason: AppsServiceError) {
+        let apps_object = if let Some(apps_item) = &self.installing_apps_item {
+            AppsObject::from(apps_item)
         } else {
-            let mut apps_item = AppsItem::default("", 0);
+            let mut apps_item = AppsItem::default("unknown", 80);
             apps_item.set_update_url(&update_url);
             AppsObject::from(&apps_item)
         };

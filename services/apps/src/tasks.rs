@@ -48,7 +48,7 @@ impl AppMgmtTask for InstallPackageTask {
                     .broadcast_app_installed(app);
             }
             Err(err) => {
-                request.broadcast_download_failed(&url, err, None);
+                request.broadcast_download_failed(&url, err);
                 responder.reject(err);
             }
         }
@@ -95,7 +95,7 @@ impl AppMgmtTask for InstallPwaTask {
                     .broadcast_app_installed(app);
             }
             Err(err) => {
-                request.broadcast_download_failed(url, err, None);
+                request.broadcast_download_failed(url, err);
                 responder.reject(err);
             }
         }
@@ -169,7 +169,7 @@ impl AppMgmtTask for UpdateTask {
         // Fall backs to getting token in downloader module
         let _ = ensure_token(&mut request);
 
-        let update_url = old_app.update_url.clone();
+        let update_url = old_app.update_url;
 
         let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
@@ -183,7 +183,7 @@ impl AppMgmtTask for UpdateTask {
                 shared.registry.event_broadcaster.broadcast_app_updated(app);
             }
             Err(err) => {
-                request.broadcast_download_failed(&update_url, err, Some(old_app));
+                request.broadcast_download_failed(&update_url, err);
                 responder.reject(err);
             }
         }
