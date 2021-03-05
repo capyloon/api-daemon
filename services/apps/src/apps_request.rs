@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 use url::Url;
+use url::Host::Domain;
 use version_compare::{CompOp, Version};
 use zip_utils::verify_zip;
 
@@ -435,8 +436,12 @@ impl AppsRequest {
                 serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
             for icon in &mut icons {
                 let mut icon_src = icon.get_src();
-                // If this is an absolute uri remove the leading / when building the download path
-                // so we don't end up trying to use a /some/invalid/path/icon.png path.
+                // If the icon src is a complete url remove the leading protocol for the download path.
+                if let Ok(url) = Url::parse(&icon_src) {
+                    icon_src = format!("{}{}", url.host().unwrap_or(Domain("")), url.path());
+                }
+                // If the icon src is an absolute path remove the leading / for the download path.
+                // Then it won't end up trying to use a /some/invalid/path/icon.png.
                 if icon_src.starts_with('/') {
                     let _ = icon_src.remove(0);
                 }
@@ -561,8 +566,8 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
     is_update_available
 }
 
-#[test]
-fn test_apply_pwa() {
+#[cfg(test)]
+fn test_apply_pwa(app_url: &str) {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use config::Config;
@@ -589,16 +594,19 @@ fn test_apply_pwa() {
         updater_socket: String::from("updater_socket"),
     };
 
+    let shared_data = &*APPS_SHARED_SHARED_DATA;
     let vhost_port = 80;
-    let mut registry = match AppsRegistry::initialize(&config, vhost_port) {
-        Ok(v) => v,
+    match AppsRegistry::initialize(&config, vhost_port) {
+        Ok(registry) => {
+            shared_data.lock().registry = registry;
+        },
         Err(err) => {
             panic!("err: {:?}", err);
         }
     };
 
-    println!("registry.count(): {}", registry.count());
-    assert_eq!(4, registry.count());
+    println!("registry.count(): {}", shared_data.lock().registry.count());
+    assert_eq!(4, shared_data.lock().registry.count());
 
     // Test 1: apply from a local dir
     let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webmanifest");
@@ -615,7 +623,7 @@ fn test_apply_pwa() {
     }
     let _ = std::fs::copy(&src_manifest, &download_manifest).unwrap();
     let manifest = Manifest::read_from(&download_manifest).unwrap();
-    let app_name = registry
+    let app_name = shared_data.lock().registry
         .get_unique_name(&manifest.get_name(), &update_url)
         .unwrap();
     if let Some(icons_value) = manifest.get_icons() {
@@ -628,7 +636,7 @@ fn test_apply_pwa() {
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(&update_url);
 
-    match registry.apply_pwa(
+    match shared_data.lock().registry.apply_pwa(
         &mut apps_item,
         &download_dir.as_path(),
         &manifest,
@@ -644,10 +652,7 @@ fn test_apply_pwa() {
         }
     }
 
-    let shared_data = &*APPS_SHARED_SHARED_DATA;
-
     // Test 2: download and apply from a remote url
-    let app_url = "https://testpwa.github.io/manifest.webmanifest";
     let mut request = AppsRequest::new(shared_data.clone());
     match request.download_and_apply_pwa(&test_dir, app_url) {
         Ok(app) => {
@@ -662,8 +667,10 @@ fn test_apply_pwa() {
     if let Some(app) = shared_data.lock().registry.get_by_update_url(app_url) {
         assert_eq!(app.get_name(), "hellopwa");
 
-        let cached_dir = test_path.join("cached").join(app.get_name());
-        let update_manifest = cached_dir.join("manifest.webmanifest");
+        let cached_dir = test_path.join("cached");
+        let update_manifest = cached_dir
+                                  .join(app.get_name())
+                                  .join("manifest.webmanifest");
         let manifest = Manifest::read_from(&update_manifest).unwrap();
 
         // start url should be absolute url of remote address
@@ -679,8 +686,12 @@ fn test_apply_pwa() {
             let manifest_url_base = Url::parse(&app.get_manifest_url()).unwrap().join("/");
             for icon in icons {
                 let icon_src = icon.get_src();
-                let icon_url_base = Url::parse(&icon_src).unwrap().join("/");
+                let icon_url = Url::parse(&icon_src).unwrap();
+                let icon_url_base = icon_url.join("/");
+                let icon_path = format!("{}{}", cached_dir.to_str().unwrap(), icon_url.path());
+
                 assert_eq!(icon_url_base, manifest_url_base);
+                assert!(Path::new(&icon_path).is_file(), "Error in icon path.");
             }
         } else {
             panic!();
@@ -688,6 +699,12 @@ fn test_apply_pwa() {
     } else {
         panic!();
     }
+}
+
+#[test]
+fn test_pwa() {
+  test_apply_pwa("https://testpwa.github.io/manifest.webmanifest");
+  test_apply_pwa("https://testpwa.github.io/manifest2.webmanifest");
 }
 
 #[test]
