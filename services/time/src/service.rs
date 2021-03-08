@@ -6,7 +6,7 @@ use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
 use common::traits::{
     CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, TrackerId,
+    SharedSessionContext, StateLogger, TrackerId,
 };
 use common::{JsonValue, SystemTime};
 use log::{debug, error, info};
@@ -24,6 +24,8 @@ pub struct SharedObj {
     observers: HashMap<CallbackReason, Vec<(TimeObserverProxy, DispatcherId)>>,
 }
 
+impl StateLogger for SharedObj {}
+
 impl SharedObj {
     pub fn default() -> Self {
         let setting_service = SettingsService::shared_state();
@@ -31,7 +33,7 @@ impl SharedObj {
         // the life time of SharedObj is the same as the process. We don't need to remove_observer
         let id = setting_service.lock().db.add_observer(
             "time.timezone",
-            ObserverType::FuncPtr(Box::new(SettingObserver{})),
+            ObserverType::FuncPtr(Box::new(SettingObserver {})),
         );
 
         info!("add_observer to SettingsService with id {}", id);
@@ -110,8 +112,7 @@ impl SharedObj {
 }
 
 lazy_static! {
-    pub(crate) static ref TIME_SHARED_DATA: Shared<SharedObj> =
-        Shared::adopt(SharedObj::default());
+    pub(crate) static ref TIME_SHARED_DATA: Shared<SharedObj> = Shared::adopt(SharedObj::default());
 }
 
 #[derive(Clone, Copy)]
@@ -372,6 +373,5 @@ impl Drop for Time {
         );
         let shared_lock = &mut self.shared_obj.lock();
         shared_lock.event_broadcaster.remove(self.dispatcher_id);
-
     }
 }

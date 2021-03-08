@@ -13,12 +13,12 @@
 [package]
 edition = "2018"
 name = "zip"
-version = "0.5.10"
+version = "0.5.11"
 authors = ["Mathijs van de Nes <git@mathijs.vd-nes.nl>", "Marli Frost <marli@frost.red>", "Ryan Levick <ryan.levick@gmail.com>"]
 description = "Library to support the reading and writing of zip files.\n"
 keywords = ["zip", "archive"]
 license = "MIT"
-repository = "https://github.com/zip/zip-rs.git"
+repository = "https://github.com/zip-rs/zip.git"
 
 [[bench]]
 name = "read_entry"

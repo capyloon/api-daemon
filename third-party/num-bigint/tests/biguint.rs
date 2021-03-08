@@ -1551,6 +1551,8 @@ fn test_from_and_to_radix() {
     }
 
     assert!(BigUint::from_radix_le(&[10, 100, 10], 50).is_none());
+    assert_eq!(BigUint::from_radix_le(&[], 2), Some(BigUint::zero()));
+    assert_eq!(BigUint::from_radix_be(&[], 2), Some(BigUint::zero()));
 }
 
 #[test]
@@ -1774,4 +1776,61 @@ fn test_pow() {
     check!(u64);
     check!(u128);
     check!(usize);
+}
+
+#[test]
+fn test_trailing_zeros() {
+    assert!(BigUint::from(0u8).trailing_zeros().is_none());
+    assert_eq!(BigUint::from(1u8).trailing_zeros().unwrap(), 0);
+    assert_eq!(BigUint::from(2u8).trailing_zeros().unwrap(), 1);
+    let x: BigUint = BigUint::one() << 128;
+    assert_eq!(x.trailing_zeros().unwrap(), 128);
+}
+
+#[test]
+fn test_trailing_ones() {
+    assert_eq!(BigUint::from(0u8).trailing_ones(), 0);
+    assert_eq!(BigUint::from(1u8).trailing_ones(), 1);
+    assert_eq!(BigUint::from(2u8).trailing_ones(), 0);
+    assert_eq!(BigUint::from(3u8).trailing_ones(), 2);
+    let x: BigUint = (BigUint::from(3u8) << 128) | BigUint::from(3u8);
+    assert_eq!(x.trailing_ones(), 2);
+    let x: BigUint = (BigUint::one() << 128) - BigUint::one();
+    assert_eq!(x.trailing_ones(), 128);
+}
+
+#[test]
+fn test_count_ones() {
+    assert_eq!(BigUint::from(0u8).count_ones(), 0);
+    assert_eq!(BigUint::from(1u8).count_ones(), 1);
+    assert_eq!(BigUint::from(2u8).count_ones(), 1);
+    assert_eq!(BigUint::from(3u8).count_ones(), 2);
+    let x: BigUint = (BigUint::from(3u8) << 128) | BigUint::from(3u8);
+    assert_eq!(x.count_ones(), 4);
+}
+
+#[test]
+fn test_bit() {
+    assert!(!BigUint::from(0u8).bit(0));
+    assert!(!BigUint::from(0u8).bit(100));
+    assert!(!BigUint::from(42u8).bit(4));
+    assert!(BigUint::from(42u8).bit(5));
+    let x: BigUint = (BigUint::from(3u8) << 128) | BigUint::from(3u8);
+    assert!(x.bit(129));
+    assert!(!x.bit(130));
+}
+
+#[test]
+fn test_set_bit() {
+    let mut x = BigUint::from(3u8);
+    x.set_bit(128, true);
+    x.set_bit(129, true);
+    assert_eq!(x, (BigUint::from(3u8) << 128) | BigUint::from(3u8));
+    x.set_bit(0, false);
+    x.set_bit(128, false);
+    x.set_bit(130, false);
+    assert_eq!(x, (BigUint::from(2u8) << 128) | BigUint::from(2u8));
+    x.set_bit(129, false);
+    x.set_bit(1, false);
+    assert_eq!(x, BigUint::zero());
 }

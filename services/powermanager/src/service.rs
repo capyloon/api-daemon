@@ -3,7 +3,9 @@ use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::PowerManagerSupport;
 use common::core::BaseMessage;
-use common::traits::{OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext};
+use common::traits::{
+    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, StateLogger,
+};
 use log::{debug, error};
 
 pub struct SharedObj {
@@ -16,6 +18,8 @@ pub struct SharedObj {
     ext_screen_brightness: i64,
     key_light_brightness: i64,
 }
+
+impl StateLogger for SharedObj {}
 
 pub struct PowerManager {
     shared_obj: Shared<SharedObj>,

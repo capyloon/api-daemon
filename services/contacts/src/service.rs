@@ -6,7 +6,7 @@ use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
     CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
-    Shared, SharedSessionContext, SimpleObjectTracker, TrackerId,
+    Shared, SharedSessionContext, SimpleObjectTracker, StateLogger, TrackerId,
 };
 use log::{debug, error, info};
 use std::rc::Rc;
@@ -15,6 +15,8 @@ use std::thread;
 pub struct ContactsSharedData {
     pub db: ContactsDb,
 }
+
+impl StateLogger for ContactsSharedData {}
 
 // The struct used to implement the ContactCursor interface.
 // It simply wraps a database cursor.

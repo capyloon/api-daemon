@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.2
+
+- Improve code size when using parking_lot feature.
+
+## 1.7.1
+
+- Fix `race::OnceBox<T>` to also impl `Default` even if `T` doesn't impl `Default`.
+
 ## 1.7.0
 
 - Hide the `race` module behind (default) `race` feature.

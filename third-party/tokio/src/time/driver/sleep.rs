@@ -16,6 +16,8 @@ use std::task::{self, Poll};
 ///
 /// Canceling a sleep instance is done by dropping the returned future. No additional
 /// cleanup work is required.
+// Alias for old name in 0.x
+#[cfg_attr(docsrs, doc(alias = "delay_until"))]
 pub fn sleep_until(deadline: Instant) -> Sleep {
     Sleep::new_timeout(deadline)
 }
@@ -53,8 +55,13 @@ pub fn sleep_until(deadline: Instant) -> Sleep {
 /// ```
 ///
 /// [`interval`]: crate::time::interval()
+// Alias for old name in 0.x
+#[cfg_attr(docsrs, doc(alias = "delay_for"))]
 pub fn sleep(duration: Duration) -> Sleep {
-    sleep_until(Instant::now() + duration)
+    match Instant::now().checked_add(duration) {
+        Some(deadline) => sleep_until(deadline),
+        None => sleep_until(Instant::far_future()),
+    }
 }
 
 pin_project! {
@@ -164,6 +171,10 @@ impl Sleep {
         Sleep { deadline, entry }
     }
 
+    pub(crate) fn far_future() -> Sleep {
+        Self::new_timeout(Instant::far_future())
+    }
+
     /// Returns the instant at which the future will complete.
     pub fn deadline(&self) -> Instant {
         self.deadline
@@ -185,7 +196,7 @@ impl Sleep {
     /// completed.
     ///
     /// To call this method, you will usually combine the call with
-    /// [`Pin::as_mut`], which lets you call the method with consuming the
+    /// [`Pin::as_mut`], which lets you call the method without consuming the
     /// `Sleep` itself.
     ///
     /// # Example

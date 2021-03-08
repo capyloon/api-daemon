@@ -9,7 +9,7 @@ use crate::generated::common::{
 use crate::generated::service::{GeckoBridgeProxy, GeckoBridgeProxyTracker};
 use crate::service::PROXY_TRACKER;
 use common::tokens::SharedTokensManager;
-use common::traits::{OriginAttributes, Shared};
+use common::traits::{OriginAttributes, Shared, StateLogger};
 use common::JsonValue;
 use log::{debug, error};
 use parking_lot::Mutex;
@@ -63,6 +63,30 @@ pub struct GeckoBridgeState {
     networkmanager: Option<NetworkManagerDelegateProxy>,
     observers: Vec<Sender<()>>,
     tokens: SharedTokensManager,
+}
+
+impl StateLogger for GeckoBridgeState {
+    fn log(&self) {
+        // We use the info log level to ensure this ends up in logcat even
+        // when not in verbose log mode.
+        use log::info;
+
+        macro_rules! log_delegate {
+            ($desc:expr,$name:ident) => {
+                info!(
+                    "  {:<25} [{}]",
+                    format!("{} delegate:", $desc),
+                    self.$name.is_some()
+                );
+            };
+        }
+
+        log_delegate!("Apps", appsservice);
+        log_delegate!("Power Manager", powermanager);
+        log_delegate!("Preferences", preference);
+        log_delegate!("Mobile Manager", mobilemanager);
+        log_delegate!("Network Manager", networkmanager);
+    }
 }
 
 impl GeckoBridgeState {
@@ -300,7 +324,7 @@ impl GeckoBridgeState {
         &mut self,
         manifest_url: String,
         data_type: String,
-        value: JsonValue
+        value: JsonValue,
     ) -> Result<(), DelegateError> {
         debug!("apps_service_on_clear: {}", &manifest_url);
         if let Some(service) = &mut self.appsservice {

@@ -4,7 +4,7 @@ use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::traits::{
-    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, TrackerId,
+    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{error, info};
 use std::thread;
@@ -12,6 +12,8 @@ use std::thread;
 pub struct DeviceCapabilitySharedData {
     pub config: DeviceCapabilityConfig,
 }
+
+impl StateLogger for DeviceCapabilitySharedData {}
 
 pub struct DeviceCapabilityService {
     id: TrackerId,

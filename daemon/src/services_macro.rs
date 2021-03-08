@@ -16,6 +16,28 @@ macro_rules! declare_services {
             )*
         }
 
+        impl SharedStateKind {
+            pub fn is_locked(&self) -> bool {
+                match &*self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        SharedStateKind::$service(shared) => shared.is_locked(),
+                    )*
+                }
+            }
+
+            pub fn log(&self) {
+                use common::traits::StateLogger;
+
+                match &*self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        SharedStateKind::$service(shared) => shared.lock().log(),
+                    )*
+                }
+            }
+        }
+
         pub type SharedStateMap = Shared<HashMap<String, SharedStateKind>>;
 
         pub fn create_shared_state() -> SharedStateMap {

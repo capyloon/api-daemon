@@ -53,7 +53,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "libc"
-version = "0.2.86"
+version = "0.2.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -71,7 +71,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "once_cell"
-version = "1.7.0"
+version = "1.7.2"
 dependencies = [
  "crossbeam-utils 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -96,7 +96,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cfg-if 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "instant 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.86 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.87 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 1.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -186,7 +186,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum crossbeam-utils 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)" = "c3c7c73a2d1e9fc0886a08b93e98eb643461230d5f1925e4036204d5f2e261a8"
 "checksum instant 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "61124eeebbd69b8190558df225adf7e4caafce0d743919e5d6b19652314ec5ec"
 "checksum lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
-"checksum libc 0.2.86 (registry+https://github.com/rust-lang/crates.io-index)" = "b7282d924be3275cec7f6756ff4121987bc6481325397dde6ba3e7802b1a8b1c"
+"checksum libc 0.2.87 (registry+https://github.com/rust-lang/crates.io-index)" = "265d751d31d6780a3f956bb5b8022feba2d94eeee5a84ba64f4212eedca42213"
 "checksum lock_api 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
 "checksum memchr 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "88579771288728879b57485cc7d6b07d648c9f0141eb955f8ab7f9d45394468e"
 "checksum parking_lot 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)" = "6d7744ac029df22dca6284efe4e898991d28e3085c706c972bcd7da4a27a15eb"

@@ -250,7 +250,7 @@
 //!   dynamic library libproc_macro from rustc toolchain.
 
 // Syn types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/syn/1.0.60")]
+#![doc(html_root_url = "https://docs.rs/syn/1.0.63")]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![allow(non_camel_case_types)]
 // Ignored clippy lints.
@@ -259,7 +259,9 @@
     clippy::eval_order_dependence,
     clippy::inherent_to_string,
     clippy::large_enum_variant,
+    clippy::manual_map, // https://github.com/rust-lang/rust-clippy/issues/6795
     clippy::match_on_vec_items,
+    clippy::missing_panics_doc,
     clippy::needless_doctest_main,
     clippy::needless_pass_by_value,
     clippy::never_loop,

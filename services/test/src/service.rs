@@ -6,7 +6,7 @@ use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
     CommonResponder, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, SimpleObjectTracker, TrackerId,
+    SharedSessionContext, SimpleObjectTracker, StateLogger, TrackerId,
 };
 use common::{JsonValue, SystemTime};
 use log::{error, info};
@@ -110,6 +110,8 @@ impl SimpleObjectTracker for SharedCustomProviderImpl {
 pub struct TestSharedData {
     request_count: u32,
 }
+
+impl StateLogger for TestSharedData {}
 
 pub struct TestServiceImpl {
     id: TrackerId,
@@ -478,11 +480,19 @@ impl TestFactoryMethods for TestServiceImpl {
         responder.resolve(input);
     }
 
-    fn echo_somethings(&mut self, responder: &TestFactoryEchoSomethingsResponder, input: SomeThings) {
+    fn echo_somethings(
+        &mut self,
+        responder: &TestFactoryEchoSomethingsResponder,
+        input: SomeThings,
+    ) {
         responder.resolve(input);
     }
 
-    fn echo_morethings(&mut self, responder: &TestFactoryEchoMorethingsResponder, input: MoreThings) {
+    fn echo_morethings(
+        &mut self,
+        responder: &TestFactoryEchoMorethingsResponder,
+        input: MoreThings,
+    ) {
         responder.resolve(input);
     }
 }

@@ -401,12 +401,18 @@ impl SessionContext {
     }
 }
 
+pub trait StateLogger {
+    fn log(&self) {}
+}
+
+impl StateLogger for () {}
+
 pub type SharedSessionContext = Shared<SessionContext>;
 
 pub trait Service<S> {
     /// The type of the shared state if multiple instances of this service need to
     /// share access.
-    type State;
+    type State: StateLogger;
 
     /// Called once we have checked that BaseMessage was targetted at this service.
     fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage);
@@ -459,6 +465,10 @@ impl<T> Shared<T> {
         Shared {
             inner: Arc::new(Mutex::new(what)),
         }
+    }
+
+    pub fn is_locked(&self) -> bool {
+        self.inner.is_locked()
     }
 }
 

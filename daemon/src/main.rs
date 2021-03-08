@@ -23,6 +23,8 @@ use crate::global_context::GlobalContext;
 use crate::shared_state::{enabled_services, SharedStateKind};
 use common::remote_services_registrar::RemoteServicesRegistrar;
 use log::{error, info};
+use signal_hook::consts::signal::*;
+use signal_hook::iterator::Signals;
 use std::thread;
 use vhost_server::config::VhostApi;
 
@@ -88,6 +90,43 @@ fn display_build_info(config: &Config, registrar: &RemoteServicesRegistrar) {
     info!("Services: {:?}", enabled_services(config, registrar));
 }
 
+// Logs status information about the daemon.
+fn log_daemon_status(global_context: &GlobalContext) {
+    let state = global_context.service_state();
+    let lock = state.lock();
+
+    // List all available services and whether their shared state is locked.
+    for (name, service) in lock.iter() {
+        info!(
+            "Service: {:<25} {}",
+            name,
+            if service.is_locked() { "[locked]" } else { "[ok]" }
+        );
+
+        // Log the service shared state if possible.
+        if !service.is_locked() {
+            service.log();
+        }
+    }
+}
+
+// Installs a signal handler for SIGUSR1 and display information about the
+// daemon state when the signal is handled.
+fn install_signal_handler(global_context: GlobalContext) {
+    let mut signals = Signals::new(&[SIGUSR1]).expect("Failed to create SIGUSR1 signal handler");
+    let _thread = thread::spawn(move || {
+        for signal in &mut signals {
+            match signal {
+                SIGUSR1 => {
+                    info!("SIGUSR1 signal received!");
+                    log_daemon_status(&global_context);
+                }
+                _ => unreachable!(),
+            }
+        }
+    });
+}
+
 fn main() {
     #[cfg(feature = "daemon")]
     {
@@ -138,6 +177,8 @@ fn main() {
                 uploader.wipe_reports();
             }
         }
+
+        install_signal_handler(global_context.clone());
 
         // Start the vhost server
         #[cfg(feature = "virtual-host")]

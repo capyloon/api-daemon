@@ -5,7 +5,7 @@ use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::traits::{
     CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, TrackerId,
+    SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{error, info};
 use std::collections::HashMap;
@@ -14,6 +14,8 @@ use std::thread;
 pub struct SettingsSharedData {
     pub db: SettingsDb,
 }
+
+impl StateLogger for SettingsSharedData {}
 
 lazy_static! {
     pub(crate) static ref SETTINGS_SHARED_DATA: Shared<SettingsSharedData> =
@@ -149,7 +151,10 @@ impl SettingsFactoryMethods for SettingsService {
         if self.proxy_tracker.contains_key(&observer) {
             if let Some(target) = self.observers.get_mut(&observer) {
                 if let Some(idx) = target.iter().position(|x| x.0 == name) {
-                    self.state.lock().db.remove_observer(&target[idx].0, target[idx].1);
+                    self.state
+                        .lock()
+                        .db
+                        .remove_observer(&target[idx].0, target[idx].1);
                     target.remove(idx);
                     responder.resolve()
                 }

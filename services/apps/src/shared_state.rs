@@ -4,7 +4,7 @@ use crate::apps_registry::AppsRegistry;
 use crate::config::Config;
 use crate::generated::common::*;
 use crate::update_scheduler::SchedulerMessage;
-use common::traits::Shared;
+use common::traits::{Shared, StateLogger};
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use vhost_server::config::VhostApi;
@@ -23,6 +23,8 @@ pub struct AppsSharedData {
     pub scheduler: Option<Sender<SchedulerMessage>>,
     pub downloadings: HashMap<String, Sender<()>>, // Update url -> cancel sender
 }
+
+impl StateLogger for AppsSharedData {}
 
 impl Default for AppsSharedData {
     fn default() -> Self {

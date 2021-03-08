@@ -5,11 +5,15 @@ use common::core::BaseMessage;
 use log::{debug, error};
 use std::convert::Into;
 
-use common::traits::{OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext};
+use common::traits::{
+    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, StateLogger,
+};
 
 pub struct ProcessSharedData {
     pub cgservice: CGService,
 }
+
+impl StateLogger for ProcessSharedData {}
 
 pub struct ProcManagerService {
     genid: GenID,
