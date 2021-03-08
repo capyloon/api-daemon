@@ -7,9 +7,31 @@ then
     exit 1
 fi
 
+if ! [ "${TARGET}" = "armv7-linux-androideabi" ];
+then
+    CC=cc
+    CFLAGS=
+    CXX=c++
+    CXXFLAGS=
+fi
+
 cmd() {
     echo " • Running: $* …" >&2
     "$@"
+}
+
+configure() {
+    if [ "${TARGET}" = "armv7-linux-androideabi" ];
+    then
+        #patch for fix compile conflict in wchar.h
+        cmd rm -f src/common/android/testing/include/wchar.h
+
+        cmd ./configure --host="${TARGET}" \
+                    --disable-processor \
+                    --disable-tools
+    else
+        cmd ./configure
+    fi
 }
 
 if test $(uname) = "Linux"; then
@@ -17,35 +39,32 @@ if test $(uname) = "Linux"; then
     then
         cmd git clone https://chromium.googlesource.com/breakpad/breakpad ./${CC_BUILD_DIR} 
         cmd git clone https://chromium.googlesource.com/linux-syscall-support ./${CC_BUILD_DIR}/src/third_party/lss
+
+        cmd pushd "${CC_BUILD_DIR}"
+        configure
+        cmd popd
     fi
+
     if ! [ -d "src/generated" ];
     then 
         cmd mkdir src/generated
     fi
 fi
 
-cmd cd "${CC_BUILD_DIR}"
+cmd pushd "${CC_BUILD_DIR}"
+# Update breakpad.
+cmd git pull
 
-if [ "${TARGET}" = "armv7-linux-androideabi" ];
+# If any file changed, clean the build and re-configure
+if ! [[ $(git diff-tree -r --name-only ORIG_HEAD HEAD) = "" ]];
 then
-    #patch for fix compile conflict in wchar.h
-    cmd rm -f src/common/android/testing/include/wchar.h
-
-    cmd ./configure --host="${TARGET}" \
-                --disable-processor \
-                --disable-tools
-else
-    CC=cc
-    CFLAGS=
-    CXX=c++
-    CXXFLAGS=
-    cmd ./configure
+    cmd make clean
+    configure
 fi
 
-cmd make clean
 cmd make -j4
 
-cmd cd ".."
+cmd popd
 if test $(uname) = "Linux"; then
     cmd $CXX -lstdc++ -std=c++11 -fPIC -c -static -pthread ${CXXFLAGS} \
         -Isrc -I${CC_BUILD_DIR}/src src/rust_breakpad_linux.cc

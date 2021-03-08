@@ -877,7 +877,7 @@ checksum = "5988cb1d626264ac94100be357308f29ff7cbdd3b36bda27f450a4ee3f713426"
 [[package]]
 name = "breakpad_sys"
 version = "0.1.0"
-source = "git+ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git#70640ab70f003d43ba1a315980649d3fe4f22b84"
+source = "git+ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git#4cf6ec0864cb8ccd640825284b4453461e8d2514"
 dependencies = [
  "bindgen",
  "cc",
