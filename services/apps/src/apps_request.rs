@@ -15,13 +15,13 @@ use log::{debug, error, info};
 use md5::{Digest, Md5};
 use std::collections::HashMap;
 use std::convert::From;
-use std::fs::{remove_dir_all, File};
+use std::fs::{self, remove_dir_all, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
-use url::Url;
 use url::Host::Domain;
+use url::Url;
 use version_compare::{CompOp, Version};
 use zip_utils::verify_zip;
 
@@ -243,9 +243,25 @@ impl AppsRequest {
             }
         };
 
-        if compare_version_hash(&app, update_manifest) {
+        if compare_version_hash(&app, &update_manifest) {
             let mut app_obj = AppsObject::from(&app);
             app_obj.allowed_auto_download = is_auto_update;
+
+            // Save the downloaded update manifest file in cached dir.
+            if update_manifest.exists() {
+                let cached_dir = path.join("cached");
+                let cached_manifest = cached_dir.join(&app.get_name()).join("update.webmanifest");
+                let _ = AppsStorage::ensure_dir(&cached_dir);
+                if let Err(err) = fs::rename(&update_manifest, &cached_manifest) {
+                    error!(
+                        "Rename update manifest failed: {} -> {} : {:?}",
+                        update_manifest.display(),
+                        cached_manifest.display(),
+                        err
+                    );
+                    return Err(AppsServiceError::FilesystemFailure);
+                }
+            }
 
             Ok(Some(app_obj))
         } else {
@@ -596,7 +612,7 @@ fn test_apply_pwa(app_url: &str) {
     match AppsRegistry::initialize(&config, vhost_port) {
         Ok(registry) => {
             shared_data.lock().registry = registry;
-        },
+        }
         Err(err) => {
             panic!("err: {:?}", err);
         }
@@ -620,7 +636,9 @@ fn test_apply_pwa(app_url: &str) {
     }
     let _ = std::fs::copy(&src_manifest, &download_manifest).unwrap();
     let manifest = Manifest::read_from(&download_manifest).unwrap();
-    let app_name = shared_data.lock().registry
+    let app_name = shared_data
+        .lock()
+        .registry
         .get_unique_name(&manifest.get_name(), Some(&update_url))
         .unwrap();
     if let Some(icons_value) = manifest.get_icons() {
@@ -665,9 +683,7 @@ fn test_apply_pwa(app_url: &str) {
         assert_eq!(app.get_name(), "hellopwa");
 
         let cached_dir = test_path.join("cached");
-        let update_manifest = cached_dir
-                                  .join(app.get_name())
-                                  .join("manifest.webmanifest");
+        let update_manifest = cached_dir.join(app.get_name()).join("manifest.webmanifest");
         let manifest = Manifest::read_from(&update_manifest).unwrap();
 
         // start url should be absolute url of remote address
@@ -700,8 +716,8 @@ fn test_apply_pwa(app_url: &str) {
 
 #[test]
 fn test_pwa() {
-  test_apply_pwa("https://testpwa.github.io/manifest.webmanifest");
-  test_apply_pwa("https://testpwa.github.io/manifest2.webmanifest");
+    test_apply_pwa("https://testpwa.github.io/manifest.webmanifest");
+    test_apply_pwa("https://testpwa.github.io/manifest2.webmanifest");
 }
 
 #[test]
