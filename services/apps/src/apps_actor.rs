@@ -1,5 +1,4 @@
 use crate::apps_item::AppsItem;
-use crate::apps_registry::AppsRegistry;
 use crate::apps_request::AppsRequest;
 use crate::apps_storage::{validate_package, PackageError};
 use crate::generated::common::*;
@@ -297,7 +296,8 @@ pub fn install_package(
         let shared = shared_data.lock();
         shared.config.data_path.clone()
     };
-    let path = Path::new(&data_path);
+    let current = std::env::current_dir().unwrap();
+    let path = current.join(&data_path);
 
     if !from_path.is_file() {
         return Err(AppsActorError::PackageMissing);
@@ -306,14 +306,9 @@ pub fn install_package(
         return Err(AppsActorError::InstallationDirNotFound);
     }
     let mut shared = shared_data.lock();
-    let app_name = AppsRegistry::sanitize_name(&manifest.get_name());
-    if app_name.is_empty() {
-        return Err(AppsActorError::InvalidAppName);
-    }
-    let update_url = format!("http://{}.localhost/manifest.webmanifest", &app_name);
     let app_name = shared
         .registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), None)
         .map_err(|_| AppsActorError::InvalidAppName)?;
 
     let download_dir = path.join(&format!("downloading/{}", &app_name));
@@ -322,13 +317,12 @@ pub fn install_package(
     fs::create_dir_all(download_dir.as_path())?;
     fs::copy(from_path, download_app.as_path())?;
 
-    let is_update = shared.registry.get_by_update_url(&update_url).is_some();
+    let is_update = shared.registry.get_first_by_name(&app_name).is_some();
     // Need create appsItem object and add to db to reflect status
     let mut apps_item = AppsItem::default(&app_name, shared.registry.get_vhost_port());
     if !manifest.get_version().is_empty() {
         apps_item.set_version(&manifest.get_version());
     }
-    apps_item.set_update_url(&update_url);
     apps_item.set_install_state(AppsInstallState::Installing);
     shared
         .registry
@@ -380,7 +374,7 @@ pub fn uninstall(
 
     let _ = shared
         .registry
-        .uninstall_app(&app.name, &app.update_url, &data_path)
+        .uninstall_app(&app.name, &app.manifest_url, &data_path)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     shared
@@ -541,6 +535,7 @@ fn test_manifest() {
 
 #[cfg(test)]
 fn test_install_app() {
+    use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
     use common::traits::Service;
@@ -588,30 +583,19 @@ fn test_install_app() {
             assert_eq!(4, shared.registry.count());
         }
 
-        let app_name: String;
+        // Install
         let manifest = validate_package(&src_app.as_path()).unwrap();
         let milisec_before_installing = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-
         if let Ok((apps_item, need_restart)) =
             install_package(&shared_data, &src_app.as_path(), &manifest)
         {
-            println!("App installed");
-            app_name = apps_item.get_name();
-            assert!(!need_restart);
-        } else {
-            println!("App installed failed");
-            panic!();
-        }
-        {
+            let app_name = apps_item.get_name();
             let shared = shared_data.lock();
             match shared.registry.get_first_by_name(&app_name) {
                 Some(app) => {
-                    println!("Installation, success");
-                    println!("app.get_install_time() {:?}", app.get_install_time());
-                    println!("milisec_before_installing {:?}", milisec_before_installing);
                     assert_eq!(true, app.get_install_time() >= milisec_before_installing);
                 }
                 None => {
@@ -619,32 +603,36 @@ fn test_install_app() {
                     panic!();
                 }
             }
+            assert!(!need_restart);
+        } else {
+            println!("App installed failed");
+            panic!();
         }
 
         // Re-install
         let manifest = validate_package(&src_app.as_path()).unwrap();
-        let milisec_before_installing1 = SystemTime::now()
+        let milisec_before_reinstalling = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        if install_package(&shared_data, &src_app.as_path(), &manifest).is_ok() {
-            println!("App re-installed");
-        } else {
-            println!("App re-installed failed");
-            panic!();
-        }
+        if let Ok((apps_item, need_restart)) =
+            install_package(&shared_data, &src_app.as_path(), &manifest)
         {
+            let app_name = apps_item.get_name();
             let shared = shared_data.lock();
             match shared.registry.get_first_by_name(&app_name) {
                 Some(app) => {
-                    println!("Re-Installation, success");
-                    assert_eq!(true, app.get_install_time() >= milisec_before_installing1);
+                    assert_eq!(true, app.get_install_time() >= milisec_before_reinstalling);
                 }
                 None => {
                     println!("Installation, failed");
                     panic!();
                 }
             }
+            assert!(!need_restart);
+        } else {
+            println!("App re-installed failed");
+            panic!();
         }
     }
 
@@ -686,6 +674,7 @@ fn test_install_app() {
 
 #[cfg(test)]
 fn test_get_all() {
+    use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
     use common::traits::Service;
@@ -735,7 +724,7 @@ fn test_get_all() {
             shared.state = AppsServiceState::Running;
         }
         let app_list = get_all(&shared_data).unwrap();
-        let expected = r#"[{"name":"calculator","install_state":"Installed","manifest_url":"http://calculator.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/calculator/manifest.webmanifest","allowed_auto_download":false},{"name":"system","install_state":"Installed","manifest_url":"http://system.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/system/manifest.webmanifest","allowed_auto_download":false},{"name":"gallery","install_state":"Installed","manifest_url":"http://gallery.localhost:8443/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/gallery/manifest.webmanifest","allowed_auto_download":false},{"name":"launcher","install_state":"Installed","manifest_url":"http://launcher.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false}]"#;
+        let expected = r#"[{"name":"calculator","install_state":"Installed","manifest_url":"http://calculator.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/calculator/manifest.webmanifest","allowed_auto_download":false},{"name":"system","install_state":"Installed","manifest_url":"http://system.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/system/manifest.webmanifest","allowed_auto_download":false},{"name":"gallery","install_state":"Installed","manifest_url":"http://gallery.localhost:8443/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false},{"name":"launcher","install_state":"Installed","manifest_url":"http://launcher.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false}]"#;
 
         assert_eq!(app_list, expected);
     }

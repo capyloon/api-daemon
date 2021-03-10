@@ -1,0 +1,12 @@
+.appscmd_test:
+  extends: .test_base
+  stage: test-js
+  script:
+    - cd $CI_PROJECT_DIR
+    - $CI_PROJECT_DIR/services/apps/appscmd/tests/driver.sh
+  needs:
+    - job: 'build:daemon'
+    - job: 'build:daemon:test:essentials'
+
+test:appscmd:
+  extends: .appscmd_test

@@ -295,15 +295,18 @@ impl AppsRegistry {
     pub fn get_unique_name(
         &self,
         name: &str,
-        update_url: &str,
+        update_url: Option<&str>,
     ) -> Result<String, AppsServiceError> {
         if let Some(db) = &self.db {
-            // The update_url is unique return name from the db.
-            if let Ok(app) = db.get_by_update_url(update_url) {
-                return Ok(app.get_name());
+            if let Some(url) = update_url {
+                // The update_url is unique return name from the db.
+                if let Ok(app) = db.get_by_update_url(url) {
+                    return Ok(app.get_name());
+                }
             }
 
-            let mut unique_name: String = Self::sanitize_name(name);
+            let sanitized_name: String = Self::sanitize_name(name);
+            let mut unique_name = sanitized_name.clone();
             if unique_name.is_empty() {
                 return Err(AppsServiceError::InvalidAppName);
             }
@@ -317,7 +320,7 @@ impl AppsRegistry {
                 loop {
                     if apps
                         .iter()
-                        .find(|app| app.get_name() == unique_name)
+                        .find(|app| app.is_found(&unique_name, update_url))
                         .is_none()
                     {
                         break;
@@ -325,7 +328,7 @@ impl AppsRegistry {
                     if count > 999 {
                         return Err(AppsServiceError::InvalidAppName);
                     }
-                    unique_name = format!("{}{}", name, count);
+                    unique_name = format!("{}{}", sanitized_name, count);
                     count += 1;
                 }
             }
@@ -453,7 +456,7 @@ impl AppsRegistry {
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
-        let _ = self.save_app(is_update, &apps_item, &manifest);
+        let _ = self.save_app(is_update, &apps_item, &manifest)?;
 
         // Relay the request to Gecko using the bridge.
         let features = match manifest.get_b2g_features() {
@@ -588,26 +591,15 @@ impl AppsRegistry {
         apps_item: &AppsItem,
         manifest: &Manifest,
     ) -> Result<(), RegistrationError> {
-        let _ = AppsRegistry::validate(
-            &apps_item.get_manifest_url(),
-            &apps_item.get_update_url(),
-            manifest,
-        )?;
+        let _ = AppsRegistry::validate(&apps_item.get_manifest_url(), manifest)?;
 
         self.register_or_replace(apps_item)?;
         Ok(())
     }
 
-    fn validate(
-        manifest_url: &str,
-        update_url: &str,
-        manifest: &Manifest,
-    ) -> Result<(), RegistrationError> {
+    fn validate(manifest_url: &str, manifest: &Manifest) -> Result<(), RegistrationError> {
         if manifest_url.is_empty() {
             return Err(RegistrationError::ManifestUrlMissing);
-        }
-        if update_url.is_empty() {
-            return Err(RegistrationError::UpdateUrlMissing);
         }
 
         if let Err(err) = manifest.is_valid() {
@@ -627,23 +619,18 @@ impl AppsRegistry {
         false
     }
 
-    pub fn unregister_app(&mut self, update_url: &str) -> Result<String, RegistrationError> {
-        if update_url.is_empty() {
-            return Err(RegistrationError::UpdateUrlMissing);
+    fn unregister_app(&mut self, manifest_url: &str) -> Result<String, RegistrationError> {
+        if manifest_url.is_empty() {
+            return Err(RegistrationError::ManifestUrlMissing);
         }
 
-        if let Some(app) = self.get_by_update_url(update_url) {
-            let manifest_url = app.get_manifest_url();
-            if self.unregister(&manifest_url) {
-                // Relay the request to Gecko using the bridge.
-                let bridge = GeckoBridgeService::shared_state();
-                bridge
-                    .lock()
-                    .apps_service_on_uninstall(manifest_url.clone());
-                Ok(manifest_url)
-            } else {
-                Err(RegistrationError::ManifestURLNotFound)
-            }
+        if self.unregister(&manifest_url) {
+            // Relay the request to Gecko using the bridge.
+            let bridge = GeckoBridgeService::shared_state();
+            bridge
+                .lock()
+                .apps_service_on_uninstall(manifest_url.to_string());
+            Ok(manifest_url.to_string())
         } else {
             Err(RegistrationError::ManifestURLNotFound)
         }
@@ -652,10 +639,10 @@ impl AppsRegistry {
     pub fn uninstall_app(
         &mut self,
         app_name: &str,
-        update_url: &str,
+        manifest_url: &str,
         data_path: &str,
     ) -> Result<String, AppsServiceError> {
-        match self.unregister_app(update_url) {
+        match self.unregister_app(manifest_url) {
             Ok(manifest_url) => {
                 let path = Path::new(&data_path);
                 let installed_dir = path.join("installed").join(app_name);
@@ -889,13 +876,6 @@ fn test_init_apps_from_system() {
                     .get_name(),
                 item.get_name()
             );
-            assert_eq!(
-                registry
-                    .get_by_update_url(&item.get_update_url())
-                    .unwrap()
-                    .get_name(),
-                item.get_name()
-            );
         }
     } else {
         panic!("Wrong apps config in data.");
@@ -949,29 +929,22 @@ fn test_register_app() {
     let version = "some_version";
     let manifest = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), Some(&update_url))
         .err()
         .unwrap();
     assert_eq!(app_name, AppsServiceError::InvalidAppName);
 
-    // Test register_app - invalid update url
+    // Test register_app - without update url
     let name = "some_name";
-    let update_url = "";
     let launch_path = "some_path";
     let version = "some_version";
-    let manifest1 = Manifest::new(name, launch_path, version);
+    let manifest = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), None)
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
-    apps_item.set_update_url(&update_url);
-    if let Err(err) = registry.register_app(&apps_item, &manifest1) {
-        assert_eq!(
-            format!("{}", err),
-            format!("{}", RegistrationError::UpdateUrlMissing)
-        );
-    } else {
+    if registry.register_app(&apps_item, &manifest).is_err() {
         panic!();
     }
 
@@ -986,7 +959,7 @@ fn test_register_app() {
     let version = "1.0.0";
     let manifest = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), update_url)
+        .get_unique_name(&manifest.get_name(), Some(update_url))
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
@@ -1018,7 +991,7 @@ fn test_register_app() {
     let version = "1.0.1";
     let manifest1 = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest1.get_name(), &update_url)
+        .get_unique_name(&manifest1.get_name(), Some(&update_url))
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
@@ -1041,10 +1014,10 @@ fn test_register_app() {
     }
 
     // Unregister an app
-    registry.unregister_app(&update_url).unwrap();
+    registry.unregister_app(&manifest_url).unwrap();
 
-    // Sould be 4 apps left
-    assert_eq!(4, registry.count());
+    // Sould be 5 apps left
+    assert_eq!(5, registry.count());
 
     let manifest_url = apps_item.get_manifest_url();
     if registry.get_by_manifest_url(&manifest_url).is_some() {
@@ -1089,20 +1062,20 @@ fn test_unregister_app() {
     let vhost_port = 8081;
     let mut registry = AppsRegistry::initialize(&config, vhost_port).unwrap();
 
-    // Test unregister_app - invalid updater url
-    let update_url = "";
-    if let Err(err) = registry.unregister_app(&update_url) {
+    // Test unregister_app - invalid manifest url
+    let manifest_url = "";
+    if let Err(err) = registry.unregister_app(&manifest_url) {
         assert_eq!(
             format!("{}", err),
-            format!("{}", RegistrationError::UpdateUrlMissing),
+            format!("{}", RegistrationError::ManifestUrlMissing),
         );
     } else {
         panic!();
     }
 
-    // Test unregister_app - invalid updater url
-    let update_url = "https://store.helloworld.local/manifest.webmanifest";
-    if let Err(err) = registry.unregister_app(update_url) {
+    // Test unregister_app - invalid manifest url
+    let manifest_url = "https://store.helloworld.local/manifest.webmanifest";
+    if let Err(err) = registry.unregister_app(&manifest_url) {
         assert_eq!(
             format!("{}", err),
             format!("{}", RegistrationError::ManifestURLNotFound),
@@ -1117,11 +1090,10 @@ fn test_unregister_app() {
     let version = "1.0.1";
     let manifest1 = Manifest::new(name, launch_path, version);
     let app_name = registry
-        .get_unique_name(&manifest1.get_name(), &update_url)
+        .get_unique_name(&manifest1.get_name(), None)
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
-    apps_item.set_update_url(&update_url);
     if !manifest1.get_version().is_empty() {
         apps_item.set_version(&manifest1.get_version());
     } else {
@@ -1146,8 +1118,8 @@ fn test_unregister_app() {
     }
 
     // Uninstall it
-    let update_url = apps_item.get_update_url();
-    registry.unregister_app(&update_url).unwrap();
+    let manifest_url = apps_item.get_manifest_url();
+    registry.unregister_app(&manifest_url).unwrap();
 
     // 4 apps left
     assert_eq!(4, registry.count());
@@ -1216,7 +1188,7 @@ fn test_apply_download() {
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), Some(&update_url))
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     if !manifest.get_version().is_empty() {
@@ -1256,7 +1228,7 @@ fn test_apply_download() {
         let manifest = validate_package(&available_app.as_path()).unwrap();
         let update_url = &format!("https://test{}.helloworld/manifest.webmanifest", count);
         let app_name = registry
-            .get_unique_name(&manifest.get_name(), &update_url)
+            .get_unique_name(&manifest.get_name(), Some(&update_url))
             .unwrap();
         let mut apps_item = AppsItem::default(&app_name, vhost_port);
         if !manifest.get_version().is_empty() {
@@ -1295,7 +1267,7 @@ fn test_apply_download() {
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), Some(&update_url))
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     if !manifest.get_version().is_empty() {
@@ -1326,7 +1298,7 @@ fn test_apply_download() {
     let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
     let manifest = validate_package(&available_app.as_path()).unwrap();
     let update_url = "https://invalidname.localhost/manifest.webmanifest";
-    let app_name = registry.get_unique_name(&manifest.get_name(), &update_url);
+    let app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url));
     assert_eq!(app_name, Err(AppsServiceError::InvalidAppName));
 
     {

@@ -130,7 +130,7 @@ impl AppMgmtTask for UninstallTask {
         if let Err(err) =
             shared
                 .registry
-                .uninstall_app(&app.name, &app.update_url, data_dir.to_str().unwrap())
+                .uninstall_app(&app.name, &app.manifest_url, data_dir.to_str().unwrap())
         {
             error!("Unregister app failed: {:?}", err);
             return responder.reject(err);

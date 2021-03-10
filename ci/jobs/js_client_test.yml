@@ -26,9 +26,6 @@
     - WITH_TEST_SERVICE=1 ./release_libs.sh
     - mkdir -p ./daemon/remote/TestService
     - cp ./target/release/child-test-daemon $CI_PROJECT_DIR/daemon/remote/TestService/daemon
-    # appscmd tests also need to setup the api-daemon and run first to not have an extra application
-    # installed by the apps service test.
-    - $CI_PROJECT_DIR/services/apps/appscmd/tests/driver.sh
     # Run all the service tests with a single webdriver session.
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/accounts/client/test/tests.html
       file://$CI_PROJECT_DIR/services/apps/client/test/tests.html

@@ -165,6 +165,17 @@ impl AppsItem {
         self.package_hash = hash.to_owned();
     }
 
+    pub fn is_found(&self, unique_name: &str, update_url: Option<&str>) -> bool {
+        let found = self.name == unique_name;
+        if self.update_url.is_empty() && update_url.is_none() {
+            // If the update_url is empty and the removable is true,
+            // allow the sideload one to override the preload one.
+            found && !self.removable
+        } else {
+            found
+        }
+    }
+
     fn default_string() -> String {
         String::new()
     }

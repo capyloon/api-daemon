@@ -1,3 +1,4 @@
 include:
   - 'ci/jobs/cargo_test.yml'
   - 'ci/jobs/js_client_test.yml'
+  - 'ci/jobs/appscmd_test.yml'

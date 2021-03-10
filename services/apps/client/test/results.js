@@ -1,7 +1,7 @@
 var calculator_expected = {"name":"calculator","installState":0,"manifestUrl":"http://calculator.localhost:8081/manifest.webmanifest","removable":false,"status":0,"updateState":0,"updateManifestUrl":"","updateUrl":"https://store.server/calculator/manifest.webmanifest","allowedAutoDownload":false};
 
 // removable is true per test fixtures.
-var gallery_expected = {"name":"gallery","installState":0,"manifestUrl":"http://gallery.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateState":0,"updateManifestUrl":"","updateUrl":"https://store.server/gallery/manifest.webmanifest","allowedAutoDownload":false};
+var gallery_expected = {"name":"gallery","installState":0,"manifestUrl":"http://gallery.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"","updateState":0,"updateUrl":"","allowedAutoDownload":false};
 
 var system_expected = {"name":"system","installState":0,"manifestUrl":"http://system.localhost:8081/manifest.webmanifest","removable":false,"status":0,"updateState":0,"updateManifestUrl":"","updateUrl":"https://store.server/system/manifest.webmanifest","allowedAutoDownload":false};
 

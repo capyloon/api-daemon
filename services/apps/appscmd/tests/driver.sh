@@ -8,18 +8,54 @@ then
     exit 1;
 fi
 
-cd $CI_PROJECT_DIR/daemon
-RUST_LOG=info WS_RUNTIME_TOKEN=secrettoken $CI_PROJECT_DIR/target/release/api-daemon &
+cd ${CI_PROJECT_DIR}/daemon
+RUST_LOG=info WS_RUNTIME_TOKEN=secrettoken ${CI_PROJECT_DIR}/target/release/api-daemon &
 export RUST_LOG=debug
 export RUST_BACKTRACE=1
 
-cd $CI_PROJECT_DIR/services/apps/appscmd/tests
+cd ${CI_PROJECT_DIR}/services/apps/appscmd/tests
 
 # Let the daemon start and initialize.
 sleep 5
 
-$CI_PROJECT_DIR/target/release/appscmd --socket /tmp/apps_service_uds.sock --json list > apps_observed.json
+CMD="${CI_PROJECT_DIR}/target/release/appscmd --socket /tmp/apps_service_uds.sock"
+FIXTURES="${CI_PROJECT_DIR}/services/apps/test-fixtures"
+VROOT="${CI_PROJECT_DIR}/prebuilts/http_root/webapps/vroot"
 
-$CI_PROJECT_DIR/tests/kill_daemon.sh
-
+${CMD} --json list > apps_observed.json
 md5sum apps_expected.json | sed s/expected/observed/ | md5sum -c
+
+# array of test cases
+# "expected_name  application_to_install"
+tests=(
+"gallery     webapps/gallery/application.zip"
+"gallery     webapps/gallery1/application.zip"
+"calculator1 webapps/calculator/application.zip"
+"calculator1 webapps/calculator1/application.zip"
+"helloworld  apps-from/helloworld/application.zip"
+"helloworld  apps-from/helloworld1/application.zip"
+)
+
+echo tests: ${tests}
+for (( i=0; i<${#tests[@]}; i++ ));
+do
+	test=${tests[$i]}
+	echo "test: ${test}"
+	[ -z "${test}" ] && continue
+	from=`echo ${test}  | cut -d\  -f2`
+	expect=`echo ${test}  | cut -d\  -f1`
+
+	# Will install with a new unique name if it is not allowed to override.
+	${CMD} install ${FIXTURES}/${from}
+	${CMD} --json list > apps_observed.json
+
+	# verify app list
+	md5sum apps_expected_${expect}.json | sed s/expected_${expect}/observed/ | md5sum -c
+
+	# verify the checksum of the application.zip
+	origin=`md5sum ${FIXTURES}/${from} | cut -d\  -f1`
+	install=`md5sum ${VROOT}/${expect}/application.zip | cut -d\  -f1`
+	[ "${origin}" = "${install}" ] || exit 2
+done
+
+${CI_PROJECT_DIR}/tests/kill_daemon.sh

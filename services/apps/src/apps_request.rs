@@ -293,7 +293,7 @@ impl AppsRequest {
 
                 app
             } else {
-                let app_name = registry.get_unique_name(&manifest.get_name(), &update_url)?;
+                let app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url))?;
                 let mut app = AppsItem::default(&app_name, registry.get_vhost_port());
                 app.set_update_url(&update_url);
 
@@ -419,7 +419,7 @@ impl AppsRequest {
         // Lock registry to do application registration, emit installing event
         {
             let registry = &mut self.shared_data.lock().registry;
-            app_name = registry.get_unique_name(&manifest.get_name(), &update_url)?;
+            app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url))?;
             apps_item = AppsItem::default_pwa(&app_name, registry.get_vhost_port());
             apps_item.set_install_state(AppsInstallState::Installing);
             apps_item.set_update_url(&update_url);
@@ -621,7 +621,7 @@ fn test_apply_pwa(app_url: &str) {
     let _ = std::fs::copy(&src_manifest, &download_manifest).unwrap();
     let manifest = Manifest::read_from(&download_manifest).unwrap();
     let app_name = shared_data.lock().registry
-        .get_unique_name(&manifest.get_name(), &update_url)
+        .get_unique_name(&manifest.get_name(), Some(&update_url))
         .unwrap();
     if let Some(icons_value) = manifest.get_icons() {
         let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
