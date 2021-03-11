@@ -30,6 +30,8 @@ use std::thread;
 use std::time::Duration;
 use thiserror::Error;
 use threadpool::ThreadPool;
+use url::Host::Domain;
+use url::Url;
 use zip::ZipArchive;
 
 #[cfg(test)]
@@ -240,16 +242,46 @@ impl AppsRegistry {
                     for app in &mut apps {
                         let app_name = app.get_name();
                         let source = root_dir.join(&app_name);
-                        let dest = vroot_dir.join(&app_name);
-                        app.set_manifest_url(&AppsItem::new_manifest_url(&app_name, vhost_port));
-                        if let Err(err) = symlink(&source, &dest) {
-                            // Don't fail if the symlink already exists.
-                            if err.kind() != std::io::ErrorKind::AlreadyExists {
-                                error!(
-                                    "Failed to create symlink {:?} -> {:?} : {}",
-                                    source, dest, err
-                                );
-                                return Err(err.into());
+                        let manifest_url = Url::parse(&app.get_manifest_url()).unwrap();
+                        // The manifest URLs of package apps and PWA apps are different.
+                        //   Package app: https://[app-name].localhost/manifest.webmanifest
+                        //   PWA app: https://cached.localhost/[app-name]/manifest.webmanifest
+                        // Extract the preload PWA app assets to the related dir.
+                        if manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost") {
+                            app.set_manifest_url(&AppsItem::new_pwa_url(&app_name, vhost_port));
+                            let dest = data_dir.join("cached").join(&app_name);
+                            let zip = source.join("application.zip");
+                            let file = match File::open(&zip) {
+                                Ok(file) => file,
+                                Err(err)  =>  {
+                                    error!("Failed to open {}: {}", &zip.display(), err);
+                                    continue;
+                                }
+                            };
+                            let mut archive = match ZipArchive::new(file) {
+                                Ok(archive) => archive,
+                                Err(err)  =>  {
+                                    error!("Failed to read {}: {}", &zip.display(), err);
+                                    continue;
+                                }
+                            };
+                            if let Err(err) = archive.extract(&dest) {
+                                error!("Failed to extract {:?} to {:?} : {}", source, dest, err);
+                            }
+                        } else {
+                            app.set_manifest_url(&AppsItem::new_manifest_url(
+                                &app_name, vhost_port,
+                            ));
+                            let dest = vroot_dir.join(&app_name);
+                            if let Err(err) = symlink(&source, &dest) {
+                                // Don't fail if the symlink already exists.
+                                if err.kind() != std::io::ErrorKind::AlreadyExists {
+                                    error!(
+                                        "Failed to create symlink {:?} -> {:?} : {}",
+                                        source, dest, err
+                                    );
+                                    return Err(err.into());
+                                }
                             }
                         }
                         // Add the app to the database.
@@ -829,27 +861,25 @@ pub fn start(shared_data: Shared<AppsSharedData>, vhost_port: u16) {
 #[test]
 fn test_init_apps_from_system() {
     use crate::config;
+    use crate::manifest::Icons;
     use config::Config;
 
     let _ = env_logger::try_init();
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
-    let root_path = format!("{}/test-fixtures/webapps", current.display());
+    let root_path = format!("{}/test-fixtures/webapps-pwa", current.display());
     let test_dir = format!("{}/test-fixtures/test-apps-dir", current.display());
+    let test_path = Path::new(&test_dir);
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
-    let _ = remove_dir_all(Path::new(&test_dir));
-
-    if let Err(err) = fs::create_dir_all(PathBuf::from(test_dir.clone())) {
-        println!("{:?}", err);
-    }
+    let _ = remove_dir_all(&test_path);
 
     println!("Register from: {}", &root_path);
     let config = Config {
         root_path: root_path.clone(),
-        data_path: test_dir,
+        data_path: test_dir.clone(),
         uds_path: String::from("uds_path"),
         cert_type: String::from("production"),
         updater_socket: String::from("updater_socket"),
@@ -863,7 +893,43 @@ fn test_init_apps_from_system() {
     };
 
     println!("registry.count: {}", registry.count());
-    assert_eq!(4, registry.count());
+    assert_eq!(5, registry.count());
+
+    // Verify the preload test pwa app.
+    if let Some(app) =
+        registry.get_by_update_url("https://preloadpwa.domain.url/manifest.webmanifest")
+    {
+        assert_eq!(app.get_name(), "preloadpwa");
+
+        let cached_dir = test_path.join("cached");
+        let update_manifest = cached_dir.join(app.get_name()).join("manifest.webmanifest");
+        let manifest = Manifest::read_from(&update_manifest).unwrap();
+
+        // start url should be absolute url of remote address
+        assert_eq!(
+            manifest.get_start_url(),
+            "https://preloadpwa.domain.url/index.html"
+        );
+
+        // icon url should be relative path of local cached address
+        if let Some(icons_value) = manifest.get_icons() {
+            let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+            let manifest_url_base = Url::parse(&app.get_manifest_url()).unwrap().join("/");
+            for icon in icons {
+                let icon_src = icon.get_src();
+                let icon_url = Url::parse(&icon_src).unwrap();
+                let icon_url_base = icon_url.join("/");
+                let icon_path = format!("{}{}", cached_dir.to_str().unwrap(), icon_url.path());
+
+                assert_eq!(icon_url_base, manifest_url_base);
+                assert!(Path::new(&icon_path).is_file(), "Error in icon path.");
+            }
+        } else {
+            panic!();
+        }
+    } else {
+        panic!();
+    }
 
     let test_json = Path::new(&root_path).join("webapps.json");
     if let Ok(test_items) = read_webapps(&test_json) {
@@ -897,10 +963,6 @@ fn test_register_app() {
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
     let _ = remove_dir_all(Path::new(&test_dir));
-
-    if let Err(err) = fs::create_dir_all(PathBuf::from(test_dir.clone())) {
-        println!("{:?}", err);
-    }
 
     println!("Register from: {}", &root_path);
     let config = Config {
@@ -1046,10 +1108,6 @@ fn test_unregister_app() {
     // Tring to remove it at the beginning to make the test at local easy.
     let _ = remove_dir_all(Path::new(&test_dir));
 
-    if let Err(err) = fs::create_dir_all(PathBuf::from(test_dir.clone())) {
-        println!("{:?}", err);
-    }
-
     println!("Register from: {}", &root_path);
     let config = Config {
         root_path,
@@ -1147,10 +1205,6 @@ fn test_apply_download() {
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
     let _ = remove_dir_all(&test_path);
-
-    if let Err(err) = fs::create_dir_all(&test_path) {
-        println!("{:?}", err);
-    }
 
     println!("Register from: {}", &_root_dir);
     let config = Config {
