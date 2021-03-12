@@ -542,23 +542,23 @@ export class Session {
       if (self.connected) {
         return;
       }
-      self.reconnect();
+      // Get a new token if possible.
+      if (navigator.b2g && navigator.b2g.externalapi) {
+        navigator.b2g.externalapi.getToken().then(
+          (token) => {
+            self.token = token;
+            self.reconnect();
+          },
+          (e) => {
+            self.wait_reopen();
+          }
+        );
+      } else {
+        self.reconnect();
+      }
       setTimeout(re_connect, wait_time());
     };
-    // Get a new token if possible.
-    if (navigator.b2g && navigator.b2g.externalapi) {
-      navigator.b2g.externalapi.getToken().then(
-        (token) => {
-          self.token = token;
-          re_connect();
-        },
-        (e) => {
-          self.wait_reopen();
-        }
-      );
-    } else {
-      re_connect();
-    }
+    setTimeout(re_connect, delay);
   }
 
   has_service(name) {
