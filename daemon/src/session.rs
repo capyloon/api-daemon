@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::session_counter::SessionKind;
 use crate::shared_state::{
     enabled_services, format_request_helper, on_create_service_helper, on_release_object_helper,
     process_base_message_helper, SharedStateMap, TrackableServices,
@@ -41,6 +42,7 @@ pub struct Session {
     pub(crate) shared_state: SharedStateMap,
     pub(crate) session_helper: SessionSupport,
     bytes_received: usize,
+    kind: SessionKind,
 }
 
 impl Drop for Session {
@@ -51,6 +53,7 @@ impl Drop for Session {
             self.session_helper.bytes_sent()
         );
         self.close();
+        self.kind.end();
     }
 }
 
@@ -67,7 +70,9 @@ impl Session {
         shared_state: SharedStateMap,
         state: SessionState,
         origin_attributes: Option<OriginAttributes>,
+        kind: SessionKind,
     ) -> Self {
+        kind.start();
         remote_services_manager
             .lock()
             .add_upstream_session(session_id, sender.clone());
@@ -92,6 +97,7 @@ impl Session {
                 event_map,
             ),
             bytes_received: 0,
+            kind,
         }
     }
 
@@ -116,6 +122,7 @@ impl Session {
             shared_state,
             SessionState::Handshake,
             None,
+            SessionKind::Ws,
         )
     }
 
@@ -140,6 +147,7 @@ impl Session {
             shared_state,
             SessionState::Request,
             Some(OriginAttributes::new("uds", HashSet::new())),
+            SessionKind::Uds,
         )
     }
 

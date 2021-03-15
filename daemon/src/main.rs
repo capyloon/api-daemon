@@ -15,11 +15,13 @@ mod config;
 mod crash_uploader;
 mod global_context;
 mod session;
+mod session_counter;
 mod shared_state;
 mod uds_server;
 
 use crate::config::Config;
 use crate::global_context::GlobalContext;
+use crate::session_counter::SessionKind;
 use crate::shared_state::{enabled_services, SharedStateKind};
 use common::remote_services_registrar::RemoteServicesRegistrar;
 use log::{error, info};
@@ -95,12 +97,23 @@ fn log_daemon_status(global_context: &GlobalContext) {
     let state = global_context.service_state();
     let lock = state.lock();
 
+    // Display the numbe of active sessions.
+    info!(
+        "Active sessions: websocket={}, uds={}",
+        SessionKind::Ws.count(),
+        SessionKind::Uds.count()
+    );
+
     // List all available services and whether their shared state is locked.
     for (name, service) in lock.iter() {
         info!(
             "Service: {:<25} {}",
             name,
-            if service.is_locked() { "[locked]" } else { "[ok]" }
+            if service.is_locked() {
+                "[locked]"
+            } else {
+                "[ok]"
+            }
         );
 
         // Log the service shared state if possible.

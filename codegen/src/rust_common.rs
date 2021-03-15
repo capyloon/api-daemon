@@ -292,7 +292,11 @@ impl Codegen {
             }}
             pub fn remove(&mut self, dispatcher_id: DispatcherId) {{
                 self.dispatchers.remove(&dispatcher_id);
-            }}"#,
+            }}
+            pub fn log(&self) {{
+                log::info!("  Registered dispatchers: {{}}", self.dispatchers.len());
+            }}
+            "#,
                 interface.name
             )?;
 

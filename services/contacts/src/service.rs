@@ -16,7 +16,11 @@ pub struct ContactsSharedData {
     pub db: ContactsDb,
 }
 
-impl StateLogger for ContactsSharedData {}
+impl StateLogger for ContactsSharedData {
+    fn log(&self) {
+        self.db.log();
+    }
+}
 
 // The struct used to implement the ContactCursor interface.
 // It simply wraps a database cursor.

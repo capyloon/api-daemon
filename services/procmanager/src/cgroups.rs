@@ -1,4 +1,4 @@
-use log::error;
+use log::{info, error};
 use std::cmp::{Ord, Ordering};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -33,7 +33,7 @@ pub type GenID = u64;
 //   A |Groups| is associated with a generation.  Generations are
 //   always created from an existing generation.  Only the generation
 //   that was created from the current active generation can be
-//   committed.  Therefore, at most one of genrations that were
+//   committed.  Therefore, at most one of generations that were
 //   created from the same one can be committed, and other ones will
 //   fail or abort.  It is a very simple way to implement the concept
 //   of transactions.
@@ -397,6 +397,11 @@ impl CGService {
         self.retrieve_groups(generation)
             .map(|groups| groups.get_group_path(group).unwrap())
     }
+
+    pub fn log(&self) {
+        info!("  Uncommitted Groups count: {}", self.uncommitted_groups.len());
+        self.groups.log();
+    }
 }
 
 #[derive(Clone)]
@@ -431,6 +436,11 @@ pub struct Groups {
 }
 
 impl Groups {
+    pub fn log(&self) {
+        info!("  CGroup Names   : {}", self.names2groups.len());
+        info!("  CGroup proc ids: {}", self.proc_ids2groups.len());
+    }
+
     pub fn new(creator: String) -> Groups {
         Groups {
             generation: 0,

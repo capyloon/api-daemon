@@ -280,6 +280,25 @@ impl SettingsDb {
             Err(Error::InvalidImport)
         }
     }
+
+    // Display
+    pub fn log(&self) {
+        let count = self
+            .db
+            .connection()
+            .query_row(
+                &format!("SELECT count(*) FROM {}", TABLE_NAME),
+                NO_PARAMS,
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        info!("  {} settings in db.", count);
+
+        let observers_count: usize = self.observers.values().map(|obs| obs.len()).sum();
+        info!("  {} registered observers.", observers_count);
+
+        self.event_broadcaster.log();
+    }
 }
 
 #[test]

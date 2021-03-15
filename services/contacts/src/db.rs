@@ -1662,6 +1662,10 @@ impl ContactsDb {
 
         Ok(())
     }
+
+    pub fn log(&self) {
+        self.event_broadcaster.log();
+    }
 }
 
 fn rows_to_vec<I, R>(source: I) -> Vec<R>

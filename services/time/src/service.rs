@@ -24,7 +24,14 @@ pub struct SharedObj {
     observers: HashMap<CallbackReason, Vec<(TimeObserverProxy, DispatcherId)>>,
 }
 
-impl StateLogger for SharedObj {}
+impl StateLogger for SharedObj {
+    fn log(&self) {
+        let observers_count: usize = self.observers.values().map(|vec| vec.len()).sum();
+        info!("  {} registered observers", observers_count);
+
+        self.event_broadcaster.log();
+    }
+}
 
 impl SharedObj {
     pub fn default() -> Self {
@@ -373,5 +380,13 @@ impl Drop for Time {
         );
         let shared_lock = &mut self.shared_obj.lock();
         shared_lock.event_broadcaster.remove(self.dispatcher_id);
+
+        for obs in self.observers.values() {
+            for (reason , id) in obs {
+            shared_lock.remove_observer(*reason, *id);
+            }
+        }
+
+        self.observers.clear();
     }
 }

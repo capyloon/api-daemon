@@ -13,7 +13,11 @@ pub struct SharedObj {
     event_broadcaster: AudioVolumeEventBroadcaster,
 }
 
-impl StateLogger for SharedObj {}
+impl StateLogger for SharedObj {
+    fn log(&self) {
+        self.event_broadcaster.log();
+    }
+}
 
 pub struct AudioVolume {
     id: TrackerId,

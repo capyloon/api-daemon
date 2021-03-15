@@ -15,7 +15,11 @@ pub struct SettingsSharedData {
     pub db: SettingsDb,
 }
 
-impl StateLogger for SettingsSharedData {}
+impl StateLogger for SettingsSharedData {
+    fn log(&self) {
+        self.db.log();
+    }
+}
 
 lazy_static! {
     pub(crate) static ref SETTINGS_SHARED_DATA: Shared<SettingsSharedData> =

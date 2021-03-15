@@ -13,7 +13,11 @@ pub struct ProcessSharedData {
     pub cgservice: CGService,
 }
 
-impl StateLogger for ProcessSharedData {}
+impl StateLogger for ProcessSharedData {
+    fn log(&self) {
+        self.cgservice.log();
+    }
+}
 
 pub struct ProcManagerService {
     genid: GenID,
