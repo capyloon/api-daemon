@@ -10,9 +10,7 @@ use crate::manifest::{Icons, Manifest};
 use crate::shared_state::AppsSharedData;
 use crate::update_manifest::UpdateManifest;
 use common::traits::Shared;
-use hex_slice::AsHex;
 use log::{debug, error, info};
-use md5::{Digest, Md5};
 use std::collections::HashMap;
 use std::convert::From;
 use std::fs::{self, remove_dir_all, File};
@@ -24,6 +22,7 @@ use url::Host::Domain;
 use url::Url;
 use version_compare::{CompOp, Version};
 use zip_utils::verify_zip;
+use blake2::{Blake2s, Digest};
 
 #[cfg(test)]
 use crate::shared_state::APPS_SHARED_SHARED_DATA;
@@ -536,14 +535,16 @@ fn set_or_update_canceller(
 }
 
 fn compute_manifest_hash<P: AsRef<Path>>(p: P) -> Result<String, AppsError> {
+    let mut buffer = Vec::new();
     let mut file = File::open(p)?;
-    let mut content = Vec::new();
-    let _ = file.read_to_end(&mut content);
-    let mut hasher = Md5::new();
-    hasher.update(content);
-    let result = hasher.finalize();
-
-    Ok(format!("{:02x}", result.plain_hex(false)))
+    if file.read_to_end(&mut buffer).is_ok() {
+        let mut hasher = Blake2s::new();
+        hasher.update(&buffer);
+        let res = hasher.finalize();
+        Ok(format!("{:x}", res))
+    } else {
+        Ok(String::new())
+    }
 }
 
 fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> bool {
@@ -561,7 +562,7 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
             Ok(hash) => hash,
             Err(_) => return false,
         };
-        debug!("hash from update manifest{}", hash_str);
+        debug!("hash from update manifest {}", hash_str);
         if hash_str != app.get_manifest_hash() {
             is_update_available = true;
         }
@@ -763,15 +764,16 @@ fn test_compare_version_hash() {
     {
         let app_name = "test";
         let mut apps_item = AppsItem::default(&app_name, 443);
-        apps_item.set_manifest_hash("6bfc26d201fd94xxxxbdd31b63f4aa54");
+        apps_item.set_manifest_hash("9e61057bbf5fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxe7ff60c78804727917009");
 
         assert!(compare_version_hash(&apps_item, &manifest_path));
     }
 
+    // hash
     {
         let app_name = "test";
         let mut apps_item = AppsItem::default(&app_name, 443);
-        apps_item.set_manifest_hash("6bfc26d201fd94a431bdd31b63f4aa54");
+        apps_item.set_manifest_hash("9e61057bbf5f11073bb19fc30db81076811c27bb9cbe7ff60c78804727917009");
 
         assert!(!compare_version_hash(&apps_item, &manifest_path));
     }
