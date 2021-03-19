@@ -31,7 +31,7 @@ impl AppMgmtTask for InstallPackageTask {
         }
 
         // Fall backs to getting token in downloader module
-        let _ = ensure_token(&mut request);
+        let _ = ensure_token_deviceinfo(&mut request);
 
         let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
@@ -80,7 +80,7 @@ impl AppMgmtTask for InstallPwaTask {
         }
 
         // Fall backs to getting token in downloader module
-        let _ = ensure_token(&mut request);
+        let _ = ensure_token_deviceinfo(&mut request);
 
         let data_path = request.shared_data.lock().config.data_path.clone();
         match request.download_and_apply_pwa(&data_path, &url) {
@@ -167,7 +167,7 @@ impl AppMgmtTask for UpdateTask {
         };
 
         // Fall backs to getting token in downloader module
-        let _ = ensure_token(&mut request);
+        let _ = ensure_token_deviceinfo(&mut request);
 
         let update_url = old_app.update_url;
 
@@ -206,7 +206,7 @@ impl AppMgmtTask for CheckForUpdateTask {
         let some_responder = &self.3;
 
         // Fall backs to getting token in downloader module
-        let _ = ensure_token(&mut request);
+        let _ = ensure_token_deviceinfo(&mut request);
 
         let data_path = request.shared_data.lock().config.data_path.clone();
         let is_auto_update = apps_option.auto_install.unwrap_or(false);
@@ -333,7 +333,7 @@ impl AppMgmtTask for CancelDownloadTask {
 
 // This function blocks current thread to receive token
 // Used only in threadpool
-fn ensure_token(_request: &mut AppsRequest) -> bool {
+fn ensure_token_deviceinfo(_request: &mut AppsRequest) -> bool {
     // Make if believe it's always true.
     true
 }

@@ -253,14 +253,14 @@ impl AppsRegistry {
                             let zip = source.join("application.zip");
                             let file = match File::open(&zip) {
                                 Ok(file) => file,
-                                Err(err)  =>  {
+                                Err(err) => {
                                     error!("Failed to open {}: {}", &zip.display(), err);
                                     continue;
                                 }
                             };
                             let mut archive = match ZipArchive::new(file) {
                                 Ok(archive) => archive,
-                                Err(err)  =>  {
+                                Err(err) => {
                                     error!("Failed to read {}: {}", &zip.display(), err);
                                     continue;
                                 }
