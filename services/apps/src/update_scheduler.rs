@@ -31,20 +31,13 @@ static CONFIG_DEFAULT: &str = "/tmp/default-app-update-schedule.json";
 static CONFIG_DATA: &str = "/tmp/app-update-schedule.json";
 
 pub enum SchedulerMessage {
-    Config(Config),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Config {
-    pub enabled: bool,
-    pub allowed_when: ConnectionType, // Connection type allowed for checking updates
-    pub delay: i64,                   // In seconds,
+    Config(UpdatePolicy),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UpdateScheduler {
     enabled: bool,
-    allowed_when: ConnectionType, // Connection type allowed for checking updates
+    conn_type: ConnectionType, // Connection type allowed for checking updates
     delay: i64,                   // In seconds,
     #[serde(default = "default_last_check")]
     last_check: i64,
@@ -56,7 +49,7 @@ impl Default for UpdateScheduler {
     fn default() -> Self {
         UpdateScheduler {
             enabled: true,
-            allowed_when: ConnectionType::WiFiOnly,
+            conn_type: ConnectionType::WiFiOnly,
             delay: ONE_DAY,
             last_check: 0,
         }
@@ -78,16 +71,24 @@ impl UpdateScheduler {
         today > last_day
     }
 
-    pub fn configure(&mut self, config: Config) {
+    pub fn configure(&mut self, config: UpdatePolicy) {
         debug!("configure ");
         let changed = self.enabled != config.enabled
-            || self.allowed_when != config.allowed_when
+            || self.conn_type != config.conn_type
             || self.delay != config.delay;
         self.enabled = config.enabled;
-        self.allowed_when = config.allowed_when;
+        self.conn_type = config.conn_type;
         self.delay = config.delay;
         if changed {
             self.save();
+        }
+    }
+
+    pub fn get_config(&self) -> UpdatePolicy {
+        UpdatePolicy {
+            enabled: self.enabled,
+            conn_type: self.conn_type,
+            delay: self.delay,
         }
     }
 
@@ -107,7 +108,7 @@ impl UpdateScheduler {
             if let Ok(config) = serde_json::from_reader::<_, UpdateScheduler>(file) {
                 debug!("load_config scheduler is {:?}", &config);
                 self.enabled = config.enabled;
-                self.allowed_when = config.allowed_when;
+                self.conn_type = config.conn_type;
                 self.delay = config.delay;
                 self.last_check = config.last_check;
 
@@ -142,7 +143,7 @@ impl UpdateScheduler {
 
         // TODO need to confirm many mobile types and the real meaning of
         // NetworkStateConnected
-        if self.allowed_when == ConnectionType::WiFiOnly
+        if self.conn_type == ConnectionType::WiFiOnly
             && conn.network_type != NetworkType::NetworkTypeWifi
         {
             false
@@ -268,7 +269,7 @@ fn test_in_order() {
         // Default
         let mut scheduler = UpdateScheduler::new();
         assert_eq!(scheduler.enabled, true);
-        assert_eq!(scheduler.allowed_when, ConnectionType::WiFiOnly);
+        assert_eq!(scheduler.conn_type, ConnectionType::WiFiOnly);
         assert_eq!(scheduler.delay, ONE_DAY);
         assert_eq!(scheduler.should_trigger(), true);
 
@@ -289,7 +290,7 @@ fn test_in_order() {
 
         let mut scheduler = UpdateScheduler::new();
         assert_eq!(scheduler.enabled, false);
-        assert_eq!(scheduler.allowed_when, ConnectionType::WiFiOnly);
+        assert_eq!(scheduler.conn_type, ConnectionType::WiFiOnly);
         assert_eq!(scheduler.delay, 24);
         assert_eq!(scheduler.should_trigger(), true);
 
@@ -298,9 +299,9 @@ fn test_in_order() {
 
         assert_eq!(scheduler.should_trigger(), false);
 
-        let config = Config {
+        let config = UpdatePolicy {
             enabled: true,
-            allowed_when: ConnectionType::Any,
+            conn_type: ConnectionType::Any,
             delay: 1000,
         };
         scheduler.configure(config);
@@ -311,7 +312,7 @@ fn test_in_order() {
         // Load from User config
         let scheduler = UpdateScheduler::new();
         assert_eq!(scheduler.enabled, true);
-        assert_eq!(scheduler.allowed_when, ConnectionType::Any);
+        assert_eq!(scheduler.conn_type, ConnectionType::Any);
         assert_eq!(scheduler.delay, 1000);
         assert_eq!(scheduler.should_trigger(), false);
     }
@@ -325,9 +326,9 @@ fn test_in_order() {
             let shared = &*APPS_SHARED_SHARED_DATA;
             let sender = self::start(shared.clone());
 
-            let _ = sender.send(SchedulerMessage::Config(Config {
+            let _ = sender.send(SchedulerMessage::Config(UpdatePolicy {
                 enabled: true,
-                allowed_when: ConnectionType::Any,
+                conn_type: ConnectionType::Any,
                 delay: 25,
             }));
 
@@ -337,7 +338,7 @@ fn test_in_order() {
             // Check saved config
             let scheduler = UpdateScheduler::new();
             assert_eq!(scheduler.enabled, true);
-            assert_eq!(scheduler.allowed_when, ConnectionType::Any);
+            assert_eq!(scheduler.conn_type, ConnectionType::Any);
             assert_eq!(scheduler.delay, 25);
             assert_eq!(scheduler.should_trigger(), false);
         }

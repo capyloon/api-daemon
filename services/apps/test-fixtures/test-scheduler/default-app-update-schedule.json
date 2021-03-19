@@ -1,6 +1,6 @@
 {
     "enabled": false,
-    "allowed_when": "WiFiOnly",
+    "conn_type": "WiFiOnly",
     "delay": 24,
     "last_check": 0
 }

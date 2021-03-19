@@ -76,7 +76,12 @@
 
         let provider = new TokenProvider(tester.service, tester.session);
         await tester.service.setTokenProvider(provider);
-
+        
+        tester.assert_eq(
+          "get update policy",
+          service => service.getUpdatePolicy(),
+          config_expected
+        )
 // install event
 // - Installed
 // - Installing

@@ -64,3 +64,5 @@ class TokenProvider extends lib_apps.TokenProviderBase {
         });
     }
 }
+
+var config_expected = {"enabled":true,"connType":0,"delay":86400};
