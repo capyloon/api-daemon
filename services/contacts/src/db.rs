@@ -1090,7 +1090,14 @@ impl ContactsDb {
                             sql.push_str("email LIKE ?");
                         }
                         FilterByOption::Tel => {
-                            sql.push_str("tel_number LIKE ?");
+                            // Search contact tel by contains should use tel_json field.
+                            // The tel_number field contains the national code, search a
+                            // number which is nationl code may return wrong result.
+                            if options.filter_option == FilterOption::Contains {
+                                sql.push_str("tel_json LIKE ?");
+                            } else {
+                                sql.push_str("tel_number LIKE ?");
+                            }
                         }
                         FilterByOption::Category => {
                             sql.push_str("category LIKE ?");

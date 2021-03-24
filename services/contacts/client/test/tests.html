@@ -34,6 +34,72 @@
           0
         );
 
+        let contact_none_1 = {
+          published: new Date(),
+          updated: new Date(),
+          bday: new Date(),
+          anniversary: new Date(),
+          photoBlob: [],
+          name: "ZX",
+          tel: [{ value: "789456" }],
+        };
+
+        await tester.assert_eq(
+          "add contact_none_1",
+          (service) => service.add([contact_none_1]),
+          {}
+        );
+
+        let search_contain_1_cursor = await tester.service.find(
+          {
+            sortBy: lib_contacts.SortOption.NAME,
+            sortOrder: lib_contacts.Order.DESCENDING,
+            filterValue: "1",
+            filterOption: lib_contacts.FilterOption.CONTAINS,
+            filterBy: [lib_contacts.FilterByOption.TEL],
+            onlyMainData: false,
+          },
+          1
+        );
+
+        let search_contain_1_result = await search_contain_1_cursor.next();
+
+        search_contain_1_cursor.release();
+
+        await tester.assert_eq(
+          "verify search 1 result is empty",
+          () => Promise.resolve(search_contain_1_result),
+          []
+        );
+
+        let search_contain_94_cursor = await tester.service.find(
+          {
+            sortBy: lib_contacts.SortOption.NAME,
+            sortOrder: lib_contacts.Order.DESCENDING,
+            filterValue: "94",
+            filterOption: lib_contacts.FilterOption.CONTAINS,
+            filterBy: [lib_contacts.FilterByOption.TEL],
+            onlyMainData: false,
+          },
+          1
+        );
+
+        let search_contain_94_result = await search_contain_94_cursor.next();
+
+        search_contain_94_cursor.release();
+
+        await tester.assert_eq(
+          "verify search conact contain 94 name is ZX",
+          () => Promise.resolve(search_contain_94_result[0].name),
+          "ZX"
+        );
+
+        await tester.assert_eq(
+          "clear contacts db",
+          (service) => service.clearContacts(),
+          {}
+        );
+
         // Clear all groups first.
         let group_array = await tester.service.getAllGroups();
         group_array.forEach(async function (group) {
@@ -1048,13 +1114,7 @@
 
         let find_contains_181_result = await find_contain_181_cursor.next();
 
-        let expect_contain_181_names = [
-          "zhangsan",
-          "Nathaniel R. Allen",
-          "Harry",
-          "Bob",
-          "Alex",
-        ];
+        let expect_contain_181_names = ["zhangsan", "Harry", "Bob", "Alex"];
 
         // To verify contact's name who's tel contain 181 order by name desc.
         for (let i = 0; i < expect_contain_181_names.length; i++) {
