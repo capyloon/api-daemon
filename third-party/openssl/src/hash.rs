@@ -1,4 +1,4 @@
-use ffi;
+use cfg_if::cfg_if;
 use std::ffi::CString;
 use std::fmt;
 use std::io;
@@ -6,9 +6,9 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 
-use error::ErrorStack;
-use nid::Nid;
-use {cvt, cvt_p};
+use crate::error::ErrorStack;
+use crate::nid::Nid;
+use crate::{cvt, cvt_p};
 
 cfg_if! {
     if #[cfg(ossl110)] {
@@ -126,6 +126,11 @@ impl MessageDigest {
     #[cfg(not(osslconf = "OPENSSL_NO_RMD160"))]
     pub fn ripemd160() -> MessageDigest {
         unsafe { MessageDigest(ffi::EVP_ripemd160()) }
+    }
+
+    #[cfg(all(any(ossl111, libressl291), not(osslconf = "OPENSSL_NO_SM3")))]
+    pub fn sm3() -> MessageDigest {
+        unsafe { MessageDigest(ffi::EVP_sm3()) }
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -390,7 +395,7 @@ impl AsRef<[u8]> for DigestBytes {
 }
 
 impl fmt::Debug for DigestBytes {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, fmt)
     }
 }
@@ -623,6 +628,19 @@ mod tests {
 
         for test in tests.iter() {
             hash_test(MessageDigest::ripemd160(), test);
+        }
+    }
+
+    #[cfg(all(any(ossl111, libressl291), not(osslconf = "OPENSSL_NO_SM3")))]
+    #[test]
+    fn test_sm3() {
+        let tests = [(
+            "616263",
+            "66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0",
+        )];
+
+        for test in tests.iter() {
+            hash_test(MessageDigest::sm3(), test);
         }
     }
 

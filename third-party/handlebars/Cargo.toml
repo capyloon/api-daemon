@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "handlebars"
-version = "3.5.3"
+version = "3.5.4"
 authors = ["Ning Sun <sunng@pm.me>"]
 description = "Handlebars templating implemented in Rust."
 homepage = "https://github.com/sunng87/handlebars-rust"

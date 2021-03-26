@@ -1454,7 +1454,7 @@ impl ServerBuilder {
             .import(pkcs12_der)?
             .into_iter()
             .flat_map(|idendity| {
-                let certs = idendity.cert_chain.unwrap_or(Vec::new());
+                let certs = idendity.cert_chain.unwrap_or_default();
                 idendity.identity.map(|identity| (identity, certs))
             })
             .collect();
@@ -1481,7 +1481,7 @@ impl ServerBuilder {
     {
         match self.new_ssl_context()?.handshake(stream) {
             Ok(stream) => Ok(stream),
-            Err(HandshakeError::Interrupted(stream)) => Err(stream.error().clone()),
+            Err(HandshakeError::Interrupted(stream)) => Err(*stream.error()),
             Err(HandshakeError::Failure(err)) => Err(err),
         }
     }

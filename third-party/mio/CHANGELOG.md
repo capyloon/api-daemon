@@ -1,4 +1,16 @@
-# 0.7.9
+# 0.7.11
+
+## Fixes
+
+* Fix missing feature of winapi.
+  (https://github.com/tokio-rs/mio/commit/a7e61db9e3c2b929ef1a33532bfcc22045d163ce).
+
+# 0.7.10
+
+## Fixes
+
+* Fix an instance of not doc(cfg(.*))
+  (https://github.com/tokio-rs/mio/commit/25e8f911357c740034f10a170dfa4ea1b28234ce).
 
 ## Fixes
 

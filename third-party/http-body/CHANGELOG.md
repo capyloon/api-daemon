@@ -1,6 +1,18 @@
-# 0.4.0 UNRELEASED
+# Unreleased
 
-- Update `bytes` to v0.6.
+Nothing.
+
+# 0.4.1 (March 18, 2021)
+
+- Add combinators to `Body`:
+  - `map_data`: Change the `Data` chunks produced by the body.
+  - `map_err`: Change the `Error`s produced by the body.
+  - `boxed`: Convert the `Body` into a boxed trait object.
+- Add `Empty`.
+
+# 0.4.0 (December 23, 2020)
+
+- Update `bytes` to v1.0.
 
 # 0.3.1 (December 13, 2019)
 

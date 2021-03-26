@@ -39,14 +39,15 @@
 //! decrypted.truncate(decrypted_len);
 //! assert_eq!(&*decrypted, data);
 //! ```
+use libc::{c_int, c_void};
 use std::{marker::PhantomData, ptr};
 
-use error::ErrorStack;
+use crate::error::ErrorStack;
+use crate::hash::MessageDigest;
+use crate::pkey::{HasPrivate, HasPublic, PKeyRef};
+use crate::rsa::Padding;
+use crate::{cvt, cvt_p};
 use foreign_types::ForeignTypeRef;
-use hash::MessageDigest;
-use pkey::{HasPrivate, HasPublic, PKeyRef};
-use rsa::Padding;
-use {cvt, cvt_p};
 
 /// A type which encrypts data.
 pub struct Encrypter<'a> {
@@ -154,6 +155,43 @@ impl<'a> Encrypter<'a> {
                 md.as_ptr() as *mut _,
             ))
             .map(|_| ())
+        }
+    }
+
+    /// Sets the RSA OAEP label.
+    ///
+    /// This is only useful for RSA keys.
+    ///
+    /// This corresponds to [`EVP_PKEY_CTX_set0_rsa_oaep_label`].
+    ///
+    /// [`EVP_PKEY_CTX_set0_rsa_oaep_label`]: https://www.openssl.org/docs/manmaster/man3/EVP_PKEY_CTX_set0_rsa_oaep_label.html
+    #[cfg(any(ossl102, libressl310))]
+    pub fn set_rsa_oaep_label(&mut self, label: &[u8]) -> Result<(), ErrorStack> {
+        unsafe {
+            let p = cvt_p(ffi::CRYPTO_malloc(
+                label.len() as _,
+                concat!(file!(), "\0").as_ptr() as *const _,
+                line!() as c_int,
+            ))?;
+            ptr::copy_nonoverlapping(label.as_ptr(), p as *mut u8, label.len());
+
+            cvt(ffi::EVP_PKEY_CTX_set0_rsa_oaep_label(
+                self.pctx,
+                p as *mut c_void,
+                label.len() as c_int,
+            ))
+            .map(|_| ())
+            .map_err(|e| {
+                #[cfg(not(ossl110))]
+                ::ffi::CRYPTO_free(p as *mut c_void);
+                #[cfg(ossl110)]
+                ::ffi::CRYPTO_free(
+                    p as *mut c_void,
+                    concat!(file!(), "\0").as_ptr() as *const _,
+                    line!() as c_int,
+                );
+                e
+            })
         }
     }
 
@@ -423,10 +461,10 @@ impl<'a> Decrypter<'a> {
 mod test {
     use hex::FromHex;
 
-    use encrypt::{Decrypter, Encrypter};
-    use hash::MessageDigest;
-    use pkey::PKey;
-    use rsa::{Padding, Rsa};
+    use crate::encrypt::{Decrypter, Encrypter};
+    use crate::hash::MessageDigest;
+    use crate::pkey::PKey;
+    use crate::rsa::{Padding, Rsa};
 
     const INPUT: &str =
         "65794a68624763694f694a53557a49314e694a392e65794a7063334d694f694a71623255694c41304b49434a6c\

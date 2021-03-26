@@ -20,6 +20,11 @@
 //! only be done if you have mutable access to the `ThreadLocal` object, which
 //! guarantees that you are the only thread currently accessing it.
 //!
+//! A `CachedThreadLocal` type is also provided which wraps a `ThreadLocal` but
+//! also uses a special fast path for the first thread that writes into it. The
+//! fast path has very low overhead (<1ns per access) while keeping the same
+//! performance as `ThreadLocal` for other threads.
+//!
 //! Note that since thread IDs are recycled when a thread exits, it is possible
 //! for one thread to retrieve the object of another thread. Since this can only
 //! occur after a thread has exited this does not lead to any race conditions.
@@ -32,7 +37,7 @@
 //! use thread_local::ThreadLocal;
 //! let tls: ThreadLocal<u32> = ThreadLocal::new();
 //! assert_eq!(tls.get(), None);
-//! assert_eq!(tls.get_or(|| 5), &5);
+//! assert_eq!(tls.get_or(|| Box::new(5)), &5);
 //! assert_eq!(tls.get(), Some(&5));
 //! ```
 //!
@@ -51,7 +56,7 @@
 //!     let tls2 = tls.clone();
 //!     thread::spawn(move || {
 //!         // Increment a counter to count some event...
-//!         let cell = tls2.get_or(|| Cell::new(0));
+//!         let cell = tls2.get_or(|| Box::new(Cell::new(0)));
 //!         cell.set(cell.get() + 1);
 //!     }).join().unwrap();
 //! }
@@ -64,150 +69,131 @@
 //! ```
 
 #![warn(missing_docs)]
-#![allow(clippy::mutex_atomic)]
 
-mod cached;
+#[macro_use]
+extern crate lazy_static;
+
 mod thread_id;
 mod unreachable;
 
-#[allow(deprecated)]
-pub use cached::{CachedIntoIter, CachedIterMut, CachedThreadLocal};
-
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::marker::PhantomData;
 use std::cell::UnsafeCell;
 use std::fmt;
-use std::iter::FusedIterator;
-use std::mem;
-use std::mem::MaybeUninit;
+use std::iter::Chain;
+use std::option::IntoIter as OptionIter;
 use std::panic::UnwindSafe;
-use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
-use std::sync::Mutex;
-use thread_id::Thread;
-use unreachable::UncheckedResultExt;
-
-// Use usize::BITS once it has stabilized and the MSRV has been bumped.
-#[cfg(target_pointer_width = "16")]
-const POINTER_WIDTH: u8 = 16;
-#[cfg(target_pointer_width = "32")]
-const POINTER_WIDTH: u8 = 32;
-#[cfg(target_pointer_width = "64")]
-const POINTER_WIDTH: u8 = 64;
-
-/// The total number of buckets stored in each thread local.
-const BUCKETS: usize = (POINTER_WIDTH + 1) as usize;
+use unreachable::{UncheckedOptionExt, UncheckedResultExt};
 
 /// Thread-local variable wrapper
 ///
 /// See the [module-level documentation](index.html) for more.
-pub struct ThreadLocal<T: Send> {
-    /// The buckets in the thread local. The nth bucket contains `2^(n-1)`
-    /// elements. Each bucket is lazily allocated.
-    buckets: [AtomicPtr<Entry<T>>; BUCKETS],
+pub struct ThreadLocal<T: ?Sized + Send> {
+    // Pointer to the current top-level hash table
+    table: AtomicPtr<Table<T>>,
 
-    /// The number of values in the thread local. This can be less than the real number of values,
-    /// but is never more.
-    values: AtomicUsize,
+    // Lock used to guard against concurrent modifications. This is only taken
+    // while writing to the table, not when reading from it. This also guards
+    // the counter for the total number of values in the hash table.
+    lock: Mutex<usize>,
 
-    /// Lock used to guard against concurrent modifications. This is taken when
-    /// there is a possibility of allocating a new bucket, which only occurs
-    /// when inserting values.
-    lock: Mutex<()>,
+    // PhantomData to indicate that we logically own T
+    marker: PhantomData<T>,
 }
 
-struct Entry<T> {
-    present: AtomicBool,
-    value: UnsafeCell<MaybeUninit<T>>,
+struct Table<T: ?Sized + Send> {
+    // Hash entries for the table
+    entries: Box<[TableEntry<T>]>,
+
+    // Number of bits used for the hash function
+    hash_bits: usize,
+
+    // Previous table, half the size of the current one
+    prev: Option<Box<Table<T>>>,
 }
 
-impl<T> Drop for Entry<T> {
-    fn drop(&mut self) {
-        unsafe {
-            if *self.present.get_mut() {
-                ptr::drop_in_place((*self.value.get()).as_mut_ptr());
-            }
-        }
-    }
+struct TableEntry<T: ?Sized + Send> {
+    // Current owner of this entry, or 0 if this is an empty entry
+    owner: AtomicUsize,
+
+    // The object associated with this entry. This is only ever accessed by the
+    // owner of the entry.
+    data: UnsafeCell<Option<Box<T>>>,
 }
 
 // ThreadLocal is always Sync, even if T isn't
-unsafe impl<T: Send> Sync for ThreadLocal<T> {}
+unsafe impl<T: ?Sized + Send> Sync for ThreadLocal<T> {}
 
-impl<T: Send> Default for ThreadLocal<T> {
+impl<T: ?Sized + Send> Default for ThreadLocal<T> {
     fn default() -> ThreadLocal<T> {
         ThreadLocal::new()
     }
 }
 
-impl<T: Send> Drop for ThreadLocal<T> {
+impl<T: ?Sized + Send> Drop for ThreadLocal<T> {
     fn drop(&mut self) {
-        let mut bucket_size = 1;
-
-        // Free each non-null bucket
-        for (i, bucket) in self.buckets.iter_mut().enumerate() {
-            let bucket_ptr = *bucket.get_mut();
-
-            let this_bucket_size = bucket_size;
-            if i != 0 {
-                bucket_size <<= 1;
-            }
-
-            if bucket_ptr.is_null() {
-                continue;
-            }
-
-            unsafe { Box::from_raw(std::slice::from_raw_parts_mut(bucket_ptr, this_bucket_size)) };
+        unsafe {
+            Box::from_raw(self.table.load(Ordering::Relaxed));
         }
     }
 }
 
-impl<T: Send> ThreadLocal<T> {
+// Implementation of Clone for TableEntry, needed to make vec![] work
+impl<T: ?Sized + Send> Clone for TableEntry<T> {
+    fn clone(&self) -> TableEntry<T> {
+        TableEntry {
+            owner: AtomicUsize::new(0),
+            data: UnsafeCell::new(None),
+        }
+    }
+}
+
+// Hash function for the thread id
+#[cfg(target_pointer_width = "32")]
+#[inline]
+fn hash(id: usize, bits: usize) -> usize {
+    id.wrapping_mul(0x9E3779B9) >> (32 - bits)
+}
+#[cfg(target_pointer_width = "64")]
+#[inline]
+fn hash(id: usize, bits: usize) -> usize {
+    id.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - bits)
+}
+
+impl<T: ?Sized + Send> ThreadLocal<T> {
     /// Creates a new empty `ThreadLocal`.
     pub fn new() -> ThreadLocal<T> {
-        Self::with_capacity(2)
-    }
-
-    /// Creates a new `ThreadLocal` with an initial capacity. If less than the capacity threads
-    /// access the thread local it will never reallocate. The capacity may be rounded up to the
-    /// nearest power of two.
-    pub fn with_capacity(capacity: usize) -> ThreadLocal<T> {
-        let allocated_buckets = capacity
-            .checked_sub(1)
-            .map(|c| usize::from(POINTER_WIDTH) - (c.leading_zeros() as usize) + 1)
-            .unwrap_or(0);
-
-        let mut buckets = [ptr::null_mut(); BUCKETS];
-        let mut bucket_size = 1;
-        for (i, bucket) in buckets[..allocated_buckets].iter_mut().enumerate() {
-            *bucket = allocate_bucket::<T>(bucket_size);
-
-            if i != 0 {
-                bucket_size <<= 1;
-            }
-        }
-
+        let entry = TableEntry {
+            owner: AtomicUsize::new(0),
+            data: UnsafeCell::new(None),
+        };
+        let table = Table {
+            entries: vec![entry; 2].into_boxed_slice(),
+            hash_bits: 1,
+            prev: None,
+        };
         ThreadLocal {
-            // Safety: AtomicPtr has the same representation as a pointer and arrays have the same
-            // representation as a sequence of their inner type.
-            buckets: unsafe { mem::transmute(buckets) },
-            values: AtomicUsize::new(0),
-            lock: Mutex::new(()),
+            table: AtomicPtr::new(Box::into_raw(Box::new(table))),
+            lock: Mutex::new(0),
+            marker: PhantomData,
         }
     }
 
     /// Returns the element for the current thread, if it exists.
     pub fn get(&self) -> Option<&T> {
-        let thread = thread_id::get();
-        self.get_inner(thread)
+        let id = thread_id::get();
+        self.get_fast(id)
     }
 
     /// Returns the element for the current thread, or creates it if it doesn't
     /// exist.
     pub fn get_or<F>(&self, create: F) -> &T
     where
-        F: FnOnce() -> T,
+        F: FnOnce() -> Box<T>,
     {
         unsafe {
-            self.get_or_try(|| Ok::<T, ()>(create()))
+            self.get_or_try(|| Ok::<Box<T>, ()>(create()))
                 .unchecked_unwrap_ok()
         }
     }
@@ -217,86 +203,124 @@ impl<T: Send> ThreadLocal<T> {
     /// added.
     pub fn get_or_try<F, E>(&self, create: F) -> Result<&T, E>
     where
-        F: FnOnce() -> Result<T, E>,
+        F: FnOnce() -> Result<Box<T>, E>,
     {
-        let thread = thread_id::get();
-        match self.get_inner(thread) {
+        let id = thread_id::get();
+        match self.get_fast(id) {
             Some(x) => Ok(x),
-            None => Ok(self.insert(thread, create()?)),
+            None => Ok(self.insert(id, try!(create()), true)),
         }
     }
 
-    fn get_inner(&self, thread: Thread) -> Option<&T> {
-        let bucket_ptr =
-            unsafe { self.buckets.get_unchecked(thread.bucket) }.load(Ordering::Acquire);
-        if bucket_ptr.is_null() {
-            return None;
-        }
-        unsafe {
-            let entry = &*bucket_ptr.add(thread.index);
-            // Read without atomic operations as only this thread can set the value.
-            if (&entry.present as *const _ as *const bool).read() {
-                Some(&*(&*entry.value.get()).as_ptr())
-            } else {
-                None
+    // Simple hash table lookup function
+    fn lookup(id: usize, table: &Table<T>) -> Option<&UnsafeCell<Option<Box<T>>>> {
+        // Because we use a Mutex to prevent concurrent modifications (but not
+        // reads) of the hash table, we can avoid any memory barriers here. No
+        // elements between our hash bucket and our value can have been modified
+        // since we inserted our thread-local value into the table.
+        for entry in table.entries.iter().cycle().skip(hash(id, table.hash_bits)) {
+            let owner = entry.owner.load(Ordering::Relaxed);
+            if owner == id {
+                return Some(&entry.data);
+            }
+            if owner == 0 {
+                return None;
             }
         }
+        unreachable!();
+    }
+
+    // Fast path: try to find our thread in the top-level hash table
+    fn get_fast(&self, id: usize) -> Option<&T> {
+        let table = unsafe { &*self.table.load(Ordering::Relaxed) };
+        match Self::lookup(id, table) {
+            Some(x) => unsafe { Some((*x.get()).as_ref().unchecked_unwrap()) },
+            None => self.get_slow(id, table),
+        }
+    }
+
+    // Slow path: try to find our thread in the other hash tables, and then
+    // move it to the top-level hash table.
+    #[cold]
+    fn get_slow(&self, id: usize, table_top: &Table<T>) -> Option<&T> {
+        let mut current = &table_top.prev;
+        while let Some(ref table) = *current {
+            if let Some(x) = Self::lookup(id, table) {
+                let data = unsafe { (*x.get()).take().unchecked_unwrap() };
+                return Some(self.insert(id, data, false));
+            }
+            current = &table.prev;
+        }
+        None
     }
 
     #[cold]
-    fn insert(&self, thread: Thread, data: T) -> &T {
-        // Lock the Mutex to ensure only a single thread is allocating buckets at once
-        let _guard = self.lock.lock().unwrap();
+    fn insert(&self, id: usize, data: Box<T>, new: bool) -> &T {
+        // Lock the Mutex to ensure only a single thread is modify the hash
+        // table at once.
+        let mut count = self.lock.lock().unwrap();
+        if new {
+            *count += 1;
+        }
+        let table_raw = self.table.load(Ordering::Relaxed);
+        let table = unsafe { &*table_raw };
 
-        let bucket_atomic_ptr = unsafe { self.buckets.get_unchecked(thread.bucket) };
-
-        let bucket_ptr: *const _ = bucket_atomic_ptr.load(Ordering::Acquire);
-        let bucket_ptr = if bucket_ptr.is_null() {
-            // Allocate a new bucket
-            let bucket_ptr = allocate_bucket(thread.bucket_size);
-            bucket_atomic_ptr.store(bucket_ptr, Ordering::Release);
-            bucket_ptr
+        // If the current top-level hash table is more than 75% full, add a new
+        // level with 2x the capacity. Elements will be moved up to the new top
+        // level table as they are accessed.
+        let table = if *count > table.entries.len() * 3 / 4 {
+            let entry = TableEntry {
+                owner: AtomicUsize::new(0),
+                data: UnsafeCell::new(None),
+            };
+            let new_table = Box::into_raw(Box::new(Table {
+                entries: vec![entry; table.entries.len() * 2].into_boxed_slice(),
+                hash_bits: table.hash_bits + 1,
+                prev: unsafe { Some(Box::from_raw(table_raw)) },
+            }));
+            self.table.store(new_table, Ordering::Release);
+            unsafe { &*new_table }
         } else {
-            bucket_ptr
+            table
         };
 
-        drop(_guard);
-
-        // Insert the new element into the bucket
-        let entry = unsafe { &*bucket_ptr.add(thread.index) };
-        let value_ptr = entry.value.get();
-        unsafe { value_ptr.write(MaybeUninit::new(data)) };
-        entry.present.store(true, Ordering::Release);
-
-        self.values.fetch_add(1, Ordering::Release);
-
-        unsafe { &*(&*value_ptr).as_ptr() }
-    }
-
-    /// Returns an iterator over the local values of all threads in unspecified
-    /// order.
-    ///
-    /// This call can be done safely, as `T` is required to implement [`Sync`].
-    pub fn iter(&self) -> Iter<'_, T>
-    where
-        T: Sync,
-    {
-        Iter {
-            thread_local: self,
-            raw: RawIter::new(),
+        // Insert the new element into the top-level hash table
+        for entry in table.entries.iter().cycle().skip(hash(id, table.hash_bits)) {
+            let owner = entry.owner.load(Ordering::Relaxed);
+            if owner == 0 {
+                unsafe {
+                    entry.owner.store(id, Ordering::Relaxed);
+                    *entry.data.get() = Some(data);
+                    return (*entry.data.get()).as_ref().unchecked_unwrap();
+                }
+            }
+            if owner == id {
+                // This can happen if create() inserted a value into this
+                // ThreadLocal between our calls to get_fast() and insert(). We
+                // just return the existing value and drop the newly-allocated
+                // Box.
+                unsafe {
+                    return (*entry.data.get()).as_ref().unchecked_unwrap();
+                }
+            }
         }
+        unreachable!();
     }
 
-    /// Returns a mutable iterator over the local values of all threads in
-    /// unspecified order.
+    /// Returns a mutable iterator over the local values of all threads.
     ///
     /// Since this call borrows the `ThreadLocal` mutably, this operation can
     /// be done safely---the mutable borrow statically guarantees no other
     /// threads are currently accessing their associated values.
     pub fn iter_mut(&mut self) -> IterMut<T> {
+        let raw = RawIter {
+            remaining: *self.lock.lock().unwrap(),
+            index: 0,
+            table: self.table.load(Ordering::Relaxed),
+        };
         IterMut {
-            thread_local: self,
-            raw: RawIter::new(),
+            raw: raw,
+            marker: PhantomData,
         }
     }
 
@@ -311,29 +335,25 @@ impl<T: Send> ThreadLocal<T> {
     }
 }
 
-impl<T: Send> IntoIterator for ThreadLocal<T> {
-    type Item = T;
+impl<T: ?Sized + Send> IntoIterator for ThreadLocal<T> {
+    type Item = Box<T>;
     type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> IntoIter<T> {
+        let raw = RawIter {
+            remaining: *self.lock.lock().unwrap(),
+            index: 0,
+            table: self.table.load(Ordering::Relaxed),
+        };
         IntoIter {
-            thread_local: self,
-            raw: RawIter::new(),
+            raw: raw,
+            _thread_local: self,
         }
     }
 }
 
-impl<'a, T: Send + Sync> IntoIterator for &'a ThreadLocal<T> {
-    type Item = &'a T;
-    type IntoIter = Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, T: Send> IntoIterator for &'a mut ThreadLocal<T> {
-    type Item = &'a mut T;
+impl<'a, T: ?Sized + Send + 'a> IntoIterator for &'a mut ThreadLocal<T> {
+    type Item = &'a mut Box<T>;
     type IntoIter = IterMut<'a, T>;
 
     fn into_iter(self) -> IterMut<'a, T> {
@@ -344,205 +364,285 @@ impl<'a, T: Send> IntoIterator for &'a mut ThreadLocal<T> {
 impl<T: Send + Default> ThreadLocal<T> {
     /// Returns the element for the current thread, or creates a default one if
     /// it doesn't exist.
-    pub fn get_or_default(&self) -> &T {
-        self.get_or(Default::default)
+    pub fn get_default(&self) -> &T {
+        self.get_or(|| Box::new(T::default()))
     }
 }
 
-impl<T: Send + fmt::Debug> fmt::Debug for ThreadLocal<T> {
+impl<T: ?Sized + Send + fmt::Debug> fmt::Debug for ThreadLocal<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ThreadLocal {{ local_data: {:?} }}", self.get())
     }
 }
 
-impl<T: Send + UnwindSafe> UnwindSafe for ThreadLocal<T> {}
+impl<T: ?Sized + Send + UnwindSafe> UnwindSafe for ThreadLocal<T> {}
 
-#[derive(Debug)]
-struct RawIter {
-    yielded: usize,
-    bucket: usize,
-    bucket_size: usize,
+struct RawIter<T: ?Sized + Send> {
+    remaining: usize,
     index: usize,
+    table: *const Table<T>,
 }
-impl RawIter {
-    #[inline]
-    fn new() -> Self {
-        Self {
-            yielded: 0,
-            bucket: 0,
-            bucket_size: 1,
-            index: 0,
-        }
-    }
 
-    fn next<'a, T: Send + Sync>(&mut self, thread_local: &'a ThreadLocal<T>) -> Option<&'a T> {
-        while self.bucket < BUCKETS {
-            let bucket = unsafe { thread_local.buckets.get_unchecked(self.bucket) };
-            let bucket = bucket.load(Ordering::Relaxed);
-
-            if !bucket.is_null() {
-                while self.index < self.bucket_size {
-                    let entry = unsafe { &*bucket.add(self.index) };
-                    self.index += 1;
-                    if entry.present.load(Ordering::Acquire) {
-                        self.yielded += 1;
-                        return Some(unsafe { &*(&*entry.value.get()).as_ptr() });
-                    }
-                }
-            }
-
-            self.next_bucket();
-        }
-        None
-    }
-    fn next_mut<'a, T: Send>(
-        &mut self,
-        thread_local: &'a mut ThreadLocal<T>,
-    ) -> Option<&'a mut Entry<T>> {
-        if *thread_local.values.get_mut() == self.yielded {
+impl<T: ?Sized + Send> RawIter<T> {
+    fn next(&mut self) -> Option<*mut Option<Box<T>>> {
+        if self.remaining == 0 {
             return None;
         }
 
         loop {
-            let bucket = unsafe { thread_local.buckets.get_unchecked_mut(self.bucket) };
-            let bucket = *bucket.get_mut();
-
-            if !bucket.is_null() {
-                while self.index < self.bucket_size {
-                    let entry = unsafe { &mut *bucket.add(self.index) };
-                    self.index += 1;
-                    if *entry.present.get_mut() {
-                        self.yielded += 1;
-                        return Some(entry);
-                    }
+            let entries = unsafe { &(*self.table).entries[..] };
+            while self.index < entries.len() {
+                let val = entries[self.index].data.get();
+                self.index += 1;
+                if unsafe { (*val).is_some() } {
+                    self.remaining -= 1;
+                    return Some(val);
                 }
             }
-
-            self.next_bucket();
+            self.index = 0;
+            self.table = unsafe { &**(*self.table).prev.as_ref().unchecked_unwrap() };
         }
     }
-
-    #[inline]
-    fn next_bucket(&mut self) {
-        if self.bucket != 0 {
-            self.bucket_size <<= 1;
-        }
-        self.bucket += 1;
-        self.index = 0;
-    }
-
-    fn size_hint<T: Send>(&self, thread_local: &ThreadLocal<T>) -> (usize, Option<usize>) {
-        let total = thread_local.values.load(Ordering::Acquire);
-        (total - self.yielded, None)
-    }
-    fn size_hint_frozen<T: Send>(&self, thread_local: &ThreadLocal<T>) -> (usize, Option<usize>) {
-        let total = unsafe { *(&thread_local.values as *const AtomicUsize as *const usize) };
-        let remaining = total - self.yielded;
-        (remaining, Some(remaining))
-    }
 }
-
-/// Iterator over the contents of a `ThreadLocal`.
-#[derive(Debug)]
-pub struct Iter<'a, T: Send + Sync> {
-    thread_local: &'a ThreadLocal<T>,
-    raw: RawIter,
-}
-
-impl<'a, T: Send + Sync> Iterator for Iter<'a, T> {
-    type Item = &'a T;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.raw.next(self.thread_local)
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.raw.size_hint(self.thread_local)
-    }
-}
-impl<T: Send + Sync> FusedIterator for Iter<'_, T> {}
 
 /// Mutable iterator over the contents of a `ThreadLocal`.
-pub struct IterMut<'a, T: Send> {
-    thread_local: &'a mut ThreadLocal<T>,
-    raw: RawIter,
+pub struct IterMut<'a, T: ?Sized + Send + 'a> {
+    raw: RawIter<T>,
+    marker: PhantomData<&'a mut ThreadLocal<T>>,
 }
 
-impl<'a, T: Send> Iterator for IterMut<'a, T> {
-    type Item = &'a mut T;
-    fn next(&mut self) -> Option<&'a mut T> {
-        self.raw
-            .next_mut(self.thread_local)
-            .map(|entry| unsafe { &mut *(&mut *entry.value.get()).as_mut_ptr() })
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.raw.size_hint_frozen(self.thread_local)
-    }
-}
+impl<'a, T: ?Sized + Send + 'a> Iterator for IterMut<'a, T> {
+    type Item = &'a mut Box<T>;
 
-impl<T: Send> ExactSizeIterator for IterMut<'_, T> {}
-impl<T: Send> FusedIterator for IterMut<'_, T> {}
-
-// Manual impl so we don't call Debug on the ThreadLocal, as doing so would create a reference to
-// this thread's value that potentially aliases with a mutable reference we have given out.
-impl<'a, T: Send + fmt::Debug> fmt::Debug for IterMut<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("IterMut").field("raw", &self.raw).finish()
-    }
-}
-
-/// An iterator that moves out of a `ThreadLocal`.
-#[derive(Debug)]
-pub struct IntoIter<T: Send> {
-    thread_local: ThreadLocal<T>,
-    raw: RawIter,
-}
-
-impl<T: Send> Iterator for IntoIter<T> {
-    type Item = T;
-    fn next(&mut self) -> Option<T> {
-        self.raw.next_mut(&mut self.thread_local).map(|entry| {
-            *entry.present.get_mut() = false;
-            unsafe {
-                std::mem::replace(&mut *entry.value.get(), MaybeUninit::uninit()).assume_init()
-            }
+    fn next(&mut self) -> Option<&'a mut Box<T>> {
+        self.raw.next().map(|x| unsafe {
+            (*x).as_mut().unchecked_unwrap()
         })
     }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.raw.size_hint_frozen(&self.thread_local)
+        (self.raw.remaining, Some(self.raw.remaining))
     }
 }
 
-impl<T: Send> ExactSizeIterator for IntoIter<T> {}
-impl<T: Send> FusedIterator for IntoIter<T> {}
+impl<'a, T: ?Sized + Send + 'a> ExactSizeIterator for IterMut<'a, T> {}
 
-fn allocate_bucket<T>(size: usize) -> *mut Entry<T> {
-    Box::into_raw(
-        (0..size)
-            .map(|_| Entry::<T> {
-                present: AtomicBool::new(false),
-                value: UnsafeCell::new(MaybeUninit::uninit()),
-            })
-            .collect(),
-    ) as *mut _
+/// An iterator that moves out of a `ThreadLocal`.
+pub struct IntoIter<T: ?Sized + Send> {
+    raw: RawIter<T>,
+    _thread_local: ThreadLocal<T>,
 }
+
+impl<T: ?Sized + Send> Iterator for IntoIter<T> {
+    type Item = Box<T>;
+
+    fn next(&mut self) -> Option<Box<T>> {
+        self.raw.next().map(
+            |x| unsafe { (*x).take().unchecked_unwrap() },
+        )
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.raw.remaining, Some(self.raw.remaining))
+    }
+}
+
+impl<T: ?Sized + Send> ExactSizeIterator for IntoIter<T> {}
+
+/// Wrapper around `ThreadLocal` which adds a fast path for a single thread.
+///
+/// This has the same API as `ThreadLocal`, but will register the first thread
+/// that sets a value as its owner. All accesses by the owner will go through
+/// a special fast path which is much faster than the normal `ThreadLocal` path.
+pub struct CachedThreadLocal<T: ?Sized + Send> {
+    owner: AtomicUsize,
+    local: UnsafeCell<Option<Box<T>>>,
+    global: ThreadLocal<T>,
+}
+
+// CachedThreadLocal is always Sync, even if T isn't
+unsafe impl<T: ?Sized + Send> Sync for CachedThreadLocal<T> {}
+
+impl<T: ?Sized + Send> Default for CachedThreadLocal<T> {
+    fn default() -> CachedThreadLocal<T> {
+        CachedThreadLocal::new()
+    }
+}
+
+impl<T: ?Sized + Send> CachedThreadLocal<T> {
+    /// Creates a new empty `CachedThreadLocal`.
+    pub fn new() -> CachedThreadLocal<T> {
+        CachedThreadLocal {
+            owner: AtomicUsize::new(0),
+            local: UnsafeCell::new(None),
+            global: ThreadLocal::new(),
+        }
+    }
+
+    /// Returns the element for the current thread, if it exists.
+    pub fn get(&self) -> Option<&T> {
+        let id = thread_id::get();
+        let owner = self.owner.load(Ordering::Relaxed);
+        if owner == id {
+            return unsafe { Some((*self.local.get()).as_ref().unchecked_unwrap()) };
+        }
+        if owner == 0 {
+            return None;
+        }
+        self.global.get_fast(id)
+    }
+
+    /// Returns the element for the current thread, or creates it if it doesn't
+    /// exist.
+    #[inline(always)]
+    pub fn get_or<F>(&self, create: F) -> &T
+    where
+        F: FnOnce() -> Box<T>,
+    {
+        unsafe {
+            self.get_or_try(|| Ok::<Box<T>, ()>(create()))
+                .unchecked_unwrap_ok()
+        }
+    }
+
+    /// Returns the element for the current thread, or creates it if it doesn't
+    /// exist. If `create` fails, that error is returned and no element is
+    /// added.
+    pub fn get_or_try<F, E>(&self, create: F) -> Result<&T, E>
+    where
+        F: FnOnce() -> Result<Box<T>, E>,
+    {
+        let id = thread_id::get();
+        let owner = self.owner.load(Ordering::Relaxed);
+        if owner == id {
+            return Ok(unsafe { (*self.local.get()).as_ref().unchecked_unwrap() });
+        }
+        self.get_or_try_slow(id, owner, create)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn get_or_try_slow<F, E>(&self, id: usize, owner: usize, create: F) -> Result<&T, E>
+    where
+        F: FnOnce() -> Result<Box<T>, E>,
+    {
+        if owner == 0 && self.owner.compare_and_swap(0, id, Ordering::Relaxed) == 0 {
+            unsafe {
+                (*self.local.get()) = Some(try!(create()));
+                return Ok((*self.local.get()).as_ref().unchecked_unwrap());
+            }
+        }
+        match self.global.get_fast(id) {
+            Some(x) => Ok(x),
+            None => Ok(self.global.insert(id, try!(create()), true)),
+        }
+    }
+
+    /// Returns a mutable iterator over the local values of all threads.
+    ///
+    /// Since this call borrows the `ThreadLocal` mutably, this operation can
+    /// be done safely---the mutable borrow statically guarantees no other
+    /// threads are currently accessing their associated values.
+    pub fn iter_mut(&mut self) -> CachedIterMut<T> {
+        unsafe {
+            (*self.local.get()).as_mut().into_iter().chain(
+                self.global
+                    .iter_mut(),
+            )
+        }
+    }
+
+    /// Removes all thread-specific values from the `ThreadLocal`, effectively
+    /// reseting it to its original state.
+    ///
+    /// Since this call borrows the `ThreadLocal` mutably, this operation can
+    /// be done safely---the mutable borrow statically guarantees no other
+    /// threads are currently accessing their associated values.
+    pub fn clear(&mut self) {
+        *self = CachedThreadLocal::new();
+    }
+}
+
+impl<T: ?Sized + Send> IntoIterator for CachedThreadLocal<T> {
+    type Item = Box<T>;
+    type IntoIter = CachedIntoIter<T>;
+
+    fn into_iter(self) -> CachedIntoIter<T> {
+        unsafe {
+            (*self.local.get()).take().into_iter().chain(
+                self.global
+                    .into_iter(),
+            )
+        }
+    }
+}
+
+impl<'a, T: ?Sized + Send + 'a> IntoIterator for &'a mut CachedThreadLocal<T> {
+    type Item = &'a mut Box<T>;
+    type IntoIter = CachedIterMut<'a, T>;
+
+    fn into_iter(self) -> CachedIterMut<'a, T> {
+        self.iter_mut()
+    }
+}
+
+impl<T: Send + Default> CachedThreadLocal<T> {
+    /// Returns the element for the current thread, or creates a default one if
+    /// it doesn't exist.
+    pub fn get_default(&self) -> &T {
+        self.get_or(|| Box::new(T::default()))
+    }
+}
+
+impl<T: ?Sized + Send + fmt::Debug> fmt::Debug for CachedThreadLocal<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ThreadLocal {{ local_data: {:?} }}", self.get())
+    }
+}
+
+/// Mutable iterator over the contents of a `CachedThreadLocal`.
+pub type CachedIterMut<'a, T> = Chain<OptionIter<&'a mut Box<T>>, IterMut<'a, T>>;
+
+/// An iterator that moves out of a `CachedThreadLocal`.
+pub type CachedIntoIter<T> = Chain<OptionIter<Box<T>>, IntoIter<T>>;
+
+impl<T: ?Sized + Send + UnwindSafe> UnwindSafe for CachedThreadLocal<T> {}
 
 #[cfg(test)]
 mod tests {
-    use super::ThreadLocal;
     use std::cell::RefCell;
+    use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering::Relaxed;
-    use std::sync::Arc;
     use std::thread;
+    use super::{ThreadLocal, CachedThreadLocal};
 
-    fn make_create() -> Arc<dyn Fn() -> usize + Send + Sync> {
+    fn make_create() -> Arc<Fn() -> Box<usize> + Send + Sync> {
         let count = AtomicUsize::new(0);
-        Arc::new(move || count.fetch_add(1, Relaxed))
+        Arc::new(move || Box::new(count.fetch_add(1, Relaxed)))
     }
 
     #[test]
     fn same_thread() {
         let create = make_create();
         let mut tls = ThreadLocal::new();
+        assert_eq!(None, tls.get());
+        assert_eq!("ThreadLocal { local_data: None }", format!("{:?}", &tls));
+        assert_eq!(0, *tls.get_or(|| create()));
+        assert_eq!(Some(&0), tls.get());
+        assert_eq!(0, *tls.get_or(|| create()));
+        assert_eq!(Some(&0), tls.get());
+        assert_eq!(0, *tls.get_or(|| create()));
+        assert_eq!(Some(&0), tls.get());
+        assert_eq!("ThreadLocal { local_data: Some(0) }", format!("{:?}", &tls));
+        tls.clear();
+        assert_eq!(None, tls.get());
+    }
+
+    #[test]
+    fn same_thread_cached() {
+        let create = make_create();
+        let mut tls = CachedThreadLocal::new();
         assert_eq!(None, tls.get());
         assert_eq!("ThreadLocal { local_data: None }", format!("{:?}", &tls));
         assert_eq!(0, *tls.get_or(|| create()));
@@ -570,9 +670,29 @@ mod tests {
             assert_eq!(None, tls2.get());
             assert_eq!(1, *tls2.get_or(|| create2()));
             assert_eq!(Some(&1), tls2.get());
-        })
-        .join()
-        .unwrap();
+        }).join()
+            .unwrap();
+
+        assert_eq!(Some(&0), tls.get());
+        assert_eq!(0, *tls.get_or(|| create()));
+    }
+
+    #[test]
+    fn different_thread_cached() {
+        let create = make_create();
+        let tls = Arc::new(CachedThreadLocal::new());
+        assert_eq!(None, tls.get());
+        assert_eq!(0, *tls.get_or(|| create()));
+        assert_eq!(Some(&0), tls.get());
+
+        let tls2 = tls.clone();
+        let create2 = create.clone();
+        thread::spawn(move || {
+            assert_eq!(None, tls2.get());
+            assert_eq!(1, *tls2.get_or(|| create2()));
+            assert_eq!(Some(&1), tls2.get());
+        }).join()
+            .unwrap();
 
         assert_eq!(Some(&0), tls.get());
         assert_eq!(0, *tls.get_or(|| create()));
@@ -587,46 +707,43 @@ mod tests {
         thread::spawn(move || {
             tls2.get_or(|| Box::new(2));
             let tls3 = tls2.clone();
-            thread::spawn(move || {
-                tls3.get_or(|| Box::new(3));
-            })
-            .join()
+            thread::spawn(move || { tls3.get_or(|| Box::new(3)); })
+                .join()
+                .unwrap();
+        }).join()
             .unwrap();
-            drop(tls2);
-        })
-        .join()
-        .unwrap();
 
         let mut tls = Arc::try_unwrap(tls).unwrap();
-
-        let mut v = tls.iter().map(|x| **x).collect::<Vec<i32>>();
-        v.sort_unstable();
-        assert_eq!(vec![1, 2, 3], v);
-
         let mut v = tls.iter_mut().map(|x| **x).collect::<Vec<i32>>();
-        v.sort_unstable();
+        v.sort();
         assert_eq!(vec![1, 2, 3], v);
-
         let mut v = tls.into_iter().map(|x| *x).collect::<Vec<i32>>();
-        v.sort_unstable();
+        v.sort();
         assert_eq!(vec![1, 2, 3], v);
     }
 
     #[test]
-    fn test_drop() {
-        let local = ThreadLocal::new();
-        struct Dropped(Arc<AtomicUsize>);
-        impl Drop for Dropped {
-            fn drop(&mut self) {
-                self.0.fetch_add(1, Relaxed);
-            }
-        }
+    fn iter_cached() {
+        let tls = Arc::new(CachedThreadLocal::new());
+        tls.get_or(|| Box::new(1));
 
-        let dropped = Arc::new(AtomicUsize::new(0));
-        local.get_or(|| Dropped(dropped.clone()));
-        assert_eq!(dropped.load(Relaxed), 0);
-        drop(local);
-        assert_eq!(dropped.load(Relaxed), 1);
+        let tls2 = tls.clone();
+        thread::spawn(move || {
+            tls2.get_or(|| Box::new(2));
+            let tls3 = tls2.clone();
+            thread::spawn(move || { tls3.get_or(|| Box::new(3)); })
+                .join()
+                .unwrap();
+        }).join()
+            .unwrap();
+
+        let mut tls = Arc::try_unwrap(tls).unwrap();
+        let mut v = tls.iter_mut().map(|x| **x).collect::<Vec<i32>>();
+        v.sort();
+        assert_eq!(vec![1, 2, 3], v);
+        let mut v = tls.into_iter().map(|x| *x).collect::<Vec<i32>>();
+        v.sort();
+        assert_eq!(vec![1, 2, 3], v);
     }
 
     #[test]
@@ -634,5 +751,7 @@ mod tests {
         fn foo<T: Sync>() {}
         foo::<ThreadLocal<String>>();
         foo::<ThreadLocal<RefCell<String>>>();
+        foo::<CachedThreadLocal<String>>();
+        foo::<CachedThreadLocal<RefCell<String>>>();
     }
 }

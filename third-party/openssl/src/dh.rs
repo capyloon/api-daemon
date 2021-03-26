@@ -1,12 +1,12 @@
-use error::ErrorStack;
-use ffi;
+use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef};
 use std::mem;
 use std::ptr;
 
-use bn::{BigNum, BigNumRef};
-use pkey::{HasParams, HasPrivate, HasPublic, Params, Private};
-use {cvt, cvt_p};
+use crate::bn::{BigNum, BigNumRef};
+use crate::error::ErrorStack;
+use crate::pkey::{HasParams, HasPrivate, HasPublic, Params, Private};
+use crate::{cvt, cvt_p};
 
 generic_foreign_type_and_impl_send_sync! {
     type CType = ffi::DH;
@@ -75,17 +75,19 @@ impl Dh<Params> {
 
     /// Generates DH params based on the given `prime_len` and a fixed `generator` value.
     ///
-    /// This corresponds to [`DH_generate_parameters`].
+    /// This corresponds to [`DH_generate_parameters_ex`].
     ///
-    /// [`DH_generate_parameters`]: https://www.openssl.org/docs/man1.1.0/crypto/DH_generate_parameters.html
+    /// [`DH_generate_parameters_ex`]: https://www.openssl.org/docs/man1.1.0/crypto/DH_generate_parameters.html
     pub fn generate_params(prime_len: u32, generator: u32) -> Result<Dh<Params>, ErrorStack> {
         unsafe {
-            Ok(Dh::from_ptr(cvt_p(ffi::DH_generate_parameters(
+            let dh = Dh::from_ptr(cvt_p(ffi::DH_new())?);
+            cvt(ffi::DH_generate_parameters_ex(
+                dh.0,
                 prime_len as i32,
                 generator as i32,
-                None,
                 ptr::null_mut(),
-            ))?))
+            ))?;
+            Ok(dh)
         }
     }
 
@@ -297,9 +299,9 @@ cfg_if! {
 
 #[cfg(test)]
 mod tests {
-    use bn::BigNum;
-    use dh::Dh;
-    use ssl::{SslContext, SslMethod};
+    use crate::bn::BigNum;
+    use crate::dh::Dh;
+    use crate::ssl::{SslContext, SslMethod};
 
     #[test]
     #[cfg(ossl102)]

@@ -28,8 +28,14 @@
 //! Additionally, it will use `pkg-config` on Unix-like systems to find the system installation.
 //!
 //! ```not_rust
-//! # macOS
+//! # macOS (Homebrew)
 //! $ brew install openssl@1.1
+//!
+//! # macOS (MacPorts)
+//! $ sudo port install openssl
+//!
+//! # macOS (pkgsrc)
+//! $ sudo pkgin install openssl
 //!
 //! # Arch Linux
 //! $ sudo pacman -S pkg-config openssl
@@ -109,29 +115,14 @@
 //! ctx.set_ciphersuites("TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256").unwrap();
 //! ```
 #![doc(html_root_url = "https://docs.rs/openssl/0.10")]
-
-#[macro_use]
-extern crate bitflags;
-#[macro_use]
-extern crate cfg_if;
-#[macro_use]
-extern crate foreign_types;
-#[macro_use]
-extern crate lazy_static;
-extern crate libc;
-extern crate openssl_sys as ffi;
-
-#[cfg(test)]
-extern crate hex;
-#[cfg(test)]
-extern crate tempdir;
+#![warn(rust_2018_idioms)]
 
 #[doc(inline)]
 pub use ffi::init;
 
 use libc::c_int;
 
-use error::ErrorStack;
+use crate::error::ErrorStack;
 
 #[macro_use]
 mod macros;
@@ -160,6 +151,7 @@ pub mod fips;
 pub mod hash;
 pub mod memcmp;
 pub mod nid;
+#[cfg(not(osslconf = "OPENSSL_NO_OCSP"))]
 pub mod ocsp;
 pub mod pkcs12;
 pub mod pkcs5;

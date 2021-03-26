@@ -13,18 +13,17 @@
 [package]
 edition = "2018"
 name = "polling"
-version = "2.0.2"
+version = "2.0.3"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "Portable interface to epoll, kqueue, event ports, and wepoll"
-homepage = "https://github.com/stjepang/polling"
+homepage = "https://github.com/smol-rs/polling"
 documentation = "https://docs.rs/polling"
-readme = "README.md"
 keywords = ["mio", "epoll", "kqueue", "iocp", "wepoll"]
 categories = ["asynchronous", "network-programming", "os"]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/stjepang/polling"
+repository = "https://github.com/smol-rs/polling"
 [dependencies.cfg-if]
-version = "0.1.10"
+version = "1"
 
 [dependencies.log]
 version = "0.4.11"

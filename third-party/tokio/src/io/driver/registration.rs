@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "net"), allow(dead_code))]
+
 use crate::io::driver::{Direction, Handle, Interest, ReadyEvent, ScheduledIo};
 use crate::util::slab;
 
@@ -233,7 +235,10 @@ cfg_io_readiness! {
 
             crate::future::poll_fn(|cx| {
                 if self.handle.inner().is_none() {
-                    return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "reactor gone")));
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        crate::util::error::RUNTIME_SHUTTING_DOWN_ERROR
+                    )));
                 }
 
                 Pin::new(&mut fut).poll(cx).map(Ok)

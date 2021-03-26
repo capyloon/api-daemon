@@ -13,11 +13,10 @@
 [package]
 edition = "2018"
 name = "vec-arena"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "A simple object arena"
 documentation = "https://docs.rs/vec-arena"
-readme = "README.md"
 categories = ["memory-management"]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/stjepang/vec-arena"
+repository = "https://github.com/smol-rs/vec-arena"

@@ -14,7 +14,7 @@ common = { path = "../common" }
 log = "0.4"
 mime_guess = "2.0"
 serde =  { version = "1.0", features = ["derive"] }
-zip = "0.5.10"
+zip = { path = "../support/zip" }
 
 [dev-dependencies]
 env_logger = "0.8"

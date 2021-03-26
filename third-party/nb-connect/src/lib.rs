@@ -41,7 +41,7 @@ use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::{os::unix::net::UnixStream, path::Path};
 
 fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Result<Socket> {
-    let sock_type = Type::stream();
+    let sock_type = Type::STREAM;
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -53,7 +53,7 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
         target_os = "openbsd"
     ))]
     // If we can, set nonblocking at socket creation for unix
-    let sock_type = sock_type.non_blocking();
+    let sock_type = sock_type.nonblocking();
     // This automatically handles cloexec on unix, no_inherit on windows and nosigpipe on macos
     let socket = Socket::new(domain, sock_type, protocol)?;
     #[cfg(not(any(
@@ -108,7 +108,7 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
 /// ```
 #[cfg(unix)]
 pub fn unix<P: AsRef<Path>>(path: P) -> io::Result<UnixStream> {
-    let socket = connect(SockAddr::unix(path)?, Domain::unix(), None)?;
+    let socket = connect(SockAddr::unix(path)?, Domain::UNIX, None)?;
     Ok(socket.into())
 }
 
@@ -144,7 +144,7 @@ pub fn unix<P: AsRef<Path>>(path: P) -> io::Result<UnixStream> {
 /// ```
 pub fn tcp<A: Into<SocketAddr>>(addr: A) -> io::Result<TcpStream> {
     let addr = addr.into();
-    let domain = if addr.is_ipv6() { Domain::ipv6() } else { Domain::ipv4() };
-    let socket = connect(addr.into(), domain, Some(Protocol::tcp()))?;
+    let domain = Domain::for_address(addr);
+    let socket = connect(addr.into(), domain, Some(Protocol::TCP))?;
     Ok(socket.into())
 }

@@ -15,18 +15,17 @@
 //! [`EcGroup`]: struct.EcGroup.html
 //! [`Nid`]: ../nid/struct.Nid.html
 //! [Eliptic Curve Cryptography]: https://wiki.openssl.org/index.php/Elliptic_Curve_Cryptography
-use ffi;
 use foreign_types::{ForeignType, ForeignTypeRef};
 use libc::c_int;
 use std::fmt;
 use std::ptr;
 
-use bn::{BigNumContextRef, BigNumRef};
-use error::ErrorStack;
-use nid::Nid;
-use pkey::{HasParams, HasPrivate, HasPublic, Params, Private, Public};
-use util::ForeignTypeRefExt;
-use {cvt, cvt_n, cvt_p, init};
+use crate::bn::{BigNumContextRef, BigNumRef};
+use crate::error::ErrorStack;
+use crate::nid::Nid;
+use crate::pkey::{HasParams, HasPrivate, HasPublic, Params, Private, Public};
+use crate::util::ForeignTypeRefExt;
+use crate::{cvt, cvt_n, cvt_p, init};
 
 /// Compressed or Uncompressed conversion
 ///
@@ -528,6 +527,38 @@ impl EcPointRef {
             .map(|_| ())
         }
     }
+
+    /// Checks if point is infinity
+    ///
+    /// OpenSSL documentation at [`EC_POINT_is_at_infinity`]
+    ///
+    /// [`EC_POINT_is_at_infinity`]: https://www.openssl.org/docs/man1.1.0/man3/EC_POINT_is_at_infinity.html
+    pub fn is_infinity(&self, group: &EcGroupRef) -> bool {
+        unsafe {
+            let res = ffi::EC_POINT_is_at_infinity(group.as_ptr(), self.as_ptr());
+            res == 1
+        }
+    }
+
+    /// Checks if point is on a given curve
+    ///
+    /// OpenSSL documentation at [`EC_POINT_is_on_curve`]
+    ///
+    /// [`EC_POINT_is_on_curve`]: https://www.openssl.org/docs/man1.1.0/man3/EC_POINT_is_on_curve.html
+    pub fn is_on_curve(
+        &self,
+        group: &EcGroupRef,
+        ctx: &mut BigNumContextRef,
+    ) -> Result<bool, ErrorStack> {
+        unsafe {
+            let res = cvt_n(ffi::EC_POINT_is_on_curve(
+                group.as_ptr(),
+                self.as_ptr(),
+                ctx.as_ptr(),
+            ))?;
+            Ok(res == 1)
+        }
+    }
 }
 
 impl EcPoint {
@@ -915,7 +946,7 @@ impl<T> Clone for EcKey<T> {
 }
 
 impl<T> fmt::Debug for EcKey<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "EcKey")
     }
 }
@@ -925,8 +956,8 @@ mod test {
     use hex::FromHex;
 
     use super::*;
-    use bn::{BigNum, BigNumContext};
-    use nid::Nid;
+    use crate::bn::{BigNum, BigNumContext};
+    use crate::nid::Nid;
 
     #[test]
     fn key_new_by_curve_name() {
@@ -1074,5 +1105,30 @@ mod test {
             .unwrap();
         assert_eq!(xbn2, xbn);
         assert_eq!(ybn2, ybn);
+    }
+
+    #[test]
+    fn is_infinity() {
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
+        let mut ctx = BigNumContext::new().unwrap();
+        let g = group.generator();
+        assert_eq!(g.is_infinity(&group), false);
+
+        let mut order = BigNum::new().unwrap();
+        group.order(&mut order, &mut ctx).unwrap();
+        let mut inf = EcPoint::new(&group).unwrap();
+        inf.mul_generator(&group, &order, &ctx).unwrap();
+        assert_eq!(inf.is_infinity(&group), true);
+    }
+
+    #[test]
+    fn is_on_curve() {
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
+        let mut ctx = BigNumContext::new().unwrap();
+        let g = group.generator();
+        assert_eq!(g.is_on_curve(&group, &mut ctx).unwrap(), true);
+
+        let group2 = EcGroup::from_curve_name(Nid::X9_62_PRIME239V3).unwrap();
+        assert_eq!(g.is_on_curve(&group2, &mut ctx).unwrap(), false);
     }
 }

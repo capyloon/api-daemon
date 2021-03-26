@@ -122,6 +122,7 @@ where
 #[derive(Clone, Debug)]
 pub struct Builder {
     pub(super) exec: Exec,
+    h09_responses: bool,
     h1_title_case_headers: bool,
     h1_read_buf_exact_size: Option<usize>,
     h1_max_buf_size: Option<usize>,
@@ -192,12 +193,13 @@ impl<B> SendRequest<B> {
         self.dispatch.poll_ready(cx)
     }
 
-    pub(super) fn when_ready(self) -> impl Future<Output = crate::Result<Self>> {
+    pub(super) async fn when_ready(self) -> crate::Result<Self> {
         let mut me = Some(self);
         future::poll_fn(move |cx| {
             ready!(me.as_mut().unwrap().poll_ready(cx))?;
             Poll::Ready(Ok(me.take().unwrap()))
         })
+        .await
     }
 
     pub(super) fn is_ready(&self) -> bool {
@@ -492,6 +494,7 @@ impl Builder {
     pub fn new() -> Builder {
         Builder {
             exec: Exec::Default,
+            h09_responses: false,
             h1_read_buf_exact_size: None,
             h1_title_case_headers: false,
             h1_max_buf_size: None,
@@ -510,6 +513,11 @@ impl Builder {
         E: Executor<BoxSendFuture> + Send + Sync + 'static,
     {
         self.exec = Exec::Executor(Arc::new(exec));
+        self
+    }
+
+    pub(super) fn h09_responses(&mut self, enabled: bool) -> &mut Builder {
+        self.h09_responses = enabled;
         self
     }
 
@@ -698,6 +706,9 @@ impl Builder {
                     let mut conn = proto::Conn::new(io);
                     if opts.h1_title_case_headers {
                         conn.set_title_case_headers();
+                    }
+                    if opts.h09_responses {
+                        conn.set_h09_responses();
                     }
                     if let Some(sz) = opts.h1_read_buf_exact_size {
                         conn.set_read_buf_exact_size(sz);

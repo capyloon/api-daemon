@@ -1,8 +1,5 @@
 use crate::sync::batch_semaphore::{self as semaphore, TryAcquireError};
 use crate::sync::mpsc::chan;
-#[cfg(unix)]
-#[cfg(any(feature = "signal", feature = "process"))]
-use crate::sync::mpsc::error::TryRecvError;
 use crate::sync::mpsc::error::{SendError, TrySendError};
 
 cfg_time! {
@@ -16,6 +13,11 @@ use std::task::{Context, Poll};
 /// Send values to the associated `Receiver`.
 ///
 /// Instances are created by the [`channel`](channel) function.
+///
+/// To use the `Sender` in a poll function, you can use the [`PollSender`]
+/// utility.
+///
+/// [`PollSender`]: https://docs.rs/tokio-util/0.6/tokio_util/sync/struct.PollSender.html
 pub struct Sender<T> {
     chan: chan::Tx<T, Semaphore>,
 }
@@ -217,23 +219,6 @@ impl<T> Receiver<T> {
     #[cfg(feature = "sync")]
     pub fn blocking_recv(&mut self) -> Option<T> {
         crate::future::block_on(self.recv())
-    }
-
-    /// Attempts to return a pending value on this receiver without blocking.
-    ///
-    /// This method will never block the caller in order to wait for data to
-    /// become available. Instead, this will always return immediately with
-    /// a possible option of pending data on the channel.
-    ///
-    /// This is useful for a flavor of "optimistic check" before deciding to
-    /// block on a receiver.
-    ///
-    /// Compared with recv, this function has two failure cases instead of
-    /// one (one for disconnection, one for an empty buffer).
-    #[cfg(unix)]
-    #[cfg(any(feature = "signal", feature = "process"))]
-    pub(crate) fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        self.chan.try_recv()
     }
 
     /// Closes the receiving half of a channel without dropping it.

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "hyper"
-version = "0.14.4"
+version = "0.14.5"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 include = ["Cargo.toml", "LICENSE", "src/**/*"]
 description = "A fast and correct HTTP library."
@@ -25,8 +25,8 @@ categories = ["network-programming", "web-programming::http-client", "web-progra
 license = "MIT"
 repository = "https://github.com/hyperium/hyper"
 [package.metadata.docs.rs]
-features = ["full"]
-rustdoc-args = ["--cfg", "docsrs"]
+features = ["ffi", "full"]
+rustdoc-args = ["--cfg", "docsrs", "--cfg", "hyper_unstable_ffi"]
 
 [package.metadata.playground]
 features = ["full"]
@@ -201,7 +201,7 @@ optional = true
 version = "1.0"
 
 [dependencies.socket2]
-version = "0.3.16"
+version = "0.4"
 optional = true
 
 [dependencies.tokio]
@@ -254,6 +254,10 @@ version = "0.4"
 [dev-dependencies.tokio-util]
 version = "0.6"
 features = ["codec"]
+
+[dev-dependencies.tower]
+version = "0.4"
+features = ["make"]
 
 [dev-dependencies.tower-util]
 version = "0.3"

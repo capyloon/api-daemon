@@ -562,13 +562,13 @@ impl Http1Transaction for Server {
                     }
                 }
                 None | Some(BodyLength::Known(0)) => {
-                    if msg.head.subject != StatusCode::NOT_MODIFIED {
+                    if Server::can_have_content_length(msg.req_method, msg.head.subject) {
                         extend(dst, b"content-length: 0\r\n");
                     }
                     Encoder::length(0)
                 }
                 Some(BodyLength::Known(len)) => {
-                    if msg.head.subject == StatusCode::NOT_MODIFIED {
+                    if !Server::can_have_content_length(msg.req_method, msg.head.subject) {
                         Encoder::length(0)
                     } else {
                         extend(dst, b"content-length: ");
@@ -638,13 +638,22 @@ impl Server {
         if method == &Some(Method::HEAD) || method == &Some(Method::CONNECT) && status.is_success()
         {
             false
+        } else if status.is_informational() {
+            false
         } else {
             match status {
-                // TODO: support for 1xx codes needs improvement everywhere
-                // would be 100...199 => false
-                StatusCode::SWITCHING_PROTOCOLS
-                | StatusCode::NO_CONTENT
-                | StatusCode::NOT_MODIFIED => false,
+                StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED => false,
+                _ => true,
+            }
+        }
+    }
+
+    fn can_have_content_length(method: &Option<Method>, status: StatusCode) -> bool {
+        if status.is_informational() || method == &Some(Method::CONNECT) && status.is_success() {
+            false
+        } else {
+            match status {
+                StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED => false,
                 _ => true,
             }
         }
@@ -674,8 +683,8 @@ impl Http1Transaction for Client {
                 );
                 let mut res = httparse::Response::new(&mut headers);
                 let bytes = buf.as_ref();
-                match res.parse(bytes)? {
-                    httparse::Status::Complete(len) => {
+                match res.parse(bytes) {
+                    Ok(httparse::Status::Complete(len)) => {
                         trace!("Response.parse Complete({})", len);
                         let status = StatusCode::from_u16(res.code.unwrap())?;
 
@@ -701,7 +710,18 @@ impl Http1Transaction for Client {
                         let headers_len = res.headers.len();
                         (len, status, reason, version, headers_len)
                     }
-                    httparse::Status::Partial => return Ok(None),
+                    Ok(httparse::Status::Partial) => return Ok(None),
+                    Err(httparse::Error::Version) if ctx.h09_responses => {
+                        trace!("Response.parse accepted HTTP/0.9 response");
+
+                        #[cfg(not(feature = "ffi"))]
+                        let reason = ();
+                        #[cfg(feature = "ffi")]
+                        let reason = None;
+
+                        (0, StatusCode::OK, reason, Version::HTTP_09, 0)
+                    }
+                    Err(e) => return Err(e.into()),
                 }
             };
 
@@ -1213,6 +1233,7 @@ mod tests {
                 req_method: &mut method,
                 #[cfg(feature = "ffi")]
                 preserve_header_case: false,
+                h09_responses: false,
             },
         )
         .unwrap()
@@ -1235,6 +1256,7 @@ mod tests {
             req_method: &mut Some(crate::Method::GET),
             #[cfg(feature = "ffi")]
             preserve_header_case: false,
+            h09_responses: false,
         };
         let msg = Client::parse(&mut raw, ctx).unwrap().unwrap();
         assert_eq!(raw.len(), 0);
@@ -1252,8 +1274,44 @@ mod tests {
             req_method: &mut None,
             #[cfg(feature = "ffi")]
             preserve_header_case: false,
+            h09_responses: false,
         };
         Server::parse(&mut raw, ctx).unwrap_err();
+    }
+
+    const H09_RESPONSE: &'static str = "Baguettes are super delicious, don't you agree?";
+
+    #[test]
+    fn test_parse_response_h09_allowed() {
+        let _ = pretty_env_logger::try_init();
+        let mut raw = BytesMut::from(H09_RESPONSE);
+        let ctx = ParseContext {
+            cached_headers: &mut None,
+            req_method: &mut Some(crate::Method::GET),
+            #[cfg(feature = "ffi")]
+            preserve_header_case: false,
+            h09_responses: true,
+        };
+        let msg = Client::parse(&mut raw, ctx).unwrap().unwrap();
+        assert_eq!(raw, H09_RESPONSE);
+        assert_eq!(msg.head.subject, crate::StatusCode::OK);
+        assert_eq!(msg.head.version, crate::Version::HTTP_09);
+        assert_eq!(msg.head.headers.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_response_h09_rejected() {
+        let _ = pretty_env_logger::try_init();
+        let mut raw = BytesMut::from(H09_RESPONSE);
+        let ctx = ParseContext {
+            cached_headers: &mut None,
+            req_method: &mut Some(crate::Method::GET),
+            #[cfg(feature = "ffi")]
+            preserve_header_case: false,
+            h09_responses: false,
+        };
+        Client::parse(&mut raw, ctx).unwrap_err();
+        assert_eq!(raw, H09_RESPONSE);
     }
 
     #[test]
@@ -1267,6 +1325,7 @@ mod tests {
                     req_method: &mut None,
                     #[cfg(feature = "ffi")]
                     preserve_header_case: false,
+                    h09_responses: false,
                 },
             )
             .expect("parse ok")
@@ -1282,6 +1341,7 @@ mod tests {
                     req_method: &mut None,
                     #[cfg(feature = "ffi")]
                     preserve_header_case: false,
+                    h09_responses: false,
                 },
             )
             .expect_err(comment)
@@ -1496,6 +1556,7 @@ mod tests {
                     req_method: &mut Some(Method::GET),
                     #[cfg(feature = "ffi")]
                     preserve_header_case: false,
+                    h09_responses: false,
                 }
             )
             .expect("parse ok")
@@ -1511,6 +1572,7 @@ mod tests {
                     req_method: &mut Some(m),
                     #[cfg(feature = "ffi")]
                     preserve_header_case: false,
+                    h09_responses: false,
                 },
             )
             .expect("parse ok")
@@ -1526,6 +1588,7 @@ mod tests {
                     req_method: &mut Some(Method::GET),
                     #[cfg(feature = "ffi")]
                     preserve_header_case: false,
+                    h09_responses: false,
                 },
             )
             .expect_err("parse should err")
@@ -1841,6 +1904,7 @@ mod tests {
                 req_method: &mut Some(Method::GET),
                 #[cfg(feature = "ffi")]
                 preserve_header_case: false,
+                h09_responses: false,
             },
         )
         .expect("parse ok")
@@ -1922,6 +1986,7 @@ mod tests {
                     req_method: &mut None,
                     #[cfg(feature = "ffi")]
                     preserve_header_case: false,
+                    h09_responses: false,
                 },
             )
             .unwrap()
@@ -1957,6 +2022,7 @@ mod tests {
                     req_method: &mut None,
                     #[cfg(feature = "ffi")]
                     preserve_header_case: false,
+                    h09_responses: false,
                 },
             )
             .unwrap()

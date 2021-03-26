@@ -11,8 +11,9 @@
 # will likely look very different (and much more reasonable)
 
 [package]
+edition = "2018"
 name = "openssl"
-version = "0.10.32"
+version = "0.10.33"
 authors = ["Steven Fackler <sfackler@gmail.com>"]
 description = "OpenSSL bindings"
 readme = "README.md"
@@ -26,17 +27,18 @@ version = "1.0"
 [dependencies.cfg-if]
 version = "1.0"
 
+[dependencies.ffi]
+version = "0.9.61"
+package = "openssl-sys"
+
 [dependencies.foreign-types]
 version = "0.3.1"
-
-[dependencies.lazy_static]
-version = "1"
 
 [dependencies.libc]
 version = "0.2"
 
-[dependencies.openssl-sys]
-version = "0.9.60"
+[dependencies.once_cell]
+version = "1.5.2"
 [dev-dependencies.hex]
 version = "0.3"
 
@@ -48,4 +50,4 @@ v101 = []
 v102 = []
 v110 = []
 v111 = []
-vendored = ["openssl-sys/vendored"]
+vendored = ["ffi/vendored"]

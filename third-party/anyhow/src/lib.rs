@@ -209,18 +209,21 @@
 //! will require an explicit `.map_err(Error::msg)` when working with a
 //! non-Anyhow error type inside a function that returns Anyhow's error type.
 
-#![doc(html_root_url = "https://docs.rs/anyhow/1.0.38")]
+#![doc(html_root_url = "https://docs.rs/anyhow/1.0.40")]
 #![cfg_attr(backtrace, feature(backtrace))]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(dead_code, unused_imports, unused_mut)]
 #![allow(
     clippy::doc_markdown,
     clippy::enum_glob_use,
     clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
     clippy::module_name_repetitions,
     clippy::must_use_candidate,
     clippy::needless_doctest_main,
     clippy::new_ret_no_self,
+    clippy::redundant_else,
     clippy::unused_self,
     clippy::used_underscore_binding,
     clippy::wildcard_imports,
@@ -611,9 +614,6 @@ pub trait Context<T, E>: context::private::Sealed {
 pub mod private {
     use crate::Error;
     use core::fmt::{Debug, Display};
-
-    #[cfg(backtrace)]
-    use std::backtrace::Backtrace;
 
     pub use core::result::Result::Err;
 

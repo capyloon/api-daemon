@@ -52,14 +52,14 @@
 //! println!("Decrypted: '{}'", output_string);
 //! ```
 
-use ffi;
+use cfg_if::cfg_if;
 use libc::c_int;
 use std::cmp;
 use std::ptr;
 
-use error::ErrorStack;
-use nid::Nid;
-use {cvt, cvt_p};
+use crate::error::ErrorStack;
+use crate::nid::Nid;
+use crate::{cvt, cvt_p};
 
 #[derive(Copy, Clone)]
 pub enum Mode {
@@ -88,6 +88,16 @@ impl Cipher {
         } else {
             Some(Cipher(ptr))
         }
+    }
+
+    /// Returns the cipher's Nid.
+    ///
+    /// This corresponds to [`EVP_CIPHER_nid`]
+    ///
+    /// [`EVP_CIPHER_nid`]: https://www.openssl.org/docs/man1.0.2/crypto/EVP_CIPHER_nid.html
+    pub fn nid(&self) -> Nid {
+        let nid = unsafe { ffi::EVP_CIPHER_nid(self.0) };
+        Nid::from_raw(nid)
     }
 
     pub fn aes_128_ecb() -> Cipher {

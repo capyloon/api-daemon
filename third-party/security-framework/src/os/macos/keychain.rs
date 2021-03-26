@@ -13,6 +13,8 @@ use crate::base::{Error, Result};
 use crate::cvt;
 use crate::os::macos::access::SecAccess;
 
+pub use security_framework_sys::keychain::SecPreferencesDomain;
+
 declare_TCFType! {
     /// A type representing a keychain.
     SecKeychain, SecKeychainRef
@@ -30,6 +32,16 @@ impl SecKeychain {
         unsafe {
             let mut keychain = ptr::null_mut();
             cvt(SecKeychainCopyDefault(&mut keychain))?;
+            Ok(Self::wrap_under_create_rule(keychain))
+        }
+    }
+
+    /// Creates a `SecKeychain` object corresponding to the user's default
+    /// keychain for the given domain.
+    pub fn default_for_domain(domain: SecPreferencesDomain) -> Result<Self> {
+        unsafe {
+            let mut keychain = ptr::null_mut();
+            cvt(SecKeychainCopyDomainDefault(domain, &mut keychain))?;
             Ok(Self::wrap_under_create_rule(keychain))
         }
     }
@@ -212,6 +224,13 @@ impl KeychainSettings {
                 self.0.lockInterval = i32::max_value() as u32;
             }
         }
+    }
+}
+
+impl Default for KeychainSettings {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::new()
     }
 }
 

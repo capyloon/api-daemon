@@ -57,9 +57,11 @@
 //!     }
 //! }
 //! ```
-use ffi;
+use bitflags::bitflags;
+use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef, Opaque};
 use libc::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void};
+use once_cell::sync::{Lazy, OnceCell};
 use std::any::TypeId;
 use std::cmp;
 use std::collections::HashMap;
@@ -77,33 +79,33 @@ use std::slice;
 use std::str;
 use std::sync::{Arc, Mutex};
 
-use dh::{Dh, DhRef};
+use crate::dh::{Dh, DhRef};
 #[cfg(all(ossl101, not(ossl110)))]
-use ec::EcKey;
-use ec::EcKeyRef;
-use error::ErrorStack;
-use ex_data::Index;
+use crate::ec::EcKey;
+use crate::ec::EcKeyRef;
+use crate::error::ErrorStack;
+use crate::ex_data::Index;
 #[cfg(ossl111)]
-use hash::MessageDigest;
+use crate::hash::MessageDigest;
 #[cfg(ossl110)]
-use nid::Nid;
-use pkey::{HasPrivate, PKeyRef, Params, Private};
-use srtp::{SrtpProtectionProfile, SrtpProtectionProfileRef};
-use ssl::bio::BioMethod;
-use ssl::callbacks::*;
-use ssl::error::InnerError;
-use stack::{Stack, StackRef};
-use util::{ForeignTypeExt, ForeignTypeRefExt};
-use x509::store::{X509Store, X509StoreBuilderRef, X509StoreRef};
+use crate::nid::Nid;
+use crate::pkey::{HasPrivate, PKeyRef, Params, Private};
+use crate::srtp::{SrtpProtectionProfile, SrtpProtectionProfileRef};
+use crate::ssl::bio::BioMethod;
+use crate::ssl::callbacks::*;
+use crate::ssl::error::InnerError;
+use crate::stack::{Stack, StackRef};
+use crate::util::{ForeignTypeExt, ForeignTypeRefExt};
+use crate::x509::store::{X509Store, X509StoreBuilderRef, X509StoreRef};
 #[cfg(any(ossl102, libressl261))]
-use x509::verify::X509VerifyParamRef;
-use x509::{X509Name, X509Ref, X509StoreContextRef, X509VerifyResult, X509};
-use {cvt, cvt_n, cvt_p, init};
+use crate::x509::verify::X509VerifyParamRef;
+use crate::x509::{X509Name, X509Ref, X509StoreContextRef, X509VerifyResult, X509};
+use crate::{cvt, cvt_n, cvt_p, init};
 
-pub use ssl::connector::{
+pub use crate::ssl::connector::{
     ConnectConfiguration, SslAcceptor, SslAcceptorBuilder, SslConnector, SslConnectorBuilder,
 };
-pub use ssl::error::{Error, ErrorCode, HandshakeError};
+pub use crate::ssl::error::{Error, ErrorCode, HandshakeError};
 
 mod bio;
 mod callbacks;
@@ -512,10 +514,12 @@ impl NameType {
     }
 }
 
-lazy_static! {
-    static ref INDEXES: Mutex<HashMap<TypeId, c_int>> = Mutex::new(HashMap::new());
-    static ref SSL_INDEXES: Mutex<HashMap<TypeId, c_int>> = Mutex::new(HashMap::new());
-    static ref SESSION_CTX_INDEX: Index<Ssl, SslContext> = Ssl::new_ex_index().unwrap();
+static INDEXES: Lazy<Mutex<HashMap<TypeId, c_int>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static SSL_INDEXES: Lazy<Mutex<HashMap<TypeId, c_int>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static SESSION_CTX_INDEX: OnceCell<Index<Ssl, SslContext>> = OnceCell::new();
+
+fn try_get_session_ctx_index() -> Result<&'static Index<Ssl, SslContext>, ErrorStack> {
+    SESSION_CTX_INDEX.get_or_try_init(Ssl::new_ex_index)
 }
 
 unsafe extern "C" fn free_data_box<T>(
@@ -1840,7 +1844,7 @@ impl ToOwned for SslContextRef {
 
 // TODO: add useful info here
 impl fmt::Debug for SslContext {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "SslContext")
     }
 }
@@ -2343,7 +2347,7 @@ foreign_type_and_impl_send_sync! {
 }
 
 impl fmt::Debug for Ssl {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, fmt)
     }
 }
@@ -2390,10 +2394,11 @@ impl Ssl {
     /// [`SSL_new`]: https://www.openssl.org/docs/man1.0.2/ssl/SSL_new.html
     // FIXME should take &SslContextRef
     pub fn new(ctx: &SslContextRef) -> Result<Ssl, ErrorStack> {
+        let session_ctx_index = try_get_session_ctx_index()?;
         unsafe {
             let ptr = cvt_p(ffi::SSL_new(ctx.as_ptr()))?;
             let mut ssl = Ssl::from_ptr(ptr);
-            ssl.set_ex_data(*SESSION_CTX_INDEX, ctx.to_owned());
+            ssl.set_ex_data(*session_ctx_index, ctx.to_owned());
 
             Ok(ssl)
         }
@@ -2437,7 +2442,7 @@ impl Ssl {
 }
 
 impl fmt::Debug for SslRef {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("Ssl")
             .field("state", &self.state_string_long())
             .field("verify_result", &self.verify_result())
@@ -3465,7 +3470,7 @@ impl<S> fmt::Debug for SslStream<S>
 where
     S: fmt::Debug,
 {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("SslStream")
             .field("stream", &self.get_ref())
             .field("ssl", &self.ssl())
@@ -3477,8 +3482,8 @@ impl<S: Read + Write> SslStream<S> {
     /// Creates a new `SslStream`.
     ///
     /// This function performs no IO; the stream will not have performed any part of the handshake
-    /// with the peer. If the `Ssl` was configured with [`SslRef::set_client_state`] or
-    /// [`SslRef::set_server_state`], the handshake can be performed automatically during the first
+    /// with the peer. If the `Ssl` was configured with [`SslRef::set_connect_state`] or
+    /// [`SslRef::set_accept_state`], the handshake can be performed automatically during the first
     /// call to read or write. Otherwise the `connect` and `accept` methods can be used to
     /// explicitly perform the handshake.
     ///

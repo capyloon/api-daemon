@@ -7,7 +7,7 @@
 //! Internet protocols, including SSL/TLS, which is the basis for HTTPS,
 //! the secure protocol for browsing the web.
 
-use ffi;
+use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef};
 use libc::{c_int, c_long};
 use std::error::Error;
@@ -20,19 +20,21 @@ use std::ptr;
 use std::slice;
 use std::str;
 
-use asn1::{Asn1BitStringRef, Asn1IntegerRef, Asn1ObjectRef, Asn1StringRef, Asn1TimeRef};
-use bio::MemBioSlice;
-use conf::ConfRef;
-use error::ErrorStack;
-use ex_data::Index;
-use hash::{DigestBytes, MessageDigest};
-use nid::Nid;
-use pkey::{HasPrivate, HasPublic, PKey, PKeyRef, Public};
-use ssl::SslRef;
-use stack::{Stack, StackRef, Stackable};
-use string::OpensslString;
-use util::{ForeignTypeExt, ForeignTypeRefExt};
-use {cvt, cvt_n, cvt_p};
+use crate::asn1::{
+    Asn1BitStringRef, Asn1IntegerRef, Asn1ObjectRef, Asn1StringRef, Asn1TimeRef, Asn1Type,
+};
+use crate::bio::MemBioSlice;
+use crate::conf::ConfRef;
+use crate::error::ErrorStack;
+use crate::ex_data::Index;
+use crate::hash::{DigestBytes, MessageDigest};
+use crate::nid::Nid;
+use crate::pkey::{HasPrivate, HasPublic, PKey, PKeyRef, Public};
+use crate::ssl::SslRef;
+use crate::stack::{Stack, StackRef, Stackable};
+use crate::string::OpensslString;
+use crate::util::{ForeignTypeExt, ForeignTypeRefExt};
+use crate::{cvt, cvt_n, cvt_p};
 
 #[cfg(any(ossl102, libressl261))]
 pub mod verify;
@@ -447,6 +449,24 @@ impl X509Ref {
         }
     }
 
+    /// Returns this certificate's [`authority information access`] entries, if they exist.
+    ///
+    /// This corresponds to [`X509_get_ext_d2i`] called with `NID_info_access`.
+    ///
+    /// [`X509_get_ext_d2i`]: https://www.openssl.org/docs/man1.1.0/crypto/X509_get_ext_d2i.html
+    /// [`authority information access`]: https://tools.ietf.org/html/rfc5280#section-4.2.2.1
+    pub fn authority_info(&self) -> Option<Stack<AccessDescription>> {
+        unsafe {
+            let stack = ffi::X509_get_ext_d2i(
+                self.as_ptr(),
+                ffi::NID_info_access,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            );
+            Stack::from_ptr_opt(stack as *mut _)
+        }
+    }
+
     pub fn public_key(&self) -> Result<PKey<Public>, ErrorStack> {
         unsafe {
             let pkey = cvt_p(ffi::X509_get_pubkey(self.as_ptr()))?;
@@ -676,7 +696,7 @@ impl Clone for X509 {
 }
 
 impl fmt::Debug for X509 {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let serial = match &self.serial_number().to_bn() {
             Ok(bn) => match bn.to_hex_str() {
                 Ok(hex) => hex.to_string(),
@@ -747,7 +767,7 @@ impl X509Extension {
     /// See the extension module for builder types which will construct certain common extensions.
     pub fn new(
         conf: Option<&ConfRef>,
-        context: Option<&X509v3Context>,
+        context: Option<&X509v3Context<'_>>,
         name: &str,
         value: &str,
     ) -> Result<X509Extension, ErrorStack> {
@@ -773,7 +793,7 @@ impl X509Extension {
     /// See the extension module for builder types which will construct certain common extensions.
     pub fn new_nid(
         conf: Option<&ConfRef>,
-        context: Option<&X509v3Context>,
+        context: Option<&X509v3Context<'_>>,
         name: Nid,
         value: &str,
     ) -> Result<X509Extension, ErrorStack> {
@@ -824,6 +844,33 @@ impl X509NameBuilder {
         }
     }
 
+    /// Add a field entry by str with a specific type.
+    ///
+    /// This corresponds to [`X509_NAME_add_entry_by_txt`].
+    ///
+    /// [`X509_NAME_add_entry_by_txt`]: https://www.openssl.org/docs/man1.1.0/crypto/X509_NAME_add_entry_by_txt.html
+    pub fn append_entry_by_text_with_type(
+        &mut self,
+        field: &str,
+        value: &str,
+        ty: Asn1Type,
+    ) -> Result<(), ErrorStack> {
+        unsafe {
+            let field = CString::new(field).unwrap();
+            assert!(value.len() <= c_int::max_value() as usize);
+            cvt(ffi::X509_NAME_add_entry_by_txt(
+                self.0.as_ptr(),
+                field.as_ptr() as *mut _,
+                ty.as_raw(),
+                value.as_ptr(),
+                value.len() as c_int,
+                -1,
+                0,
+            ))
+            .map(|_| ())
+        }
+    }
+
     /// Add a field entry by NID.
     ///
     /// This corresponds to [`X509_NAME_add_entry_by_NID`].
@@ -836,6 +883,32 @@ impl X509NameBuilder {
                 self.0.as_ptr(),
                 field.as_raw(),
                 ffi::MBSTRING_UTF8,
+                value.as_ptr() as *mut _,
+                value.len() as c_int,
+                -1,
+                0,
+            ))
+            .map(|_| ())
+        }
+    }
+
+    /// Add a field entry by NID with a specific type.
+    ///
+    /// This corresponds to [`X509_NAME_add_entry_by_NID`].
+    ///
+    /// [`X509_NAME_add_entry_by_NID`]: https://www.openssl.org/docs/man1.1.0/crypto/X509_NAME_add_entry_by_NID.html
+    pub fn append_entry_by_nid_with_type(
+        &mut self,
+        field: Nid,
+        value: &str,
+        ty: Asn1Type,
+    ) -> Result<(), ErrorStack> {
+        unsafe {
+            assert!(value.len() <= c_int::max_value() as usize);
+            cvt(ffi::X509_NAME_add_entry_by_NID(
+                self.0.as_ptr(),
+                field.as_raw(),
+                ty.as_raw(),
                 value.as_ptr() as *mut _,
                 value.len() as c_int,
                 -1,
@@ -901,7 +974,7 @@ impl X509NameRef {
 }
 
 impl fmt::Debug for X509NameRef {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_list().entries(self.entries()).finish()
     }
 }
@@ -981,7 +1054,7 @@ impl X509NameEntryRef {
 }
 
 impl fmt::Debug for X509NameEntryRef {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_fmt(format_args!("{:?} = {:?}", self.object(), self.data()))
     }
 }
@@ -1228,7 +1301,7 @@ impl X509ReqRef {
 pub struct X509VerifyResult(c_int);
 
 impl fmt::Debug for X509VerifyResult {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("X509VerifyResult")
             .field("code", &self.0)
             .field("error", &self.error_string())
@@ -1237,7 +1310,7 @@ impl fmt::Debug for X509VerifyResult {
 }
 
 impl fmt::Display for X509VerifyResult {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.write_str(self.error_string())
     }
 }
@@ -1342,7 +1415,7 @@ impl GeneralNameRef {
 }
 
 impl fmt::Debug for GeneralNameRef {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(email) = self.email() {
             formatter.write_str(email)
         } else if let Some(dnsname) = self.dnsname() {
@@ -1360,6 +1433,32 @@ impl fmt::Debug for GeneralNameRef {
 
 impl Stackable for GeneralName {
     type StackType = ffi::stack_st_GENERAL_NAME;
+}
+
+foreign_type_and_impl_send_sync! {
+    type CType = ffi::ACCESS_DESCRIPTION;
+    fn drop = ffi::ACCESS_DESCRIPTION_free;
+
+    /// `AccessDescription` of certificate authority information.
+    pub struct AccessDescription;
+    /// Reference to `AccessDescription`.
+    pub struct AccessDescriptionRef;
+}
+
+impl AccessDescriptionRef {
+    /// Returns the access method OID.
+    pub fn method(&self) -> &Asn1ObjectRef {
+        unsafe { Asn1ObjectRef::from_ptr((*self.as_ptr()).method) }
+    }
+
+    // Returns the access location.
+    pub fn location(&self) -> &GeneralNameRef {
+        unsafe { GeneralNameRef::from_ptr((*self.as_ptr()).location) }
+    }
+}
+
+impl Stackable for AccessDescription {
+    type StackType = ffi::stack_st_ACCESS_DESCRIPTION;
 }
 
 foreign_type_and_impl_send_sync! {

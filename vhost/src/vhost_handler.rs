@@ -1,7 +1,7 @@
 /// A actix-web vhost handler
 use crate::etag::Etag;
 use actix_web::http::header::{self, Header, HeaderValue};
-use actix_web::{web, Error, http, HttpRequest, HttpResponse};
+use actix_web::{http, web, Error, HttpRequest, HttpResponse};
 use common::traits::Shared;
 use log::{debug, error};
 use mime_guess::{Mime, MimeGuess};
@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use zip::read::{ZipArchive, ZipFile};
+use zip::CompressionMethod;
 
 #[derive(Default)]
 pub struct AppData {
@@ -76,11 +77,19 @@ fn response_from_zip<'a>(
     let mut buf = vec![];
     let _ = zip.read_to_end(&mut buf);
 
-    HttpResponse::Ok()
+    let mut ok = HttpResponse::Ok();
+    let builder = ok
         .set_header("Content-Security-Policy", csp)
         .set_header("ETag", etag)
-        .content_type(mime.as_ref())
-        .body(buf)
+        .content_type(mime.as_ref());
+
+    // If the zip entry was compressed, set the content type accordingly.
+    // if not, the actix middleware will do its own compression based
+    // on the supported content-encoding supplied by the client.
+    if zip.compression() == CompressionMethod::Deflated {
+        builder.set_header("Content-Encoding", "deflate");
+    }
+    builder.body(buf)
 }
 
 // Returns a http response for a given file path.
@@ -177,19 +186,16 @@ pub async fn vhost(
             // to: http://app.localhost[:port]/file.html?...
             let path = req.path();
             let parts: Vec<&str> = path.split('/').collect();
-            if parts.len() < 2 ||
-               parts[1] != "redirect" {
+            if parts.len() < 2 || parts[1] != "redirect" {
                 return Ok(HttpResponse::BadRequest().finish());
             }
             let replace_path = format!("{}/{}/", parts[1], parts[2]);
             let path = path.replace(&replace_path, "");
             let params = req.query_string();
             let redirect_url = format!("http://{}.{}{}?{}", parts[2], full_host, path, params);
-            return Ok(
-                HttpResponse::MovedPermanently()
-                   .header(http::header::LOCATION, redirect_url)
-                   .finish()
-            );
+            return Ok(HttpResponse::MovedPermanently()
+                .header(http::header::LOCATION, redirect_url)
+                .finish());
         }
 
         // Now extract our vhost, which is the leftmost part of the domain name.
@@ -227,7 +233,7 @@ pub async fn vhost(
             }
         });
 
-        // Check if we have a ziparchive for this host.
+        // Check if we have a zip archive for this host.
         if !has_zip {
             // We don't track this host yet, check if there is a matching zip.
             let path = std::path::PathBuf::from(format!("{}/{}/application.zip", root_path, host));
@@ -267,7 +273,7 @@ pub async fn vhost(
         }
 
         // Now we are sure the zip archive is in our hashmap.
-        // We still need a write lock because ZipFile.by_name()takes a `&mut self` parameter :(
+        // We still need a write lock because ZipFile.by_name_maybe_raw()takes a `&mut self` parameter :(
         let mut readlock = data.lock();
 
         match readlock.zips.get_mut(host) {
@@ -275,7 +281,9 @@ pub async fn vhost(
                 let filename = req.match_info().query("filename");
 
                 match check_lang_files(&languages, filename, &mut |lang_file| {
-                    if let Ok(mut zip) = archive.by_name(&lang_file) {
+                    if let Ok(mut zip) =
+                        archive.by_name_maybe_raw(&lang_file, CompressionMethod::Deflated)
+                    {
                         debug!("Opening {}", lang_file);
                         return Some(response_from_zip(&mut zip, &csp, if_none_match));
                     }
@@ -284,7 +292,7 @@ pub async fn vhost(
                     Ok(response) => Ok(response),
                     Err(_) => {
                         // Default fallback
-                        match archive.by_name(filename) {
+                        match archive.by_name_maybe_raw(filename, CompressionMethod::Deflated) {
                             Ok(mut zip) => Ok(response_from_zip(&mut zip, &csp, if_none_match)),
                             Err(_) => Ok(HttpResponse::NotFound().finish()),
                         }

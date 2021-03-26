@@ -12,7 +12,7 @@
 
 [package]
 name = "multimap"
-version = "0.8.2"
+version = "0.8.3"
 authors = ["Håvar Nøvik <havar.novik@gmail.com>"]
 exclude = [".travis.yml", ".gitignore"]
 description = "A multimap implementation."

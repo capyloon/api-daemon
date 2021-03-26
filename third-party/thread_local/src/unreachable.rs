@@ -5,7 +5,26 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::hint::unreachable_unchecked;
+//! # unreachable
+//! inlined from https://github.com/reem/rust-unreachable/
+//!
+//! An unreachable code optimization hint in stable rust, and some useful
+//! extension traits for `Option` and `Result`.
+//!
+
+/// Hint to the optimizer that any code path which calls this function is
+/// statically unreachable and can be removed.
+///
+/// Calling this function in reachable code invokes undefined behavior. Be
+/// very, very sure this is what you want; often, a simple `panic!` is more
+/// suitable.
+#[inline]
+pub unsafe fn unreachable() -> ! {
+    /// The empty type for cases which can't occur.
+    enum Void { }
+    let x: &Void = ::std::mem::transmute(1usize);
+    match *x {}
+}
 
 /// An extension trait for `Option<T>` providing unchecked unwrapping methods.
 pub trait UncheckedOptionExt<T> {
@@ -29,14 +48,12 @@ impl<T> UncheckedOptionExt<T> for Option<T> {
     unsafe fn unchecked_unwrap(self) -> T {
         match self {
             Some(x) => x,
-            None => unreachable_unchecked(),
+            None => unreachable()
         }
     }
 
     unsafe fn unchecked_unwrap_none(self) {
-        if self.is_some() {
-            unreachable_unchecked()
-        }
+        if self.is_some() { unreachable() }
     }
 }
 
@@ -44,14 +61,14 @@ impl<T, E> UncheckedResultExt<T, E> for Result<T, E> {
     unsafe fn unchecked_unwrap_ok(self) -> T {
         match self {
             Ok(x) => x,
-            Err(_) => unreachable_unchecked(),
+            Err(_) => unreachable()
         }
     }
 
     unsafe fn unchecked_unwrap_err(self) -> E {
         match self {
-            Ok(_) => unreachable_unchecked(),
-            Err(e) => e,
+            Ok(_) => unreachable(),
+            Err(e) => e
         }
     }
 }
