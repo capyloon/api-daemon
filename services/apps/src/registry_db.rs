@@ -127,6 +127,7 @@ impl FromSql for AppsUpdateState {
 // "manifest_url": "http://system.localhost/manifest.webmanifest",
 // "update_manifest_url": "http://cached.localhost/appname/update.webmanifest",
 // "update_url": "https://store.server/system/manifest.webmanifest",
+// "preloaded": false,
 // "status": "Enabled",
 // "install_state": "Installed",
 // "update_state": "Idle",
@@ -145,6 +146,7 @@ static UPGRADE_0_1_SQL: [&str; 1] = [r#"CREATE TABLE IF NOT EXISTS apps (
                                         manifest_url TEXT NOT NULL UNIQUE,
                                         update_manifest_url TEXT NOT NULL,
                                         update_url TEXT NOT NULL,
+                                        preloaded BOOL,
                                         status TEXT NOT NULL,
                                         install_state TEXT NOT NULL,
                                         update_state TEXT NOT NULL,
@@ -179,6 +181,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let manifest_url: String = row.get("manifest_url")?;
     let update_manifest_url: String = row.get("update_manifest_url")?;
     let update_url: String = row.get("update_url")?;
+    let preloaded: bool = row.get("preloaded")?;
     let install_time: i64 = row.get("install_time")?;
     let update_time: i64 = row.get("update_time")?;
     let manifest_hash: String = row.get("manifest_hash")?;
@@ -190,6 +193,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     item.set_removable(removable);
     item.set_update_manifest_url(&update_manifest_url);
     item.set_update_url(&update_url);
+    item.set_preloaded(preloaded);
     item.set_status(row.get("status")?);
     item.set_install_state(row.get("install_state")?);
     item.set_update_state(row.get("update_state")?);
@@ -235,6 +239,7 @@ impl RegistryDb {
                                      manifest_url,
                                      update_manifest_url,
                                      update_url,
+                                     preloaded,
                                      status,
                                      install_state,
                                      update_state,
@@ -248,6 +253,7 @@ impl RegistryDb {
                                     :manifest_url,
                                     :update_manifest_url,
                                     :update_url,
+                                    :preloaded,
                                     :status,
                                     :install_state,
                                     :update_state,
@@ -267,6 +273,7 @@ impl RegistryDb {
                 ":manifest_url": &app.get_manifest_url(),
                 ":update_manifest_url": &app.get_update_manifest_url(),
                 ":update_url": &app.get_update_url(),
+                ":preloaded": &app.get_preloaded(),
                 ":status": &status,
                 ":install_state": &install_state,
                 ":update_state": &update_state,

@@ -6,7 +6,7 @@ use crate::tasks::{
     CancelDownloadTask, CheckForUpdateTask, ClearTask, InstallPackageTask, InstallPwaTask,
     SetEnabledTask, UninstallTask, UpdateTask,
 };
-use crate::update_scheduler::{UpdateScheduler, SchedulerMessage};
+use crate::update_scheduler::{SchedulerMessage, UpdateScheduler};
 use common::core::BaseMessage;
 use common::traits::{
     DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,

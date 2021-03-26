@@ -284,6 +284,7 @@ impl AppsRegistry {
                                 }
                             }
                         }
+                        app.set_preloaded(true);
                         // Add the app to the database.
                         db.add(&app)?;
                     }

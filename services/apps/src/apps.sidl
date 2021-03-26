@@ -86,6 +86,7 @@ dictionary AppsObject {
   updateState: AppsUpdateState
   updateURL: str
   allowedAutoDownload: bool
+  preloaded: bool
 }
 
 dictionary DownloadFailedReason {

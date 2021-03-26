@@ -30,6 +30,8 @@ pub struct AppsItem {
     version: String,
     #[serde(default = "AppsItem::default_false")]
     removable: bool,
+    #[serde(default = "AppsItem::default_false")]
+    preloaded: bool,
 }
 
 impl AppsItem {
@@ -48,6 +50,7 @@ impl AppsItem {
             package_hash: AppsItem::default_string(),
             version: AppsItem::default_string(),
             removable: true,
+            preloaded: false,
         }
     }
 
@@ -165,6 +168,14 @@ impl AppsItem {
         self.package_hash = hash.to_owned();
     }
 
+    pub fn set_preloaded(&mut self, preloaded: bool) {
+        self.preloaded = preloaded;
+    }
+
+    pub fn get_preloaded(&self) -> bool {
+        self.preloaded
+    }
+
     pub fn is_found(&self, unique_name: &str, update_url: Option<&str>) -> bool {
         let found = self.name == unique_name;
         if self.update_url.is_empty() && update_url.is_none() {
@@ -246,6 +257,7 @@ impl From<&AppsItem> for AppsObject {
             update_url: app.update_url.clone(),
             update_manifest_url: app.update_manifest_url.clone(),
             allowed_auto_download: false,
+            preloaded: app.preloaded,
         }
     }
 }
