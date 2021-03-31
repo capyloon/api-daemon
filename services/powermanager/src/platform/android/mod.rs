@@ -136,11 +136,10 @@ impl PowerManagerSupport for AndroidPowerManager {
 
         // Relay the request to Gecko using the bridge.
         let bridge = GeckoBridgeService::shared_state();
-        if bridge
+        let maybe_enabled = bridge
             .lock()
-            .powermanager_set_screen_enabled(state, screen_id == 1)
-            .is_err()
-        {
+            .powermanager_set_screen_enabled(state, screen_id == 1);
+        if maybe_enabled.get().is_err() {
             error!("Failed to set screen #{} to {}", screen_id, state);
             return false;
         }

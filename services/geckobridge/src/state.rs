@@ -14,30 +14,18 @@ use common::JsonValue;
 use log::{debug, error};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use thiserror::Error;
 
-#[derive(Debug)]
-pub struct BridgeError;
-
-impl fmt::Display for BridgeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "GeckoBridge Error")
-    }
-}
-
-impl std::error::Error for BridgeError {}
-
-#[derive(Error, Debug)]
+#[derive(Clone, Error, Debug)]
 pub enum DelegateError {
     #[error("Report errors from web runtime")]
     InvalidWebRuntimeService,
     #[error("Receive receiver error")]
     InvalidChannel,
     #[error("Failed to get delegate manager")]
-    InvalidDelegator,
+    InvalidDelegate,
     #[error("Invalid wakelock")]
     InvalidWakelock,
 }
@@ -204,18 +192,12 @@ impl GeckoBridgeState {
         &mut self,
         value: bool,
         is_external_screen: bool,
-    ) -> Result<(), BridgeError> {
-        if let Some(powermanager) = &mut self.powermanager {
-            let rx = powermanager.set_screen_enabled(value, is_external_screen);
-            if let Ok(result) = rx.recv() {
-                result.map_err(|_| BridgeError)
-            } else {
-                error!("Failed to set screen : invalid delegate channel.");
-                Err(BridgeError)
-            }
-        } else {
-            error!("The powermanager delegate is not set!");
-            Err(BridgeError)
+    ) -> DelegateResponse<()> {
+        match self.powermanager.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(powermanager) => DelegateResponse::from_receiver(
+                powermanager.set_screen_enabled(value, is_external_screen),
+            ),
         }
     }
 
@@ -249,7 +231,7 @@ impl GeckoBridgeState {
             }
         } else {
             error!("Failed to get the wakelock: powermanager delegate is not set!");
-            Err(DelegateError::InvalidDelegator)
+            Err(DelegateError::InvalidDelegate)
         }
     }
 
@@ -340,7 +322,7 @@ impl GeckoBridgeState {
             }
         } else {
             error!("The apps service delegate is not set!");
-            Err(DelegateError::InvalidDelegator)
+            Err(DelegateError::InvalidDelegate)
         }
     }
 
@@ -399,19 +381,12 @@ impl GeckoBridgeState {
         &mut self,
         service_id: i64,
         info_type: CardInfoType,
-    ) -> Result<String, DelegateError> {
-        if let Some(mobilemanager) = &mut self.mobilemanager {
-            let rx = mobilemanager.get_card_info(service_id, info_type);
-            if let Ok(result) = rx.recv() {
-                match result {
-                    Ok(info) => Ok(info),
-                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
-                }
-            } else {
-                Err(DelegateError::InvalidChannel)
+    ) -> DelegateResponse<String> {
+        match self.mobilemanager.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(mobilemanager) => {
+                DelegateResponse::from_receiver(mobilemanager.get_card_info(service_id, info_type))
             }
-        } else {
-            Err(DelegateError::InvalidDelegator)
         }
     }
 
@@ -419,19 +394,12 @@ impl GeckoBridgeState {
         &mut self,
         service_id: i64,
         is_sim: bool,
-    ) -> Result<NetworkOperator, DelegateError> {
-        if let Some(mobilemanager) = &mut self.mobilemanager {
-            let rx = mobilemanager.get_mnc_mcc(service_id, is_sim);
-            if let Ok(result) = rx.recv() {
-                match result {
-                    Ok(operator) => Ok(operator),
-                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
-                }
-            } else {
-                Err(DelegateError::InvalidChannel)
+    ) -> DelegateResponse<NetworkOperator> {
+        match self.mobilemanager.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(mobilemanager) => {
+                DelegateResponse::from_receiver(mobilemanager.get_mnc_mcc(service_id, is_sim))
             }
-        } else {
-            Err(DelegateError::InvalidDelegator)
         }
     }
 
@@ -441,19 +409,12 @@ impl GeckoBridgeState {
         self.notify_readyness_observers();
     }
 
-    pub fn networkmanager_get_network_info(&mut self) -> Result<NetworkInfo, DelegateError> {
-        if let Some(networkmanager) = &mut self.networkmanager {
-            let rx = networkmanager.get_network_info();
-            if let Ok(result) = rx.recv() {
-                match result {
-                    Ok(info) => Ok(info),
-                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
-                }
-            } else {
-                Err(DelegateError::InvalidChannel)
+    pub fn networkmanager_get_network_info(&mut self) -> DelegateResponse<NetworkInfo> {
+        match self.networkmanager.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(networkmanager) => {
+                DelegateResponse::from_receiver(networkmanager.get_network_info())
             }
-        } else {
-            Err(DelegateError::InvalidDelegator)
         }
     }
 
@@ -463,82 +424,50 @@ impl GeckoBridgeState {
         self.notify_readyness_observers();
     }
 
-    pub fn preference_get_int(&mut self, pref_name: String) -> Result<i64, DelegateError> {
-        self.preference
-            .as_mut()
-            .map_or(Err(DelegateError::InvalidDelegator), |p| {
-                p.get_int(pref_name)
-                    .recv()
-                    .map_err(|_| DelegateError::InvalidChannel)
-                    .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService))
-            })
+    pub fn preference_get_int(&mut self, pref_name: String) -> DelegateResponse<i64> {
+        match self.preference.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_int(pref_name)),
+        }
     }
 
-    pub fn preference_get_char(&mut self, pref_name: String) -> Result<String, DelegateError> {
-        self.preference
-            .as_mut()
-            .map_or(Err(DelegateError::InvalidDelegator), |p| {
-                p.get_char(pref_name)
-                    .recv()
-                    .map_err(|_| DelegateError::InvalidChannel)
-                    .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService))
-            })
+    pub fn preference_get_char(&mut self, pref_name: String) -> DelegateResponse<String> {
+        match self.preference.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_char(pref_name)),
+        }
     }
 
-    pub fn preference_get_bool(&mut self, pref_name: String) -> Result<bool, DelegateError> {
-        self.preference
-            .as_mut()
-            .map_or(Err(DelegateError::InvalidDelegator), |p| {
-                p.get_bool(pref_name)
-                    .recv()
-                    .map_err(|_| DelegateError::InvalidChannel)
-                    .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService))
-            })
+    pub fn preference_get_bool(&mut self, pref_name: String) -> DelegateResponse<bool> {
+        match self.preference.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_bool(pref_name)),
+        }
     }
 
-    pub fn preference_set_int(
-        &mut self,
-        pref_name: String,
-        value: i64,
-    ) -> Result<(), DelegateError> {
-        self.preference
-            .as_mut()
-            .map_or(Err(DelegateError::InvalidDelegator), |p| {
-                p.set_int(pref_name, value)
-                    .recv()
-                    .map_err(|_| DelegateError::InvalidChannel)
-                    .map(|_| ())
-            })
+    pub fn preference_set_int(&mut self, pref_name: String, value: i64) -> DelegateResponse<()> {
+        match self.preference.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_int(pref_name, value)),
+        }
     }
 
     pub fn preference_set_char(
         &mut self,
         pref_name: String,
         value: String,
-    ) -> Result<(), DelegateError> {
-        self.preference
-            .as_mut()
-            .map_or(Err(DelegateError::InvalidDelegator), |p| {
-                p.set_char(pref_name, value)
-                    .recv()
-                    .map_err(|_| DelegateError::InvalidChannel)
-                    .map(|_| ())
-            })
+    ) -> DelegateResponse<()> {
+        match self.preference.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_char(pref_name, value)),
+        }
     }
 
-    pub fn preference_set_bool(
-        &mut self,
-        pref_name: String,
-        value: bool,
-    ) -> Result<(), DelegateError> {
-        self.preference
-            .as_mut()
-            .map_or(Err(DelegateError::InvalidDelegator), |p| {
-                p.set_bool(pref_name, value)
-                    .recv()
-                    .map_err(|_| DelegateError::InvalidChannel)
-                    .map(|_| ())
-            })
+    pub fn preference_set_bool(&mut self, pref_name: String, value: bool) -> DelegateResponse<()> {
+        match self.preference.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_bool(pref_name, value)),
+        }
     }
 
     pub fn register_token(&mut self, token: &str, origin_attribute: OriginAttributes) -> bool {
@@ -547,5 +476,34 @@ impl GeckoBridgeState {
 
     pub fn get_tokens_manager(&self) -> SharedTokensManager {
         self.tokens.clone()
+    }
+}
+
+// A handle to receive the response from a delegate call without
+// needing to hold the lock on the bridge shared state.
+pub enum DelegateResponse<T> {
+    Receiver(Receiver<Result<T, ()>>),
+    Error(DelegateError),
+}
+
+impl<T> DelegateResponse<T> {
+    pub fn from_receiver(receiver: Receiver<Result<T, ()>>) -> Self {
+        DelegateResponse::Receiver(receiver)
+    }
+
+    pub fn from_error(error: DelegateError) -> Self {
+        DelegateResponse::Error(error)
+    }
+
+    // Returns either the successfull result, or an error. If the enum had
+    // been created with an error, just return it.
+    pub fn get(&self) -> Result<T, DelegateError> {
+        match &self {
+            Self::Receiver(receiver) => receiver
+                .recv()
+                .map_err(|_| DelegateError::InvalidChannel)
+                .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService)),
+            Self::Error(err) => Err(err.clone()),
+        }
     }
 }

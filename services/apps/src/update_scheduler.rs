@@ -38,7 +38,7 @@ pub enum SchedulerMessage {
 pub struct UpdateScheduler {
     enabled: bool,
     conn_type: ConnectionType, // Connection type allowed for checking updates
-    delay: i64,                   // In seconds,
+    delay: i64,                // In seconds,
     #[serde(default = "default_last_check")]
     last_check: i64,
 }
@@ -130,10 +130,10 @@ impl UpdateScheduler {
 
     #[cfg(target_os = "android")]
     fn connection_type_allowed(&self) -> bool {
-        let conn = match GeckoBridgeService::shared_state()
+        let maybe_conn = GeckoBridgeService::shared_state()
             .lock()
-            .networkmanager_get_network_info()
-        {
+            .networkmanager_get_network_info();
+        let conn = match maybe_conn.get() {
             Ok(conn) => conn,
             Err(_) => {
                 debug!("networkmanager_get_network_info failed");
@@ -223,10 +223,10 @@ pub fn network_connected() -> bool {
 
 #[cfg(not(test))]
 pub fn network_connected() -> bool {
-    match GeckoBridgeService::shared_state()
+    let maybe_netinfo = GeckoBridgeService::shared_state()
         .lock()
-        .networkmanager_get_network_info()
-    {
+        .networkmanager_get_network_info();
+    match maybe_netinfo.get() {
         Ok(conn) => conn.network_state == NetworkState::NetworkStateConnected,
         Err(_) => {
             debug!("networkmanager_get_network_info failed");
