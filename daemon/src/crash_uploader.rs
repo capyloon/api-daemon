@@ -178,26 +178,6 @@ impl CrashUploader {
             return false;
         }
 
-        // When in dev mode, don't block on delay or user consent.
-        if self.dev_mode {
-            return true;
-        }
-
-        if let Ok(last_upload_duration) = self.last_upload.elapsed() {
-            if last_upload_duration.as_secs() < MIN_UPLOAD_INTERVAL {
-                error!(
-                    "Last crash report was uploaded {}s ago, but we need to wait at least {}s",
-                    last_upload_duration.as_secs(),
-                    MIN_UPLOAD_INTERVAL
-                );
-                return false;
-            }
-        } else {
-            // Stay on the safe side if any clock issue happens.
-            error!("Can't compute crash report upload time difference");
-            return false;
-        }
-
         // Verify that the user gave consent by checking the value of the "eventlogger.telemetry.consent" setting.
         let service_state = global_context.service_state();
         let lock = service_state.lock();
@@ -215,6 +195,26 @@ impl CrashUploader {
             error!("Failed to access SettingsService.");
             false
         };
+
+        // When in dev mode, don't block on delay.
+        if self.dev_mode {
+            return res;
+        }
+
+        if let Ok(last_upload_duration) = self.last_upload.elapsed() {
+            if last_upload_duration.as_secs() < MIN_UPLOAD_INTERVAL {
+                error!(
+                    "Last crash report was uploaded {}s ago, but we need to wait at least {}s",
+                    last_upload_duration.as_secs(),
+                    MIN_UPLOAD_INTERVAL
+                );
+                return false;
+            }
+        } else {
+            // Stay on the safe side if any clock issue happens.
+            error!("Can't compute crash report upload time difference");
+            return false;
+        }
 
         res
     }
