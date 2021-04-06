@@ -248,9 +248,9 @@ impl AppsRequest {
 
             // Save the downloaded update manifest file in cached dir.
             if update_manifest.exists() {
-                let cached_dir = path.join("cached");
-                let cached_manifest = cached_dir.join(&app.get_name()).join("update.webmanifest");
+                let cached_dir = path.join("cached").join(&app.get_name());
                 let _ = AppsStorage::ensure_dir(&cached_dir);
+                let cached_manifest = cached_dir.join("update.webmanifest");
                 if let Err(err) = fs::rename(&update_manifest, &cached_manifest) {
                     error!(
                         "Rename update manifest failed: {} -> {} : {:?}",
