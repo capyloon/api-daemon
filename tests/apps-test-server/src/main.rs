@@ -24,8 +24,8 @@ fn mime_type_for(file_name: &str) -> Mime {
     MimeGuess::from_path(file_name).first_or_octet_stream()
 }
 
-fn response_from_file(name: &str) -> HttpResponse {
-    let name_string = format!("apps/{}", name);
+fn response_from_file(app: &str, name: &str) -> HttpResponse {
+    let name_string = format!("apps/{}/{}", app, name);
     let path = Path::new(&name_string);
     if let Ok(mut file) = File::open(path) {
         // Check if we can return NotModified without reading the file content.
@@ -104,14 +104,14 @@ fn validate(req: HttpRequest) -> bool {
 
 async fn apps_responses(
     req: HttpRequest,
-    web::Path((name,)): web::Path<(String,)>,
+    web::Path((app, name)): web::Path<(String, String)>,
 ) -> HttpResponse {
     // For cancel API test
     std::thread::sleep(std::time::Duration::from_millis(200));
     if !validate(req) {
         return HttpResponse::Unauthorized().finish();
     }
-    response_from_file(&name)
+    response_from_file(&app, &name)
 }
 
 #[actix_web::main]
@@ -122,7 +122,7 @@ async fn main() -> io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(middleware::Logger::default())
-            .service(web::resource("/apps/{name}").route(web::get().to(apps_responses)))
+            .service(web::resource("/apps/{app}/{name}").route(web::get().to(apps_responses)))
             .service(
                 web::scope("/")
                     .route("*", web::post().to(HttpResponse::MethodNotAllowed))

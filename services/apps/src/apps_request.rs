@@ -9,6 +9,7 @@ use crate::generated::common::*;
 use crate::manifest::{Icons, Manifest};
 use crate::shared_state::AppsSharedData;
 use crate::update_manifest::UpdateManifest;
+use blake2::{Blake2s, Digest};
 use common::traits::Shared;
 use log::{debug, error, info};
 use std::collections::HashMap;
@@ -22,7 +23,6 @@ use url::Host::Domain;
 use url::Url;
 use version_compare::{CompOp, Version};
 use zip_utils::verify_zip;
-use blake2::{Blake2s, Digest};
 
 #[cfg(test)]
 use crate::shared_state::APPS_SHARED_SHARED_DATA;
@@ -224,7 +224,7 @@ impl AppsRequest {
         is_auto_update: bool,
     ) -> Result<Option<AppsObject>, AppsServiceError> {
         debug!("check_for_update is_auto_update {}", is_auto_update);
-        let app = self
+        let mut app = self
             .shared_data
             .lock()
             .registry
@@ -243,24 +243,31 @@ impl AppsRequest {
         };
 
         if compare_version_hash(&app, &update_manifest) {
-            let mut app_obj = AppsObject::from(&app);
-            app_obj.allowed_auto_download = is_auto_update;
+            let manifest = Manifest::read_from(&update_manifest)
+                .map_err(|_| AppsServiceError::InvalidManifest)?;
 
             // Save the downloaded update manifest file in cached dir.
-            if update_manifest.exists() {
-                let cached_dir = path.join("cached").join(&app.get_name());
-                let _ = AppsStorage::ensure_dir(&cached_dir);
-                let cached_manifest = cached_dir.join("update.webmanifest");
-                if let Err(err) = fs::rename(&update_manifest, &cached_manifest) {
-                    error!(
-                        "Rename update manifest failed: {} -> {} : {:?}",
-                        update_manifest.display(),
-                        cached_manifest.display(),
-                        err
-                    );
-                    return Err(AppsServiceError::FilesystemFailure);
-                }
+            let cached_dir = path.join("cached").join(&app.get_name());
+            let _ = AppsStorage::ensure_dir(&cached_dir);
+            let cached_manifest = cached_dir.join("update.webmanifest");
+            if let Err(err) = fs::rename(&update_manifest, &cached_manifest) {
+                error!(
+                    "Rename update manifest failed: {} -> {} : {:?}",
+                    update_manifest.display(),
+                    cached_manifest.display(),
+                    err
+                );
+                return Err(AppsServiceError::FilesystemFailure);
             }
+
+            app.set_update_state(AppsUpdateState::Available);
+            let _ = self
+                .shared_data
+                .lock()
+                .registry
+                .save_app(true, &app, &manifest);
+            let mut app_obj = AppsObject::from(&app);
+            app_obj.allowed_auto_download = is_auto_update;
 
             Ok(Some(app_obj))
         } else {
@@ -764,7 +771,8 @@ fn test_compare_version_hash() {
     {
         let app_name = "test";
         let mut apps_item = AppsItem::default(&app_name, 443);
-        apps_item.set_manifest_hash("9e61057bbf5fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxe7ff60c78804727917009");
+        apps_item
+            .set_manifest_hash("9e61057bbf5fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxe7ff60c78804727917009");
 
         assert!(compare_version_hash(&apps_item, &manifest_path));
     }
@@ -773,7 +781,8 @@ fn test_compare_version_hash() {
     {
         let app_name = "test";
         let mut apps_item = AppsItem::default(&app_name, 443);
-        apps_item.set_manifest_hash("9e61057bbf5f11073bb19fc30db81076811c27bb9cbe7ff60c78804727917009");
+        apps_item
+            .set_manifest_hash("9e61057bbf5f11073bb19fc30db81076811c27bb9cbe7ff60c78804727917009");
 
         assert!(!compare_version_hash(&apps_item, &manifest_path));
     }

@@ -1,0 +1,32 @@
+{
+  "description": "Calculator for ci test",
+  "start_url": "/index.html",
+  "icons": [
+    {
+      "src": "/style/icons/calculator_56.png",
+      "type": "image/png",
+      "sizes": "56x56"
+    },
+    {
+      "src": "/style/icons/calculator_112.png",
+      "type": "image/png",
+      "sizes": "112x112"
+    }
+  ],
+  "launch_path": "/index.html",
+  "b2g_features": {
+    "permissions": {
+      "themeable":{}
+    }
+  },
+  "name": "Calculator",
+  "package_path": "http://127.0.0.1:8596/apps/calculator/application.zip",
+  "size": 25865,
+  "packaged_size": 20626,
+  "lang": "en-US",
+  "theme": "#57a5ea",
+  "type": "certified",
+  "version": "0.2",
+  "category_list": [90, 400],
+  "paid": false
+}

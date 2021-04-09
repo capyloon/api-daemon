@@ -5,11 +5,12 @@
 		"url": "https://seinlin.org",
 		"supports": {}
 	},
+    "start_url": "/index.html",
 	"icons": {
 		"64": "https://storage.kaiostech.com/v3.0/files/app/D/ETQTdeCNMa5wvMmQqYrJ-pyNfdjqNAf8cDesOH/ICON_IMAGE.png"
 	},
 	"name": "CIAutoTest",
-    "package_path": "http://127.0.0.1:8596/apps/app1.zip",
+    "package_path": "http://127.0.0.1:8596/apps/ciautotest/application.zip",
 	"size": 25865,
 	"packaged_size": 8617,
 	"type": "privileged",

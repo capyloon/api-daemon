@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [ -z ${CI_PROJECT_DIR+x} ];
+then
+    echo "Please set CI_PROJECT_DIR to the path of your SIDL repository.";
+    exit 1;
+fi
+
+cp ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/manifest.webmanifest_v1 ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/manifest.webmanifest
+cp ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/app1_v1.zip  ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/application.zip

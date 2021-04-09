@@ -2,22 +2,26 @@
   "name": "Calculator",
   "description": "Calculator",
   "launch_path": "/index.html",
-  "permissions": {
-    "themeable":{}
-  },
-  "type": "certified",
-  "default_locale": "en-US",
+  "b2g_features": {
+    "permissions": {
+      "themeable":{}
+     }
+   },
+  "lang": "en-US",
   "theme_color": "#fbba32",
-  "locales": {
-    "en-US": {
-      "name": "Calculator",
-      "description": "Calculator"
+  "icons": [
+    {
+      "src": "/style/icons/calculator_56.png",
+      "type": "image/png",
+      "sizes": "56x56"
+    },
+    {
+      "src": "/style/icons/calculator_112.png",
+      "type": "image/png",
+      "sizes": "112x112"
     }
-  },
-  "icons": {
-    "56": "/style/icons/calculator_56.png",
-    "112": "/style/icons/calculator_112.png"
-  },
+  ],
+  "version": "0.1",
   "chrome": {
     "statusbar": "overlap"
   },

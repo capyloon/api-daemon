@@ -9,8 +9,6 @@
     - ./target/debug/echo-server 7878&
     - ./target/debug/echo-server 7879&
     - ./target/debug/echo-server 7880&
-    - cd $CI_PROJECT_DIR/tests/apps-test-server
-    - $CI_PROJECT_DIR/target/release/apps_test_server &
     # fota_test_server need to create file in mode "full" & "check-update"
     # so we create separate workspace for these 2 modes
     - mkdir $CI_PROJECT_DIR/tests/fota-test-server/workspace1
@@ -28,7 +26,6 @@
     - cp ./target/release/child-test-daemon $CI_PROJECT_DIR/daemon/remote/TestService/daemon
     # Run all the service tests with a single webdriver session.
     - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/accounts/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/apps/client/test/tests.html
       file://$CI_PROJECT_DIR/services/audiovolumemanager/client/test/tests.html
       file://$CI_PROJECT_DIR/services/contacts/client/test/tests.html
       file://$CI_PROJECT_DIR/services/devicecapability/client/test/tests.html
@@ -42,6 +39,7 @@
       file://$CI_PROJECT_DIR/services/telephony/client/test/tests.html
       file://$CI_PROJECT_DIR/services/test/client/test/tests.html
       file://$CI_PROJECT_DIR/services/time/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/apps-test-server/apps_server_driver.sh
     # TODO: figure out why tests_no_package.html fails when running grouped.
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_server_error.html
     - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_no_package.html

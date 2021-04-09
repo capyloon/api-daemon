@@ -2,10 +2,10 @@
 {
   "name": "calculator",
   "manifest_url": "http://calculator.localhost/manifest.webmanifest",
-  "update_url": "https://store.server/calculator/manifest.webmanifest",
+  "update_url": "http://127.0.0.1:8596/apps/calculator/manifest.webmanifest",
   "install_time": 1584670494752,
-  "manifest_hash": "ae92e12e309b11eaef4992bb9b238310",
-  "package_hash": "8ce7eb8382f5bffb7c3a62ba93b83ed4"
+  "manifest_hash": "c037b78fe4d5b8306d697512856dbcab4c636b35767a7502bf7abfd2cd5b43cd",
+  "package_hash": "1c483add477570866c3a9266eed97bd01ce268a5c5499ade7dc41a13f38dcac5"
 },
 {
   "name": "system",
