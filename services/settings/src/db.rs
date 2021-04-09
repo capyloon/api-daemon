@@ -1,12 +1,12 @@
 /// DB interface for the Settings
 use crate::generated::common::*;
+use common::observers::ObserverTracker;
 use common::traits::DispatcherId;
 use common::JsonValue;
 use log::{error, info};
 use rusqlite::{named_params, params, Connection, NO_PARAMS};
 use serde_json::Value;
 use sqlite_utils::{DatabaseUpgrader, SqliteDb};
-use std::collections::HashMap;
 use thiserror::Error;
 
 #[cfg(not(target_os = "android"))]
@@ -66,8 +66,6 @@ pub enum ObserverType {
 }
 
 pub struct SettingsDb {
-    // Current id that we hand out when an observer is registered.
-    id: DispatcherId,
     // A handle to the database.
     db: SqliteDb,
     // Handle to the event broadcaster to fire events when changing settings.
@@ -75,7 +73,7 @@ pub struct SettingsDb {
     // The set of observers we may call. They are keyed on the setting name to
     // not slow down lookup when settings changes, even if that makes observer
     // removal slower.
-    observers: HashMap<String, Vec<(ObserverType, DispatcherId)>>,
+    observers: ObserverTracker<String, ObserverType>,
 }
 
 impl SettingsDb {
@@ -87,10 +85,9 @@ impl SettingsDb {
         }
 
         let mut settings_db = Self {
-            id: 0,
             db,
             event_broadcaster,
-            observers: HashMap::new(),
+            observers: ObserverTracker::default(),
         };
 
         // Merge default settings.
@@ -127,38 +124,11 @@ impl SettingsDb {
     }
 
     pub fn add_observer(&mut self, name: &str, observer: ObserverType) -> DispatcherId {
-        self.id += 1;
-
-        match self.observers.get_mut(name) {
-            Some(observers) => {
-                observers.push((observer, self.id));
-            }
-            None => {
-                let init = vec![(observer, self.id)];
-                self.observers.insert(name.into(), init);
-            }
-        }
-
-        self.id
+        self.observers.add(name.into(), observer)
     }
 
-    pub fn remove_observer(&mut self, name: &str, id: DispatcherId) {
-        for (key, entry) in self.observers.iter_mut() {
-            if name != key {
-                continue;
-            }
-            // Remove the vector items that have the matching id.
-            // Note: Once it's in stable Rustc, we could simply use:
-            // entry.drain_filter(|item| item.1 == id);
-            let mut i = 0;
-            while i != entry.len() {
-                if entry[i].1 == id {
-                    entry.remove(i);
-                } else {
-                    i += 1;
-                }
-            }
-        }
+    pub fn remove_observer(&mut self, name: &str, id: DispatcherId) -> bool {
+        self.observers.remove(&name.into(), id)
     }
 
     pub fn clear(&mut self) -> Result<(), Error> {
@@ -200,19 +170,16 @@ impl SettingsDb {
                     .broadcast_change(setting_info.clone());
 
                 // If we have observers for this setting, call their callback.
-                if let Some(observers) = self.observers.get_mut(&setting_info.name) {
-                    for observer in observers {
-                        let (obs, _) = observer;
-                        match obs {
-                            ObserverType::Proxy(cb) => {
-                                cb.callback(setting_info.clone());
-                            }
-                            ObserverType::FuncPtr(cb) => {
-                                cb.callback(&setting_info.name, &setting_info.value);
-                            }
+                self.observers.for_each(&setting_info.name, |obs, _id| {
+                    match obs {
+                        ObserverType::Proxy(cb) => {
+                            cb.callback(setting_info.clone());
+                        }
+                        ObserverType::FuncPtr(cb) => {
+                            cb.callback(&setting_info.name, &setting_info.value);
                         }
                     }
-                }
+                });
             }
         }
         tx.commit()?;
@@ -294,8 +261,11 @@ impl SettingsDb {
             .unwrap_or(0);
         info!("  {} settings in db.", count);
 
-        let observers_count: usize = self.observers.values().map(|obs| obs.len()).sum();
-        info!("  {} registered observers.", observers_count);
+        info!(
+            "  {} registered observers ({} keys).",
+            self.observers.count(),
+            self.observers.key_count()
+        );
 
         self.event_broadcaster.log();
     }

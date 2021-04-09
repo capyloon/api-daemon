@@ -4,6 +4,7 @@ use crate::generated::service::*;
 use crate::time_manager::*;
 use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
+use common::observers::ObserverTracker;
 use common::traits::{
     CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
     SharedSessionContext, StateLogger, TrackerId,
@@ -16,18 +17,20 @@ use std::collections::HashMap;
 use std::time::SystemTime as StdTime;
 use threadpool::ThreadPool;
 
+#[derive(Default)]
 pub struct SharedObj {
     event_broadcaster: TimeEventBroadcaster,
-
-    // Current id that we hand out when an observer is registered.
-    id: DispatcherId,
-    observers: HashMap<CallbackReason, Vec<(TimeObserverProxy, DispatcherId)>>,
+    // An observer tracker, using the callback reason as key.
+    observers: ObserverTracker<CallbackReason, TimeObserverProxy>,
 }
 
 impl StateLogger for SharedObj {
     fn log(&self) {
-        let observers_count: usize = self.observers.values().map(|vec| vec.len()).sum();
-        info!("  {} registered observers", observers_count);
+        info!(
+            "  {} registered observers ({} keys)",
+            self.observers.count(),
+            self.observers.key_count()
+        );
 
         self.event_broadcaster.log();
     }
@@ -45,9 +48,7 @@ impl SharedObj {
 
         info!("add_observer to SettingsService with id {}", id);
         SharedObj {
-            event_broadcaster: TimeEventBroadcaster::default(),
-            id: 0,
-            observers: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -56,38 +57,11 @@ impl SharedObj {
         reason: CallbackReason,
         observer: &TimeObserverProxy,
     ) -> DispatcherId {
-        self.id += 1;
-
-        match self.observers.get_mut(&reason) {
-            Some(observers) => {
-                observers.push((observer.clone(), self.id));
-            }
-            None => {
-                let init = vec![(observer.clone(), self.id)];
-                self.observers.insert(reason, init);
-            }
-        }
-
-        self.id
+        self.observers.add(reason, observer.clone())
     }
 
-    pub fn remove_observer(&mut self, reason: CallbackReason, id: DispatcherId) {
-        for (key, entry) in self.observers.iter_mut() {
-            if reason != *key {
-                continue;
-            }
-            // Remove the vector items that have the matching id.
-            // Note: Once it's in stable Rustc, we could simply use:
-            // entry.drain_filter(|item| item.1 == id);
-            let mut i = 0;
-            while i != entry.len() {
-                if entry[i].1 == id {
-                    entry.remove(i);
-                } else {
-                    i += 1;
-                }
-            }
-        }
+    pub fn remove_observer(&mut self, reason: CallbackReason, id: DispatcherId) -> bool {
+        self.observers.remove(&reason, id)
     }
 
     pub fn broadcast(&mut self, rn: CallbackReason, tz: String, time_delta: i64) {
@@ -104,11 +78,9 @@ impl SharedObj {
             }
         }
 
-        if let Some(observers) = self.observers.get_mut(&info.reason) {
-            for observer in observers {
-                observer.0.callback(info.clone());
-            }
-        }
+        self.observers.for_each(&info.reason, |proxy, _id| {
+            proxy.callback(info.clone());
+        });
 
         match info.reason {
             CallbackReason::TimeChanged => self.event_broadcaster.broadcast_time_changed(),
@@ -303,8 +275,9 @@ impl TimeMethods for Time {
             if let Some(target) = self.observers.get_mut(&observer) {
                 let mut i = 0;
                 while i != target.len() {
-                    if target[i].0 == reason {
-                        self.shared_obj.lock().remove_observer(reason, target[i].1);
+                    if target[i].0 == reason
+                        && self.shared_obj.lock().remove_observer(reason, target[i].1)
+                    {
                         target.remove(i);
                     } else {
                         i += 1;
@@ -382,8 +355,8 @@ impl Drop for Time {
         shared_lock.event_broadcaster.remove(self.dispatcher_id);
 
         for obs in self.observers.values() {
-            for (reason , id) in obs {
-            shared_lock.remove_observer(*reason, *id);
+            for (reason, id) in obs {
+                shared_lock.remove_observer(*reason, *id);
             }
         }
 

@@ -20,6 +20,7 @@ mod selinux;
 pub mod socket_pair;
 pub mod tokens;
 pub mod traits;
+pub mod observers;
 
 pub use bincode::Error as BincodeError;
 
