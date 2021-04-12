@@ -4,7 +4,7 @@ use crate::generated::service::*;
 use crate::time_manager::*;
 use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
-use common::observers::ObserverTracker;
+use common::observers::{ObserverTracker, ServiceObserverTracker};
 use common::traits::{
     CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
     SharedSessionContext, StateLogger, TrackerId,
@@ -126,7 +126,7 @@ pub struct Time {
     shared_obj: Shared<SharedObj>,
     dispatcher_id: DispatcherId,
     proxy_tracker: TimeServiceProxyTracker,
-    observers: HashMap<ObjectRef, Vec<(CallbackReason, DispatcherId)>>,
+    observers: ServiceObserverTracker<CallbackReason>,
     origin_attributes: OriginAttributes,
 }
 
@@ -245,15 +245,7 @@ impl TimeMethods for Time {
         match self.proxy_tracker.get(&observer) {
             Some(TimeServiceProxy::TimeObserver(proxy)) => {
                 let id = self.shared_obj.lock().add_observer(reason, proxy);
-                match self.observers.get_mut(&observer) {
-                    Some(obs) => {
-                        obs.push((reason, id));
-                    }
-                    None => {
-                        let init = vec![(reason, id)];
-                        self.observers.insert(observer, init);
-                    }
-                }
+                self.observers.add(observer.into(), reason, id);
                 responder.resolve();
             }
             _ => {
@@ -272,24 +264,20 @@ impl TimeMethods for Time {
         info!("Remove observer {:?}", observer);
 
         if self.proxy_tracker.contains_key(&observer) {
-            if let Some(target) = self.observers.get_mut(&observer) {
-                let mut i = 0;
-                while i != target.len() {
-                    if target[i].0 == reason
-                        && self.shared_obj.lock().remove_observer(reason, target[i].1)
-                    {
-                        target.remove(i);
-                    } else {
-                        i += 1;
-                    }
-                }
+            let shared_lock = &mut self.shared_obj.lock();
+            if self
+                .observers
+                .remove(observer.into(), reason, &mut shared_lock.observers)
+            {
                 responder.resolve();
-                return;
+            } else {
+                error!("Failed to find observer in list");
+                responder.reject();
             }
+        } else {
+            error!("Failed to find proxy for this observer");
+            responder.reject();
         }
-
-        error!("Failed to find proxy for this observer");
-        responder.reject();
     }
 }
 
@@ -318,7 +306,7 @@ impl Service<Time> for Time {
             shared_obj: _shared_obj,
             dispatcher_id,
             proxy_tracker: HashMap::new(),
-            observers: HashMap::new(),
+            observers: ServiceObserverTracker::default(),
             origin_attributes: origin_attributes.clone(),
         })
     }
@@ -353,13 +341,6 @@ impl Drop for Time {
         );
         let shared_lock = &mut self.shared_obj.lock();
         shared_lock.event_broadcaster.remove(self.dispatcher_id);
-
-        for obs in self.observers.values() {
-            for (reason, id) in obs {
-                shared_lock.remove_observer(*reason, *id);
-            }
-        }
-
-        self.observers.clear();
+        self.observers.clear(&mut shared_lock.observers);
     }
 }

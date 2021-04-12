@@ -1,8 +1,62 @@
 /// Helper struct to manage observer lists for apis that
 /// use a add_observer(some_type, F) / remove_observer(some_type, F) pattern.
-use crate::traits::DispatcherId;
+use crate::traits::{DispatcherId, TrackerId};
 use std::collections::HashMap;
 use std::hash::Hash;
+
+pub struct ServiceObserverTracker<K> {
+    observers: HashMap<TrackerId, Vec<(K, DispatcherId)>>
+}
+
+impl<K> Default for ServiceObserverTracker<K> {
+    fn default() -> Self {
+        Self { observers: HashMap::new() }
+    }
+}
+
+impl<K> ServiceObserverTracker<K>
+where
+    K: Eq + Hash,
+{
+    pub fn add(&mut self, observer: TrackerId, key: K, id: DispatcherId) {
+        if let Some(observers) = self.observers.get_mut(&observer) {
+            observers.push((key, id));
+        } else {
+            self.observers.insert(observer, vec![(key, id)]);
+        }        
+    }
+
+    pub fn remove<P>(&mut self, observer: TrackerId, key: K, obt: &mut ObserverTracker<K, P>) -> bool
+    {
+        match self.observers.get_mut(&observer) {
+            Some(observers) => {
+                let mut i = 0;
+                while i != observers.len() {
+                    if observers[i].0 == key && obt.remove(&key, observers[i].1) {
+                        observers.remove(i);
+                    } else {
+                        i += 1;
+                    }
+                }
+                true
+            }
+            None => {
+                false
+            }
+        }
+    }
+
+    pub fn clear<P>(&mut self, obt: &mut ObserverTracker<K, P>)
+    {
+        for observers in self.observers.values() {
+            for observer in observers {
+                obt.remove(&observer.0, observer.1);
+            }
+        }
+
+        self.observers.clear();
+    }
+}
 
 pub struct ObserverTracker<K, P> {
     id: DispatcherId,
@@ -36,14 +90,10 @@ where
     pub fn add(&mut self, key: K, item: P) -> DispatcherId {
         self.id += 1;
 
-        match self.observers.get_mut(&key) {
-            Some(observers) => {
-                observers.push((item, self.id));
-            }
-            None => {
-                let init = vec![(item, self.id)];
-                self.observers.insert(key, init);
-            }
+        if let Some(observers) = self.observers.get_mut(&key) {
+            observers.push((item, self.id));
+        } else {
+            self.observers.insert(key, vec![(item, self.id)]);
         }
 
         self.id
