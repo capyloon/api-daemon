@@ -480,6 +480,7 @@ impl AppsRequest {
                         "Failed to download icon {} -> {:?} : {:?}",
                         icon_url, icon_path, err
                     );
+                    return Err(AppsServiceError::InvalidIcon);
                 }
                 let icon_cached_url = manifest_url_base
                     .join(&icon_src)
@@ -588,7 +589,7 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
 }
 
 #[cfg(test)]
-fn test_apply_pwa(app_url: &str) {
+fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use config::Config;
@@ -679,10 +680,18 @@ fn test_apply_pwa(app_url: &str) {
     let mut request = AppsRequest::new(shared_data.clone());
     match request.download_and_apply_pwa(&test_dir, app_url) {
         Ok(app) => {
+            if let Some(expected) = expected_err {
+                panic!();
+            }
             assert_eq!(app.name, "hellopwa");
             assert_eq!(app.removable, true);
         }
         Err(err) => {
+            if let Some(expected) = expected_err {
+                if err == expected {
+                    return;
+                }
+            }
             println!("err: {:?}", err);
             panic!();
         }
@@ -724,8 +733,17 @@ fn test_apply_pwa(app_url: &str) {
 
 #[test]
 fn test_pwa() {
-    test_apply_pwa("https://testpwa.github.io/manifest.webmanifest");
-    test_apply_pwa("https://testpwa.github.io/manifest2.webmanifest");
+    test_apply_pwa("https://testpwa.github.io/manifest.webmanifest", None);
+    test_apply_pwa("https://testpwa.github.io/manifest2.webmanifest", None);
+    test_apply_pwa(
+        "https://testpwa.github.io/invalid.webmanifest",
+        Some(AppsServiceError::InvalidIcon),
+    );
+    test_apply_pwa("https://testpwa.github.io/test/manifest.webmanifest", None);
+    test_apply_pwa(
+        "https://testpwa.github.io/test/invalid.webmanifest",
+        Some(AppsServiceError::InvalidIcon),
+    );
 }
 
 #[test]
