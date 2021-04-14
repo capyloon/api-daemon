@@ -3,6 +3,8 @@
 'use strict'
 
 const webpack = require('webpack');
+const UglifyJsPlugin = require('uglifyes-webpack-plugin');
+
 let config = require('./webpack.config');
 
 config = Object.assign({}, config);
@@ -15,6 +17,11 @@ config.plugins = [
         }
     }),
 
+    new UglifyJsPlugin({
+        uglifyOptions: {
+            ecma: 8
+        },
+    }),
 ];
 
 module.exports = config;

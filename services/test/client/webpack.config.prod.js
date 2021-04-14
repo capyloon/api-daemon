@@ -41,6 +41,11 @@ config.plugins = [
             'NODE_ENV': JSON.stringify('production')
         }
     }),
+    new UglifyJsPlugin({
+        uglifyOptions: {
+            ecma: 8
+        },
+    }),
 ];
 
 module.exports = config;
