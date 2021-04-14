@@ -1,4 +1,4 @@
-use log::{info, error};
+use log::{error, info};
 use std::cmp::{Ord, Ordering};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -399,7 +399,10 @@ impl CGService {
     }
 
     pub fn log(&self) {
-        info!("  Uncommitted Groups count: {}", self.uncommitted_groups.len());
+        info!(
+            "  Uncommitted Groups count: {}",
+            self.uncommitted_groups.len()
+        );
         self.groups.log();
     }
 }
@@ -735,13 +738,11 @@ impl Groups {
 
         // Phase 3
         for (group_name, (removed_attrs, set_attrs)) in attr_chgs.iter_mut() {
-            activities
-                .update_group_attrs(
-                    &target.get_group_path(group_name).unwrap(),
-                    set_attrs,
-                    removed_attrs,
-                )
-                .unwrap();
+            let _ = activities.update_group_attrs(
+                &target.get_group_path(group_name).unwrap(),
+                set_attrs,
+                removed_attrs,
+            );
         }
 
         // Phase 4
@@ -751,9 +752,7 @@ impl Groups {
                 removed_procs.remove(proc_id);
             }
             let mut removed_procs: Vec<i32> = removed_procs.iter().cloned().collect();
-            activities
-                .move_processes(&mut removed_procs, &mut added_procs)
-                .unwrap();
+            let _ = activities.move_processes(&mut removed_procs, &mut added_procs);
         }
     }
 
@@ -976,8 +975,8 @@ mod tests {
             to_set: &mut [(String, String)],
             to_remove: &mut [String],
         ) -> Result<(), CGroupError> {
-            to_set.sort();
-            to_remove.sort();
+            to_set.sort_unstable();
+            to_remove.sort_unstable();
             self.log.push(format!(
                 "update_group_attrs {} {:?} {:?}",
                 group_path, to_set, to_remove
@@ -990,8 +989,8 @@ mod tests {
             removings: &mut [i32],
             movings: &mut [(i32, String)],
         ) -> Result<(), CGroupError> {
-            removings.sort();
-            movings.sort();
+            removings.sort_unstable();
+            movings.sort_unstable();
             self.log
                 .push(format!("move_processes {:?} {:?}", removings, movings));
             Ok(())
@@ -1067,26 +1066,26 @@ mod tests {
         .unwrap();
         let mut log = GenerationWorkerMock::new();
         svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort();
+        log.log.sort_unstable();
         let mut expected = GenerationWorkerMock::new();
         expected
             .update_group_attrs(
                 "group1",
-                &mut vec![
+                &mut [
                     (String::from("key5"), String::from("value5-2")),
                     (String::from("key7"), String::from("value7")),
                 ],
-                &mut vec![String::from("key6")],
+                &mut [String::from("key6")],
             )
             .unwrap();
         expected
             .update_group_attrs(
                 "group1/group3",
-                &mut vec![(String::from("key4"), String::from("value4-1"))],
-                &mut vec![],
+                &mut [(String::from("key4"), String::from("value4-1"))],
+                &mut [],
             )
             .unwrap();
-        expected.log.sort();
+        expected.log.sort_unstable();
         assert_eq!(log.log, expected.log);
         svc.commit_noop(gid).unwrap();
     }
@@ -1104,10 +1103,10 @@ mod tests {
         svc.remove_group(gid, "group3").unwrap();
         let mut log = GenerationWorkerMock::new();
         svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort();
+        log.log.sort_unstable();
         let mut expected = GenerationWorkerMock::new();
         expected.remove_group("group1/group3").unwrap();
-        expected.log.sort();
+        expected.log.sort_unstable();
         assert_eq!(log.log, expected.log);
         svc.commit_noop(gid).unwrap();
 
@@ -1115,11 +1114,11 @@ mod tests {
         svc.remove_group(gid, "group1").unwrap();
         let mut log = GenerationWorkerMock::new();
         svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort();
+        log.log.sort_unstable();
         let mut expected = GenerationWorkerMock::new();
         expected.remove_group("group1").unwrap();
         expected.remove_group("group1/group2").unwrap();
-        expected.log.sort();
+        expected.log.sort_unstable();
         assert_eq!(log.log, expected.log);
         svc.commit_noop(gid).unwrap();
     }
@@ -1138,11 +1137,11 @@ mod tests {
         svc.add_group(gid, "group5", "group2").unwrap();
         let mut log = GenerationWorkerMock::new();
         svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort();
+        log.log.sort_unstable();
         let mut expected = GenerationWorkerMock::new();
         expected.add_group("group4", "group1/group3").unwrap();
         expected.add_group("group5", "group1/group2").unwrap();
-        expected.log.sort();
+        expected.log.sort_unstable();
         assert_eq!(log.log, expected.log);
         svc.commit_noop(gid).unwrap();
     }
@@ -1173,22 +1172,22 @@ mod tests {
             .unwrap();
         let mut log = GenerationWorkerMock::new();
         svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort();
+        log.log.sort_unstable();
         let mut expected = GenerationWorkerMock::new();
         expected
             .move_processes(
-                &mut vec![],
-                &mut vec![(3, String::from("group1/group3")), (1, String::from(""))],
+                &mut [],
+                &mut [(3, String::from("group1/group3")), (1, String::from(""))],
             )
             .unwrap();
-        expected.log.sort();
+        expected.log.sort_unstable();
         assert_eq!(log.log, expected.log);
         svc.commit_noop(gid).unwrap();
 
         let gid = svc.begin(gid, String::from("test")).unwrap();
         svc.remove_group(gid, "group3").unwrap();
         let mut proc_ids = svc.all_processes(gid).unwrap();
-        proc_ids.sort();
+        proc_ids.sort_unstable();
         assert_eq!(vec![1, 2], proc_ids);
     }
 

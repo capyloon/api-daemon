@@ -3,27 +3,30 @@
 use crate::cgroups::{CGroupError, GenerationWorker};
 use log::{debug, error};
 use std::collections::HashSet;
-use std::fs::{read_dir, File, OpenOptions};
-use std::io::Write;
+use std::fs::{read_dir, DirEntry, File, OpenOptions};
+use std::io::{Error, Write};
 use std::path::Path;
 
 const CGROUP_MEM: &str = "/dev/memcg/b2g";
 
+fn check_dir_entry(entry: Result<DirEntry, Error>) -> Result<i32, ()> {
+    let entry = entry.map_err(|_| ())?.path();
+    if !entry.is_dir() {
+        return Err(());
+    }
+    let cgroup_path = &(entry.to_string_lossy())[6..];
+    let firstchar = cgroup_path.chars().next().unwrap_or('*');
+    if !firstchar.is_ascii_digit() {
+        return Err(());
+    }
+    let pid = cgroup_path.parse::<i32>().map_err(|_| ())?;
+    Ok(pid)
+}
+
 fn get_all_pids() -> impl Iterator<Item = i32> {
     read_dir(Path::new("/proc"))
         .expect("fail to read /proc")
-        .filter_map(|x| {
-            let entry = x.as_ref().unwrap().path();
-            if !entry.is_dir() {
-                return None;
-            }
-            let cgroup_path = &(entry.to_str().unwrap())[6..];
-            let firstchar = cgroup_path.chars().next().unwrap();
-            if !firstchar.is_ascii_digit() {
-                return None;
-            }
-            Some(cgroup_path.parse::<i32>().unwrap())
-        })
+        .filter_map(|x| check_dir_entry(x).ok())
 }
 
 pub struct CGroupsWorker();
@@ -72,7 +75,7 @@ impl GenerationWorker for CGroupsWorker {
             let mut file = OpenOptions::new()
                 .write(true)
                 .open(path)
-                .expect("fail to open cgroup.procs");
+                .map_err(|_| CGroupError::Unknown)?;
             for pid in removings.iter().filter(|x| pids.contains(&x)) {
                 if let Err(err) = write!(file, "{}", pid) {
                     error!("Failed to write to {}/cgroup.procs : {}", CGROUP_MEM, err);
@@ -103,7 +106,7 @@ impl GenerationWorker for CGroupsWorker {
                 let file = OpenOptions::new()
                     .write(true)
                     .open(path)
-                    .expect("fail to open cgroup.procs");
+                    .map_err(|_| CGroupError::Unknown)?;
                 last_name_file = Some((group_path, file));
             }
             let file = &mut last_name_file.as_mut().unwrap().1;
@@ -113,7 +116,6 @@ impl GenerationWorker for CGroupsWorker {
                     "Fail to write pid={} to {}/cgroup.procs : {}",
                     pid, group_path, err
                 );
-                return self.move_processes(removings, movings);
             }
         }
         Ok(())
