@@ -4,7 +4,7 @@ use crate::cgroups::{CGroupError, GenerationWorker};
 use log::{debug, error};
 use std::collections::HashSet;
 use std::fs::{read_dir, DirEntry, File, OpenOptions};
-use std::io::{Error, Write};
+use std::io::{Error, Write, Read};
 use std::path::Path;
 
 const CGROUP_MEM: &str = "/dev/memcg/b2g";
@@ -112,9 +112,18 @@ impl GenerationWorker for CGroupsWorker {
             let file = &mut last_name_file.as_mut().unwrap().1;
 
             if let Err(err) = write!(file, "{}", pid) {
+                let mut stat = "non-existent".to_string();
+                let statpath = format!("/proc/{}/stat", pid);
+                if let Ok(mut statfile) = File::open(statpath) {
+                    let mut content = String::new();
+                    if let Ok(_) = statfile.read_to_string(&mut content) {
+                        let fields: Vec<&str> = content.split(' ').collect();
+                        stat = fields[2].to_string();
+                    }
+                }
                 error!(
-                    "Fail to write pid={} to {}/cgroup.procs : {}",
-                    pid, group_path, err
+                    "Fail to write pid={} to {}/cgroup.procs : {} : stat = {}",
+                    pid, group_path, err, stat
                 );
             }
         }
