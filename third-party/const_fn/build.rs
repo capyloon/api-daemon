@@ -30,6 +30,10 @@ fn main() {
     fs::write(out_file, version)
         .unwrap_or_else(|e| panic!("failed to write {}: {}", out_file.display(), e));
 
+    if assume_incomplete_release() {
+        println!("cargo:rustc-cfg=const_fn_assume_incomplete_release");
+    }
+
     // Mark as build script has been run successfully.
     println!("cargo:rustc-cfg=const_fn_has_build_script");
 }
@@ -40,10 +44,8 @@ struct Version {
 }
 
 impl Version {
-    // Based on https://github.com/cuviper/autocfg/blob/1.0.1/src/version.rs#L25-L59
-    //
-    // TODO: use autocfg if https://github.com/cuviper/autocfg/issues/28 merged
-    // or https://github.com/taiki-e/const_fn/issues/27 rejected.
+    // The version detection logic is based on https://github.com/cuviper/autocfg/blob/1.0.1/src/version.rs#L25-L59,
+    // but provides a better error message.
     fn from_rustc(rustc: &Path) -> Result<Self, String> {
         let output =
             Command::new(rustc).args(&["--version", "--verbose"]).output().map_err(|e| {
@@ -99,4 +101,27 @@ impl Version {
     fn print(&self) -> String {
         format!("Version {{ minor: {}, nightly: {} }}\n", self.minor, self.nightly)
     }
+}
+
+// https://github.com/taiki-e/const_fn/issues/27
+// https://github.com/rust-lang/rust/pull/81468
+fn assume_incomplete_release() -> bool {
+    // Recognized formats:
+    //
+    //     -Z assume-incomplete-release
+    //
+    //     -Zassume-incomplete-release
+
+    if let Some(rustflags) = env::var_os("RUSTFLAGS") {
+        for mut flag in rustflags.to_string_lossy().split(' ') {
+            if flag.starts_with("-Z") {
+                flag = &flag["-Z".len()..];
+            }
+            if flag == "assume-incomplete-release" {
+                return true;
+            }
+        }
+    }
+
+    false
 }

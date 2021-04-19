@@ -222,6 +222,13 @@ mod tests {
     use crate::util::*;
     use crate::util::test::*;
 
+    #[cfg(all(feature = "correct", feature = "property_tests"))]
+    use quickcheck::quickcheck;
+
+    #[cfg(all(feature = "correct", feature = "std", feature = "property_tests"))]
+    use proptest::{proptest, prop_assert_eq};
+    use approx::assert_relative_eq;
+
     // Test data for roundtrips.
     const F32_DATA : [f32; 31] = [0., 0.1, 1., 1.1, 12., 12.1, 123., 123.1, 1234., 1234.1, 12345., 12345.1, 123456., 123456.1, 1234567., 1234567.1, 12345678., 12345678.1, 123456789., 123456789.1, 123456789.12, 123456789.123, 123456789.1234, 123456789.12345, 1.2345678912345e8, 1.2345e+8, 1.2345e+11, 1.2345e+38, 1.2345e-8, 1.2345e-11, 1.2345e-38];
     const F64_DATA: [f64; 33] = [0., 0.1, 1., 1.1, 12., 12.1, 123., 123.1, 1234., 1234.1, 12345., 12345.1, 123456., 123456.1, 1234567., 1234567.1, 12345678., 12345678.1, 123456789., 123456789.1, 123456789.12, 123456789.123, 123456789.1234, 123456789.12345, 1.2345678912345e8, 1.2345e+8, 1.2345e+11, 1.2345e+38, 1.2345e+308, 1.2345e-8, 1.2345e-11, 1.2345e-38, 1.2345e-299];
@@ -415,20 +422,30 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "correct")]
+    #[cfg(all(feature = "correct", feature = "property_tests"))]
     quickcheck! {
         fn f32_quickcheck(f: f32) -> bool {
             let mut buffer = new_buffer();
-            f == f32::from_lexical(f.to_lexical(&mut buffer)).unwrap()
+            let parsed = f32::from_lexical(f.to_lexical(&mut buffer)).unwrap();
+            if f.is_nan() {
+                parsed.is_nan()
+            } else {
+                f == parsed
+            }
         }
 
         fn f64_quickcheck(f: f64) -> bool {
             let mut buffer = new_buffer();
-            f == f64::from_lexical(f.to_lexical(&mut buffer)).unwrap()
+            let parsed = f64::from_lexical(f.to_lexical(&mut buffer)).unwrap();
+            if f.is_nan() {
+                parsed.is_nan()
+            } else {
+                f == parsed
+            }
         }
     }
 
-    #[cfg(all(feature = "correct", feature = "std"))]
+    #[cfg(all(feature = "correct", feature = "std", feature = "property_tests"))]
     proptest! {
         #[test]
         fn f32_proptest(i in f32::MIN..f32::MAX) {

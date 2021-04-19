@@ -19,7 +19,7 @@
 //! // Round trip some bytes from a byte source, into a compressor, into a
 //! // decompressor, and finally into a vector.
 //! let data = "Hello, World!".as_bytes();
-//! let compressor = BzEncoder::new(data, Compression::Best);
+//! let compressor = BzEncoder::new(data, Compression::best());
 //! let mut decompressor = BzDecoder::new(compressor);
 //!
 //! let mut contents = String::new();
@@ -27,13 +27,26 @@
 //! assert_eq!(contents, "Hello, World!");
 //! ```
 //!
+//! # Multistreams (e.g. Wikipedia or pbzip2)
+//!
+//! Some tools such as pbzip2 or data from sources such as Wikipedia
+//! are encoded as so called bzip2 "multistreams," meaning they
+//! contain back to back chunks of bzip'd data. `BzDecoder` does not
+//! attempt to convert anything after the the first bzip chunk in the
+//! source stream. Thus, if you wish to decode all bzip chunks from
+//! the input until end of file, use `MultiBzDecoder`.
+//!
+//! *Protip*: If you use `BzDecoder` to decode data and the output is
+//! incomplete and exactly 900K bytes, you probably need a
+//! `MultiBzDecoder`.
+//!
 //! # Async I/O
 //!
 //! This crate optionally can support async I/O streams with the Tokio stack via
 //! the `tokio` feature of this crate:
 //!
 //! ```toml
-//! bzip2 = { version = "0.3", features = ["tokio"] }
+//! bzip2 = { version = "0.4", features = ["tokio"] }
 //! ```
 //!
 //! All methods are internally capable of working with streams that may return
@@ -47,24 +60,24 @@
 //! time to perform I/O. If I/O streams are flushed before drop, however, then
 //! these operations will be a noop.
 
-#![deny(missing_docs, warnings)]
-#![doc(html_root_url = "https://docs.rs/bzip2/0.3")]
+#![deny(missing_docs)]
+#![doc(html_root_url = "https://docs.rs/bzip2/")]
 
 extern crate bzip2_sys as ffi;
 extern crate libc;
 #[cfg(test)]
-extern crate rand;
-#[cfg(test)]
 extern crate partial_io;
 #[cfg(test)]
 extern crate quickcheck;
+#[cfg(test)]
+extern crate rand;
 #[cfg(feature = "tokio")]
 #[macro_use]
 extern crate tokio_io;
 #[cfg(feature = "tokio")]
 extern crate futures;
 
-pub use mem::{Compress, Decompress, Action, Status, Error};
+pub use mem::{Action, Compress, Decompress, Error, Status};
 
 mod mem;
 
@@ -75,12 +88,38 @@ pub mod write;
 /// When compressing data, the compression level can be specified by a value in
 /// this enum.
 #[derive(Copy, Clone, Debug)]
-pub enum Compression {
+pub struct Compression(u32);
+
+impl Compression {
+    /// Create a new compression spec with a specific numeric level (0-9).
+    pub fn new(level: u32) -> Compression {
+        Compression(level)
+    }
+
+    /// Do not compress.
+    pub fn none() -> Compression {
+        Compression(0)
+    }
+
     /// Optimize for the best speed of encoding.
-    Fastest = 1,
+    pub fn fast() -> Compression {
+        Compression(1)
+    }
+
     /// Optimize for the size of data being encoded.
-    Best = 9,
-    /// Choose the default compression, a balance between speed and size.
-    Default = 6,
+    pub fn best() -> Compression {
+        Compression(9)
+    }
+
+    /// Return the compression level as an integer.
+    pub fn level(&self) -> u32 {
+        self.0
+    }
 }
 
+impl Default for Compression {
+    /// Choose the default compression, a balance between speed and size.
+    fn default() -> Compression {
+        Compression(6)
+    }
+}

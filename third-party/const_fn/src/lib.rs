@@ -6,7 +6,7 @@
 //! ```rust
 //! use const_fn::const_fn;
 //!
-//! // function is `const` on specified version and later compiler (including beta and nightly)
+//! // function is `const` on specified version and later compiler (including beta, nightly, and dev build)
 //! #[const_fn("1.36")]
 //! pub const fn version() {
 //!     /* ... */
@@ -33,6 +33,20 @@
 //! }
 //! ```
 //!
+//! ## Use this crate as an optional dependency
+//!
+//! If no arguments are passed, `consf_fn` will always make the function `const`.
+//!
+//! Therefore, you can use `const_fn` as an optional dependency by combination with `cfg_attr`.
+//!
+//! ```rust
+//! // function is `const` if `cfg(feature = "...")` is true
+//! #[cfg_attr(feature = "...", const_fn::const_fn)]
+//! pub fn optional() {
+//!     /* ... */
+//! }
+//! ```
+//!
 //! # Alternatives
 //!
 //! This crate is proc-macro, but is very lightweight, and has no dependencies.
@@ -49,7 +63,7 @@
 ))]
 #![forbid(unsafe_code)]
 #![warn(future_incompatible, rust_2018_idioms, single_use_lifetimes, unreachable_pub)]
-#![warn(clippy::all, clippy::default_trait_access)]
+#![warn(clippy::default_trait_access)]
 
 // older compilers require explicit `extern crate`.
 #[allow(unused_extern_crates)]
@@ -112,7 +126,9 @@ fn expand(arg: Arg, mut func: Func) -> TokenStream {
             tokens
         }
         Arg::Version(req) => {
-            if req.major > 1 || req.minor > VERSION.minor {
+            if req.major > 1
+                || req.minor + (cfg!(const_fn_assume_incomplete_release) as u32) > VERSION.minor
+            {
                 func.print_const = false;
             }
             func.to_token_stream()

@@ -13,8 +13,9 @@
 [package]
 edition = "2018"
 name = "sct"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Joseph Birr-Pixton <jpixton@gmail.com>"]
+exclude = ["/admin/"]
 description = "Certificate transparency SCT verification library"
 homepage = "https://github.com/ctz/sct.rs"
 readme = "README.md"
@@ -22,7 +23,7 @@ categories = ["network-programming", "cryptography"]
 license = "Apache-2.0/ISC/MIT"
 repository = "https://github.com/ctz/sct.rs"
 [dependencies.ring]
-version = "0.16.0"
+version = "0.16.20"
 
 [dependencies.untrusted]
 version = "0.7.0"

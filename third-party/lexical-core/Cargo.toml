@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "lexical-core"
-version = "0.7.5"
+version = "0.7.6"
 authors = ["Alex Huszagh <ahuszagh@gmail.com>"]
 build = "build.rs"
 exclude = ["fuzz/*", "scripts/*", "ffi/*"]
@@ -39,6 +39,7 @@ debug-assertions = false
 version = "0.5"
 features = ["array-sizes-33-128"]
 optional = true
+default-features = false
 
 [dependencies.bitflags]
 version = "1.2"
@@ -48,6 +49,18 @@ version = "1.0"
 
 [dependencies.dtoa]
 version = "0.4"
+optional = true
+
+[dependencies.libm]
+version = "0.2.1"
+optional = true
+
+[dependencies.proptest]
+version = "0.10.1"
+optional = true
+
+[dependencies.quickcheck]
+version = "1.0.3"
 optional = true
 
 [dependencies.ryu]
@@ -60,18 +73,13 @@ optional = true
 [dev-dependencies.approx]
 version = "0.4.0"
 
-[dev-dependencies.proptest]
-version = "0.10.1"
-
-[dev-dependencies.quickcheck]
-version = "1.0.3"
-
 [features]
 correct = ["arrayvec", "static_assertions", "table"]
 default = ["correct", "ryu", "std"]
 format = ["static_assertions"]
 grisu3 = ["dtoa"]
 noinline = []
+property_tests = ["quickcheck", "proptest"]
 radix = []
 rounding = []
 std = []

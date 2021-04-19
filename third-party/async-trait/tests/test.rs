@@ -1,6 +1,6 @@
 #![cfg_attr(
     async_trait_nightly_testing,
-    feature(min_specialization, min_const_generics, type_alias_impl_trait)
+    feature(min_specialization, min_type_alias_impl_trait)
 )]
 #![allow(
     clippy::let_underscore_drop,
@@ -615,7 +615,6 @@ pub mod issue45 {
     }
 
     #[test]
-    #[should_panic]
     fn tracing() {
         // Create the future outside of the subscriber, as no call to tracing
         // should be made until the future is polled.
@@ -1319,6 +1318,46 @@ pub mod issue154 {
         async fn f(&self) {
             const MAX: u16 = 128;
             println!("{}", MAX);
+        }
+    }
+}
+
+// https://github.com/dtolnay/async-trait/issues/158
+pub mod issue158 {
+    use async_trait::async_trait;
+
+    fn f() {}
+
+    #[async_trait]
+    pub trait Trait {
+        async fn f(&self) {
+            self::f()
+        }
+    }
+}
+
+// https://github.com/dtolnay/async-trait/issues/161
+#[allow(clippy::mut_mut)]
+pub mod issue161 {
+    use async_trait::async_trait;
+    use futures::future::FutureExt;
+    use std::sync::Arc;
+
+    #[async_trait]
+    pub trait Trait {
+        async fn f(self: Arc<Self>);
+    }
+
+    pub struct MyStruct(bool);
+
+    #[async_trait]
+    impl Trait for MyStruct {
+        async fn f(self: Arc<Self>) {
+            futures::select! {
+                _ = async {
+                    println!("{}", self.0);
+                }.fuse() => {}
+            }
         }
     }
 }

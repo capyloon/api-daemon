@@ -1,5 +1,5 @@
-use pin_project::{pin_project, pinned_drop};
 use std::pin::Pin;
+use pin_project::{pin_project, pinned_drop};
 # [pin (__private (PinnedDrop , project = EnumProj , project_ref = EnumProjRef))]
 enum Enum<T, U> {
     Struct {
@@ -130,6 +130,7 @@ const _: () = {
         }
     }
 };
+#[doc(hidden)]
 impl<T, U> ::pin_project::__private::PinnedDrop for Enum<T, U> {
     unsafe fn drop(self: Pin<&mut Self>) {
         #[allow(clippy::needless_pass_by_value)]

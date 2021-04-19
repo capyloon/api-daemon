@@ -36,6 +36,8 @@ members = [
 actix = { git = "https://github.com/fabricedesre/actix.git", branch = "0.10-bump-crossbeam" }
 # Bump base64 and cookie to avoid duplicates.
 webdriver = { path = "support/webdriver" }
+# Use our fork with the extra feature for vhost
+zip = { path = "support/zip" }
 
 [profile.release]
 opt-level = 3

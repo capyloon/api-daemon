@@ -13,11 +13,12 @@
 [package]
 edition = "2018"
 name = "async-trait"
-version = "0.1.48"
+version = "0.1.50"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 description = "Type erasure for async trait methods"
 documentation = "https://docs.rs/async-trait"
 readme = "README.md"
+keywords = ["async"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/dtolnay/async-trait"
 [package.metadata.docs.rs]
@@ -34,6 +35,9 @@ version = "1.0"
 [dependencies.syn]
 version = "1.0.61"
 features = ["full", "visit-mut"]
+[dev-dependencies.futures]
+version = "0.3"
+
 [dev-dependencies.rustversion]
 version = "1.0"
 
@@ -41,10 +45,7 @@ version = "1.0"
 version = "0.1.14"
 
 [dev-dependencies.tracing-attributes]
-version = "0.1.8"
-
-[dev-dependencies.tracing-futures]
-version = "0.2"
+version = "0.1.14"
 
 [dev-dependencies.trybuild]
 version = "1.0.19"

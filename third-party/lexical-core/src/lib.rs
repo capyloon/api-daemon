@@ -126,38 +126,19 @@
 //! [`set_inf_string`]: fn.set_inf_string.html
 //! [`set_infinity_string`]: fn.set_infinity_string.html
 
+// silence warnings for unused doc comments
+#![allow(unused_doc_comments)]
+
 // FEATURES
 
 // Require intrinsics in a no_std context.
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), feature(core_intrinsics))]
+#![cfg_attr(all(not(feature = "std"), not(feature = "libm")), feature(core_intrinsics))]
 
 // DEPENDENCIES
 
 #[macro_use]
-extern crate bitflags;
-
-#[macro_use]
 extern crate cfg_if;
-
-#[cfg(any(feature = "correct", feature = "format"))]
-#[macro_use]
-extern crate static_assertions;
-
-// Testing assertions for floating-point equality.
-#[cfg(test)]
-#[macro_use]
-extern crate approx;
-
-// Test against randomly-generated data.
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck;
-
-// Test against randomly-generated guided data.
-#[cfg(all(test, feature = "std"))]
-#[macro_use]
-extern crate proptest;
 
 // Use vec if there is a system allocator, which we require only if
 // we're using the correct and radix features.
@@ -175,29 +156,30 @@ compile_error!("Lexical only accepts one of the following backends: `grisu3` or 
 
 // Import the back-end, if applicable.
 cfg_if! {
-if #[cfg(feature = "grisu3")] {
-    extern crate dtoa;
-} else if #[cfg(feature = "ryu")] {
-    extern crate ryu;
-}}  // cfg_if
+    if #[cfg(feature = "grisu3")] {
+        extern crate dtoa;
+    } else if #[cfg(feature = "ryu")] {
+        extern crate ryu;
+    }
+}  // cfg_if
 
 /// Facade around the core features for name mangling.
 pub(crate) mod lib {
-#[cfg(feature = "std")]
-pub(crate) use std::*;
-
-#[cfg(not(feature = "std"))]
-pub(crate) use core::*;
-
-cfg_if! {
-if #[cfg(all(feature = "correct", feature = "radix"))] {
     #[cfg(feature = "std")]
-    pub(crate) use std::vec::Vec;
+    pub(crate) use std::*;
 
     #[cfg(not(feature = "std"))]
-    pub(crate) use ::alloc::vec::Vec;
-}}  // cfg_if
+    pub(crate) use core::*;
 
+    cfg_if! {
+        if #[cfg(all(feature = "correct", feature = "radix"))] {
+            #[cfg(feature = "std")]
+            pub(crate) use std::vec::Vec;
+
+            #[cfg(not(feature = "std"))]
+            pub(crate) use ::alloc::vec::Vec;
+        }
+    }  // cfg_if
 }   // lib
 
 // API
@@ -227,9 +209,31 @@ pub use util::*;
 ///
 /// Panics if the buffer may not be large enough to hold the serialized
 /// number. In order to ensure the function will not panic, provide a
-/// buffer with at least [`FORMATTED_SIZE_DECIMAL`] elements.
+/// buffer with at least `{integer}::FORMATTED_SIZE_DECIMAL` elements.
 ///
-/// [`FORMATTED_SIZE_DECIMAL`]: trait.Number.html#associatedconstant.FORMATTED_SIZE_DECIMAL
+/// # Example
+///
+/// ```
+/// // import `Number` trait to get the `FORMATTED_SIZE_DECIMAL` of the number.
+/// use lexical_core::Number;
+///
+/// let mut buffer = [0u8; f32::FORMATTED_SIZE_DECIMAL];
+/// let float = 3.14159265359_f32;
+///
+/// lexical_core::write(float, &mut buffer);
+///
+/// assert_eq!(&buffer[0..9], b"3.1415927");
+/// ```
+///
+/// This will panic, because the buffer is not large enough:
+///
+/// ```should_panic
+/// // note: the buffer is only one byte large
+/// let mut buffer = [0u8; 1];
+/// let float = 3.14159265359_f32;
+///
+/// lexical_core::write(float, &mut buffer);
+/// ```
 #[inline]
 pub fn write<'a, N: ToLexical>(n: N, bytes: &'a mut [u8])
     -> &'a mut [u8]

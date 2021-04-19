@@ -47,7 +47,7 @@ mod ffi {
 /// }
 /// ```
 #[derive(Clone, Debug)]
-pub struct ZipArchive<R: Read + io::Seek> {
+pub struct ZipArchive<R> {
     reader: R,
     files: Vec<ZipFileData>,
     names_map: HashMap<String, usize>,
@@ -209,7 +209,7 @@ fn make_reader(
 impl<R: Read + io::Seek> ZipArchive<R> {
     /// Get the directory start offset and number of files. This is done in a
     /// separate function to ease the control flow design.
-    fn get_directory_counts(
+    pub(crate) fn get_directory_counts(
         reader: &mut R,
         footer: &spec::CentralDirectoryEnd,
         cde_start_pos: u64,
@@ -492,14 +492,14 @@ impl<R: Read + io::Seek> ZipArchive<R> {
     }
 
     /// Get a contained file by index
-    pub fn by_index(&mut self, file_number: usize) -> ZipResult<ZipFile<'_>> {
+    pub fn by_index(&'_ mut self, file_number: usize) -> ZipResult<ZipFile<'_>> {
         Ok(self
             .by_index_with_optional_password(file_number, None)?
             .unwrap())
     }
 
     /// Get a contained file by index without decompressing it
-    pub fn by_index_raw(&mut self, file_number: usize) -> ZipResult<ZipFile<'_>> {
+    pub fn by_index_raw(&'_ mut self, file_number: usize) -> ZipResult<ZipFile<'_>> {
         let reader = &mut self.reader;
         self.files
             .get_mut(file_number)
@@ -557,7 +557,8 @@ fn unsupported_zip_error<T>(detail: &'static str) -> ZipResult<T> {
     Err(ZipError::UnsupportedArchive(detail))
 }
 
-fn central_header_to_zip_file<R: Read + io::Seek>(
+/// Parse a central directory entry to collect the information for the file.
+pub(crate) fn central_header_to_zip_file<R: Read + io::Seek>(
     reader: &mut R,
     archive_offset: u64,
 ) -> ZipResult<ZipFileData> {
@@ -595,11 +596,11 @@ fn central_header_to_zip_file<R: Read + io::Seek>(
 
     let file_name = match is_utf8 {
         true => String::from_utf8_lossy(&*file_name_raw).into_owned(),
-        false => file_name_raw.clone().from_cp437(),
+        false => file_name_raw.clone().convert_cp437(),
     };
     let file_comment = match is_utf8 {
         true => String::from_utf8_lossy(&*file_comment_raw).into_owned(),
-        false => file_comment_raw.from_cp437(),
+        false => file_comment_raw.convert_cp437(),
     };
 
     // Construct the result
@@ -943,7 +944,7 @@ pub fn read_zipfile_from_stream<'a, R: io::Read>(
 
     let file_name = match is_utf8 {
         true => String::from_utf8_lossy(&*file_name_raw).into_owned(),
-        false => file_name_raw.clone().from_cp437(),
+        false => file_name_raw.clone().convert_cp437(),
     };
 
     let mut result = ZipFileData {

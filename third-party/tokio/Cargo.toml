@@ -13,11 +13,11 @@
 [package]
 edition = "2018"
 name = "tokio"
-version = "1.4.0"
+version = "1.5.0"
 authors = ["Tokio Contributors <team@tokio.rs>"]
 description = "An event-driven, non-blocking I/O platform for writing asynchronous I/O\nbacked applications.\n"
 homepage = "https://tokio.rs"
-documentation = "https://docs.rs/tokio/1.4.0/tokio/"
+documentation = "https://docs.rs/tokio/1.5.0/tokio/"
 readme = "README.md"
 keywords = ["io", "async", "non-blocking", "futures"]
 categories = ["asynchronous", "network-programming"]
@@ -67,7 +67,7 @@ version = "0.3.0"
 features = ["async-await"]
 
 [dev-dependencies.proptest]
-version = "0.10.0"
+version = "1"
 
 [dev-dependencies.rand]
 version = "0.8.0"
@@ -99,7 +99,7 @@ sync = []
 test-util = []
 time = []
 [target."cfg(loom)".dev-dependencies.loom]
-version = "0.4"
+version = "0.5"
 features = ["futures", "checkpoint"]
 [target."cfg(tokio_unstable)".dependencies.tracing]
 version = "0.1.21"

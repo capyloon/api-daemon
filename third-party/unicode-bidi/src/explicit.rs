@@ -11,16 +11,16 @@
 //!
 //! <http://www.unicode.org/reports/tr9/#Explicit_Levels_and_Directions>
 
-use super::char_data::{BidiClass, is_rtl};
-use super::level::Level;
+use matches::matches;
 
-use BidiClass::*;
+use super::char_data::{BidiClass::{self, *}, is_rtl};
+use super::level::Level;
 
 /// Compute explicit embedding levels for one paragraph of text (X1-X8).
 ///
 /// `processing_classes[i]` must contain the `BidiClass` of the char at byte index `i`,
 /// for each char in `text`.
-#[cfg_attr(feature = "flame_it", flame)]
+#[cfg_attr(feature = "flame_it", flamer::flame)]
 pub fn compute(
     text: &str,
     para_level: Level,

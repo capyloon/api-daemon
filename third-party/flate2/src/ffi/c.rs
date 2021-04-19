@@ -164,10 +164,6 @@ pub struct Inflate {
 
 impl InflateBackend for Inflate {
     fn make(zlib_header: bool, window_bits: u8) -> Self {
-        assert!(
-            window_bits > 8 && window_bits < 16,
-            "window_bits must be within 9 ..= 15"
-        );
         unsafe {
             let mut state = StreamWrapper::default();
             let ret = mz_inflateInit2(
@@ -258,10 +254,6 @@ pub struct Deflate {
 
 impl DeflateBackend for Deflate {
     fn make(level: Compression, zlib_header: bool, window_bits: u8) -> Self {
-        assert!(
-            window_bits > 8 && window_bits < 16,
-            "window_bits must be within 9 ..= 15"
-        );
         unsafe {
             let mut state = StreamWrapper::default();
             let ret = mz_deflateInit2(
@@ -273,7 +265,7 @@ impl DeflateBackend for Deflate {
                 } else {
                     -(window_bits as c_int)
                 },
-                9,
+                8,
                 MZ_DEFAULT_STRATEGY,
             );
             assert_eq!(ret, 0);
@@ -345,7 +337,10 @@ mod c_backend {
 }
 
 /// Zlib specific
-#[cfg(all(feature = "zlib", not(feature = "cloudflare_zlib")))]
+#[cfg(any(
+    feature = "zlib-ng-compat",
+    all(feature = "zlib", not(feature = "cloudflare_zlib"))
+))]
 #[allow(bad_style)]
 mod c_backend {
     use libc::{c_char, c_int};
@@ -409,7 +404,7 @@ mod c_backend {
 }
 
 /// Cloudflare optimized Zlib specific
-#[cfg(feature = "cloudflare_zlib")]
+#[cfg(all(feature = "cloudflare_zlib", not(feature = "zlib-ng-compat")))]
 #[allow(bad_style)]
 mod c_backend {
     use libc::{c_char, c_int};

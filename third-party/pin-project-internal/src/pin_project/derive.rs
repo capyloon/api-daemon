@@ -3,7 +3,7 @@ use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
     parse_quote, token, visit_mut::VisitMut, Attribute, Data, DataEnum, DeriveInput, Error, Field,
     Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, Index, Lifetime, LifetimeDef, Meta,
-    MetaList, NestedMeta, Result, Token, Type, Variant, Visibility, WhereClause,
+    MetaList, MetaNameValue, NestedMeta, Result, Token, Type, Variant, Visibility, WhereClause,
 };
 
 use super::{
@@ -152,7 +152,7 @@ struct Context<'a> {
     /// The projected types.
     proj: ProjectedType,
     /// Types of the pinned fields.
-    pinned_fields: Vec<Type>,
+    pinned_fields: Vec<&'a Type>,
     /// Kind of the original type: struct or enum
     kind: TypeKind,
 
@@ -320,13 +320,13 @@ fn validate_enum(brace_token: token::Brace, variants: &Variants) -> Result<()> {
     }
 }
 
-fn parse_struct(
-    cx: &mut Context<'_>,
-    fields: &Fields,
+fn parse_struct<'a>(
+    cx: &mut Context<'a>,
+    fields: &'a Fields,
     generate: &mut GenerateTokens,
 ) -> Result<()> {
     // Do this first for a better error message.
-    let packed_check = ensure_not_packed(&cx.orig, fields)?;
+    let packed_check = ensure_not_packed(&cx.orig, Some(fields))?;
 
     validate_struct(cx.orig.ident, fields)?;
 
@@ -402,9 +402,9 @@ fn parse_struct(
     Ok(())
 }
 
-fn parse_enum(
-    cx: &mut Context<'_>,
-    DataEnum { brace_token, variants, .. }: &DataEnum,
+fn parse_enum<'a>(
+    cx: &mut Context<'a>,
+    DataEnum { brace_token, variants, .. }: &'a DataEnum,
     generate: &mut GenerateTokens,
 ) -> Result<()> {
     if let ProjReplace::Unnamed { span } = &cx.project_replace {
@@ -414,8 +414,12 @@ fn parse_enum(
         ));
     }
 
-    // We don't need to check for `#[repr(packed)]`,
-    // since it does not apply to enums.
+    // #[repr(packed)] cannot be apply on enums and will be rejected by rustc.
+    // However, we should not rely on the behavior of rustc that rejects this.
+    // https://github.com/taiki-e/pin-project/pull/324#discussion_r612388001
+    //
+    // Do this first for a better error message.
+    ensure_not_packed(&cx.orig, None)?;
 
     validate_enum(*brace_token, variants)?;
 
@@ -483,7 +487,7 @@ fn parse_enum(
     Ok(())
 }
 
-fn visit_variants(cx: &mut Context<'_>, variants: &Variants) -> Result<ProjectedVariants> {
+fn visit_variants<'a>(cx: &mut Context<'a>, variants: &'a Variants) -> Result<ProjectedVariants> {
     let mut proj_variants = TokenStream::new();
     let mut proj_ref_variants = TokenStream::new();
     let mut proj_own_variants = TokenStream::new();
@@ -540,10 +544,10 @@ fn visit_variants(cx: &mut Context<'_>, variants: &Variants) -> Result<Projected
     })
 }
 
-fn visit_fields(
-    cx: &mut Context<'_>,
+fn visit_fields<'a>(
+    cx: &mut Context<'a>,
     variant_ident: Option<&Ident>,
-    fields: &Fields,
+    fields: &'a Fields,
     delim: Delimiter,
 ) -> Result<ProjectedFields> {
     fn surround(delim: Delimiter, tokens: TokenStream) -> TokenStream {
@@ -561,8 +565,8 @@ fn visit_fields(
     for (i, Field { attrs, vis, ident, colon_token, ty }) in fields.iter().enumerate() {
         let binding = ident.clone().unwrap_or_else(|| format_ident!("_{}", i));
         proj_pat.extend(quote!(#binding,));
+        let lifetime = &cx.proj.lifetime;
         if attrs.position_exact(PIN)?.is_some() {
-            let lifetime = &cx.proj.lifetime;
             proj_fields.extend(quote! {
                 #vis #ident #colon_token ::pin_project::__private::Pin<&#lifetime mut (#ty)>,
             });
@@ -579,10 +583,9 @@ fn visit_fields(
                 #ident #colon_token ::pin_project::__private::PhantomData,
             });
 
-            cx.pinned_fields.push(ty.clone());
+            cx.pinned_fields.push(ty);
             pinned_bindings.push(binding);
         } else {
-            let lifetime = &cx.proj.lifetime;
             proj_fields.extend(quote! {
                 #vis #ident #colon_token &#lifetime mut (#ty),
             });
@@ -996,8 +999,8 @@ fn make_proj_impl(
 /// This currently does two checks:
 /// * Checks the attributes of structs to ensure there is no `[repr(packed)]`.
 /// * Generates a function that borrows fields without an unsafe block and
-///   forbidding `safe_packed_borrows` lint.
-fn ensure_not_packed(orig: &OriginalType<'_>, fields: &Fields) -> Result<TokenStream> {
+///   forbidding `unaligned_references` lint.
+fn ensure_not_packed(orig: &OriginalType<'_>, fields: Option<&Fields>) -> Result<TokenStream> {
     for meta in orig.attrs.iter().filter_map(|attr| attr.parse_meta().ok()) {
         if let Meta::List(list) = meta {
             if list.path.is_ident("repr") {
@@ -1005,22 +1008,36 @@ fn ensure_not_packed(orig: &OriginalType<'_>, fields: &Fields) -> Result<TokenSt
                     match repr {
                         NestedMeta::Meta(Meta::Path(path))
                         | NestedMeta::Meta(Meta::List(MetaList { path, .. }))
-                            if path.is_ident("packed") =>
-                        {
-                            return Err(error!(
-                                repr,
-                                "#[pin_project] attribute may not be used on #[repr(packed)] types"
-                            ));
+                        | NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, .. })) => {
+                            if path.is_ident("packed") {
+                                let msg = if fields.is_none() {
+                                    // #[repr(packed)] cannot be apply on enums and will be rejected by rustc.
+                                    // However, we should not rely on the behavior of rustc that rejects this.
+                                    // https://github.com/taiki-e/pin-project/pull/324#discussion_r612388001
+                                    "#[repr(packed)] attribute should be applied to a struct or union"
+                                } else if let NestedMeta::Meta(Meta::NameValue(..)) = repr {
+                                    // #[repr(packed = "")] is not valid format of #[repr(packed)] and will be
+                                    // rejected by rustc.
+                                    // However, we should not rely on the behavior of rustc that rejects this.
+                                    // https://github.com/taiki-e/pin-project/pull/324#discussion_r612388001
+                                    "#[repr(packed)] attribute should not be name-value pair"
+                                } else {
+                                    "#[pin_project] attribute may not be used on #[repr(packed)] types"
+                                };
+                                return Err(error!(repr, msg));
+                            }
                         }
-                        _ => {}
+                        NestedMeta::Lit(..) => {}
                     }
                 }
             }
         }
     }
 
-    // As proc-macro-derive can't rewrite the structure definition,
-    // it's probably no longer necessary, but it keeps it for now.
+    let fields = match fields {
+        Some(fields) => fields,
+        None => return Ok(TokenStream::new()),
+    };
 
     // Workaround for https://github.com/taiki-e/pin-project/issues/32
     // Through the tricky use of proc macros, it's possible to bypass
@@ -1029,7 +1046,7 @@ fn ensure_not_packed(orig: &OriginalType<'_>, fields: &Fields) -> Result<TokenSt
     // struct, we generate code like this:
     //
     // ```rust
-    // #[forbid(safe_packed_borrows)]
+    // #[forbid(unaligned_references)]
     // fn assert_not_repr_packed(val: &MyStruct) {
     //     let _field1 = &val.field1;
     //     let _field2 = &val.field2;
@@ -1038,10 +1055,8 @@ fn ensure_not_packed(orig: &OriginalType<'_>, fields: &Fields) -> Result<TokenSt
     // }
     // ```
     //
-    // Taking a reference to a packed field is unsafe, and applying
-    // `#[forbid(safe_packed_borrows)]` makes sure that doing this without
-    // an `unsafe` block (which we deliberately do not generate)
-    // is a hard error.
+    // Taking a reference to a packed field is UB, and applying
+    // `#[forbid(unaligned_references)]` makes sure that doing this is a hard error.
     //
     // If the struct ends up having `#[repr(packed)]` applied somehow,
     // this will generate an (unfriendly) error message. Under all reasonable
@@ -1061,6 +1076,21 @@ fn ensure_not_packed(orig: &OriginalType<'_>, fields: &Fields) -> Result<TokenSt
     // `#[repr(packed)]` in the first place.
     //
     // See also https://github.com/taiki-e/pin-project/pull/34.
+    //
+    // Note:
+    // - pin-project v0.4.3 or later (#135, v0.4.0-v0.4.2 are already yanked for
+    //   another reason) is internally proc-macro-derive, so they are not
+    //   affected by the problem that the struct definition is rewritten by
+    //   another macro after the #[pin_project] is expanded.
+    //   So this is probably no longer necessary, but it keeps it for now.
+    //
+    // - Lint-based tricks aren't perfect, but they're much better than nothing:
+    //   https://github.com/taiki-e/pin-project-lite/issues/26
+    //
+    // - Enable both unaligned_references and safe_packed_borrows lints
+    //   because unaligned_references lint does not exist in older compilers:
+    //   https://github.com/taiki-e/pin-project-lite/pull/55
+    //   https://github.com/rust-lang/rust/pull/82525
     let mut field_refs = vec![];
     match fields {
         Fields::Named(FieldsNamed { named, .. }) => {
@@ -1080,7 +1110,7 @@ fn ensure_not_packed(orig: &OriginalType<'_>, fields: &Fields) -> Result<TokenSt
     let (impl_generics, ty_generics, where_clause) = orig.generics.split_for_impl();
     let ident = orig.ident;
     Ok(quote! {
-        #[forbid(safe_packed_borrows)]
+        #[forbid(unaligned_references, safe_packed_borrows)]
         fn __assert_not_repr_packed #impl_generics (this: &#ident #ty_generics) #where_clause {
             #(let _ = #field_refs;)*
         }

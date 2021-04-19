@@ -20,6 +20,11 @@ git = "https://github.com/fabricedesre/actix.git"
 branch = "0.10-bump-crossbeam"
 replace-with = "vendored-sources"
 
+[source."https://github.com/fabricedesre/rust-phonenumber.git"]
+git = "https://github.com/fabricedesre/rust-phonenumber.git"
+branch = "api-daemon"
+replace-with = "vendored-sources"
+
 [source."https://github.com/taskcluster/rust-hawk.git"]
 git = "https://github.com/taskcluster/rust-hawk.git"
 rev = "c0760a0d78eca2695f77b16122fc21cc3dbfd195"

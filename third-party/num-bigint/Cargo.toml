@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "num-bigint"
-version = "0.3.2"
+version = "0.4.0"
 authors = ["The Rust Project Developers"]
 build = "build.rs"
 exclude = ["/bors.toml", "/ci/*", "/.github/*"]
@@ -44,7 +44,7 @@ name = "roots"
 name = "shootout-pidigits"
 harness = false
 [dependencies.arbitrary]
-version = "0.4"
+version = "1"
 optional = true
 default-features = false
 
@@ -59,12 +59,12 @@ features = ["i128"]
 default-features = false
 
 [dependencies.quickcheck]
-version = "0.9"
+version = "1"
 optional = true
 default-features = false
 
 [dependencies.rand]
-version = "0.7"
+version = "0.8"
 optional = true
 default-features = false
 

@@ -77,8 +77,7 @@ impl<R: Read> Read for BzEncoder<R> {
 }
 
 #[cfg(feature = "tokio")]
-impl<R: AsyncRead> AsyncRead for BzEncoder<R> {
-}
+impl<R: AsyncRead> AsyncRead for BzEncoder<R> {}
 
 impl<W: Write + Read> Write for BzEncoder<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -149,8 +148,7 @@ impl<R: Read> Read for BzDecoder<R> {
 }
 
 #[cfg(feature = "tokio")]
-impl<R: AsyncRead + Read> AsyncRead for BzDecoder<R> {
-}
+impl<R: AsyncRead + Read> AsyncRead for BzDecoder<R> {}
 
 impl<W: Write + Read> Write for BzDecoder<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -169,18 +167,83 @@ impl<R: AsyncWrite + Read> AsyncWrite for BzDecoder<R> {
     }
 }
 
+/// A bzip2 streaming decoder that decodes all members of a multistream
+///
+/// Wikipedia, particularly, uses bzip2 multistream for their dumps.
+pub struct MultiBzDecoder<R> {
+    inner: bufread::MultiBzDecoder<BufReader<R>>,
+}
+
+impl<R: Read> MultiBzDecoder<R> {
+    /// Creates a new decoder from the given reader, immediately parsing the
+    /// (first) gzip header. If the gzip stream contains multiple members all will
+    /// be decoded.
+    pub fn new(r: R) -> MultiBzDecoder<R> {
+        MultiBzDecoder {
+            inner: bufread::MultiBzDecoder::new(BufReader::new(r)),
+        }
+    }
+}
+
+impl<R> MultiBzDecoder<R> {
+    /// Acquires a reference to the underlying reader.
+    pub fn get_ref(&self) -> &R {
+        self.inner.get_ref().get_ref()
+    }
+
+    /// Acquires a mutable reference to the underlying stream.
+    ///
+    /// Note that mutation of the stream may result in surprising results if
+    /// this encoder is continued to be used.
+    pub fn get_mut(&mut self) -> &mut R {
+        self.inner.get_mut().get_mut()
+    }
+
+    /// Consumes this decoder, returning the underlying reader.
+    pub fn into_inner(self) -> R {
+        self.inner.into_inner().into_inner()
+    }
+}
+
+impl<R: Read> Read for MultiBzDecoder<R> {
+    fn read(&mut self, into: &mut [u8]) -> io::Result<usize> {
+        self.inner.read(into)
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<R: AsyncRead> AsyncRead for MultiBzDecoder<R> {}
+
+impl<R: Read + Write> Write for MultiBzDecoder<R> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.get_mut().write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.get_mut().flush()
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<R: AsyncWrite + AsyncRead> AsyncWrite for MultiBzDecoder<R> {
+    fn shutdown(&mut self) -> Poll<(), io::Error> {
+        self.get_mut().shutdown()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::prelude::*;
-    use read::{BzEncoder, BzDecoder};
-    use Compression;
-    use rand::{thread_rng, Rng};
     use partial_io::{GenInterrupted, PartialRead, PartialWithErrors};
+    use rand::distributions::Standard;
+    use rand::{thread_rng, Rng};
+    use read::{BzDecoder, BzEncoder, MultiBzDecoder};
+    use std::io::prelude::*;
+    use Compression;
 
     #[test]
     fn smoke() {
         let m: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8];
-        let mut c = BzEncoder::new(m, Compression::Default);
+        let mut c = BzEncoder::new(m, Compression::default());
         let mut data = vec![];
         c.read_to_end(&mut data).unwrap();
         let mut d = BzDecoder::new(&data[..]);
@@ -192,7 +255,7 @@ mod tests {
     #[test]
     fn smoke2() {
         let m: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8];
-        let c = BzEncoder::new(m, Compression::Default);
+        let c = BzEncoder::new(m, Compression::default());
         let mut d = BzDecoder::new(c);
         let mut data = vec![];
         d.read_to_end(&mut data).unwrap();
@@ -202,7 +265,7 @@ mod tests {
     #[test]
     fn smoke3() {
         let m = vec![3u8; 128 * 1024 + 1];
-        let c = BzEncoder::new(&m[..], Compression::Default);
+        let c = BzEncoder::new(&m[..], Compression::default());
         let mut d = BzDecoder::new(c);
         let mut data = vec![];
         d.read_to_end(&mut data).unwrap();
@@ -212,19 +275,24 @@ mod tests {
     #[test]
     fn self_terminating() {
         let m = vec![3u8; 128 * 1024 + 1];
-        let mut c = BzEncoder::new(&m[..], Compression::Default);
+        let mut c = BzEncoder::new(&m[..], Compression::default());
 
         let mut result = Vec::new();
         c.read_to_end(&mut result).unwrap();
 
-        let v = thread_rng().gen_iter::<u8>().take(1024).collect::<Vec<_>>();
+        let v = thread_rng()
+            .sample_iter(&Standard)
+            .take(1024)
+            .collect::<Vec<_>>();
         for _ in 0..200 {
-            result.extend(v.iter().map(|x| *x));
+            result.extend(v.iter().map(|x: &u8| *x));
         }
 
         let mut d = BzDecoder::new(&result[..]);
         let mut data = Vec::with_capacity(m.len());
-        unsafe { data.set_len(m.len()); }
+        unsafe {
+            data.set_len(m.len());
+        }
         assert!(d.read(&mut data).unwrap() == m.len());
         assert!(data == &m[..]);
     }
@@ -232,7 +300,7 @@ mod tests {
     #[test]
     fn zero_length_read_at_eof() {
         let m = Vec::new();
-        let mut c = BzEncoder::new(&m[..], Compression::Default);
+        let mut c = BzEncoder::new(&m[..], Compression::default());
 
         let mut result = Vec::new();
         c.read_to_end(&mut result).unwrap();
@@ -245,7 +313,7 @@ mod tests {
     #[test]
     fn zero_length_read_with_data() {
         let m = vec![3u8; 128 * 1024 + 1];
-        let mut c = BzEncoder::new(&m[..], Compression::Default);
+        let mut c = BzEncoder::new(&m[..], Compression::default());
 
         let mut result = Vec::new();
         c.read_to_end(&mut result).unwrap();
@@ -256,8 +324,27 @@ mod tests {
     }
 
     #[test]
+    fn multistream_read_till_eof() {
+        let m = vec![3u8; 128 * 1024 + 1];
+        let repeat = 3;
+        let mut result = Vec::new();
+
+        for _i in 0..repeat {
+            let mut c = BzEncoder::new(&m[..], Compression::default());
+            c.read_to_end(&mut result).unwrap();
+        }
+
+        let mut d = MultiBzDecoder::new(&result[..]);
+        let mut data = Vec::new();
+
+        let a = d.read_to_end(&mut data).unwrap();
+        let b = m.len() * repeat;
+        assert!(a == b, "{} {}", a, b);
+    }
+
+    #[test]
     fn empty() {
-        let r = BzEncoder::new(&[][..], Compression::Default);
+        let r = BzEncoder::new(&[][..], Compression::default());
         let mut r = BzDecoder::new(r);
         let mut v2 = Vec::new();
         r.read_to_end(&mut v2).unwrap();
@@ -269,7 +356,7 @@ mod tests {
         ::quickcheck::quickcheck(test as fn(_) -> _);
 
         fn test(v: Vec<u8>) -> bool {
-            let r = BzEncoder::new(&v[..], Compression::Default);
+            let r = BzEncoder::new(&v[..], Compression::default());
             let mut r = BzDecoder::new(r);
             let mut v2 = Vec::new();
             r.read_to_end(&mut v2).unwrap();
@@ -279,12 +366,14 @@ mod tests {
 
     #[test]
     fn qc_partial() {
-        ::quickcheck::quickcheck(test as fn(_, _, _) -> _);
+        quickcheck6::quickcheck(test as fn(_, _, _) -> _);
 
-        fn test(v: Vec<u8>,
-                encode_ops: PartialWithErrors<GenInterrupted>,
-                decode_ops: PartialWithErrors<GenInterrupted>) -> bool {
-            let r = BzEncoder::new(PartialRead::new(&v[..], encode_ops), Compression::Default);
+        fn test(
+            v: Vec<u8>,
+            encode_ops: PartialWithErrors<GenInterrupted>,
+            decode_ops: PartialWithErrors<GenInterrupted>,
+        ) -> bool {
+            let r = BzEncoder::new(PartialRead::new(&v[..], encode_ops), Compression::default());
             let mut r = BzDecoder::new(PartialRead::new(r, decode_ops));
             let mut v2 = Vec::new();
             r.read_to_end(&mut v2).unwrap();

@@ -142,6 +142,9 @@ if #[cfg(feature = "format")] {
 mod tests {
     use crate::util::*;
 
+    #[cfg(all(feature = "std", feature = "property_tests"))]
+    use proptest::{proptest, prop_assert_eq, prop_assert};
+
     #[cfg(feature = "radix")]
     const DATA: [(u8, &'static str); 35] = [
         (2, "100101"),
@@ -369,7 +372,7 @@ mod tests {
         assert!(i32::from_lexical_format(b"-012", format).is_err());
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", feature = "property_tests"))]
     proptest! {
         #[test]
         fn u8_invalid_proptest(i in r"[+]?[0-9]{2}\D") {

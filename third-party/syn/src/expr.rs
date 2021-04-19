@@ -1494,17 +1494,9 @@ pub(crate) mod parsing {
                 }))
             }
         } else if input.peek(Token![box]) {
-            Ok(Expr::Box(ExprBox {
-                attrs,
-                box_token: input.parse()?,
-                expr: Box::new(unary_expr(input, allow_struct)?),
-            }))
+            expr_box(input, attrs, allow_struct).map(Expr::Box)
         } else if input.peek(Token![*]) || input.peek(Token![!]) || input.peek(Token![-]) {
-            Ok(Expr::Unary(ExprUnary {
-                attrs,
-                op: input.parse()?,
-                expr: Box::new(unary_expr(input, allow_struct)?),
-            }))
+            expr_unary(input, attrs, allow_struct).map(Expr::Unary)
         } else {
             trailer_expr(attrs, input, allow_struct)
         }
@@ -1728,13 +1720,13 @@ pub(crate) mod parsing {
         } else if input.peek(Token![break]) {
             expr_break(input, allow_struct).map(Expr::Break)
         } else if input.peek(Token![continue]) {
-            input.call(expr_continue).map(Expr::Continue)
+            input.parse().map(Expr::Continue)
         } else if input.peek(Token![return]) {
             expr_ret(input, allow_struct).map(Expr::Return)
         } else if input.peek(token::Bracket) {
             array_or_repeat(input)
         } else if input.peek(Token![let]) {
-            input.call(expr_let).map(Expr::Let)
+            input.parse().map(Expr::Let)
         } else if input.peek(Token![if]) {
             input.parse().map(Expr::If)
         } else if input.peek(Token![while]) {
@@ -1746,7 +1738,7 @@ pub(crate) mod parsing {
         } else if input.peek(Token![match]) {
             input.parse().map(Expr::Match)
         } else if input.peek(Token![yield]) {
-            input.call(expr_yield).map(Expr::Yield)
+            input.parse().map(Expr::Yield)
         } else if input.peek(Token![unsafe]) {
             input.parse().map(Expr::Unsafe)
         } else if input.peek(Token![const]) {
@@ -1790,7 +1782,7 @@ pub(crate) mod parsing {
         if input.peek(Lit) {
             input.parse().map(Expr::Lit)
         } else if input.peek(token::Paren) {
-            input.parse().map(Expr::Paren)
+            input.call(expr_paren).map(Expr::Paren)
         } else if input.peek(Ident)
             || input.peek(Token![::])
             || input.peek(Token![<])
@@ -2051,16 +2043,21 @@ pub(crate) mod parsing {
         })
     }
 
+    #[cfg(feature = "full")]
     #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
     impl Parse for ExprParen {
         fn parse(input: ParseStream) -> Result<Self> {
-            let content;
-            Ok(ExprParen {
-                attrs: Vec::new(),
-                paren_token: parenthesized!(content in input),
-                expr: content.parse()?,
-            })
+            expr_paren(input)
         }
+    }
+
+    fn expr_paren(input: ParseStream) -> Result<ExprParen> {
+        let content;
+        Ok(ExprParen {
+            attrs: Vec::new(),
+            paren_token: parenthesized!(content in input),
+            expr: content.parse()?,
+        })
     }
 
     #[cfg(feature = "full")]
@@ -2079,14 +2076,17 @@ pub(crate) mod parsing {
     }
 
     #[cfg(feature = "full")]
-    fn expr_let(input: ParseStream) -> Result<ExprLet> {
-        Ok(ExprLet {
-            attrs: Vec::new(),
-            let_token: input.parse()?,
-            pat: pat::parsing::multi_pat_with_leading_vert(input)?,
-            eq_token: input.parse()?,
-            expr: Box::new(input.call(Expr::parse_without_eager_brace)?),
-        })
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprLet {
+        fn parse(input: ParseStream) -> Result<Self> {
+            Ok(ExprLet {
+                attrs: Vec::new(),
+                let_token: input.parse()?,
+                pat: pat::parsing::multi_pat_with_leading_vert(input)?,
+                eq_token: input.parse()?,
+                expr: Box::new(input.call(Expr::parse_without_eager_brace)?),
+            })
+        }
     }
 
     #[cfg(feature = "full")]
@@ -2235,27 +2235,106 @@ pub(crate) mod parsing {
     }
 
     impl_by_parsing_expr! {
-        ExprBox, Box, "expected box expression",
         ExprCall, Call, "expected function call expression",
         ExprMethodCall, MethodCall, "expected method call expression",
         ExprTuple, Tuple, "expected tuple expression",
         ExprBinary, Binary, "expected binary operation",
-        ExprUnary, Unary, "expected unary operation",
         ExprCast, Cast, "expected cast expression",
         ExprType, Type, "expected type ascription expression",
-        ExprLet, Let, "expected let guard",
-        ExprClosure, Closure, "expected closure expression",
         ExprAssign, Assign, "expected assignment expression",
         ExprAssignOp, AssignOp, "expected compound assignment expression",
         ExprField, Field, "expected struct field access",
         ExprIndex, Index, "expected indexing expression",
         ExprRange, Range, "expected range expression",
-        ExprReference, Reference, "expected referencing operation",
-        ExprBreak, Break, "expected break expression",
-        ExprContinue, Continue, "expected continue expression",
-        ExprReturn, Return, "expected return expression",
         ExprTry, Try, "expected try expression",
-        ExprYield, Yield, "expected yield expression",
+    }
+
+    #[cfg(feature = "full")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprBox {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let attrs = Vec::new();
+            let allow_struct = AllowStruct(true);
+            expr_box(input, attrs, allow_struct)
+        }
+    }
+
+    #[cfg(feature = "full")]
+    fn expr_box(
+        input: ParseStream,
+        attrs: Vec<Attribute>,
+        allow_struct: AllowStruct,
+    ) -> Result<ExprBox> {
+        Ok(ExprBox {
+            attrs,
+            box_token: input.parse()?,
+            expr: Box::new(unary_expr(input, allow_struct)?),
+        })
+    }
+
+    #[cfg(feature = "full")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprUnary {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let attrs = Vec::new();
+            let allow_struct = AllowStruct(true);
+            expr_unary(input, attrs, allow_struct)
+        }
+    }
+
+    #[cfg(feature = "full")]
+    fn expr_unary(
+        input: ParseStream,
+        attrs: Vec<Attribute>,
+        allow_struct: AllowStruct,
+    ) -> Result<ExprUnary> {
+        Ok(ExprUnary {
+            attrs,
+            op: input.parse()?,
+            expr: Box::new(unary_expr(input, allow_struct)?),
+        })
+    }
+
+    #[cfg(feature = "full")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprClosure {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let allow_struct = AllowStruct(true);
+            expr_closure(input, allow_struct)
+        }
+    }
+
+    #[cfg(feature = "full")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprReference {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let allow_struct = AllowStruct(true);
+            Ok(ExprReference {
+                attrs: Vec::new(),
+                and_token: input.parse()?,
+                raw: Reserved::default(),
+                mutability: input.parse()?,
+                expr: Box::new(unary_expr(input, allow_struct)?),
+            })
+        }
+    }
+
+    #[cfg(feature = "full")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprBreak {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let allow_struct = AllowStruct(true);
+            expr_break(input, allow_struct)
+        }
+    }
+
+    #[cfg(feature = "full")]
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprReturn {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let allow_struct = AllowStruct(true);
+            expr_ret(input, allow_struct)
+        }
     }
 
     #[cfg(feature = "full")]
@@ -2271,18 +2350,21 @@ pub(crate) mod parsing {
     }
 
     #[cfg(feature = "full")]
-    fn expr_yield(input: ParseStream) -> Result<ExprYield> {
-        Ok(ExprYield {
-            attrs: Vec::new(),
-            yield_token: input.parse()?,
-            expr: {
-                if !input.is_empty() && !input.peek(Token![,]) && !input.peek(Token![;]) {
-                    Some(input.parse()?)
-                } else {
-                    None
-                }
-            },
-        })
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprYield {
+        fn parse(input: ParseStream) -> Result<Self> {
+            Ok(ExprYield {
+                attrs: Vec::new(),
+                yield_token: input.parse()?,
+                expr: {
+                    if !input.is_empty() && !input.peek(Token![,]) && !input.peek(Token![;]) {
+                        Some(input.parse()?)
+                    } else {
+                        None
+                    }
+                },
+            })
+        }
     }
 
     #[cfg(feature = "full")]
@@ -2442,12 +2524,15 @@ pub(crate) mod parsing {
     }
 
     #[cfg(feature = "full")]
-    fn expr_continue(input: ParseStream) -> Result<ExprContinue> {
-        Ok(ExprContinue {
-            attrs: Vec::new(),
-            continue_token: input.parse()?,
-            label: input.parse()?,
-        })
+    #[cfg_attr(doc_cfg, doc(cfg(feature = "parsing")))]
+    impl Parse for ExprContinue {
+        fn parse(input: ParseStream) -> Result<Self> {
+            Ok(ExprContinue {
+                attrs: Vec::new(),
+                continue_token: input.parse()?,
+                label: input.parse()?,
+            })
+        }
     }
 
     #[cfg(feature = "full")]

@@ -1,8 +1,5 @@
 # bzip2
 
-[![Build Status](https://travis-ci.org/alexcrichton/bzip2-rs.svg?branch=master)](https://travis-ci.org/alexcrichton/bzip2-rs)
-[![Build status](https://ci.appveyor.com/api/projects/status/joowqvvwfhxgdw5x?svg=true)](https://ci.appveyor.com/project/alexcrichton/bzip2-rs)
-
 [Documentation](https://docs.rs/bzip2)
 
 A streaming compression/decompression library for rust with bindings to libbz2.
@@ -10,7 +7,7 @@ A streaming compression/decompression library for rust with bindings to libbz2.
 ```toml
 # Cargo.toml
 [dependencies]
-bzip2 = "0.3.2"
+bzip2 = "0.4"
 ```
 
 
@@ -28,5 +25,5 @@ at your option.
 ### Contribution
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in Serde by you, as defined in the Apache-2.0 license, shall be
+for inclusion in this repository by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.

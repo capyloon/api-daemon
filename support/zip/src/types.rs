@@ -85,7 +85,6 @@ impl DateTime {
     /// * hour: [0, 23]
     /// * minute: [0, 59]
     /// * second: [0, 60]
-    #[allow(clippy::result_unit_err)]
     pub fn from_date_and_time(
         year: u16,
         month: u8,
@@ -93,7 +92,7 @@ impl DateTime {
         hour: u8,
         minute: u8,
         second: u8,
-    ) -> Result<DateTime, ()> {
+    ) -> Option<DateTime> {
         if (1980..=2107).contains(&year)
             && month >= 1
             && month <= 12
@@ -103,7 +102,7 @@ impl DateTime {
             && minute <= 59
             && second <= 60
         {
-            Ok(DateTime {
+            Some(DateTime {
                 year,
                 month,
                 day,
@@ -112,7 +111,7 @@ impl DateTime {
                 second,
             })
         } else {
-            Err(())
+            None
         }
     }
 
@@ -120,8 +119,7 @@ impl DateTime {
     /// Converts a ::time::Tm object to a DateTime
     ///
     /// Returns `Err` when this object is out of bounds
-    #[allow(clippy::result_unit_err)]
-    pub fn from_time(tm: ::time::Tm) -> Result<DateTime, ()> {
+    pub fn from_time(tm: ::time::Tm) -> Option<DateTime> {
         if tm.tm_year >= 80
             && tm.tm_year <= 207
             && tm.tm_mon >= 0
@@ -135,7 +133,7 @@ impl DateTime {
             && tm.tm_sec >= 0
             && tm.tm_sec <= 60
         {
-            Ok(DateTime {
+            Some(DateTime {
                 year: (tm.tm_year + 1900) as u16,
                 month: (tm.tm_mon + 1) as u8,
                 day: tm.tm_mday as u8,
@@ -144,7 +142,7 @@ impl DateTime {
                 second: tm.tm_sec as u8,
             })
         } else {
-            Err(())
+            None
         }
     }
 
@@ -340,19 +338,19 @@ mod test {
     fn datetime_bounds() {
         use super::DateTime;
 
-        assert!(DateTime::from_date_and_time(2000, 1, 1, 23, 59, 60).is_ok());
-        assert!(DateTime::from_date_and_time(2000, 1, 1, 24, 0, 0).is_err());
-        assert!(DateTime::from_date_and_time(2000, 1, 1, 0, 60, 0).is_err());
-        assert!(DateTime::from_date_and_time(2000, 1, 1, 0, 0, 61).is_err());
+        assert!(DateTime::from_date_and_time(2000, 1, 1, 23, 59, 60).is_some());
+        assert!(DateTime::from_date_and_time(2000, 1, 1, 24, 0, 0).is_none());
+        assert!(DateTime::from_date_and_time(2000, 1, 1, 0, 60, 0).is_none());
+        assert!(DateTime::from_date_and_time(2000, 1, 1, 0, 0, 61).is_none());
 
-        assert!(DateTime::from_date_and_time(2107, 12, 31, 0, 0, 0).is_ok());
-        assert!(DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).is_ok());
-        assert!(DateTime::from_date_and_time(1979, 1, 1, 0, 0, 0).is_err());
-        assert!(DateTime::from_date_and_time(1980, 0, 1, 0, 0, 0).is_err());
-        assert!(DateTime::from_date_and_time(1980, 1, 0, 0, 0, 0).is_err());
-        assert!(DateTime::from_date_and_time(2108, 12, 31, 0, 0, 0).is_err());
-        assert!(DateTime::from_date_and_time(2107, 13, 31, 0, 0, 0).is_err());
-        assert!(DateTime::from_date_and_time(2107, 12, 32, 0, 0, 0).is_err());
+        assert!(DateTime::from_date_and_time(2107, 12, 31, 0, 0, 0).is_some());
+        assert!(DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).is_some());
+        assert!(DateTime::from_date_and_time(1979, 1, 1, 0, 0, 0).is_none());
+        assert!(DateTime::from_date_and_time(1980, 0, 1, 0, 0, 0).is_none());
+        assert!(DateTime::from_date_and_time(1980, 1, 0, 0, 0, 0).is_none());
+        assert!(DateTime::from_date_and_time(2108, 12, 31, 0, 0, 0).is_none());
+        assert!(DateTime::from_date_and_time(2107, 13, 31, 0, 0, 0).is_none());
+        assert!(DateTime::from_date_and_time(2107, 12, 32, 0, 0, 0).is_none());
     }
 
     #[cfg(feature = "time")]
@@ -370,7 +368,7 @@ mod test {
             tm_year: 79, // 1979 - 1900 = 79
             ..::time::empty_tm()
         })
-        .is_err());
+        .is_none());
 
         // 1980-01-01 00:00:00
         assert!(DateTime::from_time(::time::Tm {
@@ -382,7 +380,7 @@ mod test {
             tm_year: 80, // 1980 - 1900 = 80
             ..::time::empty_tm()
         })
-        .is_ok());
+        .is_some());
 
         // 2107-12-31 23:59:59
         assert!(DateTime::from_time(::time::Tm {
@@ -394,7 +392,7 @@ mod test {
             tm_year: 207, // 2107 - 1900 = 207
             ..::time::empty_tm()
         })
-        .is_ok());
+        .is_some());
 
         // 2108-01-01 00:00:00
         assert!(DateTime::from_time(::time::Tm {
@@ -406,7 +404,7 @@ mod test {
             tm_year: 208, // 2108 - 1900 = 208
             ..::time::empty_tm()
         })
-        .is_err());
+        .is_none());
     }
 
     #[test]
@@ -467,6 +465,6 @@ mod test {
         // 2020-01-01 00:00:00
         let clock = ::time::Timespec::new(1577836800, 0);
         let tm = ::time::at_utc(clock);
-        assert!(DateTime::from_time(tm).is_ok());
+        assert!(DateTime::from_time(tm).is_some());
     }
 }

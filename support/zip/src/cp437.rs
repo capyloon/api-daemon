@@ -7,14 +7,13 @@ pub trait FromCp437 {
 
     /// Function that does the conversion from cp437.
     /// Gennerally allocations will be avoided if all data falls into the ASCII range.
-    #[allow(clippy::wrong_self_convention)]
-    fn from_cp437(self) -> Self::Target;
+    fn convert_cp437(self) -> Self::Target;
 }
 
 impl<'a> FromCp437 for &'a [u8] {
     type Target = ::std::borrow::Cow<'a, str>;
 
-    fn from_cp437(self) -> Self::Target {
+    fn convert_cp437(self) -> Self::Target {
         if self.iter().all(|c| *c < 0x80) {
             ::std::str::from_utf8(self).unwrap().into()
         } else {
@@ -26,7 +25,7 @@ impl<'a> FromCp437 for &'a [u8] {
 impl FromCp437 for Vec<u8> {
     type Target = String;
 
-    fn from_cp437(self) -> Self::Target {
+    fn convert_cp437(self) -> Self::Target {
         if self.iter().all(|c| *c < 0x80) {
             String::from_utf8(self).unwrap()
         } else {
@@ -191,7 +190,7 @@ mod test {
         use super::FromCp437;
         let data = b"Cura\x87ao";
         assert!(::std::str::from_utf8(data).is_err());
-        assert_eq!(data.from_cp437(), "Curaçao");
+        assert_eq!(data.convert_cp437(), "Curaçao");
     }
 
     #[test]
@@ -199,6 +198,6 @@ mod test {
         use super::FromCp437;
         let data = vec![0xCC, 0xCD, 0xCD, 0xB9];
         assert!(String::from_utf8(data.clone()).is_err());
-        assert_eq!(&data.from_cp437(), "╠══╣");
+        assert_eq!(&data.convert_cp437(), "╠══╣");
     }
 }

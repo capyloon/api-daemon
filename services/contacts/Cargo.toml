@@ -12,7 +12,7 @@ common = { path = "../../common" }
 ical = "0.7"
 lazy_static = "1.4"
 log = "0.4"
-phonenumber = "0.3"
+phonenumber = { git = "https://github.com/fabricedesre/rust-phonenumber.git", branch = "api-daemon" }
 rusqlite = { version = "0.23", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
