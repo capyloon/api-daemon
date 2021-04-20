@@ -779,10 +779,10 @@
           );
         }
 
-        await tester.assert_eq(
-          `no more items mtach international number: +86 56185849`,
+        await tester.assert_rej_eq(
+          `no more items match international number: +86 56185849`,
           () => match_with_international_cursor.next(),
-          []
+          {}
         );
 
         match_with_international_cursor.release();
@@ -810,10 +810,10 @@
           );
         }
 
-        await tester.assert_eq(
-          `no more items mtach national number: 5618 5849`,
+        await tester.assert_rej_eq(
+          `no more items match national number: 5618 5849`,
           () => match_with_national_cursor.next(),
-          []
+          {}
         );
 
         match_with_national_cursor.release();
@@ -841,10 +841,10 @@
           );
         }
 
-        await tester.assert_eq(
-          `no more items mtach rfc number: tel:+86-56185849`,
+        await tester.assert_rej_eq(
+          `no more items match rfc number: tel:+86-56185849`,
           () => match_with_rfc_cursor.next(),
-          []
+          {}
         );
 
         match_with_rfc_cursor.release();
@@ -872,10 +872,10 @@
           );
         }
 
-        await tester.assert_eq(
-          `no more items mtach e164 number: +8656185849`,
+        await tester.assert_rej_eq(
+          `no more items match e164 number: +8656185849`,
           () => match_with_e164_cursor.next(),
-          []
+          {}
         );
 
         match_with_e164_cursor.release();
@@ -911,10 +911,10 @@
           );
         }
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items contain wil`,
           () => find_contain_name_cursor.next(),
-          []
+          {}
         );
 
         find_contain_name_cursor.release();
@@ -947,10 +947,10 @@
           );
         }
 
-        await tester.assert_eq(
-          `no more items start with  wil`,
+        await tester.assert_rej_eq(
+          `no more items start with wil`,
           () => find_stratwith_name_cursor.next(),
-          []
+          {}
         );
 
         find_stratwith_name_cursor.release();
@@ -976,10 +976,10 @@
           expected_equal
         );
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items equal to William E. Betancourt`,
           () => find_equal_name_cursor.next(),
-          []
+          {}
         );
 
         find_equal_name_cursor.release();
@@ -1091,10 +1091,10 @@
           );
         }
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items start with 181`,
           () => find_strarwith_181_cursor.next(),
-          []
+          {}
         );
 
         find_strarwith_181_cursor.release();
@@ -1125,10 +1125,10 @@
           );
         }
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items contains with 181`,
           () => find_contain_181_cursor.next(),
-          []
+          {}
         );
 
         find_contain_181_cursor.release();
@@ -1157,10 +1157,10 @@
           "Harry"
         );
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items equals 92518107320`,
           () => find_equal_92518107320_cursor.next(),
-          []
+          {}
         );
 
         find_equal_92518107320_cursor.release();
@@ -1247,10 +1247,10 @@
           );
         }
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items fuzzy match 48885555`,
           () => find_fuzzy_match_cursor.next(),
-          []
+          {}
         );
 
         find_fuzzy_match_cursor.release();
@@ -1353,10 +1353,10 @@
           );
         }
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items email start with Tony`,
           () => find_email_startwith_cursor.next(),
-          []
+          {}
         );
 
         find_email_startwith_cursor.release();
@@ -1391,10 +1391,10 @@
           );
         }
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items email contain Tony`,
           () => find_email_contain_cursor.next(),
-          []
+          {}
         );
 
         find_email_contain_cursor.release();
@@ -1419,10 +1419,10 @@
           "abcTonyd"
         );
 
-        await tester.assert_eq(
+        await tester.assert_rej_eq(
           `no more items email equal abcTonyd@kaiostech.com`,
           () => find_email_equal_cursor.next(),
-          []
+          {}
         );
 
         find_email_equal_cursor.release();

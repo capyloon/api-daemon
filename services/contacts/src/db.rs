@@ -725,7 +725,9 @@ impl Iterator for ContactDbCursor {
         match receiver.recv() {
             Ok(msg) => msg,
             Err(err) => {
-                error!("Failed to receive cursor response: {}", err);
+                // Since the cursor releases resources eagerly once it reaches the end of
+                // the contact list, this can fail without being an issue.
+                debug!("Cursor is already closed: {}", err);
                 None
             }
         }
@@ -759,6 +761,7 @@ impl ContactDbCursor {
                 }
             };
             let mut rows = statement.raw_query();
+            let mut force_exit = false;
             loop {
                 match receiver.recv() {
                     Ok(cmd) => {
@@ -777,6 +780,9 @@ impl ContactDbCursor {
                                                 debug!("Send results with len:{}", results.len());
                                                 let _ = sender.send(Some(results));
                                             }
+                                            // Force leaving the outer loop since we can release resources at this
+                                            // point.
+                                            force_exit = true;
                                             break;
                                         }
                                         Ok(Some(row)) => {
@@ -819,6 +825,10 @@ impl ContactDbCursor {
                         error!("receiver.recv error: {}", err);
                         break;
                     }
+                }
+
+                if force_exit {
+                    break;
                 }
             }
             debug!("Exiting contacts cursor thread");
