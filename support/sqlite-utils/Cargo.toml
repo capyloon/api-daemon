@@ -6,5 +6,6 @@ edition = "2018"
 license = "Apache-2.0"
 
 [dependencies]
+log = "0.4"
 rusqlite = { version = "0.23", features = ["bundled"] }
 thiserror = "1.0"

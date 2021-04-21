@@ -1,5 +1,6 @@
 //! Rusqlite wrapper that adds support for version management.
 
+use log::{error, info};
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use std::path::Path;
 use thiserror::Error;
@@ -29,7 +30,7 @@ impl SqliteDb {
         version: u32,
         flags: OpenFlags,
     ) -> Result<Self, SqliteDbError> {
-        let mut connection = Connection::open_with_flags(path, flags)?;
+        let mut connection = Connection::open_with_flags(&path, flags)?;
 
         // Get the current version.
         let current_version: u32 = connection.query_row(
@@ -38,17 +39,32 @@ impl SqliteDb {
             |r| r.get(0),
         )?;
 
+        info!(
+            "Current db {:?} version is {}, requested version is {}",
+            path.as_ref(),
+            current_version,
+            version
+        );
+
         // Downgrades are not supported.
         if current_version > version {
             return Err(SqliteDbError::SchemaUpgrade(current_version, version));
         }
 
-        if current_version < version && !upgrader.upgrade(current_version, version, &mut connection) {
+        if current_version < version && !upgrader.upgrade(current_version, version, &mut connection)
+        {
             return Err(SqliteDbError::SchemaUpgrade(current_version, version));
         }
 
         // The upgrade went fine, so we can set the new version number.
-        connection.pragma_update(None, "user_version", &version)?;
+        if let Err(err) = connection.pragma_update(None, "user_version", &version) {
+            error!(
+                "Failed to update user_version in {:?}: {}",
+                path.as_ref(),
+                err
+            );
+            return Err(err.into());
+        }
 
         Ok(SqliteDb { connection })
     }
