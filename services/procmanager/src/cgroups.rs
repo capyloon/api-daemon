@@ -192,9 +192,14 @@ impl Default for CGService {
 }
 
 impl CGService {
+    pub fn groups(&self) -> &Groups {
+        &self.groups
+    }
+
     pub fn get_active(&self) -> GenID {
         self.groups.generation
     }
+
     pub fn retrieve_groups(&self, generation: GenID) -> Result<&Groups, CGroupError> {
         if self.groups.generation == generation {
             Ok(&self.groups)
@@ -205,6 +210,7 @@ impl CGService {
             }
         }
     }
+
     pub fn retrieve_group(
         &self,
         generation: GenID,
@@ -394,8 +400,10 @@ impl CGService {
     }
 
     pub fn get_group_path(&self, generation: GenID, group: &str) -> Result<String, CGroupError> {
-        self.retrieve_groups(generation)
-            .map(|groups| groups.get_group_path(group).unwrap())
+        match self.retrieve_groups(generation) {
+            Ok(groups) => groups.get_group_path(group),
+            Err(err) => Err(err),
+        }
     }
 
     pub fn log(&self) {
@@ -437,6 +445,8 @@ pub struct Groups {
     creator: String,
     phase: CGroupsPhase,
 }
+
+type AttrChange = (Vec<String>, Vec<(String, String)>);
 
 impl Groups {
     pub fn log(&self) {
@@ -612,6 +622,16 @@ impl Groups {
         Ok(())
     }
 
+    fn make_sure_attr_chgs<F>(attr_chgs: &mut HashMap<String, AttrChange>, group: &str, mut f: F)
+    where
+        F: FnMut(&mut (Vec<String>, Vec<(String, String)>)),
+    {
+        let value = attr_chgs
+            .entry(group.into())
+            .or_insert((Vec::<String>::new(), Vec::<(String, String)>::new()));
+        f(&mut *value);
+    }
+
     pub fn apply_diff(&self, target: &Groups, activities: &mut dyn GenerationWorker) {
         let mut added_procs = Vec::<(i32, String)>::new();
         let mut removed_procs = Vec::<i32>::new();
@@ -619,48 +639,46 @@ impl Groups {
             let old_procs: HashSet<i32> = old.proc_ids.iter().cloned().collect();
             let new_procs: HashSet<i32> = new.proc_ids.iter().cloned().collect();
             for id in new_procs.difference(&old_procs) {
-                added_procs.push((*id, target.get_group_path(&new.name).unwrap()));
+                if let Ok(path) = target.get_group_path(&new.name) {
+                    added_procs.push((*id, path));
+                }
             }
             for id in old_procs.difference(&new_procs) {
                 removed_procs.push(*id);
             }
         };
 
-        type AttrChange = (Vec<String>, Vec<(String, String)>);
-
         let mut attr_chgs = HashMap::<String, AttrChange>::new();
-        let make_sure_attr_chgs = |attr_chgs: &mut HashMap<String, AttrChange>, group: &str| {
-            // It is very stupid that I can not do capturing
-            // |attr_chgs| here for that |collect_attrs| also capture
-            // it, and create two mutable references at the same time.
-            if !attr_chgs.contains_key(group) {
-                attr_chgs.insert(
-                    String::from(group),
-                    (Vec::<String>::new(), Vec::<(String, String)>::new()),
-                );
-            }
-        };
+
         let mut collect_attrs = |old: &Group, new: &Group| {
             let old_attrs: HashSet<String> = old.attributes.keys().cloned().collect();
             let new_attrs: HashSet<String> = new.attributes.keys().cloned().collect();
             let gname = &old.name;
             for attr in old_attrs.difference(&new_attrs) {
-                make_sure_attr_chgs(&mut attr_chgs, gname);
-                let (removed_attrs, _) = attr_chgs.get_mut(gname).unwrap();
-                removed_attrs.push(attr.clone());
+                Self::make_sure_attr_chgs(&mut attr_chgs, gname, |(removed_attrs, _)| {
+                    removed_attrs.push(attr.clone());
+                });
             }
             for attr in new_attrs.difference(&old_attrs) {
-                make_sure_attr_chgs(&mut attr_chgs, gname);
-                let (_, set_attrs) = attr_chgs.get_mut(gname).unwrap();
-                set_attrs.push((attr.clone(), new.attributes.get(attr).unwrap().clone()));
+                Self::make_sure_attr_chgs(&mut attr_chgs, gname, |(_, set_attrs)| {
+                    if let Some(value) = new.attributes.get(attr) {
+                        set_attrs.push((attr.clone(), value.clone()));
+                    } else {
+                        error!("Failed to get new.attributes {}", attr);
+                    }
+                });
             }
             for attr in new_attrs.intersection(&old_attrs) {
-                let old_value = old.attributes.get(attr).unwrap();
-                let new_value = new.attributes.get(attr).unwrap();
-                if *old_value != *new_value {
-                    make_sure_attr_chgs(&mut attr_chgs, gname);
-                    let (_, set_attrs) = attr_chgs.get_mut(gname).unwrap();
-                    set_attrs.push((attr.clone(), new_value.clone()));
+                if let (Some(old_value), Some(new_value)) =
+                    (old.attributes.get(attr), new.attributes.get(attr))
+                {
+                    if *old_value != *new_value {
+                        Self::make_sure_attr_chgs(&mut attr_chgs, gname, |(_, set_attrs)| {
+                            set_attrs.push((attr.clone(), new_value.clone()));
+                        });
+                    }
+                } else {
+                    error!("Failed to get old.attributes or new.attributes {}", attr);
                 }
             }
         };
@@ -672,22 +690,32 @@ impl Groups {
         while i < preordered.len() {
             let group_name = preordered[i];
 
-            let group = self.names2groups.get(group_name).unwrap();
-            let tgroup = target.names2groups.get(group_name).unwrap();
-            collect_proc(group, tgroup);
-            collect_attrs(group, tgroup);
+            if let (Some(group), Some(tgroup)) = (
+                self.names2groups.get(group_name),
+                target.names2groups.get(group_name),
+            ) {
+                collect_proc(group, tgroup);
+                collect_attrs(group, tgroup);
 
-            let children: HashSet<&String> = group.children.iter().collect();
-            let tchildren: HashSet<&String> = tgroup.children.iter().collect();
-            for rm in children.difference(&tchildren) {
-                removed_groups.push(rm);
-            }
-            for add in tchildren.difference(&children) {
-                added_groups.push((add, group_name));
-            }
+                let children: HashSet<&String> = group.children.iter().collect();
+                let tchildren: HashSet<&String> = tgroup.children.iter().collect();
+                for rm in children.difference(&tchildren) {
+                    removed_groups.push(rm);
+                }
+                for add in tchildren.difference(&children) {
+                    added_groups.push((add, group_name));
+                }
 
-            for child_name in children.intersection(&tchildren) {
-                preordered.push(child_name);
+                for child_name in children.intersection(&tchildren) {
+                    preordered.push(child_name);
+                }
+            } else {
+                error!(
+                    "Failed to get {} from self.names2groups={} or target.names2groups={}",
+                    group_name,
+                    self.names2groups.get(group_name).is_some(),
+                    target.names2groups.get(group_name).is_some(),
+                );
             }
             i += 1;
         }
@@ -697,52 +725,58 @@ impl Groups {
         // Expand the list of removed groups to their leaves.
         let mut i = 0;
         while i < removed_groups.len() {
-            let group = self.names2groups.get(removed_groups[i]).unwrap();
-            for child in group.children.iter() {
-                removed_groups.push(child);
+            if let Some(group) = self.names2groups.get(removed_groups[i]) {
+                for child in group.children.iter() {
+                    removed_groups.push(child);
+                }
+            } else {
+                error!("Failed to find {} in self.names2groups", removed_groups[i]);
             }
             i += 1;
         }
         // Phase 1
         // From removed leaves to removed roots.
         for group_name in removed_groups.iter().rev() {
-            activities
-                .remove_group(&self.get_group_path(group_name).unwrap())
-                .unwrap();
+            if let Ok(path) = self.get_group_path(group_name) {
+                let _ = activities.remove_group(&path);
+            }
         }
 
         // Phase 2
         let mut i = 0;
         while i < added_groups.len() {
             let (group_name, parent_name) = added_groups[i];
-            activities
-                .add_group(group_name, &target.get_group_path(&parent_name).unwrap())
-                .unwrap();
-            let group = target.names2groups.get(group_name).unwrap();
-            for proc_id in group.proc_ids.iter() {
-                added_procs.push((*proc_id, target.get_group_path(group_name).unwrap()));
+            if let Ok(path) = target.get_group_path(&parent_name) {
+                let _ = activities.add_group(group_name, &path);
             }
-            if !group.attributes.is_empty() {
-                make_sure_attr_chgs(&mut attr_chgs, &group_name);
-            }
-            for (attr, value) in group.attributes.iter() {
-                let (_, set_attrs) = attr_chgs.get_mut(group_name).unwrap();
-
-                set_attrs.push((attr.clone(), value.clone()));
-            }
-            for child_name in group.children.iter() {
-                added_groups.push((child_name, group_name));
+            if let Some(group) = target.names2groups.get(group_name) {
+                for proc_id in group.proc_ids.iter() {
+                    if let Ok(path) = target.get_group_path(group_name) {
+                        added_procs.push((*proc_id, path));
+                    }
+                }
+                if !group.attributes.is_empty() {
+                    Self::make_sure_attr_chgs(&mut attr_chgs, &group_name, |_| {});
+                }
+                for (attr, value) in group.attributes.iter() {
+                    if let Some((_, set_attrs)) = attr_chgs.get_mut(group_name) {
+                        set_attrs.push((attr.clone(), value.clone()));
+                    } else {
+                        error!("Failed to find {} in attr_chgs", group_name);
+                    }
+                }
+                for child_name in group.children.iter() {
+                    added_groups.push((child_name, group_name));
+                }
             }
             i += 1;
         }
 
         // Phase 3
         for (group_name, (removed_attrs, set_attrs)) in attr_chgs.iter_mut() {
-            let _ = activities.update_group_attrs(
-                &target.get_group_path(group_name).unwrap(),
-                set_attrs,
-                removed_attrs,
-            );
+            if let Ok(path) = target.get_group_path(group_name) {
+                let _ = activities.update_group_attrs(&path, set_attrs, removed_attrs);
+            }
         }
 
         // Phase 4
@@ -774,431 +808,15 @@ impl Groups {
         while name != "<<root>>" {
             let group = match self.names2groups.get(name) {
                 Some(name) => name,
-                None => return Err(CGroupError::UnknownGroup),
+                None => {
+                    error!("Failed to get group path for {}", group_name);
+                    return Err(CGroupError::UnknownGroup);
+                }
             };
             names.push(name);
             name = &group.parent;
         }
         names.reverse();
         Ok(names.join("/"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::CGroupError;
-
-    #[test]
-    fn it_works() {
-        let _svc = super::CGService::default();
-    }
-    #[test]
-    fn build_groups() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.add_group(gid, "group3", "group1").unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group2",
-            vec![
-                (String::from("key1"), String::from("value1")),
-                (String::from("key2"), String::from("value2")),
-                (String::from("key3"), String::from("value3")),
-            ],
-            vec![],
-        )
-        .unwrap();
-
-        svc.commit_noop(gid).unwrap();
-
-        let group = svc.groups.names2groups.get("<<root>>").unwrap();
-        assert_eq!(String::from(""), group.parent);
-        assert_eq!(String::from("<<root>>"), group.name);
-        assert_eq!(group.children, vec![String::from("group1")]);
-
-        let group = svc.groups.names2groups.get("group1").unwrap();
-        assert_eq!(String::from("<<root>>"), group.parent);
-        assert_eq!(String::from("group1"), group.name);
-        assert_eq!(
-            group.children,
-            vec![String::from("group2"), String::from("group3")]
-        );
-
-        // Test over-wrote
-        let gid = svc.begin(svc.get_active(), String::from("test")).unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group2",
-            vec![(String::from("key1"), String::from("value1-1"))],
-            vec![],
-        )
-        .unwrap();
-        svc.commit_noop(gid).unwrap();
-
-        let group = svc.groups.names2groups.get("group2").unwrap();
-        assert_eq!(
-            Some(&String::from("value1-1")),
-            group.attributes.get(&String::from("key1"))
-        );
-        assert_eq!(
-            Some(&String::from("value2")),
-            group.attributes.get(&String::from("key2"))
-        );
-        assert_eq!(
-            Some(&String::from("value3")),
-            group.attributes.get(&String::from("key3"))
-        );
-
-        // Test rollback
-        let gid = svc.begin(svc.get_active(), String::from("test")).unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group2",
-            vec![(String::from("key1"), String::from("value1-2"))],
-            vec![],
-        )
-        .unwrap();
-        svc.rollback(gid).unwrap();
-        let group = svc.retrieve_group(svc.get_active(), "group2").unwrap();
-        assert_eq!(
-            Some(&String::from("value1-1")),
-            group.attributes.get(&String::from("key1"))
-        );
-    }
-    #[test]
-    fn set_n_remove_same_attr() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        assert_eq!(
-            Err(CGroupError::ConflictAttr(
-                "set and remove the same attribute".to_string()
-            )),
-            svc.update_group_attrs(
-                gid,
-                "group2",
-                vec![
-                    (String::from("key1"), String::from("value1")),
-                    (String::from("key2"), String::from("value2")),
-                    (String::from("key3"), String::from("value3"))
-                ],
-                vec![String::from("key2")]
-            )
-        );
-    }
-    #[test]
-    fn order_of_phases_1() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group2",
-            vec![
-                (String::from("key1"), String::from("value1")),
-                (String::from("key2"), String::from("value2")),
-                (String::from("key3"), String::from("value3")),
-            ],
-            vec![],
-        )
-        .unwrap();
-        // Functions should be called in the order of phases.
-        assert_eq!(
-            Err(CGroupError::PhaseError),
-            svc.add_group(gid, "group3", "group1")
-        );
-    }
-    #[test]
-    fn order_of_phases_2() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        // Phase 4
-        svc.move_processes(gid, Vec::<i32>::new(), vec![(7, String::from("group1"))])
-            .unwrap();
-        // Phase 2, functions should be called in the order of phases.
-        assert_eq!(
-            Err(CGroupError::PhaseError),
-            svc.add_group(gid, "group3", "group1")
-        );
-    }
-    #[test]
-    fn remove_groups() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.commit_noop(gid).unwrap();
-        let gid = svc.begin(gid, String::from("test")).unwrap();
-        svc.remove_group(gid, "group1").unwrap();
-        match svc.retrieve_group(gid, "group1") {
-            Ok(_) => panic!("should not found group1"),
-            Err(e) => assert_eq!(CGroupError::UnknownGroup, e),
-        }
-        match svc.retrieve_group(gid, "group2") {
-            Ok(_) => panic!("should not found group2"),
-            Err(e) => assert_eq!(CGroupError::UnknownGroup, e),
-        }
-    }
-
-    struct GenerationWorkerMock {
-        log: Vec<String>,
-    }
-    impl GenerationWorkerMock {
-        fn new() -> GenerationWorkerMock {
-            GenerationWorkerMock {
-                log: Vec::<String>::new(),
-            }
-        }
-    }
-    use super::GenerationWorker;
-    impl GenerationWorker for GenerationWorkerMock {
-        fn remove_group(&mut self, group_path: &str) -> Result<(), CGroupError> {
-            self.log.push(format!("remove_group {}", group_path));
-            Ok(())
-        }
-
-        fn add_group(&mut self, group_name: &str, parent: &str) -> Result<(), CGroupError> {
-            self.log
-                .push(format!("add_group {} {}", group_name, parent));
-            Ok(())
-        }
-
-        fn update_group_attrs(
-            &mut self,
-            group_path: &str,
-            to_set: &mut [(String, String)],
-            to_remove: &mut [String],
-        ) -> Result<(), CGroupError> {
-            to_set.sort_unstable();
-            to_remove.sort_unstable();
-            self.log.push(format!(
-                "update_group_attrs {} {:?} {:?}",
-                group_path, to_set, to_remove
-            ));
-            Ok(())
-        }
-
-        fn move_processes(
-            &mut self,
-            removings: &mut [i32],
-            movings: &mut [(i32, String)],
-        ) -> Result<(), CGroupError> {
-            removings.sort_unstable();
-            movings.sort_unstable();
-            self.log
-                .push(format!("move_processes {:?} {:?}", removings, movings));
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn apply_diff_attrs() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.add_group(gid, "group3", "group1").unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group2",
-            vec![
-                (String::from("key1"), String::from("value1")),
-                (String::from("key2"), String::from("value2")),
-            ],
-            vec![],
-        )
-        .unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group3",
-            vec![
-                (String::from("key3"), String::from("value3")),
-                (String::from("key4"), String::from("value4")),
-            ],
-            vec![],
-        )
-        .unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group1",
-            vec![
-                (String::from("key5"), String::from("value5")),
-                (String::from("key6"), String::from("value6")),
-            ],
-            vec![],
-        )
-        .unwrap();
-        svc.commit_noop(gid).unwrap();
-
-        let gid = svc.begin(gid, String::from("test")).unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group1",
-            vec![
-                (String::from("key5"), String::from("value5-1")),
-                (String::from("key7"), String::from("value7")),
-            ],
-            vec![String::from("key6")],
-        )
-        .unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group3",
-            vec![
-                (String::from("key3"), String::from("value3")),
-                (String::from("key4"), String::from("value4-1")),
-            ],
-            Vec::<String>::new(),
-        )
-        .unwrap();
-        svc.update_group_attrs(
-            gid,
-            "group1",
-            vec![(String::from("key5"), String::from("value5-2"))],
-            Vec::<String>::new(),
-        )
-        .unwrap();
-        let mut log = GenerationWorkerMock::new();
-        svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort_unstable();
-        let mut expected = GenerationWorkerMock::new();
-        expected
-            .update_group_attrs(
-                "group1",
-                &mut [
-                    (String::from("key5"), String::from("value5-2")),
-                    (String::from("key7"), String::from("value7")),
-                ],
-                &mut [String::from("key6")],
-            )
-            .unwrap();
-        expected
-            .update_group_attrs(
-                "group1/group3",
-                &mut [(String::from("key4"), String::from("value4-1"))],
-                &mut [],
-            )
-            .unwrap();
-        expected.log.sort_unstable();
-        assert_eq!(log.log, expected.log);
-        svc.commit_noop(gid).unwrap();
-    }
-
-    #[test]
-    fn apply_diff_remove_groups() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.add_group(gid, "group3", "group1").unwrap();
-        svc.commit_noop(gid).unwrap();
-
-        let gid = svc.begin(gid, String::from("test")).unwrap();
-        svc.remove_group(gid, "group3").unwrap();
-        let mut log = GenerationWorkerMock::new();
-        svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort_unstable();
-        let mut expected = GenerationWorkerMock::new();
-        expected.remove_group("group1/group3").unwrap();
-        expected.log.sort_unstable();
-        assert_eq!(log.log, expected.log);
-        svc.commit_noop(gid).unwrap();
-
-        let gid = svc.begin(gid, String::from("test")).unwrap();
-        svc.remove_group(gid, "group1").unwrap();
-        let mut log = GenerationWorkerMock::new();
-        svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort_unstable();
-        let mut expected = GenerationWorkerMock::new();
-        expected.remove_group("group1").unwrap();
-        expected.remove_group("group1/group2").unwrap();
-        expected.log.sort_unstable();
-        assert_eq!(log.log, expected.log);
-        svc.commit_noop(gid).unwrap();
-    }
-
-    #[test]
-    fn apply_diff_add_groups() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.add_group(gid, "group3", "group1").unwrap();
-        svc.commit_noop(gid).unwrap();
-
-        let gid = svc.begin(gid, String::from("test")).unwrap();
-        svc.add_group(gid, "group4", "group3").unwrap();
-        svc.add_group(gid, "group5", "group2").unwrap();
-        let mut log = GenerationWorkerMock::new();
-        svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort_unstable();
-        let mut expected = GenerationWorkerMock::new();
-        expected.add_group("group4", "group1/group3").unwrap();
-        expected.add_group("group5", "group1/group2").unwrap();
-        expected.log.sort_unstable();
-        assert_eq!(log.log, expected.log);
-        svc.commit_noop(gid).unwrap();
-    }
-
-    #[test]
-    fn apply_diff_move_processes() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.add_group(gid, "group3", "group1").unwrap();
-        svc.move_processes(
-            gid,
-            Vec::<i32>::new(),
-            vec![(1, String::from("group3")), (2, String::from("group1"))],
-        )
-        .unwrap();
-        svc.commit_noop(gid).unwrap();
-
-        let gid = svc.begin(gid, String::from("test")).unwrap();
-        svc.move_processes(
-            gid,
-            Vec::<i32>::new(),
-            vec![(3, String::from("group3")), (1, String::from("group1"))],
-        )
-        .unwrap();
-        svc.move_processes(gid, Vec::<i32>::new(), vec![(1, String::from("<<root>>"))])
-            .unwrap();
-        let mut log = GenerationWorkerMock::new();
-        svc.apply_diff(gid, &mut log).unwrap();
-        log.log.sort_unstable();
-        let mut expected = GenerationWorkerMock::new();
-        expected
-            .move_processes(
-                &mut [],
-                &mut [(3, String::from("group1/group3")), (1, String::from(""))],
-            )
-            .unwrap();
-        expected.log.sort_unstable();
-        assert_eq!(log.log, expected.log);
-        svc.commit_noop(gid).unwrap();
-
-        let gid = svc.begin(gid, String::from("test")).unwrap();
-        svc.remove_group(gid, "group3").unwrap();
-        let mut proc_ids = svc.all_processes(gid).unwrap();
-        proc_ids.sort_unstable();
-        assert_eq!(vec![1, 2], proc_ids);
-    }
-
-    #[test]
-    fn group_paths() {
-        let mut svc = super::CGService::default();
-        let gid = svc.begin(0, String::from("test")).unwrap();
-        svc.add_group(gid, "group1", "<<root>>").unwrap();
-        svc.add_group(gid, "group2", "group1").unwrap();
-        svc.add_group(gid, "group3", "group1").unwrap();
-        let path = svc.get_group_path(gid, "group3").unwrap();
-        assert_eq!(path, "group1/group3");
     }
 }

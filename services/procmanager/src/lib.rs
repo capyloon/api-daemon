@@ -1,6 +1,8 @@
 mod cgroups;
 pub mod generated;
 pub mod service;
+#[cfg(test)]
+mod tests;
 
 #[cfg(target_os = "android")]
 mod android_worker;
