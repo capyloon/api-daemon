@@ -7,7 +7,7 @@ Load the following scripts:
 ```html
 <script src="http://127.0.0.1/api/v1/shared/core.js"></script>
 <script src="http://127.0.0.1/api/v1/shared/session.js"></script>
-<script src="http://127.0.0.1/api/v1/apps/service.js"></script>
+<script src="http://127.0.0.1/api/v1/{{sidl-name}}/service.js"></script>
 ```
 
 You can then get an instance of the service with code similar to:
@@ -84,7 +84,8 @@ class MyCallbackObject extends lib_{{sidl-name}}.{{name}}Base {
 [{{name}}](#callback_{{../name}}_method_{{name}})
 {{/each}}
 {{#each methods}}
-{{name}}({{~#if params.[0] ~}}{{~#each params ~}}/* , {{name}} */ {{maybe-link typ.extra.[0] typ.extra.[1]}}{{~/each ~}}{{~/if}})
+{{~#each params}}// {{name}}: {{maybe-link typ.extra.[0] typ.extra.[1]}}<br/>{{~/each ~}}
+  {{name}}({{~#if params.[0] ~}}{{~#each params ~}}{{name}}{{#unless @last}}, {{/unless}}{{~/each ~}}{{~/if}})
 
 Resolves with {{maybe-link returns.success.extra.[0] returns.success.extra.[1]}}
 
@@ -118,7 +119,8 @@ _{{sidl-name}}Manager.{{name}} = value;
 &nbsp;&nbsp;{{#each methods}}[{{name}}](#interface_{{../name}}_method_{{name}})  {{/each}}
 
 {{#each methods}}
-  {{name}}({{~#if params.[0] ~}}{{~#each params ~}}/* , {{name}} */ {{maybe-link typ.extra.[0] typ.extra.[1]}}{{~/each ~}}{{~/if}})
+  {{~#each params}}// {{name}}: {{maybe-link typ.extra.[0] typ.extra.[1]}}<br/>{{~/each ~}}
+  {{name}}({{~#if params.[0] ~}}{{~#each params ~}}{{name}}{{#unless @last}}, {{/unless}}{{~/each ~}}{{~/if}})
 
   Resolves with {{maybe-link returns.success.extra.[0] returns.success.extra.[1]}}
 
