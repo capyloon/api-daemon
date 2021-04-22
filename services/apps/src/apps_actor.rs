@@ -269,7 +269,8 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
 }
 
 pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &str) -> Result<(), AppsActorError> {
-    let mut request = AppsRequest::new(shared_data.clone());
+    let mut request =
+        AppsRequest::new(shared_data.clone()).map_err(|_| AppsActorError::Internal)?;
     let data_path = request.shared_data.lock().config.data_path.clone();
     let app = request
         .download_and_apply_pwa(&data_path, url)
@@ -572,6 +573,7 @@ fn test_install_app() {
             uds_path: String::from("uds_path"),
             cert_type: String::from("test"),
             updater_socket: String::from("updater_socket"),
+            user_agent: String::from("user_agent"),
         };
         {
             let mut shared = shared_data.lock();
@@ -708,6 +710,7 @@ fn test_get_all() {
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
+        user_agent: String::from("user_agent"),
     };
     {
         let registry = match AppsRegistry::initialize(&config, 8443) {

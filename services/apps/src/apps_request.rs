@@ -113,7 +113,6 @@ impl Drop for AppsStatusRestorer {
     }
 }
 
-#[derive(Default)]
 pub struct AppsRequest {
     pub downloader: Downloader, // Keeping the downloader around for reuse.
     pub shared_data: Shared<AppsSharedData>,
@@ -123,12 +122,15 @@ pub struct AppsRequest {
 const DOWNLOAD_TIMEOUT: u64 = 600; // 10 mins
 
 impl AppsRequest {
-    pub fn new(shared_data: Shared<AppsSharedData>) -> Self {
-        Self {
-            downloader: Downloader::default(),
+    pub fn new(shared_data: Shared<AppsSharedData>) -> Result<Self, AppsMgmtError> {
+        let user_agent = &shared_data.lock().config.user_agent.clone();
+        let downloader =
+            Downloader::new(user_agent).map_err(|_| AppsMgmtError::DownloaderError)?;
+        Ok(Self {
+            downloader,
             shared_data,
             installing_apps_item: None,
-        }
+        })
     }
 
     // Create app_update_url to cancel_sender map in shared data
@@ -419,7 +421,9 @@ impl AppsRequest {
             AppsStorage::get_app_dir(&path.join("downloading"), &hash(update_url).to_string())
                 .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
         let download_manifest = download_dir.join("manifest.webmanifest");
-        let downloader = Req::default();
+        let user_agent = &self.shared_data.lock().config.user_agent.clone();
+        let downloader =
+            Req::new(user_agent).map_err(|_| AppsServiceError::DownloadManifestFailed)?;
 
         let is_update = false;
         // 1. download manifest to cache dir.
@@ -614,6 +618,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
+        user_agent: String::from("user_agent"),
     };
 
     let shared_data = &*APPS_SHARED_SHARED_DATA;
@@ -677,10 +682,10 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
     }
 
     // Test 2: download and apply from a remote url
-    let mut request = AppsRequest::new(shared_data.clone());
+    let mut request = AppsRequest::new(shared_data.clone()).unwrap();
     match request.download_and_apply_pwa(&test_dir, app_url) {
         Ok(app) => {
-            if let Some(expected) = expected_err {
+            if expected_err.is_some() {
                 panic!();
             }
             assert_eq!(app.name, "hellopwa");

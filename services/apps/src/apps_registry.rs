@@ -70,6 +70,8 @@ pub enum AppsMgmtError {
     #[error("AppsMgmtError")]
     ManifestInvalid,
     #[error("AppsMgmtError")]
+    DownloaderError,
+    #[error("AppsMgmtError")]
     DownloadFailed,
     #[error("AppsMgmtError")]
     DownloadNotMoidified,
@@ -884,6 +886,7 @@ fn test_init_apps_from_system() {
         uds_path: String::from("uds_path"),
         cert_type: String::from("production"),
         updater_socket: String::from("updater_socket"),
+        user_agent: String::from("user_agent"),
     };
 
     let registry = match AppsRegistry::initialize(&config, 80) {
@@ -972,6 +975,7 @@ fn test_register_app() {
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
+        user_agent: String::from("user_agent"),
     };
 
     let vhost_port = 80;
@@ -1116,6 +1120,7 @@ fn test_unregister_app() {
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
+        user_agent: String::from("user_agent"),
     };
 
     let vhost_port = 8081;
@@ -1214,6 +1219,7 @@ fn test_apply_download() {
         uds_path: String::from("uds_path"),
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
+        user_agent: String::from("user_agent"),
     };
 
     let vhost_port = 80;

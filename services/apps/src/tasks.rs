@@ -18,10 +18,14 @@ impl AppMgmtTask for InstallPackageTask {
     fn run(&self) {
         // Actually run the installation.
         let shared_data = self.0.clone();
-        let mut request = AppsRequest::new(shared_data);
+        let request = AppsRequest::new(shared_data);
         let url = &self.1;
         let responder = &self.2;
 
+        if request.is_err() {
+            return responder.reject(AppsServiceError::UnknownError);
+        }
+        let mut request = request.unwrap();
         if let Some(app) = request.shared_data.lock().registry.get_by_update_url(&url) {
             if app.get_install_state() == AppsInstallState::Installed
                 || app.get_install_state() == AppsInstallState::Installing
@@ -65,10 +69,14 @@ impl AppMgmtTask for InstallPwaTask {
     fn run(&self) {
         // Actually run the installation.
         let shared_data = self.0.clone();
-        let mut request = AppsRequest::new(shared_data);
+        let request = AppsRequest::new(shared_data);
         let url = &self.1;
         let responder = &self.2;
 
+        if request.is_err() {
+            return responder.reject(AppsServiceError::UnknownError);
+        }
+        let mut request = request.unwrap();
         if request
             .shared_data
             .lock()
@@ -115,6 +123,10 @@ impl AppMgmtTask for UninstallTask {
         let url = &self.1;
         let responder = &self.2;
 
+        if request.is_err() {
+            return responder.reject(AppsServiceError::UnknownError);
+        }
+        let request = request.unwrap();
         let app = match request.shared_data.lock().get_by_manifest_url(&url) {
             Ok(app) => app,
             Err(err) => {
@@ -154,10 +166,14 @@ pub struct UpdateTask(
 impl AppMgmtTask for UpdateTask {
     fn run(&self) {
         let shared_data = self.0.clone();
-        let mut request = AppsRequest::new(shared_data);
+        let request = AppsRequest::new(shared_data);
         let url = &self.1;
         let responder = &self.2;
 
+        if request.is_err() {
+            return responder.reject(AppsServiceError::UnknownError);
+        }
+        let mut request = request.unwrap();
         let old_app = match request.shared_data.lock().get_by_manifest_url(&url) {
             Ok(app) => app,
             Err(err) => {
@@ -200,11 +216,17 @@ pub struct CheckForUpdateTask(
 impl AppMgmtTask for CheckForUpdateTask {
     fn run(&self) {
         let shared_data = self.0.clone();
-        let mut request = AppsRequest::new(shared_data);
+        let request = AppsRequest::new(shared_data);
         let url = &self.1;
         let apps_option = &self.2;
         let some_responder = &self.3;
 
+        if request.is_err() {
+            if let Some(responder) = some_responder {
+                return responder.reject(AppsServiceError::UnknownError);
+            }
+        }
+        let mut request = request.unwrap();
         // Fall backs to getting token in downloader module
         let _ = ensure_token_deviceinfo(&mut request);
 

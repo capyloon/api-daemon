@@ -52,6 +52,21 @@ fn response_from_file(app: &str, name: &str) -> HttpResponse {
 static MAC_KEY: &str = "p7cI80SwX+gmX0G+T938agWAV1eR9wrpCR9JgsoIIlk=";
 static PORT: u16 = 8596;
 static HOST: &str = "127.0.0.1";
+// This UA is defined in daemon/config.toml.
+static EXPECTED_UA: &str = "Mozilla/5.0 (Mobile; rv:84.0) Gecko/84.0 Firefox/84.0 KAIOS/3.0";
+
+fn check_ua(req: &HttpRequest) -> bool {
+    match req
+        .headers()
+        .get(::actix_web::http::header::USER_AGENT)
+    {
+        Some(value) => match value.to_str() {
+            Ok(ua) => ua == EXPECTED_UA,
+            Err(_) => false,
+        },
+        None => false
+    }
+}
 
 fn validate(req: HttpRequest) -> bool {
     match req
@@ -108,7 +123,11 @@ async fn apps_responses(
 ) -> HttpResponse {
     // For cancel API test
     std::thread::sleep(std::time::Duration::from_millis(200));
-    if !validate(req) {
+    if !check_ua(&req) {
+        return HttpResponse::BadRequest().finish();
+    }
+    // Do not check the authorization header for pwa.
+    if app != "pwa" && !validate(req) {
         return HttpResponse::Unauthorized().finish();
     }
     response_from_file(&app, &name)
@@ -122,7 +141,7 @@ async fn main() -> io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(middleware::Logger::default())
-            .service(web::resource("/apps/{app}/{name}").route(web::get().to(apps_responses)))
+            .service(web::resource("/apps/{app}/{name:[^{}]+}").route(web::get().to(apps_responses)))
             .service(
                 web::scope("/")
                     .route("*", web::post().to(HttpResponse::MethodNotAllowed))

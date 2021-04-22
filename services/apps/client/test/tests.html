@@ -178,7 +178,7 @@
 // Install PWA
         await tester.assert_eq(
           "install pwa app",
-          service => service.installPwa("https://testpwa.github.io/manifest.webmanifest"),
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"),
           install_pwa_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_handler, install_pwa_expected(1));
