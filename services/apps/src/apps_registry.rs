@@ -317,7 +317,7 @@ impl AppsRegistry {
         name.trim()
             .to_lowercase()
             .chars()
-            .filter(|c| c.is_ascii_alphabetic())
+            .filter(|c| c.is_ascii_alphanumeric())
             .collect()
     }
 

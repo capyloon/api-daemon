@@ -34,6 +34,7 @@ tests=(
 "calculator1 webapps/calculator1/application.zip"
 "helloworld  apps-from/helloworld/application.zip"
 "helloworld  apps-from/helloworld1/application.zip"
+"12345       apps-from/12345/application.zip"
 )
 
 echo tests: ${tests}
