@@ -68,19 +68,19 @@ static UPGRADE_0_1_SQL: [&str; 14] = [
         category     TEXT    DEFAULT (''),
         category_json TEXT   DEFAULT ('')
     )"#,
-    r#"CREATE INDEX idx_name ON contact_main(name)"#,
-    r#"CREATE INDEX idx_famil_name ON contact_main(family_name)"#,
-    r#"CREATE INDEX idx_given_name ON contact_main(given_name)"#,
-    r#"CREATE INDEX idx_tel_number ON contact_main(tel_number)"#,
-    r#"CREATE INDEX idx_email ON contact_main(email)"#,
-    r#"CREATE INDEX idx_category ON contact_main(category)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_name ON contact_main(name)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_famil_name ON contact_main(family_name)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_given_name ON contact_main(given_name)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_tel_number ON contact_main(tel_number)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_email ON contact_main(email)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_category ON contact_main(category)"#,
     r#"CREATE TABLE IF NOT EXISTS contact_additional (
         contact_id TEXT NOT NULL,
         data_type TEXT NOT NULL,
         value TEXT DEFAULT '',
         FOREIGN KEY(contact_id) REFERENCES contact_main(contact_id) ON DELETE CASCADE
     )"#,
-    r#"CREATE INDEX idx_additional ON contact_additional(contact_id)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_additional ON contact_additional(contact_id)"#,
     r#"CREATE TABLE IF NOT EXISTS blocked_numbers (
         number TEXT NOT NULL UNIQUE,
         match_key TEXT NOT NULL
