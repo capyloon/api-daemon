@@ -141,12 +141,26 @@ where
         .to_string_lossy();
     let file_ext = path.extension();
 
+    // file_stem only contains the file name, so we need to prepend the path
+    // if any.
+    let parent = match path.parent() {
+        Some(parent) => {
+            let disp = format!("{}", parent.display());
+            if !disp.is_empty() {
+                format!("{}/", disp)
+            } else {
+                disp
+            }
+        }
+        None => "".to_owned(),
+    };
+
     for lang in languages.iter().map(|e| format!("{}", e.item)) {
         // Build a new filename: main.ext -> main.lang.ext
         let lang_file = if let Some(ext) = file_ext {
-            format!("{}.{}.{}", file_stem, lang, ext.to_string_lossy())
+            format!("{}{}.{}.{}", parent, file_stem, lang, ext.to_string_lossy())
         } else {
-            format!("{}.{}", file_stem, lang)
+            format!("{}{}.{}", parent, file_stem, lang)
         };
 
         if let Some(response) = closure(&lang_file) {

@@ -290,6 +290,22 @@ mod test {
             None,
         );
 
+        let _ = lang_request(
+            "http://missing-zip.localhost:7443/resources/file.html",
+            StatusCode::OK,
+            "text/html",
+            Some("en-US,en;q=0.5"),
+            None,
+        );
+
+        let _ = lang_request(
+            "http://valid.localhost:7443/resources/file.html",
+            StatusCode::OK,
+            "text/html",
+            Some("en-US,en;q=0.5"),
+            None,
+        );
+
         // Testing etag from file.
         let etag = request(
             "http://missing-zip.localhost:7443/index.html",
