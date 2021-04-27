@@ -244,37 +244,44 @@ impl AppsRequest {
             }
         };
 
-        if compare_version_hash(&app, &update_manifest) {
-            let manifest = Manifest::read_from(&update_manifest)
-                .map_err(|_| AppsServiceError::InvalidManifest)?;
-
-            // Save the downloaded update manifest file in cached dir.
-            let cached_dir = path.join("cached").join(&app.get_name());
-            let _ = AppsStorage::ensure_dir(&cached_dir);
-            let cached_manifest = cached_dir.join("update.webmanifest");
-            if let Err(err) = fs::rename(&update_manifest, &cached_manifest) {
-                error!(
-                    "Rename update manifest failed: {} -> {} : {:?}",
-                    update_manifest.display(),
-                    cached_manifest.display(),
-                    err
-                );
-                return Err(AppsServiceError::FilesystemFailure);
-            }
-
-            app.set_update_state(AppsUpdateState::Available);
-            let _ = self
-                .shared_data
-                .lock()
-                .registry
-                .save_app(true, &app, &manifest);
-            let mut app_obj = AppsObject::from(&app);
-            app_obj.allowed_auto_download = is_auto_update;
-
-            Ok(Some(app_obj))
-        } else {
-            Ok(None)
+        if !compare_version_hash(&app, &update_manifest) {
+            info!("No update available.");
+            return Ok(None);
         }
+
+        let manifest = Manifest::read_from(&update_manifest)
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
+
+        // Save the downloaded update manifest file in cached dir.
+        let cached_dir = path.join("cached").join(&app.get_name());
+        let _ = AppsStorage::ensure_dir(&cached_dir);
+        let cached_manifest = cached_dir.join("update.webmanifest");
+        if let Err(err) = fs::rename(&update_manifest, &cached_manifest) {
+            error!(
+                "Rename update manifest failed: {} -> {} : {:?}",
+                update_manifest.display(),
+                cached_manifest.display(),
+                err
+            );
+            return Err(AppsServiceError::FilesystemFailure);
+        }
+
+        app.set_update_state(AppsUpdateState::Available);
+        // Lock to save app
+        {
+            let registry = &mut self.shared_data.lock().registry;
+            if app.get_update_manifest_url().is_empty() {
+                app.set_update_manifest_url(&AppsItem::new_update_manifest_url(
+                    &app.get_name(), registry.get_vhost_port(),
+                ));
+            }
+            let _ = registry.save_app(true, &app, &manifest)?;
+        }
+
+        let mut app_obj = AppsObject::from(&app);
+        app_obj.allowed_auto_download = is_auto_update;
+
+        Ok(Some(app_obj))
     }
 
     pub fn download_and_apply(

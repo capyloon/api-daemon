@@ -116,9 +116,39 @@
 
         let on_updated_pre_installed_handler = tester.setup_event(tester.service.APP_UPDATED_EVENT);
         let on_updating_pre_installed_handler = tester.setup_event(tester.service.APP_UPDATING_EVENT);
+        
+        let pre_installed_manifest_url = "http://calculator.localhost:8081/manifest.webmanifest";
+        let pre_installed_new_version = "0.2";
+        await tester.assert_eq(
+          "get cached pre-load app update manifest",
+          service => {
+            return service.getApp(pre_installed_manifest_url).then(app => {
+              if (!app.updateManifestUrl) {
+                return Promise.reject("failed to get update manifest");
+              }
+
+              return new Promise((resolve, reject) => {
+                let req = new XMLHttpRequest();
+                // updateManifestUrl http://cached.localhost:8081/calculator/update.webmanifest
+                req.open("GET", app.updateManifestUrl);
+                req.responseType = "json";
+                req.onload = function() {
+                    if (req.status == "200" ) {
+                        resolve(req.response.version);
+                    } else {
+                        reject("error, status code: " + req.status);
+                    }
+                };
+                req.send();
+              });
+            });
+          },
+          pre_installed_new_version,
+        );
+
         await tester.assert_eq(
           "update pre-installed app",
-          service => service.update("http://calculator.localhost:8081/manifest.webmanifest"),
+          service => service.update(pre_installed_manifest_url),
           update_expected_pre_installed(0)
         );
         await tester.assert_event_eq("on updating pre-installed event", on_updating_pre_installed_handler, update_expected_pre_installed(lib_apps.AppsUpdateState.UPDATING));
@@ -126,8 +156,6 @@
         await tester.assert_event_eq("on update pre-installed event", on_updated_pre_installed_handler, update_expected_pre_installed(lib_apps.AppsUpdateState.IDLE));
         on_updated_pre_installed_handler.stop();
 
-        let pre_installed_manifest_url = "http://calculator.localhost:8081/manifest.webmanifest";
-        let pre_installed_new_version = "0.2";
         await tester.assert_eq(
           "get pre-installed app manifest",
           service => {
