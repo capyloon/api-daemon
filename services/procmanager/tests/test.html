@@ -17,7 +17,6 @@ function getService() {
         }
         };
 
-        // On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken when running the api-daemon.
         session.open("websocket", "localhost:8081", "secrettoken", sessionstate);
     });
 }

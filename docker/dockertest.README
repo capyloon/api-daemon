@@ -12,7 +12,7 @@ export DISPLAY=:99
 Xvfb :99 > /dev/null 2>&1 &
 
 cd daemon
-cargo build --features=fake-tokens
+cargo build
 cd ..
 
 ./release_libs.sh

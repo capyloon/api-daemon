@@ -59,7 +59,6 @@ export class Session {
     this.session_state = session_state;
     this.lazy_reconnect = lazy_reconnect;
     this.url = url;
-    // On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken
     this.token = token;
 
     let ws_start = function (session) {

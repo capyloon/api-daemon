@@ -352,19 +352,6 @@ impl Session {
             Ok(handshake) => {
                 info!("Got client handshake");
 
-                // In fake-tokens mode, add the presented token to the token manager.
-                #[cfg(feature = "fake-tokens")]
-                {
-                    info!(
-                        "Running in fake-tokens mode... handshake token is '{}'",
-                        handshake.token
-                    );
-                    self.token_manager.lock().register(
-                        &handshake.token,
-                        OriginAttributes::new("fake-identity", HashSet::new()),
-                    );
-                }
-
                 // Check that we are presented with a valid token, and store the identity if
                 // this is the case.
                 if let Some(attr) = self

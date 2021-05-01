@@ -35,9 +35,6 @@ contacts-service = ["contacts_service"]
 daemon = ["daemonize"]
 # Enable the device capability service.
 devicecapability-service = ["devicecapability_service"]
-# Use the fake-tokens feature to let clients that can't
-# yet provide a proper token connect.
-fake-tokens = []
 # Enable the Gecko Bridge service
 geckobridge-service = ["geckobridge"]
 # Enable the libsignal protocol service.

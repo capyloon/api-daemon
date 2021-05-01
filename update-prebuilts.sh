@@ -23,11 +23,11 @@ OPT="--release --strip --no-default-features"
 
 if [[ "${BUILD_TYPE}" == "debug" ]]; then
     JS_BUILD_TYPE="build"
-    BUILD_FEATURES="${BUILD_FEATURES},fake-tokens,daemon"
+    BUILD_FEATURES="${BUILD_FEATURES},daemon"
     OPT=
 elif [[ "${BUILD_TYPE}" == "beta" ]]; then
     BUILD_TYPE="release"
-    BUILD_FEATURES="${BUILD_FEATURES},fake-tokens,daemon"
+    BUILD_FEATURES="${BUILD_FEATURES},daemon"
 fi
 
 cd daemon

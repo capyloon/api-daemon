@@ -31,7 +31,6 @@ sessionstate.onsessiondisconnected = function () {
   console.log(`{{services.[0].name}} onsessiondisconnected Daemon Crashed`);
 };
 
-// On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken
 session.open('websocket', 'localhost', 'secrettoken', sessionstate, true);
 ```
 Then the developer can use **_{{sidl-name}}Manager** as {{services.[0].name}} service instance.

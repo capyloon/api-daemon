@@ -126,8 +126,8 @@ impl Codegen {
                 sink.write_all(b"true\n")?;
             } else {
                 sink.write_all(b"let identity = origin_attributes.identity();
-                                if identity == \"fake-identity\" || identity == \"uds\" {
-                                    // Grant all permissions when in fake-tokens mode or for uds sessions.
+                                if identity == \"uds\" {
+                                    // Grant all permissions to uds sessions.
                                     true
                                 } else {\n")?;
                 writeln!(

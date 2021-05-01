@@ -508,8 +508,8 @@ pub trait CommonResponder {
         message: &str,
     ) -> bool {
         let identity = origin_attributes.identity();
-        if identity == "fake-identity" || identity == "uds" {
-            // All permissions are granted in fake-tokens mode or for uds sessions, so
+        if identity == "uds" {
+            // All permissions are granted to uds sessions, so
             // no permission error will ever be sent.
             false
         } else {

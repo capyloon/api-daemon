@@ -196,7 +196,6 @@ function test_service(service, tester_name, existing_session) {
       }
     };
 
-    // On desktop version, set ENV WS_RUNTIME_TOKEN=secrettoken
     session.open("websocket", "localhost:8081", "secrettoken", sessionstate);
   });
 }

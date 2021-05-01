@@ -15,7 +15,7 @@ trap 'jobs -p | xargs kill' EXIT
 rm -rf $CI_PROJECT_DIR/prebuilts/http_root/webapps/
 
 cd ${CI_PROJECT_DIR}/daemon
-RUST_LOG=error WS_RUNTIME_TOKEN=secrettoken ${CI_PROJECT_DIR}/target/release/api-daemon &
+RUST_LOG=error ${CI_PROJECT_DIR}/target/release/api-daemon &
 export RUST_LOG=debug
 export RUST_BACKTRACE=1
 

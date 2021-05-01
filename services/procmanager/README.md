@@ -1,9 +1,6 @@
 
 ## Build and Update for Test Page
 
-To try the test page, you have to enable the fake-tokens feature.
-To enable it, you should run update.sh with BUILD_TYPE as beta or debug.
-
 > $ BUILD_TYPE=debug ./update.sh
 
 
@@ -15,9 +12,7 @@ port to 80 port of the device.
 
 > $ adb forward tcp:8081 tcp:80
 
-You also need to run the api-deamon with fake-tokes
-
-> $ adb shell WS_RUNTIME_TOKEN=secrettoken api-daemon.sh
+> $ adb shell api-daemon.sh
 
 Then, you just use a browser to visit the test.html page.
 
