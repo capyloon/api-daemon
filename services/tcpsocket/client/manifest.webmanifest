@@ -1,0 +1,9 @@
+{
+  "name": "tcpsocket",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "tcp-socket": { }
+    }
+  }
+}

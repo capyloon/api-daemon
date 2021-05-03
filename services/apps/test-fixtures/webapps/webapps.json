@@ -1,4 +1,9 @@
 [
+  {
+    "name": "apps",
+    "manifest_url": "http://apps.localhost/manifest.webmanifest",
+    "update_url": "http://127.0.0.1:8596/apps/apps/manifest.webmanifest"
+  },
 {
   "name": "calculator",
   "manifest_url": "http://calculator.localhost/manifest.webmanifest",

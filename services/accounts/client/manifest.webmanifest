@@ -1,0 +1,10 @@
+{
+  "name": "accounts",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "account-manager": {},
+      "account-observer-kaiaccount": {}
+    }
+  }
+}

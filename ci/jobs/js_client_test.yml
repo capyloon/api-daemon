@@ -24,27 +24,29 @@
     - WITH_TEST_SERVICE=1 ./release_libs.sh
     - mkdir -p ./daemon/remote/TestService
     - cp ./target/release/child-test-daemon $CI_PROJECT_DIR/daemon/remote/TestService/daemon
-    # Run all the service tests with a single webdriver session.
-    - $CI_PROJECT_DIR/tests/webdriver.sh file://$CI_PROJECT_DIR/services/accounts/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/audiovolumemanager/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/contacts/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/devicecapability/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/deviceconfig/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/libsignal/client/test/global_context.html
-      file://$CI_PROJECT_DIR/services/libsignal/client/test/session_builder_cipher.html
-      file://$CI_PROJECT_DIR/services/libsignal/client/test/group_messages.html
-      file://$CI_PROJECT_DIR/services/powermanager/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/settings/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/tcpsocket/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/telephony/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/test/client/test/tests.html
-      file://$CI_PROJECT_DIR/services/time/client/test/tests.html
+    - $CI_PROJECT_DIR/tests/download_b2g.sh
     - $CI_PROJECT_DIR/tests/apps-test-server/apps_server_driver.sh
     # TODO: figure out why tests_no_package.html fails when running grouped.
-    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_server_error.html
-    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_no_package.html
-    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_check_update.html
-    - $CI_PROJECT_DIR/tests/webdriver_fota.sh file://$CI_PROJECT_DIR/services/fota/client/test/tests_full.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh http://fota.localhost:8081/test/tests_server_error.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh http://fota.localhost:8081/test/tests_no_package.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh http://fota.localhost:8081/test/tests_check_update.html
+    - $CI_PROJECT_DIR/tests/webdriver_fota.sh http://fota.localhost:8081/test/tests_full.html
+    # Run all the service tests with a single webdriver session.
+    - $CI_PROJECT_DIR/tests/webdriver.sh http://accounts.localhost:8081/test/tests.html
+      http://audiovolumemanager.localhost:8081/test/tests.html
+      http://contacts.localhost:8081/test/tests.html
+      http://devicecapability.localhost:8081/test/tests.html
+      http://deviceconfig.localhost:8081/test/tests.html
+      http://libsignal.localhost:8081/test/global_context.html
+      http://libsignal.localhost:8081/test/e2e.html
+      http://libsignal.localhost:8081/test/session_builder_cipher.html
+      http://libsignal.localhost:8081/test/group_messages.html
+      http://powermanager.localhost:8081/test/tests.html
+      http://settings.localhost:8081/test/tests.html
+      http://tcpsocket.localhost:8081/test/tests.html
+      http://telephony.localhost:8081/test/tests.html
+      http://test.localhost:8081/test/tests.html
+      http://time.localhost:8081/test/tests.html
   needs:
     - job: 'build:daemon'
     - job: 'build:daemon:test:essentials'

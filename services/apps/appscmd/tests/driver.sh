@@ -8,8 +8,14 @@ then
     exit 1;
 fi
 
+# Kill child processes on exit.
+trap 'jobs -p | xargs kill' EXIT
+
+# Reset apps
+rm -rf $CI_PROJECT_DIR/prebuilts/http_root/webapps/
+
 cd ${CI_PROJECT_DIR}/daemon
-RUST_LOG=info WS_RUNTIME_TOKEN=secrettoken ${CI_PROJECT_DIR}/target/release/api-daemon &
+RUST_LOG=error WS_RUNTIME_TOKEN=secrettoken ${CI_PROJECT_DIR}/target/release/api-daemon &
 export RUST_LOG=debug
 export RUST_BACKTRACE=1
 
@@ -58,5 +64,3 @@ do
 	install=`md5sum ${VROOT}/${expect}/application.zip | cut -d\  -f1`
 	[ "${origin}" = "${install}" ] || exit 2
 done
-
-${CI_PROJECT_DIR}/tests/kill_daemon.sh

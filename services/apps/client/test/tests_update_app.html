@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Apps Service Tests</title>
+    <title>Apps Service Update Tests</title>
     <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
   </head>
 
@@ -15,7 +15,7 @@
 
     <script>
       async function run_tests() {
-        console.log(`Apps Test started!`);
+        console.log(`Apps Update Test started!`);
 
         let tester = await test_service(lib_apps.AppsManager, "apps-client");
 
@@ -38,13 +38,17 @@
         // check_for_update
         let on_update_available = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
 
+        console.log("Step 1");
         await tester.assert_eq(
           "check for update",
           service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {autoInstall: true}),
           true
         );
+        console.log("Step 2");
         
         await tester.assert_event_eq("on update event", on_update_available, update_expected(lib_apps.AppsUpdateState.AVAILABLE, true));
+
+        console.log("Step 3");
 
         let update_manifest_cached = "http://cached.localhost:8081/ciautotest/update.webmanifest";
         let new_version = "0.2";
@@ -69,6 +73,8 @@
           new_version,
         );
 
+        console.log("Step 4");
+
         let on_updated_handler = tester.setup_event(tester.service.APP_UPDATED_EVENT);
         let on_updating_handler = tester.setup_event(tester.service.APP_UPDATING_EVENT);
         await tester.assert_eq(
@@ -80,6 +86,8 @@
         on_updating_handler.stop();
         await tester.assert_event_eq("on update event", on_updated_handler, update_expected(lib_apps.AppsUpdateState.IDLE));
         on_updated_handler.stop();
+
+        console.log("Step 5");
 
         let manifest_url = "http://ciautotest.localhost:8081/manifest.webmanifest";
         await tester.assert_eq(
@@ -102,6 +110,8 @@
           },
           new_version,
         );
+
+        console.log("Step 6");
         
         // Check for update for pre-installed app
         let on_update_available_pre_installed = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
@@ -111,6 +121,8 @@
           service => service.checkForUpdate("http://127.0.0.1:8596/apps/calculator/manifest.webmanifest", {autoInstall: false}),
           true
         );
+
+        console.log("Step 7");
         
         await tester.assert_event_eq("on update event", on_update_available_pre_installed, update_expected_pre_installed(lib_apps.AppsUpdateState.AVAILABLE, false));
 

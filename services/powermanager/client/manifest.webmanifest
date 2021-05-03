@@ -1,0 +1,9 @@
+{
+  "name": "powermanager",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "power": { }
+    }
+  }
+}

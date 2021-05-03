@@ -1,0 +1,9 @@
+{
+  "name": "devicecapability",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "feature-detection": { }
+    }
+  }
+}

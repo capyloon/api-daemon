@@ -1,0 +1,9 @@
+{
+  "name": "time",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "system-time": { "access": "readwrite" }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "deviceconfig",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "device-configuration": { }
+    }
+  }
+}

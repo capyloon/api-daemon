@@ -1,0 +1,6 @@
+{
+  "name": "test",
+  "b2g_features": {
+    "core": true
+  }
+}

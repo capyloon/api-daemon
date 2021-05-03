@@ -4,7 +4,8 @@
     - cd $CI_PROJECT_DIR/daemon
     # Fail when encountering clippy warnings.
     - cargo clippy --all-targets -- -D warnings
-    - cargo build --release --features=fake-tokens
+    - cargo build --release
+    - sccache -s
 
 .build_daemon_test_essentials:
   extends: .build_base

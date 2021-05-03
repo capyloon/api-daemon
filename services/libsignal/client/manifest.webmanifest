@@ -1,0 +1,9 @@
+{
+  "name": "libsignal",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "systemXHR": { "description": "needed for download_and_decrypt" }
+    }
+  }
+}

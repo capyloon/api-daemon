@@ -1,0 +1,9 @@
+{
+  "name": "telephony",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "telephony": { }
+    }
+  }
+}

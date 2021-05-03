@@ -21,5 +21,5 @@ interface TcpSocketFactory {
 	fn open(addr : SocketAddress) -> TcpSocket
 }
 
-#[rust:use=crate::private_traits::*,rust:shared-tracker]
+#[rust:use=crate::private_traits::*,rust:shared-tracker,permission=tcp-socket]
 service TcpSocketManager: TcpSocketFactory

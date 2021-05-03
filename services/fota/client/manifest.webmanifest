@@ -1,0 +1,9 @@
+{
+  "name": "fota",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "fota": { }
+    }
+  }
+}

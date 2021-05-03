@@ -12,11 +12,11 @@ fi
 cd $CI_PROJECT_DIR/services/fota
 
 TEST_SERVER_PORT=10095
-if [[ "$1" == "file://$CI_PROJECT_DIR/services/fota/client/test/tests_server_error.html" ]]; then
+if [[ "$1" == "http://fota.localhost:8081/test/tests_server_error.html" ]]; then
 TEST_SERVER_PORT=10096
-elif [[ "$1" == "file://$CI_PROJECT_DIR/services/fota/client/test/tests_no_package.html" ]]; then
+elif [[ "$1" == "http://fota.localhost:8081/test/tests_no_package.html" ]]; then
 TEST_SERVER_PORT=10097
-elif [[ "$1" == "file://$CI_PROJECT_DIR/services/fota/client/test/tests_check_update.html" ]]; then
+elif [[ "$1" == "http://fota.localhost:8081/test/tests_check_update.html" ]]; then
 TEST_SERVER_PORT=10098
 fi
 

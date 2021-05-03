@@ -1,0 +1,9 @@
+{
+  "name": "apps",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "webapps-manage": { }
+    }
+  }
+}

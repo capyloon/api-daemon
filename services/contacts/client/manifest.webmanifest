@@ -1,0 +1,9 @@
+{
+  "name": "contacts",
+  "b2g_features": {
+    "core": true,
+    "permissions": {
+      "contacts": { "access": "readwrite" }
+    }
+  }
+}

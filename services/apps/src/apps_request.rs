@@ -640,7 +640,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
     };
 
     println!("registry.count(): {}", shared_data.lock().registry.count());
-    assert_eq!(4, shared_data.lock().registry.count());
+    assert_eq!(5, shared_data.lock().registry.count());
 
     // Test 1: apply from a local dir
     let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webmanifest");
