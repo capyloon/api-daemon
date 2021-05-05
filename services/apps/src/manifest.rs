@@ -51,6 +51,12 @@ pub struct B2GFeatures {
     serviceworker: Option<Value>,
     #[serde(default = "default_as_false")]
     core: bool,
+    #[serde(default = "default_as_false")]
+    cursor: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    focus_color: Option<String>,
     #[serde(default = "B2GFeatures::default_hashmap")]
     dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
 }

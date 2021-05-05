@@ -37,6 +37,9 @@
       },
       "default_locale": "",
       "core": false,
+      "cursor": true,
+      "focus_color": "#7dcb1e",
+      "version": "1.2.3",
       "dependencies": {}
     }
   }

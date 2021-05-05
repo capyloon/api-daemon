@@ -203,7 +203,10 @@
                                       manifest.dir == "rtl" &&
                                       manifest.lang == "en-US" &&
                                       manifest.orientation == "portrait" &&
-                                      manifest.theme_color == "#008eff"
+                                      manifest.theme_color == "#008eff" &&
+                                      manifest.b2g_features.cursor == true &&
+                                      manifest.b2g_features.focus_color == "#7dcb1e" &&
+                                      manifest.b2g_features.version == "1.2.3"
                         resolve(checked);
                     } else {
                         reject("error, status code: " + req.status);
