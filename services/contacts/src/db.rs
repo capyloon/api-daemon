@@ -772,10 +772,10 @@ impl ContactDbCursor {
                                 loop {
                                     match rows.next() {
                                         Ok(None) => {
-                                            // We are out of items. Send the current item list or empty array.
+                                            // We are out of items. Send the current item list or reject directly.
                                             if results.is_empty() {
-                                                debug!("ContactDbCursor, empty result");
-                                                let _ = sender.send(Some(vec![]));
+                                                debug!("ContactDbCursor, empty result, reject directly");
+                                                let _ = sender.send(None);
                                             } else {
                                                 debug!("Send results with len:{}", results.len());
                                                 let _ = sender.send(Some(results));
@@ -1820,7 +1820,6 @@ mod test {
             assert_eq!(contact.name, "Jack".to_string());
         }
         // Verify sim_contact_2 is removed.
-        assert!(cursor.next().unwrap().is_empty());
         assert_eq!(db.count().unwrap(), 1);
 
         // To verify contact tel changed to 15229099710.
@@ -1905,7 +1904,6 @@ mod test {
         for i in 0..contacts.len() {
             assert_eq!(contacts[i].name, sim_contacts[i].name);
         }
-        assert!(cursor.next().unwrap().is_empty());
 
         db.import_sim_contacts(&[]).unwrap();
 

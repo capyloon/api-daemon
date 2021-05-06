@@ -62,15 +62,13 @@
           1
         );
 
-        let search_contain_1_result = await search_contain_1_cursor.next();
+        await tester.assert_rej_eq(
+            "verify search 1 result is empty",
+            () => search_contain_1_cursor.next(),
+            {}
+          );
 
         search_contain_1_cursor.release();
-
-        await tester.assert_eq(
-          "verify search 1 result is empty",
-          () => Promise.resolve(search_contain_1_result),
-          []
-        );
 
         let search_contain_94_cursor = await tester.service.find(
           {
@@ -756,12 +754,12 @@
           200
         );
 
-        // Search with International format: +86 56185849.
+        // Search with International format: +1 0269385485.
         let match_with_international_cursor = await tester.service.find(
           {
             sortBy: lib_contacts.SortOption.NAME,
             sortOrder: lib_contacts.Order.ASCENDING,
-            filterValue: "+86 56185849",
+            filterValue: "+1 0269385485",
             filterOption: lib_contacts.FilterOption.MATCH,
             filterBy: [lib_contacts.FilterByOption.TEL],
             onlyMainData: false,
@@ -771,28 +769,30 @@
 
         let match_international_result = await match_with_international_cursor.next();
 
+        console.log(match_international_result);
+
         for (let i = 0; i < match_international_result.length; i++) {
           await tester.assert_eq(
-            `match international number: +86 56185849 #${i + 1}/1`,
+            `match international number: +1 0269385485 #${i + 1}/1`,
             () => Promise.resolve(match_international_result[i].name),
-            "Elaine J. Bryner"
+            "Annie J. Baker"
           );
         }
 
         await tester.assert_rej_eq(
-          `no more items match international number: +86 56185849`,
+          `no more items match international number: +1 0269385485`,
           () => match_with_international_cursor.next(),
           {}
         );
 
         match_with_international_cursor.release();
 
-        // Search with National format: 5618 5849.
+        // Search with National format: 0269385485.
         let match_with_national_cursor = await tester.service.find(
           {
             sortBy: lib_contacts.SortOption.NAME,
             sortOrder: lib_contacts.Order.ASCENDING,
-            filterValue: "5618 5849",
+            filterValue: "0269385485",
             filterOption: lib_contacts.FilterOption.MATCH,
             filterBy: [lib_contacts.FilterByOption.TEL],
             onlyMainData: false,
@@ -804,26 +804,26 @@
 
         for (let i = 0; i < match_national_result.length; i++) {
           await tester.assert_eq(
-            `match national number: 5618 5849 #${i + 1}/1`,
+            `match national number: 0269385485 #${i + 1}/1`,
             () => Promise.resolve(match_national_result[i].name),
-            "Elaine J. Bryner"
+            "Annie J. Baker"
           );
         }
 
         await tester.assert_rej_eq(
-          `no more items match national number: 5618 5849`,
+          `no more items match national number: 0269385485`,
           () => match_with_national_cursor.next(),
           {}
         );
 
         match_with_national_cursor.release();
 
-        // Search with Rfc3966 format tel:+86-56185849.
+        // Search with Rfc3966 format tel:+1-0269385485.
         let match_with_rfc_cursor = await tester.service.find(
           {
             sortBy: lib_contacts.SortOption.NAME,
             sortOrder: lib_contacts.Order.ASCENDING,
-            filterValue: "tel:+86-56185849",
+            filterValue: "tel:+1-0269385485",
             filterOption: lib_contacts.FilterOption.MATCH,
             filterBy: [lib_contacts.FilterByOption.TEL],
             onlyMainData: false,
@@ -835,26 +835,26 @@
 
         for (let i = 0; i < match_rfc_result.length; i++) {
           await tester.assert_eq(
-            `match rfc number: tel:+86-56185849 #${i + 1}/1`,
+            `match rfc number: tel:+1-0269385485 #${i + 1}/1`,
             () => Promise.resolve(match_rfc_result[i].name),
-            "Elaine J. Bryner"
+            "Annie J. Baker"
           );
         }
 
         await tester.assert_rej_eq(
-          `no more items match rfc number: tel:+86-56185849`,
+          `no more items match rfc number: tel:+1-0269385485`,
           () => match_with_rfc_cursor.next(),
           {}
         );
 
         match_with_rfc_cursor.release();
 
-        // Search with E164 format: +8656185849.
+        // Search with E164 format: +10269385485.
         let match_with_e164_cursor = await tester.service.find(
           {
             sortBy: lib_contacts.SortOption.NAME,
             sortOrder: lib_contacts.Order.ASCENDING,
-            filterValue: "+8656185849",
+            filterValue: "+10269385485",
             filterOption: lib_contacts.FilterOption.MATCH,
             filterBy: [lib_contacts.FilterByOption.TEL],
             onlyMainData: false,
@@ -866,14 +866,14 @@
 
         for (let i = 0; i < match_e164_result.length; i++) {
           await tester.assert_eq(
-            `match e164 number: +8656185849 #${i + 1}/1`,
+            `match e164 number: +10269385485 #${i + 1}/1`,
             () => Promise.resolve(match_e164_result[i].name),
-            "Elaine J. Bryner"
+            "Annie J. Baker"
           );
         }
 
         await tester.assert_rej_eq(
-          `no more items match e164 number: +8656185849`,
+          `no more items match e164 number: +10269385485`,
           () => match_with_e164_cursor.next(),
           {}
         );

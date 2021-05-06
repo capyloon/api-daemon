@@ -240,6 +240,8 @@ impl ContactsFactoryMethods for ContactsService {
             if let Some(info) = db_cursor.next() {
                 debug!("matches info.len: {}", info.len());
                 responder.resolve(!info.is_empty());
+            } else {
+                responder.resolve(false);
             }
         } else {
             responder.reject();
