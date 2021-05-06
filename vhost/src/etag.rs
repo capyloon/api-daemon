@@ -7,12 +7,12 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use zip::read::ZipFile;
 
-pub(crate) struct Etag {}
+pub struct Etag {}
 
 impl Etag {
     // Builds the Etag with a Blake2 hash.
     // https://en.wikipedia.org/wiki/BLAKE_(hash_function)#BLAKE2
-    pub(crate) fn for_file(mut file: &File) -> String {
+    pub fn for_file(mut file: &File) -> String {
         let mut hasher = Blake2s::new();
         let mut buffer = Vec::new();
         if file.read_to_end(&mut buffer).is_ok() {
@@ -27,7 +27,7 @@ impl Etag {
 
     // Builds the Etag from the original file crc value and the size
     // of the zip entry.
-    pub(crate) fn for_zip(file: &ZipFile) -> String {
+    pub fn for_zip(file: &ZipFile) -> String {
         format!("W/\"{}-{}\"", file.crc32(), file.size())
     }
 }

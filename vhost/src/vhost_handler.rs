@@ -1,5 +1,5 @@
 /// A actix-web vhost handler
-use crate::etag::Etag;
+use crate::etag::*;
 use actix_web::http::header::{self, Header, HeaderValue};
 use actix_web::{http, web, Error, HttpRequest, HttpResponse};
 use common::traits::Shared;

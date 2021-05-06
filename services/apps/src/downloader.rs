@@ -2,7 +2,7 @@
 use log::{debug, error};
 use nix::unistd;
 use reqwest::blocking::Response;
-use reqwest::header;
+use reqwest::header::{self, HeaderMap};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -26,6 +26,13 @@ pub enum DownloadError {
     Canceled,
 }
 
+impl PartialEq for DownloadError {
+    fn eq(&self, right: &DownloadError) -> bool {
+        format!("{:?}", self) == format!("{:?}", right)
+    }
+}
+
+#[derive(Clone)]
 pub struct Downloader {
     client: reqwest::blocking::Client,
 }
@@ -50,7 +57,7 @@ impl Downloader {
     }
 
     // Downloads a resource at a given url and save it to the path.
-    pub fn download<P: AsRef<Path>>(&self, url: &str, path: P) -> Result<(), DownloadError> {
+    pub fn simple_download<P: AsRef<Path>>(&self, url: &str, path: P) -> Result<(), DownloadError> {
         debug!("download: {}", url);
 
         let mut response = self
@@ -74,18 +81,24 @@ impl Downloader {
     }
 
     // Downloads a resource at a given url and save it to the path.
-    pub fn cancelable_download<P: AsRef<Path>>(
+    pub fn download<P: AsRef<Path>>(
         &self,
         url: &str,
         path: P,
-    ) -> (Receiver<Result<(), DownloadError>>, Sender<()>) {
+        extra_headers: Option<HeaderMap>,
+    ) -> (Receiver<Result<Option<String>, DownloadError>>, Sender<()>) {
         debug!("download: {}", url);
 
         let (cancel_sender, canceled_recv) = channel();
         let file_path_buf = path.as_ref().to_path_buf();
         let (sender, receiver) = channel();
 
-        let response = self.client.get(url).send();
+        let mut headers = HeaderMap::new();
+        if let Some(extra) = extra_headers {
+            headers = extra;
+        }
+
+        let response = self.client.get(url).headers(headers).send();
 
         thread::Builder::new()
             .name("apps_download".into())
@@ -103,7 +116,7 @@ impl Downloader {
         response: Result<Response, reqwest::Error>,
         path: P,
         canceled_recv: Receiver<()>,
-    ) -> Result<(), DownloadError> {
+    ) -> Result<Option<String>, DownloadError> {
         let mut response = response.map_err(DownloadError::Request)?;
 
         // Check that we didn't receive a HTTP Error
@@ -147,7 +160,14 @@ impl Downloader {
 
         fs::copy(&tmp_file.path, path).map_err(DownloadError::Io)?;
 
-        Ok(())
+        if let Some(val) = response.headers().get(header::ETAG) {
+            match val.to_str() {
+                Ok(etag) => Ok(Some(etag.into())),
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
 

@@ -12,3 +12,4 @@ mime_guess = "2.0"
 log = "0.4"
 base64 = "0.13"
 hawk = { git = "https://github.com/taskcluster/rust-hawk.git", rev = "c0760a0d78eca2695f77b16122fc21cc3dbfd195" }
+vhost_server = { path = "../../vhost"}

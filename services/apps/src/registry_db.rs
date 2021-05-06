@@ -134,7 +134,8 @@ impl FromSql for AppsUpdateState {
 // "install_time": 1584670494752,
 // "update_time": 1593708589477,
 // "manifest_hash": "cce24c3687d93c1ee00815d575bf4e6d",
-// "package_hash": "fe16801bcceb73d135fbd4ac297edc2d"
+// "package_hash": "fe16801bcceb73d135fbd4ac297edc2d",
+// "manifest_etag": "W/\"5417c9e27c1c32b6dc4adf8bffe0030848c60a4c071440159573507d109ff4b2\""
 // },
 
 pub struct AppsSchemaManager {}
@@ -153,7 +154,8 @@ static UPGRADE_0_1_SQL: [&str; 1] = [r#"CREATE TABLE IF NOT EXISTS apps (
                                         install_time INTEGER,
                                         update_time INTEGER,
                                         manifest_hash TEXT,
-                                        package_hash TEXT)"#];
+                                        package_hash TEXT,
+                                        manifest_etag TEXT)"#];
 
 impl DatabaseUpgrader for AppsSchemaManager {
     fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
@@ -186,6 +188,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let update_time: i64 = row.get("update_time")?;
     let manifest_hash: String = row.get("manifest_hash")?;
     let package_hash: String = row.get("package_hash")?;
+    let manifest_etag: String = row.get("manifest_etag")?;
 
     let mut item = AppsItem::new(&name);
     item.set_manifest_url(&manifest_url);
@@ -201,6 +204,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     item.set_update_time(update_time as _);
     item.set_manifest_hash(&manifest_hash);
     item.set_package_hash(&package_hash);
+    item.set_manifest_etag_str(&manifest_etag);
     Ok(item)
 }
 
@@ -246,7 +250,8 @@ impl RegistryDb {
                                      install_time,
                                      update_time,
                                      manifest_hash,
-                                     package_hash)
+                                     package_hash,
+                                     manifest_etag)
                              VALUES(:name,
                                     :version,
                                     :removable,
@@ -260,7 +265,8 @@ impl RegistryDb {
                                     :install_time,
                                     :update_time,
                                     :manifest_hash,
-                                    :package_hash)"#,
+                                    :package_hash,
+                                    :manifest_etag)"#,
             )?;
 
             let status: String = app.get_status().into();
@@ -281,6 +287,7 @@ impl RegistryDb {
                 ":update_time": &(app.get_update_time() as i64),
                 ":manifest_hash": &app.get_manifest_hash(),
                 ":package_hash": &app.get_package_hash(),
+                ":manifest_etag": &app.get_manifest_etag().unwrap_or_else(|| "".into()),
             })?;
         }
         tx.commit()?;

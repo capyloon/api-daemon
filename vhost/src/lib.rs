@@ -3,7 +3,7 @@ use common::traits::Shared;
 use std::collections::HashMap;
 
 pub mod config;
-mod etag;
+pub mod etag;
 pub mod vhost_handler;
 
 use config::Config;

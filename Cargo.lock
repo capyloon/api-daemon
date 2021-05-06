@@ -481,6 +481,7 @@ dependencies = [
  "hawk",
  "log",
  "mime_guess",
+ "vhost_server",
 ]
 
 [[package]]

@@ -36,6 +36,8 @@ pub struct AppsItem {
     removable: bool,
     #[serde(default = "AppsItem::default_false")]
     preloaded: bool,
+    #[serde(default = "AppsItem::default_option")]
+    manifest_etag: Option<String>,
 }
 
 impl AppsItem {
@@ -55,6 +57,7 @@ impl AppsItem {
             version: AppsItem::default_string(),
             removable: true,
             preloaded: false,
+            manifest_etag: None,
         }
     }
 
@@ -183,6 +186,22 @@ impl AppsItem {
         self.manifest_hash = hash.to_owned();
     }
 
+    pub fn set_manifest_etag_str(&mut self, etag: &str) {
+        self.manifest_etag = if etag.is_empty() {
+            None
+        } else {
+            Some(etag.into())
+        };
+    }
+
+    pub fn set_manifest_etag(&mut self, etag: Option<String>) {
+        self.manifest_etag = etag;
+    }
+
+    pub fn get_manifest_etag(&self) -> Option<String> {
+        self.manifest_etag.clone()
+    }
+
     pub fn set_package_hash(&mut self, hash: &str) {
         self.package_hash = hash.to_owned();
     }
@@ -204,6 +223,10 @@ impl AppsItem {
         } else {
             found
         }
+    }
+
+    fn default_option() -> Option<String> {
+        None
     }
 
     fn default_string() -> String {
@@ -237,7 +260,10 @@ impl AppsItem {
         if vhost_port == 80 {
             format!("http://{}.localhost/manifest.webmanifest", &app_name)
         } else {
-            format!("http://{}.localhost:{}/manifest.webmanifest", &app_name, vhost_port)
+            format!(
+                "http://{}.localhost:{}/manifest.webmanifest",
+                &app_name, vhost_port
+            )
         }
     }
 

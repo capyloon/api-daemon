@@ -79,7 +79,7 @@ pub enum AppsMgmtError {
     #[error("AppsMgmtError")]
     DownloadFailed,
     #[error("AppsMgmtError")]
-    DownloadNotMoidified,
+    DownloadNotModified,
     #[error("AppsMgmtError")]
     PackageCorrupt,
     #[error("PackageDownloadFailed {:?}", 0)]
@@ -90,8 +90,8 @@ pub enum AppsMgmtError {
     Json(#[from] serde_json::Error),
 }
 
-impl AppsMgmtError {
-    pub fn is_equal(&self, right: AppsMgmtError) -> bool {
+impl PartialEq for AppsMgmtError {
+    fn eq(&self, right: &AppsMgmtError) -> bool {
         format!("{:?}", self) == format!("{:?}", right)
     }
 }

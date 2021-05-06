@@ -1,15 +1,16 @@
+use actix_web::http::header::{self, HeaderValue};
 /// This simple server is for apps-service client test.
 /// The server hosts applications including manifest.webmanifest and zip package
 /// Under /apps. Hawk authentication is required and only GET method is supported.
 /// For test purpose, client uses fixed mock id and key to generate Hawk header.
 /// kid: "FGFYvY+/4XwTYIX9nVi+sXj5tPA=", mac_key: "p7cI80SwX+gmX0G+T938agWAV1eR9wrpCR9JgsoIIlk="
-use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer};
 use hawk::mac::Mac;
 use hawk::{Header, Key, RequestBuilder, SHA256};
 use mime_guess::{Mime, MimeGuess};
 use std::time::{Duration, UNIX_EPOCH};
 use std::{env, io};
+use vhost_server::etag::*;
 
 use log::{debug, error};
 use std::collections::HashMap;
@@ -21,16 +22,42 @@ fn mime_type_for(file_name: &str) -> Mime {
     MimeGuess::from_path(file_name).first_or_octet_stream()
 }
 
-fn response_from_file(app: &str, name: &str) -> HttpResponse {
+fn maybe_not_modified(
+    if_none_match: Option<&HeaderValue>,
+    etag: &str,
+    mime: &Mime,
+) -> Option<HttpResponse> {
+    // Check if we have an etag from the If-None-Match header.
+    if let Some(if_none_match) = if_none_match {
+        if let Ok(value) = if_none_match.to_str() {
+            if etag == value {
+                let mut resp304 = HttpResponse::NotModified();
+                let builder = resp304
+                    .content_type(mime.as_ref())
+                    .set_header("ETag", etag.to_string());
+
+                return Some(builder.finish());
+            }
+        }
+    }
+    None
+}
+
+fn response_from_file(req: HttpRequest, app: &str, name: &str) -> HttpResponse {
     let name_string = format!("apps/{}/{}", app, name);
     let path = Path::new(&name_string);
     if let Ok(mut file) = File::open(path) {
         // Check if we can return NotModified without reading the file content.
+        let if_none_match = req.headers().get(header::IF_NONE_MATCH);
+        let etag = Etag::for_file(&file);
         let file_name = path
             .file_name()
             .unwrap_or_else(|| std::ffi::OsStr::new(""))
             .to_string_lossy();
         let mime = mime_type_for(&file_name);
+        if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime) {
+            return response;
+        }
 
         let mut buf = vec![];
         if let Err(err) = file.read_to_end(&mut buf) {
@@ -38,7 +65,10 @@ fn response_from_file(app: &str, name: &str) -> HttpResponse {
             return HttpResponse::InternalServerError().finish();
         }
 
-        HttpResponse::Ok().content_type(mime.as_ref()).body(buf)
+        HttpResponse::Ok()
+            .set_header("ETag", etag.to_string())
+            .content_type(mime.as_ref())
+            .body(buf)
     } else {
         HttpResponse::NotFound().finish()
     }
@@ -61,7 +91,7 @@ fn check_header(req: &HttpRequest, header: header::HeaderName, expected: &str) -
     }
 }
 
-fn validate(req: HttpRequest) -> bool {
+fn validate(req: &HttpRequest) -> bool {
     match req.headers().get(header::AUTHORIZATION) {
         Some(header_value) => match header_value.to_str() {
             Ok(value) => {
@@ -126,10 +156,10 @@ async fn apps_responses(
         return HttpResponse::BadRequest().finish();
     }
     // Do not check the authorization header for pwa.
-    if app != "pwa" && !validate(req) {
+    if app != "pwa" && !validate(&req) {
         return HttpResponse::Unauthorized().finish();
     }
-    response_from_file(&app, &name)
+    response_from_file(req, &app, &name)
 }
 
 #[actix_web::main]

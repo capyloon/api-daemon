@@ -12,6 +12,7 @@ use crate::update_manifest::UpdateManifest;
 use blake2::{Blake2s, Digest};
 use common::traits::Shared;
 use log::{debug, error, info};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::collections::HashMap;
 use std::convert::From;
 use std::fs::{self, remove_dir_all, File};
@@ -26,6 +27,12 @@ use zip_utils::verify_zip;
 
 #[cfg(test)]
 use crate::shared_state::APPS_SHARED_SHARED_DATA;
+
+struct UpdateManifestResult {
+    available_dir: PathBuf,
+    update_manifest: PathBuf,
+    manifest_etag: Option<String>,
+}
 
 // A struct that removes a directory's content when it is dropped, unless
 // it is marked explicitely to not do so.
@@ -149,7 +156,9 @@ impl AppsRequest {
         debug!("Dowloading {} to {}", url, zip_path.as_path().display());
 
         let (result_recv, cancel_sender) =
-            self.downloader.cancelable_download(url, zip_path.as_path());
+            self.downloader
+                .clone()
+                .download(url, zip_path.as_path(), None);
         {
             let downloadings = &mut self.shared_data.lock().downloadings;
             set_or_update_canceller(downloadings, &app_update_url, cancel_sender);
@@ -182,16 +191,18 @@ impl AppsRequest {
         &mut self,
         url: &str,
         path: &Path,
-    ) -> Result<(PathBuf, PathBuf), AppsMgmtError> {
+        some_headers: Option<HeaderMap>,
+    ) -> Result<UpdateManifestResult, AppsMgmtError> {
         let base_path = path.join("downloading");
         let available_dir = AppsStorage::get_app_dir(&base_path, &hash(url).to_string())?;
 
         let update_manifest = available_dir.join("update.webmanifest");
         debug!("dowload {} to {}", url, available_dir.display());
 
-        let (result_recv, cancel_sender) = self
-            .downloader
-            .cancelable_download(url, update_manifest.as_path());
+        let (result_recv, cancel_sender) =
+            self.downloader
+                .clone()
+                .download(url, update_manifest.as_path(), some_headers);
         {
             let downloadings = &mut self.shared_data.lock().downloadings;
             set_or_update_canceller(downloadings, &url, cancel_sender);
@@ -200,26 +211,36 @@ impl AppsRequest {
             shared_data: self.shared_data.clone(),
             app_update_url: url.into(),
         };
+
         if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
-            if let Err(err) = rec {
-                error!(
-                    "Downloading {} to {} failed: {:?}",
-                    url,
-                    update_manifest.as_path().display(),
-                    err
-                );
-                if format!("{:?}", DownloadError::Http("304".into())) == format!("{:?}", err) {
-                    return Err(AppsMgmtError::DownloadNotMoidified);
+            match rec {
+                Ok(etag) => {
+                    debug!("manifest_etag is {:?}", etag);
+                    Ok(UpdateManifestResult {
+                        available_dir,
+                        update_manifest,
+                        manifest_etag: etag,
+                    })
                 }
-                return Err(AppsMgmtError::ManifestDownloadFailed(err));
+                Err(err) => {
+                    error!(
+                        "Downloading {} to {} failed: {:?}",
+                        url,
+                        update_manifest.as_path().display(),
+                        err
+                    );
+                    if err == DownloadError::Http("304".into()) {
+                        return Err(AppsMgmtError::DownloadNotModified);
+                    }
+
+                    Err(AppsMgmtError::ManifestDownloadFailed(err))
+                }
             }
         } else {
-            return Err(AppsMgmtError::ManifestDownloadFailed(DownloadError::Other(
+            Err(AppsMgmtError::ManifestDownloadFailed(DownloadError::Other(
                 "Timed Out".into(),
-            )));
+            )))
         }
-
-        Ok((available_dir, update_manifest))
     }
 
     pub fn check_for_update(
@@ -235,34 +256,42 @@ impl AppsRequest {
             .registry
             .get_by_update_url(&update_url)
             .ok_or(AppsServiceError::AppNotFound)?;
-
+        let some_headers = build_headers(&app);
         let path = Path::new(&webapp_path);
-        let (_, update_manifest) = match self.get_update_manifest(update_url, &path) {
-            Ok((available_dir, update_manifest)) => (available_dir, update_manifest),
+        let update_manifest_result = match self.get_update_manifest(update_url, &path, some_headers)
+        {
+            Ok(update_manifest_result) => update_manifest_result,
             Err(err) => {
-                if format!("{:?}", AppsMgmtError::DownloadNotMoidified) == format!("{:?}", err) {
-                    return Ok(None);
+                if err == AppsMgmtError::DownloadNotModified {
+                    if app.get_update_state() == AppsUpdateState::Available {
+                        let mut app_obj = AppsObject::from(&app);
+                        app_obj.allowed_auto_download = is_auto_update;
+
+                        return Ok(Some(app_obj));
+                    } else {
+                        return Ok(None);
+                    }
                 }
                 return Err(AppsServiceError::DownloadManifestFailed);
             }
         };
 
-        if !compare_version_hash(&app, &update_manifest) {
+        if !compare_version_hash(&app, &update_manifest_result.update_manifest) {
             info!("No update available.");
             return Ok(None);
         }
 
-        let manifest =
-            Manifest::read_from(&update_manifest).map_err(|_| AppsServiceError::InvalidManifest)?;
+        let manifest = Manifest::read_from(&update_manifest_result.update_manifest)
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // Save the downloaded update manifest file in cached dir.
         let cached_dir = path.join("cached").join(&app.get_name());
         let _ = AppsStorage::ensure_dir(&cached_dir);
         let cached_manifest = cached_dir.join("update.webmanifest");
-        if let Err(err) = fs::rename(&update_manifest, &cached_manifest) {
+        if let Err(err) = fs::rename(&update_manifest_result.update_manifest, &cached_manifest) {
             error!(
                 "Rename update manifest failed: {} -> {} : {:?}",
-                update_manifest.display(),
+                update_manifest_result.update_manifest.display(),
                 cached_manifest.display(),
                 err
             );
@@ -270,6 +299,7 @@ impl AppsRequest {
         }
 
         app.set_update_state(AppsUpdateState::Available);
+        app.set_manifest_etag(update_manifest_result.manifest_etag);
         // Lock to save app
         {
             let registry = &mut self.shared_data.lock().registry;
@@ -295,19 +325,17 @@ impl AppsRequest {
         is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let path = Path::new(&webapp_path);
-        let (available_dir, update_manifest) = match self.get_update_manifest(update_url, &path) {
-            Ok((available_dir, update_manifest)) => (available_dir, update_manifest),
+        let update_manifest_result = match self.get_update_manifest(update_url, &path, None) {
+            Ok(update_manifest_result) => update_manifest_result,
             Err(err) => {
                 debug!("get_update_manifest err {:?}", err);
-                if err.is_equal(AppsMgmtError::ManifestDownloadFailed(
-                    DownloadError::Canceled,
-                )) {
+                if err == AppsMgmtError::ManifestDownloadFailed(DownloadError::Canceled) {
                     return Err(AppsServiceError::Canceled);
                 }
                 return Err(AppsServiceError::DownloadManifestFailed);
             }
         };
-        let manifest = Manifest::read_from(update_manifest.clone())
+        let manifest = Manifest::read_from(update_manifest_result.update_manifest.clone())
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // Lock registry to do application registration, emit installing event
@@ -341,6 +369,8 @@ impl AppsRequest {
                 apps_item.set_version(&manifest.get_version());
             }
 
+            apps_item.set_manifest_etag(update_manifest_result.manifest_etag);
+
             restorer = AppsStatusRestorer::new(
                 self.shared_data.clone(),
                 is_update,
@@ -354,10 +384,10 @@ impl AppsRequest {
             self.installing_apps_item = Some(apps_item.clone());
         }
 
-        let mut available_dir_remover = DirRemover::new(&available_dir);
+        let mut available_dir_remover = DirRemover::new(&update_manifest_result.available_dir);
 
-        let available_dir = available_dir.as_path();
-        let update_manifest = update_manifest.as_path();
+        let available_dir = update_manifest_result.available_dir.as_path();
+        let update_manifest = update_manifest_result.update_manifest.as_path();
         info!("update_manifest: {}", update_manifest.display());
 
         let update_manifest = UpdateManifest::read_from(update_manifest)
@@ -382,9 +412,7 @@ impl AppsRequest {
             Err(err) => {
                 let mut error = Err(AppsServiceError::DownloadPackageFailed);
                 debug!("get_available_zip error {}", err);
-                if err.is_equal(AppsMgmtError::PackageDownloadFailed(
-                    DownloadError::Canceled,
-                )) {
+                if err == AppsMgmtError::PackageDownloadFailed(DownloadError::Canceled) {
                     error = Err(AppsServiceError::Canceled);
                 }
 
@@ -442,7 +470,7 @@ impl AppsRequest {
         let is_update = false;
         // 1. download manifest to cache dir.
         debug!("dowload {} to {}", update_url, download_manifest.display());
-        if let Err(err) = downloader.download(update_url, download_manifest.as_path()) {
+        if let Err(err) = downloader.simple_download(update_url, download_manifest.as_path()) {
             error!(
                 "Downloading {} to {} failed: {:?}",
                 update_url,
@@ -493,7 +521,8 @@ impl AppsRequest {
                     .join(&icon.get_src())
                     .map_err(|_| AppsServiceError::InvalidManifest)?;
                 let _ = AppsStorage::ensure_dir(&icon_dir);
-                if let Err(err) = downloader.download(icon_url.as_str(), icon_path.as_path()) {
+                if let Err(err) = downloader.simple_download(icon_url.as_str(), icon_path.as_path())
+                {
                     error!(
                         "Failed to download icon {} -> {:?} : {:?}",
                         icon_url, icon_path, err
@@ -545,6 +574,26 @@ impl AppsRequest {
                 apps_object,
                 reason,
             });
+    }
+}
+
+fn build_headers(app: &AppsItem) -> Option<HeaderMap> {
+    if let Some(etag) = app.get_manifest_etag() {
+        let etag_header_value = match HeaderValue::from_str(&etag) {
+            Ok(val) => val,
+            Err(_) => {
+                return None;
+            }
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_lowercase(b"if-none-match").unwrap(),
+            etag_header_value,
+        );
+
+        Some(headers)
+    } else {
+        None
     }
 }
 
