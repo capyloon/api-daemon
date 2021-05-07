@@ -46,7 +46,8 @@ fn generate_mod(dir: &str) -> Result<(), ::std::io::Error> {
 }
 
 /// Builds a service whose SIDL description is at $service/src/$sidl_name.sidl
-pub fn build_service(sidl_name: &str) {
+/// Allows callers to pass a custom codegen configuration.
+pub fn build_service_with_config(sidl_name: &str, config: Option<sidl_codegen::config::Config>) {
     // Pick up changes in the codegen.
     println!("cargo:rerun-if-changed=../../codegen/src");
     println!("cargo:rerun-if-changed=../../codegen/src/templates");
@@ -71,6 +72,7 @@ pub fn build_service(sidl_name: &str) {
     sidl_codegen::generate_javascript_code(
         Path::new(&sidl_path),
         Path::new(&format!("client/generated/{}_service.js", sidl_name)),
+        config,
     )
     .expect("Generating Javascript client.");
 
@@ -81,4 +83,9 @@ pub fn build_service(sidl_name: &str) {
         sidl_name,
     )
     .expect("Generating Javascript documentation.");
+}
+
+/// Builds a service whose SIDL description is at $service/src/$sidl_name.sidl
+pub fn build_service(sidl_name: &str) {
+    build_service_with_config(sidl_name, None)
 }

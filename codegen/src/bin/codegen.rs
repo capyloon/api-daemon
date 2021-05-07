@@ -50,7 +50,7 @@ fn main() {
     }
 
     if let Some(path) = matches.value_of("js") {
-        if let Err(err) = generate_javascript_code(input, Path::new(path)) {
+        if let Err(err) = generate_javascript_code(input, Path::new(path), None) {
             error!("{}", err);
         }
     }

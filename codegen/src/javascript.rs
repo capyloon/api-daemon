@@ -214,7 +214,11 @@ impl Codegen {
                 if full_path != "item" && full_path != local_var {
                     writeln!(sink, "// {}", utype)?;
                     // let local_var = "item".to_string();
-                    writeln!(sink, "function Encode{}({}, result) {{", dict_name, local_var)?;
+                    writeln!(
+                        sink,
+                        "function Encode{}({}, result) {{",
+                        dict_name, local_var
+                    )?;
                     let dict = self.ast.dictionaries.get(utype).unwrap();
                     for member in &dict.members {
                         self.write_encoder_for_item(
@@ -278,18 +282,14 @@ impl Codegen {
         match item.typ.arity {
             Arity::Unary => {
                 self.write_decoder_for_single_item(
-                    item,
-                    sink,
-                    false, /* is_array */
+                    item, sink, false, /* is_array */
                     &full_name,
                 )?
             }
             Arity::Optional => {
                 writeln!(sink, "if (decoder.bool()) {{")?;
                 self.write_decoder_for_single_item(
-                    item,
-                    sink,
-                    false, /* is_array */
+                    item, sink, false, /* is_array */
                     &full_name,
                 )?;
                 writeln!(sink, "}}")?;
@@ -308,12 +308,7 @@ impl Codegen {
                         .unwrap_or_else(|| "".into()),
                 )?;
                 writeln!(sink, "for (let i = 0; i < count; i++) {{")?;
-                self.write_decoder_for_single_item(
-                    item,
-                    sink,
-                    true, /* is_array */
-                    var_name,
-                )?;
+                self.write_decoder_for_single_item(item, sink, true /* is_array */, var_name)?;
                 writeln!(sink, "}}")?;
                 writeln!(sink, "}}")?;
             }
@@ -331,12 +326,7 @@ impl Codegen {
                         .unwrap_or_else(|| "".into()),
                 )?;
                 writeln!(sink, "for (let i = 0; i < count; i++) {{")?;
-                self.write_decoder_for_single_item(
-                    item,
-                    sink,
-                    true, /* is_array */
-                    var_name,
-                )?;
+                self.write_decoder_for_single_item(item, sink, true /* is_array */, var_name)?;
                 writeln!(sink, "}}")?;
                 writeln!(sink, "}} // let count = ... scope")?;
             }
@@ -378,7 +368,11 @@ impl Codegen {
 
                 if is_array {
                     if item.name.is_some() {
-                        writeln!(sink, "{}.{}.push(Decode{}(decoder));", var_name, name, dict_name)?;
+                        writeln!(
+                            sink,
+                            "{}.{}.push(Decode{}(decoder));",
+                            var_name, name, dict_name
+                        )?;
                     } else {
                         writeln!(sink, "{}.push(Decode{}(decoder));", var_name, dict_name)?;
                     }
@@ -910,13 +904,19 @@ impl Codegen {
         Ok(())
     }
 
-    pub fn generate<W: Write>(&mut self, sink: &mut W) -> Result<()> {
-        sink.write_all(
-            b"// This file is generated. Do not edit.
-              // @generated\n\n
-              import Services from '../../../../common/client/src/services';
-              import SessionObject from '../../../../common/client/src/sessionobject';
-              import {Encoder, Decoder} from '../../../../common/client/src/bincode.js';\n\n",
+    pub fn generate<W: Write>(
+        &mut self,
+        sink: &mut W,
+        config: &crate::config::Config,
+    ) -> Result<()> {
+        writeln!(
+            sink,
+            r#"// This file is generated. Do not edit.
+              // @generated
+              import Services from '{}/client/src/services';
+              import SessionObject from '{}/client/src/sessionobject';
+              import {{Encoder, Decoder}} from '{}/client/src/bincode.js';"#,
+            config.js_common_path, config.js_common_path, config.js_common_path,
         )?;
 
         // Generate enums representations.
@@ -1035,7 +1035,7 @@ mod test {
         let mut generator = Codegen::new(ast);
 
         generator
-            .generate(&mut ::std::io::stdout())
+            .generate(&mut ::std::io::stdout(), &crate::config::Config::default())
             .expect("Failed to generate Javascript code!");
     }
 }

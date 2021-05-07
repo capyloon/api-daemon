@@ -5,6 +5,7 @@ use std::path::Path;
 use thiserror::Error as ThisError;
 
 pub mod ast_utils;
+pub mod config;
 pub mod doc_javascript;
 pub mod helpers;
 pub mod javascript;
@@ -48,7 +49,11 @@ pub fn generate_rust_service(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn generate_javascript_code(src: &Path, dest: &Path) -> Result<()> {
+pub fn generate_javascript_code(
+    src: &Path,
+    dest: &Path,
+    config: Option<config::Config>,
+) -> Result<()> {
     info!("Generating Javascript code {:?} -> {:?}", src, dest);
     let ast = ast::Ast::parse_file(src, None)?;
 
@@ -58,7 +63,7 @@ pub fn generate_javascript_code(src: &Path, dest: &Path) -> Result<()> {
     }
     let mut file = File::create(dest)?;
     let mut generator = javascript::Codegen::new(ast);
-    generator.generate(&mut file)?;
+    generator.generate(&mut file, &config.unwrap_or_default())?;
     Ok(())
 }
 
