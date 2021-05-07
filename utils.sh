@@ -28,7 +28,7 @@ function release_shared_lib() {
 
 function release_service_lib() {
     local service=$1
-    local src=services/${service}/client
+    local src=${4:-services/${service}/client}
     local dst=$2/${service}
     local build_type=$3
 
