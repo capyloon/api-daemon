@@ -31,9 +31,19 @@ pub struct Downloader {
 }
 
 impl Downloader {
-    pub fn new(user_agent: &str) -> Result<Self, DownloadError> {
+    pub fn new(user_agent: &str, lang: &str) -> Result<Self, DownloadError> {
+        let mut headers = header::HeaderMap::new();
+        match header::HeaderValue::from_str(lang) {
+            Ok(header) => headers.insert(header::ACCEPT_LANGUAGE, header),
+            _ => headers.insert(
+                header::ACCEPT_LANGUAGE,
+                header::HeaderValue::from_static("en-US"),
+            ),
+        };
+
         let client = reqwest::blocking::Client::builder()
             .user_agent(user_agent)
+            .default_headers(headers)
             .build()
             .map_err(DownloadError::Request)?;
         Ok(Downloader { client })
@@ -173,8 +183,9 @@ fn downloader_download_file() {
     let _ = env_logger::try_init();
     let current = env::current_dir().unwrap();
     let user_agent = "Mozilla/5.0 (Mobile; rv:84.0) Gecko/84.0 Firefox/84.0 KAIOS/3.0";
+    let lang = "en-US";
 
-    let downloader = Downloader::new(user_agent).unwrap();
+    let downloader = Downloader::new(user_agent, lang).unwrap();
     let file_path = current.join("test-fixtures/sample.webmanifest");
     let res = downloader.download(
         "https://seinlin.org/apps/packages/sample/manifest.webapp",

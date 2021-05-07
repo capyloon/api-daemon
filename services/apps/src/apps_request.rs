@@ -123,9 +123,12 @@ const DOWNLOAD_TIMEOUT: u64 = 600; // 10 mins
 
 impl AppsRequest {
     pub fn new(shared_data: Shared<AppsSharedData>) -> Result<Self, AppsMgmtError> {
-        let user_agent = &shared_data.lock().config.user_agent.clone();
+        let (user_agent, lang) = {
+            let lock = &shared_data.lock();
+            (lock.config.user_agent.clone(), lock.registry.get_lang())
+        };
         let downloader =
-            Downloader::new(user_agent).map_err(|_| AppsMgmtError::DownloaderError)?;
+            Downloader::new(&user_agent, &lang).map_err(|_| AppsMgmtError::DownloaderError)?;
         Ok(Self {
             downloader,
             shared_data,
@@ -249,8 +252,8 @@ impl AppsRequest {
             return Ok(None);
         }
 
-        let manifest = Manifest::read_from(&update_manifest)
-            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        let manifest =
+            Manifest::read_from(&update_manifest).map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // Save the downloaded update manifest file in cached dir.
         let cached_dir = path.join("cached").join(&app.get_name());
@@ -272,7 +275,8 @@ impl AppsRequest {
             let registry = &mut self.shared_data.lock().registry;
             if app.get_update_manifest_url().is_empty() {
                 app.set_update_manifest_url(&AppsItem::new_update_manifest_url(
-                    &app.get_name(), registry.get_vhost_port(),
+                    &app.get_name(),
+                    registry.get_vhost_port(),
                 ));
             }
             let _ = registry.save_app(true, &app, &manifest)?;
@@ -428,9 +432,12 @@ impl AppsRequest {
             AppsStorage::get_app_dir(&path.join("downloading"), &hash(update_url).to_string())
                 .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
         let download_manifest = download_dir.join("manifest.webmanifest");
-        let user_agent = &self.shared_data.lock().config.user_agent.clone();
+        let (user_agent, lang) = {
+            let lock = &self.shared_data.lock();
+            (lock.config.user_agent.clone(), lock.registry.get_lang())
+        };
         let downloader =
-            Req::new(user_agent).map_err(|_| AppsServiceError::DownloadManifestFailed)?;
+            Req::new(&user_agent, &lang).map_err(|_| AppsServiceError::DownloadManifestFailed)?;
 
         let is_update = false;
         // 1. download manifest to cache dir.

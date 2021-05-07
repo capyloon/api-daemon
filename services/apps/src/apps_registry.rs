@@ -10,12 +10,15 @@ use crate::downloader::DownloadError;
 use crate::generated::common::*;
 use crate::manifest::{Manifest, ManifestError};
 use crate::registry_db::RegistryDb;
+use crate::service::AppsService;
 use crate::shared_state::AppsSharedData;
 use crate::update_scheduler;
 use common::traits::{DispatcherId, Shared};
 use common::JsonValue;
 use log::{debug, error, info};
 use serde_json::json;
+use settings_service::db::{DbObserver, ObserverType};
+use settings_service::service::SettingsService;
 use std::collections::hash_map::DefaultHasher;
 use std::convert::From;
 use std::env;
@@ -149,12 +152,31 @@ fn load_manifest(app_dir: &PathBuf) -> Result<Manifest, AppsError> {
     }
 }
 
+#[derive(Clone)]
+struct SettingObserver {}
+
+impl DbObserver for SettingObserver {
+    fn callback(&self, name: &str, value: &JsonValue) {
+        if name != "language.current" {
+            error!(
+                "unexpected key {} / value {}",
+                name,
+                value.as_str().unwrap_or("unknown")
+            );
+            return;
+        }
+
+        let lang = value.as_str().unwrap_or("en-US");
+        AppsService::shared_state().lock().registry.set_lang(lang);
+    }
+}
+
 #[derive(Default)]
 pub struct AppsRegistry {
     pool: ThreadPool,       // The thread pool used to run tasks.
     db: Option<RegistryDb>, // The sqlite DB wrapper.
-    // cert_type: String,          // Root CA to be trusted to verify the signature.
-    vhost_port: u16, // Keeping vhost vhost_port number in registry
+    vhost_port: u16,        // Keeping vhost vhost_port number in registry
+    lang: String,
     pub event_broadcaster: AppsEngineEventBroadcaster,
 }
 
@@ -301,14 +323,34 @@ impl AppsRegistry {
             let _ = symlink(&cached_dir, &dest);
         }
 
+        let setting_service = SettingsService::shared_state();
+        let lang = match setting_service.lock().db.get("language.current") {
+            Ok(value) => value.as_str().unwrap_or("en-US").to_string(),
+            Err(_) => "en-US".to_string(),
+        };
+        // the life time of AppsRegistry is the same as the process. We don't need to remove_observer
+        let id = setting_service.lock().db.add_observer(
+            "language.current",
+            ObserverType::FuncPtr(Box::new(SettingObserver {})),
+        );
+        info!("add_observer to SettingsService with id {}", id);
+
         Ok(Self {
             pool: ThreadPool::new(3),
             db: Some(db),
             vhost_port,
+            lang,
             event_broadcaster: AppsEngineEventBroadcaster::default(),
         })
     }
 
+    pub fn set_lang(&mut self, lang: &str) {
+        self.lang = lang.to_string();
+    }
+
+    pub fn get_lang(&self) -> String {
+        self.lang.clone()
+    }
     // Returns a sanitized version of the name, usable as:
     // - a filename
     // - a subdomain

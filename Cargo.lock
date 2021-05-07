@@ -459,6 +459,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "settings_service",
  "sqlite-utils",
  "thiserror",
  "threadpool",

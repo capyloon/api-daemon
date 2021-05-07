@@ -3,16 +3,13 @@
 /// Under /apps. Hawk authentication is required and only GET method is supported.
 /// For test purpose, client uses fixed mock id and key to generate Hawk header.
 /// kid: "FGFYvY+/4XwTYIX9nVi+sXj5tPA=", mac_key: "p7cI80SwX+gmX0G+T938agWAV1eR9wrpCR9JgsoIIlk="
-
-use actix_web::{
-    middleware, web, App, HttpRequest, HttpResponse,
-    HttpServer,
-};
-use mime_guess::{Mime, MimeGuess};
-use std::{env, io};
-use hawk::{RequestBuilder, Header, Key, SHA256};
+use actix_web::http::header;
+use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer};
 use hawk::mac::Mac;
+use hawk::{Header, Key, RequestBuilder, SHA256};
+use mime_guess::{Mime, MimeGuess};
 use std::time::{Duration, UNIX_EPOCH};
+use std::{env, io};
 
 use log::{debug, error};
 use std::collections::HashMap;
@@ -41,9 +38,7 @@ fn response_from_file(app: &str, name: &str) -> HttpResponse {
             return HttpResponse::InternalServerError().finish();
         }
 
-        HttpResponse::Ok()
-            .content_type(mime.as_ref())
-            .body(buf)
+        HttpResponse::Ok().content_type(mime.as_ref()).body(buf)
     } else {
         HttpResponse::NotFound().finish()
     }
@@ -54,25 +49,20 @@ static PORT: u16 = 8596;
 static HOST: &str = "127.0.0.1";
 // This UA is defined in daemon/config.toml.
 static EXPECTED_UA: &str = "Mozilla/5.0 (Mobile; rv:84.0) Gecko/84.0 Firefox/84.0 KAIOS/3.0";
+static EXPECTED_LANG: &str = "en-US";
 
-fn check_ua(req: &HttpRequest) -> bool {
-    match req
-        .headers()
-        .get(::actix_web::http::header::USER_AGENT)
-    {
+fn check_header(req: &HttpRequest, header: header::HeaderName, expected: &str) -> bool {
+    match req.headers().get(header) {
         Some(value) => match value.to_str() {
-            Ok(ua) => ua == EXPECTED_UA,
+            Ok(value) => value == expected,
             Err(_) => false,
         },
-        None => false
+        None => false,
     }
 }
 
 fn validate(req: HttpRequest) -> bool {
-    match req
-        .headers()
-        .get(::actix_web::http::header::AUTHORIZATION)
-    {
+    match req.headers().get(header::AUTHORIZATION) {
         Some(header_value) => match header_value.to_str() {
             Ok(value) => {
                 let values: Vec<_> = value.split(',').map(|e| e.trim()).collect();
@@ -83,7 +73,7 @@ fn validate(req: HttpRequest) -> bool {
                 for item in values.iter() {
                     if let Some(index) = item.find('=') {
                         let key = item[0..index].replace(" ", "");
-                        let value = item[index+1..item.len()].replace("\"", "");
+                        let value = item[index + 1..item.len()].replace("\"", "");
                         hawk_auth.insert(key, value);
                     }
                 }
@@ -94,21 +84,27 @@ fn validate(req: HttpRequest) -> bool {
                 let nounce = hawk_auth.get("nonce").unwrap();
                 let hdr = Header::new(
                     Some(id.as_str()),
-                    Some(UNIX_EPOCH + Duration::new(hawk_auth.get("ts").unwrap().parse::<u64>().unwrap(), 0)),
+                    Some(
+                        UNIX_EPOCH
+                            + Duration::new(
+                                hawk_auth.get("ts").unwrap().parse::<u64>().unwrap(),
+                                0,
+                            ),
+                    ),
                     Some(nounce.as_str()),
                     Some(mac),
                     None,
                     None,
                     None,
                     None,
-                ).unwrap();
+                )
+                .unwrap();
 
-                let request = RequestBuilder::new("GET", HOST, PORT, req.path())
-                .request();
+                let request = RequestBuilder::new("GET", HOST, PORT, req.path()).request();
 
                 let key = Key::new(base64::decode(MAC_KEY).unwrap(), SHA256).unwrap();
                 let one_week_in_secs = 7 * 24 * 60 * 60;
-                
+
                 request.validate_header(&hdr, &key, Duration::from_secs(one_week_in_secs))
             }
             Err(_) => false,
@@ -123,7 +119,10 @@ async fn apps_responses(
 ) -> HttpResponse {
     // For cancel API test
     std::thread::sleep(std::time::Duration::from_millis(200));
-    if !check_ua(&req) {
+    if !check_header(&req, header::USER_AGENT, EXPECTED_UA) {
+        return HttpResponse::BadRequest().finish();
+    }
+    if !check_header(&req, header::ACCEPT_LANGUAGE, EXPECTED_LANG) {
         return HttpResponse::BadRequest().finish();
     }
     // Do not check the authorization header for pwa.
@@ -141,11 +140,10 @@ async fn main() -> io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(middleware::Logger::default())
-            .service(web::resource("/apps/{app}/{name:[^{}]+}").route(web::get().to(apps_responses)))
             .service(
-                web::scope("/")
-                    .route("*", web::post().to(HttpResponse::MethodNotAllowed))
+                web::resource("/apps/{app}/{name:[^{}]+}").route(web::get().to(apps_responses)),
             )
+            .service(web::scope("/").route("*", web::post().to(HttpResponse::MethodNotAllowed)))
     })
     .bind(addr)?
     .run()
