@@ -23,7 +23,7 @@ cd $CI_PROJECT_DIR/tests/apps-test-server
 
 # Align with config-webdriver.toml
 rm -rf ../webapps
-rm $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
+rm -f $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
 ln -s $CI_PROJECT_DIR/services/apps/test-fixtures/webapps ../webapps
 ln -s $CI_PROJECT_DIR/services/apps/client $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
 

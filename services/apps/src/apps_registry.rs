@@ -34,7 +34,7 @@ use std::time::Duration;
 use thiserror::Error;
 use threadpool::ThreadPool;
 use url::Host::Domain;
-use url::Url;
+use url::{ParseError, Url};
 use zip::ZipArchive;
 
 #[cfg(test)]
@@ -55,6 +55,8 @@ pub enum AppsError {
     #[error("Json Error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("Zip Error")]
+    Url(#[from] ParseError),
+    #[error("Url Error")]
     Zip(#[from] zip::result::ZipError),
     #[error("RegistryDb error")]
     RegistryDb(#[from] crate::registry_db::Error),
@@ -604,10 +606,10 @@ impl AppsRegistry {
     }
 
     pub fn get_b2g_features(&self, manifest_url: &str, data_path: &str) -> JsonValue {
-        let vroot_dir = Path::new(&data_path).join("vroot");
+        let base_dir = Path::new(&data_path);
 
         if let Some(app) = &self.get_by_manifest_url(manifest_url) {
-            let app_dir = vroot_dir.join(&app.get_name());
+            let app_dir = app.get_appdir(&base_dir).unwrap_or_default();
             if let Ok(manifest) = load_manifest(&app_dir) {
                 if let Some(b2g_features) = manifest.get_b2g_features() {
                     return JsonValue::from(
@@ -760,27 +762,27 @@ impl AppsRegistry {
 
     pub fn register_on_boot(&self, config: &Config) -> Result<(), AppsError> {
         let current = env::current_dir().unwrap();
-        let vroot_dir = current.join(&config.data_path).join("vroot");
+        let base_dir = current.join(&config.data_path);
 
         if let Some(db) = &self.db {
             let apps = db.get_all()?;
             for app in &apps {
-                let app_dir = vroot_dir.join(&app.get_name());
-                let manifest = load_manifest(&app_dir)?;
+                let app_dir = app.get_appdir(&base_dir).unwrap_or_default();
+                if let Ok(manifest) = load_manifest(&app_dir) {
+                    // Relay the request to Gecko using the bridge.
+                    let features = match manifest.get_b2g_features() {
+                        Some(b2g_features) => JsonValue::from(
+                            serde_json::to_value(&b2g_features).unwrap_or(json!(null)),
+                        ),
+                        _ => JsonValue::from(json!(null)),
+                    };
 
-                // Relay the request to Gecko using the bridge.
-                let features = match manifest.get_b2g_features() {
-                    Some(b2g_features) => {
-                        JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)))
-                    }
-                    _ => JsonValue::from(json!(null)),
-                };
-
-                debug!("Register on boot manifest_url: {}", &app.get_manifest_url());
-                let bridge = GeckoBridgeService::shared_state();
-                bridge
-                    .lock()
-                    .apps_service_on_boot(app.get_manifest_url(), features);
+                    debug!("Register on boot manifest_url: {}", &app.get_manifest_url());
+                    let bridge = GeckoBridgeService::shared_state();
+                    bridge
+                        .lock()
+                        .apps_service_on_boot(app.get_manifest_url(), features);
+                }
             }
             // Notify the bridge that we processed all apps on boot.
             GeckoBridgeService::shared_state()
@@ -913,7 +915,7 @@ fn test_init_apps_from_system() {
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
-    let root_path = format!("{}/test-fixtures/webapps-pwa", current.display());
+    let root_path = format!("{}/test-fixtures/webapps", current.display());
     let test_dir = format!("{}/test-fixtures/test-apps-dir", current.display());
     let test_path = Path::new(&test_dir);
 
@@ -939,7 +941,7 @@ fn test_init_apps_from_system() {
     };
 
     println!("registry.count: {}", registry.count());
-    assert_eq!(5, registry.count());
+    assert_eq!(6, registry.count());
 
     // Verify the preload test pwa app.
     if let Some(app) =
@@ -1029,7 +1031,7 @@ fn test_register_app() {
     };
 
     println!("registry.count(): {}", registry.count());
-    assert_eq!(5, registry.count());
+    assert_eq!(6, registry.count());
 
     // Test register_app - invalid name
     let name = "";
@@ -1126,7 +1128,7 @@ fn test_register_app() {
     registry.unregister_app(&manifest_url).unwrap();
 
     // Sould be 6 apps left
-    assert_eq!(6, registry.count());
+    assert_eq!(7, registry.count());
 
     let manifest_url = apps_item.get_manifest_url();
     if registry.get_by_manifest_url(&manifest_url).is_some() {
@@ -1208,7 +1210,7 @@ fn test_unregister_app() {
 
     registry.register_app(&apps_item, &manifest1).unwrap();
 
-    assert_eq!(6, registry.count());
+    assert_eq!(7, registry.count());
 
     // Verify the manifet url is as expeced
     let expected_manfiest_url = "http://helloworld.localhost:8081/manifest.webmanifest";
@@ -1228,7 +1230,7 @@ fn test_unregister_app() {
     registry.unregister_app(&manifest_url).unwrap();
 
     // 5 apps left
-    assert_eq!(5, registry.count());
+    assert_eq!(6, registry.count());
 
     let manifest_url = apps_item.get_manifest_url();
     if registry.get_by_manifest_url(&manifest_url).is_some() {
@@ -1273,7 +1275,7 @@ fn test_apply_download() {
     };
 
     println!("registry.count(): {}", registry.count());
-    assert_eq!(5, registry.count());
+    assert_eq!(6, registry.count());
 
     let src_app = current.join("test-fixtures/apps-from/helloworld/application.zip");
     let src_manifest = current.join("test-fixtures/apps-from/helloworld/update.webmanifest");

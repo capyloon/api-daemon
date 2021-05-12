@@ -1,8 +1,12 @@
 // Internal representation of an application.
 
+use crate::apps_registry::AppsError;
 use crate::generated::common::*;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use url::Host::Domain;
+use url::Url;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppsItem {
@@ -66,6 +70,21 @@ impl AppsItem {
         app.set_manifest_url(&AppsItem::new_pwa_url(name, vhost_port));
         app.set_update_manifest_url(&AppsItem::new_update_manifest_url(name, vhost_port));
         app
+    }
+
+    // Return the storage path of the app to load the manifest file.
+    //   In:
+    //     config_path: The data path in the config file.
+    //   Return:
+    //     PWA app: {config_path}/cached/{app-name}
+    //     Package app: {config_path}/vroot/{app-name}
+    pub fn get_appdir(&self, config_path: &Path) -> Result<PathBuf, AppsError> {
+        let manifest_url = Url::parse(&self.get_manifest_url())?;
+        if manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost") {
+            Ok(config_path.join("cached").join(&self.name))
+        } else {
+            Ok(config_path.join("vroot").join(&self.name))
+        }
     }
 
     pub fn get_name(&self) -> String {

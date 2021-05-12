@@ -14,6 +14,7 @@ test-fixtures/test-apps-dir-pwa/
 test-fixtures/test-apps-dir-apply/
 test-fixtures/sample.webapp
 test-fixtures/sample.webmanifest
+test-fixtures/webapps/apps
 settings.sqlite
 settings.sqlite-shm
 settings.sqlite-wal
