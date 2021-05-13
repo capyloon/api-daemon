@@ -721,13 +721,17 @@ impl AppsRegistry {
         manifest_url: &str,
         data_path: &str,
     ) -> Result<String, AppsServiceError> {
+        let app = match self.get_by_manifest_url(manifest_url) {
+            Some(app) => app,
+            None => return Err(AppsServiceError::AppNotFound),
+        };
         match self.unregister_app(manifest_url) {
             Ok(manifest_url) => {
                 let path = Path::new(&data_path);
                 let installed_dir = path.join("installed").join(app_name);
-                let webapp_dir = path.join("vroot").join(app_name);
+                let webapp_dir = app.get_appdir(&path).unwrap_or_default();
 
-                let _ = remove_file(&webapp_dir);
+                let _ = remove_dir_all(&webapp_dir);
                 let _ = remove_dir_all(&installed_dir);
 
                 Ok(manifest_url)

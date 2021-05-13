@@ -55,20 +55,11 @@
         await tester.assert_eq(
           "get cached app update manifest",
           service => {
-            return new Promise((resolve, reject) => {
-                let req = new XMLHttpRequest();
-                req.open("GET", update_manifest_cached);
-                req.responseType = "json";
-                req.onload = function() {
-                    if (req.status == 200 ) {
-                        console.log(req.response);
-                        resolve(req.response.version);
-                    } else {
-                        reject("error, status code: " + req.status);
-                    }
-                };
-                req.send();
-            });
+            let req = new Request(update_manifest_cached);
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.version);
           },
           new_version,
         );
@@ -93,20 +84,11 @@
         await tester.assert_eq(
           "get new app manifest",
           service => {
-            return new Promise((resolve, reject) => {
-                let req = new XMLHttpRequest();
-                req.open("GET", manifest_url);
-                req.responseType = "json";
-                req.onload = function() {
-                    if (req.status == 200 ) {
-                        console.log(req.response);
-                        resolve(req.response.version);
-                    } else {
-                        reject("error, status code: " + req.status);
-                    }
-                };
-                req.send();
-            });
+            let req = new Request(manifest_url);
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.version);
           },
           new_version,
         );
@@ -138,21 +120,11 @@
               if (!app.updateManifestUrl) {
                 return Promise.reject("failed to get update manifest");
               }
-
-              return new Promise((resolve, reject) => {
-                let req = new XMLHttpRequest();
-                // updateManifestUrl http://cached.localhost:8081/calculator/update.webmanifest
-                req.open("GET", app.updateManifestUrl);
-                req.responseType = "json";
-                req.onload = function() {
-                    if (req.status == "200" ) {
-                        resolve(req.response.version);
-                    } else {
-                        reject("error, status code: " + req.status);
-                    }
-                };
-                req.send();
-              });
+              let req = new Request(app.updateManifestUrl);
+              req.responseType = "json";
+              return fetch(req)
+                .then(response => response.json())
+	        .then(manifest => manifest.version);
             });
           },
           pre_installed_new_version,
@@ -171,33 +143,53 @@
         await tester.assert_eq(
           "get pre-installed app manifest",
           service => {
-            return new Promise((resolve, reject) => {
-                let req = new XMLHttpRequest();
-                req.open("GET", pre_installed_manifest_url);
-                req.responseType = "json";
-                req.onload = function() {
-                    if (req.status == 200 ) {
-                        console.log(req.response);
-                        resolve(req.response.version);
-                    } else {
-                        reject("error, status code: " + req.status);
-                    }
-                };
-                req.send();
-            });
+            let req = new Request(pre_installed_manifest_url);
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.version);
           },
           pre_installed_new_version,
         );
 
         // Test uninstall
+        let testapp_manifest_url = "http://ciautotest.localhost:8081/manifest.webmanifest";
         let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);
         await tester.assert_eq(
           "uninstall app",
-          service => service.uninstall("http://ciautotest.localhost:8081/manifest.webmanifest"),
-          "http://ciautotest.localhost:8081/manifest.webmanifest"
+          service => service.uninstall(testapp_manifest_url),
+          testapp_manifest_url
         );
-        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, "http://ciautotest.localhost:8081/manifest.webmanifest");
+        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, testapp_manifest_url);
+        await tester.assert_eq(
+          "get app manifest",
+          service => {
+            let req = new Request(testapp_manifest_url);
+            req.responseType = "json";
+            return fetch(req).then(response => response.status);
+          },
+          404,
+        );
+
+        // Test uninstall PWA
+        let pwa_manifest_url = "http://cached.localhost:8081/preloadpwa/manifest.webmanifest";
+        await tester.assert_eq(
+          "uninstall pwa app",
+          service => service.uninstall(pwa_manifest_url),
+          pwa_manifest_url
+        );
+        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, pwa_manifest_url);
         on_uninstall1_handler.stop();
+
+        await tester.assert_eq(
+          "get pwa app manifest",
+          service => {
+            let req = new Request(pwa_manifest_url);
+            req.responseType = "json";
+            return fetch(req).then(response => response.status);
+          },
+          404,
+        );
 
         await tester.assert_eq(
           "get all 3",

@@ -47,7 +47,7 @@ function install_pwa_expected(installState) {
 // some times apps Object is not properly constructed.
 // That's because it fails to get manifest.
 var download_canceled_event = {"appsObject":{"name":"ciautotest","installState":lib_apps.AppsInstallState.INSTALLING,"manifestUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/ciautotest/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false},"reason":1}
-var get_all_expected2 = [ apps_expected, pwa_expected, calculator_update_expected, gallery_expected, system_expected, launcher_expected, install_pwa_expected(0) ];
+var get_all_expected2 = [ apps_expected, calculator_update_expected, gallery_expected, system_expected, launcher_expected, install_pwa_expected(0) ];
 
 var expected_sha1 = "B2 95 1A FD 74 7F 40 B7 E9 D2 E6 37 A3 5D 12 F3 B8 5B 0E 4A";
 // token_type: "hawk", scope: "u|core:cruds sc#apps:rs sc#metrics:c payment#products:rs payment#purchases:crud simcustm#pack:s simcustm#packfile:r payment#transactions:cr payment#prices:s payment#options:s", expires_in: 604800, kid: "FGFYvY+/4XwTYIX9nVi+sXj5tPA=", mac_key: "p7cI80SwX+gmX0G+T938agWAV1eR9wrpCR9JgsoIIlk=", mac_algorithm: "hmac-sha-256" }

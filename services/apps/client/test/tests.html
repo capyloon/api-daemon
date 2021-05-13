@@ -121,20 +121,11 @@
         await tester.assert_eq(
           "get update manifest",
           service => {
-            return new Promise((resolve, reject) => {
-                let req = new XMLHttpRequest();
-                req.open("GET", "http://cached.localhost:8081/ciautotest/update.webmanifest");
-                req.responseType = "json";
-                req.onload = function() {
-                    if (req.status == "200" ) {
-                        let app = req.response;
-                        resolve(app.name);
-                    } else {
-                        reject("error, status code: " + req.status);
-                    }
-                };
-                req.send();
-            });
+            let req = new Request("http://cached.localhost:8081/ciautotest/update.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(app => app.name);
           },
           "CIAutoTest",
         );
@@ -190,30 +181,22 @@
         await tester.assert_eq(
           "get pwa manifest",
           service => {
-            return new Promise((resolve, reject) => {
-                let req = new XMLHttpRequest();
-                req.open("GET", "http://cached.localhost:8081/hellopwa/manifest.webmanifest");
-                req.responseType = "json";
-                req.onload = function() {
-                    if (req.status == "200" ) {
-                        let manifest = req.response;
-                        let checked = manifest.display == "browser" &&
-                                      manifest.short_name == "hipwa" &&
-                                      manifest.scope == "/" &&
-                                      manifest.dir == "rtl" &&
-                                      manifest.lang == "en-US" &&
-                                      manifest.orientation == "portrait" &&
-                                      manifest.theme_color == "#008eff" &&
-                                      manifest.b2g_features.cursor == true &&
-                                      manifest.b2g_features.focus_color == "#7dcb1e" &&
-                                      manifest.b2g_features.version == "1.2.3"
-                        resolve(checked);
-                    } else {
-                        reject("error, status code: " + req.status);
-                    }
-                };
-                req.send();
-            });
+            let req = new Request("http://cached.localhost:8081/hellopwa/manifest.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(manifest =>
+                manifest.display == "browser" &&
+                manifest.short_name == "hipwa" &&
+                manifest.scope == "/" &&
+                manifest.dir == "rtl" &&
+                manifest.lang == "en-US" &&
+                manifest.orientation == "portrait" &&
+                manifest.theme_color == "#008eff" &&
+                manifest.b2g_features.cursor == true &&
+                manifest.b2g_features.focus_color == "#7dcb1e" &&
+                manifest.b2g_features.version == "1.2.3"
+            );
           },
           true,
         );
