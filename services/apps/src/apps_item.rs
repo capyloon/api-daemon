@@ -75,6 +75,17 @@ impl AppsItem {
         app
     }
 
+    // Check if the app is a PWA app.
+    //   Return:
+    //     TRUE: If the manifest URL is http://cached.localhost/*
+    //     FALSE: Others.
+    pub fn is_pwa(&self) -> bool {
+        if let Ok(manifest_url) = Url::parse(&self.get_manifest_url()) {
+          return manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost")
+        }
+        false
+    }
+
     // Return the storage path of the app to load the manifest file.
     //   In:
     //     config_path: The data path in the config file.
@@ -82,8 +93,7 @@ impl AppsItem {
     //     PWA app: {config_path}/cached/{app-name}
     //     Package app: {config_path}/vroot/{app-name}
     pub fn get_appdir(&self, config_path: &Path) -> Result<PathBuf, AppsError> {
-        let manifest_url = Url::parse(&self.get_manifest_url())?;
-        if manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost") {
+        if self.is_pwa() {
             Ok(config_path.join("cached").join(&self.name))
         } else {
             Ok(config_path.join("vroot").join(&self.name))

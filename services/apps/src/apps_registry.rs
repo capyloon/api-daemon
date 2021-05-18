@@ -704,11 +704,6 @@ impl AppsRegistry {
         }
 
         if self.unregister(&manifest_url) {
-            // Relay the request to Gecko using the bridge.
-            let bridge = GeckoBridgeService::shared_state();
-            bridge
-                .lock()
-                .apps_service_on_uninstall(manifest_url.to_string());
             Ok(manifest_url.to_string())
         } else {
             Err(RegistrationError::ManifestURLNotFound)
@@ -734,6 +729,17 @@ impl AppsRegistry {
                 let _ = remove_dir_all(&webapp_dir);
                 let _ = remove_dir_all(&installed_dir);
 
+                // Relay the request to Gecko using the bridge.
+                let bridge = GeckoBridgeService::shared_state();
+                if app.is_pwa() {
+                    bridge
+                        .lock()
+                        .apps_service_on_uninstall(app.get_update_url());
+                } else {
+                    bridge
+                        .lock()
+                        .apps_service_on_uninstall(manifest_url.to_string());
+                }
                 Ok(manifest_url)
             }
             Err(err) => {
