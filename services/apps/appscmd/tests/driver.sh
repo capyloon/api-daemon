@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# setup jq to verify json output
+if [ -z "$(which jq)" ]; then
+	apt update && apt install -y jq
+fi
+
+function compare_list() {
+	jq --argfile a $1 --argfile b $2 \
+	-n '($a | (.. | arrays) |= sort) as $a | ($b | (.. | arrays) |= sort) as $b | $a == $b'
+}
+
+
 set -e
 
 if [ -z ${CI_PROJECT_DIR+x} ];
@@ -29,7 +40,8 @@ FIXTURES="${CI_PROJECT_DIR}/services/apps/test-fixtures"
 VROOT="${CI_PROJECT_DIR}/prebuilts/http_root/webapps/vroot"
 
 ${CMD} --json list > apps_observed.json
-md5sum apps_expected.json | sed s/expected/observed/ | md5sum -c
+result=`compare_list apps_expected.json  apps_observed.json`
+[ "${result}" = "true" ] || exit 2
 
 # array of test cases
 # "expected_name  application_to_install"
@@ -57,7 +69,8 @@ do
 	${CMD} --json list > apps_observed.json
 
 	# verify app list
-	md5sum apps_expected_${expect}.json | sed s/expected_${expect}/observed/ | md5sum -c
+	result=`compare_list apps_expected_${expect}.json  apps_observed.json`
+	[ "${result}" = "true" ] || exit 2
 
 	# verify the checksum of the application.zip
 	origin=`md5sum ${FIXTURES}/${from} | cut -d\  -f1`

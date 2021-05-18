@@ -81,7 +81,7 @@ impl AppsItem {
     //     FALSE: Others.
     pub fn is_pwa(&self) -> bool {
         if let Ok(manifest_url) = Url::parse(&self.get_manifest_url()) {
-          return manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost")
+            return manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost");
         }
         false
     }

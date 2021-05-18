@@ -179,6 +179,7 @@ pub struct AppsRegistry {
     db: Option<RegistryDb>, // The sqlite DB wrapper.
     vhost_port: u16,        // Keeping vhost vhost_port number in registry
     lang: String,
+    apps_list: Vec<AppsObject>,
     pub event_broadcaster: AppsEngineEventBroadcaster,
 }
 
@@ -325,6 +326,11 @@ impl AppsRegistry {
             let _ = symlink(&cached_dir, &dest);
         }
 
+        let apps_list = match db.get_all() {
+            Ok(apps) => apps.iter().map(AppsObject::from).collect(),
+            Err(_) => vec![],
+        };
+
         let setting_service = SettingsService::shared_state();
         let lang = match setting_service.lock().db.get("language.current") {
             Ok(value) => value.as_str().unwrap_or("en-US").to_string(),
@@ -342,6 +348,7 @@ impl AppsRegistry {
             db: Some(db),
             vhost_port,
             lang,
+            apps_list,
             event_broadcaster: AppsEngineEventBroadcaster::default(),
         })
     }
@@ -597,12 +604,7 @@ impl AppsRegistry {
     }
 
     pub fn get_all(&self) -> Vec<AppsObject> {
-        if let Some(db) = &self.db {
-            if let Ok(apps) = db.get_all() {
-                return apps.iter().map(AppsObject::from).collect();
-            }
-        }
-        vec![]
+        self.apps_list.clone()
     }
 
     pub fn get_b2g_features(&self, manifest_url: &str, data_path: &str) -> JsonValue {
@@ -653,6 +655,21 @@ impl AppsRegistry {
         self.vhost_port
     }
 
+    fn apps_list_remove(&mut self, manifest_url: &str) {
+        self.apps_list
+            .retain(|item| item.manifest_url != manifest_url);
+    }
+
+    fn apps_list_add_or_update(&mut self, app: &AppsObject) {
+        for item in self.apps_list.iter_mut() {
+            if item.manifest_url == app.manifest_url {
+                *item = app.clone();
+                return;
+            }
+        }
+        self.apps_list.push(app.clone());
+    }
+
     fn register_or_replace(&mut self, app: &AppsItem) -> Result<(), AppsError> {
         if let Some(ref mut db) = &mut self.db {
             db.add(app)?;
@@ -673,6 +690,7 @@ impl AppsRegistry {
         let _ = AppsRegistry::validate(&apps_item.get_manifest_url(), manifest)?;
 
         self.register_or_replace(apps_item)?;
+        self.apps_list_add_or_update(&AppsObject::from(apps_item));
         Ok(())
     }
 
@@ -704,6 +722,7 @@ impl AppsRegistry {
         }
 
         if self.unregister(&manifest_url) {
+            self.apps_list_remove(manifest_url);
             Ok(manifest_url.to_string())
         } else {
             Err(RegistrationError::ManifestURLNotFound)
