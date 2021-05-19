@@ -74,6 +74,13 @@
           system_expected
         );
 
+        //Install without the token error case
+        await tester.assert_rej_eq(
+          "assert install before setup token provider",
+          service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          AppsServiceError.DOWNLOAD_MANIFEST_FAILED
+        );
+
         let provider = new TokenProvider(tester.service, tester.session);
         await tester.service.setTokenProvider(provider);
         

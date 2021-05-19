@@ -34,7 +34,6 @@ impl AppMgmtTask for InstallPackageTask {
             }
         }
 
-        // Fall backs to getting token in downloader module
         let _ = ensure_token_deviceinfo(&mut request);
 
         let data_path = request.shared_data.lock().config.data_path.clone();
@@ -86,9 +85,6 @@ impl AppMgmtTask for InstallPwaTask {
         {
             return responder.reject(AppsServiceError::ReinstallForbidden);
         }
-
-        // Fall backs to getting token in downloader module
-        let _ = ensure_token_deviceinfo(&mut request);
 
         let data_path = request.shared_data.lock().config.data_path.clone();
         match request.download_and_apply_pwa(&data_path, &url) {
@@ -182,7 +178,6 @@ impl AppMgmtTask for UpdateTask {
             }
         };
 
-        // Fall backs to getting token in downloader module
         let _ = ensure_token_deviceinfo(&mut request);
 
         let update_url = old_app.update_url;
@@ -227,7 +222,7 @@ impl AppMgmtTask for CheckForUpdateTask {
             }
         }
         let mut request = request.unwrap();
-        // Fall backs to getting token in downloader module
+
         let _ = ensure_token_deviceinfo(&mut request);
 
         let data_path = request.shared_data.lock().config.data_path.clone();
