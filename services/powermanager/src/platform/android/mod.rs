@@ -80,15 +80,22 @@ impl AndroidPowerManager {
 
     fn ensure_service(&mut self) -> bool {
         if self.light_service.is_some() {
-            true
-        } else {
+            return true;
+        }
+
+        let mut count = 0;
+        let hundred_millis = Duration::from_millis(100);
+        loop {
+            count += 1;
             self.light_service = light::ILight::get_service(SERVICE);
             if self.light_service.is_some() {
-                true
-            } else {
-                error!("Failed to get service {}", SERVICE);
-                false
+                return true;
             }
+            error!("Failed to get service {} retry {}", SERVICE, count);
+            if count > 5 {
+                return false;
+            }
+            thread::sleep(hundred_millis);
         }
     }
 }
