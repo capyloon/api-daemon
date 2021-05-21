@@ -1,0 +1,4 @@
+services/contacts/src/contacts.sidl
+services/time/src/time.sidl
+services/geckobridge/src/geckobridge.sidl
+services/settings/src/settings.sidl
