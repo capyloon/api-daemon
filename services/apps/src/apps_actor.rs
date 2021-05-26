@@ -96,6 +96,9 @@ impl Drop for RestartChecker {
 }
 
 pub fn start_webapp_actor(shared_data: Shared<AppsSharedData>) {
+    use std::fs::{remove_file, set_permissions, Permissions};
+    use std::os::unix::fs::PermissionsExt;
+
     debug!("Starting apps actor");
     let path = {
         let shared = shared_data.lock();
@@ -108,11 +111,16 @@ pub fn start_webapp_actor(shared_data: Shared<AppsSharedData>) {
     }
 
     // Make sure the listener doesn't already exist.
-    let _ = ::std::fs::remove_file(&path);
+    let _ = remove_file(&path);
 
     match UnixListener::bind(&path) {
         Ok(listener) => {
             debug!("Starting thread of socket server in apps service");
+            // Make the socket path rw for all to allow non-root adbd to connect.
+            if let Err(err) = set_permissions(&path, Permissions::from_mode(0o666)) {
+                error!("Failed to set 0o666 permission on {} : {}", path, err);
+            }
+
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
