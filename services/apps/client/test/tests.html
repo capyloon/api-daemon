@@ -271,6 +271,13 @@
           expected_sha1
         )
 
+        // Test uninstall is forbidden
+        await tester.assert_rej_eq(
+          "Uninstall Forbidden",
+          service => service.uninstall("http://launcher.localhost:8081/manifest.webmanifest"),
+          AppsServiceError.UNINSTALL_FORBIDDEN
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 

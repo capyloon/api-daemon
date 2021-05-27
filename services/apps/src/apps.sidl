@@ -48,6 +48,7 @@ enum AppsServiceError {
   RegistrationError       // Can't register the app webapps json
   ReinstallForbidden      // Do not allow reinstall an existing app
   UpdateError             // Error durint update
+  UninstallForbidden      // Do not allow to uninstall the app
   UnknownError            // Other undefined error
 }
 

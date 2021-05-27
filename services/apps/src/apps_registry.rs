@@ -739,6 +739,9 @@ impl AppsRegistry {
             Some(app) => app,
             None => return Err(AppsServiceError::AppNotFound),
         };
+        if !app.get_removable() {
+            return Err(AppsServiceError::UninstallForbidden)
+        }
         match self.unregister_app(manifest_url) {
             Ok(manifest_url) => {
                 let path = Path::new(&data_path);

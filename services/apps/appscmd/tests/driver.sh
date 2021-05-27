@@ -77,3 +77,28 @@ do
 	install=`md5sum ${VROOT}/${expect}/application.zip | cut -d\  -f1`
 	[ "${origin}" = "${install}" ] || exit 2
 done
+
+# array of uninstall test cases
+# "expected_name  uninstall-manifest_url"
+uninstalls=(
+"12345          http://launcher.localhost:8081/manifest.webmanifest"
+"helloworld     http://12345.localhost:8081/manifest.webmanifest"
+)
+
+echo uninstalls: ${uninstalls}
+for (( i=0; i<${#uninstalls[@]}; i++ ));
+do
+	test=${uninstalls[$i]}
+	echo "test: ${test}"
+	[ -z "${test}" ] && continue
+	manifest_url=`echo ${test}  | cut -d\  -f2`
+	expect=`echo ${test}  | cut -d\  -f1`
+
+	# Uninstall an app and then get the applist.
+	${CMD} uninstall ${manifest_url}
+	${CMD} --json list > apps_observed.json
+
+	# verify app list
+	result=`compare_list apps_expected_${expect}.json  apps_observed.json`
+	[ "${result}" = "true" ] || exit 2
+done
