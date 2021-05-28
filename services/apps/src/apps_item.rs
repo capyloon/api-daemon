@@ -313,6 +313,7 @@ impl From<&AppsItem> for AppsObject {
             update_manifest_url: app.update_manifest_url.clone(),
             allowed_auto_download: false,
             preloaded: app.preloaded,
+            progress: 0,
         }
     }
 }

@@ -4,7 +4,7 @@ use crate::apps_registry::{AppsError, AppsMgmtError};
 use crate::apps_storage::{validate_package, AppsStorage};
 use crate::apps_utils;
 use crate::downloader::Downloader as Req;
-use crate::downloader::{DownloadError, Downloader};
+use crate::downloader::{DownloadError, Downloader, DownloaderInfo};
 use crate::generated::common::*;
 use crate::manifest::{Icons, Manifest};
 use crate::shared_state::AppsSharedData;
@@ -150,6 +150,7 @@ impl AppsRequest {
         &mut self,
         app_update_url: &str,
         url: &str,
+        is_update: bool,
         path: &Path,
     ) -> Result<PathBuf, AppsMgmtError> {
         let zip_path = path.join("application.zip");
@@ -167,21 +168,44 @@ impl AppsRequest {
             shared_data: self.shared_data.clone(),
             app_update_url: app_update_url.into(),
         };
-        // Wait for 10 mins
-        if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
-            if let Err(err) = rec {
-                error!(
-                    "Downloading {} to {} failed: {:?}",
-                    url,
-                    zip_path.as_path().display(),
-                    err
-                );
-                return Err(AppsMgmtError::PackageDownloadFailed(err));
+
+        loop {
+            // Wait for 10 mins
+            if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
+                match rec {
+                    Ok(info) => match info {
+                        DownloaderInfo::Done => {
+                            break;
+                        }
+                        DownloaderInfo::Progress(progress) => {
+                            // We receive progress event
+                            debug!("Downloading progress {:?}", info);
+                            if let Some(apps_item) = &self.installing_apps_item {
+                                let mut app = AppsObject::from(apps_item);
+                                app.progress = progress.into();
+                                self.shared_data
+                                    .lock()
+                                    .registry
+                                    .broadcast_installing(is_update, app);
+                            }
+                        }
+                        _ => {}
+                    },
+                    Err(err) => {
+                        error!(
+                            "Downloading {} to {} failed: {:?}",
+                            url,
+                            zip_path.as_path().display(),
+                            err
+                        );
+                        return Err(AppsMgmtError::PackageDownloadFailed(err));
+                    }
+                }
+            } else {
+                return Err(AppsMgmtError::PackageDownloadFailed(DownloadError::Other(
+                    "Timed Out".into(),
+                )));
             }
-        } else {
-            return Err(AppsMgmtError::PackageDownloadFailed(DownloadError::Other(
-                "Timed Out".into(),
-            )));
         }
 
         Ok(zip_path)
@@ -212,34 +236,42 @@ impl AppsRequest {
             app_update_url: url.into(),
         };
 
-        if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
-            match rec {
-                Ok(etag) => {
-                    debug!("manifest_etag is {:?}", etag);
-                    Ok(UpdateManifestResult {
-                        available_dir,
-                        update_manifest,
-                        manifest_etag: etag,
-                    })
-                }
-                Err(err) => {
-                    error!(
-                        "Downloading {} to {} failed: {:?}",
-                        url,
-                        update_manifest.as_path().display(),
-                        err
-                    );
-                    if err == DownloadError::Http("304".into()) {
-                        return Err(AppsMgmtError::DownloadNotModified);
-                    }
+        let mut etag = String::new();
+        loop {
+            if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
+                match rec {
+                    Ok(result) => match result {
+                        DownloaderInfo::Done => {
+                            return Ok(UpdateManifestResult {
+                                available_dir,
+                                update_manifest,
+                                manifest_etag: Some(etag),
+                            });
+                        }
+                        DownloaderInfo::Etag(tag) => {
+                            etag = tag;
+                        }
+                        _ => {}
+                    },
+                    Err(err) => {
+                        error!(
+                            "Downloading {} to {} failed: {:?}",
+                            url,
+                            update_manifest.as_path().display(),
+                            err
+                        );
+                        if err == DownloadError::Http("304".into()) {
+                            return Err(AppsMgmtError::DownloadNotModified);
+                        }
 
-                    Err(AppsMgmtError::ManifestDownloadFailed(err))
+                        return Err(AppsMgmtError::ManifestDownloadFailed(err));
+                    }
                 }
+            } else {
+                return Err(AppsMgmtError::ManifestDownloadFailed(DownloadError::Other(
+                    "Timed Out".into(),
+                )));
             }
-        } else {
-            Err(AppsMgmtError::ManifestDownloadFailed(DownloadError::Other(
-                "Timed Out".into(),
-            )))
         }
     }
 
@@ -406,6 +438,7 @@ impl AppsRequest {
         let available_zip = match self.get_available_zip(
             update_url,
             &update_manifest.package_path,
+            is_update,
             available_dir,
         ) {
             Ok(package) => package,

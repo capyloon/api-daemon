@@ -117,13 +117,35 @@
         let on_installing_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
         let on_installed_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
 
+        let progress_received_times = 0;
+        let last_progress = 0;
+        function progress(result) {
+            if (result.name == 'ciautotest' && result.progress > 0) {
+                progress_received_times += 1;
+                last_progress = result.progress;
+            }
+        }
+        tester.service.addEventListener(tester.service.APP_INSTALLING_EVENT,  progress);
+
         await tester.assert_eq(
           "install app",
           service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
           install_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_handler, install_expected(1));
+        on_installing_handler.stop();
         await tester.assert_event_eq("on installed event", on_installed_handler, install_expected(0));
+
+        // We must receive more than one installing event with progress here
+        await tester.assert_eq(
+          "insalling event with progress",
+          service => { return Promise.resolve() },
+          true,
+          () => { return progress_received_times > 0 && last_progress == 100; }
+        );
+        tester.service.removeEventListener(tester.service.APP_INSTALLING_EVENT,  progress);
+
+        on_installed_handler.stop();
 
         await tester.assert_eq(
           "get update manifest",
@@ -174,16 +196,18 @@
         );
 
 // Install PWA
+        let on_installing_pwa_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
+        let on_installed_pwa_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
         await tester.assert_eq(
           "install pwa app",
           service => service.installPwa("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"),
           install_pwa_expected(0)
         );
-        await tester.assert_event_eq("on installing event", on_installing_handler, install_pwa_expected(1));
-        await tester.assert_event_eq("on install event", on_installed_handler, install_pwa_expected(0));
+        await tester.assert_event_eq("on installing event", on_installing_pwa_handler, install_pwa_expected(1));
+        await tester.assert_event_eq("on install event", on_installed_pwa_handler, install_pwa_expected(0));
         // finish all install test, stop event handler.
-        on_installing_handler.stop();
-        on_installed_handler.stop();
+        on_installing_pwa_handler.stop();
+        on_installed_pwa_handler.stop();
 
         await tester.assert_eq(
           "get pwa manifest",

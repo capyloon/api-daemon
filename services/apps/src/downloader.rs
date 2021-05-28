@@ -26,6 +26,13 @@ pub enum DownloadError {
     Canceled,
 }
 
+#[derive(Debug)]
+pub enum DownloaderInfo {
+    Progress(u8),
+    Etag(String),
+    Done,
+}
+
 impl PartialEq for DownloadError {
     fn eq(&self, right: &DownloadError) -> bool {
         format!("{:?}", self) == format!("{:?}", right)
@@ -86,7 +93,7 @@ impl Downloader {
         url: &str,
         path: P,
         extra_headers: Option<HeaderMap>,
-    ) -> (Receiver<Result<Option<String>, DownloadError>>, Sender<()>) {
+    ) -> (Receiver<Result<DownloaderInfo, DownloadError>>, Sender<()>) {
         debug!("download: {}", url);
 
         let (cancel_sender, canceled_recv) = channel();
@@ -105,7 +112,11 @@ impl Downloader {
             .spawn(move || {
                 let result = Downloader::single_download(response, &file_path_buf, canceled_recv);
                 debug!("result {:?}", result);
-                let _ = sender.send(result);
+                if let Ok(Some(etag)) = result {
+                    let _ = sender.send(Ok(DownloaderInfo::Etag(etag)));
+                }
+                let _ = sender.send(Ok(DownloaderInfo::Progress(100)));
+                let _ = sender.send(Ok(DownloaderInfo::Done));
             })
             .expect("Failed to start downloading thread");
 

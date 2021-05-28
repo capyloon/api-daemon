@@ -89,6 +89,7 @@ dictionary AppsObject {
   updateURL: str
   allowedAutoDownload: bool
   preloaded: bool
+  progress: int  // From 0 to 100
 }
 
 dictionary DownloadFailedReason {
