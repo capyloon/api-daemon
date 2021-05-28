@@ -1,0 +1,9 @@
+Change history
+
+0.2.0
+    The first release version.
+
+0.2.1
+    Do not allow uninstall an app if removable is false.
+    Allow non-root adbd to connect to the apps actor.
+    Change the apps actor socket to apps-uds.sock.
