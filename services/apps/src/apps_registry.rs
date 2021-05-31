@@ -890,6 +890,10 @@ fn observe_bridge(shared_data: Shared<AppsSharedData>, config: &Config) {
             if let Err(err) = shared_data.lock().registry.register_on_boot(config) {
                 error!("register_on_boot failed: {}", err);
             }
+            let mut shared = shared_data.lock();
+            if shared.state != AppsServiceState::Running {
+                shared.state = AppsServiceState::Running;
+            }
         }
         if let Err(err) = receiver.recv() {
             // In normal case, it shouldn't reach here.
@@ -905,11 +909,7 @@ pub fn start(shared_data: Shared<AppsSharedData>, vhost_port: u16) {
     match AppsRegistry::initialize(&config, vhost_port) {
         Ok(registry) => {
             debug!("Apps registered successfully");
-            {
-                let mut shared = shared_data.lock();
-                shared.registry = registry;
-                shared.state = AppsServiceState::Running;
-            }
+            shared_data.lock().registry = registry;
 
             // Monitor gecko bridge and register on b2g restart.
             let shared_with_observer = shared_data.clone();

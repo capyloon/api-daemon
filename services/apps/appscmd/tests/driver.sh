@@ -25,10 +25,11 @@ trap 'jobs -p | xargs kill' EXIT
 # Reset apps
 rm -rf $CI_PROJECT_DIR/prebuilts/http_root/webapps/
 
-cd ${CI_PROJECT_DIR}/daemon
-RUST_LOG=error ${CI_PROJECT_DIR}/target/release/api-daemon &
-export RUST_LOG=debug
-export RUST_BACKTRACE=1
+# Align with config-webdriver.toml
+rm -rf $CI_PROJECT_DIR/tests/webapps
+ln -s $CI_PROJECT_DIR/services/apps/test-fixtures/webapps $CI_PROJECT_DIR/tests/webapps
+
+DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh $CI_PROJECT_DIR/services/apps/client/test/dummy.html > /dev/null 2>&1 &
 
 cd ${CI_PROJECT_DIR}/services/apps/appscmd/tests
 
