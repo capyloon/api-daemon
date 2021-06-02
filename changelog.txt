@@ -1,24 +1,4 @@
 Change history
 
-2.0
-    Bump major version since this branch is not compatible with 1.x
-
-1.4.22
-    Force the child to exit on IPC errors.
-
-1.4.21
-    Lock IPC writer between parent and child daemon.
-
-1.4.20
-    API daemon depends on wavoip 0.9.8.
-
-1.4.19
-    Use time::now_local() to get timezone offset.
-
-1.4.18
-    Close the proper fd in the child daemon.
-
-1.4.17
-    Initial Open Source release, including:
-	- parser, codegen, daemon.
-	- services: settings, apps, powermanager, tcpsocket, test.
+3.2.0
+    First release version of 3.2.0.

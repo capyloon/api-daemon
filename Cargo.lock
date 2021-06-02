@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "daemon"
-version = "0.1.0"
+version = "3.2.0"
 dependencies = [
  "actix",
  "actix-cors",
@@ -1354,7 +1354,7 @@ dependencies = [
  "parking_lot",
  "powermanager_service",
  "procmanager_service",
- "rand 0.8.3",
+ "rand 0.7.3",
  "read-byte-slice",
  "reqwest",
  "rusty-s3",
