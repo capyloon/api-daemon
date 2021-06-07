@@ -378,6 +378,7 @@ pub fn start(
                     .route("/*", web::get().to(http_index)),
             )
     })
+    .keep_alive(60) // To prevent slow request timeout 408 errors when under load
     .bind(addr)
     .expect("Failed to bind to actix http")
     .disable_signals() // For now, since that's causing issues with Ctrl-C
