@@ -87,7 +87,7 @@ impl AppMgmtTask for InstallPwaTask {
         }
 
         let data_path = request.shared_data.lock().config.data_path.clone();
-        match request.download_and_apply_pwa(&data_path, &url) {
+        match request.download_and_apply_pwa(&data_path, &url, false) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
                 responder.resolve(app.clone());
@@ -170,22 +170,33 @@ impl AppMgmtTask for UpdateTask {
             return responder.reject(AppsServiceError::UnknownError);
         }
         let mut request = request.unwrap();
-        let old_app = match request.shared_data.lock().get_by_manifest_url(&url) {
-            Ok(app) => app,
-            Err(err) => {
-                error!("Update app not found: {:?}", err);
+        let old_app = match request
+            .shared_data
+            .lock()
+            .registry
+            .get_by_manifest_url(&url)
+        {
+            Some(app) => app,
+            None => {
+                error!("Update app not found: {}", url);
                 return responder.reject(AppsServiceError::AppNotFound);
             }
         };
 
         let _ = ensure_token_deviceinfo(&mut request);
 
-        let update_url = old_app.update_url;
-
+        let update_url = old_app.get_update_url();
         let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
-        let data_dir = current.join(data_path);
-        match request.download_and_apply(data_dir.to_str().unwrap(), &update_url, true) {
+        let data_dir = current.join(&data_path);
+
+        let update_result = if old_app.is_pwa() {
+            request.download_and_apply_pwa(data_dir.to_str().unwrap(), &update_url, true)
+        } else {
+            request.download_and_apply(data_dir.to_str().unwrap(), &update_url, true)
+        };
+
+        match update_result {
             Ok(app) => {
                 info!("broadcast event: app_updated");
                 let mut shared = request.shared_data.lock();

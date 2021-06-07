@@ -43,6 +43,10 @@ function install_pwa_expected(installState) {
   return {"name":"hellopwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/hellopwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/hellopwa/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/pwa/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0};
 }
 
+function update_pwa_expected(updateState, allowedAutoDownload=false) {
+  return {"name":"hellopwa","installState":0,"manifestUrl":"http://cached.localhost:8081/hellopwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/hellopwa/update.webmanifest","updateState":updateState,"updateUrl":"http://127.0.0.1:8596/apps/pwa/manifest.webmanifest","allowedAutoDownload":allowedAutoDownload,"preloaded":false,"progress":0};
+}
+
 // reason and updateUrl is accurate anytime
 // some times apps Object is not properly constructed.
 // That's because it fails to get manifest.

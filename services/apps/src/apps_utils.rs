@@ -4,10 +4,10 @@ use crate::update_manifest::UpdateManifest;
 use http::Uri;
 
 pub fn compare_manifests(update_manifest: &UpdateManifest, manifest: &Manifest) -> bool {
-    if update_manifest.name != manifest.get_name() {
+    if update_manifest.get_name() != manifest.get_name() {
         return false;
     }
-    let maybe_update_manifest_features = update_manifest.b2g_features.as_ref();
+    let maybe_update_manifest_features = update_manifest.get_b2g_features();
     let maybe_manifest_features = manifest.get_b2g_features();
     if let (Some(update_manifest_features), Some(manifest_features)) =
         (maybe_update_manifest_features, maybe_manifest_features)
@@ -79,6 +79,6 @@ fn test_compare_manifest_name_mismatch() {
         current.display()
     );
     let manifest2 = Manifest::read_from(&manifest_path2).unwrap();
-    assert_ne!(update_manifest.name, manifest2.get_name());
+    assert_ne!(update_manifest.get_name(), manifest2.get_name());
     assert!(!compare_manifests(&update_manifest, &manifest2));
 }

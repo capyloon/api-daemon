@@ -279,9 +279,10 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
 pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &str) -> Result<(), AppsActorError> {
     let mut request =
         AppsRequest::new(shared_data.clone()).map_err(|_| AppsActorError::Internal)?;
+    let is_update = shared_data.lock().registry.get_by_update_url(url).is_some();
     let data_path = request.shared_data.lock().config.data_path.clone();
     let app = request
-        .download_and_apply_pwa(&data_path, url)
+        .download_and_apply_pwa(&data_path, url, is_update)
         .map_err(AppsActorError::ServiceError)?;
     request
         .shared_data

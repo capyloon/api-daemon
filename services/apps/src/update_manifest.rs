@@ -11,15 +11,21 @@ pub struct AppsPermission {}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UpdateManifest {
-    pub name: String,
-    pub version: String, //TODO: Version,
-    pub package_path: String,
-    pub packaged_size: u64,
-    pub size: u64,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    package_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    packaged_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
     #[serde(default = "UpdateManifest::default_dependencies")]
-    pub dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
-    pub r#type: String,
-    pub b2g_features: Option<B2GFeatures>,
+    dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    b2g_features: Option<B2GFeatures>,
 }
 
 impl UpdateManifest {
@@ -30,6 +36,34 @@ impl UpdateManifest {
     pub fn read_from<P: AsRef<Path>>(manifest_file: P) -> Result<Self, AppsMgmtError> {
         let file = std::fs::File::open(manifest_file)?;
         serde_json::from_reader(std::io::BufReader::new(file)).map_err(|err| err.into())
+    }
+
+    pub fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    pub fn get_version(&self) -> String {
+        self.version.clone().unwrap_or_else(|| "".into())
+    }
+
+    pub fn get_package_path(&self) -> String {
+        self.package_path.clone().unwrap_or_else(|| "".into())
+    }
+
+    pub fn get_packaged_size(&self) -> u64 {
+        self.packaged_size.clone().unwrap_or(0)
+    }
+
+    pub fn get_size(&self) -> u64 {
+        self.size.clone().unwrap_or(0)
+    }
+
+    pub fn get_type(&self) -> String {
+        self.r#type.clone().unwrap_or_else(|| "".into())
+    }
+
+    pub fn get_b2g_features(&self) -> Option<B2GFeatures> {
+        self.b2g_features.clone()
     }
 }
 
@@ -51,12 +85,12 @@ fn test_read_manifest() {
         Ok(manifest) => {
             assert_eq!(manifest.name, "Sample1");
             assert_eq!(
-                manifest.package_path,
+                manifest.get_package_path(),
                 "https://seinlin.org/apps/packages/sample/sample-signed.zip"
             );
-            assert_eq!(manifest.size, 10022);
-            assert_eq!(manifest.packaged_size, 12345);
-            assert_eq!(manifest.r#type, "web");
+            assert_eq!(manifest.get_size(), 10022);
+            assert_eq!(manifest.get_packaged_size(), 12345);
+            assert_eq!(manifest.get_type(), "web");
 
             let packages = manifest.get_dependencies();
             assert_eq!(packages.len(), 3);

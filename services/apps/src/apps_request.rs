@@ -313,7 +313,7 @@ impl AppsRequest {
             return Ok(None);
         }
 
-        let manifest = Manifest::read_from(&update_manifest_result.update_manifest)
+        let update_manifest = Manifest::read_from(&update_manifest_result.update_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // Save the downloaded update manifest file in cached dir.
@@ -341,7 +341,7 @@ impl AppsRequest {
                     registry.get_vhost_port(),
                 ));
             }
-            let _ = registry.save_app(true, &app, &manifest)?;
+            let _ = registry.save_app(true, &app, &update_manifest)?;
         }
 
         let mut app_obj = AppsObject::from(&app);
@@ -425,19 +425,20 @@ impl AppsRequest {
         let update_manifest = UpdateManifest::read_from(update_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
-        if update_manifest.package_path.is_empty() {
+        if update_manifest.get_package_path().is_empty() {
             error!("No package path.");
             return Err(AppsServiceError::InvalidManifest);
         }
 
-        if AppsStorage::available_disk_space(&webapp_path) < update_manifest.packaged_size * 2 {
+        if AppsStorage::available_disk_space(&webapp_path) < update_manifest.get_packaged_size() * 2
+        {
             error!("Do not have enough disk space.");
             return Err(AppsServiceError::DiskSpaceNotEnough);
         }
 
         let available_zip = match self.get_available_zip(
             update_url,
-            &update_manifest.package_path,
+            &update_manifest.get_package_path(),
             is_update,
             available_dir,
         ) {
@@ -487,12 +488,13 @@ impl AppsRequest {
         &mut self,
         webapp_path: &str,
         update_url: &str,
+        is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let path = Path::new(&webapp_path);
         let download_dir =
             AppsStorage::get_app_dir(&path.join("downloading"), &hash(update_url).to_string())
                 .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
-        let download_manifest = download_dir.join("manifest.webmanifest");
+        let download_manifest = download_dir.join("update.webmanifest");
         let (user_agent, lang) = {
             let lock = &self.shared_data.lock();
             (lock.config.user_agent.clone(), lock.registry.get_lang())
@@ -500,8 +502,7 @@ impl AppsRequest {
         let downloader =
             Req::new(&user_agent, &lang).map_err(|_| AppsServiceError::DownloadManifestFailed)?;
 
-        let is_update = false;
-        // 1. download manifest to cache dir.
+        // 1. download manfiest to cache dir.
         debug!("dowload {} to {}", update_url, download_manifest.display());
         if let Err(err) = downloader.simple_download(update_url, download_manifest.as_path()) {
             error!(
@@ -522,7 +523,11 @@ impl AppsRequest {
             let registry = &mut self.shared_data.lock().registry;
             app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url))?;
             apps_item = AppsItem::default_pwa(&app_name, registry.get_vhost_port());
-            apps_item.set_install_state(AppsInstallState::Installing);
+            if is_update {
+                apps_item.set_update_state(AppsUpdateState::Updating);
+            } else {
+                apps_item.set_install_state(AppsInstallState::Installing);
+            }
             apps_item.set_update_url(&update_url);
             // We make no difference for update or new install at the moment.
             let _ = registry.save_app(false, &apps_item, &manifest);
@@ -575,7 +580,8 @@ impl AppsRequest {
             .join(&manifest.get_start_url())
             .map_err(|_| AppsServiceError::InvalidStartUrl)?;
         manifest.set_start_url(start_url.as_str());
-        Manifest::write_to(&download_manifest, &manifest)
+        let cached_pwa_manifest = download_dir.join("manifest.webmanifest");
+        Manifest::write_to(&cached_pwa_manifest, &manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // 3. finish installation and reigster the pwa app.
@@ -584,6 +590,7 @@ impl AppsRequest {
             &download_dir.as_path(),
             &manifest,
             &path,
+            is_update,
         )?;
 
         Ok(AppsObject::from(&apps_item))
@@ -665,7 +672,7 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
     debug!("hash from registry {}", app.get_manifest_hash());
 
     let mut is_update_available = false;
-    if app.get_version().is_empty() || manifest.version.is_empty() {
+    if app.get_version().is_empty() || manifest.get_version().is_empty() {
         let hash_str = match compute_manifest_hash(&update_manifest) {
             Ok(hash) => hash,
             Err(_) => return false,
@@ -676,8 +683,8 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
         }
     }
 
-    if !app.get_version().is_empty() && !manifest.version.is_empty() {
-        if let Some(manifest_version) = Version::from(&manifest.version) {
+    if !app.get_version().is_empty() && !manifest.get_version().is_empty() {
+        if let Some(manifest_version) = Version::from(&manifest.get_version()) {
             if let Some(app_version) = Version::from(&app.get_version()) {
                 is_update_available = manifest_version.compare(&app_version) == CompOp::Gt;
             }
@@ -766,6 +773,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
         &download_dir.as_path(),
         &manifest,
         &test_path,
+        false,
     ) {
         Ok(_) => {
             assert_eq!(apps_item.get_name(), "helloworld");
@@ -779,7 +787,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
 
     // Test 2: download and apply from a remote url
     let mut request = AppsRequest::new(shared_data.clone()).unwrap();
-    match request.download_and_apply_pwa(&test_dir, app_url) {
+    match request.download_and_apply_pwa(&test_dir, app_url, false) {
         Ok(app) => {
             if expected_err.is_some() {
                 panic!();

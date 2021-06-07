@@ -152,6 +152,77 @@
           pre_installed_new_version,
         );
 
+        // Test checkForUpdate pwa app.
+        let on_update_available_pwa_handler = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
+        await tester.assert_eq(
+          "check for update PWA app",
+          service => service.checkForUpdate("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest", {autoInstall: true}),
+          true
+        );
+        await tester.assert_event_eq("on update event", on_update_available_pwa_handler, update_pwa_expected(lib_apps.AppsUpdateState.AVAILABLE, true));
+        on_update_available_pwa_handler.stop();
+        // Verify update manifest after checkForUpdate.
+        await tester.assert_eq(
+          "get cached app update manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/hellopwa/update.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.name == "hellopwa");
+          },
+          true,
+        );
+
+        // Test update pwa app.
+        let on_updating_pwa_handler = tester.setup_event(tester.service.APP_UPDATING_EVENT);
+        let on_updated_pwa_handler = tester.setup_event(tester.service.APP_UPDATED_EVENT);
+        let update_pwa_manifest_url = "http://cached.localhost:8081/hellopwa/manifest.webmanifest";
+        await tester.assert_eq(
+          "update PWA app",
+          service => service.update(update_pwa_manifest_url),
+          update_pwa_expected(0)
+        );
+        await tester.assert_event_eq("on updating pwa app event", on_updating_pwa_handler, update_pwa_expected(lib_apps.AppsUpdateState.UPDATING));
+        await tester.assert_event_eq("on update pwa app event", on_updated_pwa_handler, update_pwa_expected(lib_apps.AppsUpdateState.IDLE));
+        on_updating_pwa_handler.stop();
+        on_updated_pwa_handler.stop();
+        // Verify pwa app manifest after update.
+        await tester.assert_eq(
+          "get update pwa manifest",
+          service => {
+            let req = new Request(update_pwa_manifest_url);
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(manifest =>
+                manifest.display == "browser" &&
+                manifest.short_name == "new pwa" &&
+                manifest.scope == "/" &&
+                manifest.dir == "rtl" &&
+                manifest.lang == "en-US" &&
+                manifest.orientation == "portrait" &&
+                manifest.theme_color == "#008fff" &&
+                manifest.b2g_features.cursor == true &&
+                manifest.b2g_features.focus_color == "#7dcc1f" &&
+                manifest.b2g_features.version == "1.2.5"
+            );
+          },
+          true,
+        );
+        // Verify update manifest after update.
+        await tester.assert_eq(
+          "get cached app update manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/hellopwa/update.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.name == "hellopwa");
+          },
+          true,
+        );
+
         // Test uninstall
         let testapp_manifest_url = "http://ciautotest.localhost:8081/manifest.webmanifest";
         let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);

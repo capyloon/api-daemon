@@ -8,3 +8,4 @@ fi
 
 cp ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/manifest.webmanifest_v1 ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/manifest.webmanifest
 cp ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/app1_v1.zip  ${CI_PROJECT_DIR}/tests/apps-test-server/apps/ciautotest/application.zip
+cp ${CI_PROJECT_DIR}/tests/apps-test-server/apps/pwa/manifest.webmanifest_v1 ${CI_PROJECT_DIR}/tests/apps-test-server/apps/pwa/manifest.webmanifest

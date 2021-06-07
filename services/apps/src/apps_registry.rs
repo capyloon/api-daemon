@@ -570,6 +570,7 @@ impl AppsRegistry {
         download_dir: &Path,
         manifest: &Manifest,
         path: &Path,
+        is_update: bool,
     ) -> Result<(), AppsServiceError> {
         let cached_dir = path.join("cached").join(apps_item.get_name());
 
@@ -586,6 +587,9 @@ impl AppsRegistry {
         }
 
         apps_item.set_install_state(AppsInstallState::Installed);
+        if is_update {
+            apps_item.set_update_state(AppsUpdateState::Idle);
+        }
         let _ = self
             .register_app(apps_item, manifest)
             .map_err(|_| AppsServiceError::RegistrationError)?;
@@ -753,15 +757,9 @@ impl AppsRegistry {
 
                 // Relay the request to Gecko using the bridge.
                 let bridge = GeckoBridgeService::shared_state();
-                if app.is_pwa() {
-                    bridge
-                        .lock()
-                        .apps_service_on_uninstall(app.get_update_url());
-                } else {
-                    bridge
-                        .lock()
-                        .apps_service_on_uninstall(manifest_url.to_string());
-                }
+                bridge
+                    .lock()
+                    .apps_service_on_uninstall(app.runtime_origin());
                 Ok(manifest_url)
             }
             Err(err) => {
@@ -813,7 +811,7 @@ impl AppsRegistry {
                     let bridge = GeckoBridgeService::shared_state();
                     bridge
                         .lock()
-                        .apps_service_on_boot(app.get_manifest_url(), features);
+                        .apps_service_on_boot(app.runtime_origin(), features);
                 }
             }
             // Notify the bridge that we processed all apps on boot.

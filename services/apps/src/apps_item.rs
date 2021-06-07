@@ -100,6 +100,19 @@ impl AppsItem {
         }
     }
 
+    // Return the orign that will be used by app in web runtime.
+    //   In: none
+    //   Return:
+    //     PWA app: update URL
+    //     Package app: manifest URL
+    pub fn runtime_origin(&self) -> String {
+        if self.is_pwa() {
+            self.get_update_url()
+        } else {
+            self.get_manifest_url()
+        }
+    }
+
     pub fn get_name(&self) -> String {
         self.name.clone()
     }
