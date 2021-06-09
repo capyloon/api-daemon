@@ -396,6 +396,7 @@ impl AppsRegistry {
             if unique_name.is_empty() {
                 return Err(AppsServiceError::InvalidAppName);
             }
+
             // "cached" is reserved for pwa apps.
             if unique_name == "cached" {
                 return Err(AppsServiceError::InvalidAppName);
@@ -827,7 +828,6 @@ impl AppsRegistry {
         manifest_url: &str,
         status: AppsStatus,
         data_dir: &Path,
-        root_dir: &Path,
     ) -> Result<(AppsObject, bool), AppsServiceError> {
         if let Some(mut app) = self.get_by_manifest_url(manifest_url) {
             let mut status_changed = false;
@@ -841,19 +841,24 @@ impl AppsRegistry {
                     .update_status(manifest_url, status)
                     .map_err(|_| AppsServiceError::FilesystemFailure)?;
 
-                if status == AppsStatus::Disabled {
-                    let app_vroot_dir = data_dir.join("vroot").join(&app.get_name());
-                    let _ = remove_file(&app_vroot_dir);
-                } else if status == AppsStatus::Enabled {
-                    let installed_dir = data_dir.join("installed").join(&app.get_name());
-                    let app_vroot_dir = data_dir.join("vroot").join(&app.get_name());
-                    let app_root_dir = root_dir.join(&app.get_name());
-                    if installed_dir.exists() {
-                        let _ = symlink(&installed_dir, &app_vroot_dir);
-                    } else if app_root_dir.exists() {
-                        let _ = symlink(&app_root_dir, &app_vroot_dir);
+                let app_dir = app.get_appdir(&data_dir).unwrap_or_default();
+                let disabled_dir = data_dir.join("disabled");
+                let app_disabled_dir = disabled_dir.join(&app.get_name());
+
+                match status {
+                    AppsStatus::Disabled => {
+                        if !AppsStorage::ensure_dir(&disabled_dir) {
+                            return Err(AppsServiceError::FilesystemFailure);
+                        }
+                        let _ = fs::rename(app_dir, app_disabled_dir)
+                            .map_err(|_| AppsServiceError::FilesystemFailure)?;
+                    }
+                    AppsStatus::Enabled => {
+                        let _ = fs::rename(app_disabled_dir, app_dir)
+                            .map_err(|_| AppsServiceError::FilesystemFailure)?;
                     }
                 }
+
                 app.set_status(status);
 
                 Ok((AppsObject::from(&app), status_changed))
@@ -1280,7 +1285,6 @@ fn test_apply_download() {
     let _root_dir = format!("{}/test-fixtures/webapps", current.display());
     let _test_dir = format!("{}/test-fixtures/test-apps-dir-apply", current.display());
     let test_path = Path::new(&_test_dir);
-    let root_path = Path::new(&_root_dir);
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
@@ -1447,7 +1451,7 @@ fn test_apply_download() {
         }
 
         if let Ok((app, changed)) =
-            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path, &root_path)
+            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path)
         {
             assert_eq!(app.status, AppsStatus::Enabled);
             assert!(!changed);
@@ -1456,7 +1460,7 @@ fn test_apply_download() {
         }
 
         if let Ok((app, changed)) =
-            registry.set_enabled(&manifest_url, AppsStatus::Disabled, &test_path, &root_path)
+            registry.set_enabled(&manifest_url, AppsStatus::Disabled, &test_path)
         {
             assert_eq!(app.status, AppsStatus::Disabled);
             assert!(changed);
@@ -1472,7 +1476,7 @@ fn test_apply_download() {
         }
 
         if let Ok((app, changed)) =
-            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path, &root_path)
+            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path)
         {
             assert_eq!(app.status, AppsStatus::Enabled);
             assert!(changed);

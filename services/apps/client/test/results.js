@@ -39,8 +39,8 @@ var get_all_expected1 = [ apps_expected, pwa_expected, calculator_expected, gall
 
 var download_failed_response_expected = {"name":"ciautotest","installState":0,"manifestUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateState":0,"updateManifestUrl":"http://cached.localhost:8081/ciautotest/update.webmanifest","updateUrl":"http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://ciautotest.localhost:8081"};
 
-function install_pwa_expected(installState) {
-  return {"name":"hellopwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/hellopwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/hellopwa/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/pwa/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
+function install_pwa_expected(installState, status=0) {
+  return {"name":"hellopwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/hellopwa/manifest.webmanifest","removable":true,"status":status,"updateManifestUrl":"http://cached.localhost:8081/hellopwa/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/pwa/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
 }
 
 function relative_pwa_expected(installState) {

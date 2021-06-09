@@ -302,6 +302,42 @@
         on_installing_pwa_handler.stop();
         on_installed_pwa_handler.stop();
 
+        await tester.assert_eq(
+            "pwa set enable false",
+            service => service.setEnabled("http://cached.localhost:8081/hellopwa/manifest.webmanifest", lib_apps.AppsStatus.DISABLED),
+            install_pwa_expected(0,lib_apps.AppsStatus.DISABLED)
+        );
+
+        // Should not find manifest
+        await tester.assert_eq(
+            "get pwa manifest after disabled",
+            service => {
+                let req = new Request("http://cached.localhost:8081/hellopwa/manifest.webmanifest");
+                req.responseType = "json";
+                return fetch(req)
+                    .then(response => response.ok)
+            },
+            false,
+        );
+
+        await tester.assert_eq(
+            "pwa set enable true",
+            service => service.setEnabled("http://cached.localhost:8081/hellopwa/manifest.webmanifest", lib_apps.AppsStatus.ENABLED),
+            install_pwa_expected(0,lib_apps.AppsStatus.ENABLED)
+        );
+
+        // Should find manifest
+        await tester.assert_eq(
+            "get pwa manifest after enabled",
+            service => {
+                let req = new Request("http://cached.localhost:8081/hellopwa/manifest.webmanifest");
+                req.responseType = "json";
+                return fetch(req)
+                    .then(response => response.ok)
+            },
+            true,
+        );
+
 // Update event
 // - Idle
 // - Available
@@ -354,11 +390,36 @@
           launcher_status_expected(1)
         );
 
+        // Should not find manifest
+        await tester.assert_eq(
+            "get launcher manifest after disabled",
+            service => {
+                let req = new Request("http://launcher.localhost:8081/manifest.webmanifest");
+                req.responseType = "json";
+                return fetch(req)
+                    .then(response => response.ok)
+            },
+            false,
+        );
+
         await tester.assert_eq(
           "set enabled launcher",
           service => service.setEnabled("http://launcher.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.ENABLED),
           launcher_status_expected(0)
         );
+
+        // Should find manifest
+        await tester.assert_eq(
+            "get launcher manifest after disabled",
+            service => {
+                let req = new Request("http://launcher.localhost:8081/manifest.webmanifest");
+                req.responseType = "json";
+                return fetch(req)
+                    .then(response => response.ok)
+            },
+            true,
+        );
+
         await tester.assert_eq(
           "verify ciautotest",
           service => service.verify("http://ciautotest.localhost:8081/manifest.webmanifest", "test", "inf"),

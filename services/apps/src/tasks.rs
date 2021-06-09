@@ -281,11 +281,10 @@ impl AppMgmtTask for SetEnabledTask {
         let responder = &self.3;
         let current = env::current_dir().unwrap();
         let config = shared.config.clone();
-        let root_path = current.join(config.root_path);
         let data_path = current.join(config.data_path);
         match shared
             .registry
-            .set_enabled(&manifest_url, status, &data_path, &root_path)
+            .set_enabled(&manifest_url, status, &data_path)
         {
             Ok((app, changed)) => {
                 if changed {
