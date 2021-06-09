@@ -195,28 +195,25 @@
           get_all_expected1.sort(sort_result)
         );
 
-// Install PWA
+// Install PWA with relative start URL case 1.
         let on_installing_pwa_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
         let on_installed_pwa_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
         await tester.assert_eq(
-          "install pwa app",
+          "install pwa app relative start url case 1",
           service => service.installPwa("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"),
           install_pwa_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_pwa_handler, install_pwa_expected(1));
         await tester.assert_event_eq("on install event", on_installed_pwa_handler, install_pwa_expected(0));
-        // finish all install test, stop event handler.
-        on_installing_pwa_handler.stop();
-        on_installed_pwa_handler.stop();
-
         await tester.assert_eq(
-          "get pwa manifest",
+          "get relative pwa manifest",
           service => {
             let req = new Request("http://cached.localhost:8081/hellopwa/manifest.webmanifest");
             req.responseType = "json";
             return fetch(req)
               .then(response => response.json())
               .then(manifest =>
+                manifest.start_url == "http://127.0.0.1:8596/apps/pwa/index.html" &&
                 manifest.display == "browser" &&
                 manifest.short_name == "hipwa" &&
                 manifest.scope == "/" &&
@@ -231,6 +228,79 @@
           },
           true,
         );
+
+// Install PWA with relative start URL case 2.
+        await tester.assert_eq(
+          "install pwa app relative start url case 2",
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/relative.webmanifest"),
+          relative_pwa_expected(0)
+        );
+        await tester.assert_event_eq("on installing event", on_installing_pwa_handler, relative_pwa_expected(1));
+        await tester.assert_event_eq("on install event", on_installed_pwa_handler, relative_pwa_expected(0));
+        await tester.assert_eq(
+          "get relative pwa manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/relativepwa/manifest.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(manifest =>
+                manifest.start_url == "http://127.0.0.1:8596/index.html" &&
+                manifest.display == "browser" &&
+                manifest.short_name == "relative pwa" &&
+                manifest.dir == "rtl" &&
+                manifest.lang == "en-US" &&
+                manifest.orientation == "portrait" &&
+                manifest.theme_color == "#008fff" &&
+                manifest.b2g_features.cursor == true &&
+                manifest.b2g_features.focus_color == "#7dcc1f" &&
+                manifest.b2g_features.version == "1.2.6"
+            );
+          },
+          true,
+        );
+
+// Install PWA with same origin start URL.
+        await tester.assert_eq(
+          "install same origin start url pwa app",
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/same-origin.webmanifest"),
+          same_origin_pwa_expected(0)
+        );
+        await tester.assert_event_eq("on installing event", on_installing_pwa_handler, same_origin_pwa_expected(1));
+        await tester.assert_event_eq("on install event", on_installed_pwa_handler, same_origin_pwa_expected(0));
+        await tester.assert_eq(
+          "get same origin pwa manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/sameoriginpwa/manifest.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(manifest =>
+                manifest.start_url == "http://127.0.0.1:8596/apps/same/index.html" &&
+                manifest.display == "browser" &&
+                manifest.short_name == "same origin pwa" &&
+                manifest.dir == "rtl" &&
+                manifest.lang == "en-US" &&
+                manifest.orientation == "portrait" &&
+                manifest.theme_color == "#008fff" &&
+                manifest.b2g_features.cursor == true &&
+                manifest.b2g_features.focus_color == "#7dcc1f" &&
+                manifest.b2g_features.version == "1.2.7"
+            );
+          },
+          true,
+        );
+
+// Install PWA with different origin start URL.
+        await tester.assert_rej_eq(
+          "install different origin start url pwa app",
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/different-origin.webmanifest"),
+          AppsServiceError.INVALID_MANIFEST
+        );
+
+        // finish all install test, stop event handler.
+        on_installing_pwa_handler.stop();
+        on_installed_pwa_handler.stop();
 
 // Update event
 // - Idle

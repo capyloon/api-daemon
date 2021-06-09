@@ -90,6 +90,7 @@ dictionary AppsObject {
   allowedAutoDownload: bool
   preloaded: bool
   progress: int  // From 0 to 100
+  origin: str    // The app runtime origin
 }
 
 dictionary DownloadFailedReason {

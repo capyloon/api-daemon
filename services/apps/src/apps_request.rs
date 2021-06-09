@@ -516,6 +516,10 @@ impl AppsRequest {
 
         let mut manifest = Manifest::read_from(&download_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
+        let update_url_base =
+            Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
+        let _ = is_same_origin_with(&update_url_base, &manifest.get_start_url())?;
+
         let app_name: String;
         let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
@@ -535,8 +539,6 @@ impl AppsRequest {
         }
 
         // 2-1. download icons to cached dir.
-        let update_url_base =
-            Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
         let manifest_url_base = Url::parse(&apps_item.get_manifest_url())
             .map_err(|_| AppsServiceError::InvalidManifest)?;
         if let Some(icons_value) = manifest.get_icons() {
@@ -614,6 +616,22 @@ impl AppsRequest {
                 apps_object,
                 reason,
             });
+    }
+}
+
+// Returns success if both urls are absolute and same origin, or if the `other`
+// url is a relative one.
+fn is_same_origin_with(base_url: &Url, other: &str) -> Result<(), AppsServiceError> {
+    // We always return InvalidManifest for convenience instead of dedicated error variants.
+    if let Ok(other_url) = Url::parse(other) {
+        if other_url.origin() != base_url.origin() {
+            Err(AppsServiceError::InvalidManifest)
+        } else {
+            Ok(())
+        }
+    } else {
+        // This is a relative url, which is always same origin with the base.
+        Ok(())
     }
 }
 
@@ -913,4 +931,28 @@ fn test_compare_version_hash() {
 
         assert!(!compare_version_hash(&apps_item, &manifest_path));
     }
+}
+
+#[test]
+fn test_is_same_origin_with() {
+    let base_url = Url::parse("https://domain.url/path/file").unwrap();
+
+    assert_eq!(is_same_origin_with(&base_url, "index.html"), Ok(()));
+    assert_eq!(is_same_origin_with(&base_url, "/app/index.html"), Ok(()));
+    assert_eq!(
+        is_same_origin_with(&base_url, "https://domain.url/index.html"),
+        Ok(())
+    );
+    assert_eq!(
+        is_same_origin_with(&base_url, "https://domain.url/app/index.html"),
+        Ok(())
+    );
+    assert_eq!(
+        is_same_origin_with(&base_url, "https://other.url/index.html"),
+        Err(AppsServiceError::InvalidManifest)
+    );
+    assert_eq!(
+        is_same_origin_with(&base_url, "https://other.url/app/index.html"),
+        Err(AppsServiceError::InvalidManifest)
+    );
 }

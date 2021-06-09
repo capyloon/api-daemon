@@ -1,0 +1,44 @@
+{
+    "name": "different origin pwa",
+    "start_url": "http://128.0.0.1:8596/apps/different/index.html",
+    "version": "",
+    "theme_color": "#008fff",
+    "background_color": "#008fff",
+    "display": "browser",
+    "scope": "/",
+    "orientation": "portrait",
+    "lang":"en-US",
+    "extra":"extra field",
+    "dir":"rtl",
+    "short_name": "different origin pwa",
+    "icons": [{
+      "sizes": "16x16",
+      "src": "icons/icon16x16.png",
+      "type": null
+    }, {
+      "sizes": "48x48",
+      "src": "icons/icon48x48.png",
+      "type": null
+    }, {
+      "sizes": "60x60",
+      "src": "icons/icon60x60.png",
+      "type": null
+    }, {
+      "sizes": "128x128",
+      "src": "icons/icon128x128.png",
+      "type": null
+    }],
+    "b2g_features": {
+      "role": "",
+      "developer": {
+        "name": "Seinlin",
+        "url": "http://testpwa.github.io"
+      },
+      "default_locale": "",
+      "core": false,
+      "cursor": true,
+      "focus_color": "#7dcc1f",
+      "version": "1.2.5",
+      "dependencies": {}
+    }
+  }

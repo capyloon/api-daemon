@@ -106,10 +106,15 @@ impl AppsItem {
     //     PWA app: update URL
     //     Package app: manifest URL
     pub fn runtime_origin(&self) -> String {
-        if self.is_pwa() {
+        let url = if self.is_pwa() {
             self.get_update_url()
         } else {
             self.get_manifest_url()
+        };
+        if let Ok(url) = Url::parse(&url) {
+            url.origin().unicode_serialization()
+        } else {
+            String::new()
         }
     }
 
@@ -327,6 +332,7 @@ impl From<&AppsItem> for AppsObject {
             allowed_auto_download: false,
             preloaded: app.preloaded,
             progress: 0,
+            origin: app.runtime_origin(),
         }
     }
 }
