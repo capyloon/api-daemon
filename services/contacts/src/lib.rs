@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod cursor;
 mod db;
 mod preload;
 

@@ -1,5 +1,6 @@
 /// Implementation of the contacts service.
-use crate::db::{ContactDbCursor, ContactsDb};
+use crate::cursor::ContactDbCursor;
+use crate::db::ContactsDb;
 use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;

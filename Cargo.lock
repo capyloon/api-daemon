@@ -1161,6 +1161,7 @@ dependencies = [
  "serde_json",
  "sqlite-utils",
  "thiserror",
+ "threadpool",
  "uuid",
 ]
 

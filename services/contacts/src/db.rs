@@ -1,3 +1,4 @@
+use crate::cursor::ContactDbCursor;
 /// DB interface for the Contacts
 use crate::generated::common::*;
 use crate::preload::*;
@@ -14,9 +15,9 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::BufReader;
 use std::str::FromStr;
-use std::sync::mpsc::{channel, Sender};
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
+use threadpool::ThreadPool;
 use uuid::Uuid;
 
 #[cfg(not(target_os = "android"))]
@@ -154,7 +155,7 @@ fn format_phone_number(number: &str) -> String {
     }
 }
 
-fn row_to_contact_id(row: &Row) -> Result<String, Error> {
+pub fn row_to_contact_id(row: &Row) -> Result<String, Error> {
     let column = row.column_index("contact_id")?;
     Ok(row.get(column)?)
 }
@@ -370,7 +371,7 @@ fn save_str_field(stmt: &mut Statement, id: &str, stype: &str, data: &str) -> Re
 }
 
 impl ContactInfo {
-    fn fill_main_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
+    pub fn fill_main_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
         self.id = id.into();
         let mut stmt = conn.prepare(
             "SELECT contact_id, name, family_name, given_name, tel_json, email_json,
@@ -449,7 +450,7 @@ impl ContactInfo {
         Ok(())
     }
 
-    fn fill_additional_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
+    pub fn fill_additional_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
         self.id = id.into();
         let mut stmt = conn.prepare(
             "SELECT contact_id, data_type, value FROM contact_additional WHERE contact_id=:id",
@@ -694,7 +695,7 @@ impl ContactInfo {
 // Creates a contacts database with a proper updater.
 // SQlite manages itself thread safety so we can use
 // multiple ones without having to use Rust mutexes.
-fn create_db() -> SqliteDb {
+pub fn create_db() -> SqliteDb {
     let db = match SqliteDb::open(DB_PATH, &mut ContactsSchemaManager {}, 1) {
         Ok(db) => db,
         Err(err) => panic!("Failed to open contacts db: {}", err),
@@ -706,142 +707,13 @@ fn create_db() -> SqliteDb {
     db
 }
 
-enum CursorCommand {
-    Next(Sender<Option<Vec<ContactInfo>>>),
-    Stop,
-}
-
-pub struct ContactDbCursor {
-    sender: Sender<CursorCommand>,
-}
-
-impl Iterator for ContactDbCursor {
-    type Item = Vec<ContactInfo>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (sender, receiver) = channel();
-
-        let _ = self.sender.send(CursorCommand::Next(sender));
-        match receiver.recv() {
-            Ok(msg) => msg,
-            Err(err) => {
-                // Since the cursor releases resources eagerly once it reaches the end of
-                // the contact list, this can fail without being an issue.
-                debug!("Cursor is already closed: {}", err);
-                None
-            }
-        }
-    }
-}
-
-impl Drop for ContactDbCursor {
-    fn drop(&mut self) {
-        debug!("ContactDbCursor::drop");
-        let _ = self.sender.send(CursorCommand::Stop);
-    }
-}
-
-impl ContactDbCursor {
-    pub fn new<F: 'static>(batch_size: i64, only_main_data: bool, prepare: F) -> Self
-    where
-        F: Fn(&Connection) -> Option<Statement> + Send,
-    {
-        let (sender, receiver) = channel();
-        let _ = std::thread::spawn(move || {
-            let mut db = create_db();
-            let connection = db.mut_connection();
-            let mut statement = match prepare(&connection) {
-                Some(statement) => statement,
-                None => {
-                    // Return an empty cursor.
-                    // We use a trick here where we create a request that will always return 0 results.
-                    connection
-                        .prepare("SELECT contact_id FROM contact_main where contact_id = ''")
-                        .unwrap()
-                }
-            };
-            let mut rows = statement.raw_query();
-            let mut force_exit = false;
-            loop {
-                match receiver.recv() {
-                    Ok(cmd) => {
-                        match cmd {
-                            CursorCommand::Stop => break,
-                            CursorCommand::Next(sender) => {
-                                let mut results = vec![];
-                                loop {
-                                    match rows.next() {
-                                        Ok(None) => {
-                                            // We are out of items. Send the current item list or reject directly.
-                                            if results.is_empty() {
-                                                debug!("ContactDbCursor, empty result, reject directly");
-                                                let _ = sender.send(None);
-                                            } else {
-                                                debug!("Send results with len:{}", results.len());
-                                                let _ = sender.send(Some(results));
-                                            }
-                                            // Force leaving the outer loop since we can release resources at this
-                                            // point.
-                                            force_exit = true;
-                                            break;
-                                        }
-                                        Ok(Some(row)) => {
-                                            if let Ok(id) = row_to_contact_id(row) {
-                                                debug!("current id is {}", id);
-                                                let mut contact = ContactInfo::default();
-                                                if let Err(err) =
-                                                    contact.fill_main_data(&id, connection)
-                                                {
-                                                    error!("ContactDbCursor fill_main_data error: {}, continue", err);
-                                                    continue;
-                                                }
-
-                                                if !only_main_data {
-                                                    if let Err(err) = contact
-                                                        .fill_additional_data(&id, connection)
-                                                    {
-                                                        error!("ContactDbCursor fill_additional_data error: {}, continue", err);
-                                                        continue;
-                                                    }
-                                                }
-                                                results.push(contact);
-
-                                                if results.len() == batch_size as usize {
-                                                    let _ = sender.send(Some(results));
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        Err(err) => {
-                                            error!("Failed to fetch row: {}", err);
-                                            let _ = sender.send(None);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        error!("receiver.recv error: {}", err);
-                        break;
-                    }
-                }
-
-                if force_exit {
-                    break;
-                }
-            }
-            debug!("Exiting contacts cursor thread");
-        });
-        Self { sender }
-    }
-}
-
 pub struct ContactsDb {
     // The underlying sqlite db.
     db: SqliteDb,
     // Handle to the event broadcaster to fire events when changing contacts.
     event_broadcaster: ContactsFactoryEventBroadcaster,
+    // Thread pool used for cursors.
+    cursors: ThreadPool,
 }
 
 impl ContactsDb {
@@ -849,6 +721,7 @@ impl ContactsDb {
         Self {
             db: create_db(),
             event_broadcaster,
+            cursors: ThreadPool::with_name("ContactsDbCursor".into(), 5),
         }
     }
 
@@ -1047,6 +920,7 @@ impl ContactsDb {
         Some(ContactDbCursor::new(
             batch_size,
             only_main_data,
+            &self.cursors,
             move |connection| {
                 let field: String = options.sort_by.into();
                 let order: String = options.sort_order.into();
@@ -1079,6 +953,7 @@ impl ContactsDb {
         Some(ContactDbCursor::new(
             batch_size,
             options.only_main_data,
+            &self.cursors,
             move |connection| {
                 let mut sql = String::from("SELECT contact_id FROM contact_main WHERE ");
                 let mut params = vec![];
