@@ -344,7 +344,7 @@ impl AppsRegistry {
         info!("add_observer to SettingsService with id {}", id);
 
         Ok(Self {
-            pool: ThreadPool::new(3),
+            pool: ThreadPool::new(5),
             db: Some(db),
             vhost_port,
             lang,
