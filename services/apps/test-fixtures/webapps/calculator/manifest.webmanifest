@@ -3,6 +3,7 @@
   "description": "Calculator",
   "launch_path": "/index.html",
   "b2g_features": {
+    "version": "0.1",
     "permissions": {
       "themeable":{}
      }
@@ -21,7 +22,6 @@
       "sizes": "112x112"
     }
   ],
-  "version": "0.1",
   "chrome": {
     "statusbar": "overlap"
   },

@@ -88,7 +88,7 @@
             req.responseType = "json";
             return fetch(req)
               .then(response => response.json())
-	      .then(manifest => manifest.version);
+	      .then(manifest => manifest.b2g_features.version);
           },
           new_version,
         );
@@ -147,7 +147,7 @@
             req.responseType = "json";
             return fetch(req)
               .then(response => response.json())
-	      .then(manifest => manifest.version);
+	      .then(manifest => manifest.b2g_features.version);
           },
           pre_installed_new_version,
         );
@@ -221,62 +221,6 @@
 	      .then(manifest => manifest.name == "hellopwa");
           },
           true,
-        );
-
-        // Test uninstall
-        let testapp_manifest_url = "http://ciautotest.localhost:8081/manifest.webmanifest";
-        let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);
-        await tester.assert_eq(
-          "uninstall app",
-          service => service.uninstall(testapp_manifest_url),
-          testapp_manifest_url
-        );
-        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, testapp_manifest_url);
-        await tester.assert_eq(
-          "get app manifest",
-          service => {
-            let req = new Request(testapp_manifest_url);
-            req.responseType = "json";
-            return fetch(req).then(response => response.status);
-          },
-          404,
-        );
-
-        // Test uninstall PWA
-        let pwa_manifest_url = "http://cached.localhost:8081/preloadpwa/manifest.webmanifest";
-        await tester.assert_eq(
-          "uninstall pwa app",
-          service => service.uninstall(pwa_manifest_url),
-          pwa_manifest_url
-        );
-        await tester.assert_event_eq("on uninstall event", on_uninstall1_handler, pwa_manifest_url);
-        on_uninstall1_handler.stop();
-
-        await tester.assert_eq(
-          "get pwa app manifest",
-          service => {
-            let req = new Request(pwa_manifest_url);
-            req.responseType = "json";
-            return fetch(req).then(response => response.status);
-          },
-          404,
-        );
-
-        await tester.assert_eq(
-          "get all 3",
-          service => {
-            return new Promise((resolve, reject) => {
-              service.getAll().then(
-                observed => {
-                  resolve(observed ? observed.sort(sort_result) : null);
-                },
-                err => {
-                  reject(err);
-                }
-              );
-            });
-          },
-          get_all_expected2.sort(sort_result)
         );
 
         let reporter = new TestReporter([tester]);

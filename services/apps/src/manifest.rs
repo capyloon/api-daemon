@@ -3,6 +3,7 @@
 use crate::apps_registry::AppsMgmtError;
 use crate::apps_utils;
 
+use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
@@ -84,6 +85,10 @@ impl B2GFeatures {
     pub fn get_messages(&self) -> Option<Value> {
         self.messages.clone()
     }
+
+    pub fn get_version(&self) -> Option<String> {
+        self.version.clone()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -100,8 +105,6 @@ pub struct Manifest {
     launch_path: String,
     #[serde(default = "default_as_start_url")]
     start_url: String,
-    #[serde(default = "String::new")]
-    version: String,
     icons: Option<Value>, // to backward compatible with icons object
     b2g_features: Option<B2GFeatures>,
     #[serde(default = "String::new")]
@@ -143,11 +146,11 @@ impl Icons {
 }
 
 impl Manifest {
-    pub fn new(name: &str, launch_path: &str, version: &str) -> Self {
+    pub fn new(name: &str, launch_path: &str, b2g_features: Option<B2GFeatures>) -> Self {
         Manifest {
             name: name.to_string(),
             launch_path: launch_path.to_string(),
-            version: version.to_string(),
+            b2g_features,
             ..Default::default()
         }
     }
@@ -209,12 +212,15 @@ impl Manifest {
         self.start_url = url.to_string();
     }
 
-    pub fn set_version(&mut self, version: &str) {
-        self.version = version.to_string();
-    }
-
     pub fn get_version(&self) -> String {
-        self.version.clone()
+        if let Some(b2g_features) = self.get_b2g_features() {
+            if let Some(version) = b2g_features.get_version() {
+                debug!("version from b2g_features {}", version);
+                return version;
+            }
+        }
+
+        String::new()
     }
 
     pub fn get_name(&self) -> String {

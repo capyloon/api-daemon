@@ -28,13 +28,20 @@ ln -s $CI_PROJECT_DIR/services/apps/test-fixtures/webapps ../webapps
 ln -s $CI_PROJECT_DIR/services/apps/client $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
 
 $CI_PROJECT_DIR/target/release/apps_test_server &
+
 $CI_PROJECT_DIR/tests/apps-test-server/v1.sh
 DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh http://apps.localhost:8081/test/tests.html
-kill_server
 
 $CI_PROJECT_DIR/tests/apps-test-server/v2.sh
-$CI_PROJECT_DIR/target/release/apps_test_server &
 DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh http://apps.localhost:8081/test/tests_update_app.html
+
+# Set apps to old version on the app server.
+# Expect that no app update is available.
+$CI_PROJECT_DIR/tests/apps-test-server/v1.sh
+DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh \
+    http://apps.localhost:8081/test/not_allow_downgrade.html \
+    http://apps.localhost:8081/test/uninstall_apps.html
+
 kill_server
 
 rm ../webapps

@@ -200,14 +200,9 @@ impl AppsRegistry {
         }
     }
 
-    pub fn restore_apps_status(
-        &mut self,
-        is_update: bool,
-        apps_item: &AppsItem,
-        manifest: &Manifest,
-    ) {
+    pub fn restore_apps_status(&mut self, is_update: bool, apps_item: &AppsItem) {
         if is_update {
-            let _ = self.save_app(is_update, &apps_item, &manifest);
+            let _ = self.save_app(is_update, &apps_item);
         } else {
             let _ = self.unregister(&apps_item.get_manifest_url());
         }
@@ -312,6 +307,13 @@ impl AppsRegistry {
                             }
                         }
                         app.set_preloaded(true);
+                        // Get version from manifest for preloaded apps.
+                        let app_dir = app.get_appdir(&data_dir).unwrap_or_default();
+                        if let Ok(manifest) = load_manifest(&app_dir) {
+                            if !manifest.get_version().is_empty() {
+                                app.set_version(&manifest.get_version());
+                            }
+                        }
                         // Add the app to the database.
                         db.add(&app)?;
                     }
@@ -429,13 +431,12 @@ impl AppsRegistry {
         &mut self,
         is_update: bool,
         apps_item: &AppsItem,
-        manifest: &Manifest,
     ) -> Result<(), AppsServiceError> {
         if is_update {
-            self.update_app(apps_item, manifest)
+            self.update_app(apps_item)
                 .map_err(|_| AppsServiceError::RegistrationError)?
         } else {
-            self.register_app(apps_item, manifest)
+            self.register_app(apps_item)
                 .map_err(|_| AppsServiceError::RegistrationError)?
         }
 
@@ -543,7 +544,7 @@ impl AppsRegistry {
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
-        let _ = self.save_app(is_update, &apps_item, &manifest)?;
+        let _ = self.save_app(is_update, &apps_item)?;
 
         // Relay the request to Gecko using the bridge.
         let features = match manifest.get_b2g_features() {
@@ -592,7 +593,7 @@ impl AppsRegistry {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
         let _ = self
-            .register_app(apps_item, manifest)
+            .register_app(apps_item)
             .map_err(|_| AppsServiceError::RegistrationError)?;
 
         // Relay the request to Gecko using the bridge.
@@ -693,19 +694,13 @@ impl AppsRegistry {
     // Register an app in the registry
     // When re-install an existing app, we just overwrite existing one.
     // In future, we could change the policy.
-    pub fn register_app(
-        &mut self,
-        apps_item: &AppsItem,
-        manifest: &Manifest,
-    ) -> Result<(), RegistrationError> {
-        let _ = AppsRegistry::validate(&apps_item.get_manifest_url(), manifest)?;
-
+    pub fn register_app(&mut self, apps_item: &AppsItem) -> Result<(), RegistrationError> {
         self.register_or_replace(apps_item)?;
         self.apps_list_add_or_update(&AppsObject::from(apps_item));
         Ok(())
     }
 
-    fn validate(manifest_url: &str, manifest: &Manifest) -> Result<(), RegistrationError> {
+    pub fn validate(manifest_url: &str, manifest: &Manifest) -> Result<(), RegistrationError> {
         if manifest_url.is_empty() {
             return Err(RegistrationError::ManifestUrlMissing);
         }
@@ -777,14 +772,10 @@ impl AppsRegistry {
     // Register an app to the registry
     // When re-install an existing app, we just overwrite existing one.
     // In future, we could change the policy.
-    pub fn update_app(
-        &mut self,
-        apps_item: &AppsItem,
-        manifest: &Manifest,
-    ) -> Result<(), RegistrationError> {
+    pub fn update_app(&mut self, apps_item: &AppsItem) -> Result<(), RegistrationError> {
         // TODO: need to unregister something for update if needed.
 
-        Ok(self.register_app(apps_item, manifest)?)
+        Ok(self.register_app(apps_item)?)
     }
 
     pub fn count(&self) -> usize {
@@ -1038,6 +1029,7 @@ fn test_init_apps_from_system() {
 #[test]
 fn test_register_app() {
     use crate::config;
+    use crate::manifest::B2GFeatures;
     use config::Config;
 
     let _ = env_logger::try_init();
@@ -1076,8 +1068,8 @@ fn test_register_app() {
     let name = "";
     let update_url = "some_url";
     let launch_path = "some_path";
-    let version = "some_version";
-    let manifest = Manifest::new(name, launch_path, version);
+    let b2g_features = None;
+    let manifest = Manifest::new(name, launch_path, b2g_features);
     let app_name = registry
         .get_unique_name(&manifest.get_name(), Some(&update_url))
         .err()
@@ -1087,14 +1079,14 @@ fn test_register_app() {
     // Test register_app - without update url
     let name = "some_name";
     let launch_path = "some_path";
-    let version = "some_version";
-    let manifest = Manifest::new(name, launch_path, version);
+    let b2g_features = None;
+    let manifest = Manifest::new(name, launch_path, b2g_features);
     let app_name = registry
         .get_unique_name(&manifest.get_name(), None)
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
-    if registry.register_app(&apps_item, &manifest).is_err() {
+    if registry.register_app(&apps_item).is_err() {
         panic!();
     }
 
@@ -1107,7 +1099,9 @@ fn test_register_app() {
     let name = "helloworld";
     let launch_path = "/index.html";
     let version = "1.0.0";
-    let manifest = Manifest::new(name, launch_path, version);
+    let data = r#"{"version": "1.0.0"}"#;
+    let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
+    let manifest = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
         .get_unique_name(&manifest.get_name(), Some(update_url))
         .unwrap();
@@ -1120,7 +1114,7 @@ fn test_register_app() {
         panic!("No version found.");
     }
 
-    registry.register_app(&apps_item, &manifest).unwrap();
+    registry.register_app(&apps_item).unwrap();
 
     // Verify the manifet url is as expeced
     let expected_manifest_url = "http://helloworld.localhost/manifest.webmanifest";
@@ -1139,7 +1133,9 @@ fn test_register_app() {
     let name = "helloworld";
     let launch_path = "/index.html";
     let version = "1.0.1";
-    let manifest1 = Manifest::new(name, launch_path, version);
+    let data = r#"{"version": "1.0.1"}"#;
+    let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
+    let manifest1 = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
         .get_unique_name(&manifest1.get_name(), Some(&update_url))
         .unwrap();
@@ -1152,7 +1148,7 @@ fn test_register_app() {
         panic!("No version found.");
     }
 
-    registry.register_app(&apps_item, &manifest1).unwrap();
+    registry.register_app(&apps_item).unwrap();
 
     let manifest_url = apps_item.get_manifest_url();
     match registry.get_by_manifest_url(&manifest_url) {
@@ -1178,6 +1174,7 @@ fn test_register_app() {
 #[test]
 fn test_unregister_app() {
     use crate::config;
+    use crate::manifest::B2GFeatures;
     use config::Config;
 
     use std::env;
@@ -1235,7 +1232,9 @@ fn test_unregister_app() {
     let name = "helloworld";
     let launch_path = "/index.html";
     let version = "1.0.1";
-    let manifest1 = Manifest::new(name, launch_path, version);
+    let data = r#"{"version": "1.0.1"}"#;
+    let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
+    let manifest1 = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
         .get_unique_name(&manifest1.get_name(), None)
         .unwrap();
@@ -1247,7 +1246,7 @@ fn test_unregister_app() {
         panic!("No version found.");
     }
 
-    registry.register_app(&apps_item, &manifest1).unwrap();
+    registry.register_app(&apps_item).unwrap();
 
     assert_eq!(7, registry.count());
 

@@ -1,3 +1,5 @@
 apps/app1.zip
 apps/manifest.webmanifest
 apps/pwa/manifest.webmanifest
+apps/ciautotest/application.zip
+apps/ciautotest/manifest.webmanifest

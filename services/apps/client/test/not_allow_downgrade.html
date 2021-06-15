@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Downgrade not allowed</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/apps/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="results.js"></script>
+
+    <script>
+      async function run_tests() {
+        console.log(`Apps Update Test started!`);
+
+        let tester = await test_service(lib_apps.AppsManager, "apps-client");
+
+        let AppsServiceState = lib_apps.AppsServiceState;
+        let AppsServiceError = lib_apps.AppsServiceError;
+
+        await tester.assert_eq(
+          "get state",
+          service => service.getState(),
+          AppsServiceState.RUNNING
+        );
+
+        function sort_result(a, b) {
+          return a.name > b.name;
+        }
+
+        let provider = new TokenProvider(tester.service, tester.session);
+        await tester.service.setTokenProvider(provider);
+
+        // check_for_update
+        let on_update_available = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
+
+        console.log("Step 1");
+        await tester.assert_eq(
+          "check for update for ciautotest, no update available",
+          service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {autoInstall: true}),
+          false
+        );
+        console.log("Step 2");
+
+        let update_manifest_cached = "http://cached.localhost:8081/ciautotest/update.webmanifest";
+        let old_version = "0.2";
+        await tester.assert_eq(
+          "get cached app update manifest",
+          service => {
+            let req = new Request(update_manifest_cached);
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.version);
+          },
+          old_version,
+        );
+
+        console.log("Step 3");
+
+        // Test checkForUpdate pwa app.
+        await tester.assert_eq(
+          "check for update PWA app",
+          service => service.checkForUpdate("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest", {autoInstall: true}),
+          false
+        );
+
+        console.log("Step 4");
+
+        // Verify update manifest after checkForUpdate.
+        await tester.assert_eq(
+          "get cached app update manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/hellopwa/update.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.name == "hellopwa");
+          },
+          true,
+        );
+
+        console.log("Step 5");
+
+        // Verify pwa app manifest still the old one.
+        await tester.assert_eq(
+          "get pwa manifest",
+          service => {
+            let manifest_url = "http://cached.localhost:8081/hellopwa/manifest.webmanifest";
+            let req = new Request(manifest_url);
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(manifest =>
+                manifest.display == "browser" &&
+                manifest.short_name == "new pwa" &&
+                manifest.scope == "/" &&
+                manifest.dir == "rtl" &&
+                manifest.lang == "en-US" &&
+                manifest.orientation == "portrait" &&
+                manifest.theme_color == "#008fff" &&
+                manifest.b2g_features.cursor == true &&
+                manifest.b2g_features.focus_color == "#7dcc1f" &&
+                manifest.b2g_features.version == "1.2.5"
+            );
+          },
+          true,
+        );
+
+        console.log("Step 6");
+
+        // Verify update manifest after update.
+        await tester.assert_eq(
+          "get cached app update manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/hellopwa/update.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+	      .then(manifest => manifest.name == "hellopwa");
+          },
+          true,
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

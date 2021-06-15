@@ -2,6 +2,7 @@
 
 use crate::apps_registry::AppsMgmtError;
 use crate::manifest::B2GFeatures;
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -42,8 +43,20 @@ impl UpdateManifest {
         self.name.clone()
     }
 
-    pub fn get_version(&self) -> String {
-        self.version.clone().unwrap_or_else(|| "".into())
+    pub fn get_version(&self, is_pwa: bool) -> String {
+        // For pwa apps, version is in b2g_features.
+        // While for packaged app, the version is at out layer of update manifest
+        if is_pwa {
+            if let Some(b2g_features) = self.get_b2g_features() {
+                if let Some(version) = b2g_features.get_version() {
+                    debug!("pwa update manifest version {}", version);
+                    return version;
+                }
+            }
+            "".into()
+        } else {
+            self.version.clone().unwrap_or_else(|| "".into())
+        }
     }
 
     pub fn get_package_path(&self) -> String {
@@ -94,6 +107,27 @@ fn test_read_manifest() {
 
             let packages = manifest.get_dependencies();
             assert_eq!(packages.len(), 3);
+
+            let version = manifest.get_version(false);
+            assert_eq!(version, "1.0.0");
+        }
+        Err(err) => {
+            error!("Error: {:?}", err);
+            assert!(false, "Failed to read {}", manifest_path);
+        }
+    }
+
+    let manifest_path = format!(
+        "{}/test-fixtures/pwa_update_manifest.webmanifest",
+        current.display()
+    );
+
+    match UpdateManifest::read_from(&manifest_path) {
+        Ok(manifest) => {
+            assert_eq!(manifest.name, "sample-pwa");
+
+            let version = manifest.get_version(true);
+            assert_eq!(version, "1.2.3");
         }
         Err(err) => {
             error!("Error: {:?}", err);

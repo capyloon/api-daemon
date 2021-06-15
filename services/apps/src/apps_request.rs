@@ -1,6 +1,5 @@
 use crate::apps_item::AppsItem;
-use crate::apps_registry::hash;
-use crate::apps_registry::{AppsError, AppsMgmtError};
+use crate::apps_registry::{hash, AppsError, AppsMgmtError, AppsRegistry};
 use crate::apps_storage::{validate_package, AppsStorage};
 use crate::apps_utils;
 use crate::downloader::Downloader as Req;
@@ -84,22 +83,15 @@ struct AppsStatusRestorer {
     shared_data: Shared<AppsSharedData>,
     is_update: bool,
     apps_item: AppsItem,
-    manifest: Manifest,
 }
 
 impl AppsStatusRestorer {
-    fn new(
-        shared_data: Shared<AppsSharedData>,
-        is_update: bool,
-        apps_item: AppsItem,
-        manifest: Manifest,
-    ) -> Self {
+    fn new(shared_data: Shared<AppsSharedData>, is_update: bool, apps_item: AppsItem) -> Self {
         Self {
             need_restore: true,
             shared_data,
             is_update,
             apps_item,
-            manifest,
         }
     }
 
@@ -111,11 +103,10 @@ impl AppsStatusRestorer {
 impl Drop for AppsStatusRestorer {
     fn drop(&mut self) {
         if self.need_restore {
-            self.shared_data.lock().registry.restore_apps_status(
-                self.is_update,
-                &self.apps_item,
-                &self.manifest,
-            );
+            self.shared_data
+                .lock()
+                .registry
+                .restore_apps_status(self.is_update, &self.apps_item);
         }
     }
 }
@@ -313,9 +304,6 @@ impl AppsRequest {
             return Ok(None);
         }
 
-        let update_manifest = Manifest::read_from(&update_manifest_result.update_manifest)
-            .map_err(|_| AppsServiceError::InvalidManifest)?;
-
         // Save the downloaded update manifest file in cached dir.
         let cached_dir = path.join("cached").join(&app.get_name());
         let _ = AppsStorage::ensure_dir(&cached_dir);
@@ -341,7 +329,7 @@ impl AppsRequest {
                     registry.get_vhost_port(),
                 ));
             }
-            let _ = registry.save_app(true, &app, &update_manifest)?;
+            let _ = registry.save_app(true, &app)?;
         }
 
         let mut app_obj = AppsObject::from(&app);
@@ -367,8 +355,9 @@ impl AppsRequest {
                 return Err(AppsServiceError::DownloadManifestFailed);
             }
         };
-        let manifest = Manifest::read_from(update_manifest_result.update_manifest.clone())
-            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        let update_manifest =
+            UpdateManifest::read_from(update_manifest_result.update_manifest.clone())
+                .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // Lock registry to do application registration, emit installing event
         // Release lock before downloading zip package. Let downloading happen
@@ -388,7 +377,8 @@ impl AppsRequest {
 
                 app
             } else {
-                let app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url))?;
+                let app_name =
+                    registry.get_unique_name(&update_manifest.get_name(), Some(&update_url))?;
                 let mut app = AppsItem::default(&app_name, registry.get_vhost_port());
                 app.set_update_url(&update_url);
 
@@ -397,20 +387,18 @@ impl AppsRequest {
 
                 app
             };
-            if !manifest.get_version().is_empty() {
-                apps_item.set_version(&manifest.get_version());
+            let version = update_manifest.get_version(apps_item.is_pwa());
+            if !version.is_empty() {
+                debug!("update_manifest version is {}", &version);
+                apps_item.set_version(&version);
             }
 
             apps_item.set_manifest_etag(update_manifest_result.manifest_etag);
 
-            restorer = AppsStatusRestorer::new(
-                self.shared_data.clone(),
-                is_update,
-                apps_item_restore,
-                manifest.clone(),
-            );
+            restorer =
+                AppsStatusRestorer::new(self.shared_data.clone(), is_update, apps_item_restore);
 
-            let _ = registry.save_app(is_update, &apps_item, &manifest)?;
+            let _ = registry.save_app(is_update, &apps_item)?;
 
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
             self.installing_apps_item = Some(apps_item.clone());
@@ -467,7 +455,13 @@ impl AppsRequest {
         let manifest = validate_package(available_zip.as_path())
             .map_err(|_| AppsServiceError::InvalidPackage)?;
 
+        if let Err(err) = AppsRegistry::validate(&apps_item.get_manifest_url(), &manifest) {
+            error!("AppsRegistry::validate error: {:?}", err);
+            return Err(AppsServiceError::InvalidManifest);
+        }
+
         if !apps_utils::compare_manifests(&update_manifest, &manifest) {
+            error!("Manifest and UpdateManifest mismatch");
             return Err(AppsServiceError::InvalidManifest);
         }
 
@@ -533,9 +527,18 @@ impl AppsRequest {
                 apps_item.set_install_state(AppsInstallState::Installing);
             }
             apps_item.set_update_url(&update_url);
+            let version = manifest.get_version();
+            if !version.is_empty() {
+                apps_item.set_version(&version);
+            }
             // We make no difference for update or new install at the moment.
-            let _ = registry.save_app(false, &apps_item, &manifest);
+            let _ = registry.save_app(false, &apps_item);
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
+        }
+
+        if let Err(err) = AppsRegistry::validate(&apps_item.get_manifest_url(), &manifest) {
+            error!("AppsRegistry::validate error: {:?}", err);
+            return Err(AppsServiceError::InvalidManifest);
         }
 
         // 2-1. download icons to cached dir.
@@ -690,7 +693,9 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
     debug!("hash from registry {}", app.get_manifest_hash());
 
     let mut is_update_available = false;
-    if app.get_version().is_empty() || manifest.get_version().is_empty() {
+    let app_version = app.get_version();
+    let manifest_version = manifest.get_version(app.is_pwa());
+    if app_version.is_empty() || manifest_version.is_empty() {
         let hash_str = match compute_manifest_hash(&update_manifest) {
             Ok(hash) => hash,
             Err(_) => return false,
@@ -701,9 +706,9 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
         }
     }
 
-    if !app.get_version().is_empty() && !manifest.get_version().is_empty() {
-        if let Some(manifest_version) = Version::from(&manifest.get_version()) {
-            if let Some(app_version) = Version::from(&app.get_version()) {
+    if !app_version.is_empty() && !manifest_version.is_empty() {
+        if let Some(manifest_version) = Version::from(&manifest_version) {
+            if let Some(app_version) = Version::from(&app_version) {
                 is_update_available = manifest_version.compare(&app_version) == CompOp::Gt;
             }
         }
@@ -715,7 +720,6 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
 
 #[cfg(test)]
 fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
-    use crate::apps_registry::AppsRegistry;
     use crate::config;
     use config::Config;
     use std::env;
