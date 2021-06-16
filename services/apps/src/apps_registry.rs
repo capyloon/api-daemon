@@ -601,9 +601,15 @@ impl AppsRegistry {
             let b2g_features =
                 JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)));
             // for pwa app, the permission need to be applied to the host origin
-            bridge
-                .lock()
-                .apps_service_on_install(apps_item.get_update_url(), b2g_features);
+            if is_update {
+                bridge
+                    .lock()
+                    .apps_service_on_update(apps_item.runtime_url(), b2g_features);
+            } else {
+                bridge
+                    .lock()
+                    .apps_service_on_install(apps_item.runtime_url(), b2g_features);
+            }
         }
         Ok(())
     }
@@ -758,9 +764,7 @@ impl AppsRegistry {
 
                 // Relay the request to Gecko using the bridge.
                 let bridge = GeckoBridgeService::shared_state();
-                bridge
-                    .lock()
-                    .apps_service_on_uninstall(app.runtime_origin());
+                bridge.lock().apps_service_on_uninstall(app.runtime_url());
                 Ok(manifest_url)
             }
             Err(err) => {
@@ -812,7 +816,7 @@ impl AppsRegistry {
                     let bridge = GeckoBridgeService::shared_state();
                     bridge
                         .lock()
-                        .apps_service_on_boot(app.runtime_origin(), features);
+                        .apps_service_on_boot(app.runtime_url(), features);
                 }
             }
             // Notify the bridge that we processed all apps on boot.
