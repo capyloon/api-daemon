@@ -86,7 +86,7 @@ interface GroupCipher {
 
 // Session storage callbacks.
 callback SessionStore {
-    fn load(address: Address) -> binary
+    fn load(address: Address) -> binary?
     fn get_sub_device_sessions(name: str) -> int*
     fn store(address: Address, record: binary)
     fn contains(address: Address) -> bool
@@ -97,7 +97,7 @@ callback SessionStore {
 // Key storage callbacks.
 // Used for both the pre key store and the signed pre key store.
 callback KeyStore {
-    fn load(pre_key_id: int) -> binary
+    fn load(pre_key_id: int) -> binary?
     fn contains(pre_key_id: int) -> bool
     fn remove(pre_key_id: int)
 }
@@ -113,7 +113,7 @@ callback IdentityKeyStore {
 // Sender Key store callbacks.
 callback SenderKeyStore {
     fn store(sender_key_name: SenderKeyName, record: binary) -> bool
-    fn load(sender_key_name: SenderKeyName) -> binary
+    fn load(sender_key_name: SenderKeyName) -> binary?
 }
 
 dictionary StoreContext {

@@ -146,15 +146,19 @@ extern "C" fn session_store_load_session(
 
     // 2. Wait for the answer and return the response.
     build_response(receiver, "session_store.load", |buffer| {
-        // If the record is empty, that means "not found".
-        if buffer.is_empty() {
-            0
-        } else {
-            // Put the result in the record.
-            unsafe {
-                *record = signal_buffer::from_slice(&buffer);
+        if let Some(buffer) = buffer {
+            // If the record is empty, that means "not found".
+            if buffer.is_empty() {
+                0
+            } else {
+                // Put the result in the record.
+                unsafe {
+                    *record = signal_buffer::from_slice(&buffer);
+                }
+                1
             }
-            1
+        } else {
+            0
         }
     })
 }
@@ -565,15 +569,19 @@ extern "C" fn load_sender_key(
     let _ = Rc::into_raw(ctxt);
 
     build_response(receiver, "sender_key_store.load_sender_key", |buffer| {
-        // If the record is empty, that means "not found".
-        if buffer.is_empty() {
-            0
-        } else {
-            // Put the result in the record.
-            unsafe {
-                *record = signal_buffer::from_slice(&buffer);
+        if let Some(buffer) = buffer {
+            // If the record is empty, that means "not found".
+            if buffer.is_empty() {
+                0
+            } else {
+                // Put the result in the record.
+                unsafe {
+                    *record = signal_buffer::from_slice(&buffer);
+                }
+                1
             }
-            1
+        } else {
+            0
         }
     })
 }
@@ -605,15 +613,19 @@ extern "C" fn load_pre_key(
     let _ = Rc::into_raw(ctxt);
 
     build_response(receiver, "pre_key_store.load", |buffer| {
-        // If the record is empty, that means "not found".
-        if buffer.is_empty() {
-            SIGNAL_ERR_INVALID_KEY_ID
-        } else {
-            // Put the result in the record.
-            unsafe {
-                *record = signal_buffer::from_slice(&buffer);
+        if let Some(buffer) = buffer {
+            // If the record is empty, that means "not found".
+            if buffer.is_empty() {
+                SIGNAL_ERR_INVALID_KEY_ID
+            } else {
+                // Put the result in the record.
+                unsafe {
+                    *record = signal_buffer::from_slice(&buffer);
+                }
+                SIGNAL_SUCCESS
             }
-            SIGNAL_SUCCESS
+        } else {
+            SIGNAL_ERR_INVALID_KEY_ID
         }
     })
 }
@@ -681,15 +693,19 @@ extern "C" fn load_signed_pre_key(
     let _ = Rc::into_raw(ctxt);
 
     build_response(receiver, "signed_pre_key_store.load", |buffer| {
-        // If the record is empty, that means "not found".
-        if buffer.is_empty() {
-            SIGNAL_ERR_INVALID_KEY_ID
-        } else {
-            // Put the result in the record.
-            unsafe {
-                *record = signal_buffer::from_slice(&buffer);
+        if let Some(buffer) = buffer {
+            // If the record is empty, that means "not found".
+            if buffer.is_empty() {
+                SIGNAL_ERR_INVALID_KEY_ID
+            } else {
+                // Put the result in the record.
+                unsafe {
+                    *record = signal_buffer::from_slice(&buffer);
+                }
+                SIGNAL_SUCCESS
             }
-            SIGNAL_SUCCESS
+        } else {
+            SIGNAL_ERR_INVALID_KEY_ID
         }
     })
 }
