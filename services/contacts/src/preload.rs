@@ -14,16 +14,16 @@ pub const CONTACTS_PRELOAD_FILE_PATH: &str = "/system/b2g/defaults/contacts.json
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("SQlite error")]
+    #[error("SQlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
-    #[error("Serde JSON error")]
+    #[error("Serde JSON error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("Parse Time Error")]
+    #[error("Parse Time Error: {0}")]
     ParseTime(#[from] chrono::format::ParseError),
     #[error("Time Error")]
     Time(String),
-    #[error("IO Error")]
-    IO(#[from] std::io::Error),
+    #[error("IO Error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -84,9 +84,9 @@ pub struct JsonContactInfo {
 impl Default for ContactField {
     fn default() -> Self {
         ContactField {
-            atype: String::new(),
+            atype: None,
             value: String::new(),
-            pref: false,
+            pref: Some(false),
         }
     }
 }
@@ -94,10 +94,10 @@ impl Default for ContactField {
 impl Default for ContactTelField {
     fn default() -> Self {
         ContactTelField {
-            atype: String::new(),
+            atype: None,
             value: String::new(),
-            pref: false,
-            carrier: String::new(),
+            pref: Some(false),
+            carrier: None,
         }
     }
 }
@@ -105,7 +105,7 @@ impl Default for ContactTelField {
 impl Default for Address {
     fn default() -> Self {
         Address {
-            atype: String::new(),
+            atype: None,
             street_address: None,
             locality: None,
             region: None,
@@ -128,37 +128,23 @@ fn json_string_to_systemtime(time_str: String) -> Result<SystemTime, Error> {
 
 impl From<&JsonContactField> for ContactField {
     fn from(json_contact_field: &JsonContactField) -> Self {
-        let mut contact_field = ContactField::default();
-
-        if let Some(atype) = &json_contact_field.atype {
-            contact_field.atype = atype.to_string();
+        ContactField {
+            atype: json_contact_field.atype.clone(),
+            value: json_contact_field.value.clone().unwrap_or_default(),
+            pref: json_contact_field.pref,
         }
-        if let Some(value) = &json_contact_field.value {
-            contact_field.value = value.to_string();
-        }
-        if let Some(pref) = &json_contact_field.pref {
-            contact_field.pref = *pref;
-        }
-
-        contact_field
     }
 }
 
 impl From<&JsonContactTelField> for ContactTelField {
     fn from(json_tel_field: &JsonContactTelField) -> Self {
-        let mut contact_tel_field = ContactTelField::default();
-
-        if let Some(atype) = &json_tel_field.atype {
-            contact_tel_field.atype = atype.to_string();
-        }
+        let mut contact_tel_field = ContactTelField {
+            pref: json_tel_field.pref,
+            carrier: json_tel_field.carrier.clone(),
+            ..Default::default()
+        };
         if let Some(value) = &json_tel_field.value {
-            contact_tel_field.value = value.to_string();
-        }
-        if let Some(pref) = &json_tel_field.pref {
-            contact_tel_field.pref = *pref;
-        }
-        if let Some(carrier) = &json_tel_field.carrier {
-            contact_tel_field.carrier = carrier.to_string();
+            contact_tel_field.value = value.into();
         }
 
         contact_tel_field
@@ -167,84 +153,48 @@ impl From<&JsonContactTelField> for ContactTelField {
 
 impl From<&JsonAddress> for Address {
     fn from(json_address: &JsonAddress) -> Self {
-        let mut address = Address::default();
-
-        if let Some(atype) = &json_address.atype {
-            address.atype = atype.to_string();
+        Address {
+            atype: json_address.atype.clone(),
+            street_address: json_address.street_address.clone(),
+            locality: json_address.locality.clone(),
+            region: json_address.region.clone(),
+            postal_code: json_address.postal_code.clone(),
+            country_name: json_address.country_name.clone(),
+            pref: json_address.pref,
         }
-        if let Some(street_address) = &json_address.street_address {
-            address.street_address = Some(street_address.to_string());
-        }
-        if let Some(locality) = &json_address.locality {
-            address.locality = Some(locality.to_string());
-        }
-        if let Some(region) = &json_address.region {
-            address.region = Some(region.to_string());
-        }
-        if let Some(postal_code) = &json_address.postal_code {
-            address.postal_code = Some(postal_code.to_string());
-        }
-        if let Some(country_name) = &json_address.country_name {
-            address.country_name = Some(country_name.to_string());
-        }
-        if let Some(pref) = &json_address.pref {
-            address.pref = Some(*pref);
-        }
-
-        address
     }
 }
 
 impl From<&JsonContactInfo> for ContactInfo {
     fn from(json_contact: &JsonContactInfo) -> Self {
-        let mut contact = ContactInfo::default();
-
-        if let Some(sex) = &json_contact.sex {
-            contact.sex = sex.to_string();
-        }
-
-        if let Some(gender_identity) = &json_contact.gender_identity {
-            contact.gender_identity = gender_identity.to_string();
-        }
-
-        if let Some(ringtone) = &json_contact.ringtone {
-            contact.ringtone = ringtone.to_string();
-        }
-
-        if let Some(photo_type) = &json_contact.photo_type {
-            contact.photo_type = photo_type.to_string();
-        }
-
-        if let Some(name) = &json_contact.name {
-            contact.name = name.to_string();
-        }
-
-        if let Some(given_name) = &json_contact.given_name {
-            contact.given_name = given_name.to_string();
-        }
-
-        if let Some(phonetic_given_name) = &json_contact.phonetic_given_name {
-            contact.phonetic_given_name = phonetic_given_name.to_string();
-        }
-
-        if let Some(family_name) = &json_contact.family_name {
-            contact.family_name = family_name.to_string();
-        }
-
-        if let Some(phonetic_family_name) = &json_contact.phonetic_family_name {
-            contact.phonetic_family_name = phonetic_family_name.to_string();
-        }
+        let mut contact = ContactInfo {
+            sex: json_contact.sex.clone(),
+            gender_identity: json_contact.gender_identity.clone(),
+            ringtone: json_contact.ringtone.clone(),
+            photo_type: json_contact.photo_type.clone(),
+            name: json_contact.name.clone(),
+            given_name: json_contact.given_name.clone(),
+            phonetic_given_name: json_contact.phonetic_given_name.clone(),
+            family_name: json_contact.family_name.clone(),
+            phonetic_family_name: json_contact.phonetic_family_name.clone(),
+            honorific_prefix: json_contact.honorific_prefix.clone(),
+            additional_name: json_contact.additional_name.clone(),
+            honorific_suffix: json_contact.honorific_suffix.clone(),
+            nickname: json_contact.nickname.clone(),
+            category: json_contact.category.clone(),
+            org: json_contact.org.clone(),
+            job_title: json_contact.job_title.clone(),
+            note: json_contact.note.clone(),
+            groups: json_contact.groups.clone(),
+            ..Default::default()
+        };
 
         if let Some(time_str) = json_contact.bday.as_ref() {
-            if let Ok(time) = json_string_to_systemtime(time_str.to_string()) {
-                contact.bday = time;
-            }
+            contact.bday = json_string_to_systemtime(time_str.to_string()).ok();
         }
 
         if let Some(time_str) = json_contact.anniversary.as_ref() {
-            if let Ok(time) = json_string_to_systemtime(time_str.to_string()) {
-                contact.anniversary = time;
-            }
+            contact.anniversary = json_string_to_systemtime(time_str.to_string()).ok();
         }
 
         let mut email_array: Vec<ContactField> = Vec::new();
@@ -282,16 +232,6 @@ impl From<&JsonContactInfo> for ContactInfo {
             contact.addresses = Some(addresses_array);
         }
 
-        contact.honorific_prefix = json_contact.honorific_prefix.clone();
-        contact.additional_name = json_contact.additional_name.clone();
-        contact.honorific_suffix = json_contact.honorific_suffix.clone();
-        contact.nickname = json_contact.nickname.clone();
-        contact.category = json_contact.category.clone();
-        contact.org = json_contact.org.clone();
-        contact.job_title = json_contact.job_title.clone();
-        contact.note = json_contact.note.clone();
-        contact.groups = json_contact.groups.clone();
-
         contact
     }
 }
@@ -304,9 +244,9 @@ fn import_contacts_to_db(
         let tx = connection.transaction()?;
         let mut contact = contact_info.clone();
 
-        contact.id = Uuid::new_v4().to_string();
-        contact.published = SystemTime::from(std::time::SystemTime::now());
-        debug!("save current contact id is {}", contact.id);
+        contact.id = Some(Uuid::new_v4().to_string());
+        contact.published = Some(SystemTime::from(std::time::SystemTime::now()));
+        debug!("save current contact id is {:?}", contact.id);
 
         if let Err(err) = contact.save_main_data(&tx) {
             error!("save_main_data error: {}, continue", err);

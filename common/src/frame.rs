@@ -10,7 +10,7 @@ use thiserror::Error as ThisError;
 #[derive(ThisError, Debug)]
 pub enum Error {
     #[error("IO Error: {0}")]
-    IO(#[from] ::std::io::Error),
+    Io(#[from] ::std::io::Error),
     #[error("Bincode Error: {0}")]
     Bincode(#[from] bincode::Error),
 }

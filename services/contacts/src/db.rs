@@ -29,9 +29,9 @@ const MIN_MATCH_DIGITS: usize = 7;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("SQlite error")]
+    #[error("SQlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
-    #[error("Serde JSON error")]
+    #[error("Serde JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("Invalid FilterOption error")]
     InvalidFilterOption(String),
@@ -41,7 +41,7 @@ pub enum Error {
     IcePositionUsed(String),
     #[error("Read File Error")]
     File(String),
-    #[error("Parse Time Error")]
+    #[error("Parse Time Error: {0}")]
     ParseTime(#[from] chrono::format::ParseError),
     #[error("Time Error")]
     Time(String),
@@ -121,9 +121,15 @@ impl DatabaseUpgrader for ContactsSchemaManager {
         }
 
         if let Err(err) = load_contacts_to_db(CONTACTS_PRELOAD_FILE_PATH, connection) {
-            error!("Failed to load default contacts: {}", err);
+            error!(
+                "Failed to load default contacts from {}: {}",
+                CONTACTS_PRELOAD_FILE_PATH, err
+            );
         } else {
-            debug!("Default contacts loaded successfully");
+            debug!(
+                "Default contacts loaded successfully from {}",
+                CONTACTS_PRELOAD_FILE_PATH
+            );
         }
 
         true
@@ -143,7 +149,7 @@ fn format_phone_number(number: &str) -> String {
     };
 
     if let Ok(phone_number) = phonenumber::parse(Some(countr_code), &number) {
-        let mut result = "".to_string();
+        let mut result = String::new();
         result.push_str(&phone_number.format().mode(Mode::International).to_string());
         result.push_str(&phone_number.format().mode(Mode::National).to_string());
         result.push_str(&phone_number.format().mode(Mode::Rfc3966).to_string());
@@ -160,21 +166,21 @@ pub fn row_to_contact_id(row: &Row) -> Result<String, Error> {
     Ok(row.get(column)?)
 }
 
-impl Into<String> for SortOption {
-    fn into(self) -> String {
-        match self {
-            Self::GivenName => "given_name".to_string(),
-            Self::FamilyName => "family_name".to_string(),
-            Self::Name => "name".to_string(),
+impl From<SortOption> for String {
+    fn from(value: SortOption) -> String {
+        match value {
+            SortOption::GivenName => "given_name".to_string(),
+            SortOption::FamilyName => "family_name".to_string(),
+            SortOption::Name => "name".to_string(),
         }
     }
 }
 
-impl Into<String> for Order {
-    fn into(self) -> String {
-        match self {
-            Self::Ascending => "ASC".to_string(),
-            Self::Descending => "DESC".to_string(),
+impl From<Order> for String {
+    fn from(value: Order) -> String {
+        match value {
+            Order::Ascending => "ASC".to_string(),
+            Order::Descending => "DESC".to_string(),
         }
     }
 }
@@ -207,27 +213,27 @@ struct AdditionalRowData {
 impl Default for ContactInfo {
     fn default() -> Self {
         ContactInfo {
-            id: "".to_string(),
-            published: SystemTime::from(UNIX_EPOCH),
-            updated: SystemTime::from(UNIX_EPOCH),
-            bday: SystemTime::from(UNIX_EPOCH),
-            anniversary: SystemTime::from(UNIX_EPOCH),
-            sex: "".to_string(),
-            gender_identity: "".to_string(),
-            ringtone: "".to_string(),
-            photo_type: "".to_string(),
-            photo_blob: vec![],
+            id: None,
+            published: Some(SystemTime::from(UNIX_EPOCH)),
+            updated: Some(SystemTime::from(UNIX_EPOCH)),
+            bday: Some(SystemTime::from(UNIX_EPOCH)),
+            anniversary: Some(SystemTime::from(UNIX_EPOCH)),
+            sex: None,
+            gender_identity: None,
+            ringtone: None,
+            photo_type: None,
+            photo_blob: None,
             addresses: None,
             email: None,
             url: None,
-            name: "".to_string(),
+            name: None,
             tel: None,
             honorific_prefix: None,
-            given_name: "".to_string(),
-            phonetic_given_name: "".to_string(),
+            given_name: None,
+            phonetic_given_name: None,
             additional_name: None,
-            family_name: "".to_string(),
-            phonetic_family_name: "".to_string(),
+            family_name: None,
+            phonetic_family_name: None,
             honorific_suffix: None,
             nickname: None,
             category: None,
@@ -268,7 +274,7 @@ impl From<&ContactInfo> for SimContactInfo {
                 let tels: Vec<String> = tel.iter().map(|x| x.value.clone()).collect();
                 tels.join("\u{001E}")
             }
-            None => "".to_string(),
+            None => String::new(),
         };
 
         let email_string = match &contact_info.email {
@@ -276,17 +282,17 @@ impl From<&ContactInfo> for SimContactInfo {
                 let emails: Vec<String> = email.iter().map(|x| x.value.clone()).collect();
                 emails.join("\u{001E}")
             }
-            None => "".to_string(),
+            None => String::new(),
         };
 
         let category_string = match &contact_info.category {
             Some(category) => category.join("\u{001E}"),
-            None => "".to_string(),
+            None => String::new(),
         };
 
         SimContactInfo {
-            id: contact_info.id.clone(),
-            name: contact_info.name.clone(),
+            id: contact_info.id.clone().unwrap_or_default(),
+            name: contact_info.name.clone().unwrap_or_default(),
             email: email_string,
             tel: tel_string,
             category: category_string,
@@ -297,10 +303,10 @@ impl From<&ContactInfo> for SimContactInfo {
 impl From<&SimContactInfo> for ContactInfo {
     fn from(sim_contact_info: &SimContactInfo) -> Self {
         let mut contact = ContactInfo {
-            id: sim_contact_info.id.to_string(),
-            name: sim_contact_info.name.to_string(),
-            family_name: sim_contact_info.name.to_string(),
-            given_name: sim_contact_info.name.to_string(),
+            id: Some(sim_contact_info.id.to_string()),
+            name: Some(sim_contact_info.name.to_string()),
+            family_name: Some(sim_contact_info.name.to_string()),
+            given_name: Some(sim_contact_info.name.to_string()),
             ..Default::default()
         };
 
@@ -308,10 +314,10 @@ impl From<&SimContactInfo> for ContactInfo {
         let tels = sim_tels
             .iter()
             .map(|x| ContactTelField {
-                atype: "".to_string(),
+                atype: None,
                 value: (*x).to_string(),
-                pref: false,
-                carrier: "".to_string(),
+                pref: Some(false),
+                carrier: None,
             })
             .collect();
         contact.tel = Some(tels);
@@ -320,9 +326,9 @@ impl From<&SimContactInfo> for ContactInfo {
         let emails = sim_emails
             .iter()
             .map(|x| ContactField {
-                atype: "".to_string(),
+                atype: None,
                 value: (*x).to_string(),
-                pref: false,
+                pref: Some(false),
             })
             .collect();
         contact.email = Some(emails);
@@ -334,8 +340,8 @@ impl From<&SimContactInfo> for ContactInfo {
             .collect();
         contact.category = Some(categories);
 
-        contact.published = SystemTime::from(std::time::SystemTime::now());
-        contact.updated = SystemTime::from(std::time::SystemTime::now());
+        contact.published = Some(SystemTime::from(std::time::SystemTime::now()));
+        contact.updated = Some(SystemTime::from(std::time::SystemTime::now()));
 
         contact
     }
@@ -351,7 +357,7 @@ fn fill_vec_field<T>(field: &mut Option<Vec<T>>, value: T) {
 
 fn save_vec_field(
     stmt: &mut Statement,
-    id: &str,
+    id: &Option<String>,
     stype: &str,
     datas: &Option<Vec<String>>,
 ) -> Result<(), Error> {
@@ -363,40 +369,59 @@ fn save_vec_field(
     Ok(())
 }
 
-fn save_str_field(stmt: &mut Statement, id: &str, stype: &str, data: &str) -> Result<(), Error> {
-    if !data.is_empty() {
+fn save_str_field(
+    stmt: &mut Statement,
+    id: &Option<String>,
+    stype: &str,
+    data: &Option<String>,
+) -> Result<(), Error> {
+    if let Some(data) = data {
         stmt.insert(&[&id as &dyn rusqlite::ToSql, &stype.to_string(), &data])?;
     }
     Ok(())
 }
 
+// Converts a value to Some(val) if it's not the default for this type,
+// and to None otherwise.
+fn maybe<T>(val: T) -> Option<T>
+where
+    T: Default + PartialEq,
+{
+    if val == T::default() {
+        None
+    } else {
+        Some(val)
+    }
+}
+
 impl ContactInfo {
     pub fn fill_main_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
-        self.id = id.into();
+        self.id = Some(id.into());
         let mut stmt = conn.prepare(
             "SELECT contact_id, name, family_name, given_name, tel_json, email_json,
         photo_type, photo_blob, published, updated, bday, anniversary, category, category_json FROM
         contact_main WHERE contact_id=:id",
         )?;
 
-        let rows = stmt.query_map_named(&[(":id", &self.id)], |row| {
-            Ok(MainRowData {
-                contact_id: row.get(0)?,
-                name: row.get(1)?,
-                family_name: row.get(2)?,
-                given_name: row.get(3)?,
-                tel_json: row.get(4)?,
-                email_json: row.get(5)?,
-                photo_type: row.get(6)?,
-                photo_blob: row.get(7)?,
-                published: row.get(8)?,
-                updated: row.get(9)?,
-                bday: row.get(10)?,
-                anniversary: row.get(11)?,
-                category: row.get(12)?,
-                category_json: row.get(13)?,
-            })
-        })?;
+        let rows =
+            stmt.query_map_named(&[(":id", &(self.id.clone().unwrap_or_default()))], |row| {
+                Ok(MainRowData {
+                    contact_id: row.get(0)?,
+                    name: row.get(1)?,
+                    family_name: row.get(2)?,
+                    given_name: row.get(3)?,
+                    tel_json: row.get(4)?,
+                    email_json: row.get(5)?,
+                    photo_type: row.get(6)?,
+                    photo_blob: row.get(7)?,
+                    published: row.get(8)?,
+                    updated: row.get(9)?,
+                    bday: row.get(10)?,
+                    anniversary: row.get(11)?,
+                    category: row.get(12)?,
+                    category_json: row.get(13)?,
+                })
+            })?;
 
         let mut rows = rows.peekable();
         if rows.peek().is_none() {
@@ -408,9 +433,9 @@ impl ContactInfo {
         for result_row in rows {
             let row = result_row?;
             debug!("Current row data is {:#?}", row);
-            self.name = row.name;
-            self.family_name = row.family_name;
-            self.given_name = row.given_name;
+            self.name = maybe(row.name);
+            self.family_name = maybe(row.family_name);
+            self.given_name = maybe(row.given_name);
 
             if !row.tel_json.is_empty() {
                 let tel: Vec<ContactTelField> = serde_json::from_str(&row.tel_json)?;
@@ -427,31 +452,31 @@ impl ContactInfo {
                 self.category = Some(category);
             }
 
-            self.photo_type = row.photo_type;
-            self.photo_blob = row.photo_blob;
+            self.photo_type = maybe(row.photo_type);
+            self.photo_blob = maybe(row.photo_blob);
 
             if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.published as u64)) {
-                self.published = SystemTime::from(time);
+                self.published = Some(SystemTime::from(time));
             }
 
             if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.updated as u64)) {
-                self.updated = SystemTime::from(time);
+                self.updated = Some(SystemTime::from(time));
             }
 
             if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.bday as u64)) {
-                self.bday = SystemTime::from(time);
+                self.bday = Some(SystemTime::from(time));
             }
 
             if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.anniversary as u64))
             {
-                self.anniversary = SystemTime::from(time);
+                self.anniversary = Some(SystemTime::from(time));
             }
         }
         Ok(())
     }
 
     pub fn fill_additional_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
-        self.id = id.into();
+        self.id = Some(id.into());
         let mut stmt = conn.prepare(
             "SELECT contact_id, data_type, value FROM contact_additional WHERE contact_id=:id",
         )?;
@@ -468,9 +493,9 @@ impl ContactInfo {
             if row.data_type == "honorific_prefix" {
                 fill_vec_field(&mut self.honorific_prefix, row.value);
             } else if row.data_type == "phonetic_given_name" {
-                self.phonetic_given_name = row.value;
+                self.phonetic_given_name = maybe(row.value);
             } else if row.data_type == "phonetic_family_name" {
-                self.phonetic_family_name = row.value;
+                self.phonetic_family_name = maybe(row.value);
             } else if row.data_type == "additional_name" {
                 fill_vec_field(&mut self.additional_name, row.value);
             } else if row.data_type == "honorific_suffix" {
@@ -489,11 +514,11 @@ impl ContactInfo {
                     self.addresses = Some(addr);
                 }
             } else if row.data_type == "ringtone" {
-                self.ringtone = row.value;
+                self.ringtone = maybe(row.value);
             } else if row.data_type == "gender_identity" {
-                self.gender_identity = row.value;
+                self.gender_identity = maybe(row.value);
             } else if row.data_type == "sex" {
-                self.sex = row.value;
+                self.sex = maybe(row.value);
             } else if row.data_type == "url" {
                 if !row.value.is_empty() {
                     let url: Vec<ContactField> = serde_json::from_str(&row.value)?;
@@ -504,7 +529,7 @@ impl ContactInfo {
             } else if row.data_type == "ice_position" {
                 self.ice_position = row.value.parse().unwrap_or(0);
             } else {
-                error!("Unknown type in addtional :{}", row.data_type);
+                error!("Unknown type in additional data: {}", row.data_type);
             }
         }
         Ok(())
@@ -516,7 +541,7 @@ impl ContactInfo {
             anniversary, category, category_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")?;
 
         let mut tel_number: String = "\u{001E}".to_string();
-        let mut tel_json = "".to_string();
+        let mut tel_json = String::new();
         if let Some(tels) = &self.tel {
             for tel in tels {
                 tel_number += &tel.value;
@@ -532,7 +557,7 @@ impl ContactInfo {
         }
 
         let mut email_address = "\u{001E}".to_string();
-        let mut email_json = "".to_string();
+        let mut email_json = String::new();
         if let Some(emails) = &self.email {
             for email in emails {
                 email_address += &email.value;
@@ -544,7 +569,7 @@ impl ContactInfo {
         }
 
         let mut category = "\u{001E}".to_string();
-        let mut category_json = "".to_string();
+        let mut category_json = String::new();
         if let Some(categories) = &self.category {
             for item in categories {
                 category += item;
@@ -555,37 +580,59 @@ impl ContactInfo {
             category_json = serde_json::to_string(categories)?;
         }
 
+        let epoch: common::SystemTime = UNIX_EPOCH.into();
+
         let mut published = 0;
-        if let Ok(duration) = self.published.duration_since(UNIX_EPOCH) {
+        if let Ok(duration) = self
+            .published
+            .as_ref()
+            .unwrap_or(&epoch)
+            .duration_since(UNIX_EPOCH)
+        {
             published = duration.as_secs() as i64;
         }
 
         let mut updated = 0;
-        if let Ok(duration) = self.updated.duration_since(UNIX_EPOCH) {
+        if let Ok(duration) = self
+            .updated
+            .as_ref()
+            .unwrap_or(&epoch)
+            .duration_since(UNIX_EPOCH)
+        {
             updated = duration.as_secs() as i64;
         }
 
         let mut bday = 0;
-        if let Ok(duration) = self.bday.duration_since(UNIX_EPOCH) {
+        if let Ok(duration) = self
+            .bday
+            .as_ref()
+            .unwrap_or(&epoch)
+            .duration_since(UNIX_EPOCH)
+        {
             bday = duration.as_secs() as i64;
         }
 
         let mut anniversary = 0;
-        if let Ok(duration) = self.anniversary.duration_since(UNIX_EPOCH) {
+        if let Ok(duration) = self
+            .anniversary
+            .as_ref()
+            .unwrap_or(&epoch)
+            .duration_since(UNIX_EPOCH)
+        {
             anniversary = duration.as_secs() as i64;
         }
 
         stmt_ins.insert(&[
             &self.id as &dyn rusqlite::ToSql,
-            &self.name,
-            &self.family_name,
-            &self.given_name,
+            &self.name.clone().unwrap_or_default(),
+            &self.family_name.clone().unwrap_or_default(),
+            &self.given_name.clone().unwrap_or_default(),
             &tel_number,
             &tel_json,
             &email_address,
             &email_json,
-            &self.photo_type,
-            &self.photo_blob,
+            &self.photo_type.clone().unwrap_or_default(),
+            &self.photo_blob.clone().unwrap_or_default(),
             &published,
             &updated,
             &bday,
@@ -602,9 +649,10 @@ impl ContactInfo {
                 // So delete first and then insert.
                 tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&self.id])?;
                 let sim_info: SimContactInfo = self.into();
+                let hash = Some(hash(&sim_info).to_string());
                 tx.execute(
                     "INSERT INTO sim_contact_hash (id, hash) VALUES(?, ?)",
-                    &[&self.id, &hash(&sim_info).to_string()],
+                    &[&self.id, &hash],
                 )?;
             }
         }
@@ -664,27 +712,27 @@ impl ContactInfo {
                 &mut stmt,
                 &self.id,
                 "ice_position",
-                &self.ice_position.to_string(),
+                &Some(self.ice_position.to_string()),
             )?;
         }
 
         if let Some(addresses) = &self.addresses {
             let json = serde_json::to_string(addresses)?;
-            save_str_field(&mut stmt, &self.id, "addresses", &json)?;
+            save_str_field(&mut stmt, &self.id, "addresses", &Some(json))?;
         }
 
         if let Some(url) = &self.url {
             let json = serde_json::to_string(url)?;
-            save_str_field(&mut stmt, &self.id, "url", &json)?;
+            save_str_field(&mut stmt, &self.id, "url", &Some(json))?;
         }
 
         if let Some(groups) = &self.groups {
             for group in groups {
-                stmt.insert(&[&self.id, "groups", &group])?;
+                stmt.insert(&[&self.id, &Some("groups".into()), &Some(group.clone())])?;
                 // Update the group_contacts when contact with group info.
                 let mut stmt_group =
                     tx.prepare("INSERT INTO group_contacts (group_id, contact_id) VALUES(?, ?)")?;
-                stmt_group.insert(&[&group, &self.id])?;
+                stmt_group.insert(&[&group, &self.id.clone().unwrap_or_default()])?;
             }
         }
 
@@ -752,8 +800,8 @@ impl ContactsDb {
                 .iter()
                 .map(|x| ContactInfo {
                     id: match x {
-                        Ok(id) => id.to_string(),
-                        Err(_) => "".to_string(),
+                        Ok(id) => Some(id.to_string()),
+                        Err(_) => None,
                     },
                     ..Default::default()
                 })
@@ -804,7 +852,7 @@ impl ContactsDb {
                     &[&contact_id],
                 )?;
                 let contact = ContactInfo {
-                    id: contact_id.to_string(),
+                    id: Some(contact_id.to_string()),
                     ..Default::default()
                 };
                 contacts.push(contact);
@@ -830,11 +878,11 @@ impl ContactsDb {
             for contact_info in contacts {
                 let mut contact = contact_info.clone();
                 if is_update {
-                    if contact.id.is_empty() {
+                    if contact.id.is_none() {
                         debug!("Try to update a contact without contact id, ignore it");
                         continue;
                     }
-                    contact.updated = SystemTime::from(std::time::SystemTime::now());
+                    contact.updated = Some(SystemTime::from(std::time::SystemTime::now()));
                     tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&contact.id])?;
                     tx.execute(
                         "DELETE FROM contact_additional WHERE contact_id = ?",
@@ -848,12 +896,12 @@ impl ContactsDb {
                         "DELETE FROM contact_main WHERE contact_id = ?",
                         &[&contact.id],
                     )?;
-                    contact.updated = SystemTime::from(std::time::SystemTime::now());
+                    contact.updated = Some(SystemTime::from(std::time::SystemTime::now()));
                 } else {
-                    contact.id = Uuid::new_v4().to_string();
-                    contact.published = SystemTime::from(std::time::SystemTime::now());
+                    contact.id = Some(Uuid::new_v4().to_string());
+                    contact.published = Some(SystemTime::from(std::time::SystemTime::now()));
                 }
-                debug!("Save current contact id is {}", contact.id);
+                debug!("Save current contact id is {:?}", contact.id);
 
                 if let Err(err) = contact.save_main_data(&tx) {
                     error!("save_main_data error: {}, continue", err);
@@ -1006,7 +1054,7 @@ impl ContactsDb {
                             // Matching from back to front, If the filter_value length is greater
                             // Than MIN_MATCH_DIGITS, take the last MIN_MATCH_DIGITS length string.
                             let filter_value = &options.filter_value;
-                            let mut slice = "".to_string();
+                            let mut slice = String::new();
                             if filter_value.len() > MIN_MATCH_DIGITS {
                                 let start = filter_value.len() - MIN_MATCH_DIGITS;
                                 if let Some(value_slice) =
@@ -1041,7 +1089,7 @@ impl ContactsDb {
                                     format_phone_number(&options.filter_value)
                                 )
                             } else {
-                                "".to_string()
+                                String::new()
                             }
                         }
                     };
@@ -1197,9 +1245,9 @@ impl ContactsDb {
                             fill_vec_field(
                                 &mut contact.email,
                                 ContactField {
-                                    atype: "".to_string(),
+                                    atype: None,
                                     value: email_vcard.clone(),
-                                    pref: false,
+                                    pref: Some(false),
                                 },
                             );
                         }
@@ -1208,15 +1256,15 @@ impl ContactsDb {
                             fill_vec_field(
                                 &mut contact.tel,
                                 ContactTelField {
-                                    atype: "".to_string(),
+                                    atype: None,
                                     value: tel_vcard.clone(),
-                                    pref: false,
-                                    carrier: "".to_string(),
+                                    pref: Some(false),
+                                    carrier: None,
                                 },
                             );
                         }
                     } else if prop.name == "FN" {
-                        contact.name = prop.value.unwrap_or_else(|| "".into());
+                        contact.name = prop.value;
                     } else if prop.name == "TITLE" {
                         fill_vec_field(
                             &mut contact.job_title,
@@ -1398,8 +1446,8 @@ impl ContactsDb {
                 reason: ChangeReason::Remove,
                 speeddial: SpeedDialInfo {
                     dial_key: dial_key.to_string(),
-                    tel: "".to_string(),
-                    contact_id: "".to_string(),
+                    tel: String::new(),
+                    contact_id: String::new(),
                 },
             };
             self.event_broadcaster.broadcast_speeddial_change(event);
@@ -1422,7 +1470,7 @@ impl ContactsDb {
         let event = GroupChangeEvent {
             reason: ChangeReason::Remove,
             group: GroupInfo {
-                name: "".to_string(),
+                name: String::new(),
                 id: id.to_string(),
             },
         };
@@ -1476,7 +1524,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt =
             conn.prepare("SELECT contact_id FROM group_contacts WHERE group_id IS :group_id")?;
-        let rows = stmt.query_map(&[group_id], |row| Ok(row.get(0)?))?;
+        let rows = stmt.query_map(&[group_id], |row| row.get(0))?;
 
         Ok(rows_to_vec(rows))
     }
@@ -1609,12 +1657,12 @@ mod test {
         assert_eq!(db.count().unwrap(), 0);
 
         let bob = ContactInfo {
-            name: "Bob".to_string(),
+            name: Some("Bob".to_string()),
             ..Default::default()
         };
 
         let alice = ContactInfo {
-            name: "alice".to_string(),
+            name: Some("alice".to_string()),
             ..Default::default()
         };
 
@@ -1650,7 +1698,7 @@ mod test {
 
         if let Ok(contact) = db.get(&"0001".to_string(), true) {
             // Verify import sim_contact_1's data sucessful.
-            assert_eq!(contact.name, "Ted".to_string());
+            assert_eq!(contact.name.unwrap(), "Ted");
             let tel = contact.tel.unwrap();
             assert_eq!(tel[0].value, "13682628272".to_string());
             assert_eq!(tel[1].value, "18812345678".to_string());
@@ -1675,7 +1723,7 @@ mod test {
 
         if let Ok(contact) = db.get(&"0001".to_string(), true) {
             // Verify sim_contact_1's name update to "Jack".
-            assert_eq!(contact.name, "Jack".to_string());
+            assert_eq!(contact.name.unwrap(), "Jack");
         }
 
         let mut cursor = db
@@ -1683,7 +1731,7 @@ mod test {
                 ContactSortOptions {
                     sort_by: SortOption::Name,
                     sort_order: Order::Ascending,
-                    sort_language: "".to_string(),
+                    sort_language: None,
                 },
                 10,
                 true,
@@ -1692,7 +1740,7 @@ mod test {
 
         let contacts = cursor.next().unwrap();
         for contact in contacts {
-            assert_eq!(contact.name, "Jack".to_string());
+            assert_eq!(contact.name.unwrap(), "Jack");
         }
         // Verify sim_contact_2 is removed.
         assert_eq!(db.count().unwrap(), 1);
@@ -1768,7 +1816,7 @@ mod test {
                 ContactSortOptions {
                     sort_by: SortOption::Name,
                     sort_order: Order::Ascending,
-                    sort_language: "".to_string(),
+                    sort_language: None,
                 },
                 10,
                 true,
@@ -1777,7 +1825,7 @@ mod test {
 
         let contacts = cursor.next().unwrap();
         for i in 0..contacts.len() {
-            assert_eq!(contacts[i].name, sim_contacts[i].name);
+            assert_eq!(contacts[i].name.clone().unwrap(), sim_contacts[i].name);
         }
 
         db.import_sim_contacts(&[]).unwrap();

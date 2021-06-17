@@ -803,9 +803,9 @@ impl Codegen {
                 }
                 first = false;
                 match item.typ.typ {
-                    ConcreteType::Dictionary(_)
-                    | ConcreteType::Interface(_)
-                    | ConcreteType::Enumeration(_) => writeln!(sink, "result")?,
+                    ConcreteType::Dictionary(_) | ConcreteType::Interface(_) => {
+                        writeln!(sink, "result")?
+                    }
                     _ => writeln!(sink, "result.{}", item.name.clone().unwrap())?,
                 }
             }

@@ -230,7 +230,7 @@ impl ContactsFactoryMethods for ContactsService {
         let options = ContactFindSortOptions {
             sort_by: SortOption::Name,
             sort_order: Order::Ascending,
-            sort_language: "".into(),
+            sort_language: None,
             filter_value: value,
             filter_option: filter,
             filter_by: vec![filter_by_option],

@@ -39,7 +39,6 @@
           updated: new Date(),
           bday: new Date(),
           anniversary: new Date(),
-          photoBlob: [],
           name: "ZX",
           tel: [{ value: "789456" }],
         };
@@ -63,10 +62,10 @@
         );
 
         await tester.assert_rej_eq(
-            "verify search 1 result is empty",
-            () => search_contain_1_cursor.next(),
-            {}
-          );
+          "verify search 1 result is empty",
+          () => search_contain_1_cursor.next(),
+          {}
+        );
 
         search_contain_1_cursor.release();
 
@@ -136,7 +135,6 @@
 
         // Add contact.
         let contact_1 = {
-          id: "",
           published: new Date(),
           updated: new Date(),
           bday: new Date(),
@@ -145,7 +143,6 @@
           genderIdentity: "456",
           ringtone: "789",
           photoType: "jpeg",
-          photoBlob: [],
           addresses: [
             { streetAddress: "TIAN WANG GAI DIHU", countryName: "China" },
           ],
@@ -188,7 +185,6 @@
         };
 
         let contact_2 = {
-          id: "",
           published: new Date(),
           updated: new Date(),
           bday: new Date(),
@@ -197,7 +193,6 @@
           genderIdentity: "gender",
           ringtone: "000",
           photoType: "jpeg",
-          photoBlob: [],
           addresses: [{ streetAddress: "", countryName: "Uk" }],
           email: [{ atype: "office", value: "hp@mail.com", pref: false }],
           url: [{ atype: "home", value: "www.os.com", pref: true }],
@@ -452,7 +447,6 @@
           updated: new Date(),
           bday: new Date(),
           anniversary: new Date(),
-          photoBlob: [],
           name: "contact_with_group",
           groups: [group_colleague.id],
         };
@@ -521,13 +515,13 @@
 
         // Db side will remove nothing when provide a none exist contact id.
         await tester.assert_rej_eq(
-          "verify remove a none exist contact ",
+          "verify remove a non-existent contact",
           (service) => service.remove(["99999999", "6666666666"]),
           {}
         );
 
         await tester.assert_eq(
-          "verify contact count is 2 after remvoe a none exist contact ",
+          "verify contact count is 2 after removing a non-existent contact",
           (service) => service.getCount(),
           2
         );
@@ -556,7 +550,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Alpha",
             givenName: "bob",
             familyName: "Catrl",
@@ -571,7 +564,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Beta",
             familyName: "Cmkj",
             givenName: "Catrl",
@@ -586,7 +578,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Cargo",
             familyName: "Hualin",
             givenName: "bob",
@@ -603,7 +594,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "ZhangSan",
             familyName: "Ji",
             givenName: "Ke",
@@ -767,7 +757,8 @@
           20
         );
 
-        let match_international_result = await match_with_international_cursor.next();
+        let match_international_result =
+          await match_with_international_cursor.next();
 
         console.log(match_international_result);
 
@@ -938,7 +929,8 @@
           "Willie A. Christopher",
           "Willie J. Mitchell",
         ];
-        let find_startwith_name_result = await find_stratwith_name_cursor.next();
+        let find_startwith_name_result =
+          await find_stratwith_name_cursor.next();
         for (let i = 0; i < expected_startwith_wil.length; i++) {
           await tester.assert_eq(
             `find start with wil asc item #${i + 1}/5`,
@@ -992,7 +984,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Alex",
             tel: [
               { value: "181999999" },
@@ -1008,7 +999,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Bob",
             tel: [
               { value: "123456788" },
@@ -1024,7 +1014,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "zhangsan",
             tel: [
               { value: "453323" },
@@ -1047,7 +1036,6 @@
           updated: new Date(),
           bday: new Date(),
           anniversary: new Date(),
-          photoBlob: [],
           name: "Harry",
           // The number 92518107320 will also be used to verify tel equals when find.
           tel: [
@@ -1146,7 +1134,8 @@
           20
         );
 
-        let find_equal_92518107320_result = await find_equal_92518107320_cursor.next();
+        let find_equal_92518107320_result =
+          await find_equal_92518107320_cursor.next();
 
         console.log(find_equal_92518107320_result);
 
@@ -1173,7 +1162,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Lili",
             tel: [
               { value: "12348885555" },
@@ -1189,7 +1177,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tom",
             tel: [
               { value: "123456788" },
@@ -1205,7 +1192,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Rich",
             tel: [
               { value: "453323" },
@@ -1263,7 +1249,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tonya",
             email: [
               { value: "Tonya@163.com" },
@@ -1279,7 +1264,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tonyb",
             email: [
               { value: "data@163.com" },
@@ -1295,7 +1279,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "Tonyc",
             email: [
               { value: "test@163.com" },
@@ -1311,7 +1294,6 @@
             updated: new Date(),
             bday: new Date(),
             anniversary: new Date(),
-            photoBlob: [],
             name: "abcTonyd",
             email: [
               { value: "test1@163.com" },

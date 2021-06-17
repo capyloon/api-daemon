@@ -649,6 +649,8 @@ impl Codegen {
 // This file is generated. Do not edit.
 // @generated
 
+#![allow(clippy::large_enum_variant)]
+
 #[allow(unused_imports)]
 use crate::common::{JsonValue, SystemTime, ObjectRef};
 use serde::{Deserialize, Serialize};
@@ -728,6 +730,9 @@ use serde::{Deserialize, Serialize};
         sink.write_all(
             b"// This file is generated. Do not edit.
 // @generated\n
+
+#![allow(clippy::large_enum_variant)]
+
 #[allow(unused_imports)]
 use common::core::{BaseMessage, BaseMessageKind};
 #[allow(unused_imports)]

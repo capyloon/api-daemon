@@ -20,7 +20,7 @@ class SessionStore extends lib_libsignal.SessionStoreBase {
   load(address) {
     this.log(`load`, address);
     let record = this.data[`${address.name}|${address.deviceId}`];
-    return Promise.resolve(record || []);
+    return Promise.resolve(record || new Uint8Array([]));
   }
 
   // fn get_sub_device_sessions(name: str) -> int*
@@ -81,7 +81,7 @@ class KeyStore extends lib_libsignal.KeyStoreBase {
   // fn load(preKey_id: int) -> binary
   load(preKeyId) {
     this.log(`load`, preKeyId, this.record[preKeyId]);
-    return Promise.resolve(this.record[preKeyId] || []);
+    return Promise.resolve(this.record[preKeyId] || new Uint8Array([]));
   }
 
   // fn contains(preKey_id: int) -> bool
@@ -181,7 +181,7 @@ class SenderKeyStore extends lib_libsignal.SenderKeyStoreBase {
   // fn load(sender_key_name: SenderKeyName) -> binary
   load(senderKeyName) {
     this.log(`load`, senderKeyName);
-    return Promise.resolve(this.record || []);
+    return Promise.resolve(this.record || new Uint8Array([]));
   }
 }
 

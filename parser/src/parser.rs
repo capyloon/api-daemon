@@ -13,7 +13,7 @@ pub enum ParserError {
     #[error("End of stream reached")]
     Eof,
     #[error("IO Error")]
-    IO(#[from] ::std::io::Error),
+    Io(#[from] ::std::io::Error),
 }
 
 type Result<T> = ::std::result::Result<T, ParserError>;
