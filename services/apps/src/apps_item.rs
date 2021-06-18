@@ -223,14 +223,6 @@ impl AppsItem {
         self.manifest_hash = hash.to_owned();
     }
 
-    pub fn set_manifest_etag_str(&mut self, etag: &str) {
-        self.manifest_etag = if etag.is_empty() {
-            None
-        } else {
-            Some(etag.into())
-        };
-    }
-
     pub fn set_manifest_etag(&mut self, etag: Option<String>) {
         self.manifest_etag = etag;
     }

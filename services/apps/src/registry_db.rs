@@ -188,7 +188,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let update_time: i64 = row.get("update_time")?;
     let manifest_hash: String = row.get("manifest_hash")?;
     let package_hash: String = row.get("package_hash")?;
-    let manifest_etag: String = row.get("manifest_etag")?;
+    let manifest_etag: Option<String> = row.get("manifest_etag").ok();
 
     let mut item = AppsItem::new(&name);
     item.set_manifest_url(&manifest_url);
@@ -204,7 +204,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     item.set_update_time(update_time as _);
     item.set_manifest_hash(&manifest_hash);
     item.set_package_hash(&package_hash);
-    item.set_manifest_etag_str(&manifest_etag);
+    item.set_manifest_etag(manifest_etag);
     Ok(item)
 }
 
