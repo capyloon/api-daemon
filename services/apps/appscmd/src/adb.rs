@@ -45,13 +45,20 @@ pub(crate) struct AdbDevice {
 }
 
 impl AdbDevice {
-    pub(crate) fn new(port: u16, uds_path: &str) -> Result<Self, AdbError> {
+    pub(crate) fn new(
+        port: u16,
+        uds_path: &str,
+        backup_path: Option<&str>,
+    ) -> Result<Self, AdbError> {
         let host = Host {
             ..Default::default()
         };
         let device = host.device_or_default::<String>(None, AndroidStorageInput::Auto)?;
         debug!("Using device {}", device.serial);
         forward_path_to_port(&device.host, port, uds_path)?;
+        if let Some(path) = backup_path {
+            forward_path_to_port(&device.host, port, path)?;
+        }
         Ok(Self { device })
     }
 

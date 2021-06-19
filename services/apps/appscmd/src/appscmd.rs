@@ -279,7 +279,11 @@ fn run() -> Result<(), CmdLineError> {
     let maybe_device = if opts.socket_path.is_none() {
         // If no socket path is specified, create an adb based device using port forwarding
         // from tcp:6001 to the uds socket on device.
-        Some(AdbDevice::new(FORWARDING_PORT, "/data/local/tmp/apps-uds.sock")?)
+        Some(AdbDevice::new(
+            FORWARDING_PORT,
+            "/data/local/tmp/apps-uds.sock",
+            Some("/data/local/tmp/rust-uds.sock"),
+        )?)
     } else {
         None
     };
