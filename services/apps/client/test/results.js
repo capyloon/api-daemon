@@ -17,6 +17,10 @@ function install_expected(installState, progress=0) {
   return {"name":"ciautotest","installState":installState,"manifestUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateState":0,"updateManifestUrl":"http://cached.localhost:8081/ciautotest/update.webmanifest","updateUrl":"http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://ciautotest.localhost:8081"};
 }
 
+function power_off_installing_expected(installState, progress=0) {
+  return {"name":"testpowerlost","installState":installState,"manifestUrl":"http://testpowerlost.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateState":0,"updateManifestUrl":"http://cached.localhost:8081/testpowerlost/update.webmanifest","updateUrl":"http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://testpowerlost.localhost:8081"};
+}
+
 function update_expected(updateState, allowedAutoDownload=false) {
   return {"name":"ciautotest","installState":0,"manifestUrl":"http://ciautotest.localhost:8081/manifest.webmanifest","removable":true,"status":0,"updateState":updateState,"updateManifestUrl":"http://cached.localhost:8081/ciautotest/update.webmanifest","updateUrl":"http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest","allowedAutoDownload":allowedAutoDownload,"preloaded":false,"progress":0,"origin":"http://ciautotest.localhost:8081"};
 }

@@ -335,30 +335,6 @@
             true,
         );
 
-// Update event
-// - Idle
-// - Available
-// - Downloading
-// - Updating
-// - Pending
-        let on_updated_handler = tester.setup_event(tester.service.APP_UPDATED_EVENT);
-        let on_updating_handler = tester.setup_event(tester.service.APP_UPDATING_EVENT);
-        await tester.assert_eq(
-          "update app",
-          service => service.update("http://ciautotest.localhost:8081/manifest.webmanifest"),
-          update_expected(0)
-        );
-        await tester.assert_event_eq("on updating event", on_updating_handler, update_expected(lib_apps.AppsUpdateState.UPDATING));
-        on_updating_handler.stop();
-        await tester.assert_event_eq("on update event", on_updated_handler, update_expected(lib_apps.AppsUpdateState.IDLE));
-        on_updated_handler.stop();
-
-        await tester.assert_rej_eq(
-          "update invalid app",
-          service => service.update("invalid-app"),
-          AppsServiceError.APP_NOT_FOUND
-        );
-
         await tester.assert_rej_eq(
           "uninstall invalid app",
           service => service.uninstall("invalid-app"),

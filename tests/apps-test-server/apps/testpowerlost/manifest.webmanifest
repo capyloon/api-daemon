@@ -1,0 +1,36 @@
+{
+  "description": "Test installation when power off.",
+  "developer": {
+    "name": "Seinlin",
+    "url": "https://seinlin.org",
+    "supports": {}
+  },
+  "start_url": "/index.html",
+  "icons": {
+    "64": "https://storage.kaiostech.com/v3.0/files/app/D/ETQTdeCNMa5wvMmQqYrJ-pyNfdjqNAf8cDesOH/ICON_IMAGE.png"
+  },
+  "name": "TestPowerLost",
+  "package_path": "http://127.0.0.1:8596/apps/testpowerlost/application.zip",
+  "size": 6761,
+  "packaged_size": 6761,
+  "type": "privileged",
+  "locales": {
+    "en-US": {
+      "name": "TestPowerLost",
+      "subtitle": "",
+      "description": "TestPowerLost"
+    },
+    "zh-TW": {
+      "name": "自動測試",
+      "subtitle": "",
+      "description": "自動測試"
+    }
+  },
+  "default_locale": "en-US",
+  "bgs": {},
+  "screenshots": {},
+  "theme": "#57a5ea",
+  "version": "0.1",
+  "category_list": [90, 400],
+  "paid": false
+}

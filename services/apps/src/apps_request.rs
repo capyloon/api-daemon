@@ -57,9 +57,40 @@ impl Drop for DirRemover {
     }
 }
 
+struct SenderRemover {
+    shared_data: Shared<AppsSharedData>,
+    app_update_url: String,
+    delay_delete: bool,
+}
+
+impl Drop for SenderRemover {
+    fn drop(&mut self) {
+        if !self.delay_delete {
+            remove_canceller(self.shared_data.clone(), &self.app_update_url);
+        }
+    }
+}
+
+impl SenderRemover {
+    pub fn new(shared_data: Shared<AppsSharedData>, app_update_url: &str) -> Self {
+        Self {
+            shared_data,
+            app_update_url: app_update_url.into(),
+            delay_delete: false,
+        }
+    }
+
+    pub fn delay_delete(&mut self) {
+        self.delay_delete = true;
+    }
+}
+
 impl Drop for AppsRequest {
     fn drop(&mut self) {
-        self.remove_canceller();
+        debug!("AppsRequest drop");
+        if let Some(apps_item) = self.installing_apps_item.clone() {
+            remove_canceller(self.shared_data.clone(), &apps_item.get_update_url());
+        }
     }
 }
 
@@ -141,7 +172,7 @@ impl AppsRequest {
                 .clone()
                 .download(url, &zip_path, Some(headers));
         self.set_or_update_canceller(&app_update_url, cancel_sender.clone());
-
+        let _sender_remover = SenderRemover::new(self.shared_data.clone(), app_update_url);
         // Check if cancel is called
         if self.check_cancelled(&app_update_url) {
             debug!("Download cancelled.");
@@ -198,7 +229,6 @@ impl AppsRequest {
                 DownloadError::Canceled,
             ));
         }
-        self.remove_canceller();
 
         Ok(zip_path)
     }
@@ -208,6 +238,7 @@ impl AppsRequest {
         url: &str,
         path: &Path,
         some_headers: Option<HeaderMap>,
+        canceller_needed: bool, // Check for update does not support cancel
     ) -> Result<UpdateManifestResult, AppsMgmtError> {
         let base_path = path.join("downloading");
         let available_dir = AppsStorage::get_app_dir(&base_path, &hash(url).to_string())?;
@@ -223,7 +254,12 @@ impl AppsRequest {
             self.downloader
                 .clone()
                 .download(url, &update_manifest, Some(headers));
-        self.set_or_update_canceller(&url, cancel_sender);
+        let sender_remover = if canceller_needed {
+            self.set_or_update_canceller(&url, cancel_sender);
+            Some(SenderRemover::new(self.shared_data.clone(), url))
+        } else {
+            None
+        };
 
         let mut etag = String::new();
         loop {
@@ -231,6 +267,10 @@ impl AppsRequest {
                 match rec {
                     Ok(result) => match result {
                         DownloaderInfo::Done => {
+                            // Let request drop to remove sender
+                            if let Some(mut remover) = sender_remover {
+                                remover.delay_delete();
+                            };
                             return Ok(UpdateManifestResult {
                                 available_dir,
                                 update_manifest,
@@ -267,20 +307,15 @@ impl AppsRequest {
     pub fn check_for_update(
         &mut self,
         webapp_path: &Path,
-        update_url: &str,
+        mut app: AppsItem,
         is_auto_update: bool,
     ) -> Result<Option<AppsObject>, AppsServiceError> {
         debug!("check_for_update is_auto_update {}", is_auto_update);
-        let mut app = self
-            .shared_data
-            .lock()
-            .registry
-            .get_by_update_url(&update_url)
-            .ok_or(AppsServiceError::AppNotFound)?;
         let mut headers = HeaderMap::new();
         get_etag_header(&app, &mut headers);
+        let update_url = app.get_update_url();
         let update_manifest_result =
-            match self.get_update_manifest(update_url, webapp_path, Some(headers)) {
+            match self.get_update_manifest(&update_url, webapp_path, Some(headers), false) {
                 Ok(update_manifest_result) => update_manifest_result,
                 Err(err) => {
                     if err == AppsMgmtError::DownloadNotModified {
@@ -343,7 +378,8 @@ impl AppsRequest {
         is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let path = Path::new(&webapp_path);
-        let update_manifest_result = match self.get_update_manifest(update_url, &path, None) {
+        let update_manifest_result = match self.get_update_manifest(&update_url, &path, None, true)
+        {
             Ok(update_manifest_result) => update_manifest_result,
             Err(err) => {
                 debug!("get_update_manifest err {:?}", err);
@@ -658,16 +694,6 @@ impl AppsRequest {
             .map(|canceller| canceller.cancelled)
             .unwrap_or(false)
     }
-
-    fn remove_canceller(&mut self) {
-        if let Some(apps_item) = &self.installing_apps_item {
-            let _ = self
-                .shared_data
-                .lock()
-                .downloadings
-                .remove(&apps_item.get_update_url());
-        }
-    }
 }
 
 // Returns success if both urls are absolute and same origin, or if the `other`
@@ -753,6 +779,10 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
 
     debug!("compare_version_hash update {}", is_update_available);
     is_update_available
+}
+
+fn remove_canceller(shared_data: Shared<AppsSharedData>, url: &str) {
+    let _ = shared_data.lock().downloadings.remove(url);
 }
 
 #[cfg(test)]

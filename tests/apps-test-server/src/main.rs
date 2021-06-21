@@ -149,6 +149,10 @@ async fn apps_responses(
 ) -> HttpResponse {
     // For cancel API test
     std::thread::sleep(std::time::Duration::from_millis(200));
+    // For power off during installation
+    if &app == "testpowerlost" {
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+    }
     if !check_header(&req, header::USER_AGENT, EXPECTED_UA) {
         return HttpResponse::BadRequest().finish();
     }

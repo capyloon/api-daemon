@@ -36,8 +36,45 @@
         let on_update_available = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
 
         console.log("Step 1");
+
+        await tester.assert_rej_eq(
+          "update invalid app",
+          service => service.update("invalid-app"),
+          AppsServiceError.APP_NOT_FOUND
+        );
+
+        await tester.assert_rej_eq(
+          "Can not update app before check for update",
+          service => service.update("http://ciautotest.localhost:8081/manifest.webmanifest"),
+          AppsServiceError.UPDATE_ERROR
+        );
+
         await tester.assert_eq(
-          "check for update",
+          "set disable before update",
+          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.DISABLED),
+          status_expected(1)
+        );
+
+        await tester.assert_rej_eq(
+          "check update for disabled app, expect APP_NOT_FOUND",
+          service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {autoInstall: false}),
+          AppsServiceError.APP_NOT_FOUND
+        );
+
+        await tester.assert_rej_eq(
+          "Can not update for disabled app, expect APP_NOT_FOUND",
+          service => service.update("http://ciautotest.localhost:8081/manifest.webmanifest"),
+          AppsServiceError.APP_NOT_FOUND
+        );
+
+        await tester.assert_eq(
+          "set enable before update",
+          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.ENABLED),
+          status_expected(0)
+        );
+
+        await tester.assert_eq(
+          "check for update, expect true",
           service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {autoInstall: true}),
           true
         );

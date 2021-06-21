@@ -52,7 +52,13 @@ DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh \
     http://apps.localhost:8081/test/not_allow_downgrade.html \
     http://apps.localhost:8081/test/uninstall_apps.html \
     http://apps.localhost:8081/test/install_apps.html \
-    http://apps.localhost:8081/test/install_apps_with_origin.html
+    http://apps.localhost:8081/test/install_apps_with_origin.html \
+    http://apps.localhost:8081/test/install_power_off.html
+
+# installing_power_off to simulate power off during installing
+# Then, test if install same app works.
+DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh \
+    http://apps.localhost:8081/test/install_power_back_on.html
 
 kill_server
 

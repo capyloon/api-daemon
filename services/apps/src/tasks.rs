@@ -25,12 +25,10 @@ impl AppMgmtTask for InstallPackageTask {
             return responder.reject(AppsServiceError::UnknownError);
         }
         let mut request = request.unwrap();
-        if let Some(app) = request.shared_data.lock().registry.get_by_update_url(&url) {
-            if app.get_install_state() == AppsInstallState::Installed
-                || app.get_install_state() == AppsInstallState::Installing
-            {
-                return responder.reject(AppsServiceError::ReinstallForbidden);
-            }
+
+        if !install_allowed(&mut request, url) {
+            error!("App {} is already installing", url);
+            return responder.reject(AppsServiceError::ReinstallForbidden);
         }
 
         let data_dir = request.shared_data.lock().config.data_path();
@@ -71,13 +69,9 @@ impl AppMgmtTask for InstallPwaTask {
             return responder.reject(AppsServiceError::UnknownError);
         }
         let mut request = request.unwrap();
-        if request
-            .shared_data
-            .lock()
-            .registry
-            .get_by_update_url(&url)
-            .is_some()
-        {
+
+        if !install_allowed(&mut request, url) {
+            error!("App {} is already installing", url);
             return responder.reject(AppsServiceError::ReinstallForbidden);
         }
 
@@ -158,13 +152,31 @@ impl AppMgmtTask for UpdateTask {
             return responder.reject(AppsServiceError::UnknownError);
         }
         let mut request = request.unwrap();
+
+        if request.shared_data.lock().downloadings.get(url).is_some() {
+            error!("App {} is already updating", url);
+            return responder.reject(AppsServiceError::DuplicatedAction);
+        }
+
         let old_app = match request
             .shared_data
             .lock()
             .registry
             .get_by_manifest_url(&url)
         {
-            Some(app) => app,
+            Some(app) => {
+                if app.get_status() == AppsStatus::Disabled {
+                    error!("App {} is Disabled", url);
+                    return responder.reject(AppsServiceError::AppNotFound);
+                }
+
+                if app.get_update_state() != AppsUpdateState::Available {
+                    error!("App {} update is not available", url);
+                    return responder.reject(AppsServiceError::UpdateError);
+                }
+
+                app
+            }
             None => {
                 error!("Update app not found: {}", url);
                 return responder.reject(AppsServiceError::AppNotFound);
@@ -219,7 +231,26 @@ impl AppMgmtTask for CheckForUpdateTask {
         let mut request = request.unwrap();
         let data_path = request.shared_data.lock().config.data_path();
         let is_auto_update = apps_option.auto_install.unwrap_or(false);
-        match request.check_for_update(&data_path, &url, is_auto_update) {
+        let some_app = request.shared_data.lock().registry.get_by_update_url(&url);
+        let app;
+        if let Some(app_) = some_app {
+            if app_.get_status() == AppsStatus::Disabled {
+                error!("App {} is Disabled", url);
+                if let Some(responder) = some_responder {
+                    responder.reject(AppsServiceError::AppNotFound);
+                }
+                return;
+            }
+            app = app_;
+        } else {
+            error!("App {} is not found", url);
+            if let Some(responder) = some_responder {
+                responder.reject(AppsServiceError::AppNotFound);
+            }
+            return;
+        }
+
+        match request.check_for_update(&data_path, app, is_auto_update) {
             Ok(ret) => {
                 info!("broadcast event: check_for_update");
                 let mut updated = false;
@@ -332,4 +363,20 @@ impl AppMgmtTask for CancelDownloadTask {
             None => responder.reject(AppsServiceError::AppNotFound),
         };
     }
+}
+
+fn install_allowed(request: &mut AppsRequest, update_url: &str) -> bool {
+    let shared = request.shared_data.lock();
+
+    if shared.downloadings.get(update_url).is_some() {
+        return false;
+    }
+
+    if let Some(app) = shared.registry.get_by_update_url(update_url) {
+        if app.get_install_state() == AppsInstallState::Installed {
+            return false;
+        }
+    }
+
+    true
 }

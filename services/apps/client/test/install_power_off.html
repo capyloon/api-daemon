@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Apps Service Update Tests</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/apps/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="results.js"></script>
+    <script src="common.js"></script>
+
+    <script>
+      async function run_tests() {
+        console.log(`Power off during installation started!`);
+
+        let tester = await test_service(lib_apps.AppsManager, "apps-client");
+
+        let AppsServiceState = lib_apps.AppsServiceState;
+        let AppsServiceError = lib_apps.AppsServiceError;
+
+	    wait_service_state(tester.service, AppsServiceState);
+
+        function sort_result(a, b) {
+          return a.name > b.name;
+        }
+
+        let provider = new TokenProvider(tester.service, tester.session);
+        await tester.service.setTokenProvider(provider);
+
+        // Make sure app is installing
+        let on_installing_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
+
+        tester.service.installPackage("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest")
+
+        await tester.assert_event_eq("on installing event", on_installing_handler, power_off_installing_expected(1));
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+
+        console.log(`Rebooting`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>
