@@ -840,7 +840,7 @@ where
     S: BuildHasher,
 {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iterable: I) {
-        let iter = iterable.into_iter().cloned(); // FIXME: use `copied` in Rust 1.36
+        let iter = iterable.into_iter().copied();
         self.extend(iter);
     }
 }
@@ -1560,7 +1560,7 @@ mod tests {
             I1: Iterator<Item = &'a i32>,
             I2: Iterator<Item = i32>,
         {
-            assert!(iter1.cloned().eq(iter2));
+            assert!(iter1.copied().eq(iter2));
         }
 
         let set_a: IndexSet<_> = (0..3).collect();
@@ -1612,8 +1612,7 @@ mod tests {
         let set_c: IndexSet<_> = (0..6).collect();
         let set_d: IndexSet<_> = (3..9).rev().collect();
 
-        // FIXME: #[allow(clippy::eq_op)] in Rust 1.31
-        #[cfg_attr(feature = "cargo-clippy", allow(renamed_and_removed_lints, eq_op))]
+        #[allow(clippy::eq_op)]
         {
             assert_eq!(&set_a & &set_a, set_a);
             assert_eq!(&set_a | &set_a, set_a);

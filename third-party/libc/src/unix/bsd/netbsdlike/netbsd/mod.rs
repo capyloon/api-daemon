@@ -12,6 +12,7 @@ pub type lwpid_t = ::c_uint;
 pub type shmatt_t = ::c_uint;
 pub type cpuid_t = u64;
 pub type cpuset_t = _cpuset;
+pub type pthread_spin_t = ::c_uchar;
 
 // elf.h
 
@@ -62,6 +63,23 @@ impl siginfo_t {
             value: ::sigval,
         }
         (*(self as *const siginfo_t as *const siginfo_timer)).value
+    }
+
+    pub unsafe fn si_status(&self) -> ::c_int {
+        #[repr(C)]
+        struct siginfo_timer {
+            _si_signo: ::c_int,
+            _si_errno: ::c_int,
+            _si_code: ::c_int,
+            __pad1: ::c_int,
+            _pid: ::pid_t,
+            _uid: ::uid_t,
+            _value: ::sigval,
+            _cpid: ::pid_t,
+            _cuid: ::uid_t,
+            status: ::c_int,
+        }
+        (*(self as *const siginfo_t as *const siginfo_timer)).status
     }
 }
 
@@ -207,6 +225,12 @@ s! {
         ptr_nreaders: ::c_uint,
         ptr_owner: ::pthread_t,
         ptr_private: *mut ::c_void,
+    }
+
+    pub struct pthread_spinlock_t {
+        pts_magic: ::c_uint,
+        pts_spin: ::pthread_spin_t,
+        pts_flags: ::c_int,
     }
 
     pub struct kevent {
@@ -439,6 +463,10 @@ s! {
     pub struct accept_filter_arg {
         pub af_name: [::c_char; 16],
         af_arg: [[::c_char; 10]; 24],
+    }
+
+    pub struct sched_param {
+        pub sched_priority: ::c_int,
     }
 }
 
@@ -1865,6 +1893,8 @@ extern "C" {
         rqtp: *const ::timespec,
         rmtp: *mut ::timespec,
     ) -> ::c_int;
+
+    pub fn reallocarr(ptr: *mut ::c_void, number: ::size_t, size: ::size_t) -> ::c_int;
 }
 
 #[link(name = "rt")]
@@ -2067,6 +2097,7 @@ extern "C" {
         size: ::size_t,
         set: *mut cpuset_t,
     ) -> ::c_int;
+
     pub fn _cpuset_create() -> *mut cpuset_t;
     pub fn _cpuset_destroy(set: *mut cpuset_t);
     pub fn _cpuset_clr(cpu: cpuid_t, set: *mut cpuset_t) -> ::c_int;
@@ -2081,6 +2112,13 @@ extern "C" {
         timeout: *const ::timespec,
     ) -> ::c_int;
     pub fn sigwaitinfo(set: *const sigset_t, info: *mut siginfo_t) -> ::c_int;
+    pub fn waitid(
+        idtype: idtype_t,
+        id: ::id_t,
+        infop: *mut ::siginfo_t,
+        options: ::c_int,
+    ) -> ::c_int;
+
     pub fn duplocale(base: ::locale_t) -> ::locale_t;
     pub fn freelocale(loc: ::locale_t);
     pub fn localeconv_l(loc: ::locale_t) -> *mut lconv;
@@ -2153,6 +2191,9 @@ extern "C" {
         newsize: ::size_t,
         flags: ::c_int,
     ) -> *mut ::c_void;
+
+    pub fn sched_setparam(pid: ::pid_t, param: *const sched_param) -> ::c_int;
+    pub fn sched_getparam(pid: ::pid_t, param: *mut sched_param) -> ::c_int;
 }
 
 #[link(name = "util")]
@@ -2203,6 +2244,20 @@ extern "C" {
     pub fn esetfunc(
         cb: ::Option<unsafe extern "C" fn(::c_int, *const ::c_char, ...)>,
     ) -> ::Option<unsafe extern "C" fn(::c_int, *const ::c_char, ...)>;
+    pub fn secure_path(path: *const ::c_char) -> ::c_int;
+    pub fn snprintb(
+        buf: *mut ::c_char,
+        buflen: ::size_t,
+        fmt: *const ::c_char,
+        val: u64,
+    ) -> ::c_int;
+    pub fn snprintb_m(
+        buf: *mut ::c_char,
+        buflen: ::size_t,
+        fmt: *const ::c_char,
+        val: u64,
+        max: ::size_t,
+    ) -> ::c_int;
 }
 
 cfg_if! {

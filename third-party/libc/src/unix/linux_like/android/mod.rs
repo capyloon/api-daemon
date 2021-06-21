@@ -11,6 +11,7 @@ pub type useconds_t = u32;
 pub type pthread_t = ::c_long;
 pub type pthread_mutexattr_t = ::c_long;
 pub type pthread_rwlockattr_t = ::c_long;
+pub type pthread_barrierattr_t = ::c_int;
 pub type pthread_condattr_t = ::c_long;
 pub type pthread_key_t = ::c_int;
 pub type fsfilcnt_t = ::c_ulong;
@@ -25,6 +26,12 @@ pub type idtype_t = ::c_int;
 pub type loff_t = ::c_longlong;
 pub type __kernel_loff_t = ::c_longlong;
 pub type __kernel_pid_t = ::c_int;
+
+pub type __u8 = ::c_uchar;
+pub type __u16 = ::c_ushort;
+pub type __s16 = ::c_short;
+pub type __u32 = ::c_uint;
+pub type __s32 = ::c_int;
 
 // linux/elf.h
 
@@ -84,6 +91,19 @@ s! {
         pub c_cc: [::cc_t; 19],
         pub c_ispeed: ::speed_t,
         pub c_ospeed: ::speed_t,
+    }
+
+    pub struct mallinfo {
+        pub arena: ::size_t,
+        pub ordblks: ::size_t,
+        pub smblks: ::size_t,
+        pub hblks: ::size_t,
+        pub hblkhd: ::size_t,
+        pub usmblks: ::size_t,
+        pub fsmblks: ::size_t,
+        pub uordblks: ::size_t,
+        pub fordblks: ::size_t,
+        pub keepcost: ::size_t,
     }
 
     pub struct flock {
@@ -307,6 +327,27 @@ s! {
         pub dlpi_subs: ::c_ulonglong,
         pub dlpi_tls_modid: ::size_t,
         pub dlpi_tls_data: *mut ::c_void,
+    }
+
+    // linux/filter.h
+    pub struct sock_filter {
+        pub code: ::__u16,
+        pub jt: ::__u8,
+        pub jf: ::__u8,
+        pub k: ::__u32,
+    }
+
+    pub struct sock_fprog {
+        pub len: ::c_ushort,
+        pub filter: *mut sock_filter,
+    }
+
+    // linux/seccomp.h
+    pub struct seccomp_data {
+        pub nr: ::c_int,
+        pub arch: ::__u32,
+        pub instruction_pointer: ::__u64,
+        pub args: [::__u64; 6],
     }
 }
 
@@ -1728,6 +1769,25 @@ pub const SECCOMP_MODE_DISABLED: ::c_uint = 0;
 pub const SECCOMP_MODE_STRICT: ::c_uint = 1;
 pub const SECCOMP_MODE_FILTER: ::c_uint = 2;
 
+pub const SECCOMP_FILTER_FLAG_TSYNC: ::c_ulong = 1;
+pub const SECCOMP_FILTER_FLAG_LOG: ::c_ulong = 2;
+pub const SECCOMP_FILTER_FLAG_SPEC_ALLOW: ::c_ulong = 4;
+pub const SECCOMP_FILTER_FLAG_NEW_LISTENER: ::c_ulong = 8;
+
+pub const SECCOMP_RET_ACTION_FULL: ::c_uint = 0xffff0000;
+pub const SECCOMP_RET_ACTION: ::c_uint = 0x7fff0000;
+pub const SECCOMP_RET_DATA: ::c_uint = 0x0000ffff;
+
+pub const SECCOMP_RET_KILL_PROCESS: ::c_uint = 0x80000000;
+pub const SECCOMP_RET_KILL_THREAD: ::c_uint = 0x00000000;
+pub const SECCOMP_RET_KILL: ::c_uint = SECCOMP_RET_KILL_THREAD;
+pub const SECCOMP_RET_TRAP: ::c_uint = 0x00030000;
+pub const SECCOMP_RET_ERRNO: ::c_uint = 0x00050000;
+pub const SECCOMP_RET_USER_NOTIF: ::c_uint = 0x7fc00000;
+pub const SECCOMP_RET_TRACE: ::c_uint = 0x7ff00000;
+pub const SECCOMP_RET_LOG: ::c_uint = 0x7ffc0000;
+pub const SECCOMP_RET_ALLOW: ::c_uint = 0x7fff0000;
+
 pub const NLA_F_NESTED: ::c_int = 1 << 15;
 pub const NLA_F_NET_BYTEORDER: ::c_int = 1 << 14;
 pub const NLA_TYPE_MASK: ::c_int = !(NLA_F_NESTED | NLA_F_NET_BYTEORDER);
@@ -2482,6 +2542,8 @@ extern "C" {
     pub fn __sched_cpufree(set: *mut ::cpu_set_t);
     pub fn __sched_cpucount(setsize: ::size_t, set: *const cpu_set_t) -> ::c_int;
     pub fn sched_getcpu() -> ::c_int;
+    pub fn mallinfo() -> ::mallinfo;
+    pub fn malloc_usable_size(ptr: *const ::c_void) -> ::size_t;
 
     pub fn utmpname(name: *const ::c_char) -> ::c_int;
     pub fn setutent();
@@ -2616,6 +2678,28 @@ extern "C" {
         lock: *mut pthread_mutex_t,
         abstime: *const ::timespec,
     ) -> ::c_int;
+    pub fn pthread_barrierattr_init(attr: *mut ::pthread_barrierattr_t) -> ::c_int;
+    pub fn pthread_barrierattr_destroy(attr: *mut ::pthread_barrierattr_t) -> ::c_int;
+    pub fn pthread_barrierattr_getpshared(
+        attr: *const ::pthread_barrierattr_t,
+        shared: *mut ::c_int,
+    ) -> ::c_int;
+    pub fn pthread_barrierattr_setpshared(
+        attr: *mut ::pthread_barrierattr_t,
+        shared: ::c_int,
+    ) -> ::c_int;
+    pub fn pthread_barrier_init(
+        barrier: *mut pthread_barrier_t,
+        attr: *const ::pthread_barrierattr_t,
+        count: ::c_uint,
+    ) -> ::c_int;
+    pub fn pthread_barrier_destroy(barrier: *mut pthread_barrier_t) -> ::c_int;
+    pub fn pthread_barrier_wait(barrier: *mut pthread_barrier_t) -> ::c_int;
+    pub fn pthread_spin_init(lock: *mut ::pthread_spinlock_t, pshared: ::c_int) -> ::c_int;
+    pub fn pthread_spin_destroy(lock: *mut ::pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_lock(lock: *mut ::pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_trylock(lock: *mut ::pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_unlock(lock: *mut ::pthread_spinlock_t) -> ::c_int;
     pub fn clone(
         cb: extern "C" fn(*mut ::c_void) -> ::c_int,
         child_stack: *mut ::c_void,
@@ -2791,6 +2875,10 @@ extern "C" {
         >,
         data: *mut ::c_void,
     ) -> ::c_int;
+
+    pub fn arc4random() -> u32;
+    pub fn arc4random_uniform(__upper_bound: u32) -> u32;
+    pub fn arc4random_buf(__buf: *mut ::c_void, __n: ::size_t);
 }
 
 cfg_if! {

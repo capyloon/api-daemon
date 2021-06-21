@@ -712,6 +712,11 @@ extern "C" {
         lock: *mut pthread_mutex_t,
         abstime: *const ::timespec,
     ) -> ::c_int;
+    pub fn pthread_spin_init(lock: *mut pthread_spinlock_t, pshared: ::c_int) -> ::c_int;
+    pub fn pthread_spin_destroy(lock: *mut pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_lock(lock: *mut pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_trylock(lock: *mut pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_unlock(lock: *mut pthread_spinlock_t) -> ::c_int;
     pub fn pipe2(fds: *mut ::c_int, flags: ::c_int) -> ::c_int;
 
     pub fn getgrouplist(
@@ -729,6 +734,10 @@ extern "C" {
     pub fn shmat(shmid: ::c_int, shmaddr: *const ::c_void, shmflg: ::c_int) -> *mut ::c_void;
     pub fn shmdt(shmaddr: *const ::c_void) -> ::c_int;
     pub fn shmctl(shmid: ::c_int, cmd: ::c_int, buf: *mut ::shmid_ds) -> ::c_int;
+}
+
+extern "C" {
+    pub fn reallocarray(ptr: *mut ::c_void, nmemb: ::size_t, size: ::size_t) -> *mut ::c_void;
 }
 
 cfg_if! {

@@ -275,7 +275,7 @@ where
     K: Send,
     V: Send,
 {
-    /// Return a parallel iterator over mutable references to the the values of the map
+    /// Return a parallel iterator over mutable references to the values of the map
     ///
     /// While parallel iterators can process items in any order, their relative order
     /// in the map is still preserved for operations like `reduce` and `collect`.
@@ -464,7 +464,7 @@ mod tests {
     fn keys() {
         let vec = vec![(1, 'a'), (2, 'b'), (3, 'c')];
         let map: IndexMap<_, _> = vec.into_par_iter().collect();
-        let keys: Vec<_> = map.par_keys().cloned().collect();
+        let keys: Vec<_> = map.par_keys().copied().collect();
         assert_eq!(keys.len(), 3);
         assert!(keys.contains(&1));
         assert!(keys.contains(&2));
@@ -475,7 +475,7 @@ mod tests {
     fn values() {
         let vec = vec![(1, 'a'), (2, 'b'), (3, 'c')];
         let map: IndexMap<_, _> = vec.into_par_iter().collect();
-        let values: Vec<_> = map.par_values().cloned().collect();
+        let values: Vec<_> = map.par_values().copied().collect();
         assert_eq!(values.len(), 3);
         assert!(values.contains(&'a'));
         assert!(values.contains(&'b'));
@@ -487,7 +487,7 @@ mod tests {
         let vec = vec![(1, 1), (2, 2), (3, 3)];
         let mut map: IndexMap<_, _> = vec.into_par_iter().collect();
         map.par_values_mut().for_each(|value| *value *= 2);
-        let values: Vec<_> = map.par_values().cloned().collect();
+        let values: Vec<_> = map.par_values().copied().collect();
         assert_eq!(values.len(), 3);
         assert!(values.contains(&2));
         assert!(values.contains(&4));

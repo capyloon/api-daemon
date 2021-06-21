@@ -53,7 +53,7 @@
 //!
 //! ### Rust Version
 //!
-//! This version of indexmap requires Rust 1.36 or later.
+//! This version of indexmap requires Rust 1.49 or later.
 //!
 //! The indexmap 1.x release series will use a carefully considered version
 //! upgrade policy, where in a later 1.x version, we will raise the minimum
@@ -77,18 +77,13 @@
 //!
 //! [def]: map/struct.IndexMap.html#impl-Default
 
-#[cfg(not(has_std))]
 extern crate alloc;
 
 #[cfg(has_std)]
 #[macro_use]
 extern crate std;
 
-#[cfg(not(has_std))]
 use alloc::vec::{self, Vec};
-
-#[cfg(has_std)]
-use std::vec::{self, Vec};
 
 #[macro_use]
 mod macros;

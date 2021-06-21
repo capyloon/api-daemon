@@ -12,7 +12,7 @@
 
 [package]
 name = "subtle"
-version = "2.4.0"
+version = "2.4.1"
 authors = ["Isis Lovecruft <isis@patternsinthevoid.net>", "Henry de Valence <hdevalence@hdevalence.ca>"]
 exclude = ["**/.gitignore", ".travis.yml"]
 description = "Pure-Rust traits and utilities for constant-time cryptographic implementations."

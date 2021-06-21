@@ -77,6 +77,10 @@ pub type thread_latency_qos_policy_t = *mut thread_latency_qos_policy;
 pub type thread_throughput_qos_policy_data_t = thread_throughput_qos_policy;
 pub type thread_throughput_qos_policy_t = *mut thread_throughput_qos_policy;
 
+pub type CCStatus = i32;
+pub type CCCryptorStatus = i32;
+pub type CCRNGStatus = ::CCCryptorStatus;
+
 deprecated_mach! {
     pub type vm_prot_t = ::c_int;
     pub type vm_size_t = ::uintptr_t;
@@ -644,6 +648,16 @@ s! {
         pub bytes_used: ::size_t,
         pub chunks_free: ::size_t,
         pub bytes_free: ::size_t,
+    }
+
+    pub struct malloc_zone_t {
+        __private: [::uintptr_t; 18], // FIXME: keeping private for now
+    }
+
+    // sched.h
+    pub struct sched_param {
+        pub sched_priority: ::c_int,
+        __opaque: [::c_char; 4],
     }
 }
 
@@ -3358,17 +3372,9 @@ pub const DLT_LOOP: ::c_uint = 108;
 pub const BPF_ALIGNMENT: ::c_int = 4;
 
 // sys/mount.h
-pub const MNT_RDONLY: ::c_int = 0x00000001;
-pub const MNT_SYNCHRONOUS: ::c_int = 0x00000002;
-pub const MNT_NOEXEC: ::c_int = 0x00000004;
-pub const MNT_NOSUID: ::c_int = 0x00000008;
 pub const MNT_NODEV: ::c_int = 0x00000010;
 pub const MNT_UNION: ::c_int = 0x00000020;
-pub const MNT_ASYNC: ::c_int = 0x00000040;
 pub const MNT_CPROTECT: ::c_int = 0x00000080;
-
-// NFS export related mount flags.
-pub const MNT_EXPORTED: ::c_int = 0x00000100;
 
 // MAC labeled / "quarantined" flag
 pub const MNT_QUARANTINE: ::c_int = 0x00000400;
@@ -3390,9 +3396,7 @@ pub const MNT_NOATIME: ::c_int = 0x10000000;
 pub const MNT_SNAPSHOT: ::c_int = 0x40000000;
 
 // External filesystem command modifier flags.
-pub const MNT_UPDATE: ::c_int = 0x00010000;
 pub const MNT_NOBLOCK: ::c_int = 0x00020000;
-pub const MNT_RELOAD: ::c_int = 0x00040000;
 
 // sys/spawn.h:
 pub const POSIX_SPAWN_RESETIDS: ::c_int = 0x01;
@@ -3521,6 +3525,21 @@ pub const THREAD_BACKGROUND_POLICY_DARWIN_BG: ::c_int = 0x1000;
 pub const THREAD_LATENCY_QOS_POLICY: ::c_int = 7;
 pub const THREAD_THROUGHPUT_QOS_POLICY: ::c_int = 8;
 
+// CommonCrypto/CommonCryptoError.h
+pub const kCCSuccess: i32 = 0;
+pub const kCCParamError: i32 = -4300;
+pub const kCCBufferTooSmall: i32 = -4301;
+pub const kCCMemoryFailure: i32 = -4302;
+pub const kCCAlignmentError: i32 = -4303;
+pub const kCCDecodeError: i32 = -4304;
+pub const kCCUnimplemented: i32 = -4305;
+pub const kCCOverflow: i32 = -4306;
+pub const kCCRNGFailure: i32 = -4307;
+pub const kCCUnspecifiedError: i32 = -4308;
+pub const kCCCallSequenceError: i32 = -4309;
+pub const kCCKeySizeError: i32 = -4310;
+pub const kCCInvalidKey: i32 = -4311;
+
 cfg_if! {
     if #[cfg(libc_const_extern_fn)] {
         const fn __DARWIN_ALIGN32(p: usize) -> usize {
@@ -3599,6 +3618,10 @@ f! {
     pub fn CMSG_LEN(length: ::c_uint) -> ::c_uint {
         (__DARWIN_ALIGN32(::mem::size_of::<::cmsghdr>()) + length as usize)
             as ::c_uint
+    }
+
+    pub {const} fn VM_MAKE_TAG(id: u8) -> u32 {
+        (id as u32) << 24u32
     }
 }
 
@@ -3774,6 +3797,26 @@ extern "C" {
         class: *mut qos_class_t,
         priority: *mut ::c_int,
     ) -> ::c_int;
+    pub fn pthread_attr_getschedparam(
+        attr: *const ::pthread_attr_t,
+        param: *mut sched_param,
+    ) -> ::c_int;
+    pub fn pthread_attr_setschedparam(
+        attr: *mut ::pthread_attr_t,
+        param: *const sched_param,
+    ) -> ::c_int;
+    pub fn pthread_getschedparam(
+        thread: ::pthread_t,
+        policy: *mut ::c_int,
+        param: *mut sched_param,
+    ) -> ::c_int;
+    pub fn pthread_setschedparam(
+        thread: ::pthread_t,
+        policy: ::c_int,
+        param: *const sched_param,
+    ) -> ::c_int;
+    pub fn sched_get_priority_min(policy: ::c_int) -> ::c_int;
+    pub fn sched_get_priority_max(policy: ::c_int) -> ::c_int;
     pub fn thread_policy_set(
         thread: thread_t,
         flavor: thread_policy_flavor_t,
@@ -4072,6 +4115,27 @@ extern "C" {
     pub fn memset_pattern16(b: *mut ::c_void, pattern16: *const ::c_void, len: ::size_t);
 
     pub fn mstats() -> mstats;
+    pub fn malloc_printf(format: *const ::c_char, ...);
+    pub fn malloc_zone_check(zone: *mut ::malloc_zone_t) -> ::boolean_t;
+    pub fn malloc_zone_print(zone: *mut ::malloc_zone_t, verbose: ::boolean_t);
+    pub fn malloc_zone_statistics(zone: *mut ::malloc_zone_t, stats: *mut malloc_statistics_t);
+    pub fn malloc_zone_log(zone: *mut ::malloc_zone_t, address: *mut ::c_void);
+    pub fn malloc_zone_print_ptr_info(ptr: *mut ::c_void);
+    pub fn malloc_default_zone() -> *mut ::malloc_zone_t;
+    pub fn malloc_zone_from_ptr(ptr: *const ::c_void) -> *mut ::malloc_zone_t;
+    pub fn malloc_zone_malloc(zone: *mut ::malloc_zone_t, size: ::size_t) -> *mut ::c_void;
+    pub fn malloc_zone_valloc(zone: *mut ::malloc_zone_t, size: ::size_t) -> *mut ::c_void;
+    pub fn malloc_zone_calloc(
+        zone: *mut ::malloc_zone_t,
+        num_items: ::size_t,
+        size: ::size_t,
+    ) -> *mut ::c_void;
+    pub fn malloc_zone_realloc(
+        zone: *mut ::malloc_zone_t,
+        ptr: *mut ::c_void,
+        size: ::size_t,
+    ) -> *mut ::c_void;
+    pub fn malloc_zone_free(zone: *mut ::malloc_zone_t, ptr: *mut ::c_void);
 
     pub fn proc_listpids(
         t: u32,
@@ -4121,6 +4185,10 @@ extern "C" {
     ///
     /// `id` is of type [`uuid_t`].
     pub fn gethostuuid(id: *mut u8, timeout: *const ::timespec) -> ::c_int;
+
+    pub fn CCRandomGenerateBytes(bytes: *mut ::c_void, size: ::size_t) -> ::CCRNGStatus;
+
+    pub fn _NSGetExecutablePath(buf: *mut ::c_char, bufsize: *mut u32) -> ::c_int;
 }
 
 cfg_if! {

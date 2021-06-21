@@ -13,11 +13,11 @@
 [package]
 edition = "2018"
 name = "tokio"
-version = "1.7.1"
+version = "1.8.1"
 authors = ["Tokio Contributors <team@tokio.rs>"]
 description = "An event-driven, non-blocking I/O platform for writing asynchronous I/O\nbacked applications.\n"
 homepage = "https://tokio.rs"
-documentation = "https://docs.rs/tokio/1.7.1/tokio/"
+documentation = "https://docs.rs/tokio/1.8.1/tokio/"
 readme = "README.md"
 keywords = ["io", "async", "non-blocking", "futures"]
 categories = ["asynchronous", "network-programming"]

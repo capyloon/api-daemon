@@ -11,8 +11,9 @@
 # will likely look very different (and much more reasonable)
 
 [package]
+edition = "2018"
 name = "unicode-segmentation"
-version = "1.7.1"
+version = "1.8.0"
 authors = ["kwantam <kwantam@gmail.com>", "Manish Goregaokar <manishsmail@gmail.com>"]
 exclude = ["target/*", "Cargo.lock", "scripts/tmp", "benches/texts/*", "*.txt"]
 description = "This crate provides Grapheme Cluster, Word and Sentence boundaries\naccording to Unicode Standard Annex #29 rules.\n"
@@ -26,8 +27,16 @@ repository = "https://github.com/unicode-rs/unicode-segmentation"
 [[bench]]
 name = "graphemes"
 harness = false
-[dev-dependencies.bencher]
-version = "0.1"
+
+[[bench]]
+name = "unicode_words"
+harness = false
+
+[[bench]]
+name = "word_bounds"
+harness = false
+[dev-dependencies.criterion]
+version = "0.3"
 
 [dev-dependencies.quickcheck]
 version = "0.7"

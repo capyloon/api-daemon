@@ -2,17 +2,16 @@ use crate::apps_item::AppsItem;
 use crate::apps_registry::{hash, AppsError, AppsMgmtError, AppsRegistry};
 use crate::apps_storage::{validate_package, AppsStorage};
 use crate::apps_utils;
-use crate::downloader::Downloader as Req;
 use crate::downloader::{DownloadError, Downloader, DownloaderInfo};
 use crate::generated::common::*;
 use crate::manifest::{Icons, Manifest};
 use crate::shared_state::AppsSharedData;
+use crate::shared_state::DownloadingCanceller;
 use crate::update_manifest::UpdateManifest;
 use blake2::{Blake2s, Digest};
 use common::traits::Shared;
 use log::{debug, error, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use std::collections::HashMap;
 use std::convert::From;
 use std::fs::{self, remove_dir_all, File};
 use std::io::Read;
@@ -61,18 +60,9 @@ impl Drop for DirRemover {
     }
 }
 
-struct SenderRemover {
-    shared_data: Shared<AppsSharedData>,
-    app_update_url: String,
-}
-
-impl Drop for SenderRemover {
+impl Drop for AppsRequest {
     fn drop(&mut self) {
-        let _ = self
-            .shared_data
-            .lock()
-            .downloadings
-            .remove(&self.app_update_url);
+        self.remove_canceller();
     }
 }
 
@@ -147,18 +137,22 @@ impl AppsRequest {
         let zip_path = path.join("application.zip");
         debug!("Dowloading {} to {}", url, zip_path.as_path().display());
 
+        let headers = HeaderMap::new();
+
         let (result_recv, cancel_sender) =
             self.downloader
                 .clone()
-                .download(url, zip_path.as_path(), None);
-        {
-            let downloadings = &mut self.shared_data.lock().downloadings;
-            set_or_update_canceller(downloadings, &app_update_url, cancel_sender);
+                .download(url, zip_path.as_path(), Some(headers));
+        self.set_or_update_canceller(&app_update_url, cancel_sender.clone());
+
+        // Check if cancel is called
+        if self.check_cancelled(&app_update_url) {
+            debug!("Download cancelled.");
+            let _ = cancel_sender.send(());
+            return Err(AppsMgmtError::PackageDownloadFailed(
+                DownloadError::Canceled,
+            ));
         }
-        let _sender_remover = SenderRemover {
-            shared_data: self.shared_data.clone(),
-            app_update_url: app_update_url.into(),
-        };
 
         loop {
             // Wait for 10 mins
@@ -199,6 +193,16 @@ impl AppsRequest {
             }
         }
 
+        // Check if cancel is called. If not, we remove canceller.
+        // Any further cancel requests will be rejected.
+        if self.check_cancelled(&app_update_url) {
+            debug!("Download cancelled after finished.");
+            return Err(AppsMgmtError::PackageDownloadFailed(
+                DownloadError::Canceled,
+            ));
+        }
+        self.remove_canceller();
+
         Ok(zip_path)
     }
 
@@ -213,19 +217,16 @@ impl AppsRequest {
 
         let update_manifest = available_dir.join("update.webmanifest");
         debug!("dowload {} to {}", url, available_dir.display());
+        let mut headers = HeaderMap::new();
+        if let Some(hders) = some_headers {
+            headers = hders;
+        }
 
         let (result_recv, cancel_sender) =
             self.downloader
                 .clone()
-                .download(url, update_manifest.as_path(), some_headers);
-        {
-            let downloadings = &mut self.shared_data.lock().downloadings;
-            set_or_update_canceller(downloadings, &url, cancel_sender);
-        }
-        let _sender_remover = SenderRemover {
-            shared_data: self.shared_data.clone(),
-            app_update_url: url.into(),
-        };
+                .download(url, update_manifest.as_path(), Some(headers));
+        self.set_or_update_canceller(&url, cancel_sender);
 
         let mut etag = String::new();
         loop {
@@ -279,25 +280,26 @@ impl AppsRequest {
             .registry
             .get_by_update_url(&update_url)
             .ok_or(AppsServiceError::AppNotFound)?;
-        let some_headers = build_headers(&app);
+        let mut headers = HeaderMap::new();
+        get_etag_header(&app, &mut headers);
         let path = Path::new(&webapp_path);
-        let update_manifest_result = match self.get_update_manifest(update_url, &path, some_headers)
-        {
-            Ok(update_manifest_result) => update_manifest_result,
-            Err(err) => {
-                if err == AppsMgmtError::DownloadNotModified {
-                    if app.get_update_state() == AppsUpdateState::Available {
-                        let mut app_obj = AppsObject::from(&app);
-                        app_obj.allowed_auto_download = is_auto_update;
+        let update_manifest_result =
+            match self.get_update_manifest(update_url, &path, Some(headers)) {
+                Ok(update_manifest_result) => update_manifest_result,
+                Err(err) => {
+                    if err == AppsMgmtError::DownloadNotModified {
+                        if app.get_update_state() == AppsUpdateState::Available {
+                            let mut app_obj = AppsObject::from(&app);
+                            app_obj.allowed_auto_download = is_auto_update;
 
-                        return Ok(Some(app_obj));
-                    } else {
-                        return Ok(None);
+                            return Ok(Some(app_obj));
+                        } else {
+                            return Ok(None);
+                        }
                     }
+                    return Err(AppsServiceError::DownloadManifestFailed);
                 }
-                return Err(AppsServiceError::DownloadManifestFailed);
-            }
-        };
+            };
 
         if !compare_version_hash(&app, &update_manifest_result.update_manifest) {
             info!("No update available.");
@@ -489,16 +491,10 @@ impl AppsRequest {
             AppsStorage::get_app_dir(&path.join("downloading"), &hash(update_url).to_string())
                 .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
         let download_manifest = download_dir.join("update.webmanifest");
-        let (user_agent, lang) = {
-            let lock = &self.shared_data.lock();
-            (lock.config.user_agent.clone(), lock.registry.get_lang())
-        };
-        let downloader =
-            Req::new(&user_agent, &lang).map_err(|_| AppsServiceError::DownloadManifestFailed)?;
 
         // 1. download manfiest to cache dir.
         debug!("dowload {} to {}", update_url, download_manifest.display());
-        if let Err(err) = downloader.simple_download(update_url, download_manifest.as_path()) {
+        if let Err(err) = self.download(update_url, download_manifest.as_path()) {
             error!(
                 "Downloading {} to {} failed: {:?}",
                 update_url,
@@ -564,8 +560,7 @@ impl AppsRequest {
                     .join(&icon.get_src())
                     .map_err(|_| AppsServiceError::InvalidManifest)?;
                 let _ = AppsStorage::ensure_dir(&icon_dir);
-                if let Err(err) = downloader.simple_download(icon_url.as_str(), icon_path.as_path())
-                {
+                if let Err(err) = self.download(icon_url.as_str(), icon_path.as_path()) {
                     error!(
                         "Failed to download icon {} -> {:?} : {:?}",
                         icon_url, icon_path, err
@@ -620,6 +615,58 @@ impl AppsRequest {
                 reason,
             });
     }
+
+    fn download<P: AsRef<Path>>(&self, url: &str, path: P) -> Result<(), DownloadError> {
+        let (result_recv, _cancel_sender) = self.downloader.clone().download(url, path, None);
+        loop {
+            // Wait for 10 mins
+            if let Ok(rec) = result_recv.recv_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT)) {
+                match rec {
+                    Ok(info) => {
+                        if let DownloaderInfo::Done = info {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+            } else {
+                return Err(DownloadError::Other("Timed Out".into()));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn set_or_update_canceller(&mut self, url: &str, cancel_sender: Sender<()>) {
+        let downloadings = &mut self.shared_data.lock().downloadings;
+        downloadings
+            .entry(url.into())
+            .and_modify(|canceller| canceller.cancel_sender = Some(cancel_sender.clone()))
+            .or_insert(DownloadingCanceller {
+                cancel_sender: Some(cancel_sender),
+                cancelled: false,
+            });
+    }
+
+    fn check_cancelled(&self, url: &str) -> bool {
+        let downloadings = &self.shared_data.lock().downloadings;
+        downloadings
+            .get(url)
+            .map(|canceller| canceller.cancelled)
+            .unwrap_or(false)
+    }
+
+    fn remove_canceller(&mut self) {
+        if let Some(apps_item) = &self.installing_apps_item {
+            let _ = self
+                .shared_data
+                .lock()
+                .downloadings
+                .remove(&apps_item.get_update_url());
+        }
+    }
 }
 
 // Returns success if both urls are absolute and same origin, or if the `other`
@@ -638,35 +685,18 @@ fn is_same_origin_with(base_url: &Url, other: &str) -> Result<(), AppsServiceErr
     }
 }
 
-fn build_headers(app: &AppsItem) -> Option<HeaderMap> {
+fn get_etag_header(app: &AppsItem, headers: &mut HeaderMap) {
     if let Some(etag) = app.get_manifest_etag() {
         let etag_header_value = match HeaderValue::from_str(&etag) {
             Ok(val) => val,
             Err(_) => {
-                return None;
+                return;
             }
         };
-        let mut headers = HeaderMap::new();
         headers.insert(
             HeaderName::from_lowercase(b"if-none-match").unwrap(),
             etag_header_value,
         );
-
-        Some(headers)
-    } else {
-        None
-    }
-}
-
-fn set_or_update_canceller(
-    downloadings: &mut HashMap<String, Sender<()>>,
-    url: &str,
-    canceller: Sender<()>,
-) {
-    if let Some(sender) = downloadings.get_mut(url) {
-        *sender = canceller;
-    } else {
-        downloadings.insert(url.into(), canceller);
     }
 }
 

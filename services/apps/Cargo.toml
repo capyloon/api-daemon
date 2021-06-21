@@ -9,12 +9,14 @@ license = "Apache-2.0"
 actix-rt = "1.0"
 android_utils = { path = "../../support/android-utils" }
 assert-json-diff = "1.1.0"
+base64 = "0.13"
+blake2 = "0.9"
 common = { path = "../../common" }
 geckobridge = { path = "../geckobridge" }
 http = "0.2.1"
 lazy_static = "1.4"
 log = "0.4"
-blake2 = "0.9"
+mkstemp-rs = "1.0.0"
 nix = "0.19"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.23", features = ["bundled"] }
@@ -35,4 +37,10 @@ zip_utils = { git = "ssh://git@git.kaiostech.com/KaiOS/zip_utils.git", branch="m
 common = { path = "../../common" }
 
 [dev-dependencies]
+actix-cors = "0.5"
+actix-web = { version = "3.0", features = ["rustls"] }
+actix-rt = "1.1"
 env_logger = "0.8"
+hawk = { git = "https://github.com/fabricedesre/rust-hawk.git", rev = "4da77e4a7ced4ddc081669f05352b7314dd9bebc" }
+mime_guess = "2.0"
+vhost_server = { path = "../../vhost"}

@@ -26,7 +26,12 @@ pub struct AppsSharedData {
     pub token_provider: TokenProvider,
     pub device_info: Option<DeviceInfo>,
     pub scheduler: Option<Sender<SchedulerMessage>>,
-    pub downloadings: HashMap<String, Sender<()>>, // Update url -> cancel sender
+    pub downloadings: HashMap<String, DownloadingCanceller>,
+}
+
+pub struct DownloadingCanceller {
+    pub cancel_sender: Option<Sender<()>>,
+    pub cancelled: bool,
 }
 
 impl StateLogger for AppsSharedData {

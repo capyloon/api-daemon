@@ -34,8 +34,6 @@ impl AppMgmtTask for InstallPackageTask {
             }
         }
 
-        let _ = ensure_token_deviceinfo(&mut request);
-
         let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
         let data_dir = current.join(data_path);
@@ -182,8 +180,6 @@ impl AppMgmtTask for UpdateTask {
             }
         };
 
-        let _ = ensure_token_deviceinfo(&mut request);
-
         let update_url = old_app.get_update_url();
         let data_path = request.shared_data.lock().config.data_path.clone();
         let current = env::current_dir().unwrap();
@@ -232,9 +228,6 @@ impl AppMgmtTask for CheckForUpdateTask {
             }
         }
         let mut request = request.unwrap();
-
-        let _ = ensure_token_deviceinfo(&mut request);
-
         let data_path = request.shared_data.lock().config.data_path.clone();
         let is_auto_update = apps_option.auto_install.unwrap_or(false);
         match request.check_for_update(&data_path, &url, is_auto_update) {
@@ -346,20 +339,15 @@ impl AppMgmtTask for CancelDownloadTask {
             None => return responder.reject(AppsServiceError::AppNotFound),
         };
 
-        match shared.downloadings.get(update_url) {
-            Some(cancel_sender) => {
-                let _ = cancel_sender.send(());
-                shared.downloadings.remove(update_url);
+        match shared.downloadings.get_mut(update_url) {
+            Some(canceller) => {
+                canceller.cancelled = true;
+                if let Some(cancel_sender) = &canceller.cancel_sender {
+                    let _ = cancel_sender.send(());
+                }
                 responder.resolve(AppsObject::from(&app));
             }
             None => responder.reject(AppsServiceError::AppNotFound),
         };
     }
-}
-
-// This function blocks current thread to receive token
-// Used only in threadpool
-fn ensure_token_deviceinfo(_request: &mut AppsRequest) -> bool {
-    // Make if believe it's always true.
-    true
 }

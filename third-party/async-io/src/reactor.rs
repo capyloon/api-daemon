@@ -1,18 +1,23 @@
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
+use std::fmt;
+use std::future::Future;
 use std::io;
+use std::marker::PhantomData;
 use std::mem;
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
 use std::panic;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
-use futures_lite::future;
+use futures_lite::ready;
 use once_cell::sync::Lazy;
 use polling::{Event, Poller};
 use slab::Slab;
@@ -441,78 +446,201 @@ impl Source {
     }
 
     /// Waits until the I/O source is readable.
-    pub(crate) async fn readable(&self) -> io::Result<()> {
-        self.ready(READ).await?;
-        log::trace!("readable: fd={}", self.raw);
-        Ok(())
+    pub(crate) fn readable<T>(handle: &crate::Async<T>) -> Readable<'_, T> {
+        Readable(Self::ready(handle, READ))
+    }
+
+    /// Waits until the I/O source is readable.
+    pub(crate) fn readable_owned<T>(handle: Arc<crate::Async<T>>) -> ReadableOwned<T> {
+        ReadableOwned(Self::ready(handle, READ))
     }
 
     /// Waits until the I/O source is writable.
-    pub(crate) async fn writable(&self) -> io::Result<()> {
-        self.ready(WRITE).await?;
-        log::trace!("writable: fd={}", self.raw);
-        Ok(())
+    pub(crate) fn writable<T>(handle: &crate::Async<T>) -> Writable<'_, T> {
+        Writable(Self::ready(handle, WRITE))
+    }
+
+    /// Waits until the I/O source is writable.
+    pub(crate) fn writable_owned<T>(handle: Arc<crate::Async<T>>) -> WritableOwned<T> {
+        WritableOwned(Self::ready(handle, WRITE))
     }
 
     /// Waits until the I/O source is readable or writable.
-    async fn ready(&self, dir: usize) -> io::Result<()> {
-        let mut ticks = None;
-        let mut index = None;
-        let mut _guard = None;
-
-        future::poll_fn(|cx| {
-            let mut state = self.state.lock().unwrap();
-
-            // Check if the reactor has delivered an event.
-            if let Some((a, b)) = ticks {
-                // If `state[dir].tick` has changed to a value other than the old reactor tick,
-                // that means a newer reactor tick has delivered an event.
-                if state[dir].tick != a && state[dir].tick != b {
-                    return Poll::Ready(Ok(()));
-                }
-            }
-
-            let was_empty = state[dir].is_empty();
-
-            // Register the current task's waker.
-            let i = match index {
-                Some(i) => i,
-                None => {
-                    let i = state[dir].wakers.insert(None);
-                    _guard = Some(CallOnDrop(move || {
-                        let mut state = self.state.lock().unwrap();
-                        state[dir].wakers.remove(i);
-                    }));
-                    index = Some(i);
-                    ticks = Some((Reactor::get().ticker(), state[dir].tick));
-                    i
-                }
-            };
-            state[dir].wakers[i] = Some(cx.waker().clone());
-
-            // Update interest in this I/O handle.
-            if was_empty {
-                Reactor::get().poller.modify(
-                    self.raw,
-                    Event {
-                        key: self.key,
-                        readable: !state[READ].is_empty(),
-                        writable: !state[WRITE].is_empty(),
-                    },
-                )?;
-            }
-
-            Poll::Pending
-        })
-        .await
+    fn ready<H: Borrow<crate::Async<T>> + Clone, T>(handle: H, dir: usize) -> Ready<H, T> {
+        Ready {
+            handle,
+            dir,
+            ticks: None,
+            index: None,
+            _guard: None,
+        }
     }
 }
 
-/// Runs a closure when dropped.
-struct CallOnDrop<F: Fn()>(F);
+/// Future for [`Async::readable`](crate::Async::readable).
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct Readable<'a, T>(Ready<&'a crate::Async<T>, T>);
 
-impl<F: Fn()> Drop for CallOnDrop<F> {
+impl<T> Future for Readable<'_, T> {
+    type Output = io::Result<()>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        ready!(Pin::new(&mut self.0).poll(cx))?;
+        log::trace!("readable: fd={}", self.0.handle.source.raw);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<T> fmt::Debug for Readable<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Readable").finish()
+    }
+}
+
+/// Future for [`Async::readable_owned`](crate::Async::readable_owned).
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct ReadableOwned<T>(Ready<Arc<crate::Async<T>>, T>);
+
+impl<T> Future for ReadableOwned<T> {
+    type Output = io::Result<()>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        ready!(Pin::new(&mut self.0).poll(cx))?;
+        log::trace!("readable_owned: fd={}", self.0.handle.source.raw);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<T> fmt::Debug for ReadableOwned<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReadableOwned").finish()
+    }
+}
+
+/// Future for [`Async::writable`](crate::Async::writable).
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct Writable<'a, T>(Ready<&'a crate::Async<T>, T>);
+
+impl<T> Future for Writable<'_, T> {
+    type Output = io::Result<()>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        ready!(Pin::new(&mut self.0).poll(cx))?;
+        log::trace!("writable: fd={}", self.0.handle.source.raw);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<T> fmt::Debug for Writable<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Writable").finish()
+    }
+}
+
+/// Future for [`Async::writable_owned`](crate::Async::writable_owned).
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct WritableOwned<T>(Ready<Arc<crate::Async<T>>, T>);
+
+impl<T> Future for WritableOwned<T> {
+    type Output = io::Result<()>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        ready!(Pin::new(&mut self.0).poll(cx))?;
+        log::trace!("writable_owned: fd={}", self.0.handle.source.raw);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<T> fmt::Debug for WritableOwned<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WritableOwned").finish()
+    }
+}
+
+struct Ready<H: Borrow<crate::Async<T>>, T> {
+    handle: H,
+    dir: usize,
+    ticks: Option<(usize, usize)>,
+    index: Option<usize>,
+    _guard: Option<RemoveOnDrop<H, T>>,
+}
+
+impl<H: Borrow<crate::Async<T>>, T> Unpin for Ready<H, T> {}
+
+impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
+    type Output = io::Result<()>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Self {
+            ref handle,
+            dir,
+            ticks,
+            index,
+            _guard,
+            ..
+        } = &mut *self;
+
+        let mut state = handle.borrow().source.state.lock().unwrap();
+
+        // Check if the reactor has delivered an event.
+        if let Some((a, b)) = *ticks {
+            // If `state[dir].tick` has changed to a value other than the old reactor tick,
+            // that means a newer reactor tick has delivered an event.
+            if state[*dir].tick != a && state[*dir].tick != b {
+                return Poll::Ready(Ok(()));
+            }
+        }
+
+        let was_empty = state[*dir].is_empty();
+
+        // Register the current task's waker.
+        let i = match *index {
+            Some(i) => i,
+            None => {
+                let i = state[*dir].wakers.insert(None);
+                *_guard = Some(RemoveOnDrop {
+                    handle: handle.clone(),
+                    dir: *dir,
+                    key: i,
+                    _marker: PhantomData,
+                });
+                *index = Some(i);
+                *ticks = Some((Reactor::get().ticker(), state[*dir].tick));
+                i
+            }
+        };
+        state[*dir].wakers[i] = Some(cx.waker().clone());
+
+        // Update interest in this I/O handle.
+        if was_empty {
+            Reactor::get().poller.modify(
+                handle.borrow().source.raw,
+                Event {
+                    key: handle.borrow().source.key,
+                    readable: !state[READ].is_empty(),
+                    writable: !state[WRITE].is_empty(),
+                },
+            )?;
+        }
+
+        Poll::Pending
+    }
+}
+
+/// Remove waker when dropped.
+struct RemoveOnDrop<H: Borrow<crate::Async<T>>, T> {
+    handle: H,
+    dir: usize,
+    key: usize,
+    _marker: PhantomData<fn() -> T>,
+}
+
+impl<H: Borrow<crate::Async<T>>, T> Drop for RemoveOnDrop<H, T> {
     fn drop(&mut self) {
-        (self.0)();
+        let mut state = self.handle.borrow().source.state.lock().unwrap();
+        let wakers = &mut state[self.dir].wakers;
+        if wakers.contains(self.key) {
+            wakers.remove(self.key);
+        }
     }
 }

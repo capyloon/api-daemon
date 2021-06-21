@@ -21,6 +21,10 @@ pub type mqd_t = *mut ::c_void;
 pub type posix_spawnattr_t = *mut ::c_void;
 pub type posix_spawn_file_actions_t = *mut ::c_void;
 
+pub type pthread_spinlock_t = *mut __c_anonymous_pthread_spinlock;
+pub type pthread_barrierattr_t = *mut __c_anonymous_pthread_barrierattr;
+pub type pthread_barrier_t = *mut __c_anonymous_pthread_barrier;
+
 s! {
     pub struct aiocb {
         pub aio_fildes: ::c_int,
@@ -139,6 +143,42 @@ s! {
 
     pub struct cap_rights_t {
         cr_rights: [u64; 2],
+    }
+
+    pub struct umutex {
+        m_owner: ::lwpid_t,
+        m_flags: u32,
+        m_ceilings: [u32; 2],
+        m_rb_link: ::uintptr_t,
+        #[cfg(target_pointer_width = "32")]
+        m_pad: u32,
+        m_spare: [u32; 2],
+
+    }
+
+    pub struct ucond {
+        c_has_waiters: u32,
+        c_flags: u32,
+        c_clockid: u32,
+        c_spare: [u32; 1],
+    }
+
+    pub struct __c_anonymous_pthread_spinlock {
+        s_clock: umutex,
+    }
+
+    pub struct __c_anonymous_pthread_barrierattr {
+        pshared: ::c_int,
+    }
+
+    pub struct __c_anonymous_pthread_barrier {
+        b_lock: umutex,
+        b_cv: ucond,
+        b_cycle: i64,
+        b_count: ::c_int,
+        b_waiters: ::c_int,
+        b_refcount: ::c_int,
+        b_destroying: ::c_int,
     }
 }
 
@@ -711,6 +751,16 @@ pub const JAIL_GET_MASK: ::c_int = 0x08;
 pub const JAIL_SYS_DISABLE: ::c_int = 0;
 pub const JAIL_SYS_NEW: ::c_int = 1;
 pub const JAIL_SYS_INHERIT: ::c_int = 2;
+
+pub const MNT_ACLS: ::c_int = 0x08000000;
+pub const MNT_BYFSID: ::c_int = 0x08000000;
+pub const MNT_GJOURNAL: ::c_int = 0x02000000;
+pub const MNT_MULTILABEL: ::c_int = 0x04000000;
+pub const MNT_NFS4ACLS: ::c_int = 0x00000010;
+pub const MNT_SNAPSHOT: ::c_int = 0x01000000;
+pub const MNT_UNION: ::c_int = 0x00000020;
+pub const MNT_EXPUBLIC: ::c_int = 0x20000000;
+pub const MNT_NONBUSY: ::c_int = 0x04000000;
 
 pub const SO_BINTIME: ::c_int = 0x2000;
 pub const SO_NO_OFFLOAD: ::c_int = 0x4000;
@@ -1567,6 +1617,22 @@ extern "C" {
     ) -> ::c_int;
 
     pub fn pthread_getthreadid_np() -> ::c_int;
+    pub fn pthread_getaffinity_np(
+        td: ::pthread_t,
+        cpusetsize: ::size_t,
+        cpusetp: *mut cpuset_t,
+    ) -> ::c_int;
+    pub fn pthread_setaffinity_np(
+        td: ::pthread_t,
+        cpusetsize: ::size_t,
+        cpusetp: *const cpuset_t,
+    ) -> ::c_int;
+
+    pub fn pthread_spin_init(lock: *mut pthread_spinlock_t, pshared: ::c_int) -> ::c_int;
+    pub fn pthread_spin_destroy(lock: *mut pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_lock(lock: *mut pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_trylock(lock: *mut pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_unlock(lock: *mut pthread_spinlock_t) -> ::c_int;
 
     #[cfg_attr(all(target_os = "freebsd", freebsd11), link_name = "statfs@FBSD_1.0")]
     pub fn statfs(path: *const ::c_char, buf: *mut statfs) -> ::c_int;
@@ -1626,6 +1692,8 @@ extern "C" {
     pub fn cap_rights_remove(dst: *mut cap_rights_t, src: *const cap_rights_t)
         -> *mut cap_rights_t;
     pub fn cap_rights_contains(big: *const cap_rights_t, little: *const cap_rights_t) -> bool;
+
+    pub fn reallocarray(ptr: *mut ::c_void, nmemb: ::size_t, size: ::size_t) -> *mut ::c_void;
 }
 
 #[link(name = "util")]
@@ -1678,6 +1746,9 @@ cfg_if! {
     } else if #[cfg(target_arch = "powerpc64")] {
         mod powerpc64;
         pub use self::powerpc64::*;
+    } else if #[cfg(target_arch = "powerpc")] {
+        mod powerpc;
+        pub use self::powerpc::*;
     } else {
         // Unknown target_arch
     }

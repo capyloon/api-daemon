@@ -592,6 +592,18 @@ pub const MAP_FAILED: *mut ::c_void = !0 as *mut ::c_void;
 pub const MCL_CURRENT: ::c_int = 0x0001;
 pub const MCL_FUTURE: ::c_int = 0x0002;
 
+pub const MNT_NOATIME: ::c_int = 0x10000000;
+pub const MNT_NOCLUSTERR: ::c_int = 0x40000000;
+pub const MNT_NOCLUSTERW: ::c_int = 0x80000000;
+pub const MNT_NOSYMFOLLOW: ::c_int = 0x00400000;
+pub const MNT_SOFTDEP: ::c_int = 0x00200000;
+pub const MNT_SUIDDIR: ::c_int = 0x00100000;
+pub const MNT_EXRDONLY: ::c_int = 0x00000080;
+pub const MNT_DEFEXPORTED: ::c_int = 0x00000200;
+pub const MNT_EXPORTANON: ::c_int = 0x00000400;
+pub const MNT_EXKERB: ::c_int = 0x00000800;
+pub const MNT_DELEXPORT: ::c_int = 0x00020000;
+
 pub const MS_SYNC: ::c_int = 0x0000;
 pub const MS_ASYNC: ::c_int = 0x0001;
 pub const MS_INVALIDATE: ::c_int = 0x0002;
@@ -1501,6 +1513,23 @@ extern "C" {
         val: *mut ::c_int,
     ) -> ::c_int;
     pub fn pthread_rwlockattr_setpshared(attr: *mut pthread_rwlockattr_t, val: ::c_int) -> ::c_int;
+    pub fn pthread_barrierattr_init(attr: *mut ::pthread_barrierattr_t) -> ::c_int;
+    pub fn pthread_barrierattr_destroy(attr: *mut ::pthread_barrierattr_t) -> ::c_int;
+    pub fn pthread_barrierattr_getpshared(
+        attr: *const ::pthread_barrierattr_t,
+        shared: *mut ::c_int,
+    ) -> ::c_int;
+    pub fn pthread_barrierattr_setpshared(
+        attr: *mut ::pthread_barrierattr_t,
+        shared: ::c_int,
+    ) -> ::c_int;
+    pub fn pthread_barrier_init(
+        barrier: *mut pthread_barrier_t,
+        attr: *const ::pthread_barrierattr_t,
+        count: ::c_uint,
+    ) -> ::c_int;
+    pub fn pthread_barrier_destroy(barrier: *mut pthread_barrier_t) -> ::c_int;
+    pub fn pthread_barrier_wait(barrier: *mut pthread_barrier_t) -> ::c_int;
     pub fn pthread_set_name_np(tid: ::pthread_t, name: *const ::c_char);
     pub fn ptrace(request: ::c_int, pid: ::pid_t, addr: *mut ::c_char, data: ::c_int) -> ::c_int;
     pub fn pututxline(ut: *const utmpx) -> *mut utmpx;

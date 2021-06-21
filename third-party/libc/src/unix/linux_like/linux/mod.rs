@@ -14,6 +14,7 @@ pub type nl_item = ::c_int;
 pub type idtype_t = ::c_uint;
 pub type loff_t = ::c_longlong;
 pub type pthread_key_t = ::c_uint;
+pub type pthread_spinlock_t = ::c_int;
 
 pub type __u8 = ::c_uchar;
 pub type __u16 = ::c_ushort;
@@ -540,6 +541,27 @@ s! {
     pub struct can_filter {
         pub can_id: canid_t,
         pub can_mask: canid_t,
+    }
+
+    // linux/filter.h
+    pub struct sock_filter {
+        pub code: ::__u16,
+        pub jt: ::__u8,
+        pub jf: ::__u8,
+        pub k: ::__u32,
+    }
+
+    pub struct sock_fprog {
+        pub len: ::c_ushort,
+        pub filter: *mut sock_filter,
+    }
+
+    // linux/seccomp.h
+    pub struct seccomp_data {
+        pub nr: ::c_int,
+        pub arch: ::__u32,
+        pub instruction_pointer: ::__u64,
+        pub args: [::__u64; 6],
     }
 }
 
@@ -1704,6 +1726,23 @@ pub const SECCOMP_MODE_DISABLED: ::c_uint = 0;
 pub const SECCOMP_MODE_STRICT: ::c_uint = 1;
 pub const SECCOMP_MODE_FILTER: ::c_uint = 2;
 
+pub const SECCOMP_FILTER_FLAG_TSYNC: ::c_ulong = 1;
+pub const SECCOMP_FILTER_FLAG_LOG: ::c_ulong = 2;
+pub const SECCOMP_FILTER_FLAG_SPEC_ALLOW: ::c_ulong = 4;
+
+pub const SECCOMP_RET_KILL_PROCESS: ::c_uint = 0x80000000;
+pub const SECCOMP_RET_KILL_THREAD: ::c_uint = 0x00000000;
+pub const SECCOMP_RET_KILL: ::c_uint = SECCOMP_RET_KILL_THREAD;
+pub const SECCOMP_RET_TRAP: ::c_uint = 0x00030000;
+pub const SECCOMP_RET_ERRNO: ::c_uint = 0x00050000;
+pub const SECCOMP_RET_TRACE: ::c_uint = 0x7ff00000;
+pub const SECCOMP_RET_LOG: ::c_uint = 0x7ffc0000;
+pub const SECCOMP_RET_ALLOW: ::c_uint = 0x7fff0000;
+
+pub const SECCOMP_RET_ACTION_FULL: ::c_uint = 0xffff0000;
+pub const SECCOMP_RET_ACTION: ::c_uint = 0x7fff0000;
+pub const SECCOMP_RET_DATA: ::c_uint = 0x0000ffff;
+
 pub const ITIMER_REAL: ::c_int = 0;
 pub const ITIMER_VIRTUAL: ::c_int = 1;
 pub const ITIMER_PROF: ::c_int = 2;
@@ -1766,6 +1805,9 @@ pub const PT_LOOS: u32 = 0x60000000;
 pub const PT_GNU_EH_FRAME: u32 = 0x6474e550;
 pub const PT_GNU_STACK: u32 = 0x6474e551;
 pub const PT_GNU_RELRO: u32 = 0x6474e552;
+pub const PT_HIOS: u32 = 0x6fffffff;
+pub const PT_LOPROC: u32 = 0x70000000;
+pub const PT_HIPROC: u32 = 0x7fffffff;
 
 // linux/if_ether.h
 pub const ETH_ALEN: ::c_int = 6;
@@ -2994,6 +3036,11 @@ pub const SOL_CAN_BASE: ::c_int = 100;
 pub const CAN_INV_FILTER: canid_t = 0x20000000;
 pub const CAN_RAW_FILTER_MAX: ::c_int = 512;
 
+#[cfg(not(any(target_arch = "sparc", target_arch = "sparc64")))]
+pub const POLLRDHUP: ::c_int = 0x2000;
+#[cfg(any(target_arch = "sparc", target_arch = "sparc64"))]
+pub const POLLRDHUP: ::c_int = 0x800;
+
 f! {
     pub fn NLA_ALIGN(len: ::c_int) -> ::c_int {
         return ((len) + NLA_ALIGNTO - 1) & !(NLA_ALIGNTO - 1)
@@ -3314,7 +3361,7 @@ extern "C" {
     pub fn lremovexattr(path: *const c_char, name: *const c_char) -> ::c_int;
     pub fn fremovexattr(filedes: ::c_int, name: *const c_char) -> ::c_int;
     pub fn signalfd(fd: ::c_int, mask: *const ::sigset_t, flags: ::c_int) -> ::c_int;
-    pub fn timerfd_create(clockid: ::c_int, flags: ::c_int) -> ::c_int;
+    pub fn timerfd_create(clockid: ::clockid_t, flags: ::c_int) -> ::c_int;
     pub fn timerfd_gettime(fd: ::c_int, curr_value: *mut itimerspec) -> ::c_int;
     pub fn timerfd_settime(
         fd: ::c_int,
@@ -3516,6 +3563,11 @@ extern "C" {
         lock: *mut pthread_mutex_t,
         abstime: *const ::timespec,
     ) -> ::c_int;
+    pub fn pthread_spin_init(lock: *mut ::pthread_spinlock_t, pshared: ::c_int) -> ::c_int;
+    pub fn pthread_spin_destroy(lock: *mut ::pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_lock(lock: *mut ::pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_trylock(lock: *mut ::pthread_spinlock_t) -> ::c_int;
+    pub fn pthread_spin_unlock(lock: *mut ::pthread_spinlock_t) -> ::c_int;
     pub fn clone(
         cb: extern "C" fn(*mut ::c_void) -> ::c_int,
         child_stack: *mut ::c_void,
@@ -3770,6 +3822,21 @@ extern "C" {
     pub fn iconv_close(cd: iconv_t) -> ::c_int;
 
     pub fn gettid() -> ::pid_t;
+
+    pub fn timer_create(
+        clockid: ::clockid_t,
+        sevp: *mut ::sigevent,
+        timerid: *mut ::timer_t,
+    ) -> ::c_int;
+    pub fn timer_delete(timerid: ::timer_t) -> ::c_int;
+    pub fn timer_getoverrun(timerid: ::timer_t) -> ::c_int;
+    pub fn timer_gettime(timerid: ::timer_t, curr_value: *mut ::itimerspec) -> ::c_int;
+    pub fn timer_settime(
+        timerid: ::timer_t,
+        flags: ::c_int,
+        new_value: *const ::itimerspec,
+        old_value: *mut ::itimerspec,
+    ) -> ::c_int;
 }
 
 cfg_if! {

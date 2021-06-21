@@ -327,6 +327,13 @@ impl UdpSocket {
     /// false-positive and attempting an operation will return with
     /// `io::ErrorKind::WouldBlock`.
     ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. Once a readiness event occurs, the method
+    /// will continue to return immediately until the readiness event is
+    /// consumed by an attempt to read or write that fails with `WouldBlock` or
+    /// `Poll::Pending`.
+    ///
     /// # Examples
     ///
     /// Concurrently receive from and send to the socket on the same task
@@ -390,6 +397,13 @@ impl UdpSocket {
     /// false-positive and attempting a `try_send()` will return with
     /// `io::ErrorKind::WouldBlock`.
     ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. Once a readiness event occurs, the method
+    /// will continue to return immediately until the readiness event is
+    /// consumed by an attempt to write that fails with `WouldBlock` or
+    /// `Poll::Pending`.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -441,6 +455,12 @@ impl UdpSocket {
     ///
     /// On success, the number of bytes sent is returned, otherwise, the
     /// encountered error is returned.
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. If `send` is used as the event in a
+    /// [`tokio::select!`](crate::select) statement and some other branch
+    /// completes first, then it is guaranteed that the message was not sent.
     ///
     /// # Examples
     ///
@@ -559,6 +579,13 @@ impl UdpSocket {
     /// false-positive and attempting a `try_recv()` will return with
     /// `io::ErrorKind::WouldBlock`.
     ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. Once a readiness event occurs, the method
+    /// will continue to return immediately until the readiness event is
+    /// consumed by an attempt to read that fails with `WouldBlock` or
+    /// `Poll::Pending`.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -613,6 +640,13 @@ impl UdpSocket {
     /// The [`connect`] method will connect this socket to a remote address.
     /// This method will fail if the socket is not connected.
     ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. If `recv_from` is used as the event in a
+    /// [`tokio::select!`](crate::select) statement and some other branch
+    /// completes first, it is guaranteed that no messages were received on this
+    /// socket.
+    ///
     /// [`connect`]: method@Self::connect
     ///
     /// ```no_run
@@ -665,7 +699,7 @@ impl UdpSocket {
     /// [`connect`]: method@Self::connect
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let n = ready!(self.io.registration().poll_read_io(cx, || {
-            // Safety: will not read the maybe uinitialized bytes.
+            // Safety: will not read the maybe uninitialized bytes.
             let b = unsafe {
                 &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
             };
@@ -882,6 +916,12 @@ impl UdpSocket {
     ///
     /// [`ToSocketAddrs`]: crate::net::ToSocketAddrs
     ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. If `send_to` is used as the event in a
+    /// [`tokio::select!`](crate::select) statement and some other branch
+    /// completes first, then it is guaranteed that the message was not sent.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -945,7 +985,7 @@ impl UdpSocket {
     ///
     /// # Returns
     ///
-    /// If successfull, returns the number of bytes sent
+    /// If successful, returns the number of bytes sent
     ///
     /// Users should ensure that when the remote cannot receive, the
     /// [`ErrorKind::WouldBlock`] is properly handled. An error can also occur
@@ -1005,6 +1045,13 @@ impl UdpSocket {
     /// size to hold the message bytes. If a message is too long to fit in the
     /// supplied buffer, excess bytes may be discarded.
     ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. If `recv_from` is used as the event in a
+    /// [`tokio::select!`](crate::select) statement and some other branch
+    /// completes first, it is guaranteed that no messages were received on this
+    /// socket.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -1053,7 +1100,7 @@ impl UdpSocket {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<SocketAddr>> {
         let (n, addr) = ready!(self.io.registration().poll_read_io(cx, || {
-            // Safety: will not read the maybe uinitialized bytes.
+            // Safety: will not read the maybe uninitialized bytes.
             let b = unsafe {
                 &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
             };
@@ -1192,7 +1239,7 @@ impl UdpSocket {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<SocketAddr>> {
         let (n, addr) = ready!(self.io.registration().poll_read_io(cx, || {
-            // Safety: will not read the maybe uinitialized bytes.
+            // Safety: will not read the maybe uninitialized bytes.
             let b = unsafe {
                 &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
             };

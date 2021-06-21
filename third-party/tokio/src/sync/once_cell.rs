@@ -77,6 +77,18 @@ impl<T> Drop for OnceCell<T> {
     }
 }
 
+impl<T> From<T> for OnceCell<T> {
+    fn from(value: T) -> Self {
+        let semaphore = Semaphore::new(0);
+        semaphore.close();
+        OnceCell {
+            value_set: AtomicBool::new(true),
+            value: UnsafeCell::new(MaybeUninit::new(value)),
+            semaphore,
+        }
+    }
+}
+
 impl<T> OnceCell<T> {
     /// Creates a new uninitialized OnceCell instance.
     pub fn new() -> Self {
@@ -93,13 +105,7 @@ impl<T> OnceCell<T> {
     /// [`OnceCell::new`]: crate::sync::OnceCell::new
     pub fn new_with(value: Option<T>) -> Self {
         if let Some(v) = value {
-            let semaphore = Semaphore::new(0);
-            semaphore.close();
-            OnceCell {
-                value_set: AtomicBool::new(true),
-                value: UnsafeCell::new(MaybeUninit::new(v)),
-                semaphore,
-            }
+            OnceCell::from(v)
         } else {
             OnceCell::new()
         }
@@ -223,7 +229,7 @@ impl<T> OnceCell<T> {
         } else {
             // After acquire().await we have either acquired a permit while self.value
             // is still uninitialized, or the current thread is awoken after another thread
-            // has intialized the value and closed the semaphore, in which case self.initialized
+            // has initialized the value and closed the semaphore, in which case self.initialized
             // is true and we don't set the value here
             match self.semaphore.acquire().await {
                 Ok(_permit) => {
@@ -279,7 +285,7 @@ impl<T> OnceCell<T> {
         } else {
             // After acquire().await we have either acquired a permit while self.value
             // is still uninitialized, or the current thread is awoken after another thread
-            // has intialized the value and closed the semaphore, in which case self.initialized
+            // has initialized the value and closed the semaphore, in which case self.initialized
             // is true and we don't set the value here
             match self.semaphore.acquire().await {
                 Ok(_permit) => {
@@ -364,7 +370,7 @@ pub enum SetError<T> {
     AlreadyInitializedError(T),
 
     /// Error resulting from [`OnceCell::set`] calls when the cell is currently being
-    /// inintialized during the calls to that method.
+    /// initialized during the calls to that method.
     ///
     /// [`OnceCell::set`]: crate::sync::OnceCell::set
     InitializingError(T),
