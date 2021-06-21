@@ -4,15 +4,17 @@ extern crate fallible_iterator;
 extern crate gimli;
 extern crate memmap;
 extern crate object;
+extern crate typed_arena;
 
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{BufRead, Lines, StdinLock};
+use std::io::{BufRead, Lines, StdinLock, Write};
 use std::path::Path;
 
 use clap::{App, Arg, Values};
 use fallible_iterator::FallibleIterator;
-use object::Object;
+use object::{Object, ObjectSection};
+use typed_arena::Arena;
 
 use addr2line::{Context, Location};
 
@@ -75,6 +77,23 @@ fn print_function(name: &str, language: Option<gimli::DwLang>, demangle: bool) {
     }
 }
 
+fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
+    id: gimli::SectionId,
+    file: &object::File<'input>,
+    endian: Endian,
+    arena_data: &'arena Arena<Cow<'input, [u8]>>,
+) -> Result<gimli::EndianSlice<'arena, Endian>, ()> {
+    // TODO: Unify with dwarfdump.rs in gimli.
+    let name = id.name();
+    match file.section_by_name(name) {
+        Some(section) => match section.uncompressed_data().unwrap() {
+            Cow::Borrowed(b) => Ok(gimli::EndianSlice::new(b, endian)),
+            Cow::Owned(b) => Ok(gimli::EndianSlice::new(arena_data.alloc(b.into()), endian)),
+        },
+        None => Ok(gimli::EndianSlice::new(&[][..], endian)),
+    }
+}
+
 fn main() {
     let matches = App::new("hardliner")
         .version("0.1")
@@ -88,6 +107,12 @@ fn main() {
                     "Specify the name of the executable for which addresses should be translated.",
                 )
                 .required(true),
+        )
+        .arg(
+            Arg::with_name("sup")
+                .long("sup")
+                .value_name("filename")
+                .help("Path to supplementary object file."),
         )
         .arg(
             Arg::with_name("functions")
@@ -142,6 +167,8 @@ fn main() {
         )
         .get_matches();
 
+    let arena_data = Arena::new();
+
     let do_functions = matches.is_present("functions");
     let do_inlines = matches.is_present("inlines");
     let pretty = matches.is_present("pretty");
@@ -153,10 +180,37 @@ fn main() {
 
     let file = File::open(path).unwrap();
     let map = unsafe { memmap::Mmap::map(&file).unwrap() };
-    let file = &object::File::parse(&*map).unwrap();
+    let object = &object::File::parse(&*map).unwrap();
 
-    let symbols = file.symbol_map();
-    let ctx = Context::new(file).unwrap();
+    let endian = if object.is_little_endian() {
+        gimli::RunTimeEndian::Little
+    } else {
+        gimli::RunTimeEndian::Big
+    };
+
+    let mut load_section = |id: gimli::SectionId| -> Result<_, _> {
+        load_file_section(id, object, endian, &arena_data)
+    };
+
+    let sup_map;
+    let sup_object = if let Some(sup_path) = matches.value_of("sup") {
+        let sup_file = File::open(sup_path).unwrap();
+        sup_map = unsafe { memmap::Mmap::map(&sup_file).unwrap() };
+        Some(object::File::parse(&*sup_map).unwrap())
+    } else {
+        None
+    };
+
+    let symbols = object.symbol_map();
+    let mut dwarf = gimli::Dwarf::load(&mut load_section).unwrap();
+    if let Some(ref sup_object) = sup_object {
+        let mut load_sup_section = |id: gimli::SectionId| -> Result<_, _> {
+            load_file_section(id, sup_object, endian, &arena_data)
+        };
+        dwarf.load_sup(&mut load_sup_section).unwrap();
+    }
+
+    let ctx = Context::from_dwarf(dwarf).unwrap();
 
     let stdin = std::io::stdin();
     let addrs = matches
@@ -240,5 +294,6 @@ fn main() {
         if llvm {
             println!();
         }
+        std::io::stdout().flush().unwrap();
     }
 }

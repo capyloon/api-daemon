@@ -63,7 +63,7 @@ apps_service = { path = "../services/apps", optional = true }
 async-std = "1.6"
 audiovolume_service = {path = "../services/audiovolumemanager", optional = true}
 bincode = "1.3"
-breakpad_sys = { git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git", optional = true }
+breakpad_sys = { git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git", branch="update-bindgen", optional = true }
 common = { path = "../common" }
 contacts_service = { path = "../services/contacts", optional = true }
 daemonize = { version = "0.4.1", optional = true }

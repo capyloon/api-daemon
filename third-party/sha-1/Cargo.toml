@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "sha-1"
-version = "0.9.4"
+version = "0.9.6"
 authors = ["RustCrypto Developers"]
 description = "SHA-1 hash function"
 documentation = "https://docs.rs/sha-1"
@@ -51,14 +51,15 @@ features = ["dev"]
 version = "0.2"
 
 [features]
-asm = ["sha1-asm", "libc"]
+asm = ["sha1-asm"]
 asm-aarch64 = ["asm"]
 compress = []
 default = ["std"]
 force-soft = []
 std = ["digest/std"]
-[target."cfg(all(target_arch = \"aarch64\", target_os = \"linux\"))".dependencies.libc]
-version = "0.2.86"
-optional = true
-[target."cfg(any(target_arch = \"x86\", target_arch = \"x86_64\"))".dependencies.cpuid-bool]
-version = "0.1"
+[target.aarch64-apple-darwin.dependencies.cpufeatures]
+version = "0.1.1"
+[target."cfg(all(target_arch = \"aarch64\", target_os = \"linux\"))".dependencies.cpufeatures]
+version = "0.1.1"
+[target."cfg(any(target_arch = \"x86\", target_arch = \"x86_64\"))".dependencies.cpufeatures]
+version = "0.1.1"

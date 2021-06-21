@@ -394,6 +394,16 @@ impl<T: AsyncRead + Unpin> std::io::Read for BlockOn<T> {
     }
 }
 
+impl<T: AsyncBufRead + Unpin> std::io::BufRead for BlockOn<T> {
+    fn fill_buf(&mut self) -> Result<&[u8]> {
+        future::block_on(self.0.fill_buf())
+    }
+
+    fn consume(&mut self, amt: usize) {
+        Pin::new(&mut self.0).consume(amt)
+    }
+}
+
 impl<T: AsyncWrite + Unpin> std::io::Write for BlockOn<T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         future::block_on(self.0.write(buf))
@@ -698,6 +708,24 @@ impl<R: AsyncSeek> AsyncSeek for BufReader<R> {
         }
         self.discard_buffer();
         Poll::Ready(Ok(result))
+    }
+}
+
+impl<R: AsyncWrite> AsyncWrite for BufReader<R> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize>> {
+        self.as_mut().get_pin_mut().poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        self.as_mut().get_pin_mut().poll_flush(cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        self.as_mut().get_pin_mut().poll_close(cx)
     }
 }
 
@@ -1447,7 +1475,6 @@ pub trait AsyncBufReadExt: AsyncBufRead {
     /// let mut reader = BufReader::new(input);
     /// let mut lines = reader.lines();
     ///
-    /// let mut line = String::new();
     /// while let Some(line) = lines.next().await {
     ///     println!("{}", line?);
     /// }

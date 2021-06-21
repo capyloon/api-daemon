@@ -12,7 +12,7 @@
 
 [package]
 name = "tinyfiledialogs"
-version = "3.3.10"
+version = "3.8.3"
 authors = ["Guillaume Vareille <vareille@users.sourceforge.net>", "Josh Matthews <josh@joshmatthews.net>"]
 build = "build.rs"
 description = "High-level Rust binding for the tinyfiledialogs C library."

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "time-macros-impl"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jacob Pratt <the.z.cuber@gmail.com>"]
 description = "Procedural macros for the time crate."
 readme = "../README.md"
@@ -38,6 +38,6 @@ version = "0.2"
 default-features = false
 
 [dependencies.syn]
-version = "1"
-features = ["proc-macro", "parsing", "printing", "derive"]
+version = "1.0.15"
+features = ["proc-macro", "parsing", "printing"]
 default-features = false

@@ -2,9 +2,9 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
 use crate::read::{
-    self, Architecture, ComdatKind, CompressedData, Export, FileFlags, Import, ObjectMap,
-    Relocation, Result, SectionFlags, SectionIndex, SectionKind, SymbolFlags, SymbolIndex,
-    SymbolKind, SymbolMap, SymbolMapName, SymbolScope, SymbolSection,
+    self, Architecture, CodeView, ComdatKind, CompressedData, CompressedFileRange, Export,
+    FileFlags, Import, ObjectMap, Relocation, Result, SectionFlags, SectionIndex, SectionKind,
+    SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapName, SymbolScope, SymbolSection,
 };
 use crate::Endianness;
 
@@ -69,16 +69,13 @@ pub trait Object<'data: 'file, 'file>: read::private::Sealed {
     /// Get an iterator over the segments in the file.
     fn segments(&'file self) -> Self::SegmentIterator;
 
-    /// Get the entry point address of the binary
-    fn entry(&'file self) -> u64;
-
     /// Get the section named `section_name`, if such a section exists.
     ///
     /// If `section_name` starts with a '.' then it is treated as a system section name,
     /// and is compared using the conventions specific to the object file format. This
     /// includes:
-    /// - if ".text" is requested for a Mach-O object file, then the actual
-    /// section name that is searched for is "__text".
+    /// - if ".debug_str_offsets" is requested for a Mach-O object file, then the actual
+    /// section name that is searched for is "__debug_str_offs".
     /// - if ".debug_info" is requested for an ELF object file, then
     /// ".zdebug_info" may be returned (and similarly for other debug sections).
     ///
@@ -193,6 +190,26 @@ pub trait Object<'data: 'file, 'file>: read::private::Sealed {
         Ok(None)
     }
 
+    /// The filename and build ID from a `.gnu_debugaltlink` section.
+    #[inline]
+    fn gnu_debugaltlink(&self) -> Result<Option<(&'data [u8], &'data [u8])>> {
+        Ok(None)
+    }
+
+    /// The filename and GUID from the PE CodeView section
+    #[inline]
+    fn pdb_info(&self) -> Result<Option<CodeView>> {
+        Ok(None)
+    }
+
+    /// Get the base address used for relative virtual addresses.
+    ///
+    /// Currently this is only non-zero for PE.
+    fn relative_address_base(&'file self) -> u64;
+
+    /// Get the virtual address of the entry point of the binary
+    fn entry(&'file self) -> u64;
+
     /// File flags that are specific to each file format.
     fn flags(&self) -> FileFlags;
 }
@@ -266,6 +283,10 @@ pub trait ObjectSection<'data>: read::private::Sealed {
     ///
     /// Returns `Ok(None)` if the section does not contain the given range.
     fn data_range(&self, address: u64, size: u64) -> Result<Option<&'data [u8]>>;
+
+    /// Returns the potentially compressed file range of the section,
+    /// along with information about the compression.
+    fn compressed_file_range(&self) -> Result<CompressedFileRange>;
 
     /// Returns the potentially compressed contents of the section,
     /// along with information about the compression.

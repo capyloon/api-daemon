@@ -644,7 +644,9 @@ mod test {
     use crate::nid::Nid;
     use crate::pkey::PKey;
     use crate::rsa::{Padding, Rsa};
-    use crate::sign::{RsaPssSaltlen, Signer, Verifier};
+    #[cfg(ossl111)]
+    use crate::sign::RsaPssSaltlen;
+    use crate::sign::{Signer, Verifier};
 
     const INPUT: &str =
         "65794a68624763694f694a53557a49314e694a392e65794a7063334d694f694a71623255694c41304b49434a6c\
@@ -801,6 +803,7 @@ mod test {
 
     #[test]
     #[cfg(ossl110)]
+    #[cfg_attr(ossl300, ignore)] // https://github.com/openssl/openssl/issues/11671
     fn test_cmac() {
         let cipher = crate::symm::Cipher::aes_128_cbc();
         let key = Vec::from_hex("9294727a3638bb1c13f48ef8158bfc9d").unwrap();

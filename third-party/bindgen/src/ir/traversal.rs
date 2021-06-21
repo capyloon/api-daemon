@@ -20,10 +20,7 @@ pub struct Edge {
 impl Edge {
     /// Construct a new edge whose referent is `to` and is of the given `kind`.
     pub fn new(to: ItemId, kind: EdgeKind) -> Edge {
-        Edge {
-            to,
-            kind,
-        }
+        Edge { to, kind }
     }
 }
 
@@ -201,11 +198,13 @@ pub fn all_edges(_: &BindgenContext, _: Edge) -> bool {
     true
 }
 
-/// A `TraversalPredicate` implementation that never follows any edges, and
-/// therefore traversals using this predicate will only visit the traversal's
-/// roots.
-pub fn no_edges(_: &BindgenContext, _: Edge) -> bool {
-    false
+/// A `TraversalPredicate` implementation that only follows
+/// `EdgeKind::InnerType` edges, and therefore traversals using this predicate
+/// will only visit the traversal's roots and their inner types. This is used
+/// in no-recursive-allowlist mode, where inner types such as anonymous
+/// structs/unions still need to be processed.
+pub fn only_inner_type_edges(_: &BindgenContext, edge: Edge) -> bool {
+    edge.kind == EdgeKind::InnerType
 }
 
 /// A `TraversalPredicate` implementation that only follows edges to items that
@@ -230,11 +229,11 @@ pub fn codegen_edges(ctx: &BindgenContext, edge: Edge) -> bool {
         EdgeKind::FunctionReturn |
         EdgeKind::FunctionParameter |
         EdgeKind::VarType |
-        EdgeKind::TypeReference => cc.types,
-        EdgeKind::InnerVar => cc.vars,
-        EdgeKind::Method => cc.methods,
-        EdgeKind::Constructor => cc.constructors,
-        EdgeKind::Destructor => cc.destructors,
+        EdgeKind::TypeReference => cc.types(),
+        EdgeKind::InnerVar => cc.vars(),
+        EdgeKind::Method => cc.methods(),
+        EdgeKind::Constructor => cc.constructors(),
+        EdgeKind::Destructor => cc.destructors(),
     }
 }
 
@@ -267,10 +266,7 @@ impl<'ctx> TraversalStorage<'ctx> for ItemSet {
 /// each item. This is useful for providing debug assertions with meaningful
 /// diagnostic messages about dangling items.
 #[derive(Debug)]
-pub struct Paths<'ctx>(
-    BTreeMap<ItemId, ItemId>,
-    &'ctx BindgenContext
-);
+pub struct Paths<'ctx>(BTreeMap<ItemId, ItemId>, &'ctx BindgenContext);
 
 impl<'ctx> TraversalStorage<'ctx> for Paths<'ctx> {
     fn new(ctx: &'ctx BindgenContext) -> Self {
@@ -287,7 +283,7 @@ impl<'ctx> TraversalStorage<'ctx> for Paths<'ctx> {
             loop {
                 let predecessor = *self.0.get(&current).expect(
                     "We know we found this item id, so it must have a \
-                            predecessor",
+                     predecessor",
                 );
                 if predecessor == current {
                     break;
@@ -298,8 +294,7 @@ impl<'ctx> TraversalStorage<'ctx> for Paths<'ctx> {
             path.reverse();
             panic!(
                 "Found reference to dangling id = {:?}\nvia path = {:?}",
-                item,
-                path
+                item, path
             );
         }
 
@@ -382,7 +377,7 @@ pub trait Trace {
 
 /// An graph traversal of the transitive closure of references between items.
 ///
-/// See `BindgenContext::whitelisted_items` for more information.
+/// See `BindgenContext::allowlisted_items` for more information.
 pub struct ItemTraversal<'ctx, Storage, Queue, Predicate>
 where
     Storage: TraversalStorage<'ctx>,
@@ -493,13 +488,12 @@ where
 ///
 /// See `BindgenContext::assert_no_dangling_item_traversal` for more
 /// information.
-pub type AssertNoDanglingItemsTraversal<'ctx> =
-    ItemTraversal<
-        'ctx,
-        Paths<'ctx>,
-        VecDeque<ItemId>,
-        for<'a> fn(&'a BindgenContext, Edge) -> bool,
-    >;
+pub type AssertNoDanglingItemsTraversal<'ctx> = ItemTraversal<
+    'ctx,
+    Paths<'ctx>,
+    VecDeque<ItemId>,
+    for<'a> fn(&'a BindgenContext, Edge) -> bool,
+>;
 
 #[cfg(test)]
 mod tests {
@@ -509,6 +503,6 @@ mod tests {
     #[allow(dead_code)]
     fn traversal_predicate_is_object_safe() {
         // This should compile only if TraversalPredicate is object safe.
-        fn takes_by_trait_object(_: &TraversalPredicate) {}
+        fn takes_by_trait_object(_: &dyn TraversalPredicate) {}
     }
 }

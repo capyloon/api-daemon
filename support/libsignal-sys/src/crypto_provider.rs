@@ -1,6 +1,6 @@
 use crate::generated::ffi::*;
 use block_modes::block_padding::Pkcs7;
-use block_modes::cipher::{NewStreamCipher, SyncStreamCipher};
+use block_modes::cipher::{NewCipher, StreamCipher};
 use block_modes::{BlockMode, Cbc};
 use hmac::{Hmac, Mac, NewMac};
 use ring::digest;
@@ -12,7 +12,7 @@ use std::ptr::null_mut;
 use std::slice;
 
 type Aes256Cbc = Cbc<aes::Aes256, Pkcs7>;
-type Aes128Ctr = ctr::Ctr128<aes::Aes128>;
+type Aes128Ctr = ctr::Ctr128BE<aes::Aes128>;
 
 // cipher used for AES encryption and decryption.
 const SG_CIPHER_AES_CTR_NOPADDING: c_int = 1;
@@ -63,7 +63,7 @@ extern "C" fn hmac_sha256_init_func(
             0
         }
         Err(err) => {
-            error!("Failure in HmacSha256::new_varkey() : {}", err);
+            error!("Failure in HmacSha256::new_from_sliceskey() : {}", err);
             -1
         }
     }
@@ -240,10 +240,10 @@ extern "C" fn encrypt_func(
     let eplain = unsafe { slice::from_raw_parts_mut(plaintext as *mut u8, plaintext_len as _) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
-        let cipher = match Aes256Cbc::new_var(&ekey, &eiv) {
+        let cipher = match Aes256Cbc::new_from_slices(&ekey, &eiv) {
             Ok(cipher) => cipher,
             Err(err) => {
-                error!("Failure in Aes256Cbc::new_var() : {}", err);
+                error!("Failure in Aes256Cbc::new_from_slices() : {}", err);
                 return -3;
             }
         };
@@ -301,10 +301,10 @@ extern "C" fn decrypt_func(
     let ecipher = unsafe { slice::from_raw_parts_mut(ciphertext as *mut u8, ciphertext_len as _) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
-        let cipher = match Aes256Cbc::new_var(&ekey, &eiv) {
+        let cipher = match Aes256Cbc::new_from_slices(&ekey, &eiv) {
             Ok(cipher) => cipher,
             Err(err) => {
-                error!("Failure in Aes256Cbc::new_var() : {}", err);
+                error!("Failure in Aes256Cbc::new_from_slices() : {}", err);
                 return -3;
             }
         };

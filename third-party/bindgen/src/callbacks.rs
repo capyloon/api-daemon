@@ -1,7 +1,9 @@
 //! A public API for more fine-grained customization of bindgen behavior.
 
-pub use ir::enum_ty::{EnumVariantCustomBehavior, EnumVariantValue};
-pub use ir::int::IntKind;
+pub use crate::ir::analysis::DeriveTrait;
+pub use crate::ir::derive::CanDerive as ImplementsTrait;
+pub use crate::ir::enum_ty::{EnumVariantCustomBehavior, EnumVariantValue};
+pub use crate::ir::int::IntKind;
 use std::fmt;
 use std::panic::UnwindSafe;
 
@@ -35,7 +37,20 @@ pub trait ParseCallbacks: fmt::Debug + UnwindSafe {
         None
     }
 
-    /// This function should return whether, given the a given enum variant
+    /// This will be run on every string macro. The callback cannot influence the further
+    /// treatment of the macro, but may use the value to generate additional code or configuration.
+    fn str_macro(&self, _name: &str, _value: &[u8]) {}
+
+    /// This will be run on every function-like macro. The callback cannot
+    /// influence the further treatment of the macro, but may use the value to
+    /// generate additional code or configuration.
+    ///
+    /// The first parameter represents the name and argument list (including the
+    /// parentheses) of the function-like macro. The second parameter represents
+    /// the expansion of the macro as a sequence of tokens.
+    fn func_macro(&self, _name: &str, _value: &[&[u8]]) {}
+
+    /// This function should return whether, given an enum variant
     /// name, and value, this enum variant will forcibly be a constant.
     fn enum_variant_behavior(
         &self,
@@ -53,6 +68,31 @@ pub trait ParseCallbacks: fmt::Debug + UnwindSafe {
         _original_variant_name: &str,
         _variant_value: EnumVariantValue,
     ) -> Option<String> {
+        None
+    }
+
+    /// Allows to rename an item, replacing `_original_item_name`.
+    fn item_name(&self, _original_item_name: &str) -> Option<String> {
+        None
+    }
+
+    /// This will be called on every file inclusion, with the full path of the included file.
+    fn include_file(&self, _filename: &str) {}
+
+    /// This will be called to determine whether a particular blocklisted type
+    /// implements a trait or not. This will be used to implement traits on
+    /// other types containing the blocklisted type.
+    ///
+    /// * `None`: use the default behavior
+    /// * `Some(ImplementsTrait::Yes)`: `_name` implements `_derive_trait`
+    /// * `Some(ImplementsTrait::Manually)`: any type including `_name` can't
+    ///   derive `_derive_trait` but can implemented it manually
+    /// * `Some(ImplementsTrait::No)`: `_name` doesn't implement `_derive_trait`
+    fn blocklisted_type_implements_trait(
+        &self,
+        _name: &str,
+        _derive_trait: DeriveTrait,
+    ) -> Option<ImplementsTrait> {
         None
     }
 }

@@ -19,7 +19,7 @@
 //! | FreeBSD           | `*‑freebsd`        | [`getrandom()`][21] if available, otherwise [`kern.arandom`][5]
 //! | OpenBSD           | `*‑openbsd`        | [`getentropy`][6]
 //! | NetBSD            | `*‑netbsd`         | [`kern.arandom`][7]
-//! | Dragonfly BSD     | `*‑dragonfly`      | [`/dev/random`][8]
+//! | Dragonfly BSD     | `*‑dragonfly`      | [`getrandom()`][22] if available, otherwise [`/dev/random`][8]
 //! | Solaris, illumos  | `*‑solaris`, `*‑illumos` | [`getrandom()`][9] if available, otherwise [`/dev/random`][10]
 //! | Fuchsia OS        | `*‑fuchsia`        | [`cprng_draw`][11]
 //! | Redox             | `*‑redox`          | [`rand:`][12]
@@ -27,7 +27,7 @@
 //! | SGX               | `x86_64‑*‑sgx`     | [RDRAND][18]
 //! | VxWorks           | `*‑wrs‑vxworks‑*`  | `randABytes` after checking entropy pool initialization with `randSecure`
 //! | Emscripten        | `*‑emscripten`     | `/dev/random` (identical to `/dev/urandom`)
-//! | WASI              | `wasm32‑wasi`      | [`__wasi_random_get`][17]
+//! | WASI              | `wasm32‑wasi`      | [`random_get`][17]
 //! | Web Browser       | `wasm32‑*‑unknown` | [`Crypto.getRandomValues()`][14], see [WebAssembly support][16]
 //! | Node.js           | `wasm32‑*‑unknown` | [`crypto.randomBytes`][15], see [WebAssembly support][16]
 //!
@@ -59,7 +59,8 @@
 //! This crate fully supports the
 //! [`wasm32-wasi`](https://github.com/CraneStation/wasi) and
 //! [`wasm32-unknown-emscripten`](https://www.hellorust.com/setup/emscripten/)
-//! targets. However, the `wasm32-unknown-unknown` target is not automatically
+//! targets. However, the `wasm32-unknown-unknown` target (i.e. the target used
+//! by `wasm-pack`) is not automatically
 //! supported since, from the target name alone, we cannot deduce which
 //! JavaScript interface is in use (or if JavaScript is available at all).
 //!
@@ -124,7 +125,7 @@
 //! [4]: https://developer.apple.com/documentation/security/1399291-secrandomcopybytes?language=objc
 //! [5]: https://www.freebsd.org/cgi/man.cgi?query=random&sektion=4
 //! [6]: https://man.openbsd.org/getentropy.2
-//! [7]: https://netbsd.gw.com/cgi-bin/man-cgi?sysctl+7+NetBSD-8.0
+//! [7]: https://man.netbsd.org/sysctl.7
 //! [8]: https://leaf.dragonflybsd.org/cgi/web-man?command=random&section=4
 //! [9]: https://docs.oracle.com/cd/E88353_01/html/E37841/getrandom-2.html
 //! [10]: https://docs.oracle.com/cd/E86824_01/html/E54777/random-7d.html
@@ -133,16 +134,17 @@
 //! [14]: https://www.w3.org/TR/WebCryptoAPI/#Crypto-method-getRandomValues
 //! [15]: https://nodejs.org/api/crypto.html#crypto_crypto_randombytes_size_callback
 //! [16]: #webassembly-support
-//! [17]: https://github.com/WebAssembly/WASI/blob/master/design/WASI-core.md#__wasi_random_get
+//! [17]: https://github.com/WebAssembly/WASI/blob/main/phases/snapshot/docs.md#-random_getbuf-pointeru8-buf_len-size---errno
 //! [18]: https://software.intel.com/en-us/articles/intel-digital-random-number-generator-drng-software-implementation-guide
 //! [19]: https://www.unix.com/man-page/mojave/2/getentropy/
 //! [20]: https://www.unix.com/man-page/mojave/4/random/
 //! [21]: https://www.freebsd.org/cgi/man.cgi?query=getrandom&manpath=FreeBSD+12.0-stable
+//! [22]: https://leaf.dragonflybsd.org/cgi/web-man?command=getrandom
 
 #![doc(
     html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk.png",
     html_favicon_url = "https://www.rust-lang.org/favicon.ico",
-    html_root_url = "https://docs.rs/getrandom/0.2.2"
+    html_root_url = "https://docs.rs/getrandom/0.2.3"
 )]
 #![no_std]
 #![warn(rust_2018_idioms, unused_lifetimes, missing_docs)]
@@ -166,8 +168,8 @@ pub use crate::error::Error;
 //
 // These should all provide getrandom_inner with the same signature as getrandom.
 cfg_if! {
-    if #[cfg(any(target_os = "dragonfly", target_os = "emscripten",
-                 target_os = "haiku",     target_os = "redox"))] {
+    if #[cfg(any(target_os = "emscripten", target_os = "haiku",
+                 target_os = "redox"))] {
         mod util_libc;
         #[path = "use_file.rs"] mod imp;
     } else if #[cfg(any(target_os = "android", target_os = "linux"))] {
@@ -181,6 +183,10 @@ cfg_if! {
     } else if #[cfg(any(target_os = "freebsd", target_os = "netbsd"))] {
         mod util_libc;
         #[path = "bsd_arandom.rs"] mod imp;
+    } else if #[cfg(target_os = "dragonfly")] {
+        mod util_libc;
+        mod use_file;
+        #[path = "dragonfly.rs"] mod imp;
     } else if #[cfg(target_os = "fuchsia")] {
         #[path = "fuchsia.rs"] mod imp;
     } else if #[cfg(target_os = "ios")] {
@@ -209,6 +215,11 @@ cfg_if! {
         #[path = "js.rs"] mod imp;
     } else if #[cfg(feature = "custom")] {
         use custom as imp;
+    } else if #[cfg(all(target_arch = "wasm32", target_os = "unknown"))] {
+        compile_error!("the wasm32-unknown-unknown target is not supported by \
+                        default, you may need to enable the \"js\" feature. \
+                        For more information see: \
+                        https://docs.rs/getrandom/#webassembly-support");
     } else {
         compile_error!("target is not supported, for more information see: \
                         https://docs.rs/getrandom/#unsupported-targets");

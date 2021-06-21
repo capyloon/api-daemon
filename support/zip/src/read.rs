@@ -4,8 +4,7 @@ use crate::compression::CompressionMethod;
 use crate::crc32::Crc32Reader;
 use crate::result::{InvalidPassword, ZipError, ZipResult};
 use crate::spec;
-use crate::zipcrypto::ZipCryptoReader;
-use crate::zipcrypto::ZipCryptoReaderValid;
+use crate::zipcrypto::{ZipCryptoReader, ZipCryptoReaderValid, ZipCryptoValidator};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, prelude::*};
@@ -161,6 +160,8 @@ fn find_content<'a>(
 fn make_crypto_reader<'a>(
     compression_method: crate::compression::CompressionMethod,
     crc32: u32,
+    last_modified_time: DateTime,
+    using_data_descriptor: bool,
     reader: io::Take<&'a mut dyn io::Read>,
     password: Option<&[u8]>,
 ) -> ZipResult<Result<CryptoReader<'a>, InvalidPassword>> {
@@ -173,10 +174,17 @@ fn make_crypto_reader<'a>(
 
     let reader = match password {
         None => CryptoReader::Plaintext(reader),
-        Some(password) => match ZipCryptoReader::new(reader, password).validate(crc32)? {
-            None => return Ok(Err(InvalidPassword)),
-            Some(r) => CryptoReader::ZipCrypto(r),
-        },
+        Some(password) => {
+            let validator = if using_data_descriptor {
+                ZipCryptoValidator::InfoZipMsdosTime(last_modified_time.timepart())
+            } else {
+                ZipCryptoValidator::PkzipCrc32(crc32)
+            };
+            match ZipCryptoReader::new(reader, password).validate(validator)? {
+                None => return Ok(Err(InvalidPassword)),
+                Some(r) => CryptoReader::ZipCrypto(r),
+            }
+        }
     };
     Ok(Ok(reader))
 }
@@ -453,6 +461,8 @@ impl<R: Read + io::Seek> ZipArchive<R> {
                     match make_crypto_reader(
                         data.compression_method,
                         data.crc32,
+                        data.last_modified_time,
+                        data.using_data_descriptor,
                         limit_reader,
                         None,
                     ) {
@@ -524,17 +534,20 @@ impl<R: Read + io::Seek> ZipArchive<R> {
         let data = &mut self.files[file_number];
 
         match (password, data.encrypted) {
-            (None, true) => {
-                return Err(ZipError::UnsupportedArchive(
-                    "Password required to decrypt file",
-                ))
-            }
+            (None, true) => return Err(ZipError::UnsupportedArchive(ZipError::PASSWORD_REQUIRED)),
             (Some(_), false) => password = None, //Password supplied, but none needed! Discard.
             _ => {}
         }
         let limit_reader = find_content(data, &mut self.reader)?;
 
-        match make_crypto_reader(data.compression_method, data.crc32, limit_reader, password) {
+        match make_crypto_reader(
+            data.compression_method,
+            data.crc32,
+            data.last_modified_time,
+            data.using_data_descriptor,
+            limit_reader,
+            password,
+        ) {
             Ok(Ok(crypto_reader)) => Ok(Ok(ZipFile {
                 crypto_reader: Some(crypto_reader),
                 reader: ZipFileReader::NoReader,
@@ -574,6 +587,7 @@ pub(crate) fn central_header_to_zip_file<R: Read + io::Seek>(
     let flags = reader.read_u16::<LittleEndian>()?;
     let encrypted = flags & 1 == 1;
     let is_utf8 = flags & (1 << 11) != 0;
+    let using_data_descriptor = flags & (1 << 3) != 0;
     let compression_method = reader.read_u16::<LittleEndian>()?;
     let last_mod_time = reader.read_u16::<LittleEndian>()?;
     let last_mod_date = reader.read_u16::<LittleEndian>()?;
@@ -608,6 +622,7 @@ pub(crate) fn central_header_to_zip_file<R: Read + io::Seek>(
         system: System::from_u8((version_made_by >> 8) as u8),
         version_made_by: version_made_by as u8,
         encrypted,
+        using_data_descriptor,
         compression_method: {
             #[allow(deprecated)]
             CompressionMethod::from_u16(compression_method)
@@ -618,14 +633,16 @@ pub(crate) fn central_header_to_zip_file<R: Read + io::Seek>(
         uncompressed_size: uncompressed_size as u64,
         file_name,
         file_name_raw,
+        extra_field,
         file_comment,
         header_start: offset,
         central_header_start,
         data_start: 0,
         external_attributes: external_file_attributes,
+        large_file: false,
     };
 
-    match parse_extra_field(&mut result, &*extra_field) {
+    match parse_extra_field(&mut result) {
         Ok(..) | Err(ZipError::Io(..)) => {}
         Err(e) => return Err(e),
     }
@@ -636,20 +653,22 @@ pub(crate) fn central_header_to_zip_file<R: Read + io::Seek>(
     Ok(result)
 }
 
-fn parse_extra_field(file: &mut ZipFileData, data: &[u8]) -> ZipResult<()> {
-    let mut reader = io::Cursor::new(data);
+fn parse_extra_field(file: &mut ZipFileData) -> ZipResult<()> {
+    let mut reader = io::Cursor::new(&file.extra_field);
 
-    while (reader.position() as usize) < data.len() {
+    while (reader.position() as usize) < file.extra_field.len() {
         let kind = reader.read_u16::<LittleEndian>()?;
         let len = reader.read_u16::<LittleEndian>()?;
         let mut len_left = len as i64;
         // Zip64 extended information extra field
         if kind == 0x0001 {
             if file.uncompressed_size == 0xFFFFFFFF {
+                file.large_file = true;
                 file.uncompressed_size = reader.read_u64::<LittleEndian>()?;
                 len_left -= 8;
             }
             if file.compressed_size == 0xFFFFFFFF {
+                file.large_file = true;
                 file.compressed_size = reader.read_u64::<LittleEndian>()?;
                 len_left -= 8;
             }
@@ -841,6 +860,11 @@ impl<'a> ZipFile<'a> {
         self.data.crc32
     }
 
+    /// Get the extra data of the zip header for this file
+    pub fn extra_data(&self) -> &[u8] {
+        &self.data.extra_field
+    }
+
     /// Get the starting offset of the data of the compressed file
     pub fn data_start(&self) -> u64 {
         self.data.data_start
@@ -951,6 +975,7 @@ pub fn read_zipfile_from_stream<'a, R: io::Read>(
         system: System::from_u8((version_made_by >> 8) as u8),
         version_made_by: version_made_by as u8,
         encrypted,
+        using_data_descriptor,
         compression_method,
         last_modified_time: DateTime::from_msdos(last_mod_date, last_mod_time),
         crc32,
@@ -958,6 +983,7 @@ pub fn read_zipfile_from_stream<'a, R: io::Read>(
         uncompressed_size: uncompressed_size as u64,
         file_name,
         file_name_raw,
+        extra_field,
         file_comment: String::new(), // file comment is only available in the central directory
         // header_start and data start are not available, but also don't matter, since seeking is
         // not available.
@@ -968,9 +994,10 @@ pub fn read_zipfile_from_stream<'a, R: io::Read>(
         // We set this to zero, which should be valid as the docs state 'If input came
         // from standard input, this field is set to zero.'
         external_attributes: 0,
+        large_file: false,
     };
 
-    match parse_extra_field(&mut result, &extra_field) {
+    match parse_extra_field(&mut result) {
         Ok(..) | Err(ZipError::Io(..)) => {}
         Err(e) => return Err(e),
     }
@@ -986,8 +1013,15 @@ pub fn read_zipfile_from_stream<'a, R: io::Read>(
 
     let result_crc32 = result.crc32;
     let result_compression_method = result.compression_method;
-    let crypto_reader =
-        make_crypto_reader(result_compression_method, result_crc32, limit_reader, None)?.unwrap();
+    let crypto_reader = make_crypto_reader(
+        result_compression_method,
+        result_crc32,
+        result.last_modified_time,
+        result.using_data_descriptor,
+        limit_reader,
+        None,
+    )?
+    .unwrap();
 
     Ok(Some(ZipFile {
         data: Cow::Owned(result),

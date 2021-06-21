@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "sha2"
-version = "0.9.3"
+version = "0.9.5"
 authors = ["RustCrypto Developers"]
 description = "Pure Rust implementation of the SHA-2 hash function family\nincluding SHA-224, SHA-256, SHA-384, and SHA-512.\n"
 documentation = "https://docs.rs/sha2"
@@ -22,6 +22,9 @@ keywords = ["crypto", "sha2", "hash", "digest"]
 categories = ["cryptography", "no-std"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/RustCrypto/hashes"
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 [dependencies.block-buffer]
 version = "0.9"
 
@@ -35,7 +38,7 @@ version = "0.9"
 version = "0.3"
 
 [dependencies.sha2-asm]
-version = "0.5"
+version = "0.6.1"
 optional = true
 [dev-dependencies.digest]
 version = "0.9"
@@ -45,14 +48,15 @@ features = ["dev"]
 version = "0.2"
 
 [features]
-asm = ["sha2-asm", "libc"]
+asm = ["sha2-asm"]
 asm-aarch64 = ["asm"]
 compress = []
 default = ["std"]
 force-soft = []
 std = ["digest/std"]
-[target."cfg(all(target_arch = \"aarch64\", target_os = \"linux\"))".dependencies.libc]
-version = "0.2.84"
-optional = true
-[target."cfg(any(target_arch = \"x86\", target_arch = \"x86_64\"))".dependencies.cpuid-bool]
-version = "0.1"
+[target.aarch64-apple-darwin.dependencies.cpufeatures]
+version = "0.1.1"
+[target."cfg(all(target_arch = \"aarch64\", target_os = \"linux\"))".dependencies.cpufeatures]
+version = "0.1.1"
+[target."cfg(any(target_arch = \"x86\", target_arch = \"x86_64\"))".dependencies.cpufeatures]
+version = "0.1.1"

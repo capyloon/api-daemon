@@ -250,7 +250,7 @@
 //!   dynamic library libproc_macro from rustc toolchain.
 
 // Syn types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/syn/1.0.69")]
+#![doc(html_root_url = "https://docs.rs/syn/1.0.73")]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![allow(non_camel_case_types)]
 // Ignored clippy lints.
@@ -274,6 +274,8 @@
 // Ignored clippy_pedantic lints.
 #![allow(
     clippy::cast_possible_truncation,
+    // clippy bug: https://github.com/rust-lang/rust-clippy/issues/7127
+    clippy::cloned_instead_of_copied,
     clippy::default_trait_access,
     clippy::empty_enum,
     clippy::expl_impl_clone_on_copy,

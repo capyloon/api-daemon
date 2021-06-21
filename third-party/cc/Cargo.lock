@@ -2,7 +2,7 @@
 # It is not intended for manual editing.
 [[package]]
 name = "cc"
-version = "1.0.67"
+version = "1.0.68"
 dependencies = [
  "jobserver",
  "tempfile",

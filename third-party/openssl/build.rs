@@ -35,6 +35,9 @@ fn main() {
         if version >= 0x1_01_01_00_0 {
             println!("cargo:rustc-cfg=ossl111");
         }
+        if version >= 0x3_00_00_00_0 {
+            println!("cargo:rustc-cfg=ossl300");
+        }
     }
 
     if let Ok(version) = env::var("DEP_OPENSSL_LIBRESSL_VERSION_NUMBER") {
@@ -66,6 +69,10 @@ fn main() {
 
         if version >= 0x3_02_01_00_0 {
             println!("cargo:rustc-cfg=libressl321");
+        }
+
+        if version >= 0x3_03_02_00_0 {
+            println!("cargo:rustc-cfg=libressl332");
         }
     }
 }

@@ -143,7 +143,7 @@ Digit:   2
 * [pest_meta](https://github.com/pest-parser/pest/blob/master/meta/src/grammar.pest) (bootstrapped)
 * [AshPaper](https://github.com/shnewto/ashpaper)
 * [brain](https://github.com/brain-lang/brain)
-* [Chelone](https://github.com/Aaronepower/chelone)
+* [cicada](https://github.com/mitnk/cicada)
 * [comrak](https://github.com/kivikakk/comrak)
 * [elastic-rs](https://github.com/cch123/elastic-rs)
 * [graphql-parser](https://github.com/Keats/graphql-parser)
@@ -153,6 +153,7 @@ Digit:   2
 * [jql](https://github.com/yamafaktory/jql)
 * [json5-rs](https://github.com/callum-oakley/json5-rs)
 * [mt940](https://github.com/svenstaro/mt940-rs)
+* [Myoxine](https://github.com/d3bate/myoxine)
 * [py_literal](https://github.com/jturner314/py_literal)
 * [rouler](https://github.com/jarcane/rouler)
 * [RuSh](https://github.com/lwandrebeck/RuSh)
@@ -162,6 +163,7 @@ Digit:   2
 * [ui_gen](https://github.com/emoon/ui_gen)
 * [ukhasnet-parser](https://github.com/adamgreig/ukhasnet-parser)
 * [ZoKrates](https://github.com/ZoKrates/ZoKrates)
+* [Vector](https://github.com/timberio/vector)
 
 ## Special thanks
 

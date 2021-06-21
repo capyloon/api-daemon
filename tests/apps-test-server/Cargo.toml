@@ -11,5 +11,5 @@ env_logger = "0.8"
 mime_guess = "2.0"
 log = "0.4"
 base64 = "0.13"
-hawk = { git = "https://github.com/taskcluster/rust-hawk.git", rev = "c0760a0d78eca2695f77b16122fc21cc3dbfd195" }
+hawk = { git = "https://github.com/fabricedesre/rust-hawk.git", rev = "4da77e4a7ced4ddc081669f05352b7314dd9bebc" }
 vhost_server = { path = "../../vhost"}

@@ -179,11 +179,15 @@ See rust-openssl README for more information:
         let line = line.trim();
 
         let openssl_prefix = "RUST_VERSION_OPENSSL_";
+        let new_openssl_prefix = "RUST_VERSION_NEW_OPENSSL_";
         let libressl_prefix = "RUST_VERSION_LIBRESSL_";
         let conf_prefix = "RUST_CONF_";
         if line.starts_with(openssl_prefix) {
             let version = &line[openssl_prefix.len()..];
             openssl_version = Some(parse_version(version));
+        } else if line.starts_with(new_openssl_prefix) {
+            let version = &line[new_openssl_prefix.len()..];
+            openssl_version = Some(parse_new_version(version));
         } else if line.starts_with(libressl_prefix) {
             let version = &line[libressl_prefix.len()..];
             libressl_version = Some(parse_version(version));
@@ -232,6 +236,7 @@ See rust-openssl README for more information:
             (3, 2, _) => ('3', '2', 'x'),
             (3, 3, 0) => ('3', '3', '0'),
             (3, 3, 1) => ('3', '3', '1'),
+            (3, 3, _) => ('3', '3', 'x'),
             _ => version_error(),
         };
 
@@ -243,8 +248,10 @@ See rust-openssl README for more information:
         let openssl_version = openssl_version.unwrap();
         println!("cargo:version_number={:x}", openssl_version);
 
-        if openssl_version >= 0x1_01_02_00_0 {
+        if openssl_version >= 0x4_00_00_00_0 {
             version_error()
+        } else if openssl_version >= 0x3_00_00_00_0 {
+            Version::Openssl11x
         } else if openssl_version >= 0x1_01_01_00_0 {
             println!("cargo:version=111");
             Version::Openssl11x
@@ -272,7 +279,7 @@ fn version_error() -> ! {
         "
 
 This crate is only compatible with OpenSSL 1.0.1 through 1.1.1, or LibreSSL 2.5
-through 3.3.1, but a different version of OpenSSL was found. The build is now aborting
+through 3.3.x, but a different version of OpenSSL was found. The build is now aborting
 due to this version mismatch.
 
 "
@@ -296,13 +303,24 @@ fn parse_version(version: &str) -> u64 {
     u64::from_str_radix(version, 16).unwrap()
 }
 
+// parses a string that looks like 3_0_0
+fn parse_new_version(version: &str) -> u64 {
+    println!("version: {}", version);
+    let mut it = version.split('_');
+    let major = it.next().unwrap().parse::<u64>().unwrap();
+    let minor = it.next().unwrap().parse::<u64>().unwrap();
+    let patch = it.next().unwrap().parse::<u64>().unwrap();
+
+    (major << 28) | (minor << 20) | (patch << 4)
+}
+
 /// Given a libdir for OpenSSL (where artifacts are located) as well as the name
 /// of the libraries we're linking to, figure out whether we should link them
 /// statically or dynamically.
 fn determine_mode(libdir: &Path, libs: &[&str]) -> &'static str {
     // First see if a mode was explicitly requested
     let kind = env("OPENSSL_STATIC");
-    match kind.as_ref().and_then(|s| s.to_str()).map(|s| &s[..]) {
+    match kind.as_ref().and_then(|s| s.to_str()) {
         Some("0") => return "dylib",
         Some(_) => return "static",
         None => {}

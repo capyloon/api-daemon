@@ -3,14 +3,14 @@
 //! These definitions are independent of read/write support, although we do implement
 //! some traits useful for those.
 //!
-//! This module is based heavily on macOS header files.
+//! This module is based heavily on header files from MacOSX11.1.sdk.
 
 #![allow(missing_docs)]
 
 use crate::endian::{BigEndian, Endian, U64Bytes, U16, U32, U64};
 use crate::pod::Pod;
 
-// Definitions from "/usr/include/mach-o/machine.h".
+// Definitions from "/usr/include/mach/machine.h".
 
 /*
  * Capability bits used in the definition of cpu_type.
@@ -53,6 +53,13 @@ pub const CPU_TYPE_POWERPC64: u32 = CPU_TYPE_POWERPC | CPU_ARCH_ABI64;
 pub const CPU_SUBTYPE_MASK: u32 = 0xff00_0000;
 /// 64 bit libraries
 pub const CPU_SUBTYPE_LIB64: u32 = 0x8000_0000;
+/// pointer authentication with versioned ABI
+pub const CPU_SUBTYPE_PTRAUTH_ABI: u32 = 0x8000_0000;
+
+/// When selecting a slice, ANY will pick the slice with the best
+/// grading for the selected cpu_type_t, unlike the "ALL" subtypes,
+/// which are the slices that can run on any hardware for that cpu type.
+pub const CPU_SUBTYPE_ANY: u32 = !0;
 
 /*
  *	Object files that are hand-crafted to run on any
@@ -236,20 +243,22 @@ pub const CPU_SUBTYPE_ARM_V4T: u32 = 5;
 pub const CPU_SUBTYPE_ARM_V6: u32 = 6;
 pub const CPU_SUBTYPE_ARM_V5TEJ: u32 = 7;
 pub const CPU_SUBTYPE_ARM_XSCALE: u32 = 8;
+/// ARMv7-A and ARMv7-R
 pub const CPU_SUBTYPE_ARM_V7: u32 = 9;
 /// Cortex A9
 pub const CPU_SUBTYPE_ARM_V7F: u32 = 10;
 /// Swift
 pub const CPU_SUBTYPE_ARM_V7S: u32 = 11;
 pub const CPU_SUBTYPE_ARM_V7K: u32 = 12;
+pub const CPU_SUBTYPE_ARM_V8: u32 = 13;
 /// Not meant to be run under xnu
 pub const CPU_SUBTYPE_ARM_V6M: u32 = 14;
 /// Not meant to be run under xnu
 pub const CPU_SUBTYPE_ARM_V7M: u32 = 15;
 /// Not meant to be run under xnu
 pub const CPU_SUBTYPE_ARM_V7EM: u32 = 16;
-
-pub const CPU_SUBTYPE_ARM_V8: u32 = 13;
+/// Not meant to be run under xnu
+pub const CPU_SUBTYPE_ARM_V8M: u32 = 17;
 
 /*
  *  ARM64 subtypes
@@ -272,6 +281,62 @@ pub const VM_PROT_READ: u32 = 0x01;
 pub const VM_PROT_WRITE: u32 = 0x02;
 /// execute permission
 pub const VM_PROT_EXECUTE: u32 = 0x04;
+
+// Definitions from https://opensource.apple.com/source/dyld/dyld-210.2.3/launch-cache/dyld_cache_format.h.auto.html
+
+/// The dyld cache header, containing only the fields which are present
+/// in all versions of dyld caches (dyld-95.3 and up).
+/// Many more fields exist in later dyld versions, but we currently do
+/// not need to parse those.
+/// Corresponds to struct dyld_cache_header from dyld_cache_format.h.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct DyldCacheHeader<E: Endian> {
+    /// e.g. "dyld_v0    i386"
+    pub magic: [u8; 16],
+    /// file offset to first dyld_cache_mapping_info
+    pub mapping_offset: U32<E>,
+    /// number of dyld_cache_mapping_info entries
+    pub mapping_count: U32<E>,
+    /// file offset to first dyld_cache_image_info
+    pub images_offset: U32<E>,
+    /// number of dyld_cache_image_info entries
+    pub images_count: U32<E>,
+    /// base address of dyld when cache was built
+    pub dyld_base_address: U64<E>,
+}
+
+/// Corresponds to struct dyld_cache_mapping_info from dyld_cache_format.h.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct DyldCacheMappingInfo<E: Endian> {
+    ///
+    pub address: U64<E>,
+    ///
+    pub size: U64<E>,
+    ///
+    pub file_offset: U64<E>,
+    ///
+    pub max_prot: U32<E>,
+    ///
+    pub init_prot: U32<E>,
+}
+
+/// Corresponds to struct dyld_cache_image_info from dyld_cache_format.h.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct DyldCacheImageInfo<E: Endian> {
+    ///
+    pub address: U64<E>,
+    ///
+    pub mod_time: U64<E>,
+    ///
+    pub inode: U64<E>,
+    ///
+    pub path_file_offset: U32<E>,
+    ///
+    pub pad: U32<E>,
+}
 
 // Definitions from "/usr/include/mach-o/loader.h".
 
@@ -451,6 +516,8 @@ pub const MH_DYLIB_STUB: u32 = 0x9;
 pub const MH_DSYM: u32 = 0xa;
 /// x86_64 kexts
 pub const MH_KEXT_BUNDLE: u32 = 0xb;
+/// set of mach-o's
+pub const MH_FILESET: u32 = 0xc;
 
 // Values for `MachHeader*::flags`.
 /// the object file has no undefined references
@@ -487,15 +554,12 @@ pub const MH_CANONICAL: u32 = 0x4000;
 pub const MH_WEAK_DEFINES: u32 = 0x8000;
 /// the final linked image uses weak symbols
 pub const MH_BINDS_TO_WEAK: u32 = 0x10000;
-
 /// When this bit is set, all stacks in the task will be given stack execution privilege.  Only used in MH_EXECUTE filetypes.
 pub const MH_ALLOW_STACK_EXECUTION: u32 = 0x20000;
 /// When this bit is set, the binary declares it is safe for use in processes with uid zero
 pub const MH_ROOT_SAFE: u32 = 0x40000;
-
 /// When this bit is set, the binary declares it is safe for use in processes when issetugid() is true
 pub const MH_SETUID_SAFE: u32 = 0x80000;
-
 /// When this bit is set on a dylib, the static linker does not need to examine dependent dylibs to see if any are re-exported
 pub const MH_NO_REEXPORTED_DYLIBS: u32 = 0x10_0000;
 /// When this bit is set, the OS will load the main executable at a random address.  Only used in MH_EXECUTE filetypes.
@@ -504,17 +568,18 @@ pub const MH_PIE: u32 = 0x20_0000;
 pub const MH_DEAD_STRIPPABLE_DYLIB: u32 = 0x40_0000;
 /// Contains a section of type S_THREAD_LOCAL_VARIABLES
 pub const MH_HAS_TLV_DESCRIPTORS: u32 = 0x80_0000;
-
 /// When this bit is set, the OS will run the main executable with a non-executable heap even on platforms (e.g. i386) that don't require it. Only used in MH_EXECUTE filetypes.
 pub const MH_NO_HEAP_EXECUTION: u32 = 0x100_0000;
-
 /// The code was linked for use in an application extension.
 pub const MH_APP_EXTENSION_SAFE: u32 = 0x0200_0000;
-
-pub const MH_NLIST_OUTOFSYNC_WITH_DYLDINFO: u32 = 0x0400_0000;
 /// The external symbols listed in the nlist symbol table do not include all the symbols listed in the dyld info.
-
+pub const MH_NLIST_OUTOFSYNC_WITH_DYLDINFO: u32 = 0x0400_0000;
+/// Allow LC_MIN_VERSION_MACOS and LC_BUILD_VERSION load commands with
+/// the platforms macOS, iOSMac, iOSSimulator, tvOSSimulator and watchOSSimulator.
 pub const MH_SIM_SUPPORT: u32 = 0x0800_0000;
+/// Only for use on dylibs. When this bit is set, the dylib is part of the dyld
+/// shared cache, rather than loose in the filesystem.
+pub const MH_DYLIB_IN_CACHE: u32 = 0x8000_0000;
 
 /// Common fields at the start of every load command.
 ///
@@ -663,6 +728,8 @@ pub const LC_BUILD_VERSION: u32 = 0x32;
 pub const LC_DYLD_EXPORTS_TRIE: u32 = 0x33 | LC_REQ_DYLD;
 /// used with `LinkeditDataCommand`
 pub const LC_DYLD_CHAINED_FIXUPS: u32 = 0x34 | LC_REQ_DYLD;
+/// used with `FilesetEntryCommand`
+pub const LC_FILESET_ENTRY: u32 = 0x35 | LC_REQ_DYLD;
 
 /// A variable length string in a load command.
 ///
@@ -1017,6 +1084,9 @@ pub const SECT_ICON_TIFF: &str = "__tiff";
 /// the segment containing all structs created and maintained by the link editor.  Created with -seglinkedit option to ld(1) for MH_EXECUTE and FVMLIB file types only
 pub const SEG_LINKEDIT: &str = "__LINKEDIT";
 
+/// the segment overlapping with linkedit containing linking information
+pub const SEG_LINKINFO: &str = "__LINKINFO";
+
 /// the unix stack segment
 pub const SEG_UNIXSTACK: &str = "__UNIXSTACK";
 
@@ -1276,7 +1346,7 @@ pub struct ThreadCommand<E: Endian> {
  */
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct RoutinesCommand<E: Endian> {
+pub struct RoutinesCommand32<E: Endian> {
     /* for 32-bit architectures */
     /// LC_ROUTINES
     pub cmd: U32<E>,
@@ -1299,7 +1369,7 @@ pub struct RoutinesCommand<E: Endian> {
  */
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct RoutinesCommand_64<E: Endian> {
+pub struct RoutinesCommand64<E: Endian> {
     /* for 64-bit architectures */
     /// LC_ROUTINES_64
     pub cmd: U32<E>,
@@ -1728,7 +1798,9 @@ pub struct RpathCommand<E: Endian> {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct LinkeditDataCommand<E: Endian> {
-    /// LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLIB_CODE_SIGN_DRS or LC_LINKER_OPTIMIZATION_HINT.
+    /// `LC_CODE_SIGNATURE`, `LC_SEGMENT_SPLIT_INFO`, `LC_FUNCTION_STARTS`,
+    /// `LC_DATA_IN_CODE`, `LC_DYLIB_CODE_SIGN_DRS`, `LC_LINKER_OPTIMIZATION_HINT`,
+    /// `LC_DYLD_EXPORTS_TRIE`, or `LC_DYLD_CHAINED_FIXUPS`.
     pub cmd: U32<E>,
     /// sizeof(struct LinkeditDataCommand)
     pub cmdsize: U32<E>,
@@ -1738,16 +1810,33 @@ pub struct LinkeditDataCommand<E: Endian> {
     pub datasize: U32<E>,
 }
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct FilesetEntryCommand<E: Endian> {
+    // LC_FILESET_ENTRY
+    pub cmd: U32<E>,
+    /// includes id string
+    pub cmdsize: U32<E>,
+    /// memory address of the dylib
+    pub vmaddr: U64<E>,
+    /// file offset of the dylib
+    pub fileoff: U64<E>,
+    /// contained entry id
+    pub entry_id: LcStr<E>,
+    /// entry_id is 32-bits long, so this is the reserved padding
+    pub reserved: U32<E>,
+}
+
 /*
- * The EncryptionInfoCommand contains the file offset and size of an
+ * The EncryptionInfoCommand32 contains the file offset and size of an
  * of an encrypted segment.
  */
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct EncryptionInfoCommand<E: Endian> {
+pub struct EncryptionInfoCommand32<E: Endian> {
     /// LC_ENCRYPTION_INFO
     pub cmd: U32<E>,
-    /// sizeof(struct EncryptionInfoCommand)
+    /// sizeof(struct EncryptionInfoCommand32)
     pub cmdsize: U32<E>,
     /// file offset of encrypted range
     pub cryptoff: U32<E>,
@@ -1832,10 +1921,11 @@ pub const PLATFORM_IOS: u32 = 2;
 pub const PLATFORM_TVOS: u32 = 3;
 pub const PLATFORM_WATCHOS: u32 = 4;
 pub const PLATFORM_BRIDGEOS: u32 = 5;
-pub const PLATFORM_IOSMAC: u32 = 6;
+pub const PLATFORM_MACCATALYST: u32 = 6;
 pub const PLATFORM_IOSSIMULATOR: u32 = 7;
 pub const PLATFORM_TVOSSIMULATOR: u32 = 8;
 pub const PLATFORM_WATCHOSSIMULATOR: u32 = 9;
+pub const PLATFORM_DRIVERKIT: u32 = 10;
 
 /* Known values for the tool field above. */
 pub const TOOL_CLANG: u32 = 1;
@@ -2048,7 +2138,7 @@ pub struct LinkerOptionCommand<E: Endian> {
 }
 
 /*
- * The SymSegCommand contains the offset and size of the GNU style
+ * The SymsegCommand contains the offset and size of the GNU style
  * symbol table information as described in the header file <symseg.h>.
  * The symbol roots of the symbol segments must also be aligned properly
  * in the file.  So the requirement of keeping the offsets aligned to a
@@ -2058,10 +2148,10 @@ pub struct LinkerOptionCommand<E: Endian> {
  */
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct SymSegCommand<E: Endian> {
+pub struct SymsegCommand<E: Endian> {
     /// LC_SYMSEG
     pub cmd: U32<E>,
-    /// sizeof(struct SymSegCommand)
+    /// sizeof(struct SymsegCommand)
     pub cmdsize: U32<E>,
     /// symbol segment offset
     pub offset: U32<E>,
@@ -2138,7 +2228,7 @@ pub struct SourceVersionCommand<E: Endian> {
 }
 
 /*
- * The LC_DATA_IN_CODE load commands uses a linkedit_data_command
+ * The LC_DATA_IN_CODE load commands uses a LinkeditDataCommand
  * to point to an array of DataInCodeEntry entries. Each entry
  * describes a range of data in a code section.
  */
@@ -3106,6 +3196,9 @@ pub const X86_64_RELOC_TLV: u8 = 9;
 
 unsafe_impl_pod!(FatHeader, FatArch32, FatArch64,);
 unsafe_impl_endian_pod!(
+    DyldCacheHeader,
+    DyldCacheMappingInfo,
+    DyldCacheImageInfo,
     MachHeader32,
     MachHeader64,
     LoadCommand,
@@ -3125,8 +3218,8 @@ unsafe_impl_endian_pod!(
     PreboundDylibCommand,
     DylinkerCommand,
     ThreadCommand,
-    RoutinesCommand,
-    RoutinesCommand_64,
+    RoutinesCommand32,
+    RoutinesCommand64,
     SymtabCommand,
     DysymtabCommand,
     DylibTableOfContents,
@@ -3139,14 +3232,15 @@ unsafe_impl_endian_pod!(
     UuidCommand,
     RpathCommand,
     LinkeditDataCommand,
-    EncryptionInfoCommand,
+    FilesetEntryCommand,
+    EncryptionInfoCommand32,
     EncryptionInfoCommand64,
     VersionMinCommand,
     BuildVersionCommand,
     BuildToolVersion,
     DyldInfoCommand,
     LinkerOptionCommand,
-    SymSegCommand,
+    SymsegCommand,
     IdentCommand,
     FvmfileCommand,
     EntryPointCommand,

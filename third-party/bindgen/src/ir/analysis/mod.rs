@@ -40,31 +40,23 @@
 // Re-export individual analyses.
 mod template_params;
 pub use self::template_params::UsedTemplateParameters;
-mod derive_debug;
-pub use self::derive_debug::CannotDeriveDebug;
+mod derive;
+pub use self::derive::{as_cannot_derive_set, CannotDerive, DeriveTrait};
 mod has_vtable;
 pub use self::has_vtable::{HasVtable, HasVtableAnalysis, HasVtableResult};
 mod has_destructor;
 pub use self::has_destructor::HasDestructorAnalysis;
-mod derive_default;
-pub use self::derive_default::CannotDeriveDefault;
-mod derive_copy;
-pub use self::derive_copy::CannotDeriveCopy;
 mod has_type_param_in_array;
 pub use self::has_type_param_in_array::HasTypeParameterInArray;
-mod derive_hash;
-pub use self::derive_hash::CannotDeriveHash;
-mod derive_partialeq_or_partialord;
-pub use self::derive_partialeq_or_partialord::CannotDerivePartialEqOrPartialOrd;
 mod has_float;
 pub use self::has_float::HasFloat;
 mod sizedness;
 pub use self::sizedness::{Sizedness, SizednessAnalysis, SizednessResult};
 
-use ir::context::{BindgenContext, ItemId};
+use crate::ir::context::{BindgenContext, ItemId};
 
-use ir::traversal::{EdgeKind, Trace};
-use std::collections::HashMap;
+use crate::ir::traversal::{EdgeKind, Trace};
+use crate::HashMap;
 use std::fmt;
 use std::ops;
 
@@ -172,10 +164,9 @@ where
 
     while let Some(node) = worklist.pop() {
         if let ConstrainResult::Changed = analysis.constrain(node) {
-            analysis.each_depending_on(
-                node,
-                |needs_work| { worklist.push(needs_work); },
-            );
+            analysis.each_depending_on(node, |needs_work| {
+                worklist.push(needs_work);
+            });
         }
     }
 
@@ -190,9 +181,9 @@ pub fn generate_dependencies<F>(
 where
     F: Fn(EdgeKind) -> bool,
 {
-    let mut dependencies = HashMap::new();
+    let mut dependencies = HashMap::default();
 
-    for &item in ctx.whitelisted_items() {
+    for &item in ctx.allowlisted_items() {
         dependencies.entry(item).or_insert(vec![]);
 
         {
@@ -201,12 +192,13 @@ where
             item.trace(
                 ctx,
                 &mut |sub_item: ItemId, edge_kind| {
-                    if ctx.whitelisted_items().contains(&sub_item) &&
+                    if ctx.allowlisted_items().contains(&sub_item) &&
                         consider_edge(edge_kind)
                     {
-                        dependencies.entry(sub_item).or_insert(vec![]).push(
-                            item,
-                        );
+                        dependencies
+                            .entry(sub_item)
+                            .or_insert(vec![])
+                            .push(item);
                     }
                 },
                 &(),
@@ -219,7 +211,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
+    use crate::{HashMap, HashSet};
 
     // Here we find the set of nodes that are reachable from any given
     // node. This is a lattice mapping nodes to subsets of all nodes. Our join
@@ -333,15 +325,19 @@ mod tests {
             // Yes, what follows is a **terribly** inefficient set union
             // implementation. Don't copy this code outside of this test!
 
-            let original_size =
-                self.reachable.entry(node).or_insert(HashSet::new()).len();
+            let original_size = self
+                .reachable
+                .entry(node)
+                .or_insert(HashSet::default())
+                .len();
 
             for sub_node in self.graph.0[&node].iter() {
                 self.reachable.get_mut(&node).unwrap().insert(*sub_node);
 
-                let sub_reachable = self.reachable
+                let sub_reachable = self
+                    .reachable
                     .entry(*sub_node)
-                    .or_insert(HashSet::new())
+                    .or_insert(HashSet::default())
                     .clone();
 
                 for transitive in sub_reachable {
@@ -386,7 +382,7 @@ mod tests {
             nodes.as_ref().iter().cloned().map(Node).collect()
         }
 
-        let mut expected = HashMap::new();
+        let mut expected = HashMap::default();
         expected.insert(Node(1), nodes([3, 4, 5, 6, 7, 8]));
         expected.insert(Node(2), nodes([2]));
         expected.insert(Node(3), nodes([3, 4, 5, 6, 7, 8]));

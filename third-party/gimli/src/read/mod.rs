@@ -17,7 +17,8 @@
 //! // These closures should return a `Reader` instance (e.g. `EndianSlice`).
 //! let loader = |section: gimli::SectionId| { get_file_section_reader(section.name()) };
 //! let sup_loader = |section: gimli::SectionId| { get_sup_file_section_reader(section.name()) };
-//! let dwarf = gimli::Dwarf::load(loader, sup_loader)?;
+//! let mut dwarf = gimli::Dwarf::load(loader)?;
+//! dwarf.load_sup(sup_loader)?;
 //!
 //! // Iterate over all compilation units.
 //! let mut iter = dwarf.units();
@@ -151,8 +152,10 @@
 //! fn find_sum_of_address_range_lengths(aranges: DebugAranges<EndianSlice<LittleEndian>>)
 //!     -> gimli::Result<u64>
 //! {
-//!     // `DebugAranges::items` returns a `FallibleIterator`!
-//!     aranges.items()
+//!     // `DebugAranges::headers` returns a `FallibleIterator`!
+//!     aranges.headers()
+//!         // `flat_map` is provided by `FallibleIterator`!
+//!         .flat_map(|header| Ok(header.entries()))
 //!         // `map` is provided by `FallibleIterator`!
 //!         .map(|arange| Ok(arange.length()))
 //!         // `fold` is provided by `FallibleIterator`!
@@ -318,6 +321,8 @@ pub enum Error {
     /// An unrecognized operation was found while parsing a DWARF
     /// expression.
     InvalidExpression(constants::DwOp),
+    /// An unsupported operation was found while evaluating a DWARF expression.
+    UnsupportedEvaluation,
     /// The expression had a piece followed by an expression
     /// terminator without a piece.
     InvalidPiece,
@@ -468,6 +473,7 @@ impl Error {
             Error::NotEnoughStackItems => "Not enough items on stack when evaluating expression",
             Error::TooManyIterations => "Too many iterations to evaluate DWARF expression",
             Error::InvalidExpression(_) => "Invalid opcode in DWARF expression",
+            Error::UnsupportedEvaluation => "Unsupported operation when evaluating expression",
             Error::InvalidPiece => {
                 "DWARF expression has piece followed by non-piece expression at end"
             }

@@ -1,10 +1,16 @@
-use crate::errors::InvalidKeyIvLength;
-use crate::traits::BlockMode;
-use crate::utils::{get_par_blocks, Block};
+use crate::{
+    errors::InvalidKeyIvLength,
+    traits::BlockMode,
+    utils::{get_par_blocks, Block},
+};
 use block_padding::Padding;
-use cipher::block::{BlockCipher, NewBlockCipher};
-use cipher::generic_array::typenum::{Unsigned, U0};
-use cipher::generic_array::GenericArray;
+use cipher::{
+    generic_array::{
+        typenum::{Unsigned, U0},
+        GenericArray,
+    },
+    BlockCipher, BlockDecrypt, BlockEncrypt, NewBlockCipher,
+};
 use core::marker::PhantomData;
 
 /// [Electronic Codebook][1] (ECB) block cipher mode instance.
@@ -14,14 +20,14 @@ use core::marker::PhantomData;
 ///
 /// [1]: https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#ECB
 #[derive(Clone)]
-pub struct Ecb<C: BlockCipher + BlockCipher, P: Padding> {
+pub struct Ecb<C: BlockCipher + BlockEncrypt + BlockDecrypt, P: Padding> {
     cipher: C,
     _p: PhantomData<P>,
 }
 
 impl<C, P> BlockMode<C, P> for Ecb<C, P>
 where
-    C: BlockCipher + NewBlockCipher,
+    C: BlockCipher + BlockEncrypt + BlockDecrypt,
     P: Padding,
 {
     type IvSize = U0;
@@ -33,8 +39,11 @@ where
         }
     }
 
-    fn new_var(key: &[u8], _iv: &[u8]) -> Result<Self, InvalidKeyIvLength> {
-        let cipher = C::new_varkey(key).map_err(|_| InvalidKeyIvLength)?;
+    fn new_from_slices(key: &[u8], _iv: &[u8]) -> Result<Self, InvalidKeyIvLength>
+    where
+        C: NewBlockCipher,
+    {
+        let cipher = C::new_from_slice(key).map_err(|_| InvalidKeyIvLength)?;
         Ok(Self {
             cipher,
             _p: Default::default(),

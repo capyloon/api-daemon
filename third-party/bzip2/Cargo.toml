@@ -12,7 +12,7 @@
 
 [package]
 name = "bzip2"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 description = "Bindings to libbzip2 for bzip2 compression and decompression exposed as\nReader/Writer streams.\n"
 homepage = "https://github.com/alexcrichton/bzip2-rs"
@@ -23,7 +23,7 @@ categories = ["compression", "api-bindings"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/alexcrichton/bzip2-rs"
 [dependencies.bzip2-sys]
-version = "0.1.4"
+version = "0.1.11"
 
 [dependencies.futures]
 version = "0.1"
@@ -53,4 +53,5 @@ version = "0.8"
 version = "0.1"
 
 [features]
+static = ["bzip2-sys/static"]
 tokio = ["tokio-io", "futures"]

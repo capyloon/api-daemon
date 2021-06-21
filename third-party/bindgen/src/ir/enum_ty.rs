@@ -1,12 +1,13 @@
 //! Intermediate representation for C/C++ enumerations.
 
+use super::super::codegen::EnumVariation;
 use super::context::{BindgenContext, TypeId};
 use super::item::Item;
-use super::ty::TypeKind;
-use clang;
-use ir::annotations::Annotations;
-use ir::item::ItemCanonicalPath;
-use parse::{ClangItemParser, ParseError};
+use super::ty::{Type, TypeKind};
+use crate::clang;
+use crate::ir::annotations::Annotations;
+use crate::parse::{ClangItemParser, ParseError};
+use crate::regex_set::RegexSet;
 
 /// An enum representing custom handling that can be given to a variant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -36,10 +37,7 @@ pub struct Enum {
 impl Enum {
     /// Construct a new `Enum` with the given representation and variants.
     pub fn new(repr: Option<TypeId>, variants: Vec<EnumVariant>) -> Self {
-        Enum {
-            repr,
-            variants,
-        }
+        Enum { repr, variants }
     }
 
     /// Get this enumeration's representation.
@@ -65,20 +63,22 @@ impl Enum {
         }
 
         let declaration = ty.declaration().canonical();
-        let repr = declaration.enum_type().and_then(|et| {
-            Item::from_ty(&et, declaration, None, ctx).ok()
-        });
+        let repr = declaration
+            .enum_type()
+            .and_then(|et| Item::from_ty(&et, declaration, None, ctx).ok());
         let mut variants = vec![];
 
+        let variant_ty =
+            repr.and_then(|r| ctx.resolve_type(r).safe_canonical_type(ctx));
+        let is_bool = variant_ty.map_or(false, Type::is_bool);
+
         // Assume signedness since the default type by the C standard is an int.
-        let is_signed = repr.and_then(
-            |r| ctx.resolve_type(r).safe_canonical_type(ctx),
-        ).map_or(true, |ty| match *ty.kind() {
-                TypeKind::Int(ref int_kind) => int_kind.is_signed(),
-                ref other => {
-                    panic!("Since when enums can be non-integers? {:?}", other)
-                }
-            });
+        let is_signed = variant_ty.map_or(true, |ty| match *ty.kind() {
+            TypeKind::Int(ref int_kind) => int_kind.is_signed(),
+            ref other => {
+                panic!("Since when enums can be non-integers? {:?}", other)
+            }
+        });
 
         let type_name = ty.spelling();
         let type_name = if type_name.is_empty() {
@@ -91,7 +91,9 @@ impl Enum {
         let definition = declaration.definition().unwrap_or(declaration);
         definition.visit(|cursor| {
             if cursor.kind() == CXCursor_EnumConstantDecl {
-                let value = if is_signed {
+                let value = if is_bool {
+                    cursor.enum_val_boolean().map(EnumVariantValue::Boolean)
+                } else if is_signed {
                     cursor.enum_val_signed().map(EnumVariantValue::Signed)
                 } else {
                     cursor.enum_val_unsigned().map(EnumVariantValue::Unsigned)
@@ -99,9 +101,11 @@ impl Enum {
                 if let Some(val) = value {
                     let name = cursor.spelling();
                     let annotations = Annotations::new(&cursor);
-                    let custom_behavior = ctx.parse_callbacks()
+                    let custom_behavior = ctx
+                        .parse_callbacks()
                         .and_then(|callbacks| {
-                            callbacks.enum_variant_behavior(type_name, &name, val)
+                            callbacks
+                                .enum_variant_behavior(type_name, &name, val)
                         })
                         .or_else(|| {
                             let annotations = annotations.as_ref()?;
@@ -114,17 +118,23 @@ impl Enum {
                             }
                         });
 
-                    let name = ctx.parse_callbacks()
+                    let new_name = ctx
+                        .parse_callbacks()
                         .and_then(|callbacks| {
                             callbacks.enum_variant_name(type_name, &name, val)
                         })
                         .or_else(|| {
-                            annotations.as_ref()?.use_instead_of()?.last().cloned()
+                            annotations
+                                .as_ref()?
+                                .use_instead_of()?
+                                .last()
+                                .cloned()
                         })
-                        .unwrap_or(name);
+                        .unwrap_or_else(|| name.clone());
 
                     let comment = cursor.raw_comment();
                     variants.push(EnumVariant::new(
+                        new_name,
                         name,
                         comment,
                         val,
@@ -137,44 +147,75 @@ impl Enum {
         Ok(Enum::new(repr, variants))
     }
 
-    /// Whether the enum should be a bitfield
-    pub fn is_bitfield(&self, ctx: &BindgenContext, item: &Item) -> bool {
-        let path = item.canonical_path(ctx);
+    fn is_matching_enum(
+        &self,
+        ctx: &BindgenContext,
+        enums: &RegexSet,
+        item: &Item,
+    ) -> bool {
+        let path = item.path_for_allowlisting(ctx);
         let enum_ty = item.expect_type();
 
-        ctx.options().bitfield_enums.matches(&path[1..].join("::")) ||
-            (enum_ty.name().is_none() &&
-                    self.variants().iter().any(|v| {
-                    ctx.options().bitfield_enums.matches(&v.name())
-                }))
+        if enums.matches(&path[1..].join("::")) {
+            return true;
+        }
+
+        // Test the variants if the enum is anonymous.
+        if enum_ty.name().is_some() {
+            return false;
+        }
+
+        self.variants().iter().any(|v| enums.matches(&v.name()))
     }
 
-    /// Whether the enum should be an constified enum module
-    pub fn is_constified_enum_module(
+    /// Returns the final representation of the enum.
+    pub fn computed_enum_variation(
         &self,
         ctx: &BindgenContext,
         item: &Item,
-    ) -> bool {
-        let path = item.canonical_path(ctx);
-        let enum_ty = item.expect_type();
-
-        ctx.options().constified_enum_modules.matches(&path[1..].join("::")) ||
-            (enum_ty.name().is_none() &&
-                 self.variants().iter().any(|v| {
-                    ctx.options().constified_enum_modules.matches(&v.name())
-                }))
-    }
-
-    /// Whether the enum should be a Rust enum
-    pub fn is_rustified_enum(&self, ctx: &BindgenContext, item: &Item) -> bool {
-        let path = item.canonical_path(ctx);
-        let enum_ty = item.expect_type();
-
-        ctx.options().rustified_enums.matches(&path[1..].join("::")) ||
-            (enum_ty.name().is_none() &&
-                self.variants().iter().any(|v| {
-                    ctx.options().rustified_enums.matches(&v.name())
-            }))
+    ) -> EnumVariation {
+        // ModuleConsts has higher precedence before Rust in order to avoid
+        // problems with overlapping match patterns.
+        if self.is_matching_enum(
+            ctx,
+            &ctx.options().constified_enum_modules,
+            item,
+        ) {
+            EnumVariation::ModuleConsts
+        } else if self.is_matching_enum(
+            ctx,
+            &ctx.options().bitfield_enums,
+            item,
+        ) {
+            EnumVariation::NewType { is_bitfield: true }
+        } else if self.is_matching_enum(ctx, &ctx.options().newtype_enums, item)
+        {
+            EnumVariation::NewType { is_bitfield: false }
+        } else if self.is_matching_enum(
+            ctx,
+            &ctx.options().rustified_enums,
+            item,
+        ) {
+            EnumVariation::Rust {
+                non_exhaustive: false,
+            }
+        } else if self.is_matching_enum(
+            ctx,
+            &ctx.options().rustified_non_exhaustive_enums,
+            item,
+        ) {
+            EnumVariation::Rust {
+                non_exhaustive: true,
+            }
+        } else if self.is_matching_enum(
+            ctx,
+            &ctx.options().constified_enums,
+            item,
+        ) {
+            EnumVariation::Consts
+        } else {
+            ctx.options().default_enum_style
+        }
     }
 }
 
@@ -183,6 +224,9 @@ impl Enum {
 pub struct EnumVariant {
     /// The name of the variant.
     name: String,
+
+    /// The original name of the variant (without user mangling)
+    name_for_allowlisting: String,
 
     /// An optional doc comment.
     comment: Option<String>,
@@ -197,6 +241,9 @@ pub struct EnumVariant {
 /// A constant value assigned to an enumeration variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EnumVariantValue {
+    /// A boolean constant.
+    Boolean(bool),
+
     /// A signed constant.
     Signed(i64),
 
@@ -208,12 +255,14 @@ impl EnumVariant {
     /// Construct a new enumeration variant from the given parts.
     pub fn new(
         name: String,
+        name_for_allowlisting: String,
         comment: Option<String>,
         val: EnumVariantValue,
         custom_behavior: Option<EnumVariantCustomBehavior>,
     ) -> Self {
         EnumVariant {
             name,
+            name_for_allowlisting,
             comment,
             val,
             custom_behavior,
@@ -223,6 +272,11 @@ impl EnumVariant {
     /// Get this variant's name.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Get this variant's name.
+    pub fn name_for_allowlisting(&self) -> &str {
+        &self.name_for_allowlisting
     }
 
     /// Get this variant's value.
@@ -238,16 +292,14 @@ impl EnumVariant {
     /// Returns whether this variant should be enforced to be a constant by code
     /// generation.
     pub fn force_constification(&self) -> bool {
-        self.custom_behavior.map_or(false, |b| {
-            b == EnumVariantCustomBehavior::Constify
-        })
+        self.custom_behavior
+            .map_or(false, |b| b == EnumVariantCustomBehavior::Constify)
     }
 
     /// Returns whether the current variant should be hidden completely from the
     /// resulting rust enum.
     pub fn hidden(&self) -> bool {
-        self.custom_behavior.map_or(false, |b| {
-            b == EnumVariantCustomBehavior::Hide
-        })
+        self.custom_behavior
+            .map_or(false, |b| b == EnumVariantCustomBehavior::Hide)
     }
 }

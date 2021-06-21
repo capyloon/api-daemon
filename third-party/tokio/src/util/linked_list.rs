@@ -50,6 +50,7 @@ pub(crate) unsafe trait Link {
     type Target;
 
     /// Convert the handle to a raw pointer without consuming the handle
+    #[allow(clippy::wrong_self_convention)]
     fn as_raw(handle: &Self::Handle) -> NonNull<Self::Target>;
 
     /// Convert the raw pointer to a handle
@@ -77,7 +78,7 @@ pub(crate) struct Pointers<T> {
 /// #[repr(C)].
 ///
 /// See this link for more information:
-/// https://github.com/rust-lang/rust/pull/82834
+/// <https://github.com/rust-lang/rust/pull/82834>
 #[repr(C)]
 struct PointersInner<T> {
     /// The previous node in the list. null if there is no previous node.
@@ -93,7 +94,7 @@ struct PointersInner<T> {
     next: Option<NonNull<T>>,
 
     /// This type is !Unpin due to the heuristic from:
-    /// https://github.com/rust-lang/rust/pull/82834
+    /// <https://github.com/rust-lang/rust/pull/82834>
     _pin: PhantomPinned,
 }
 

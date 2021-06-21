@@ -1,15 +1,16 @@
-use crate::traits::BlockMode;
-use crate::utils::{xor, Block};
+use crate::{
+    traits::{BlockMode, IvState},
+    utils::{xor, Block},
+};
 use block_padding::Padding;
-use cipher::block::{BlockCipher, NewBlockCipher};
-use cipher::generic_array::GenericArray;
+use cipher::{generic_array::GenericArray, BlockCipher, BlockDecrypt, BlockEncrypt};
 use core::marker::PhantomData;
 
 /// [Propagating Cipher Block Chaining][1] (PCBC) mode instance.
 ///
 /// [1]: https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#PCBC
 #[derive(Clone)]
-pub struct Pcbc<C: BlockCipher + NewBlockCipher, P: Padding> {
+pub struct Pcbc<C: BlockCipher + BlockEncrypt + BlockDecrypt, P: Padding> {
     cipher: C,
     iv: GenericArray<u8, C::BlockSize>,
     _p: PhantomData<P>,
@@ -17,7 +18,7 @@ pub struct Pcbc<C: BlockCipher + NewBlockCipher, P: Padding> {
 
 impl<C, P> Pcbc<C, P>
 where
-    C: BlockCipher + NewBlockCipher,
+    C: BlockCipher + BlockEncrypt + BlockDecrypt,
     P: Padding,
 {
     /// Initialize PCBC
@@ -32,7 +33,7 @@ where
 
 impl<C, P> BlockMode<C, P> for Pcbc<C, P>
 where
-    C: BlockCipher + NewBlockCipher,
+    C: BlockCipher + BlockEncrypt + BlockDecrypt,
     P: Padding,
 {
     type IvSize = C::BlockSize;
@@ -63,5 +64,15 @@ where
             self.iv = ciphertext;
             xor(&mut self.iv, block);
         }
+    }
+}
+
+impl<C, P> IvState<C, P> for Pcbc<C, P>
+where
+    C: BlockCipher + BlockEncrypt + BlockDecrypt,
+    P: Padding,
+{
+    fn iv_state(&self) -> GenericArray<u8, Self::IvSize> {
+        self.iv.clone()
     }
 }

@@ -1,9 +1,8 @@
-
-use ir::comp::{CompInfo, CompKind, Field, FieldMethods};
-use ir::context::BindgenContext;
-use ir::item::{IsOpaque, Item};
-use ir::ty::{TypeKind, RUST_DERIVE_IN_ARRAY_LIMIT};
-use quote;
+use crate::ir::comp::{CompInfo, CompKind, Field, FieldMethods};
+use crate::ir::context::BindgenContext;
+use crate::ir::item::{IsOpaque, Item};
+use crate::ir::ty::{TypeKind, RUST_DERIVE_IN_ARRAY_LIMIT};
+use proc_macro2;
 
 /// Generate a manual implementation of `PartialEq` trait for the
 /// specified compound type.
@@ -11,8 +10,8 @@ pub fn gen_partialeq_impl(
     ctx: &BindgenContext,
     comp_info: &CompInfo,
     item: &Item,
-    ty_for_impl: &quote::Tokens,
-) -> Option<quote::Tokens> {
+    ty_for_impl: &proc_macro2::TokenStream,
+) -> Option<proc_macro2::TokenStream> {
     let mut tokens = vec![];
 
     if item.is_opaque(ctx, &()) {
@@ -20,7 +19,7 @@ pub fn gen_partialeq_impl(
             &self._bindgen_opaque_blob[..] == &other._bindgen_opaque_blob[..]
         });
     } else if comp_info.kind() == CompKind::Union {
-        assert!(!ctx.options().rust_features().untagged_union());
+        assert!(!ctx.options().rust_features().untagged_union);
         tokens.push(quote! {
             &self.bindgen_union_field[..] == &other.bindgen_union_field[..]
         });
@@ -50,15 +49,17 @@ pub fn gen_partialeq_impl(
                     let name = fd.name().unwrap();
                     tokens.push(gen_field(ctx, ty_item, name));
                 }
-                Field::Bitfields(ref bu) => for bitfield in bu.bitfields() {
-                    if let Some(_) = bitfield.name() {
-                        let getter_name = bitfield.getter_name();
-                        let name_ident = ctx.rust_ident_raw(getter_name);
-                        tokens.push(quote! {
-                            self.#name_ident () == other.#name_ident ()
-                        });
+                Field::Bitfields(ref bu) => {
+                    for bitfield in bu.bitfields() {
+                        if let Some(_) = bitfield.name() {
+                            let getter_name = bitfield.getter_name();
+                            let name_ident = ctx.rust_ident_raw(getter_name);
+                            tokens.push(quote! {
+                                self.#name_ident () == other.#name_ident ()
+                            });
+                        }
                     }
-                },
+                }
             }
         }
     }
@@ -70,8 +71,14 @@ pub fn gen_partialeq_impl(
     })
 }
 
-fn gen_field(ctx: &BindgenContext, ty_item: &Item, name: &str) -> quote::Tokens {
-    fn quote_equals(name_ident: quote::Ident) -> quote::Tokens {
+fn gen_field(
+    ctx: &BindgenContext,
+    ty_item: &Item,
+    name: &str,
+) -> proc_macro2::TokenStream {
+    fn quote_equals(
+        name_ident: proc_macro2::Ident,
+    ) -> proc_macro2::TokenStream {
         quote! { self.#name_ident == other.#name_ident }
     }
 
@@ -87,7 +94,6 @@ fn gen_field(ctx: &BindgenContext, ty_item: &Item, name: &str) -> quote::Tokens 
         TypeKind::Enum(..) |
         TypeKind::TypeParam |
         TypeKind::UnresolvedTypeRef(..) |
-        TypeKind::BlockPointer |
         TypeKind::Reference(..) |
         TypeKind::ObjCInterface(..) |
         TypeKind::ObjCId |
@@ -107,17 +113,27 @@ fn gen_field(ctx: &BindgenContext, ty_item: &Item, name: &str) -> quote::Tokens 
             }
         }
 
-        TypeKind::Array(_, len) => if len <= RUST_DERIVE_IN_ARRAY_LIMIT {
-            quote_equals(name_ident)
-        } else {
-            quote! {
-                &self. #name_ident [..] == &other. #name_ident [..]
+        TypeKind::Array(_, len) => {
+            if len <= RUST_DERIVE_IN_ARRAY_LIMIT {
+                quote_equals(name_ident)
+            } else {
+                quote! {
+                    &self. #name_ident [..] == &other. #name_ident [..]
+                }
             }
-        },
+        }
+        TypeKind::Vector(_, len) => {
+            let self_ids = 0..len;
+            let other_ids = 0..len;
+            quote! {
+                #(self.#self_ids == other.#other_ids &&)* true
+            }
+        }
 
         TypeKind::ResolvedTypeRef(t) |
         TypeKind::TemplateAlias(t, _) |
-        TypeKind::Alias(t) => {
+        TypeKind::Alias(t) |
+        TypeKind::BlockPointer(t) => {
             let inner_item = ctx.resolve_item(t);
             gen_field(ctx, inner_item, name)
         }

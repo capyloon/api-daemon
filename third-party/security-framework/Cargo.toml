@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "security-framework"
-version = "2.2.0"
+version = "2.3.1"
 authors = ["Steven Fackler <sfackler@gmail.com>", "Kornel <kornel@geekhood.net>"]
 exclude = ["test/*"]
 description = "Security.framework bindings for macOS and iOS"
@@ -39,26 +39,26 @@ name = "set_internet_password"
 version = "1.2.1"
 
 [dependencies.core-foundation]
-version = "0.9"
+version = "0.9.1"
 
 [dependencies.core-foundation-sys]
-version = "0.8"
+version = "0.8.2"
 
 [dependencies.libc]
-version = "0.2.68"
+version = "0.2.95"
 
 [dependencies.log]
 version = "0.4.14"
 optional = true
 
 [dependencies.security-framework-sys]
-version = "2.2.0"
+version = "2.3.0"
 default-features = false
 [dev-dependencies.env_logger]
 version = "0.8.3"
 
 [dev-dependencies.hex]
-version = "0.4.2"
+version = "0.4.3"
 
 [dev-dependencies.tempdir]
 version = "0.3.7"

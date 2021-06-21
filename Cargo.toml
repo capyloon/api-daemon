@@ -38,6 +38,11 @@ actix = { git = "https://github.com/fabricedesre/actix.git", branch = "0.10-bump
 webdriver = { path = "support/webdriver" }
 # Use our fork with the extra feature for vhost
 zip = { path = "support/zip" }
+# For the sha-1 update
+pest = { git = "https://github.com/fabricedesre/pest.git" }
+pest_derive = { git = "https://github.com/fabricedesre/pest.git" }
+pest_generator = { git = "https://github.com/fabricedesre/pest.git" }
+pest_meta = { git = "https://github.com/fabricedesre/pest.git" }
 
 [profile.release]
 opt-level = 3

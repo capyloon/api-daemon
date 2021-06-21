@@ -1,3 +1,12 @@
+# Version 0.8.5
+
+- Add `AtomicCell::fetch_update` (#704)
+- Support targets that do not have atomic CAS on stable Rust (#698)
+
+# Version 0.8.4
+
+- Bump `loom` dependency to version 0.5. (#686)
+
 # Version 0.8.3
 
 - Make `loom` dependency optional. (#666)

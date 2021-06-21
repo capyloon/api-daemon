@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "gimli"
-version = "0.23.0"
+version = "0.24.0"
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Philip Craig <philipjcraig@gmail.com>"]
 exclude = ["/ci/*", "/releases/*", "/.travis.yml"]
 description = "A library for reading and writing the DWARF debugging format."
@@ -82,7 +82,8 @@ version = "0.7"
 version = "1"
 
 [dev-dependencies.object]
-version = "0.22"
+version = "0.24"
+features = ["wasm"]
 
 [dev-dependencies.rayon]
 version = "1.0"

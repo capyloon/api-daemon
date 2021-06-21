@@ -280,7 +280,16 @@ pub fn set_default(dispatcher: &Dispatch) -> DefaultGuard {
 /// [`Subscriber`]: ../subscriber/trait.Subscriber.html
 /// [`Event`]: ../event/struct.Event.html
 pub fn set_global_default(dispatcher: Dispatch) -> Result<(), SetGlobalDefaultError> {
-    if GLOBAL_INIT.compare_and_swap(UNINITIALIZED, INITIALIZING, Ordering::SeqCst) == UNINITIALIZED
+    // if `compare_exchange` returns Result::Ok(_), then `new` has been set and
+    // `current`—now the prior value—has been returned in the `Ok()` branch.
+    if GLOBAL_INIT
+        .compare_exchange(
+            UNINITIALIZED,
+            INITIALIZING,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        )
+        .is_ok()
     {
         unsafe {
             GLOBAL_DISPATCH = Some(dispatcher);
@@ -632,14 +641,14 @@ impl Dispatch {
     /// `T`.
     #[inline]
     pub fn is<T: Any>(&self) -> bool {
-        Subscriber::is::<T>(&*self.subscriber)
+        <dyn Subscriber>::is::<T>(&*self.subscriber)
     }
 
     /// Returns some reference to the `Subscriber` this `Dispatch` forwards to
     /// if it is of type `T`, or `None` if it isn't.
     #[inline]
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
-        Subscriber::downcast_ref(&*self.subscriber)
+        <dyn Subscriber>::downcast_ref(&*self.subscriber)
     }
 }
 

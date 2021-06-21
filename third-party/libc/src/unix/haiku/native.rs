@@ -61,6 +61,12 @@ e! {
         B_ADD_ON_IMAGE,
         B_SYSTEM_IMAGE
     }
+
+    // kernel/scheduler.h
+    pub enum schduler_mode {
+        SCHEDULER_MODE_LOW_LATENCY,
+        SCHEDULER_MODE_POWER_SAVING,
+    }
 }
 
 s! {
@@ -96,29 +102,29 @@ s! {
     }
 
     pub struct team_info {
-        team: team_id,
-        thread_count: i32,
-        image_count: i32,
-        area_count: i32,
-        debugger_nub_thread: thread_id,
-        debugger_nub_port: port_id,
-        argc: i32,
-        args: [::c_char; 64],
-        uid: ::uid_t,
-        gid: ::gid_t
+        pub team: team_id,
+        pub thread_count: i32,
+        pub image_count: i32,
+        pub area_count: i32,
+        pub debugger_nub_thread: thread_id,
+        pub debugger_nub_port: port_id,
+        pub argc: i32,
+        pub args: [::c_char; 64],
+        pub uid: ::uid_t,
+        pub gid: ::gid_t
     }
 
     pub struct sem_info {
-        sem: sem_id,
-        team: team_id,
-        name: [::c_char; B_OS_NAME_LENGTH],
-        count: i32,
-        latest_holder: thread_id
+        pub sem: sem_id,
+        pub team: team_id,
+        pub name: [::c_char; B_OS_NAME_LENGTH],
+        pub count: i32,
+        pub latest_holder: thread_id
     }
 
     pub struct team_usage_info {
-        user_time: bigtime_t,
-        kernel_time: bigtime_t
+        pub user_time: bigtime_t,
+        pub kernel_time: bigtime_t
     }
 
     pub struct thread_info {
@@ -175,34 +181,34 @@ s! {
 
     // kernel/fs_attr.h
     pub struct attr_info {
-        type_: u32,
-        size: ::off_t
+        pub type_: u32,
+        pub size: ::off_t
     }
 
     // kernel/fs_index.h
     pub struct index_info {
-        type_: u32,
-        size: ::off_t,
-        modification_time: ::time_t,
-        creation_time: ::time_t,
-        uid: ::uid_t,
-        gid: ::gid_t
+        pub type_: u32,
+        pub size: ::off_t,
+        pub modification_time: ::time_t,
+        pub creation_time: ::time_t,
+        pub uid: ::uid_t,
+        pub gid: ::gid_t
     }
 
     //kernel/fs_info.h
     pub struct fs_info {
-        dev: ::dev_t,
-        root: ::ino_t,
-        flags: u32,
-        block_size: ::off_t,
-        io_size: ::off_t,
-        total_blocks: ::off_t,
-        free_blocks: ::off_t,
-        total_nodes: ::off_t,
-        free_nodes: ::off_t,
-        device_name: [::c_char; 128],
-        volume_name: [::c_char; B_FILE_NAME_LENGTH],
-        fsh_name: [::c_char; B_OS_NAME_LENGTH]
+        pub dev: ::dev_t,
+        pub root: ::ino_t,
+        pub flags: u32,
+        pub block_size: ::off_t,
+        pub io_size: ::off_t,
+        pub total_blocks: ::off_t,
+        pub free_blocks: ::off_t,
+        pub total_nodes: ::off_t,
+        pub free_nodes: ::off_t,
+        pub device_name: [::c_char; 128],
+        pub volume_name: [::c_char; B_FILE_NAME_LENGTH],
+        pub fsh_name: [::c_char; B_OS_NAME_LENGTH]
     }
 
     // kernel/image.h
@@ -743,6 +749,9 @@ extern "C" {
     pub fn on_exit_thread(callback: extern "C" fn(*mut ::c_void), data: *mut ::c_void) -> status_t;
 
     pub fn find_thread(name: *const ::c_char) -> thread_id;
+
+    pub fn get_scheduler_mode() -> i32;
+    pub fn set_scheduler_mode(mode: i32) -> status_t;
 
     pub fn send_data(
         thread: thread_id,

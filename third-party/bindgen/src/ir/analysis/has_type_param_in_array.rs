@@ -1,13 +1,12 @@
 //! Determining which types has typed parameters in array.
 
-use super::{ConstrainResult, MonotoneFramework, generate_dependencies};
-use ir::comp::Field;
-use ir::comp::FieldMethods;
-use ir::context::{BindgenContext, ItemId};
-use ir::traversal::EdgeKind;
-use ir::ty::TypeKind;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use super::{generate_dependencies, ConstrainResult, MonotoneFramework};
+use crate::ir::comp::Field;
+use crate::ir::comp::FieldMethods;
+use crate::ir::context::{BindgenContext, ItemId};
+use crate::ir::traversal::EdgeKind;
+use crate::ir::ty::TypeKind;
+use crate::{HashMap, HashSet};
 
 /// An analysis that finds for each IR item whether it has array or not.
 ///
@@ -89,10 +88,8 @@ impl<'ctx> MonotoneFramework for HasTypeParameterInArray<'ctx> {
     type Extra = &'ctx BindgenContext;
     type Output = HashSet<ItemId>;
 
-    fn new(
-        ctx: &'ctx BindgenContext,
-    ) -> HasTypeParameterInArray<'ctx> {
-        let has_type_parameter_in_array = HashSet::new();
+    fn new(ctx: &'ctx BindgenContext) -> HasTypeParameterInArray<'ctx> {
+        let has_type_parameter_in_array = HashSet::default();
         let dependencies = generate_dependencies(ctx, Self::consider_edge);
 
         HasTypeParameterInArray {
@@ -103,7 +100,7 @@ impl<'ctx> MonotoneFramework for HasTypeParameterInArray<'ctx> {
     }
 
     fn initial_worklist(&self) -> Vec<ItemId> {
-        self.ctx.whitelisted_items().iter().cloned().collect()
+        self.ctx.allowlisted_items().iter().cloned().collect()
     }
 
     fn constrain(&mut self, id: ItemId) -> ConstrainResult {
@@ -130,11 +127,11 @@ impl<'ctx> MonotoneFramework for HasTypeParameterInArray<'ctx> {
             TypeKind::NullPtr |
             TypeKind::Int(..) |
             TypeKind::Float(..) |
+            TypeKind::Vector(..) |
             TypeKind::Complex(..) |
             TypeKind::Function(..) |
             TypeKind::Enum(..) |
             TypeKind::Reference(..) |
-            TypeKind::BlockPointer |
             TypeKind::TypeParam |
             TypeKind::Opaque |
             TypeKind::Pointer(..) |
@@ -165,11 +162,12 @@ impl<'ctx> MonotoneFramework for HasTypeParameterInArray<'ctx> {
 
             TypeKind::ResolvedTypeRef(t) |
             TypeKind::TemplateAlias(t, _) |
-            TypeKind::Alias(t) => {
+            TypeKind::Alias(t) |
+            TypeKind::BlockPointer(t) => {
                 if self.has_type_parameter_in_array.contains(&t.into()) {
                     trace!(
                         "    aliases and type refs to T which have array \
-                            also have array"
+                         also have array"
                     );
                     self.insert(id)
                 } else {
@@ -190,9 +188,9 @@ impl<'ctx> MonotoneFramework for HasTypeParameterInArray<'ctx> {
                     return self.insert(id);
                 }
                 let fields_have = info.fields().iter().any(|f| match *f {
-                    Field::DataMember(ref data) => {
-                        self.has_type_parameter_in_array.contains(&data.ty().into())
-                    }
+                    Field::DataMember(ref data) => self
+                        .has_type_parameter_in_array
+                        .contains(&data.ty().into()),
                     Field::Bitfields(..) => false,
                 });
                 if fields_have {
@@ -212,18 +210,18 @@ impl<'ctx> MonotoneFramework for HasTypeParameterInArray<'ctx> {
                 if args_have {
                     trace!(
                         "    template args have array, so \
-                            insantiation also has array"
+                         insantiation also has array"
                     );
                     return self.insert(id);
                 }
 
-                let def_has = self.has_type_parameter_in_array.contains(
-                    &template.template_definition().into(),
-                );
+                let def_has = self
+                    .has_type_parameter_in_array
+                    .contains(&template.template_definition().into());
                 if def_has {
                     trace!(
                         "    template definition has array, so \
-                            insantiation also has"
+                         insantiation also has"
                     );
                     return self.insert(id);
                 }

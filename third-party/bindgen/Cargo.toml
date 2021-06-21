@@ -3,7 +3,7 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g. crates.io) dependencies
+# to registry (e.g., crates.io) dependencies
 #
 # If you believe there's an error in this file please file an
 # issue against the rust-lang/cargo repository. If you're
@@ -11,18 +11,20 @@
 # will likely look very different (and much more reasonable)
 
 [package]
+edition = "2018"
 name = "bindgen"
-version = "0.33.2"
+version = "0.58.1"
 authors = ["Jyun-Yan You <jyyou.tw@gmail.com>", "Emilio Cobos Álvarez <emilio@crisal.io>", "Nick Fitzgerald <fitzgen@gmail.com>", "The Servo project developers"]
 build = "build.rs"
-include = ["Cargo.toml", "build.rs", "src/*.rs", "src/**/*.rs"]
+include = ["LICENSE", "README.md", "Cargo.toml", "build.rs", "src/*.rs", "src/**/*.rs"]
 description = "Automatically generates Rust FFI bindings to C and C++ libraries."
+homepage = "https://rust-lang.github.io/rust-bindgen/"
 documentation = "https://docs.rs/bindgen"
 readme = "README.md"
 keywords = ["bindings", "ffi", "code-generation"]
 categories = ["external-ffi-bindings", "development-tools::ffi"]
 license = "BSD-3-Clause"
-repository = "https://github.com/rust-lang-nursery/rust-bindgen"
+repository = "https://github.com/rust-lang/rust-bindgen"
 
 [lib]
 path = "src/lib.rs"
@@ -31,24 +33,29 @@ path = "src/lib.rs"
 name = "bindgen"
 path = "src/main.rs"
 doc = false
-[dependencies.cexpr]
-version = "0.2"
+required-features = ["clap"]
+[dependencies.bitflags]
+version = "1.0.3"
 
-[dependencies.cfg-if]
-version = "0.1.0"
+[dependencies.cexpr]
+version = "0.4"
 
 [dependencies.clang-sys]
-version = "0.22.0"
-features = ["runtime", "clang_3_9"]
+version = "1"
+features = ["clang_6_0"]
 
 [dependencies.clap]
 version = "2"
+optional = true
 
 [dependencies.env_logger]
-version = "0.5"
+version = "0.8"
 optional = true
 
 [dependencies.lazy_static]
+version = "1"
+
+[dependencies.lazycell]
 version = "1"
 
 [dependencies.log]
@@ -58,14 +65,29 @@ optional = true
 [dependencies.peeking_take_while]
 version = "0.1.2"
 
+[dependencies.proc-macro2]
+version = "1"
+default-features = false
+
 [dependencies.quote]
-version = "0.3.15"
+version = "1"
+default-features = false
 
 [dependencies.regex]
-version = "0.2"
+version = "1.0"
+features = ["std", "unicode"]
+default-features = false
+
+[dependencies.rustc-hash]
+version = "1.0.1"
+
+[dependencies.shlex]
+version = "1"
 
 [dependencies.which]
-version = "1.0.2"
+version = "3.0"
+optional = true
+default-features = false
 [dev-dependencies.clap]
 version = "2"
 
@@ -73,16 +95,19 @@ version = "2"
 version = "0.1"
 
 [dev-dependencies.shlex]
-version = "0.1"
+version = "1"
 
 [features]
-default = ["logging"]
+default = ["logging", "clap", "runtime", "which-rustfmt"]
 logging = ["env_logger", "log"]
-static = []
+runtime = ["clang-sys/runtime"]
+static = ["clang-sys/static"]
 testing_only_docs = []
 testing_only_extra_assertions = []
-testing_only_libclang_3_8 = []
 testing_only_libclang_3_9 = []
 testing_only_libclang_4 = []
+testing_only_libclang_5 = []
+testing_only_libclang_9 = []
+which-rustfmt = ["which"]
 [badges.travis-ci]
-repository = "rust-lang-nursery/rust-bindgen"
+repository = "rust-lang/rust-bindgen"

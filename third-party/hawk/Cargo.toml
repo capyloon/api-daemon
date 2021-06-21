@@ -1,6 +1,6 @@
 [package]
 name = "hawk"
-version = "3.2.1"
+version = "3.2.2"
 authors = ["Jonas Finnemann Jensen <jopsen@gmail.com>", "Dustin J. Mitchell <dustin@mozilla.com>"]
 license = "MPL-2.0"
 readme = "README.md"
@@ -17,7 +17,7 @@ exclude = [
 ]
 
 [dev-dependencies]
-pretty_assertions = "^0.6.1"
+pretty_assertions = "^0.7.1"
 
 [features]
 default = ["use_ring"]
@@ -25,7 +25,7 @@ use_ring = ["ring"]
 use_openssl = ["openssl"]
 
 [dependencies]
-base64 = "0.12"
+base64 = "0.13"
 ring = { version = "0.16.0", optional = true }
 openssl = { version = "0.10.20", optional = true }
 url = "2.1"

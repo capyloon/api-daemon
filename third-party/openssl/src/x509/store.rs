@@ -41,6 +41,8 @@ use std::mem;
 
 use crate::error::ErrorStack;
 use crate::stack::StackRef;
+#[cfg(any(ossl102, libressl261))]
+use crate::x509::verify::X509VerifyFlags;
 use crate::x509::{X509Object, X509};
 use crate::{cvt, cvt_p};
 
@@ -102,6 +104,16 @@ impl X509StoreBuilderRef {
         let lookup = unsafe { ffi::X509_STORE_add_lookup(self.as_ptr(), method.as_ptr()) };
         cvt_p(lookup).map(|ptr| unsafe { X509LookupRef::from_ptr_mut(ptr) })
     }
+
+    /// Sets certificate chain validation related flags.
+    ///
+    /// This corresponds to [`X509_STORE_set_flags`].
+    ///
+    /// [`X509_STORE_set_flags`]: https://www.openssl.org/docs/man1.1.1/man3/X509_STORE_set_flags.html
+    #[cfg(any(ossl102, libressl261))]
+    pub fn set_flags(&mut self, flags: X509VerifyFlags) -> Result<(), ErrorStack> {
+        unsafe { cvt(ffi::X509_STORE_set_flags(self.as_ptr(), flags.bits())).map(|_| ()) }
+    }
 }
 
 generic_foreign_type_and_impl_send_sync! {
@@ -159,10 +171,7 @@ impl X509LookupRef<HashDir> {
 
 generic_foreign_type_and_impl_send_sync! {
     type CType = ffi::X509_LOOKUP_METHOD;
-    fn drop = |_method| {
-        #[cfg(ossl110)]
-        ffi::X509_LOOKUP_meth_free(_method);
-    };
+    fn drop = X509_LOOKUP_meth_free;
 
     /// Method used to look up certificates and CRLs.
     pub struct X509LookupMethod<T>;
@@ -195,5 +204,14 @@ cfg_if! {
         unsafe fn X509_STORE_get0_objects(x: *mut ffi::X509_STORE) -> *mut ffi::stack_st_X509_OBJECT {
             (*x).objs
         }
+    }
+}
+
+cfg_if! {
+    if #[cfg(ossl110)] {
+        use ffi::X509_LOOKUP_meth_free;
+    } else {
+        #[allow(bad_style)]
+        unsafe fn X509_LOOKUP_meth_free(_x: *mut ffi::X509_LOOKUP_METHOD) {}
     }
 }

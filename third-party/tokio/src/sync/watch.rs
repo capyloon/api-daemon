@@ -205,7 +205,7 @@ impl<T> Receiver<T> {
         // not memory access.
         shared.ref_count_rx.fetch_add(1, Relaxed);
 
-        Self { version, shared }
+        Self { shared, version }
     }
 
     /// Returns a reference to the most recently sent value
@@ -416,6 +416,28 @@ impl<T> Sender<T> {
 
             Receiver::from_shared(version, shared)
         }
+    }
+
+    /// Returns the number of receivers that currently exist
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokio::sync::watch;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let (tx, rx1) = watch::channel("hello");
+    ///
+    ///     assert_eq!(1, tx.receiver_count());
+    ///
+    ///     let mut _rx2 = rx1.clone();
+    ///
+    ///     assert_eq!(2, tx.receiver_count());
+    /// }
+    /// ```
+    pub fn receiver_count(&self) -> usize {
+        self.shared.ref_count_rx.load(Relaxed)
     }
 }
 

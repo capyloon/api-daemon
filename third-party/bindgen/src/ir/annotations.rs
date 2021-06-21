@@ -4,7 +4,7 @@
 //! replace other types with, mark as opaque, etc. This module deals with all of
 //! that stuff.
 
-use clang;
+use crate::clang;
 
 /// What kind of accessor should we provide for a field?
 #[derive(Copy, PartialEq, Clone, Debug)]
@@ -38,6 +38,10 @@ pub struct Annotations {
     /// Manually disable deriving copy/clone on this type. Only applies to
     /// struct or union types.
     disallow_copy: bool,
+    /// Manually disable deriving debug on this type.
+    disallow_debug: bool,
+    /// Manually disable deriving/implement default on this type.
+    disallow_default: bool,
     /// Whether fields should be marked as private or not. You can set this on
     /// structs (it will apply to all the fields), or individual fields.
     private_fields: Option<bool>,
@@ -58,6 +62,8 @@ pub struct Annotations {
     /// In that case, bindgen will generate a constant for `Bar` instead of
     /// `Baz`.
     constify_enum_variant: bool,
+    /// List of explicit derives for this type.
+    derives: Vec<String>,
 }
 
 fn parse_accessor(s: &str) -> FieldAccessorKind {
@@ -76,9 +82,12 @@ impl Default for Annotations {
             hide: false,
             use_instead_of: None,
             disallow_copy: false,
+            disallow_debug: false,
+            disallow_default: false,
             private_fields: None,
             accessor_kind: None,
             constify_enum_variant: false,
+            derives: vec![],
         }
     }
 }
@@ -91,7 +100,11 @@ impl Annotations {
         let mut matched_one = false;
         anno.parse(&cursor.comment(), &mut matched_one);
 
-        if matched_one { Some(anno) } else { None }
+        if matched_one {
+            Some(anno)
+        } else {
+            None
+        }
     }
 
     /// Should this type be hidden?
@@ -130,9 +143,24 @@ impl Annotations {
         self.use_instead_of.as_ref().map(|s| &**s)
     }
 
+    /// The list of derives that have been specified in this annotation.
+    pub fn derives(&self) -> &[String] {
+        &self.derives
+    }
+
     /// Should we avoid implementing the `Copy` trait?
     pub fn disallow_copy(&self) -> bool {
         self.disallow_copy
+    }
+
+    /// Should we avoid implementing the `Debug` trait?
+    pub fn disallow_debug(&self) -> bool {
+        self.disallow_debug
+    }
+
+    /// Should we avoid implementing the `Default` trait?
+    pub fn disallow_default(&self) -> bool {
+        self.disallow_default
     }
 
     /// Should the fields be private?
@@ -149,9 +177,10 @@ impl Annotations {
         use clang_sys::CXComment_HTMLStartTag;
         if comment.kind() == CXComment_HTMLStartTag &&
             comment.get_tag_name() == "div" &&
-            comment.get_tag_attrs().next().map_or(false, |attr| {
-                attr.name == "rustbindgen"
-            })
+            comment
+                .get_tag_attrs()
+                .next()
+                .map_or(false, |attr| attr.name == "rustbindgen")
         {
             *matched = true;
             for attr in comment.get_tag_attrs() {
@@ -159,12 +188,14 @@ impl Annotations {
                     "opaque" => self.opaque = true,
                     "hide" => self.hide = true,
                     "nocopy" => self.disallow_copy = true,
+                    "nodebug" => self.disallow_debug = true,
+                    "nodefault" => self.disallow_default = true,
                     "replaces" => {
-                        self.use_instead_of =
-                            Some(
-                                attr.value.split("::").map(Into::into).collect(),
-                            )
+                        self.use_instead_of = Some(
+                            attr.value.split("::").map(Into::into).collect(),
+                        )
                     }
+                    "derive" => self.derives.push(attr.value),
                     "private" => {
                         self.private_fields = Some(attr.value != "false")
                     }

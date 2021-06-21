@@ -1,3 +1,5 @@
+//! SHA-1 `x86`/`x86_64` backend
+
 #![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #![allow(unsafe_code)]
 
@@ -95,10 +97,12 @@ unsafe fn digest_blocks(state: &mut [u32; 5], blocks: &[[u8; 64]]) {
     state[4] = _mm_extract_epi32(state_e, 3) as u32;
 }
 
+cpufeatures::new!(shani_cpuid, "sha", "sse2", "ssse3", "sse4.1");
+
 pub fn compress(state: &mut [u32; 5], blocks: &[[u8; 64]]) {
     // TODO: Replace with https://github.com/rust-lang/rfcs/pull/2725
     // after stabilization
-    if cpuid_bool::cpuid_bool!("sha", "sse2", "ssse3", "sse4.1") {
+    if shani_cpuid::get() {
         unsafe {
             digest_blocks(state, blocks);
         }

@@ -78,7 +78,7 @@
 //! [`server::handshake`]: server/fn.handshake.html
 //! [`client::handshake`]: client/fn.handshake.html
 
-#![doc(html_root_url = "https://docs.rs/h2/0.3.2")]
+#![doc(html_root_url = "https://docs.rs/h2/0.3.3")]
 #![deny(missing_debug_implementations, missing_docs)]
 #![cfg_attr(test, deny(warnings))]
 
@@ -116,6 +116,10 @@ pub mod frame;
 pub mod client;
 pub mod server;
 mod share;
+
+#[cfg(fuzzing)]
+#[cfg_attr(feature = "unstable", allow(missing_docs))]
+pub mod fuzz_bridge;
 
 pub use crate::error::{Error, Reason};
 pub use crate::share::{FlowControl, Ping, PingPong, Pong, RecvStream, SendStream, StreamId};

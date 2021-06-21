@@ -1,4 +1,3 @@
-use crc32fast;
 use std::mem;
 use std::vec::Vec;
 
@@ -268,6 +267,8 @@ impl Object {
             machine: U16::new(
                 LE,
                 match self.architecture {
+                    Architecture::Arm => coff::IMAGE_FILE_MACHINE_ARMNT,
+                    Architecture::Aarch64 => coff::IMAGE_FILE_MACHINE_ARM64,
                     Architecture::I386 => coff::IMAGE_FILE_MACHINE_I386,
                     Architecture::X86_64 => coff::IMAGE_FILE_MACHINE_AMD64,
                     _ => {
@@ -396,7 +397,7 @@ impl Object {
                     coff_section.name = [0; 8];
                     coff_section.name[0] = b'/';
                     coff_section.name[1..][..len].copy_from_slice(&name[7 - len..]);
-                } else if str_offset as u64 <= 0xfff_fff_fff {
+                } else if str_offset as u64 <= 0xf_ffff_ffff {
                     coff_section.name[0] = b'/';
                     coff_section.name[1] = b'/';
                     for i in 0..6 {

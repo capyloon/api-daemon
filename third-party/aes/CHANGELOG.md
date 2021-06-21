@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.7.4 (2021-06-01)
+### Added
+- Soft `hazmat` backend ([#267], [#268])
+- Parallel `hazmat` APIs ([#269])
+
+[#267]: https://github.com/RustCrypto/block-ciphers/pull/267
+[#268]: https://github.com/RustCrypto/block-ciphers/pull/268
+[#269]: https://github.com/RustCrypto/block-ciphers/pull/269
+
+## 0.7.3 (2021-05-26)
+### Added
+- `hazmat` feature/module providing round function access ([#257], [#259], [#260])
+- `BLOCK_SIZE` constant ([#263])
+
+[#257]: https://github.com/RustCrypto/block-ciphers/pull/257
+[#259]: https://github.com/RustCrypto/block-ciphers/pull/259
+[#260]: https://github.com/RustCrypto/block-ciphers/pull/260
+[#263]: https://github.com/RustCrypto/block-ciphers/pull/263
+
+## 0.7.2 (2021-05-17)
+### Added
+- Nightly-only ARMv8 intrinsics support gated under the `armv8` feature ([#250])
+
+[#250]: https://github.com/RustCrypto/block-ciphers/pull/250
+
+## 0.7.1 (2021-05-09)
+### Fixed
+- Restore `fixslice64.rs` ([#247])
+
+[#247]: https://github.com/RustCrypto/block-ciphers/pull/247
+
+## 0.7.0 (2021-04-29)
+### Added
+- Auto-detection support for AES-NI; MSRV 1.49+ ([#208], [#214], [#215], [#216])
+- `ctr` feature providing SIMD accelerated AES-CTR ([#200])
+
+### Changed
+- Unify the `aes`, `aesni`, `aes-ctr`, and `aes-soft` crates ([#200])
+- Use `cfg-if` crate ([#203])
+- Rename `semi_fixslice` feature to `compact` ([#204])
+- Refactor NI backend ([#224], [#225])
+- Bump `cipher` crate dependency to v0.3 release ([#235])
+- Bump `ctr` crate dependency to v0.7 ([#237])
+
+[#200]: https://github.com/RustCrypto/block-ciphers/pull/200
+[#203]: https://github.com/RustCrypto/block-ciphers/pull/203
+[#204]: https://github.com/RustCrypto/block-ciphers/pull/204
+[#208]: https://github.com/RustCrypto/block-ciphers/pull/208
+[#214]: https://github.com/RustCrypto/block-ciphers/pull/214
+[#215]: https://github.com/RustCrypto/block-ciphers/pull/215
+[#216]: https://github.com/RustCrypto/block-ciphers/pull/216
+[#224]: https://github.com/RustCrypto/block-ciphers/pull/224
+[#225]: https://github.com/RustCrypto/block-ciphers/pull/225
+[#235]: https://github.com/RustCrypto/block-ciphers/pull/235
+[#237]: https://github.com/RustCrypto/block-ciphers/pull/237
+
 ## 0.6.0 (2020-10-16)
 ### Changed
 - Replace `block-cipher`/`stream-cipher` with `cipher` crate ([#167])

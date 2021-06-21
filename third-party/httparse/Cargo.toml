@@ -12,7 +12,7 @@
 
 [package]
 name = "httparse"
-version = "1.4.0"
+version = "1.4.1"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 build = "build.rs"
 description = "A tiny, safe, speedy, zero-copy HTTP/1.x parser."

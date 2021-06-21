@@ -251,18 +251,12 @@ impl Kind {
 
     /// Return true if the callsite kind is `Span`
     pub fn is_span(&self) -> bool {
-        match self {
-            Kind(KindInner::Span) => true,
-            _ => false,
-        }
+        matches!(self, Kind(KindInner::Span))
     }
 
     /// Return true if the callsite kind is `Event`
     pub fn is_event(&self) -> bool {
-        match self {
-            Kind(KindInner::Event) => true,
-            _ => false,
-        }
+        matches!(self, Kind(KindInner::Event))
     }
 }
 
@@ -372,10 +366,10 @@ impl From<Option<Level>> for LevelFilter {
     }
 }
 
-impl Into<Option<Level>> for LevelFilter {
+impl From<LevelFilter> for Option<Level> {
     #[inline]
-    fn into(self) -> Option<Level> {
-        self.into_level()
+    fn from(filter: LevelFilter) -> Self {
+        filter.into_level()
     }
 }
 
@@ -554,7 +548,7 @@ impl FromStr for LevelFilter {
                 s if s.eq_ignore_ascii_case("off") => Some(LevelFilter::OFF),
                 _ => None,
             })
-            .ok_or_else(|| ParseLevelFilterError(()))
+            .ok_or(ParseLevelFilterError(()))
     }
 }
 

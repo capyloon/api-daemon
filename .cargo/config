@@ -20,18 +20,23 @@ git = "https://github.com/fabricedesre/actix.git"
 branch = "0.10-bump-crossbeam"
 replace-with = "vendored-sources"
 
+[source."https://github.com/fabricedesre/pest.git"]
+git = "https://github.com/fabricedesre/pest.git"
+replace-with = "vendored-sources"
+
+[source."https://github.com/fabricedesre/rust-hawk.git"]
+git = "https://github.com/fabricedesre/rust-hawk.git"
+rev = "4da77e4a7ced4ddc081669f05352b7314dd9bebc"
+replace-with = "vendored-sources"
+
 [source."https://github.com/fabricedesre/rust-phonenumber.git"]
 git = "https://github.com/fabricedesre/rust-phonenumber.git"
 branch = "api-daemon"
 replace-with = "vendored-sources"
 
-[source."https://github.com/taskcluster/rust-hawk.git"]
-git = "https://github.com/taskcluster/rust-hawk.git"
-rev = "c0760a0d78eca2695f77b16122fc21cc3dbfd195"
-replace-with = "vendored-sources"
-
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
+branch = "update-bindgen"
 replace-with = "vendored-sources"
 
 [source."ssh://git@git.kaiostech.com/KaiOS/zip_utils.git"]

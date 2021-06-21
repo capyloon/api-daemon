@@ -1300,21 +1300,33 @@ impl fmt::Debug for Span {
     }
 }
 
-impl<'a> Into<Option<&'a Id>> for &'a Span {
-    fn into(self) -> Option<&'a Id> {
-        self.inner.as_ref().map(|inner| &inner.id)
+impl<'a> From<&'a Span> for Option<&'a Id> {
+    fn from(span: &'a Span) -> Self {
+        span.inner.as_ref().map(|inner| &inner.id)
     }
 }
 
-impl<'a> Into<Option<Id>> for &'a Span {
-    fn into(self) -> Option<Id> {
-        self.inner.as_ref().map(Inner::id)
+impl<'a> From<&'a Span> for Option<Id> {
+    fn from(span: &'a Span) -> Self {
+        span.inner.as_ref().map(Inner::id)
     }
 }
 
-impl Into<Option<Id>> for Span {
-    fn into(self) -> Option<Id> {
-        self.inner.as_ref().map(Inner::id)
+impl From<Span> for Option<Id> {
+    fn from(span: Span) -> Self {
+        span.inner.as_ref().map(Inner::id)
+    }
+}
+
+impl<'a> From<&'a EnteredSpan> for Option<&'a Id> {
+    fn from(span: &'a EnteredSpan) -> Self {
+        span.inner.as_ref().map(|inner| &inner.id)
+    }
+}
+
+impl<'a> From<&'a EnteredSpan> for Option<Id> {
+    fn from(span: &'a EnteredSpan) -> Self {
+        span.inner.as_ref().map(Inner::id)
     }
 }
 
@@ -1403,6 +1415,11 @@ impl Clone for Inner {
 // ===== impl Entered =====
 
 impl EnteredSpan {
+    /// Returns this span's `Id`, if it is enabled.
+    pub fn id(&self) -> Option<Id> {
+        self.inner.as_ref().map(Inner::id)
+    }
+
     /// Exits this span, returning the underlying [`Span`].
     #[inline]
     pub fn exit(mut self) -> Span {
@@ -1454,6 +1471,7 @@ impl Drop for EnteredSpan {
 struct PhantomNotSend {
     ghost: PhantomData<*mut ()>,
 }
+
 #[allow(non_upper_case_globals)]
 const PhantomNotSend: PhantomNotSend = PhantomNotSend { ghost: PhantomData };
 

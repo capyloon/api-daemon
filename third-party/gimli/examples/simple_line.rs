@@ -27,12 +27,9 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
             None => Ok(borrow::Cow::Borrowed(&[][..])),
         }
     };
-    // Load a supplementary section. We don't have a supplementary object file,
-    // so always return an empty slice.
-    let load_section_sup = |_| Ok(borrow::Cow::Borrowed(&[][..]));
 
     // Load all of the sections.
-    let dwarf_cow = gimli::Dwarf::load(&load_section, &load_section_sup)?;
+    let dwarf_cow = gimli::Dwarf::load(&load_section)?;
 
     // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
     let borrow_section: &dyn for<'a> Fn(
@@ -84,10 +81,13 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
 
                     // Determine line/column. DWARF line/column is never 0, so we use that
                     // but other applications may want to display this differently.
-                    let line = row.line().unwrap_or(0);
+                    let line = match row.line() {
+                        Some(line) => line.get(),
+                        None => 0,
+                    };
                     let column = match row.column() {
                         gimli::ColumnType::LeftEdge => 0,
-                        gimli::ColumnType::Column(x) => x,
+                        gimli::ColumnType::Column(column) => column.get(),
                     };
 
                     println!("{:x} {}:{}:{}", row.address(), path.display(), line, column);

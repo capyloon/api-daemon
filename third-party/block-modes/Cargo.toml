@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "block-modes"
-version = "0.7.0"
+version = "0.8.1"
 authors = ["RustCrypto Developers"]
 description = "Block cipher modes of operation"
 documentation = "https://docs.rs/block-modes"
@@ -25,9 +25,10 @@ repository = "https://github.com/RustCrypto/block-ciphers"
 version = "0.2"
 
 [dependencies.cipher]
-version = "0.2"
+version = "0.3"
 [dev-dependencies.aes]
-version = "0.6"
+version = "0.7"
+features = ["force-soft"]
 
 [dev-dependencies.hex-literal]
 version = "0.2"

@@ -78,6 +78,8 @@ mod winapi;
 mod com;
 #[cfg(windows)]
 mod setup_config;
+#[cfg(windows)]
+mod vs_instances;
 
 pub mod windows_registry;
 
@@ -2342,6 +2344,12 @@ impl Build {
                 Some(t) => return Ok((t, "lib.exe".to_string())),
                 None => "lib.exe".to_string(),
             }
+        } else if target.contains("illumos") {
+            // The default 'ar' on illumos uses a non-standard flags,
+            // but the OS comes bundled with a GNU-compatible variant.
+            //
+            // Use the GNU-variant to match other Unix systems.
+            "gar".to_string()
         } else if self.get_host()? != target {
             match self.prefix_for_target(&target) {
                 Some(p) => {
@@ -2953,7 +2961,7 @@ fn spawn(cmd: &mut Command, program: &str) -> Result<(Child, JoinHandle<()>), Er
 }
 
 fn fail(s: &str) -> ! {
-    let _ = writeln!(io::stderr(), "\n\nerror occurred: {}\n\n", s);
+    eprintln!("\n\nerror occurred: {}\n\n", s);
     std::process::exit(1);
 }
 

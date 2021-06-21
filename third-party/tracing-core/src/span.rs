@@ -1,4 +1,5 @@
 //! Spans represent periods of time in the execution of a program.
+use crate::field::FieldSet;
 use crate::parent::Parent;
 use crate::stdlib::num::NonZeroU64;
 use crate::{field, Metadata};
@@ -97,9 +98,9 @@ impl Id {
     }
 }
 
-impl<'a> Into<Option<Id>> for &'a Id {
-    fn into(self) -> Option<Id> {
-        Some(self.clone())
+impl<'a> From<&'a Id> for Option<Id> {
+    fn from(id: &'a Id) -> Self {
+        Some(id.clone())
     }
 }
 
@@ -153,10 +154,7 @@ impl<'a> Attributes<'a> {
 
     /// Returns true if the new span should be a root.
     pub fn is_root(&self) -> bool {
-        match self.parent {
-            Parent::Root => true,
-            _ => false,
-        }
+        matches!(self.parent, Parent::Root)
     }
 
     /// Returns true if the new span's parent should be determined based on the
@@ -167,10 +165,7 @@ impl<'a> Attributes<'a> {
     /// thread is _not_ inside a span, then the new span will be the root of its
     /// own trace tree.
     pub fn is_contextual(&self) -> bool {
-        match self.parent {
-            Parent::Current => true,
-            _ => false,
-        }
+        matches!(self.parent, Parent::Current)
     }
 
     /// Returns the new span's explicitly-specified parent, if there is one.
@@ -201,6 +196,21 @@ impl<'a> Attributes<'a> {
     /// Returns true if this set of `Attributes` contains _no_ values.
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
+    }
+
+    /// Returns the set of all [fields] defined by this span's [`Metadata`].
+    ///
+    /// Note that the [`FieldSet`] returned by this method includes *all* the
+    /// fields declared by this span, not just those with values that are recorded
+    /// as part of this set of `Attributes`. Other fields with values not present in
+    /// this `Attributes`' value set may [record] values later.
+    ///
+    /// [fields]: crate::field
+    /// [record]: Attributes::record()
+    /// [`Metadata`]: crate::metadata::Metadata
+    /// [`FieldSet`]: crate::field::FieldSet
+    pub fn fields(&self) -> &FieldSet {
+        self.values.field_set()
     }
 }
 
@@ -270,10 +280,7 @@ impl Current {
     /// [`metadata`]: #method.metadata
     /// [`into_inner`]: #method.into_inner
     pub fn is_known(&self) -> bool {
-        match self.inner {
-            CurrentInner::Unknown => false,
-            _ => true,
-        }
+        !matches!(self.inner, CurrentInner::Unknown)
     }
 
     /// Consumes `self` and returns the span `Id` and `Metadata` of the current
@@ -302,26 +309,29 @@ impl Current {
     }
 }
 
-impl<'a> Into<Option<&'a Id>> for &'a Current {
-    fn into(self) -> Option<&'a Id> {
-        self.id()
+impl<'a> From<&'a Current> for Option<&'a Id> {
+    fn from(cur: &'a Current) -> Self {
+        cur.id()
     }
 }
 
-impl<'a> Into<Option<Id>> for &'a Current {
-    fn into(self) -> Option<Id> {
-        self.id().cloned()
+impl<'a> From<&'a Current> for Option<Id> {
+    fn from(cur: &'a Current) -> Self {
+        cur.id().cloned()
     }
 }
 
-impl Into<Option<Id>> for Current {
-    fn into(self) -> Option<Id> {
-        self.id().cloned()
+impl From<Current> for Option<Id> {
+    fn from(cur: Current) -> Self {
+        match cur.inner {
+            CurrentInner::Current { id, .. } => Some(id),
+            _ => None,
+        }
     }
 }
 
-impl<'a> Into<Option<&'static Metadata<'static>>> for &'a Current {
-    fn into(self) -> Option<&'static Metadata<'static>> {
-        self.metadata()
+impl<'a> From<&'a Current> for Option<&'static Metadata<'static>> {
+    fn from(cur: &'a Current) -> Self {
+        cur.metadata()
     }
 }

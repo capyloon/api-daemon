@@ -7,7 +7,8 @@ use crate::elf;
 use crate::endian::{self, Endianness};
 use crate::pod::Pod;
 use crate::read::{
-    self, Error, Relocation, RelocationEncoding, RelocationKind, RelocationTarget, SymbolIndex,
+    self, Error, ReadRef, Relocation, RelocationEncoding, RelocationKind, RelocationTarget,
+    SymbolIndex,
 };
 
 use super::{ElfFile, FileHeader, SectionHeader, SectionTable};
@@ -91,25 +92,29 @@ impl<'data, Elf: FileHeader> Iterator for ElfRelaIterator<'data, Elf> {
 }
 
 /// An iterator over the dynamic relocations for an `ElfFile32`.
-pub type ElfDynamicRelocationIterator32<'data, 'file, Endian = Endianness> =
-    ElfDynamicRelocationIterator<'data, 'file, elf::FileHeader32<Endian>>;
+pub type ElfDynamicRelocationIterator32<'data, 'file, Endian = Endianness, R = &'data [u8]> =
+    ElfDynamicRelocationIterator<'data, 'file, elf::FileHeader32<Endian>, R>;
 /// An iterator over the dynamic relocations for an `ElfFile64`.
-pub type ElfDynamicRelocationIterator64<'data, 'file, Endian = Endianness> =
-    ElfDynamicRelocationIterator<'data, 'file, elf::FileHeader64<Endian>>;
+pub type ElfDynamicRelocationIterator64<'data, 'file, Endian = Endianness, R = &'data [u8]> =
+    ElfDynamicRelocationIterator<'data, 'file, elf::FileHeader64<Endian>, R>;
 
 /// An iterator over the dynamic relocations for an `ElfFile`.
-pub struct ElfDynamicRelocationIterator<'data, 'file, Elf>
+pub struct ElfDynamicRelocationIterator<'data, 'file, Elf, R = &'data [u8]>
 where
-    'data: 'file,
     Elf: FileHeader,
+    R: ReadRef<'data>,
 {
     /// The current relocation section index.
     pub(super) section_index: usize,
-    pub(super) file: &'file ElfFile<'data, Elf>,
+    pub(super) file: &'file ElfFile<'data, Elf, R>,
     pub(super) relocations: Option<ElfRelaIterator<'data, Elf>>,
 }
 
-impl<'data, 'file, Elf: FileHeader> Iterator for ElfDynamicRelocationIterator<'data, 'file, Elf> {
+impl<'data, 'file, Elf, R> Iterator for ElfDynamicRelocationIterator<'data, 'file, Elf, R>
+where
+    Elf: FileHeader,
+    R: ReadRef<'data>,
+{
     type Item = (u64, Relocation);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -149,32 +154,40 @@ impl<'data, 'file, Elf: FileHeader> Iterator for ElfDynamicRelocationIterator<'d
     }
 }
 
-impl<'data, 'file, Elf: FileHeader> fmt::Debug for ElfDynamicRelocationIterator<'data, 'file, Elf> {
+impl<'data, 'file, Elf, R> fmt::Debug for ElfDynamicRelocationIterator<'data, 'file, Elf, R>
+where
+    Elf: FileHeader,
+    R: ReadRef<'data>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ElfDynamicRelocationIterator").finish()
     }
 }
 
 /// An iterator over the relocations for an `ElfSection32`.
-pub type ElfSectionRelocationIterator32<'data, 'file, Endian = Endianness> =
-    ElfSectionRelocationIterator<'data, 'file, elf::FileHeader32<Endian>>;
+pub type ElfSectionRelocationIterator32<'data, 'file, Endian = Endianness, R = &'data [u8]> =
+    ElfSectionRelocationIterator<'data, 'file, elf::FileHeader32<Endian>, R>;
 /// An iterator over the relocations for an `ElfSection64`.
-pub type ElfSectionRelocationIterator64<'data, 'file, Endian = Endianness> =
-    ElfSectionRelocationIterator<'data, 'file, elf::FileHeader64<Endian>>;
+pub type ElfSectionRelocationIterator64<'data, 'file, Endian = Endianness, R = &'data [u8]> =
+    ElfSectionRelocationIterator<'data, 'file, elf::FileHeader64<Endian>, R>;
 
 /// An iterator over the relocations for an `ElfSection`.
-pub struct ElfSectionRelocationIterator<'data, 'file, Elf>
+pub struct ElfSectionRelocationIterator<'data, 'file, Elf, R = &'data [u8]>
 where
-    'data: 'file,
     Elf: FileHeader,
+    R: ReadRef<'data>,
 {
     /// The current pointer in the chain of relocation sections.
     pub(super) section_index: usize,
-    pub(super) file: &'file ElfFile<'data, Elf>,
+    pub(super) file: &'file ElfFile<'data, Elf, R>,
     pub(super) relocations: Option<ElfRelaIterator<'data, Elf>>,
 }
 
-impl<'data, 'file, Elf: FileHeader> Iterator for ElfSectionRelocationIterator<'data, 'file, Elf> {
+impl<'data, 'file, Elf, R> Iterator for ElfSectionRelocationIterator<'data, 'file, Elf, R>
+where
+    Elf: FileHeader,
+    R: ReadRef<'data>,
+{
     type Item = (u64, Relocation);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -208,7 +221,11 @@ impl<'data, 'file, Elf: FileHeader> Iterator for ElfSectionRelocationIterator<'d
     }
 }
 
-impl<'data, 'file, Elf: FileHeader> fmt::Debug for ElfSectionRelocationIterator<'data, 'file, Elf> {
+impl<'data, 'file, Elf, R> fmt::Debug for ElfSectionRelocationIterator<'data, 'file, Elf, R>
+where
+    Elf: FileHeader,
+    R: ReadRef<'data>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ElfSectionRelocationIterator").finish()
     }
@@ -221,21 +238,36 @@ fn parse_relocation<Elf: FileHeader>(
     implicit_addend: bool,
 ) -> Relocation {
     let mut encoding = RelocationEncoding::Generic;
+    let is_mips64el = header.is_mips64el(endian);
     let (kind, size) = match header.e_machine(endian) {
-        elf::EM_ARM => match reloc.r_type(endian) {
-            elf::R_ARM_ABS32 => (RelocationKind::Absolute, 32),
-            r_type => (RelocationKind::Elf(r_type), 0),
-        },
-        elf::EM_AARCH64 => match reloc.r_type(endian) {
+        elf::EM_AARCH64 => match reloc.r_type(endian, false) {
             elf::R_AARCH64_ABS64 => (RelocationKind::Absolute, 64),
             elf::R_AARCH64_ABS32 => (RelocationKind::Absolute, 32),
             elf::R_AARCH64_ABS16 => (RelocationKind::Absolute, 16),
             elf::R_AARCH64_PREL64 => (RelocationKind::Relative, 64),
             elf::R_AARCH64_PREL32 => (RelocationKind::Relative, 32),
             elf::R_AARCH64_PREL16 => (RelocationKind::Relative, 16),
+            elf::R_AARCH64_CALL26 => {
+                encoding = RelocationEncoding::AArch64Call;
+                (RelocationKind::PltRelative, 26)
+            }
             r_type => (RelocationKind::Elf(r_type), 0),
         },
-        elf::EM_386 => match reloc.r_type(endian) {
+        elf::EM_ARM => match reloc.r_type(endian, false) {
+            elf::R_ARM_ABS32 => (RelocationKind::Absolute, 32),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_AVR => match reloc.r_type(endian, false) {
+            elf::R_AVR_32 => (RelocationKind::Absolute, 32),
+            elf::R_AVR_16 => (RelocationKind::Absolute, 16),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_BPF => match reloc.r_type(endian, false) {
+            elf::R_BPF_64_64 => (RelocationKind::Absolute, 64),
+            elf::R_BPF_64_32 => (RelocationKind::Absolute, 32),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_386 => match reloc.r_type(endian, false) {
             elf::R_386_32 => (RelocationKind::Absolute, 32),
             elf::R_386_PC32 => (RelocationKind::Relative, 32),
             elf::R_386_GOT32 => (RelocationKind::Got, 32),
@@ -248,7 +280,7 @@ fn parse_relocation<Elf: FileHeader>(
             elf::R_386_PC8 => (RelocationKind::Relative, 8),
             r_type => (RelocationKind::Elf(r_type), 0),
         },
-        elf::EM_X86_64 => match reloc.r_type(endian) {
+        elf::EM_X86_64 => match reloc.r_type(endian, false) {
             elf::R_X86_64_64 => (RelocationKind::Absolute, 64),
             elf::R_X86_64_PC32 => (RelocationKind::Relative, 32),
             elf::R_X86_64_GOT32 => (RelocationKind::Got, 32),
@@ -265,7 +297,36 @@ fn parse_relocation<Elf: FileHeader>(
             elf::R_X86_64_PC8 => (RelocationKind::Relative, 8),
             r_type => (RelocationKind::Elf(r_type), 0),
         },
-        elf::EM_S390 => match reloc.r_type(endian) {
+        elf::EM_HEXAGON => match reloc.r_type(endian, false) {
+            elf::R_HEX_32 => (RelocationKind::Absolute, 32),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_MIPS => match reloc.r_type(endian, is_mips64el) {
+            elf::R_MIPS_16 => (RelocationKind::Absolute, 16),
+            elf::R_MIPS_32 => (RelocationKind::Absolute, 32),
+            elf::R_MIPS_64 => (RelocationKind::Absolute, 64),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_MSP430 => match reloc.r_type(endian, false) {
+            elf::R_MSP430_32 => (RelocationKind::Absolute, 32),
+            elf::R_MSP430_16_BYTE => (RelocationKind::Absolute, 16),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_PPC => match reloc.r_type(endian, false) {
+            elf::R_PPC_ADDR32 => (RelocationKind::Absolute, 32),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_PPC64 => match reloc.r_type(endian, false) {
+            elf::R_PPC64_ADDR32 => (RelocationKind::Absolute, 32),
+            elf::R_PPC64_ADDR64 => (RelocationKind::Absolute, 64),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_RISCV => match reloc.r_type(endian, false) {
+            elf::R_RISCV_32 => (RelocationKind::Absolute, 32),
+            elf::R_RISCV_64 => (RelocationKind::Absolute, 64),
+            r_type => (RelocationKind::Elf(r_type), 0),
+        },
+        elf::EM_S390 => match reloc.r_type(endian, false) {
             elf::R_390_8 => (RelocationKind::Absolute, 8),
             elf::R_390_16 => (RelocationKind::Absolute, 16),
             elf::R_390_32 => (RelocationKind::Absolute, 32),
@@ -306,9 +367,16 @@ fn parse_relocation<Elf: FileHeader>(
             }
             r_type => (RelocationKind::Elf(r_type), 0),
         },
-        _ => (RelocationKind::Elf(reloc.r_type(endian)), 0),
+        elf::EM_SPARC | elf::EM_SPARC32PLUS | elf::EM_SPARCV9 => {
+            match reloc.r_type(endian, false) {
+                elf::R_SPARC_32 | elf::R_SPARC_UA32 => (RelocationKind::Absolute, 32),
+                elf::R_SPARC_64 | elf::R_SPARC_UA64 => (RelocationKind::Absolute, 64),
+                r_type => (RelocationKind::Elf(r_type), 0),
+            }
+        }
+        _ => (RelocationKind::Elf(reloc.r_type(endian, false)), 0),
     };
-    let sym = reloc.r_sym(endian) as usize;
+    let sym = reloc.r_sym(endian, is_mips64el) as usize;
     let target = if sym == 0 {
         RelocationTarget::Absolute
     } else {
@@ -397,10 +465,10 @@ pub trait Rela: Debug + Pod + Clone {
     type Endian: endian::Endian;
 
     fn r_offset(&self, endian: Self::Endian) -> Self::Word;
-    fn r_info(&self, endian: Self::Endian) -> Self::Word;
+    fn r_info(&self, endian: Self::Endian, is_mips64el: bool) -> Self::Word;
     fn r_addend(&self, endian: Self::Endian) -> Self::Sword;
-    fn r_sym(&self, endian: Self::Endian) -> u32;
-    fn r_type(&self, endian: Self::Endian) -> u32;
+    fn r_sym(&self, endian: Self::Endian, is_mips64el: bool) -> u32;
+    fn r_type(&self, endian: Self::Endian, is_mips64el: bool) -> u32;
 }
 
 impl<Endian: endian::Endian> Rela for elf::Rela32<Endian> {
@@ -414,7 +482,7 @@ impl<Endian: endian::Endian> Rela for elf::Rela32<Endian> {
     }
 
     #[inline]
-    fn r_info(&self, endian: Self::Endian) -> Self::Word {
+    fn r_info(&self, endian: Self::Endian, _is_mips64el: bool) -> Self::Word {
         self.r_info.get(endian)
     }
 
@@ -424,12 +492,12 @@ impl<Endian: endian::Endian> Rela for elf::Rela32<Endian> {
     }
 
     #[inline]
-    fn r_sym(&self, endian: Self::Endian) -> u32 {
+    fn r_sym(&self, endian: Self::Endian, _is_mips64el: bool) -> u32 {
         self.r_sym(endian)
     }
 
     #[inline]
-    fn r_type(&self, endian: Self::Endian) -> u32 {
+    fn r_type(&self, endian: Self::Endian, _is_mips64el: bool) -> u32 {
         self.r_type(endian)
     }
 }
@@ -445,8 +513,8 @@ impl<Endian: endian::Endian> Rela for elf::Rela64<Endian> {
     }
 
     #[inline]
-    fn r_info(&self, endian: Self::Endian) -> Self::Word {
-        self.r_info.get(endian)
+    fn r_info(&self, endian: Self::Endian, is_mips64el: bool) -> Self::Word {
+        self.get_r_info(endian, is_mips64el)
     }
 
     #[inline]
@@ -455,12 +523,12 @@ impl<Endian: endian::Endian> Rela for elf::Rela64<Endian> {
     }
 
     #[inline]
-    fn r_sym(&self, endian: Self::Endian) -> u32 {
-        self.r_sym(endian)
+    fn r_sym(&self, endian: Self::Endian, is_mips64el: bool) -> u32 {
+        self.r_sym(endian, is_mips64el)
     }
 
     #[inline]
-    fn r_type(&self, endian: Self::Endian) -> u32 {
-        self.r_type(endian)
+    fn r_type(&self, endian: Self::Endian, is_mips64el: bool) -> u32 {
+        self.r_type(endian, is_mips64el)
     }
 }

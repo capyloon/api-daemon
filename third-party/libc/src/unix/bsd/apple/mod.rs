@@ -28,6 +28,8 @@ pub type cpu_type_t = integer_t;
 pub type cpu_subtype_t = integer_t;
 pub type natural_t = u32;
 pub type mach_msg_type_number_t = natural_t;
+pub type kern_return_t = ::c_int;
+pub type uuid_t = [u8; 16];
 
 pub type posix_spawnattr_t = *mut ::c_void;
 pub type posix_spawn_file_actions_t = *mut ::c_void;
@@ -53,6 +55,28 @@ pub type processor_set_load_info_t = *mut processor_set_load_info;
 pub type processor_info_t = *mut integer_t;
 pub type processor_info_array_t = *mut integer_t;
 
+pub type thread_t = mach_port_t;
+pub type thread_policy_flavor_t = natural_t;
+pub type thread_policy_t = *mut integer_t;
+pub type thread_latency_qos_t = integer_t;
+pub type thread_throughput_qos_t = integer_t;
+pub type thread_standard_policy_data_t = thread_standard_policy;
+pub type thread_standard_policy_t = *mut thread_standard_policy;
+pub type thread_extended_policy_data_t = thread_extended_policy;
+pub type thread_extended_policy_t = *mut thread_extended_policy;
+pub type thread_time_constraint_policy_data_t = thread_time_constraint_policy;
+pub type thread_time_constraint_policy_t = *mut thread_time_constraint_policy;
+pub type thread_precedence_policy_data_t = thread_precedence_policy;
+pub type thread_precedence_policy_t = *mut thread_precedence_policy;
+pub type thread_affinity_policy_data_t = thread_affinity_policy;
+pub type thread_affinity_policy_t = *mut thread_affinity_policy;
+pub type thread_background_policy_data_t = thread_background_policy;
+pub type thread_background_policy_t = *mut thread_background_policy;
+pub type thread_latency_qos_policy_data_t = thread_latency_qos_policy;
+pub type thread_latency_qos_policy_t = *mut thread_latency_qos_policy;
+pub type thread_throughput_qos_policy_data_t = thread_throughput_qos_policy;
+pub type thread_throughput_qos_policy_t = *mut thread_throughput_qos_policy;
+
 deprecated_mach! {
     pub type vm_prot_t = ::c_int;
     pub type vm_size_t = ::uintptr_t;
@@ -64,6 +88,23 @@ pub enum timezone {}
 impl ::Copy for timezone {}
 impl ::Clone for timezone {
     fn clone(&self) -> timezone {
+        *self
+    }
+}
+
+#[cfg_attr(feature = "extra_traits", derive(Debug))]
+#[repr(u32)]
+pub enum qos_class_t {
+    QOS_CLASS_USER_INTERACTIVE = 0x21,
+    QOS_CLASS_USER_INITIATED = 0x19,
+    QOS_CLASS_DEFAULT = 0x15,
+    QOS_CLASS_UTILITY = 0x11,
+    QOS_CLASS_BACKGROUND = 0x09,
+    QOS_CLASS_UNSPECIFIED = 0x00,
+}
+impl ::Copy for qos_class_t {}
+impl ::Clone for qos_class_t {
+    fn clone(&self) -> qos_class_t {
         *self
     }
 }
@@ -552,6 +593,57 @@ s! {
         pub esterror: ::c_long,
         pub tai: ::c_long,
         pub time_state: ::c_int,
+    }
+
+    pub struct thread_standard_policy {
+        pub no_data: natural_t,
+    }
+
+    pub struct thread_extended_policy {
+        pub timeshare: boolean_t,
+    }
+
+    pub struct thread_time_constraint_policy {
+        pub period: u32,
+        pub computation: u32,
+        pub constraint: u32,
+        pub preemptible: boolean_t,
+    }
+
+    pub struct thread_precedence_policy {
+        pub importance: integer_t,
+    }
+
+    pub struct thread_affinity_policy {
+        pub affinity_tag: integer_t,
+    }
+
+    pub struct thread_background_policy {
+        pub priority: integer_t,
+    }
+
+    pub struct thread_latency_qos_policy {
+        pub thread_latency_qos_tier: thread_latency_qos_t,
+    }
+
+    pub struct thread_throughput_qos_policy {
+        pub thread_throughput_qos_tier: thread_throughput_qos_t,
+    }
+
+    // malloc/malloc.h
+    pub struct malloc_statistics_t {
+        pub blocks_in_use: ::c_uint,
+        pub size_in_use: ::size_t,
+        pub max_size_in_use: ::size_t,
+        pub size_allocated: ::size_t,
+    }
+
+    pub struct mstats {
+        pub bytes_total: ::size_t,
+        pub chunks_used: ::size_t,
+        pub bytes_used: ::size_t,
+        pub chunks_free: ::size_t,
+        pub bytes_free: ::size_t,
     }
 }
 
@@ -2415,6 +2507,7 @@ pub const IP_RECVDSTADDR: ::c_int = 7;
 pub const IP_ADD_MEMBERSHIP: ::c_int = 12;
 pub const IP_DROP_MEMBERSHIP: ::c_int = 13;
 pub const IP_RECVIF: ::c_int = 20;
+pub const IP_BOUND_IF: ::c_int = 25;
 pub const IP_PKTINFO: ::c_int = 26;
 pub const IP_RECVTOS: ::c_int = 27;
 pub const IPV6_JOIN_GROUP: ::c_int = 12;
@@ -2960,6 +3053,59 @@ pub const KERN_PROC_TTY: ::c_int = 4;
 pub const KERN_PROC_UID: ::c_int = 5;
 pub const KERN_PROC_RUID: ::c_int = 6;
 pub const KERN_PROC_LCID: ::c_int = 7;
+pub const KERN_SUCCESS: ::c_int = 0;
+pub const KERN_INVALID_ADDRESS: ::c_int = 1;
+pub const KERN_PROTECTION_FAILURE: ::c_int = 2;
+pub const KERN_NO_SPACE: ::c_int = 3;
+pub const KERN_INVALID_ARGUMENT: ::c_int = 4;
+pub const KERN_FAILURE: ::c_int = 5;
+pub const KERN_RESOURCE_SHORTAGE: ::c_int = 6;
+pub const KERN_NOT_RECEIVER: ::c_int = 7;
+pub const KERN_NO_ACCESS: ::c_int = 8;
+pub const KERN_MEMORY_FAILURE: ::c_int = 9;
+pub const KERN_MEMORY_ERROR: ::c_int = 10;
+pub const KERN_ALREADY_IN_SET: ::c_int = 11;
+pub const KERN_NOT_IN_SET: ::c_int = 12;
+pub const KERN_NAME_EXISTS: ::c_int = 13;
+pub const KERN_ABORTED: ::c_int = 14;
+pub const KERN_INVALID_NAME: ::c_int = 15;
+pub const KERN_INVALID_TASK: ::c_int = 16;
+pub const KERN_INVALID_RIGHT: ::c_int = 17;
+pub const KERN_INVALID_VALUE: ::c_int = 18;
+pub const KERN_UREFS_OVERFLOW: ::c_int = 19;
+pub const KERN_INVALID_CAPABILITY: ::c_int = 20;
+pub const KERN_RIGHT_EXISTS: ::c_int = 21;
+pub const KERN_INVALID_HOST: ::c_int = 22;
+pub const KERN_MEMORY_PRESENT: ::c_int = 23;
+pub const KERN_MEMORY_DATA_MOVED: ::c_int = 24;
+pub const KERN_MEMORY_RESTART_COPY: ::c_int = 25;
+pub const KERN_INVALID_PROCESSOR_SET: ::c_int = 26;
+pub const KERN_POLICY_LIMIT: ::c_int = 27;
+pub const KERN_INVALID_POLICY: ::c_int = 28;
+pub const KERN_INVALID_OBJECT: ::c_int = 29;
+pub const KERN_ALREADY_WAITING: ::c_int = 30;
+pub const KERN_DEFAULT_SET: ::c_int = 31;
+pub const KERN_EXCEPTION_PROTECTED: ::c_int = 32;
+pub const KERN_INVALID_LEDGER: ::c_int = 33;
+pub const KERN_INVALID_MEMORY_CONTROL: ::c_int = 34;
+pub const KERN_INVALID_SECURITY: ::c_int = 35;
+pub const KERN_NOT_DEPRESSED: ::c_int = 36;
+pub const KERN_TERMINATED: ::c_int = 37;
+pub const KERN_LOCK_SET_DESTROYED: ::c_int = 38;
+pub const KERN_LOCK_UNSTABLE: ::c_int = 39;
+pub const KERN_LOCK_OWNED: ::c_int = 40;
+pub const KERN_LOCK_OWNED_SELF: ::c_int = 41;
+pub const KERN_SEMAPHORE_DESTROYED: ::c_int = 42;
+pub const KERN_RPC_SERVER_TERMINATED: ::c_int = 43;
+pub const KERN_RPC_TERMINATE_ORPHAN: ::c_int = 44;
+pub const KERN_RPC_CONTINUE_ORPHAN: ::c_int = 45;
+pub const KERN_NOT_SUPPORTED: ::c_int = 46;
+pub const KERN_NODE_DOWN: ::c_int = 47;
+pub const KERN_NOT_WAITING: ::c_int = 48;
+pub const KERN_OPERATION_TIMED_OUT: ::c_int = 49;
+pub const KERN_CODESIGN_ERROR: ::c_int = 50;
+pub const KERN_POLICY_STATIC: ::c_int = 51;
+pub const KERN_INSUFFICIENT_BUFFER_SIZE: ::c_int = 52;
 pub const KIPC_MAXSOCKBUF: ::c_int = 1;
 pub const KIPC_SOCKBUF_WASTE: ::c_int = 2;
 pub const KIPC_SOMAXCONN: ::c_int = 3;
@@ -3362,6 +3508,19 @@ pub const TIME_ERROR: ::c_int = 5;
 pub const MNT_WAIT: ::c_int = 1;
 pub const MNT_NOWAIT: ::c_int = 2;
 
+// <mach/thread_policy.h>
+pub const THREAD_STANDARD_POLICY: ::c_int = 1;
+pub const THREAD_STANDARD_POLICY_COUNT: ::c_int = 0;
+pub const THREAD_EXTENDED_POLICY: ::c_int = 1;
+pub const THREAD_TIME_CONSTRAINT_POLICY: ::c_int = 2;
+pub const THREAD_PRECEDENCE_POLICY: ::c_int = 3;
+pub const THREAD_AFFINITY_POLICY: ::c_int = 4;
+pub const THREAD_AFFINITY_TAG_NULL: ::c_int = 0;
+pub const THREAD_BACKGROUND_POLICY: ::c_int = 5;
+pub const THREAD_BACKGROUND_POLICY_DARWIN_BG: ::c_int = 0x1000;
+pub const THREAD_LATENCY_QOS_POLICY: ::c_int = 7;
+pub const THREAD_THROUGHPUT_QOS_POLICY: ::c_int = 8;
+
 cfg_if! {
     if #[cfg(libc_const_extern_fn)] {
         const fn __DARWIN_ALIGN32(p: usize) -> usize {
@@ -3373,11 +3532,39 @@ cfg_if! {
             const __DARWIN_ALIGNBYTES32: usize = ::mem::size_of::<u32>() - 1;
             p + __DARWIN_ALIGNBYTES32 & !__DARWIN_ALIGNBYTES32
         }
+        pub const THREAD_EXTENDED_POLICY_COUNT: mach_msg_type_number_t =
+            (::mem::size_of::<thread_extended_policy_data_t>() / ::mem::size_of::<integer_t>())
+            as mach_msg_type_number_t;
+        pub const THREAD_TIME_CONSTRAINT_POLICY_COUNT: mach_msg_type_number_t =
+            (::mem::size_of::<thread_time_constraint_policy_data_t>() /
+             ::mem::size_of::<integer_t>()) as mach_msg_type_number_t;
+        pub const THREAD_PRECEDENCE_POLICY_COUNT: mach_msg_type_number_t =
+            (::mem::size_of::<thread_precedence_policy_data_t>() / ::mem::size_of::<integer_t>())
+            as mach_msg_type_number_t;
+        pub const THREAD_AFFINITY_POLICY_COUNT: mach_msg_type_number_t =
+            (::mem::size_of::<thread_affinity_policy_data_t>() / ::mem::size_of::<integer_t>())
+            as mach_msg_type_number_t;
+        pub const THREAD_BACKGROUND_POLICY_COUNT: mach_msg_type_number_t =
+            (::mem::size_of::<thread_background_policy_data_t>() / ::mem::size_of::<integer_t>())
+            as mach_msg_type_number_t;
+        pub const THREAD_LATENCY_QOS_POLICY_COUNT: mach_msg_type_number_t =
+            (::mem::size_of::<thread_latency_qos_policy_data_t>() / ::mem::size_of::<integer_t>())
+            as mach_msg_type_number_t;
+        pub const THREAD_THROUGHPUT_QOS_POLICY_COUNT: mach_msg_type_number_t =
+            (::mem::size_of::<thread_throughput_qos_policy_data_t>() /
+             ::mem::size_of::<integer_t>()) as mach_msg_type_number_t;
     } else {
         fn __DARWIN_ALIGN32(p: usize) -> usize {
             let __DARWIN_ALIGNBYTES32: usize = ::mem::size_of::<u32>() - 1;
             p + __DARWIN_ALIGNBYTES32 & !__DARWIN_ALIGNBYTES32
         }
+        pub const THREAD_EXTENDED_POLICY_COUNT: mach_msg_type_number_t = 1;
+        pub const THREAD_TIME_CONSTRAINT_POLICY_COUNT: mach_msg_type_number_t = 4;
+        pub const THREAD_PRECEDENCE_POLICY_COUNT: mach_msg_type_number_t = 1;
+        pub const THREAD_AFFINITY_POLICY_COUNT: mach_msg_type_number_t = 1;
+        pub const THREAD_BACKGROUND_POLICY_COUNT: mach_msg_type_number_t = 1;
+        pub const THREAD_LATENCY_QOS_POLICY_COUNT: mach_msg_type_number_t = 1;
+        pub const THREAD_THROUGHPUT_QOS_POLICY_COUNT: mach_msg_type_number_t = 1;
     }
 }
 
@@ -3545,6 +3732,8 @@ extern "C" {
     #[deprecated(since = "0.2.55", note = "Use the mach crate")]
     #[allow(deprecated)]
     pub fn mach_timebase_info(info: *mut ::mach_timebase_info) -> ::c_int;
+    pub fn mach_host_self() -> mach_port_t;
+    pub fn mach_thread_self() -> mach_port_t;
     pub fn pthread_setname_np(name: *const ::c_char) -> ::c_int;
     pub fn pthread_getname_np(thread: ::pthread_t, name: *mut ::c_char, len: ::size_t) -> ::c_int;
     pub fn pthread_from_mach_thread_np(port: ::mach_port_t) -> ::pthread_t;
@@ -3568,6 +3757,36 @@ extern "C" {
         val: *mut ::c_int,
     ) -> ::c_int;
     pub fn pthread_rwlockattr_setpshared(attr: *mut pthread_rwlockattr_t, val: ::c_int) -> ::c_int;
+    pub fn pthread_threadid_np(thread: ::pthread_t, thread_id: *mut u64) -> ::c_int;
+    pub fn pthread_attr_set_qos_class_np(
+        attr: *mut pthread_attr_t,
+        class: qos_class_t,
+        priority: ::c_int,
+    ) -> ::c_int;
+    pub fn pthread_attr_get_qos_class_np(
+        attr: *mut pthread_attr_t,
+        class: *mut qos_class_t,
+        priority: *mut ::c_int,
+    ) -> ::c_int;
+    pub fn pthread_set_qos_class_self_np(class: qos_class_t, priority: ::c_int) -> ::c_int;
+    pub fn pthread_get_qos_class_np(
+        thread: ::pthread_t,
+        class: *mut qos_class_t,
+        priority: *mut ::c_int,
+    ) -> ::c_int;
+    pub fn thread_policy_set(
+        thread: thread_t,
+        flavor: thread_policy_flavor_t,
+        policy_info: thread_policy_t,
+        count: mach_msg_type_number_t,
+    ) -> kern_return_t;
+    pub fn thread_policy_get(
+        thread: thread_t,
+        flavor: thread_policy_flavor_t,
+        policy_info: thread_policy_t,
+        count: *mut mach_msg_type_number_t,
+        get_default: *mut boolean_t,
+    ) -> kern_return_t;
     pub fn __error() -> *mut ::c_int;
     pub fn backtrace(buf: *mut *mut ::c_void, sz: ::c_int) -> ::c_int;
     #[cfg_attr(
@@ -3826,6 +4045,99 @@ extern "C" {
     )]
     pub fn getfsstat(mntbufp: *mut statfs, bufsize: ::c_int, flags: ::c_int) -> ::c_int;
 
+    // Copy-on-write functions.
+    // According to the man page `flags` is an `int` but in the header
+    // this is a `uint32_t`.
+    pub fn clonefile(src: *const ::c_char, dst: *const ::c_char, flags: u32) -> ::c_int;
+    pub fn clonefileat(
+        src_dirfd: ::c_int,
+        src: *const ::c_char,
+        dst_dirfd: ::c_int,
+        dst: *const ::c_char,
+        flags: u32,
+    ) -> ::c_int;
+    pub fn fclonefileat(
+        srcfd: ::c_int,
+        dst_dirfd: ::c_int,
+        dst: *const ::c_char,
+        flags: u32,
+    ) -> ::c_int;
+
+    // Added in macOS 10.13
+    // ISO/IEC 9899:2011 ("ISO C11") K.3.7.4.1
+    pub fn memset_s(s: *mut ::c_void, smax: ::size_t, c: ::c_int, n: ::size_t) -> ::c_int;
+    // Added in macOS 10.5
+    pub fn memset_pattern4(b: *mut ::c_void, pattern4: *const ::c_void, len: ::size_t);
+    pub fn memset_pattern8(b: *mut ::c_void, pattern8: *const ::c_void, len: ::size_t);
+    pub fn memset_pattern16(b: *mut ::c_void, pattern16: *const ::c_void, len: ::size_t);
+
+    pub fn mstats() -> mstats;
+
+    pub fn proc_listpids(
+        t: u32,
+        typeinfo: u32,
+        buffer: *mut ::c_void,
+        buffersize: ::c_int,
+    ) -> ::c_int;
+    pub fn proc_listallpids(buffer: *mut ::c_void, buffersize: ::c_int) -> ::c_int;
+    pub fn proc_listpgrppids(
+        pgrpid: ::pid_t,
+        buffer: *mut ::c_void,
+        buffersize: ::c_int,
+    ) -> ::c_int;
+    pub fn proc_listchildpids(ppid: ::pid_t, buffer: *mut ::c_void, buffersize: ::c_int)
+        -> ::c_int;
+    pub fn proc_pidinfo(
+        pid: ::c_int,
+        flavor: ::c_int,
+        arg: u64,
+        buffer: *mut ::c_void,
+        buffersize: ::c_int,
+    ) -> ::c_int;
+    pub fn proc_pidfdinfo(
+        pid: ::c_int,
+        fd: ::c_int,
+        flavor: ::c_int,
+        buffer: *mut ::c_void,
+        buffersize: ::c_int,
+    ) -> ::c_int;
+    pub fn proc_pidfileportinfo(
+        pid: ::c_int,
+        fileport: u32,
+        flavor: ::c_int,
+        buffer: *mut ::c_void,
+        buffersize: ::c_int,
+    ) -> ::c_int;
+    pub fn proc_pidpath(pid: ::c_int, buffer: *mut ::c_void, buffersize: u32) -> ::c_int;
+    pub fn proc_name(pid: ::c_int, buffer: *mut ::c_void, buffersize: u32) -> ::c_int;
+    pub fn proc_regionfilename(
+        pid: ::c_int,
+        address: u64,
+        buffer: *mut ::c_void,
+        buffersize: u32,
+    ) -> ::c_int;
+    pub fn proc_libversion(major: *mut ::c_int, mintor: *mut ::c_int) -> ::c_int;
+    /// # Notes
+    ///
+    /// `id` is of type [`uuid_t`].
+    pub fn gethostuuid(id: *mut u8, timeout: *const ::timespec) -> ::c_int;
+}
+
+cfg_if! {
+    if #[cfg(target_os = "macos")] {
+        extern "C" {
+            pub fn memmem(
+                haystack: *const ::c_void,
+                haystacklen: ::size_t,
+                needle: *const ::c_void,
+                needlelen: ::size_t,
+            ) -> *mut ::c_void;
+        }
+    }
+}
+
+#[link(name = "iconv")]
+extern "C" {
     pub fn iconv_open(tocode: *const ::c_char, fromcode: *const ::c_char) -> iconv_t;
     pub fn iconv(
         cd: iconv_t,

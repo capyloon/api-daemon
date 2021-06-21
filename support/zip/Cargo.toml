@@ -1,6 +1,6 @@
 [package]
 name = "zip"
-version = "0.5.12"
+version = "0.5.13"
 authors = ["Mathijs van de Nes <git@mathijs.vd-nes.nl>", "Marli Frost <marli@frost.red>", "Ryan Levick <ryan.levick@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/zip-rs/zip.git"
@@ -27,6 +27,7 @@ walkdir = "2"
 deflate = ["flate2/rust_backend"]
 deflate-miniz = ["flate2/default"]
 deflate-zlib = ["flate2/zlib"]
+unreserved = []
 default = ["bzip2", "deflate", "time"]
 
 [[bench]]

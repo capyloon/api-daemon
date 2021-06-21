@@ -386,6 +386,10 @@ s! {
 }
 
 impl siginfo_t {
+    pub unsafe fn si_addr(&self) -> *mut ::c_char {
+        self.si_addr
+    }
+
     pub unsafe fn si_value(&self) -> ::sigval {
         #[repr(C)]
         struct siginfo_timer {
@@ -936,6 +940,10 @@ pub const NET_RT_STATS: ::c_int = 4;
 pub const NET_RT_TABLE: ::c_int = 5;
 pub const NET_RT_IFNAMES: ::c_int = 6;
 #[doc(hidden)]
+#[deprecated(
+    since = "0.2.95",
+    note = "Possibly increasing over the releases and might not be so used in the field"
+)]
 pub const NET_RT_MAXID: ::c_int = 7;
 
 pub const IPV6_JOIN_GROUP: ::c_int = 12;
@@ -1160,6 +1168,12 @@ pub const NOTE_CHILD: u32 = 0x00000004;
 
 pub const TMP_MAX: ::c_uint = 0x7fffffff;
 
+pub const NI_NUMERICHOST: ::c_int = 1;
+pub const NI_NUMERICSERV: ::c_int = 2;
+pub const NI_NOFQDN: ::c_int = 4;
+pub const NI_NAMEREQD: ::c_int = 8;
+pub const NI_DGRAM: ::c_int = 16;
+
 pub const NI_MAXHOST: ::size_t = 256;
 
 pub const RTLD_LOCAL: ::c_int = 0;
@@ -1266,6 +1280,10 @@ pub const KERN_AUDIO: ::c_int = 84;
 pub const KERN_CPUSTATS: ::c_int = 85;
 pub const KERN_PFSTATUS: ::c_int = 86;
 pub const KERN_TIMEOUT_STATS: ::c_int = 87;
+#[deprecated(
+    since = "0.2.95",
+    note = "Possibly increasing over the releases and might not be so used in the field"
+)]
 pub const KERN_MAXID: ::c_int = 88;
 
 pub const KERN_PROC_ALL: ::c_int = 0;
@@ -1360,6 +1378,7 @@ pub const NTFS_MFLAG_ALLNAMES: ::c_int = 0x2;
 pub const TMPFS_ARGS_VERSION: ::c_int = 1;
 
 pub const MAP_STACK: ::c_int = 0x4000;
+pub const MAP_CONCEAL: ::c_int = 0x8000;
 
 // https://github.com/openbsd/src/blob/master/sys/net/if.h#L187
 pub const IFF_UP: ::c_int = 0x1; // interface is up
@@ -1464,6 +1483,7 @@ extern "C" {
         envp: *const *const ::c_char,
     ) -> ::c_int;
     pub fn pledge(promises: *const ::c_char, execpromises: *const ::c_char) -> ::c_int;
+    pub fn unveil(path: *const ::c_char, permissions: *const ::c_char) -> ::c_int;
     pub fn strtonum(
         nptr: *const ::c_char,
         minval: ::c_longlong,
@@ -1539,6 +1559,15 @@ extern "C" {
         >,
         data: *mut ::c_void,
     ) -> ::c_int;
+    pub fn uselocale(loc: ::locale_t) -> ::locale_t;
+    pub fn freelocale(loc: ::locale_t);
+    pub fn newlocale(mask: ::c_int, locale: *const ::c_char, base: ::locale_t) -> ::locale_t;
+    pub fn duplocale(base: ::locale_t) -> ::locale_t;
+
+    // Added in `OpenBSD` 5.5
+    pub fn explicit_bzero(s: *mut ::c_void, len: ::size_t);
+
+    pub fn setproctitle(fmt: *const ::c_char, ...);
 }
 
 cfg_if! {

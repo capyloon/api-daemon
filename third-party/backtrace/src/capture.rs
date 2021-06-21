@@ -249,6 +249,15 @@ impl From<Vec<BacktraceFrame>> for Backtrace {
     }
 }
 
+impl From<crate::Frame> for BacktraceFrame {
+    fn from(frame: crate::Frame) -> BacktraceFrame {
+        BacktraceFrame {
+            frame: Frame::Raw(frame),
+            symbols: None,
+        }
+    }
+}
+
 impl Into<Vec<BacktraceFrame>> for Backtrace {
     fn into(self) -> Vec<BacktraceFrame> {
         self.frames
@@ -515,6 +524,32 @@ mod serde_impls {
                 },
                 symbols: frame.symbols,
             })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_frame_conversion() {
+        let mut frames = vec![];
+        crate::trace(|frame| {
+            let converted = BacktraceFrame::from(frame.clone());
+            frames.push(converted);
+            true
+        });
+
+        let mut manual = Backtrace::from(frames);
+        manual.resolve();
+        let frames = manual.frames();
+
+        for frame in frames {
+            println!("{:?}", frame.ip());
+            println!("{:?}", frame.symbol_address());
+            println!("{:?}", frame.module_base_address());
+            println!("{:?}", frame.symbols());
         }
     }
 }

@@ -1,11 +1,5 @@
 //! Interface for writing object files.
 
-#![allow(clippy::cognitive_complexity)]
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::comparison_chain)]
-#![allow(clippy::single_match)]
-#![allow(clippy::useless_let_if_seq)]
-
 use std::collections::HashMap;
 use std::string::String;
 use std::vec::Vec;
@@ -14,8 +8,8 @@ use std::{error, fmt, result, str};
 use crate::endian::{Endianness, U32, U64};
 use crate::pod::{BytesMut, WritableBuffer};
 use crate::{
-    AddressSize, Architecture, BinaryFormat, ComdatKind, FileFlags, RelocationEncoding,
-    RelocationKind, SectionFlags, SectionKind, SymbolFlags, SymbolKind, SymbolScope,
+    Architecture, BinaryFormat, ComdatKind, FileFlags, RelocationEncoding, RelocationKind,
+    SectionFlags, SectionKind, SymbolFlags, SymbolKind, SymbolScope,
 };
 
 #[cfg(feature = "coff")]
@@ -109,6 +103,7 @@ impl Object {
     /// Return the name for a standard segment.
     ///
     /// This will vary based on the file format.
+    #[allow(unused_variables)]
     pub fn segment_name(&self, segment: StandardSegment) -> &'static [u8] {
         match self.format {
             #[cfg(feature = "coff")]
@@ -247,6 +242,7 @@ impl Object {
         (segment, name, kind)
     }
 
+    #[allow(unused_variables)]
     fn subsection_name(&self, section: &[u8], value: &[u8]) -> Vec<u8> {
         debug_assert!(!self.has_subsections_via_symbols());
         match self.format {
@@ -438,6 +434,7 @@ impl Object {
     ///
     /// For Mach-O, this also creates a `__thread_vars` entry for TLS symbols, and the
     /// symbol will indirectly point to the data via the `__thread_vars` entry.
+    #[allow(unused_mut)]
     pub fn set_symbol_data(
         &mut self,
         mut symbol_id: SymbolId,
@@ -545,6 +542,7 @@ impl Object {
 /// A standard segment kind.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum StandardSegment {
     Text,
     Data,
@@ -554,6 +552,7 @@ pub enum StandardSegment {
 /// A standard section kind.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum StandardSection {
     Text,
     Data,
@@ -631,6 +630,12 @@ impl Section {
         str::from_utf8(&self.name).ok()
     }
 
+    /// Try to convert the segment to a utf8 string.
+    #[inline]
+    pub fn segment(&self) -> Option<&str> {
+        str::from_utf8(&self.segment).ok()
+    }
+
     /// Return true if this section contains zerofill data.
     #[inline]
     pub fn is_bss(&self) -> bool {
@@ -690,6 +695,7 @@ impl Section {
 
 /// The section where a symbol is defined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SymbolSection {
     /// The section is not applicable for this symbol (such as file symbols).
     None,
@@ -815,7 +821,8 @@ pub struct Comdat {
 }
 
 /// The symbol name mangling scheme.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Mangling {
     /// No symbol mangling.
     None,

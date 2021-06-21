@@ -6,7 +6,7 @@ use std::net::{SocketAddr, TcpListener as StdTcpListener};
 #[cfg(feature = "tcp")]
 use std::time::Duration;
 
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::accept::Accept;
@@ -21,16 +21,17 @@ use super::shutdown::{Graceful, GracefulWatcher};
 #[cfg(feature = "tcp")]
 use super::tcp::AddrIncoming;
 
-/// A listening HTTP server that accepts connections in both HTTP1 and HTTP2 by default.
-///
-/// `Server` is a `Future` mapping a bound listener with a set of service
-/// handlers. It is built using the [`Builder`](Builder), and the future
-/// completes when the server has been shutdown. It should be run by an
-/// `Executor`.
-#[pin_project]
-pub struct Server<I, S, E = Exec> {
-    #[pin]
-    spawn_all: SpawnAll<I, S, E>,
+pin_project! {
+    /// A listening HTTP server that accepts connections in both HTTP1 and HTTP2 by default.
+    ///
+    /// `Server` is a `Future` mapping a bound listener with a set of service
+    /// handlers. It is built using the [`Builder`](Builder), and the future
+    /// completes when the server has been shutdown. It should be run by an
+    /// `Executor`.
+    pub struct Server<I, S, E = Exec> {
+        #[pin]
+        spawn_all: SpawnAll<I, S, E>,
+    }
 }
 
 /// A builder for a [`Server`](Server).
@@ -228,6 +229,32 @@ impl<I, E> Builder<I, E> {
     #[cfg(feature = "http1")]
     pub fn http1_pipeline_flush(mut self, val: bool) -> Self {
         self.protocol.pipeline_flush(val);
+        self
+    }
+
+    /// Set whether HTTP/1 connections will write header names as title case at
+    /// the socket level.
+    ///
+    /// Note that this setting does not affect HTTP/2.
+    ///
+    /// Default is false.
+    #[cfg(feature = "http1")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "http1")))]
+    pub fn http1_title_case_headers(mut self, val: bool) -> Self {
+        self.protocol.http1_title_case_headers(val);
+        self
+    }
+
+    /// Set whether HTTP/1 connections will write header names as provided
+    /// at the socket level.
+    ///
+    /// Note that this setting does not affect HTTP/2.
+    ///
+    /// Default is false.
+    #[cfg(feature = "http1")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "http1")))]
+    pub fn http1_preserve_header_case(mut self, val: bool) -> Self {
+        self.protocol.http1_preserve_header_case(val);
         self
     }
 

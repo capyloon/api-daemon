@@ -73,6 +73,19 @@ impl Dh<Params> {
         }
     }
 
+    /// Sets the private key on the DH object and recomputes the public key.
+    pub fn set_private_key(self, priv_key: BigNum) -> Result<Dh<Private>, ErrorStack> {
+        unsafe {
+            let dh_ptr = self.0;
+            cvt(DH_set0_key(dh_ptr, ptr::null_mut(), priv_key.as_ptr()))?;
+            mem::forget(priv_key);
+
+            cvt(ffi::DH_generate_key(dh_ptr))?;
+            mem::forget(self);
+            Ok(Dh::from_ptr(dh_ptr))
+        }
+    }
+
     /// Generates DH params based on the given `prime_len` and a fixed `generator` value.
     ///
     /// This corresponds to [`DH_generate_parameters_ex`].
@@ -244,11 +257,24 @@ where
             Ok(key)
         }
     }
+
+    /// Returns the private key from the DH instance.
+    ///
+    /// This corresponds to [`DH_get0_key`].
+    ///
+    /// [`DH_get0_key`]: https://www.openssl.org/docs/man1.1.0/crypto/DH_get0_key.html
+    pub fn private_key(&self) -> &BigNumRef {
+        let mut priv_key = ptr::null();
+        unsafe {
+            DH_get0_key(self.as_ptr(), ptr::null_mut(), &mut priv_key);
+            BigNumRef::from_ptr(priv_key as *mut _)
+        }
+    }
 }
 
 cfg_if! {
     if #[cfg(any(ossl110, libressl270))] {
-        use ffi::{DH_set0_pqg, DH_get0_pqg, DH_get0_key};
+        use ffi::{DH_set0_pqg, DH_get0_pqg, DH_get0_key, DH_set0_key};
     } else {
         #[allow(bad_style)]
         unsafe fn DH_set0_pqg(
@@ -279,6 +305,17 @@ cfg_if! {
             if !g.is_null() {
                 *g = (*dh).g;
             }
+        }
+
+        #[allow(bad_style)]
+        unsafe fn DH_set0_key(
+            dh: *mut ffi::DH,
+            pub_key: *mut ffi::BIGNUM,
+            priv_key: *mut ffi::BIGNUM,
+        ) -> ::libc::c_int {
+            (*dh).pub_key = pub_key;
+            (*dh).priv_key = priv_key;
+            1
         }
 
         #[allow(bad_style)]
@@ -347,6 +384,21 @@ mod tests {
         assert_eq!(dh.prime_p(), &prime_p);
         assert_eq!(dh.prime_q().unwrap(), &prime_q);
         assert_eq!(dh.generator(), &generator);
+    }
+
+    #[test]
+    #[cfg(ossl102)]
+    fn test_dh_stored_restored() {
+        let dh1 = Dh::get_2048_256().unwrap();
+        let key1 = dh1.generate_key().unwrap();
+
+        let dh2 = Dh::get_2048_256().unwrap();
+        let key2 = dh2
+            .set_private_key(key1.private_key().to_owned().unwrap())
+            .unwrap();
+
+        assert_eq!(key1.public_key(), key2.public_key());
+        assert_eq!(key1.private_key(), key2.private_key());
     }
 
     #[test]

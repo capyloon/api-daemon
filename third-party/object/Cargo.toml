@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "object"
-version = "0.23.0"
+version = "0.25.3"
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Philip Craig <philipjcraig@gmail.com>"]
 exclude = ["/.coveralls.yml", "/.travis.yml"]
 description = "A unified interface for reading and writing object file formats."
@@ -72,11 +72,15 @@ optional = true
 version = "1.1"
 optional = true
 
+[dependencies.memchr]
+version = "2.4"
+default-features = false
+
 [dependencies.wasmparser]
 version = "0.57"
 optional = true
-[dev-dependencies.memmap]
-version = "0.7"
+[dev-dependencies.memmap2]
+version = "0.2.2"
 
 [features]
 all = ["read", "write", "std", "compression", "default"]
@@ -88,10 +92,10 @@ default = ["read", "compression"]
 elf = []
 macho = []
 pe = ["coff"]
-read = ["read_core", "archive", "coff", "elf", "macho", "pe", "wasm", "unaligned"]
+read = ["read_core", "archive", "coff", "elf", "macho", "pe", "unaligned"]
 read_core = []
 rustc-dep-of-std = ["core", "compiler_builtins", "alloc"]
-std = []
+std = ["memchr/std"]
 unaligned = []
 wasm = ["wasmparser"]
 write = ["write_core", "coff", "elf", "macho"]

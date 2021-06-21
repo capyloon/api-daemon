@@ -6,12 +6,14 @@ use super::dot::DotAttributes;
 use super::item::Item;
 use super::traversal::{EdgeKind, Trace, Tracer};
 use super::ty::TypeKind;
-use clang;
+use crate::clang;
+use crate::parse::{
+    ClangItemParser, ClangSubItemParser, ParseError, ParseResult,
+};
 use clang_sys::{self, CXCallingConv};
-use ir::derive::{CanTriviallyDeriveDebug, CanTriviallyDeriveHash,
-                 CanTriviallyDerivePartialEqOrPartialOrd, CanDerive};
-use parse::{ClangItemParser, ClangSubItemParser, ParseError, ParseResult};
+use proc_macro2;
 use quote;
+use quote::TokenStreamExt;
 use std::io;
 
 const RUST_DERIVE_FUNPTR_LIMIT: usize = 12;
@@ -30,18 +32,18 @@ impl FunctionKind {
         // FIXME(emilio): Deduplicate logic with `ir::comp`.
         Some(match cursor.kind() {
             clang_sys::CXCursor_FunctionDecl => FunctionKind::Function,
-            clang_sys::CXCursor_Constructor => FunctionKind::Method(
-                MethodKind::Constructor,
-            ),
-            clang_sys::CXCursor_Destructor => FunctionKind::Method(
-                if cursor.method_is_virtual() {
+            clang_sys::CXCursor_Constructor => {
+                FunctionKind::Method(MethodKind::Constructor)
+            }
+            clang_sys::CXCursor_Destructor => {
+                FunctionKind::Method(if cursor.method_is_virtual() {
                     MethodKind::VirtualDestructor {
                         pure_virtual: cursor.method_is_pure_virtual(),
                     }
                 } else {
                     MethodKind::Destructor
-                }
-            ),
+                })
+            }
             clang_sys::CXCursor_CXXMethod => {
                 if cursor.method_is_virtual() {
                     FunctionKind::Method(MethodKind::Virtual {
@@ -64,7 +66,7 @@ pub enum Linkage {
     /// Externally visible and can be linked against
     External,
     /// Not exposed externally. 'static inline' functions will have this kind of linkage
-    Internal
+    Internal,
 }
 
 /// A function declaration, with a signature, arguments, and argument names.
@@ -100,7 +102,7 @@ impl Function {
         signature: TypeId,
         comment: Option<String>,
         kind: FunctionKind,
-        linkage: Linkage
+        linkage: Linkage,
     ) -> Self {
         Function {
             name,
@@ -136,7 +138,6 @@ impl Function {
     pub fn linkage(&self) -> Linkage {
         self.linkage
     }
-
 }
 
 impl DotAttributes for Function {
@@ -192,8 +193,8 @@ impl Abi {
 }
 
 impl quote::ToTokens for Abi {
-    fn to_tokens(&self, tokens: &mut quote::Tokens) {
-        tokens.append(match *self {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        tokens.append_all(match *self {
             Abi::C => quote! { "C" },
             Abi::Stdcall => quote! { "stdcall" },
             Abi::Fastcall => quote! { "fastcall" },
@@ -221,6 +222,9 @@ pub struct FunctionSig {
     /// Whether this function is variadic.
     is_variadic: bool,
 
+    /// Whether this function's return value must be used.
+    must_use: bool,
+
     /// The ABI of this function.
     abi: Abi,
 }
@@ -244,15 +248,13 @@ pub fn cursor_mangling(
     ctx: &BindgenContext,
     cursor: &clang::Cursor,
 ) -> Option<String> {
-    use clang_sys;
-
     if !ctx.options().enable_mangling {
         return None;
     }
 
     // We early return here because libclang may crash in some case
     // if we pass in a variable inside a partial specialized template.
-    // See rust-lang-nursery/rust-bindgen#67, and rust-lang-nursery/rust-bindgen#462.
+    // See rust-lang/rust-bindgen#67, and rust-lang/rust-bindgen#462.
     if cursor.is_in_non_fully_specialized_template() {
         return None;
     }
@@ -304,18 +306,58 @@ pub fn cursor_mangling(
     Some(mangling)
 }
 
+fn args_from_ty_and_cursor(
+    ty: &clang::Type,
+    cursor: &clang::Cursor,
+    ctx: &mut BindgenContext,
+) -> Vec<(Option<String>, TypeId)> {
+    let cursor_args = cursor.args().unwrap_or_default().into_iter();
+    let type_args = ty.args().unwrap_or_default().into_iter();
+
+    // Argument types can be found in either the cursor or the type, but argument names may only be
+    // found on the cursor. We often have access to both a type and a cursor for each argument, but
+    // in some cases we may only have one.
+    //
+    // Prefer using the type as the source of truth for the argument's type, but fall back to
+    // inspecting the cursor (this happens for Objective C interfaces).
+    //
+    // Prefer using the cursor for the argument's type, but fall back to using the parent's cursor
+    // (this happens for function pointer return types).
+    cursor_args
+        .map(Some)
+        .chain(std::iter::repeat(None))
+        .zip(type_args.map(Some).chain(std::iter::repeat(None)))
+        .take_while(|(cur, ty)| cur.is_some() || ty.is_some())
+        .map(|(arg_cur, arg_ty)| {
+            let name = arg_cur.map(|a| a.spelling()).and_then(|name| {
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(name)
+                }
+            });
+
+            let cursor = arg_cur.unwrap_or(*cursor);
+            let ty = arg_ty.unwrap_or(cursor.cur_type());
+            (name, Item::from_ty_or_ref(ty, cursor, None, ctx))
+        })
+        .collect()
+}
+
 impl FunctionSig {
     /// Construct a new function signature.
     pub fn new(
         return_type: TypeId,
-        arguments: Vec<(Option<String>, TypeId)>,
+        argument_types: Vec<(Option<String>, TypeId)>,
         is_variadic: bool,
+        must_use: bool,
         abi: Abi,
     ) -> Self {
         FunctionSig {
-            return_type: return_type,
-            argument_types: arguments,
-            is_variadic: is_variadic,
+            return_type,
+            argument_types,
+            is_variadic,
+            must_use,
             abi: abi,
         }
     }
@@ -330,13 +372,28 @@ impl FunctionSig {
         debug!("FunctionSig::from_ty {:?} {:?}", ty, cursor);
 
         // Skip function templates
-        if cursor.kind() == CXCursor_FunctionTemplate {
+        let kind = cursor.kind();
+        if kind == CXCursor_FunctionTemplate {
             return Err(ParseError::Continue);
         }
 
-        // Don't parse operatorxx functions in C++
         let spelling = cursor.spelling();
-        if spelling.starts_with("operator") {
+
+        // Don't parse operatorxx functions in C++
+        let is_operator = |spelling: &str| {
+            spelling.starts_with("operator") &&
+                !clang::is_valid_identifier(spelling)
+        };
+        if is_operator(&spelling) {
+            return Err(ParseError::Continue);
+        }
+
+        // Constructors of non-type template parameter classes for some reason
+        // include the template parameter in their name. Just skip them, since
+        // we don't handle well non-type template parameters anyway.
+        if (kind == CXCursor_Constructor || kind == CXCursor_Destructor) &&
+            spelling.contains('<')
+        {
             return Err(ParseError::Continue);
         }
 
@@ -346,27 +403,13 @@ impl FunctionSig {
             ty.declaration()
         };
 
-        let mut args: Vec<_> = match cursor.kind() {
+        let mut args = match kind {
             CXCursor_FunctionDecl |
             CXCursor_Constructor |
             CXCursor_CXXMethod |
             CXCursor_ObjCInstanceMethodDecl |
             CXCursor_ObjCClassMethodDecl => {
-                // For CXCursor_FunctionDecl, cursor.args() is the reliable way
-                // to get parameter names and types.
-                cursor
-                    .args()
-                    .unwrap()
-                    .iter()
-                    .map(|arg| {
-                        let arg_ty = arg.cur_type();
-                        let name = arg.spelling();
-                        let name =
-                            if name.is_empty() { None } else { Some(name) };
-                        let ty = Item::from_ty_or_ref(arg_ty, *arg, None, ctx);
-                        (name, ty)
-                    })
-                    .collect()
+                args_from_ty_and_cursor(&ty, &cursor, ctx)
             }
             _ => {
                 // For non-CXCursor_FunctionDecl, visiting the cursor's children
@@ -383,13 +426,24 @@ impl FunctionSig {
                     }
                     CXChildVisit_Continue
                 });
-                args
+
+                if args.is_empty() {
+                    // FIXME(emilio): Sometimes libclang doesn't expose the
+                    // right AST for functions tagged as stdcall and such...
+                    //
+                    // https://bugs.llvm.org/show_bug.cgi?id=45919
+                    args_from_ty_and_cursor(&ty, &cursor, ctx)
+                } else {
+                    args
+                }
             }
         };
 
-        let is_method = cursor.kind() == CXCursor_CXXMethod;
-        let is_constructor = cursor.kind() == CXCursor_Constructor;
-        let is_destructor = cursor.kind() == CXCursor_Destructor;
+        let must_use = ctx.options().enable_function_attribute_detection &&
+            cursor.has_warn_unused_result_attr();
+        let is_method = kind == CXCursor_CXXMethod;
+        let is_constructor = kind == CXCursor_Constructor;
+        let is_destructor = kind == CXCursor_Destructor;
         if (is_constructor || is_destructor || is_method) &&
             cursor.lexical_parent() != cursor.semantic_parent()
         {
@@ -402,14 +456,27 @@ impl FunctionSig {
             let is_virtual = is_method && cursor.method_is_virtual();
             let is_static = is_method && cursor.method_is_static();
             if !is_static && !is_virtual {
-                let class = Item::parse(cursor.semantic_parent(), None, ctx)
+                let parent = cursor.semantic_parent();
+                let class = Item::parse(parent, None, ctx)
                     .expect("Expected to parse the class");
                 // The `class` most likely is not finished parsing yet, so use
                 // the unchecked variant.
                 let class = class.as_type_id_unchecked();
 
+                let class = if is_const {
+                    let const_class_id = ctx.next_item_id();
+                    ctx.build_const_wrapper(
+                        const_class_id,
+                        class,
+                        None,
+                        &parent.cur_type(),
+                    )
+                } else {
+                    class
+                };
+
                 let ptr =
-                    Item::builtin_type(TypeKind::Pointer(class), is_const, ctx);
+                    Item::builtin_type(TypeKind::Pointer(class), false, ctx);
                 args.insert(0, (Some("this".into()), ptr));
             } else if is_virtual {
                 let void = Item::builtin_type(TypeKind::Void, false, ctx);
@@ -419,24 +486,41 @@ impl FunctionSig {
             }
         }
 
-        let ty_ret_type = if cursor.kind() == CXCursor_ObjCInstanceMethodDecl ||
-            cursor.kind() == CXCursor_ObjCClassMethodDecl
+        let ty_ret_type = if kind == CXCursor_ObjCInstanceMethodDecl ||
+            kind == CXCursor_ObjCClassMethodDecl
         {
-            ty.ret_type().or_else(|| cursor.ret_type()).ok_or(
-                ParseError::Continue,
-            )?
+            ty.ret_type()
+                .or_else(|| cursor.ret_type())
+                .ok_or(ParseError::Continue)?
         } else {
             ty.ret_type().ok_or(ParseError::Continue)?
         };
-        let ret = Item::from_ty_or_ref(ty_ret_type, cursor, None, ctx);
-        let call_conv = ty.call_conv();
+
+        let ret = if is_constructor && ctx.is_target_wasm32() {
+            // Constructors in Clang wasm32 target return a pointer to the object
+            // being constructed.
+            let void = Item::builtin_type(TypeKind::Void, false, ctx);
+            Item::builtin_type(TypeKind::Pointer(void), false, ctx)
+        } else {
+            Item::from_ty_or_ref(ty_ret_type, cursor, None, ctx)
+        };
+
+        // Clang plays with us at "find the calling convention", see #549 and
+        // co. This seems to be a better fix than that commit.
+        let mut call_conv = ty.call_conv();
+        if let Some(ty) = cursor.cur_type().canonical_type().pointee_type() {
+            let cursor_call_conv = ty.call_conv();
+            if cursor_call_conv != CXCallingConv_Invalid {
+                call_conv = cursor_call_conv;
+            }
+        }
         let abi = get_abi(call_conv);
 
         if abi.is_unknown() {
             warn!("Unknown calling convention: {:?}", call_conv);
         }
 
-        Ok(Self::new(ret.into(), args, ty.is_variadic(), abi))
+        Ok(Self::new(ret.into(), args, ty.is_variadic(), must_use, abi))
     }
 
     /// Get this function signature's return type.
@@ -462,13 +546,18 @@ impl FunctionSig {
         self.is_variadic && !self.argument_types.is_empty()
     }
 
+    /// Must this function's return value be used?
+    pub fn must_use(&self) -> bool {
+        self.must_use
+    }
+
     /// Are function pointers with this signature able to derive Rust traits?
     /// Rust only supports deriving traits for function pointers with a limited
     /// number of parameters and a couple ABIs.
     ///
     /// For more details, see:
     ///
-    /// * https://github.com/rust-lang-nursery/rust-bindgen/issues/547,
+    /// * https://github.com/rust-lang/rust-bindgen/issues/547,
     /// * https://github.com/rust-lang/rust/issues/38848,
     /// * and https://github.com/rust-lang/rust/issues/40158
     pub fn function_pointers_can_derive(&self) -> bool {
@@ -516,12 +605,11 @@ impl ClangSubItemParser for Function {
         let linkage = match linkage {
             CXLinkage_External | CXLinkage_UniqueExternal => Linkage::External,
             CXLinkage_Internal => Linkage::Internal,
-            _ => return Err(ParseError::Continue)
+            _ => return Err(ParseError::Continue),
         };
 
         // Grab the signature using Item::from_ty.
-        let sig =
-            Item::from_ty(&cursor.cur_type(), cursor, None, context)?;
+        let sig = Item::from_ty(&cursor.cur_type(), cursor, None, context)?;
 
         let mut name = cursor.spelling();
         assert!(!name.is_empty(), "Empty function name?");
@@ -540,14 +628,11 @@ impl ClangSubItemParser for Function {
             name.push_str("_destructor");
         }
 
-        let mut mangled_name = cursor_mangling(context, &cursor);
-        if mangled_name.as_ref() == Some(&name) {
-            mangled_name = None;
-        }
-
+        let mangled_name = cursor_mangling(context, &cursor);
         let comment = cursor.raw_comment();
 
-        let function = Self::new(name, mangled_name, sig, comment, kind, linkage);
+        let function =
+            Self::new(name, mangled_name, sig, comment, kind, linkage);
         Ok(ParseResult::New(function, Some(cursor)))
     }
 }
@@ -563,31 +648,6 @@ impl Trace for FunctionSig {
 
         for &(_, ty) in self.argument_types() {
             tracer.visit_kind(ty.into(), EdgeKind::FunctionParameter);
-        }
-    }
-}
-
-impl CanTriviallyDeriveDebug for FunctionSig {
-    fn can_trivially_derive_debug(&self) -> bool {
-        self.function_pointers_can_derive()
-    }
-}
-
-impl CanTriviallyDeriveHash for FunctionSig {
-    fn can_trivially_derive_hash(&self) -> bool {
-        self.function_pointers_can_derive()
-    }
-}
-
-impl CanTriviallyDerivePartialEqOrPartialOrd for FunctionSig {
-    fn can_trivially_derive_partialeq_or_partialord(&self) -> CanDerive {
-        if self.argument_types.len() > RUST_DERIVE_FUNPTR_LIMIT {
-            return CanDerive::No;
-        }
-
-        match self.abi {
-            Abi::C | Abi::Unknown(..) => CanDerive::Yes,
-            _ => CanDerive::No,
         }
     }
 }

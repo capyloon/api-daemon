@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "hyper"
-version = "0.14.5"
+version = "0.14.9"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 include = ["Cargo.toml", "LICENSE", "src/**/*"]
 description = "A fast and correct HTTP library."
@@ -175,7 +175,7 @@ version = "0.3"
 default-features = false
 
 [dependencies.h2]
-version = "0.3"
+version = "0.3.3"
 optional = true
 
 [dependencies.http]
@@ -185,10 +185,10 @@ version = "0.2"
 version = "0.4"
 
 [dependencies.httparse]
-version = "1.0"
+version = "1.4"
 
 [dependencies.httpdate]
-version = "0.3"
+version = "1.0"
 
 [dependencies.itoa]
 version = "0.4.1"
@@ -197,8 +197,8 @@ version = "0.4.1"
 version = "0.2"
 optional = true
 
-[dependencies.pin-project]
-version = "1.0"
+[dependencies.pin-project-lite]
+version = "0.2.4"
 
 [dependencies.socket2]
 version = "0.4"

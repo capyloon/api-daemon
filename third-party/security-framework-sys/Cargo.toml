@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "security-framework-sys"
-version = "2.2.0"
+version = "2.3.0"
 authors = ["Steven Fackler <sfackler@gmail.com>", "Kornel <kornel@geekhood.net>"]
 description = "Apple `Security.framework` low-level FFI bindings"
 homepage = "https://lib.rs/crates/security-framework-sys"
@@ -26,10 +26,10 @@ repository = "https://github.com/kornelski/rust-security-framework"
 [package.metadata.docs.rs]
 targets = ["x86_64-apple-darwin", "aarch64-apple-ios"]
 [dependencies.core-foundation-sys]
-version = "0.8"
+version = "0.8.2"
 
 [dependencies.libc]
-version = "0.2.47"
+version = "0.2.95"
 
 [features]
 OSX_10_10 = ["OSX_10_9"]

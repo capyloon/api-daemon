@@ -1,16 +1,15 @@
-use crate::traits::BlockMode;
+use crate::traits::{BlockMode, IvState};
 use crate::utils::{get_par_blocks, xor, Block, ParBlocks};
 use block_padding::Padding;
-use cipher::block::{BlockCipher, NewBlockCipher};
-use cipher::generic_array::typenum::Unsigned;
-use cipher::generic_array::GenericArray;
+use cipher::generic_array::{typenum::Unsigned, GenericArray};
+use cipher::{BlockCipher, BlockDecrypt, BlockEncrypt};
 use core::marker::PhantomData;
 
 /// [Cipher Block Chaining][1] (CBC) block cipher mode instance.
 ///
 /// [1]: https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#CBC
 #[derive(Clone)]
-pub struct Cbc<C: BlockCipher + NewBlockCipher, P: Padding> {
+pub struct Cbc<C: BlockCipher + BlockEncrypt + BlockDecrypt, P: Padding> {
     cipher: C,
     iv: GenericArray<u8, C::BlockSize>,
     _p: PhantomData<P>,
@@ -18,7 +17,7 @@ pub struct Cbc<C: BlockCipher + NewBlockCipher, P: Padding> {
 
 impl<C, P> Cbc<C, P>
 where
-    C: BlockCipher + NewBlockCipher,
+    C: BlockCipher + BlockEncrypt + BlockDecrypt,
     P: Padding,
 {
     #[inline(always)]
@@ -36,7 +35,7 @@ where
 
 impl<C, P> BlockMode<C, P> for Cbc<C, P>
 where
-    C: BlockCipher + NewBlockCipher,
+    C: BlockCipher + BlockEncrypt + BlockDecrypt,
     P: Padding,
 {
     type IvSize = C::BlockSize;
@@ -81,5 +80,15 @@ where
         } else {
             self.single_blocks_decrypt(blocks);
         }
+    }
+}
+
+impl<C, P> IvState<C, P> for Cbc<C, P>
+where
+    C: BlockCipher + BlockEncrypt + BlockDecrypt,
+    P: Padding,
+{
+    fn iv_state(&self) -> GenericArray<u8, <Self as BlockMode<C, P>>::IvSize> {
+        self.iv.clone()
     }
 }

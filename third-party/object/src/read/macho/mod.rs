@@ -5,6 +5,9 @@
 //!
 //! Also provides `MachOFile` and related types which implement the `Object` trait.
 
+mod dyld_cache;
+pub use dyld_cache::*;
+
 mod fat;
 pub use fat::*;
 
@@ -12,7 +15,7 @@ mod file;
 pub use file::*;
 
 mod load_command;
-use load_command::*;
+pub use load_command::*;
 
 mod segment;
 pub use segment::*;

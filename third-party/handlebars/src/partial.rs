@@ -1,7 +1,9 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde_json::value::Value as Json;
 
+use crate::block::BlockContext;
 use crate::context::{merge_json, Context};
 use crate::error::RenderError;
 use crate::json::path::Path;
@@ -10,45 +12,27 @@ use crate::registry::Registry;
 use crate::render::{Decorator, Evaluable, RenderContext, Renderable};
 use crate::template::Template;
 
-fn render_partial<'reg: 'rc, 'rc>(
-    t: &'reg Template,
-    d: &Decorator<'reg, 'rc>,
+pub(crate) const PARTIAL_BLOCK: &str = "@partial-block";
+
+fn find_partial<'reg: 'rc, 'rc: 'a, 'a>(
+    rc: &'a RenderContext<'reg, 'rc>,
     r: &'reg Registry<'reg>,
-    ctx: &'rc Context,
-    local_rc: &mut RenderContext<'reg, 'rc>,
-    out: &mut dyn Output,
-) -> Result<(), RenderError> {
-    // partial context path
-    if let Some(ref param_ctx) = d.param(0) {
-        if let (Some(p), Some(block)) = (param_ctx.context_path(), local_rc.block_mut()) {
-            *block.base_path_mut() = p.clone();
-        }
+    d: &Decorator<'reg, 'rc>,
+    name: &str,
+) -> Result<Option<Cow<'a, Template>>, RenderError> {
+    if let Some(ref partial) = rc.get_partial(name) {
+        return Ok(Some(Cow::Borrowed(partial)));
     }
 
-    // @partial-block
-    if let Some(t) = d.template() {
-        local_rc.set_partial("@partial-block".to_owned(), t);
+    if let Some(tpl) = r.get_or_load_template_optional(name) {
+        return tpl.map(Option::Some);
     }
 
-    let result = if d.hash().is_empty() {
-        t.render(r, ctx, local_rc, out)
-    } else {
-        let hash_ctx = d
-            .hash()
-            .iter()
-            .map(|(k, v)| (k, v.value()))
-            .collect::<HashMap<&&str, &Json>>();
-        let current_path = Path::current();
-        let partial_context =
-            merge_json(local_rc.evaluate2(ctx, &current_path)?.as_json(), &hash_ctx);
-        let ctx = Context::wraps(&partial_context)?;
-        let mut partial_rc = local_rc.new_for_block();
-        t.render(r, &ctx, &mut partial_rc, out)
-    };
+    if let Some(tpl) = d.template() {
+        return Ok(Some(Cow::Borrowed(tpl)));
+    }
 
-    local_rc.remove_partial("@partial-block");
-
-    result
+    Ok(None)
 }
 
 pub fn expand_partial<'reg: 'rc, 'rc>(
@@ -68,22 +52,69 @@ pub fn expand_partial<'reg: 'rc, 'rc>(
         return Err(RenderError::new("Cannot include self in >"));
     }
 
-    let partial = rc.get_partial(tname);
+    // if tname == PARTIAL_BLOCK
+    let partial = find_partial(rc, r, d, tname)?;
 
-    match partial {
-        Some(t) => {
-            let mut local_rc = rc.clone();
-            render_partial(&t, d, r, ctx, &mut local_rc, out)?;
+    if let Some(t) = partial {
+        // clone to avoid lifetime issue
+        // FIXME refactor this to avoid
+        let mut local_rc = rc.clone();
+        let is_partial_block = tname == PARTIAL_BLOCK;
+
+        if is_partial_block {
+            local_rc.inc_partial_block_depth();
         }
-        None => {
-            if let Some(t) = r.get_template(tname).or_else(|| d.template()) {
-                let mut local_rc = rc.clone();
-                render_partial(t, d, r, ctx, &mut local_rc, out)?;
-            }
+
+        let mut block_created = false;
+
+        if let Some(ref base_path) = d.param(0).and_then(|p| p.context_path()) {
+            // path given, update base_path
+            let mut block = BlockContext::new();
+            *block.base_path_mut() = base_path.to_vec();
+            block_created = true;
+            local_rc.push_block(block);
+        } else if !d.hash().is_empty() {
+            let mut block = BlockContext::new();
+            // hash given, update base_value
+            let hash_ctx = d
+                .hash()
+                .iter()
+                .map(|(k, v)| (*k, v.value()))
+                .collect::<HashMap<&str, &Json>>();
+
+            let merged_context = merge_json(
+                local_rc.evaluate2(ctx, &Path::current())?.as_json(),
+                &hash_ctx,
+            );
+            block.set_base_value(merged_context);
+            block_created = true;
+            local_rc.push_block(block);
         }
+
+        // @partial-block
+        if let Some(pb) = d.template() {
+            local_rc.push_partial_block(pb);
+        }
+
+        let result = t.render(r, ctx, &mut local_rc, out);
+
+        // cleanup
+        if block_created {
+            local_rc.pop_block();
+        }
+
+        if is_partial_block {
+            local_rc.dec_partial_block_depth();
+        }
+
+        if d.template().is_some() {
+            local_rc.pop_partial_block();
+        }
+
+        result
+    } else {
+        Ok(())
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -263,6 +294,24 @@ mod test {
         assert!(handlebars.register_template_string("t", t).is_ok());
         let r0 = handlebars.render("t", &data);
         assert_eq!(r0.ok().unwrap(), "2 true2 false");
+    }
+
+    #[test]
+    fn test_nested_partials() {
+        let mut handlebars = Registry::new();
+        let template1 = "<outer>{{> @partial-block }}</outer>";
+        let template2 = "{{#> t1 }}<inner>{{> @partial-block }}</inner>{{/ t1 }}";
+        let template3 = "{{#> t2 }}Hello{{/ t2 }}";
+
+        handlebars
+            .register_template_string("t1", &template1)
+            .unwrap();
+        handlebars
+            .register_template_string("t2", &template2)
+            .unwrap();
+
+        let page = handlebars.render_template(&template3, &json!({})).unwrap();
+        assert_eq!("<outer><inner>Hello</inner></outer>", page);
     }
 
     #[test]

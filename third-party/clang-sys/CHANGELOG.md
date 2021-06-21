@@ -1,3 +1,174 @@
+## [1.2.0] - 2021-04-08
+
+### Changed
+- Changed `Clang::find` to prefer target-prefixed binaries when a `-target`
+argument is provided (e.g., if the arguments `-target` and
+`x86_64-unknown-linux-gnu` are provided, a target-prefixed Clang executable
+such as `x86_64-unknown-linux-gnu-clang` will be preferred over a non-target
+prefixed Clang executable)
+
+### Fixed
+- Fixed build script to split paths in environment variables (e.g.,
+`LD_LIBRARY_PATH`) using the appropriate separator for the platform (previously
+`:` was used as the separator but some platforms such as Windows use `;`)
+
+## [1.1.1] - 2021-02-19
+
+### Changed
+- Bumped `libloading` version to `0.7`
+
+## [1.1.0] - 2021-02-09
+
+### Changed
+- Added Visual Studio LLVM component directory to search paths on Windows
+([#121](https://github.com/KyleMayes/clang-sys/issues/121))
+
+### Added
+- Added support for `clang` 11.0.x
+
+## [1.0.3] - 2020-11-19
+
+### Fixed
+- Fixed `Clang::find` panicking when `llvm-config` or `xcode-build` don't output anything to `stdout`
+
+## [1.0.2] - 2020-11-17
+
+### Fixed
+- Fixed `Clang::find` to properly search directories returned by the
+`llvm-config --bindir` and `xcodebuild -find clang` commands
+- Improved version selection algorithm in the case where there are multiple
+instances of `libclang` with the highest version found; previously the lowest
+priority instance would be selected instead of the highest priority instance
+(e.g., the versions found by searching the fallback directories were preferred
+over the versions found by searching the `llvm-config --prefix` directory)
+
+## [1.0.1] - 2020-10-01
+
+### Changed
+- Improved panic error message when calling an unloaded function
+
+## [1.0.0] - 2020-07-14
+
+### Changed
+- Bumped `libloading` version to `0.6.0`
+- Updated build script to not print warnings about failures to execute
+`llvm-config` and `xcode-select` unless an instance of `libclang` is not found
+
+### Added
+- Added support for `clang` 10.0.x
+
+### Removed
+- Removed `gte_clang_*` Cargo features (these were an implementation detail)
+
+## [0.29.3] - 2020-03-31
+
+### Added
+- Added ability to determine version of runtime-linked instance of `libclang`
+
+## [0.29.2] - 2020-03-09
+
+### Added
+- Revert unnecessary increase of minimum version of `libc` and `libloading`
+
+## [0.29.2] - 2020-03-09
+
+### Added
+- Revert unnecessary increase of minimum version of `libc` and `libloading`
+
+## [0.29.1] - 2020-03-06
+
+### Added
+- Added support for finding instances of `libclang` matching `libclang-*.so.*`
+
+## [0.29.0] - 2020-02-17
+
+### Changed
+- Wrapped function pointer fields in `Option` in the `CXCursorAndRangeVisitor`
+and `IndexerCallbacks` structs (to permit nullability and to avoid undefined
+behavior caused by `Default` implementations for these structs which returns a
+zeroed value)
+
+### Added
+- Added support for `clang` 9.0.x
+- Added missing `CXCallingConv_AArch64VectorCall` variant to `CXCallingConv` enum
+- Added missing `clang_CompileCommand_getNumMappedSources` function
+
+## [0.28.1] - 2019-07-28
+
+### Changed
+- Bumped `glob` version to `0.3.0`
+- Improved error message when an invocation of an executable is not successful
+- Allowed `LIBCLANG_PATH` to refer to a specific `libclang` instance (e.g.,
+  `/usr/local/lib/libclang.so.10`)
+
+### Fixed
+- Fixed
+  [`libclang-cpp`](https://github.com/llvm-mirror/clang/commit/90d6722bdcbc2af52306f7e948c556ad6185ac48)
+  being linked instead of `libclang`
+
+## [0.28.0] - 2019-02-17
+
+### Changed
+- Changed `llvm-config` to be first search candidate on macOS
+
+### Added
+- Added support for `clang` 8.0.x
+
+### Removed
+- Removed `assert-minimum` feature
+- Removed version detection for libraries without versions embedded in the filename
+
+## [0.27.0] - 2019-01-10
+
+### Changed
+- Added version detection for libraries without versions embedded in the filename
+
+### Added
+- Added `assert-minimum` feature (see `README.md` for details)
+
+## [0.26.4] - 2018-12-29
+
+### Changed
+- Added shared library path to `SharedLibrary` struct
+
+## [0.26.3] - 2018-11-14
+
+### Changed
+- Disable default features of `libc` dependency
+
+## [0.26.2] - 2018-11-03
+
+### Fixed
+- Fixed dynamic linking on macOS
+
+## [0.26.1] - 2018-10-10
+
+### Fixed
+- Fixed support for finding libraries in `bin` directories on Windows
+
+## [0.26.0] - 2018-10-07
+
+### Changed
+- Added support for finding libraries with version suffixes on Linux when using runtime linking (e.g., `libclang.so.1`)
+
+## [0.25.0] - 2018-10-06
+
+### Changed
+- Added support for versioned libraries on BSDs
+
+## [0.24.0] - 2018-09-15
+
+### Changed
+- Reworked finding of libraries (see `README.md` for details)
+
+### Added
+- Added support for `clang` 7.0.x
+
+## [0.23.0] - 2018-06-16
+
+### Changed
+- Changed `Clang::find` to skip dynamic libraries for an incorrect architecture on Windows
+
 ## [0.22.0] - 2018-03-11
 
 ### Added
@@ -109,7 +280,7 @@
 ## [0.10.1] - 2016-08-21
 
 ### Changed
-- Changed static linking on FreeBSD and OS X to link against `libc++` instead of `libstd++`
+- Changed static linking on FreeBSD and macOS to link against `libc++` instead of `libstd++`
 
 ## [0.10.0] - 2016-08-01
 
@@ -129,7 +300,7 @@
 ### Changed
 - Added `CLANG_PATH` environment variable for providing a path to `clang` executable
 - Added usage of `llvm-config` to search for `clang`
-- Added usage of `xcodebuild` to search for `clang` on OS X
+- Added usage of `xcodebuild` to search for `clang` on macOS
 
 ## [0.8.0] - 2016-07-18
 
@@ -141,9 +312,9 @@
 
 ### Fixed
 - Fixed `LIBCLANG_PATH` usage on Windows to search both the `bin` and `lib` directories
-- Fixed search path parsing on OS X
+- Fixed search path parsing on macOS
 - Fixed search path parsing on Windows
-- Fixed default search path ordering on OS X
+- Fixed default search path ordering on macOS
 
 ## [0.7.2] - 2016-06-17
 
@@ -192,7 +363,7 @@
 ## [0.5.1] - 2016-05-10
 
 ### Fixed
-- Fixed `libclang` linking on OS X
+- Fixed `libclang` linking on macOS
 - Fixed `libclang` linking on Windows
 
 ## [0.5.0] - 2016-05-10

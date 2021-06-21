@@ -18,7 +18,13 @@ use pest::{Parser, Span};
 use ast::{Expr, Rule as AstRule, RuleType};
 use validator;
 
-include!("grammar.rs");
+mod grammar {
+    #![allow(unknown_lints, clippy::all)]
+
+    include!("grammar.rs");
+}
+
+pub use self::grammar::*;
 
 pub fn parse(rule: Rule, data: &str) -> Result<Pairs<Rule>, Error<Rule>> {
     PestParser::parse(rule, data)
@@ -125,13 +131,9 @@ pub enum ParserExpr<'i> {
 }
 
 fn convert_rule(rule: ParserRule) -> AstRule {
-    match rule {
-        ParserRule { name, ty, node, .. } => {
-            let expr = convert_node(node);
-
-            AstRule { name, ty, expr }
-        }
-    }
+    let ParserRule { name, ty, node, .. } = rule;
+    let expr = convert_node(node);
+    AstRule { name, ty, expr }
 }
 
 fn convert_node(node: ParserNode) -> Expr {
@@ -174,9 +176,7 @@ pub fn consume_rules(pairs: Pairs<Rule>) -> Result<Vec<AstRule>, Vec<Error<Rule>
     }
 }
 
-fn consume_rules_with_spans<'i>(
-    pairs: Pairs<'i, Rule>,
-) -> Result<Vec<ParserRule<'i>>, Vec<Error<Rule>>> {
+fn consume_rules_with_spans(pairs: Pairs<Rule>) -> Result<Vec<ParserRule>, Vec<Error<Rule>>> {
     let climber = PrecClimber::new(vec![
         Operator::new(Rule::choice_operator, Assoc::Left),
         Operator::new(Rule::sequence_operator, Assoc::Left),

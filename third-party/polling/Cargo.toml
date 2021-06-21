@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "polling"
-version = "2.0.3"
+version = "2.1.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "Portable interface to epoll, kqueue, event ports, and wepoll"
 homepage = "https://github.com/smol-rs/polling"
@@ -35,8 +35,9 @@ default = ["std"]
 std = []
 [target."cfg(unix)".dependencies.libc]
 version = "0.2.77"
-[target."cfg(windows)".dependencies.wepoll-sys]
-version = "3.0.0"
+[target."cfg(windows)".dependencies.wepoll-ffi]
+version = "0.1.2"
+features = ["null-overlapped-wakeups-patch"]
 
 [target."cfg(windows)".dependencies.winapi]
 version = "0.3.9"

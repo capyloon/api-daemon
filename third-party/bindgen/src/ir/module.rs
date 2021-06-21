@@ -3,9 +3,9 @@
 use super::context::BindgenContext;
 use super::dot::DotAttributes;
 use super::item::ItemSet;
-use clang;
-use parse::{ClangSubItemParser, ParseError, ParseResult};
-use parse_one;
+use crate::clang;
+use crate::parse::{ClangSubItemParser, ParseError, ParseResult};
+use crate::parse_one;
 use std::io;
 
 /// Whether this module is inline or not.
@@ -82,9 +82,9 @@ impl ClangSubItemParser for Module {
             CXCursor_Namespace => {
                 let module_id = ctx.module(cursor);
                 ctx.with_module(module_id, |ctx| {
-                    cursor.visit(
-                        |cursor| parse_one(ctx, cursor, Some(module_id.into())),
-                    )
+                    cursor.visit(|cursor| {
+                        parse_one(ctx, cursor, Some(module_id.into()))
+                    })
                 });
 
                 Ok(ParseResult::AlreadyResolved(module_id.into()))

@@ -19,7 +19,7 @@ pub struct Request {
     headers: HeaderMap,
     body: Option<Body>,
     pub(super) cors: bool,
-    pub(super) credentials: RequestCredentials,
+    pub(super) credentials: Option<RequestCredentials>,
 }
 
 /// A builder to construct the properties of a `Request`.
@@ -38,7 +38,7 @@ impl Request {
             headers: HeaderMap::new(),
             body: None,
             cors: true,
-            credentials: RequestCredentials::SameOrigin,
+            credentials: None,
         }
     }
 
@@ -88,6 +88,21 @@ impl Request {
     #[inline]
     pub fn body_mut(&mut self) -> &mut Option<Body> {
         &mut self.body
+    }
+
+    /// Attempts to clone the `Request`.
+    ///
+    /// None is returned if a body is which can not be cloned. This method
+    /// currently always returns `Some`, but that may change in the future.
+    pub fn try_clone(&self) -> Option<Request> {
+        Some(Self {
+            method: self.method.clone(),
+            url: self.url.clone(),
+            headers: self.headers.clone(),
+            body: self.body.as_ref().map(|body| body.clone()),
+            cors: self.cors,
+            credentials: self.credentials.clone(),
+        })
     }
 }
 
@@ -268,7 +283,7 @@ impl RequestBuilder {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/API/Request/credentials
     pub fn fetch_credentials_same_origin(mut self) -> RequestBuilder {
         if let Ok(ref mut req) = self.request {
-            req.credentials = RequestCredentials::SameOrigin;
+            req.credentials = Some(RequestCredentials::SameOrigin);
         }
         self
     }
@@ -284,7 +299,7 @@ impl RequestBuilder {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/API/Request/credentials
     pub fn fetch_credentials_include(mut self) -> RequestBuilder {
         if let Ok(ref mut req) = self.request {
-            req.credentials = RequestCredentials::Include;
+            req.credentials = Some(RequestCredentials::Include);
         }
         self
     }
@@ -300,7 +315,7 @@ impl RequestBuilder {
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/API/Request/credentials
     pub fn fetch_credentials_omit(mut self) -> RequestBuilder {
         if let Ok(ref mut req) = self.request {
-            req.credentials = RequestCredentials::Omit;
+            req.credentials = Some(RequestCredentials::Omit);
         }
         self
     }
@@ -334,6 +349,36 @@ impl RequestBuilder {
     pub async fn send(self) -> crate::Result<Response> {
         let req = self.request?;
         self.client.execute_request(req).await
+    }
+
+    /// Attempt to clone the RequestBuilder.
+    ///
+    /// `None` is returned if the RequestBuilder can not be cloned. This method
+    /// currently always returns `Some`, but that may change in the future.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use reqwest::Error;
+    /// #
+    /// # fn run() -> Result<(), Error> {
+    /// let client = reqwest::Client::new();
+    /// let builder = client.post("http://httpbin.org/post")
+    ///     .body("from a &str!");
+    /// let clone = builder.try_clone();
+    /// assert!(clone.is_some());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn try_clone(&self) -> Option<RequestBuilder> {
+        self.request
+            .as_ref()
+            .ok()
+            .and_then(|req| req.try_clone())
+            .map(|req| RequestBuilder {
+                client: self.client.clone(),
+                request: Ok(req),
+            })
     }
 }
 
@@ -383,7 +428,7 @@ where
             headers,
             body: Some(body.into()),
             cors: true,
-            credentials: RequestCredentials::SameOrigin,
+            credentials: None,
         })
     }
 }

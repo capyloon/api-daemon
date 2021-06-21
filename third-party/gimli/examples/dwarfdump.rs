@@ -177,7 +177,7 @@ fn add_relocations(
                                 relocation.set_addend(addend as i64);
                             }
                             Err(_) => {
-                                println!(
+                                eprintln!(
                                     "Relocation with invalid symbol for section {} at offset 0x{:08x}",
                                     section.name().unwrap(),
                                     offset
@@ -185,10 +185,10 @@ fn add_relocations(
                             }
                         }
                     }
-                    object::RelocationTarget::Section(_section_idx) => {}
+                    object::RelocationTarget::Section(_) | object::RelocationTarget::Absolute => {}
                 }
                 if relocations.insert(offset, relocation).is_some() {
-                    println!(
+                    eprintln!(
                         "Multiple relocations for section {} at offset 0x{:08x}",
                         section.name().unwrap(),
                         offset
@@ -196,7 +196,7 @@ fn add_relocations(
                 }
             }
             _ => {
-                println!(
+                eprintln!(
                     "Unsupported relocation for section {} at offset 0x{:08x}",
                     section.name().unwrap(),
                     offset
@@ -403,6 +403,7 @@ fn main() {
         "print compilation units whose output matches a regex",
         "REGEX",
     );
+    opts.optopt("", "sup", "path to supplementary object file", "PATH");
 
     let matches = match opts.parse(env::args().skip(1)) {
         Ok(m) => m,
@@ -463,7 +464,34 @@ fn main() {
         match Regex::new(&r) {
             Ok(r) => Some(r),
             Err(e) => {
-                println!("Invalid regular expression {}: {}", r, e);
+                eprintln!("Invalid regular expression {}: {}", r, e);
+                process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
+    let sup_mmap;
+    let sup_file = if let Some(sup_path) = matches.opt_str("sup") {
+        let file = match fs::File::open(&sup_path) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("Failed to open file '{}': {}", sup_path, err);
+                process::exit(1);
+            }
+        };
+        sup_mmap = match unsafe { memmap::Mmap::map(&file) } {
+            Ok(mmap) => mmap,
+            Err(err) => {
+                eprintln!("Failed to map file '{}': {}", sup_path, err);
+                process::exit(1);
+            }
+        };
+        match object::File::parse(&*sup_mmap) {
+            Ok(file) => Some(file),
+            Err(err) => {
+                eprintln!("Failed to parse file '{}': {}", sup_path, err);
                 process::exit(1);
             }
         }
@@ -480,21 +508,21 @@ fn main() {
         let file = match fs::File::open(&file_path) {
             Ok(file) => file,
             Err(err) => {
-                println!("Failed to open file '{}': {}", file_path, err);
+                eprintln!("Failed to open file '{}': {}", file_path, err);
                 continue;
             }
         };
         let file = match unsafe { memmap::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                println!("Failed to map file '{}': {}", file_path, err);
+                eprintln!("Failed to map file '{}': {}", file_path, err);
                 continue;
             }
         };
         let file = match object::File::parse(&*file) {
             Ok(file) => file,
             Err(err) => {
-                println!("Failed to parse file '{}': {}", file_path, err);
+                eprintln!("Failed to parse file '{}': {}", file_path, err);
                 continue;
             }
         };
@@ -504,55 +532,73 @@ fn main() {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let ret = dump_file(&file, endian, &flags);
+        let ret = dump_file(&file, sup_file.as_ref(), endian, &flags);
         match ret {
             Ok(_) => (),
-            Err(err) => println!("Failed to dump '{}': {}", file_path, err,),
+            Err(err) => eprintln!("Failed to dump '{}': {}", file_path, err,),
         }
     }
 }
 
-fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
+fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
+    id: gimli::SectionId,
+    file: &object::File<'input>,
+    endian: Endian,
+    flags: &Flags,
+    arena_data: &'arena Arena<Cow<'input, [u8]>>,
+    arena_relocations: &'arena Arena<RelocationMap>,
+) -> Result<Relocate<'arena, gimli::EndianSlice<'arena, Endian>>> {
+    let mut relocations = RelocationMap::default();
+    let name = flags.section_name(id);
+    let data = match name.and_then(|name| file.section_by_name(&name)) {
+        Some(ref section) => {
+            // DWO sections never have relocations, so don't bother.
+            if !flags.dwo {
+                add_relocations(&mut relocations, file, section);
+            }
+            section.uncompressed_data()?
+        }
+        // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
+        None => Cow::Owned(Vec::with_capacity(1)),
+    };
+    let data_ref = (*arena_data.alloc(data)).borrow();
+    let reader = gimli::EndianSlice::new(data_ref, endian);
+    let section = reader;
+    let relocations = (*arena_relocations.alloc(relocations)).borrow();
+    Ok(Relocate {
+        relocations,
+        section,
+        reader,
+    })
+}
+
+fn dump_file<Endian>(
+    file: &object::File,
+    sup_file: Option<&object::File>,
+    endian: Endian,
+    flags: &Flags,
+) -> Result<()>
 where
     Endian: gimli::Endianity + Send + Sync,
 {
-    let arena = (Arena::new(), Arena::new());
+    let arena_data = Arena::new();
+    let arena_relocations = Arena::new();
 
     let mut load_section = |id: gimli::SectionId| -> Result<_> {
-        let mut relocations = RelocationMap::default();
-        let name = flags.section_name(id);
-        let data = match name.and_then(|name| file.section_by_name(&name)) {
-            Some(ref section) => {
-                // DWO sections never have relocations, so don't bother.
-                if !flags.dwo {
-                    add_relocations(&mut relocations, file, section);
-                }
-                section.uncompressed_data()?
-            }
-            // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
-            None => Cow::Owned(Vec::with_capacity(1)),
-        };
-        let data_ref = (*arena.0.alloc(data)).borrow();
-        let reader = gimli::EndianSlice::new(data_ref, endian);
-        let section = reader;
-        let relocations = (*arena.1.alloc(relocations)).borrow();
-        Ok(Relocate {
-            relocations,
-            section,
-            reader,
-        })
+        load_file_section(id, file, endian, flags, &arena_data, &arena_relocations)
     };
-
-    let no_relocations = (*arena.1.alloc(RelocationMap::default())).borrow();
-    let no_reader = Relocate {
-        relocations: no_relocations,
-        section: Default::default(),
-        reader: Default::default(),
-    };
-
-    let mut dwarf = gimli::Dwarf::load(&mut load_section, |_| Ok(no_reader.clone())).unwrap();
+    let mut dwarf = gimli::Dwarf::load(&mut load_section)?;
     if flags.dwo {
         dwarf.file_type = gimli::DwarfFileType::Dwo;
+    }
+
+    if let Some(sup_file) = sup_file {
+        let mut load_sup_section = |id: gimli::SectionId| -> Result<_> {
+            // Note: we really only need the `.debug_str` section,
+            // but for now we load them all.
+            load_file_section(id, sup_file, endian, flags, &arena_data, &arena_relocations)
+        };
+        dwarf.load_sup(&mut load_sup_section)?;
     }
 
     let out = io::stdout();
@@ -615,7 +661,7 @@ where
     }
     if flags.aranges {
         let debug_aranges = &gimli::Section::load(&mut load_section).unwrap();
-        dump_aranges(w, debug_aranges, &dwarf.debug_info)?;
+        dump_aranges(w, debug_aranges)?;
     }
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(&mut load_section).unwrap();
@@ -1252,7 +1298,14 @@ fn dump_attr_value<R: Reader, W: Write>(
             }
         }
         gimli::AttributeValue::DebugStrRefSup(offset) => {
-            writeln!(w, "<.debug_str(sup)+0x{:08x}>", offset.0)?;
+            if let Some(s) = dwarf
+                .sup()
+                .and_then(|sup| sup.debug_str.get_str(offset).ok())
+            {
+                writeln!(w, "{}", s.to_string_lossy()?)?;
+            } else {
+                writeln!(w, "<.debug_str(sup)+0x{:08x}>", offset.0)?;
+            }
         }
         gimli::AttributeValue::DebugStrOffsetsBase(base) => {
             writeln!(w, "<.debug_str_offsets+0x{:08x}>", base.0)?;
@@ -1383,8 +1436,7 @@ fn dump_exprloc<R: Reader, W: Write>(
     let mut pc = data.0.clone();
     let mut space = false;
     while pc.len() != 0 {
-        let mut op_pc = pc.clone();
-        let dwop = gimli::DwOp(op_pc.read_u8()?);
+        let pc_clone = pc.clone();
         match gimli::Operation::parse(&mut pc, encoding) {
             Ok(op) => {
                 if space {
@@ -1392,7 +1444,7 @@ fn dump_exprloc<R: Reader, W: Write>(
                 } else {
                     space = true;
                 }
-                dump_op(w, encoding, dwop, op)?;
+                dump_op(w, encoding, pc_clone, op)?;
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(w, "WARNING: unsupported operation 0x{:02x}", op.0)?;
@@ -1418,9 +1470,10 @@ fn dump_exprloc<R: Reader, W: Write>(
 fn dump_op<R: Reader, W: Write>(
     w: &mut W,
     encoding: gimli::Encoding,
-    dwop: gimli::DwOp,
+    mut pc: R,
     op: gimli::Operation<R>,
 ) -> Result<()> {
+    let dwop = gimli::DwOp(pc.read_u8()?);
     write!(w, "{}", dwop)?;
     match op {
         gimli::Operation::Deref {
@@ -1552,6 +1605,12 @@ fn dump_op<R: Reader, W: Write>(
         }
         gimli::Operation::Reinterpret { base_type } => {
             write!(w, " type 0x{:08x}", base_type.0)?;
+        }
+        gimli::Operation::WasmLocal { index }
+        | gimli::Operation::WasmGlobal { index }
+        | gimli::Operation::WasmStack { index } => {
+            let wasmop = pc.read_u8()?;
+            write!(w, " 0x{:x} 0x{:x}", wasmop, index)?;
         }
         gimli::Operation::Drop
         | gimli::Operation::Swap
@@ -1985,9 +2044,12 @@ fn dump_line_program<R: Reader, W: Write>(
         let mut rows = program.rows();
         let mut file_index = 0;
         while let Some((header, row)) = rows.next_row()? {
-            let line = row.line().unwrap_or(0);
+            let line = match row.line() {
+                Some(line) => line.get(),
+                None => 0,
+            };
             let column = match row.column() {
-                gimli::ColumnType::Column(column) => column,
+                gimli::ColumnType::Column(column) => column.get(),
                 gimli::ColumnType::LeftEdge => 0,
             };
             write!(w, "0x{:08x}  [{:4},{:2}]", row.address(), line, column)?;
@@ -2108,36 +2170,33 @@ fn dump_pubtypes<R: Reader, W: Write>(
 fn dump_aranges<R: Reader, W: Write>(
     w: &mut W,
     debug_aranges: &gimli::DebugAranges<R>,
-    debug_info: &gimli::DebugInfo<R>,
 ) -> Result<()> {
     writeln!(w, "\n.debug_aranges")?;
 
-    let mut cu_die_offset = gimli::DebugInfoOffset(0);
-    let mut prev_cu_offset = None;
-    let mut aranges = debug_aranges.items();
-    while let Some(arange) = aranges.next()? {
-        let cu_offset = arange.debug_info_offset();
-        if Some(cu_offset) != prev_cu_offset {
-            let cu = debug_info.header_from_offset(cu_offset)?;
-            cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
-            prev_cu_offset = Some(cu_offset);
-        }
-        if let Some(segment) = arange.segment() {
-            write!(
-                w,
-                "arange starts at seg,off 0x{:08x},0x{:08x}, ",
-                segment,
-                arange.address()
-            )?;
-        } else {
-            write!(w, "arange starts at 0x{:08x}, ", arange.address())?;
-        }
+    let mut headers = debug_aranges.headers();
+    while let Some(header) = headers.next()? {
         writeln!(
             w,
-            "length of 0x{:08x}, cu_die_offset = 0x{:08x}",
-            arange.length(),
-            cu_die_offset.0
+            "Address Range Header: length = 0x{:08x}, version = 0x{:04x}, cu_offset = 0x{:08x}, addr_size = 0x{:02x}, seg_size = 0x{:02x}",
+            header.length(),
+            header.encoding().version,
+            header.debug_info_offset().0,
+            header.encoding().address_size,
+            header.segment_size(),
         )?;
+        let mut aranges = header.entries();
+        while let Some(arange) = aranges.next()? {
+            let range = arange.range();
+            if let Some(segment) = arange.segment() {
+                writeln!(
+                    w,
+                    "[0x{:016x},  0x{:016x}) segment 0x{:x}",
+                    range.begin, range.end, segment
+                )?;
+            } else {
+                writeln!(w, "[0x{:016x},  0x{:016x})", range.begin, range.end)?;
+            }
+        }
     }
     Ok(())
 }

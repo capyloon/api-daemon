@@ -54,7 +54,7 @@ macro_rules! handlebars_helper {
                 _: &'reg $crate::Handlebars<'reg>,
                 _: &'rc $crate::Context,
                 _: &mut $crate::RenderContext<'reg, 'rc>,
-            ) -> Result<Option<$crate::ScopedJson<'reg, 'rc>>, $crate::RenderError> {
+            ) -> Result<$crate::ScopedJson<'reg, 'rc>, $crate::RenderError> {
                 let mut param_idx = 0;
 
                 $(
@@ -97,7 +97,7 @@ macro_rules! handlebars_helper {
                     $(let $kwargs = h.hash().iter().map(|(k, v)| (k.to_owned(), v.value())).collect::<std::collections::BTreeMap<&str, &serde_json::Value>>();)?
 
                 let result = $body;
-                Ok(Some($crate::ScopedJson::Derived($crate::JsonValue::from(result))))
+                Ok($crate::ScopedJson::Derived($crate::JsonValue::from(result)))
             }
         }
     };
@@ -113,62 +113,67 @@ macro_rules! handlebars_helper {
     (@as_json_value $x:ident, Json) => { Some($x) };
 }
 
-/// This macro is defined if the `logging` feature is set.
-///
-/// It ignores all logging calls inside the library.
 #[cfg(feature = "no_logging")]
-#[macro_export]
-macro_rules! debug {
-    (target: $target:expr, $($arg:tt)*) => {};
-    ($($arg:tt)*) => {};
-}
+#[macro_use]
+#[doc(hidden)]
+pub mod logging {
+    /// This macro is defined if the `logging` feature is set.
+    ///
+    /// It ignores all logging calls inside the library.
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! debug {
+        (target: $target:expr, $($arg:tt)*) => {};
+        ($($arg:tt)*) => {};
+    }
 
-/// This macro is defined if the `logging` feature is not set.
-///
-/// It ignores all logging calls inside the library.
-#[cfg(feature = "no_logging")]
-#[macro_export]
-macro_rules! error {
-    (target: $target:expr, $($arg:tt)*) => {};
-    ($($arg:tt)*) => {};
-}
+    /// This macro is defined if the `logging` feature is not set.
+    ///
+    /// It ignores all logging calls inside the library.
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! error {
+        (target: $target:expr, $($arg:tt)*) => {};
+        ($($arg:tt)*) => {};
+    }
 
-/// This macro is defined if the `logging` feature is not set.
-///
-/// It ignores all logging calls inside the library.
-#[cfg(feature = "no_logging")]
-#[macro_export]
-macro_rules! info {
-    (target: $target:expr, $($arg:tt)*) => {};
-    ($($arg:tt)*) => {};
-}
+    /// This macro is defined if the `logging` feature is not set.
+    ///
+    /// It ignores all logging calls inside the library.
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! info {
+        (target: $target:expr, $($arg:tt)*) => {};
+        ($($arg:tt)*) => {};
+    }
 
-/// This macro is defined if the `logging` feature is not set.
-///
-/// It ignores all logging calls inside the library.
-#[cfg(feature = "no_logging")]
-#[macro_export]
-macro_rules! log {
-    (target: $target:expr, $($arg:tt)*) => {};
-    ($($arg:tt)*) => {};
-}
+    /// This macro is defined if the `logging` feature is not set.
+    ///
+    /// It ignores all logging calls inside the library.
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! log {
+        (target: $target:expr, $($arg:tt)*) => {};
+        ($($arg:tt)*) => {};
+    }
 
-/// This macro is defined if the `logging` feature is not set.
-///
-/// It ignores all logging calls inside the library.
-#[cfg(feature = "no_logging")]
-#[macro_export]
-macro_rules! trace {
-    (target: $target:expr, $($arg:tt)*) => {};
-    ($($arg:tt)*) => {};
-}
+    /// This macro is defined if the `logging` feature is not set.
+    ///
+    /// It ignores all logging calls inside the library.
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! trace {
+        (target: $target:expr, $($arg:tt)*) => {};
+        ($($arg:tt)*) => {};
+    }
 
-/// This macro is defined if the `logging` feature is not set.
-///
-/// It ignores all logging calls inside the library.
-#[cfg(feature = "no_logging")]
-#[macro_export]
-macro_rules! warn {
-    (target: $target:expr, $($arg:tt)*) => {};
-    ($($arg:tt)*) => {};
+    /// This macro is defined if the `logging` feature is not set.
+    ///
+    /// It ignores all logging calls inside the library.
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! warn {
+        (target: $target:expr, $($arg:tt)*) => {};
+        ($($arg:tt)*) => {};
+    }
 }

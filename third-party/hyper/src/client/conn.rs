@@ -48,7 +48,7 @@
 
 use std::error::Error as StdError;
 use std::fmt;
-#[cfg(feature = "http2")]
+#[cfg(not(all(feature = "http1", feature = "http2")))]
 use std::marker::PhantomData;
 use std::sync::Arc;
 #[cfg(all(feature = "runtime", feature = "http2"))]
@@ -56,12 +56,15 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::future::{self, Either, FutureExt as _};
-use pin_project::pin_project;
+use httparse::ParserConfig;
+use pin_project_lite::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tower_service::Service;
 
 use super::dispatch;
 use crate::body::HttpBody;
+#[cfg(not(all(feature = "http1", feature = "http2")))]
+use crate::common::Never;
 use crate::common::{
     exec::{BoxSendFuture, Exec},
     task, Future, Pin, Poll,
@@ -73,17 +76,33 @@ use crate::upgrade::Upgraded;
 use crate::{Body, Request, Response};
 
 #[cfg(feature = "http1")]
-type Http1Dispatcher<T, B, R> = proto::dispatch::Dispatcher<proto::dispatch::Client<B>, B, T, R>;
+type Http1Dispatcher<T, B> =
+    proto::dispatch::Dispatcher<proto::dispatch::Client<B>, B, T, proto::h1::ClientTransaction>;
 
-#[pin_project(project = ProtoClientProj)]
-enum ProtoClient<T, B>
-where
-    B: HttpBody,
-{
-    #[cfg(feature = "http1")]
-    H1(#[pin] Http1Dispatcher<T, B, proto::h1::ClientTransaction>),
-    #[cfg(feature = "http2")]
-    H2(#[pin] proto::h2::ClientTask<B>, PhantomData<fn(T)>),
+#[cfg(not(feature = "http1"))]
+type Http1Dispatcher<T, B> = (Never, PhantomData<(T, Pin<Box<B>>)>);
+
+#[cfg(feature = "http2")]
+type Http2ClientTask<B> = proto::h2::ClientTask<B>;
+
+#[cfg(not(feature = "http2"))]
+type Http2ClientTask<B> = (Never, PhantomData<Pin<Box<B>>>);
+
+pin_project! {
+    #[project = ProtoClientProj]
+    enum ProtoClient<T, B>
+    where
+        B: HttpBody,
+    {
+        H1 {
+            #[pin]
+            h1: Http1Dispatcher<T, B>,
+        },
+        H2 {
+            #[pin]
+            h2: Http2ClientTask<B>,
+        },
+    }
 }
 
 /// Returns a handshake future over some IO.
@@ -123,7 +142,9 @@ where
 pub struct Builder {
     pub(super) exec: Exec,
     h09_responses: bool,
+    h1_parser_config: ParserConfig,
     h1_title_case_headers: bool,
+    h1_preserve_header_case: bool,
     h1_read_buf_exact_size: Option<usize>,
     h1_max_buf_size: Option<usize>,
     #[cfg(feature = "http2")]
@@ -402,7 +423,7 @@ where
     pub fn into_parts(self) -> Parts<T> {
         match self.inner.expect("already upgraded") {
             #[cfg(feature = "http1")]
-            ProtoClient::H1(h1) => {
+            ProtoClient::H1 { h1 } => {
                 let (io, read_buf, _) = h1.into_inner();
                 Parts {
                     io,
@@ -410,10 +431,12 @@ where
                     _inner: (),
                 }
             }
-            #[cfg(feature = "http2")]
-            ProtoClient::H2(..) => {
+            ProtoClient::H2 { .. } => {
                 panic!("http2 cannot into_inner");
             }
+
+            #[cfg(not(feature = "http1"))]
+            ProtoClient::H1 { h1 } => match h1.0 {},
         }
     }
 
@@ -431,9 +454,14 @@ where
     pub fn poll_without_shutdown(&mut self, cx: &mut task::Context<'_>) -> Poll<crate::Result<()>> {
         match *self.inner.as_mut().expect("already upgraded") {
             #[cfg(feature = "http1")]
-            ProtoClient::H1(ref mut h1) => h1.poll_without_shutdown(cx),
+            ProtoClient::H1 { ref mut h1 } => h1.poll_without_shutdown(cx),
             #[cfg(feature = "http2")]
-            ProtoClient::H2(ref mut h2, _) => Pin::new(h2).poll(cx).map_ok(|_| ()),
+            ProtoClient::H2 { ref mut h2, .. } => Pin::new(h2).poll(cx).map_ok(|_| ()),
+
+            #[cfg(not(feature = "http1"))]
+            ProtoClient::H1 { ref mut h1 } => match h1.0 {},
+            #[cfg(not(feature = "http2"))]
+            ProtoClient::H2 { ref mut h2, .. } => match h2.0 {},
         }
     }
 
@@ -462,7 +490,7 @@ where
             proto::Dispatched::Shutdown => Poll::Ready(Ok(())),
             #[cfg(feature = "http1")]
             proto::Dispatched::Upgrade(pending) => match self.inner.take() {
-                Some(ProtoClient::H1(h1)) => {
+                Some(ProtoClient::H1 { h1 }) => {
                     let (io, buf, _) = h1.into_inner();
                     pending.fulfill(Upgraded::new(io, buf));
                     Poll::Ready(Ok(()))
@@ -496,7 +524,9 @@ impl Builder {
             exec: Exec::Default,
             h09_responses: false,
             h1_read_buf_exact_size: None,
+            h1_parser_config: Default::default(),
             h1_title_case_headers: false,
+            h1_preserve_header_case: false,
             h1_max_buf_size: None,
             #[cfg(feature = "http2")]
             h2_builder: Default::default(),
@@ -521,8 +551,22 @@ impl Builder {
         self
     }
 
+    pub(crate) fn h1_allow_spaces_after_header_name_in_responses(
+        &mut self,
+        enabled: bool,
+    ) -> &mut Builder {
+        self.h1_parser_config
+            .allow_spaces_after_header_name_in_responses(enabled);
+        self
+    }
+
     pub(super) fn h1_title_case_headers(&mut self, enabled: bool) -> &mut Builder {
         self.h1_title_case_headers = enabled;
+        self
+    }
+
+    pub(crate) fn h1_preserve_header_case(&mut self, enabled: bool) -> &mut Builder {
+        self.h1_preserve_header_case = enabled;
         self
     }
 
@@ -683,6 +727,21 @@ impl Builder {
         self
     }
 
+    /// Sets the maximum number of HTTP2 concurrent locally reset streams.
+    ///
+    /// See the documentation of [`h2::client::Builder::max_concurrent_reset_streams`] for more
+    /// details.
+    ///
+    /// The default value is determined by the `h2` crate.
+    ///
+    /// [`h2::client::Builder::max_concurrent_reset_streams`]: https://docs.rs/h2/client/struct.Builder.html#method.max_concurrent_reset_streams
+    #[cfg(feature = "http2")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+    pub fn http2_max_concurrent_reset_streams(&mut self, max: usize) -> &mut Self {
+        self.h2_builder.max_concurrent_reset_streams = Some(max);
+        self
+    }
+
     /// Constructs a connection with the configured options and IO.
     pub fn handshake<T, B>(
         &self,
@@ -704,8 +763,12 @@ impl Builder {
                 #[cfg(feature = "http1")]
                 Proto::Http1 => {
                     let mut conn = proto::Conn::new(io);
+                    conn.set_h1_parser_config(opts.h1_parser_config);
                     if opts.h1_title_case_headers {
                         conn.set_title_case_headers();
+                    }
+                    if opts.h1_preserve_header_case {
+                        conn.set_preserve_header_case();
                     }
                     if opts.h09_responses {
                         conn.set_h09_responses();
@@ -718,14 +781,14 @@ impl Builder {
                     }
                     let cd = proto::h1::dispatch::Client::new(rx);
                     let dispatch = proto::h1::Dispatcher::new(cd, conn);
-                    ProtoClient::H1(dispatch)
+                    ProtoClient::H1 { h1: dispatch }
                 }
                 #[cfg(feature = "http2")]
                 Proto::Http2 => {
                     let h2 =
                         proto::h2::client::handshake(io, rx, &opts.h2_builder, opts.exec.clone())
                             .await?;
-                    ProtoClient::H2(h2, PhantomData)
+                    ProtoClient::H2 { h2 }
                 }
             };
 
@@ -779,9 +842,14 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
         match self.project() {
             #[cfg(feature = "http1")]
-            ProtoClientProj::H1(c) => c.poll(cx),
+            ProtoClientProj::H1 { h1 } => h1.poll(cx),
             #[cfg(feature = "http2")]
-            ProtoClientProj::H2(c, _) => c.poll(cx),
+            ProtoClientProj::H2 { h2, .. } => h2.poll(cx),
+
+            #[cfg(not(feature = "http1"))]
+            ProtoClientProj::H1 { h1 } => match h1.0 {},
+            #[cfg(not(feature = "http2"))]
+            ProtoClientProj::H2 { h2, .. } => match h2.0 {},
         }
     }
 }

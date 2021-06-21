@@ -28,10 +28,10 @@
 //! ```
 
 use super::context::{BindgenContext, ItemId, TypeId};
-use super::item::{IsOpaque, Item, ItemAncestors, ItemCanonicalPath};
+use super::item::{IsOpaque, Item, ItemAncestors};
 use super::traversal::{EdgeKind, Trace, Tracer};
-use clang;
-use parse::ClangItemParser;
+use crate::clang;
+use crate::parse::ClangItemParser;
 
 /// Template declaration (and such declaration's template parameters) related
 /// methods.
@@ -81,25 +81,25 @@ use parse::ClangItemParser;
 /// +------+----------------------+--------------------------+------------------------+----
 /// |Decl. | self_template_params | num_self_template_params | all_template_parameters| ...
 /// +------+----------------------+--------------------------+------------------------+----
-/// |Foo   | Some([T, U])         | Some(2)                  | Some([T, U])           | ...
-/// |Bar   | Some([V])            | Some(1)                  | Some([T, U, V])        | ...
-/// |Inner | None                 | None                     | Some([T, U])           | ...
-/// |Lol   | Some([W])            | Some(1)                  | Some([T, U, W])        | ...
-/// |Wtf   | Some([X])            | Some(1)                  | Some([T, U, X])        | ...
-/// |Qux   | None                 | None                     | None                   | ...
+/// |Foo   | [T, U]               | 2                        | [T, U]                 | ...
+/// |Bar   | [V]                  | 1                        | [T, U, V]              | ...
+/// |Inner | []                   | 0                        | [T, U]                 | ...
+/// |Lol   | [W]                  | 1                        | [T, U, W]              | ...
+/// |Wtf   | [X]                  | 1                        | [T, U, X]              | ...
+/// |Qux   | []                   | 0                        | []                     | ...
 /// +------+----------------------+--------------------------+------------------------+----
 ///
 /// ----+------+-----+----------------------+
 /// ... |Decl. | ... | used_template_params |
 /// ----+------+-----+----------------------+
-/// ... |Foo   | ... | Some([T, U])         |
-/// ... |Bar   | ... | Some([V])            |
-/// ... |Inner | ... | None                 |
-/// ... |Lol   | ... | Some([T])            |
-/// ... |Wtf   | ... | Some([T])            |
-/// ... |Qux   | ... | None                 |
+/// ... |Foo   | ... | [T, U]               |
+/// ... |Bar   | ... | [V]                  |
+/// ... |Inner | ... | []                   |
+/// ... |Lol   | ... | [T]                  |
+/// ... |Wtf   | ... | [T]                  |
+/// ... |Qux   | ... | []                   |
 /// ----+------+-----+----------------------+
-pub trait TemplateParameters {
+pub trait TemplateParameters: Sized {
     /// Get the set of `ItemId`s that make up this template declaration's free
     /// template parameters.
     ///
@@ -108,18 +108,12 @@ pub trait TemplateParameters {
     /// parameters. Of course, Rust does not allow generic parameters to be
     /// anything but types, so we must treat them as opaque, and avoid
     /// instantiating them.
-    fn self_template_params(&self, ctx: &BindgenContext)
-        -> Option<Vec<TypeId>>;
+    fn self_template_params(&self, ctx: &BindgenContext) -> Vec<TypeId>;
 
     /// Get the number of free template parameters this template declaration
     /// has.
-    ///
-    /// Implementations *may* return `Some` from this method when
-    /// `template_params` returns `None`. This is useful when we only have
-    /// partial information about the template declaration, such as when we are
-    /// in the middle of parsing it.
-    fn num_self_template_params(&self, ctx: &BindgenContext) -> Option<usize> {
-        self.self_template_params(ctx).map(|params| params.len())
+    fn num_self_template_params(&self, ctx: &BindgenContext) -> usize {
+        self.self_template_params(ctx).len()
     }
 
     /// Get the complete set of template parameters that can affect this
@@ -136,30 +130,22 @@ pub trait TemplateParameters {
     /// how we would fully reference such a member type in C++:
     /// `Foo<int,char>::Inner`. `Foo` *must* be instantiated with template
     /// arguments before we can gain access to the `Inner` member type.
-    fn all_template_params(&self, ctx: &BindgenContext) -> Option<Vec<TypeId>>
+    fn all_template_params(&self, ctx: &BindgenContext) -> Vec<TypeId>
     where
         Self: ItemAncestors,
     {
-        let each_self_params: Vec<Vec<_>> = self.ancestors(ctx)
-            .filter_map(|id| id.self_template_params(ctx))
-            .collect();
-        if each_self_params.is_empty() {
-            None
-        } else {
-            Some(
-                each_self_params
-                    .into_iter()
-                    .rev()
-                    .flat_map(|params| params)
-                    .collect(),
-            )
-        }
+        let ancestors: Vec<_> = self.ancestors(ctx).collect();
+        ancestors
+            .into_iter()
+            .rev()
+            .flat_map(|id| id.self_template_params(ctx).into_iter())
+            .collect()
     }
 
     /// Get only the set of template parameters that this item uses. This is a
     /// subset of `all_template_params` and does not necessarily contain any of
     /// `self_template_params`.
-    fn used_template_params(&self, ctx: &BindgenContext) -> Option<Vec<TypeId>>
+    fn used_template_params(&self, ctx: &BindgenContext) -> Vec<TypeId>
     where
         Self: AsRef<ItemId>,
     {
@@ -169,14 +155,11 @@ pub trait TemplateParameters {
         );
 
         let id = *self.as_ref();
-        ctx.resolve_item(id).all_template_params(ctx).map(
-            |all_params| {
-                all_params
-                    .into_iter()
-                    .filter(|p| ctx.uses_template_parameter(id, *p))
-                    .collect()
-            },
-        )
+        ctx.resolve_item(id)
+            .all_template_params(ctx)
+            .into_iter()
+            .filter(|p| ctx.uses_template_parameter(id, *p))
+            .collect()
     }
 }
 
@@ -241,34 +224,33 @@ impl TemplateInstantiation {
     ) -> Option<TemplateInstantiation> {
         use clang_sys::*;
 
-        let template_args = ty.template_args()
-            .map_or(vec![], |args| {
-                match ty.canonical_type().template_args() {
-                    Some(canonical_args) => {
-                        let arg_count = args.len();
-                        args.chain(canonical_args.skip(arg_count))
-                            .filter(|t| t.kind() != CXType_Invalid)
-                            .map(|t| {
-                                Item::from_ty_or_ref(t, t.declaration(), None, ctx)
-                            }).collect()
-                    }
-                    None => {
-                        args.filter(|t| t.kind() != CXType_Invalid)
-                            .map(|t| {
-                                Item::from_ty_or_ref(t, t.declaration(), None, ctx)
-                            }).collect()
-                    }
-                }
-            });
+        let template_args = ty.template_args().map_or(vec![], |args| match ty
+            .canonical_type()
+            .template_args()
+        {
+            Some(canonical_args) => {
+                let arg_count = args.len();
+                args.chain(canonical_args.skip(arg_count))
+                    .filter(|t| t.kind() != CXType_Invalid)
+                    .map(|t| {
+                        Item::from_ty_or_ref(t, t.declaration(), None, ctx)
+                    })
+                    .collect()
+            }
+            None => args
+                .filter(|t| t.kind() != CXType_Invalid)
+                .map(|t| Item::from_ty_or_ref(t, t.declaration(), None, ctx))
+                .collect(),
+        });
 
         let declaration = ty.declaration();
-        let definition =
-            if declaration.kind() == CXCursor_TypeAliasTemplateDecl {
-                Some(declaration)
-            } else {
-                declaration.specialized().or_else(|| {
-                    let mut template_ref = None;
-                    ty.declaration().visit(|child| {
+        let definition = if declaration.kind() == CXCursor_TypeAliasTemplateDecl
+        {
+            Some(declaration)
+        } else {
+            declaration.specialized().or_else(|| {
+                let mut template_ref = None;
+                ty.declaration().visit(|child| {
                     if child.kind() == CXCursor_TemplateRef {
                         template_ref = Some(child);
                         return CXVisit_Break;
@@ -281,9 +263,9 @@ impl TemplateInstantiation {
                     CXChildVisit_Recurse
                 });
 
-                    template_ref.and_then(|cur| cur.referenced())
-                })
-            };
+                template_ref.and_then(|cur| cur.referenced())
+            })
+        };
 
         let definition = match definition {
             Some(def) => def,
@@ -291,7 +273,7 @@ impl TemplateInstantiation {
                 if !ty.declaration().is_builtin() {
                     warn!(
                         "Could not find template definition for template \
-                           instantiation"
+                         instantiation"
                     );
                 }
                 return None;
@@ -324,11 +306,13 @@ impl IsOpaque for TemplateInstantiation {
         // correct fix is to make `canonical_{name,path}` include template
         // arguments properly.
 
-        let mut path = item.canonical_path(ctx);
-        let args: Vec<_> = self.template_arguments()
+        let mut path = item.path_for_allowlisting(ctx).clone();
+        let args: Vec<_> = self
+            .template_arguments()
             .iter()
             .map(|arg| {
-                let arg_path = arg.canonical_path(ctx);
+                let arg_path =
+                    ctx.resolve_item(*arg).path_for_allowlisting(ctx);
                 arg_path[1..].join("::")
             })
             .collect();
@@ -350,7 +334,8 @@ impl Trace for TemplateInstantiation {
     where
         T: Tracer,
     {
-        tracer.visit_kind(self.definition.into(), EdgeKind::TemplateDeclaration);
+        tracer
+            .visit_kind(self.definition.into(), EdgeKind::TemplateDeclaration);
         for arg in self.template_arguments() {
             tracer.visit_kind(arg.into(), EdgeKind::TemplateArgument);
         }

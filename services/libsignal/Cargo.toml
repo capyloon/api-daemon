@@ -7,11 +7,11 @@ license = "KaiOS"
 publish = false
 
 [dependencies]
-aes = "0.6"
+aes = "0.7"
 android_utils = { path = "../../support/android-utils" }
-block-cipher = "0.8"
-block-modes = "0.7"
+block-modes = "0.8"
 buf_redux = "0.8"
+cipher = "0.3"
 common = { path = "../../common" }
 hmac = "0.10"
 libsignal-sys = { path = "../../support/libsignal-sys" }

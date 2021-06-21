@@ -1,6 +1,7 @@
 #![allow(
     clippy::missing_safety_doc,
     clippy::unreadable_literal,
+    clippy::upper_case_acronyms,
     dead_code,
     non_camel_case_types,
     non_snake_case,
@@ -45,6 +46,7 @@ pub use ssl::*;
 pub use ssl3::*;
 pub use stack::*;
 pub use tls1::*;
+pub use types::*;
 pub use x509::*;
 pub use x509_vfy::*;
 pub use x509v3::*;
@@ -82,6 +84,7 @@ mod ssl;
 mod ssl3;
 mod stack;
 mod tls1;
+mod types;
 mod x509;
 mod x509_vfy;
 mod x509v3;

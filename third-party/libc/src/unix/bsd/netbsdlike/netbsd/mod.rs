@@ -7,9 +7,11 @@ pub type fsfilcnt_t = u64;
 pub type idtype_t = ::c_int;
 pub type mqd_t = ::c_int;
 type __pthread_spin_t = __cpu_simple_lock_nv_t;
-pub type vm_size_t = ::uintptr_t;
+pub type vm_size_t = ::uintptr_t; // FIXME: deprecated since long time
 pub type lwpid_t = ::c_uint;
 pub type shmatt_t = ::c_uint;
+pub type cpuid_t = u64;
+pub type cpuset_t = _cpuset;
 
 // elf.h
 
@@ -44,6 +46,10 @@ cfg_if! {
 }
 
 impl siginfo_t {
+    pub unsafe fn si_addr(&self) -> *mut ::c_void {
+        self.si_addr
+    }
+
     pub unsafe fn si_value(&self) -> ::sigval {
         #[repr(C)]
         struct siginfo_timer {
@@ -209,7 +215,7 @@ s! {
         pub flags: u32,
         pub fflags: u32,
         pub data: i64,
-        pub udata: ::intptr_t,
+        pub udata: ::intptr_t, /* FIXME: NetBSD 10.0 will finally have same layout as other BSD */
     }
 
     pub struct dqblk {
@@ -403,6 +409,16 @@ s! {
         pub p_align: Elf64_Xword,
     }
 
+    pub struct Aux32Info {
+        pub a_type: Elf32_Word,
+        pub a_v: Elf32_Word,
+    }
+
+    pub struct Aux64Info {
+        pub a_type: Elf64_Word,
+        pub a_v: Elf64_Xword,
+    }
+
     // link.h
 
     pub struct dl_phdr_info {
@@ -414,6 +430,15 @@ s! {
         pub dlpi_subs: ::c_ulonglong,
         pub dlpi_tls_modid: usize,
         pub dlpi_tls_data: *mut ::c_void,
+    }
+
+    pub struct _cpuset {
+        bits: [u32; 0]
+    }
+
+    pub struct accept_filter_arg {
+        pub af_name: [::c_char; 16],
+        af_arg: [[::c_char; 10]; 24],
     }
 }
 
@@ -427,7 +452,7 @@ s_no_extra_traits! {
         pub ut_session: u16,
         pub ut_type: u16,
         pub ut_pid: ::pid_t,
-        pub ut_exit: __exit_status,
+        pub ut_exit: __exit_status, // FIXME: when anonymous struct are supported
         pub ut_ss: sockaddr_storage,
         pub ut_tv: ::timeval,
         pub ut_pad: [u8; _UTX_PADSIZE],
@@ -1190,6 +1215,8 @@ pub const MAP_RENAME: ::c_int = 0x20;
 pub const MAP_NORESERVE: ::c_int = 0x40;
 pub const MAP_HASSEMAPHORE: ::c_int = 0x200;
 pub const MAP_WIRED: ::c_int = 0x800;
+// mremap flag
+pub const MAP_REMAPDUP: ::c_int = 0x004;
 
 pub const DCCP_TYPE_REQUEST: ::c_int = 0;
 pub const DCCP_TYPE_RESPONSE: ::c_int = 1;
@@ -1492,6 +1519,15 @@ pub const NOTE_CHILD: u32 = 0x00000004;
 pub const TMP_MAX: ::c_uint = 308915776;
 
 pub const NI_MAXHOST: ::socklen_t = 1025;
+pub const NI_MAXSERV: ::socklen_t = 32;
+
+pub const NI_NOFQDN: ::c_int = 0x00000001;
+pub const NI_NUMERICHOST: ::c_int = 0x000000002;
+pub const NI_NAMEREQD: ::c_int = 0x000000004;
+pub const NI_NUMERICSERV: ::c_int = 0x000000008;
+pub const NI_DGRAM: ::c_int = 0x00000010;
+pub const NI_WITHSCOPEID: ::c_int = 0x00000020;
+pub const NI_NUMERICSCOPE: ::c_int = 0x00000040;
 
 pub const RTLD_NOLOAD: ::c_int = 0x2000;
 pub const RTLD_LOCAL: ::c_int = 0x200;
@@ -2021,6 +2057,23 @@ extern "C" {
         stackaddr: *mut *mut ::c_void,
         stacksize: *mut ::size_t,
     ) -> ::c_int;
+    pub fn pthread_getaffinity_np(
+        thread: ::pthread_t,
+        size: ::size_t,
+        set: *mut cpuset_t,
+    ) -> ::c_int;
+    pub fn pthread_setaffinity_np(
+        thread: ::pthread_t,
+        size: ::size_t,
+        set: *mut cpuset_t,
+    ) -> ::c_int;
+    pub fn _cpuset_create() -> *mut cpuset_t;
+    pub fn _cpuset_destroy(set: *mut cpuset_t);
+    pub fn _cpuset_clr(cpu: cpuid_t, set: *mut cpuset_t) -> ::c_int;
+    pub fn _cpuset_set(cpu: cpuid_t, set: *mut cpuset_t) -> ::c_int;
+    pub fn _cpuset_isset(cpu: cpuid_t, set: *const cpuset_t) -> ::c_int;
+    pub fn _cpuset_size(set: *const cpuset_t) -> ::size_t;
+    pub fn _cpuset_zero(set: *mut cpuset_t);
     #[link_name = "__sigtimedwait50"]
     pub fn sigtimedwait(
         set: *const sigset_t,
@@ -2036,6 +2089,8 @@ extern "C" {
     pub fn settimeofday(tv: *const ::timeval, tz: *const ::c_void) -> ::c_int;
 
     pub fn dup3(src: ::c_int, dst: ::c_int, flags: ::c_int) -> ::c_int;
+
+    pub fn kqueue1(flags: ::c_int) -> ::c_int;
 
     pub fn sendmmsg(
         sockfd: ::c_int,
@@ -2072,6 +2127,10 @@ extern "C" {
         data: *mut ::c_void,
     ) -> ::c_int;
 
+    // dlfcn.h
+
+    pub fn _dlauxinfo() -> *mut ::c_void;
+
     pub fn iconv_open(tocode: *const ::c_char, fromcode: *const ::c_char) -> iconv_t;
     pub fn iconv(
         cd: iconv_t,
@@ -2081,6 +2140,19 @@ extern "C" {
         outbytesleft: *mut ::size_t,
     ) -> ::size_t;
     pub fn iconv_close(cd: iconv_t) -> ::c_int;
+
+    // Added in `NetBSD` 7.0
+    pub fn explicit_memset(b: *mut ::c_void, c: ::c_int, len: ::size_t);
+    pub fn consttime_memequal(a: *const ::c_void, b: *const ::c_void, len: ::size_t) -> ::c_int;
+
+    pub fn setproctitle(fmt: *const ::c_char, ...);
+    pub fn mremap(
+        oldp: *mut ::c_void,
+        oldsize: ::size_t,
+        newp: *mut ::c_void,
+        newsize: ::size_t,
+        flags: ::c_int,
+    ) -> *mut ::c_void;
 }
 
 #[link(name = "util")]
@@ -2117,6 +2189,20 @@ extern "C" {
     pub fn setutent();
     pub fn endutent();
     pub fn getutent() -> *mut utmp;
+
+    pub fn efopen(p: *const ::c_char, m: *const ::c_char) -> ::FILE;
+    pub fn emalloc(n: ::size_t) -> *mut ::c_void;
+    pub fn ecalloc(n: ::size_t, c: ::size_t) -> *mut ::c_void;
+    pub fn erealloc(p: *mut ::c_void, n: ::size_t) -> *mut ::c_void;
+    pub fn estrdup(s: *const ::c_char) -> *mut ::c_char;
+    pub fn estrndup(s: *const ::c_char, len: ::size_t) -> *mut ::c_char;
+    pub fn estrlcpy(dst: *mut ::c_char, src: *const ::c_char, len: ::size_t) -> ::size_t;
+    pub fn estrlcat(dst: *mut ::c_char, src: *const ::c_char, len: ::size_t) -> ::size_t;
+    pub fn easprintf(string: *mut *mut ::c_char, fmt: *const ::c_char, ...) -> ::c_int;
+    pub fn evasprintf(string: *mut *mut ::c_char, fmt: *const ::c_char, ...) -> ::c_int;
+    pub fn esetfunc(
+        cb: ::Option<unsafe extern "C" fn(::c_int, *const ::c_char, ...)>,
+    ) -> ::Option<unsafe extern "C" fn(::c_int, *const ::c_char, ...)>;
 }
 
 cfg_if! {

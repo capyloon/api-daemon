@@ -1,12 +1,11 @@
 //! Determining which types have destructors
 
-use super::{ConstrainResult, MonotoneFramework, generate_dependencies};
-use ir::context::{BindgenContext, ItemId};
-use ir::traversal::EdgeKind;
-use ir::comp::{CompKind, Field, FieldMethods};
-use ir::ty::TypeKind;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use super::{generate_dependencies, ConstrainResult, MonotoneFramework};
+use crate::ir::comp::{CompKind, Field, FieldMethods};
+use crate::ir::context::{BindgenContext, ItemId};
+use crate::ir::traversal::EdgeKind;
+use crate::ir::ty::TypeKind;
+use crate::{HashMap, HashSet};
 
 /// An analysis that finds for each IR item whether it has a destructor or not
 ///
@@ -73,7 +72,7 @@ impl<'ctx> MonotoneFramework for HasDestructorAnalysis<'ctx> {
     type Output = HashSet<ItemId>;
 
     fn new(ctx: &'ctx BindgenContext) -> Self {
-        let have_destructor = HashSet::new();
+        let have_destructor = HashSet::default();
         let dependencies = generate_dependencies(ctx, Self::consider_edge);
 
         HasDestructorAnalysis {
@@ -84,7 +83,7 @@ impl<'ctx> MonotoneFramework for HasDestructorAnalysis<'ctx> {
     }
 
     fn initial_worklist(&self) -> Vec<ItemId> {
-        self.ctx.whitelisted_items().iter().cloned().collect()
+        self.ctx.allowlisted_items().iter().cloned().collect()
     }
 
     fn constrain(&mut self, id: ItemId) -> ConstrainResult {
@@ -122,14 +121,14 @@ impl<'ctx> MonotoneFramework for HasDestructorAnalysis<'ctx> {
                         let base_or_field_destructor =
                             info.base_members().iter().any(|base| {
                                 self.have_destructor.contains(&base.ty.into())
-                            }) ||
-                            info.fields().iter().any(|field| {
-                                match *field {
-                                    Field::DataMember(ref data) =>
-                                        self.have_destructor.contains(&data.ty().into()),
-                                    Field::Bitfields(_) => false
-                                }
-                            });
+                            }) || info.fields().iter().any(
+                                |field| match *field {
+                                    Field::DataMember(ref data) => self
+                                        .have_destructor
+                                        .contains(&data.ty().into()),
+                                    Field::Bitfields(_) => false,
+                                },
+                            );
                         if base_or_field_destructor {
                             self.insert(id)
                         } else {
@@ -140,9 +139,9 @@ impl<'ctx> MonotoneFramework for HasDestructorAnalysis<'ctx> {
             }
 
             TypeKind::TemplateInstantiation(ref inst) => {
-                let definition_or_arg_destructor =
-                    self.have_destructor.contains(&inst.template_definition().into())
-                    ||
+                let definition_or_arg_destructor = self
+                    .have_destructor
+                    .contains(&inst.template_definition().into()) ||
                     inst.template_arguments().iter().any(|arg| {
                         self.have_destructor.contains(&arg.into())
                     });

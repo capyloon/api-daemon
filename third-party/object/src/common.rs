@@ -1,15 +1,28 @@
 /// A CPU architecture.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Architecture {
     Unknown,
     Aarch64,
     Arm,
+    Avr,
+    Bpf,
     I386,
-    Mips,
-    S390x,
-    Wasm32,
     X86_64,
+    #[allow(non_camel_case_types)]
+    X86_64_X32,
+    Hexagon,
+    Mips,
+    Mips64,
+    Msp430,
+    PowerPc,
+    PowerPc64,
+    Riscv32,
+    Riscv64,
+    S390x,
+    Sparc64,
+    Wasm32,
 }
 
 impl Architecture {
@@ -21,11 +34,22 @@ impl Architecture {
             Architecture::Unknown => None,
             Architecture::Aarch64 => Some(AddressSize::U64),
             Architecture::Arm => Some(AddressSize::U32),
+            Architecture::Avr => Some(AddressSize::U8),
+            Architecture::Bpf => Some(AddressSize::U64),
             Architecture::I386 => Some(AddressSize::U32),
-            Architecture::Mips => Some(AddressSize::U32),
-            Architecture::S390x => Some(AddressSize::U64),
-            Architecture::Wasm32 => Some(AddressSize::U32),
             Architecture::X86_64 => Some(AddressSize::U64),
+            Architecture::X86_64_X32 => Some(AddressSize::U32),
+            Architecture::Hexagon => Some(AddressSize::U32),
+            Architecture::Mips => Some(AddressSize::U32),
+            Architecture::Mips64 => Some(AddressSize::U64),
+            Architecture::Msp430 => Some(AddressSize::U16),
+            Architecture::PowerPc => Some(AddressSize::U32),
+            Architecture::PowerPc64 => Some(AddressSize::U64),
+            Architecture::Riscv32 => Some(AddressSize::U32),
+            Architecture::Riscv64 => Some(AddressSize::U64),
+            Architecture::S390x => Some(AddressSize::U64),
+            Architecture::Sparc64 => Some(AddressSize::U64),
+            Architecture::Wasm32 => Some(AddressSize::U32),
         }
     }
 }
@@ -35,8 +59,11 @@ impl Architecture {
 /// This may differ from the address size supported by the file format (such as for COFF).
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum AddressSize {
+    U8 = 1,
+    U16 = 2,
     U32 = 4,
     U64 = 8,
 }
@@ -52,6 +79,7 @@ impl AddressSize {
 /// A binary file format.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BinaryFormat {
     Coff,
     Elf,
@@ -61,7 +89,8 @@ pub enum BinaryFormat {
 }
 
 /// The kind of a section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SectionKind {
     /// The section kind is unknown.
     Unknown,
@@ -159,7 +188,8 @@ impl SectionKind {
 ///
 /// This determines the way in which the linker resolves multiple definitions of the COMDAT
 /// sections.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ComdatKind {
     /// The selection kind is unknown.
     Unknown,
@@ -190,7 +220,8 @@ pub enum ComdatKind {
 }
 
 /// The kind of a symbol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SymbolKind {
     /// The symbol kind is unknown.
     Unknown,
@@ -211,7 +242,7 @@ pub enum SymbolKind {
 }
 
 /// A symbol scope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolScope {
     /// Unknown scope.
     Unknown,
@@ -238,7 +269,8 @@ pub enum SymbolScope {
 /// * Section - The address of the section containing the symbol.
 ///
 /// 'XxxRelative' means 'Xxx + A - P'.  'XxxOffset' means 'S + A - Xxx'.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum RelocationKind {
     /// S + A
     Absolute,
@@ -277,7 +309,8 @@ pub enum RelocationKind {
 ///
 /// This is usually architecture specific, such as specifying an addressing mode or
 /// a specific instruction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum RelocationEncoding {
     /// Generic encoding.
     Generic,
@@ -303,10 +336,16 @@ pub enum RelocationEncoding {
     ///
     /// The `RelocationKind` must be PC relative.
     S390xDbl,
+
+    /// AArch64 call target.
+    ///
+    /// The `RelocationKind` must be PC relative.
+    AArch64Call,
 }
 
 /// File flags that are specific to each file format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum FileFlags {
     /// No file flags.
     None,
@@ -328,7 +367,8 @@ pub enum FileFlags {
 }
 
 /// Section flags that are specific to each file format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SectionFlags {
     /// No section flags.
     None,
@@ -350,7 +390,8 @@ pub enum SectionFlags {
 }
 
 /// Symbol flags that are specific to each file format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SymbolFlags<Section> {
     /// No symbol flags.
     None,

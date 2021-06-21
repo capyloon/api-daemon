@@ -359,9 +359,6 @@ async fn join_with_select() {
 async fn use_future_in_if_condition() {
     use tokio::time::{self, Duration};
 
-    let sleep = time::sleep(Duration::from_millis(50));
-    tokio::pin!(sleep);
-
     tokio::select! {
         _ = time::sleep(Duration::from_millis(50)), if false => {
             panic!("if condition ignored")
@@ -539,4 +536,14 @@ async fn biased_eventually_ready() {
     }
 
     assert_eq!(count, 3);
+}
+
+// https://github.com/tokio-rs/tokio/issues/3830
+// https://github.com/rust-lang/rust-clippy/issues/7304
+#[warn(clippy::default_numeric_fallback)]
+pub async fn default_numeric_fallback() {
+    tokio::select! {
+        _ = async {} => (),
+        else => (),
+    }
 }

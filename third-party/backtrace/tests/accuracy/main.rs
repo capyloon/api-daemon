@@ -20,8 +20,6 @@ fn doit() {
     // Skip musl which is by default statically linked and doesn't support
     // dynamic libraries.
     !cfg!(target_env = "musl")
-    // Skip MinGW on libbacktrace which doesn't have support for DLLs.
-    && !(cfg!(windows) && cfg!(target_env = "gnu") && cfg!(feature = "libbacktrace"))
     // Skip Miri, since it doesn't support dynamic libraries.
     && !cfg!(miri)
     {
@@ -36,11 +34,13 @@ fn doit() {
         } else {
             dir.push("libdylib_dep.so");
         }
-        let lib = libloading::Library::new(&dir).unwrap();
-        let api = unsafe { lib.get::<extern "C" fn(Pos, fn(Pos, Pos))>(b"foo").unwrap() };
-        api(pos!(), |a, b| {
-            check!(a, b);
-        });
+        unsafe {
+            let lib = libloading::Library::new(&dir).unwrap();
+            let api = lib.get::<extern "C" fn(Pos, fn(Pos, Pos))>(b"foo").unwrap();
+            api(pos!(), |a, b| {
+                check!(a, b);
+            });
+        }
     }
 
     outer(pos!());

@@ -1768,8 +1768,10 @@ pub const SCM_TIMESTAMP: ::c_int = SO_TIMESTAMP;
 pub const SOCK_RAW: ::c_int = 3;
 pub const SOCK_RDM: ::c_int = 4;
 
+pub const IP_TOS: ::c_int = 1;
 pub const IP_TTL: ::c_int = 2;
 pub const IP_HDRINCL: ::c_int = 3;
+pub const IP_RECVTOS: ::c_int = 13;
 pub const IP_FREEBIND: ::c_int = 15;
 pub const IP_TRANSPARENT: ::c_int = 19;
 pub const IP_MULTICAST_IF: ::c_int = 32;
@@ -2717,6 +2719,7 @@ pub const POSIX_MADV_DONTNEED: ::c_int = 4;
 pub const RLIM_INFINITY: ::rlim_t = !0;
 pub const RLIMIT_RTTIME: ::c_int = 15;
 pub const RLIMIT_NLIMITS: ::c_int = 16;
+pub const RLIM_NLIMITS: ::c_int = RLIMIT_NLIMITS;
 
 pub const MAP_ANONYMOUS: ::c_int = MAP_ANON;
 

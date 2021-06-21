@@ -7,8 +7,8 @@ mod target {
     pub fn main() {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-        let mut dst = File::create(Path::new(&out_dir).join("host-target.txt"))
-            .unwrap();
+        let mut dst =
+            File::create(Path::new(&out_dir).join("host-target.txt")).unwrap();
         dst.write_all(env::var("TARGET").unwrap().as_bytes())
             .unwrap();
     }
@@ -24,8 +24,8 @@ mod testgen {
 
     pub fn main() {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-        let mut dst = File::create(Path::new(&out_dir).join("tests.rs"))
-            .unwrap();
+        let mut dst =
+            File::create(Path::new(&out_dir).join("tests.rs")).unwrap();
 
         let manifest_dir =
             PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -56,8 +56,9 @@ mod testgen {
                         dst,
                         "test_header!(header_{}, {:?});",
                         func,
-                        entry.path()
-                    ).unwrap();
+                        entry.path(),
+                    )
+                    .unwrap();
                 }
                 _ => {}
             }
@@ -70,4 +71,12 @@ mod testgen {
 fn main() {
     target::main();
     testgen::main();
+
+    // On behalf of clang_sys, rebuild ourselves if important configuration
+    // variables change, to ensure that bindings get rebuilt if the
+    // underlying libclang changes.
+    println!("cargo:rerun-if-env-changed=LLVM_CONFIG_PATH");
+    println!("cargo:rerun-if-env-changed=LIBCLANG_PATH");
+    println!("cargo:rerun-if-env-changed=LIBCLANG_STATIC_PATH");
+    println!("cargo:rerun-if-env-changed=BINDGEN_EXTRA_CLANG_ARGS");
 }

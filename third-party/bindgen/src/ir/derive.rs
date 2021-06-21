@@ -24,30 +24,12 @@ pub trait CanDeriveDebug {
     fn can_derive_debug(&self, ctx: &BindgenContext) -> bool;
 }
 
-/// A trait that encapsulates the logic for whether or not we can trivially
-/// derive `Debug` without looking at any other types or the results of a fix
-/// point analysis. This is a helper trait for the fix point analysis.
-pub trait CanTriviallyDeriveDebug {
-    /// Return `true` if `Debug` can trivially be derived for this thing,
-    /// `false` otherwise.
-    fn can_trivially_derive_debug(&self) -> bool;
-}
-
 /// A trait that encapsulates the logic for whether or not we can derive `Copy`
 /// for a given thing.
-pub trait CanDeriveCopy<'a> {
+pub trait CanDeriveCopy {
     /// Return `true` if `Copy` can be derived for this thing, `false`
     /// otherwise.
-    fn can_derive_copy(&'a self, ctx: &'a BindgenContext) -> bool;
-}
-
-/// A trait that encapsulates the logic for whether or not we can trivially
-/// derive `Copy` without looking at any other types or results of fix point
-/// analsyses. This is a helper trait for fix point analysis.
-pub trait CanTriviallyDeriveCopy {
-    /// Return `true` if `Copy` can be trivially derived for this thing, `false`
-    /// otherwise.
-    fn can_trivially_derive_copy(&self) -> bool;
+    fn can_derive_copy(&self, ctx: &BindgenContext) -> bool;
 }
 
 /// A trait that encapsulates the logic for whether or not we can derive
@@ -56,15 +38,6 @@ pub trait CanDeriveDefault {
     /// Return `true` if `Default` can be derived for this thing, `false`
     /// otherwise.
     fn can_derive_default(&self, ctx: &BindgenContext) -> bool;
-}
-
-/// A trait that encapsulates the logic for whether or not we can trivially
-/// derive `Default` without looking at any other types or results of fix point
-/// analyses. This is a helper trait for the fix point analysis.
-pub trait CanTriviallyDeriveDefault {
-    /// Return `true` if `Default` can trivially derived for this thing, `false`
-    /// otherwise.
-    fn can_trivially_derive_default(&self) -> bool;
 }
 
 /// A trait that encapsulates the logic for whether or not we can derive `Hash`
@@ -105,72 +78,38 @@ pub trait CanDeriveOrd {
     fn can_derive_ord(&self, ctx: &BindgenContext) -> bool;
 }
 
-/// A trait that encapsulates the logic for whether or not we can derive `Hash`
-/// without looking at any other types or the results of any fix point
-/// analyses. This is a helper trait for the fix point analysis.
-pub trait CanTriviallyDeriveHash {
-    /// Return `true` if `Hash` can trivially be derived for this thing, `false`
-    /// otherwise.
-    fn can_trivially_derive_hash(&self) -> bool;
-}
-
-/// A trait that encapsulates the logic for whether or not we can trivially
-/// derive `PartialEq` or `PartialOrd` without looking at any other types or
-/// results of fix point analyses. This is a helper for the fix point analysis.
-pub trait CanTriviallyDerivePartialEqOrPartialOrd {
-    /// Return `Yes` if `PartialEq` or `PartialOrd` can trivially be derived
-    /// for this thing.
-    fn can_trivially_derive_partialeq_or_partialord(&self) -> CanDerive;
-}
-
 /// Whether it is possible or not to automatically derive trait for an item.
-/// 
+///
 /// ```ignore
 ///         No
 ///          ^
 ///          |
-///    ArrayTooLarge
+///      Manually
 ///          ^
 ///          |
 ///         Yes
 /// ```
-/// 
+///
 /// Initially we assume that we can derive trait for all types and then
 /// update our understanding as we learn more about each type.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CanDerive {
-    /// No, we cannot.
-    No,
+    /// Yes, we can derive automatically.
+    Yes,
 
     /// The only thing that stops us from automatically deriving is that
     /// array with more than maximum number of elements is used.
-    /// 
+    ///
     /// This means we probably can "manually" implement such trait.
-    ArrayTooLarge,
+    Manually,
 
-    /// Yes, we can derive automatically.
-    Yes,
+    /// No, we cannot.
+    No,
 }
 
 impl Default for CanDerive {
     fn default() -> CanDerive {
         CanDerive::Yes
-    }
-}
-
-impl cmp::PartialOrd for CanDerive {
-    fn partial_cmp(&self, rhs: &Self) -> Option<cmp::Ordering> {
-        use self::CanDerive::*;
-
-        let ordering = match (*self, *rhs) {
-            (x, y) if x == y => cmp::Ordering::Equal,
-            (No, _) => cmp::Ordering::Greater,
-            (_, No) => cmp::Ordering::Less,
-            (ArrayTooLarge, _) => cmp::Ordering::Greater,
-            (_, ArrayTooLarge) => cmp::Ordering::Less,
-            _ => unreachable!()
-        };
-        Some(ordering)
     }
 }
 

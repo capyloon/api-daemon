@@ -143,7 +143,9 @@ mod test {
         let s = vec!["{{!-- <hello {{ a-b c-d}} {{d-c}} ok --}}",
                  "{{!--
                     <li><a href=\"{{up-dir nest-count}}{{base-url}}index.html\">{{this.title}}</a></li>
-                --}}"];
+                --}}",
+                     "\r\n     {{!-- yes --}}    \r\n",
+                     "{{!    -- good  --}}"];
         for i in s.iter() {
             assert_rule!(Rule::hbs_comment, i);
         }
@@ -197,7 +199,14 @@ mod test {
 
     #[test]
     fn test_html_expression() {
-        let s = vec!["{{{html}}}", "{{{(html)}}}", "{{{(html)}}}", "{{&html}}"];
+        let s = vec![
+            "{{{html}}}",
+            "{{{(html)}}}",
+            "{{{(html)}}}",
+            "{{&html}}",
+            "{{{html 1}}}",
+            "{{{html p=true}}}",
+        ];
         for i in s.iter() {
             assert_rule!(Rule::html_expression, i);
         }
@@ -217,6 +226,10 @@ mod test {
             "{{#each people as |person|}}",
             "{{#each-obj obj as |val key|}}",
             "{{#each assets}}",
+            "\n{{#each assets}}\n",
+            "\r\n{{#each assets}}\r\n",
+            "\r\n      {{#each assets}}\r\n",
+            "\r\n\t\t{{#each assets}}\r\n",
         ];
         for i in s.iter() {
             assert_rule!(Rule::helper_block_start, i);
@@ -244,6 +257,7 @@ mod test {
             "{{#if}}hello{{else~}}world{{/if}}",
             "{{#if}}hello{{~^~}}world{{/if}}",
             "{{#if}}{{/if}}",
+            "\r\n{{#if}}\r\n\r\n{{/if}}\r\n",
         ];
         for i in s.iter() {
             assert_rule!(Rule::helper_block, i);
@@ -255,6 +269,7 @@ mod test {
         let s = vec![
             "{{{{if hello}}}}good {{hello}}{{{{/if}}}}",
             "{{{{if hello}}}}{{#if nice}}{{/if}}{{{{/if}}}}",
+            "\n{{{{if hello}}}}\n{{#if nice}}{{/if}}{{{{/if}}}}",
         ];
         for i in s.iter() {
             assert_rule!(Rule::raw_block, i);

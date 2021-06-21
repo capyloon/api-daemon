@@ -2,9 +2,11 @@
 
 use super::context::{BindgenContext, ItemId};
 use super::function::FunctionSig;
+use super::item::Item;
 use super::traversal::{Trace, Tracer};
 use super::ty::TypeKind;
-use clang;
+use crate::clang;
+use crate::parse::ClangItemParser;
 use clang_sys::CXChildVisit_Continue;
 use clang_sys::CXCursor_ObjCCategoryDecl;
 use clang_sys::CXCursor_ObjCClassMethodDecl;
@@ -12,7 +14,9 @@ use clang_sys::CXCursor_ObjCClassRef;
 use clang_sys::CXCursor_ObjCInstanceMethodDecl;
 use clang_sys::CXCursor_ObjCProtocolDecl;
 use clang_sys::CXCursor_ObjCProtocolRef;
-use quote;
+use clang_sys::CXCursor_ObjCSuperClassRef;
+use clang_sys::CXCursor_TemplateTypeParameter;
+use proc_macro2::{Ident, Span, TokenStream};
 
 /// Objective C interface as used in TypeKind
 ///
@@ -27,7 +31,14 @@ pub struct ObjCInterface {
 
     is_protocol: bool,
 
-    conforms_to: Vec<ItemId>,
+    /// The list of template names almost always, ObjectType or KeyType
+    pub template_names: Vec<String>,
+
+    /// The list of protocols that this interface conforms to.
+    pub conforms_to: Vec<ItemId>,
+
+    /// The direct parent for this interface.
+    pub parent_class: Option<ItemId>,
 
     /// List of the methods defined in this interfae
     methods: Vec<ObjCMethod>,
@@ -58,6 +69,8 @@ impl ObjCInterface {
             name: name.to_owned(),
             category: None,
             is_protocol: false,
+            template_names: Vec::new(),
+            parent_class: None,
             conforms_to: Vec::new(),
             methods: Vec::new(),
             class_methods: Vec::new(),
@@ -72,22 +85,37 @@ impl ObjCInterface {
 
     /// Formats the name for rust
     /// Can be like NSObject, but with categories might be like NSObject_NSCoderMethods
-    /// and protocols are like protocol_NSObject
+    /// and protocols are like PNSObject
     pub fn rust_name(&self) -> String {
         if let Some(ref cat) = self.category {
             format!("{}_{}", self.name(), cat)
         } else {
             if self.is_protocol {
-                format!("protocol_{}", self.name())
+                format!("P{}", self.name())
             } else {
-                self.name().to_owned()
+                format!("I{}", self.name().to_owned())
             }
         }
+    }
+
+    /// Is this a template interface?
+    pub fn is_template(&self) -> bool {
+        !self.template_names.is_empty()
     }
 
     /// List of the methods defined in this interface
     pub fn methods(&self) -> &Vec<ObjCMethod> {
         &self.methods
+    }
+
+    /// Is this a protocol?
+    pub fn is_protocol(&self) -> bool {
+        self.is_protocol
+    }
+
+    /// Is this a category?
+    pub fn is_category(&self) -> bool {
+        self.category.is_some()
     }
 
     /// List of the class methods defined in this interface
@@ -119,22 +147,21 @@ impl ObjCInterface {
                 }
                 CXCursor_ObjCProtocolRef => {
                     // Gather protocols this interface conforms to
-                    let needle = format!("protocol_{}", c.spelling());
+                    let needle = format!("P{}", c.spelling());
                     let items_map = ctx.items();
                     debug!("Interface {} conforms to {}, find the item", interface.name, needle);
 
                     for (id, item) in items_map
                     {
-                       if let Some(ty) = item.as_type() {
+                        if let Some(ty) = item.as_type() {
                             match *ty.kind() {
                                 TypeKind::ObjCInterface(ref protocol) => {
                                     if protocol.is_protocol
                                     {
                                         debug!("Checking protocol {}, ty.name {:?}", protocol.name, ty.name());
-                                        if Some(needle.as_ref()) == ty.name()
-                                        {
+                                        if Some(needle.as_ref()) == ty.name() {
                                             debug!("Found conforming protocol {:?}", item);
-                                            interface.conforms_to.push(*id);
+                                            interface.conforms_to.push(id);
                                             break;
                                         }
                                     }
@@ -155,6 +182,14 @@ impl ObjCInterface {
                     let method = ObjCMethod::new(&name, signature, is_class_method);
                     interface.add_method(method);
                 }
+                CXCursor_TemplateTypeParameter => {
+                    let name = c.spelling();
+                    interface.template_names.push(name);
+                }
+                CXCursor_ObjCSuperClassRef => {
+                    let item = Item::from_ty_or_ref(c.cur_type(), c, None, ctx);
+                    interface.parent_class = Some(item.into());
+                },
                 _ => {}
             }
             CXChildVisit_Continue
@@ -184,8 +219,8 @@ impl ObjCMethod {
         ObjCMethod {
             name: name.to_owned(),
             rust_name: rust_name.to_owned(),
-            signature: signature,
-            is_class_method: is_class_method,
+            signature,
+            is_class_method,
         }
     }
 
@@ -212,11 +247,17 @@ impl ObjCMethod {
     }
 
     /// Formats the method call
-    pub fn format_method_call(&self, args: &[quote::Tokens]) -> quote::Tokens {
-        let split_name: Vec<_> = self.name
+    pub fn format_method_call(&self, args: &[TokenStream]) -> TokenStream {
+        let split_name: Vec<Option<Ident>> = self
+            .name
             .split(':')
-            .filter(|p| !p.is_empty())
-            .map(quote::Ident::new)
+            .map(|name| {
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(Ident::new(name, Span::call_site()))
+                }
+            })
             .collect();
 
         // No arguments
@@ -228,26 +269,32 @@ impl ObjCMethod {
         }
 
         // Check right amount of arguments
-        if args.len() != split_name.len() {
+        if args.len() != split_name.len() - 1 {
             panic!(
                 "Incorrect method name or arguments for objc method, {:?} vs {:?}",
                 args,
-                split_name
+                split_name,
             );
         }
 
         // Get arguments without type signatures to pass to `msg_send!`
         let mut args_without_types = vec![];
         for arg in args.iter() {
-            let name_and_sig: Vec<&str> = arg.as_str().split(' ').collect();
+            let arg = arg.to_string();
+            let name_and_sig: Vec<&str> = arg.split(' ').collect();
             let name = name_and_sig[0];
-            args_without_types.push(quote::Ident::new(name))
-        };
+            args_without_types.push(Ident::new(name, Span::call_site()))
+        }
 
-        let args = split_name
-            .into_iter()
-            .zip(args_without_types)
-            .map(|(arg, arg_val)| quote! { #arg : #arg_val });
+        let args = split_name.into_iter().zip(args_without_types).map(
+            |(arg, arg_val)| {
+                if let Some(arg) = arg {
+                    quote! { #arg: #arg_val }
+                } else {
+                    quote! { #arg_val: #arg_val }
+                }
+            },
+        );
 
         quote! {
             #( #args )*

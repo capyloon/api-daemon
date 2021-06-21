@@ -3,7 +3,7 @@
 
 use crate::generated::common::DownloadDecryptResult;
 use aes::Aes256;
-use block_cipher::generic_array::{ArrayLength, GenericArray};
+use cipher::generic_array::{ArrayLength, GenericArray};
 use block_modes::block_padding::Padding;
 use block_modes::block_padding::Pkcs7;
 use block_modes::{BlockMode, Cbc};
@@ -131,7 +131,7 @@ where
         BufReader::with_capacity(BUFFER_SIZE, response).set_policy(MinBuffered(CHUNK_SIZE));
 
     // Prepare the AES cbc decryptor.
-    let mut cipher = match Aes256Cbc::new_var(&cipher_key, &iv) {
+    let mut cipher = match Aes256Cbc::new_from_slices(&cipher_key, &iv) {
         Ok(cipher) => cipher,
         Err(err) => {
             error!("Failure in Aes256Cbc::new_var : {}", err);

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "derive_more"
-version = "0.99.13"
+version = "0.99.14"
 authors = ["Jelte Fennema <github-tech@jeltef.nl>"]
 include = ["src/**/*.rs", "Cargo.toml", "LICENSE", "README.md", "CHANGELOG.md", "tests/**/*.rs"]
 autotests = true

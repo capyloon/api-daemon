@@ -367,41 +367,23 @@ Windows.
 */
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(dead_code)]
 
+pub use crate::bstr::BStr;
 #[cfg(feature = "std")]
-extern crate core;
-
-#[cfg(feature = "unicode")]
-#[macro_use]
-extern crate lazy_static;
-extern crate memchr;
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck;
-#[cfg(feature = "unicode")]
-extern crate regex_automata;
-#[cfg(feature = "serde1-nostd")]
-extern crate serde;
-#[cfg(test)]
-extern crate ucd_parse;
-
-pub use bstr::BStr;
-#[cfg(feature = "std")]
-pub use bstring::BString;
-pub use ext_slice::{
+pub use crate::bstring::BString;
+pub use crate::ext_slice::{
     ByteSlice, Bytes, Fields, FieldsWith, Find, FindReverse, Finder,
     FinderReverse, Lines, LinesWithTerminator, Split, SplitN, SplitNReverse,
     SplitReverse, B,
 };
 #[cfg(feature = "std")]
-pub use ext_vec::{concat, join, ByteVec, DrainBytes, FromUtf8Error};
+pub use crate::ext_vec::{concat, join, ByteVec, DrainBytes, FromUtf8Error};
 #[cfg(feature = "unicode")]
-pub use unicode::{
+pub use crate::unicode::{
     GraphemeIndices, Graphemes, SentenceIndices, Sentences, WordIndices,
     Words, WordsWithBreakIndices, WordsWithBreaks,
 };
-pub use utf8::{
+pub use crate::utf8::{
     decode as decode_utf8, decode_last as decode_last_utf8, CharIndices,
     Chars, Utf8Chunk, Utf8Chunks, Utf8Error,
 };
@@ -411,14 +393,12 @@ mod bstr;
 #[cfg(feature = "std")]
 mod bstring;
 mod byteset;
-mod cow;
 mod ext_slice;
 #[cfg(feature = "std")]
 mod ext_vec;
 mod impls;
 #[cfg(feature = "std")]
 pub mod io;
-mod search;
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "unicode")]
@@ -427,9 +407,9 @@ mod utf8;
 
 #[cfg(test)]
 mod apitests {
-    use bstr::BStr;
-    use bstring::BString;
-    use ext_slice::{Finder, FinderReverse};
+    use crate::bstr::BStr;
+    use crate::bstring::BString;
+    use crate::ext_slice::{Finder, FinderReverse};
 
     #[test]
     fn oibits() {
@@ -446,11 +426,11 @@ mod apitests {
         assert_sync::<BString>();
         assert_unwind_safe::<BString>();
 
-        assert_send::<Finder>();
-        assert_sync::<Finder>();
-        assert_unwind_safe::<Finder>();
-        assert_send::<FinderReverse>();
-        assert_sync::<FinderReverse>();
-        assert_unwind_safe::<FinderReverse>();
+        assert_send::<Finder<'_>>();
+        assert_sync::<Finder<'_>>();
+        assert_unwind_safe::<Finder<'_>>();
+        assert_send::<FinderReverse<'_>>();
+        assert_sync::<FinderReverse<'_>>();
+        assert_unwind_safe::<FinderReverse<'_>>();
     }
 }

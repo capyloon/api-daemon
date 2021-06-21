@@ -18,8 +18,9 @@ version = "0.1.0"
 authors = ["Thinker Lee <thinker@codemud.net>"]
 edition = "2018"
 build = "build.rs"
+license = "Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-libloading = { version="0.5" }
+libloading = { version="0.7" }

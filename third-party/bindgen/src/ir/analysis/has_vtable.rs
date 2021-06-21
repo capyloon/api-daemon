@@ -1,46 +1,30 @@
 //! Determining which types has vtable
 
-use super::{ConstrainResult, MonotoneFramework, generate_dependencies};
-use ir::context::{BindgenContext, ItemId};
-use ir::traversal::EdgeKind;
-use ir::ty::TypeKind;
+use super::{generate_dependencies, ConstrainResult, MonotoneFramework};
+use crate::ir::context::{BindgenContext, ItemId};
+use crate::ir::traversal::EdgeKind;
+use crate::ir::ty::TypeKind;
+use crate::{Entry, HashMap};
 use std::cmp;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::ops;
 
 /// The result of the `HasVtableAnalysis` for an individual item.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HasVtableResult {
-    /// The item has a vtable, but the actual vtable pointer is in a base
-    /// member.
-    BaseHasVtable,
+    /// The item does not have a vtable pointer.
+    No,
 
     /// The item has a vtable and the actual vtable pointer is within this item.
     SelfHasVtable,
 
-    /// The item does not have a vtable pointer.
-    No
+    /// The item has a vtable, but the actual vtable pointer is in a base
+    /// member.
+    BaseHasVtable,
 }
 
 impl Default for HasVtableResult {
     fn default() -> Self {
         HasVtableResult::No
-    }
-}
-
-impl cmp::PartialOrd for HasVtableResult {
-    fn partial_cmp(&self, rhs: &Self) -> Option<cmp::Ordering> {
-        use self::HasVtableResult::*;
-
-        match (*self, *rhs) {
-            (x, y) if x == y => Some(cmp::Ordering::Equal),
-            (BaseHasVtable, _) => Some(cmp::Ordering::Greater),
-            (_, BaseHasVtable) => Some(cmp::Ordering::Less),
-            (SelfHasVtable, _) => Some(cmp::Ordering::Greater),
-            (_, SelfHasVtable) => Some(cmp::Ordering::Less),
-            _ => unreachable!(),
-        }
     }
 }
 
@@ -105,7 +89,11 @@ impl<'ctx> HasVtableAnalysis<'ctx> {
         }
     }
 
-    fn insert<Id: Into<ItemId>>(&mut self, id: Id, result: HasVtableResult) -> ConstrainResult {
+    fn insert<Id: Into<ItemId>>(
+        &mut self,
+        id: Id,
+        result: HasVtableResult,
+    ) -> ConstrainResult {
         if let HasVtableResult::No = result {
             return ConstrainResult::Same;
         }
@@ -148,7 +136,7 @@ impl<'ctx> MonotoneFramework for HasVtableAnalysis<'ctx> {
     type Output = HashMap<ItemId, HasVtableResult>;
 
     fn new(ctx: &'ctx BindgenContext) -> HasVtableAnalysis<'ctx> {
-        let have_vtable = HashMap::new();
+        let have_vtable = HashMap::default();
         let dependencies = generate_dependencies(ctx, Self::consider_edge);
 
         HasVtableAnalysis {
@@ -159,7 +147,7 @@ impl<'ctx> MonotoneFramework for HasVtableAnalysis<'ctx> {
     }
 
     fn initial_worklist(&self) -> Vec<ItemId> {
-        self.ctx.whitelisted_items().iter().cloned().collect()
+        self.ctx.allowlisted_items().iter().cloned().collect()
     }
 
     fn constrain(&mut self, id: ItemId) -> ConstrainResult {
@@ -177,7 +165,9 @@ impl<'ctx> MonotoneFramework for HasVtableAnalysis<'ctx> {
             TypeKind::Alias(t) |
             TypeKind::ResolvedTypeRef(t) |
             TypeKind::Reference(t) => {
-                trace!("    aliases and references forward to their inner type");
+                trace!(
+                    "    aliases and references forward to their inner type"
+                );
                 self.forward(t, id)
             }
 
@@ -225,9 +215,10 @@ impl<'ctx> MonotoneFramework for HasVtableAnalysis<'ctx> {
 impl<'ctx> From<HasVtableAnalysis<'ctx>> for HashMap<ItemId, HasVtableResult> {
     fn from(analysis: HasVtableAnalysis<'ctx>) -> Self {
         // We let the lack of an entry mean "No" to save space.
-        extra_assert!(analysis.have_vtable.values().all(|v| {
-            *v != HasVtableResult::No
-        }));
+        extra_assert!(analysis
+            .have_vtable
+            .values()
+            .all(|v| { *v != HasVtableResult::No }));
 
         analysis.have_vtable
     }

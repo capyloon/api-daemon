@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "async-io"
-version = "1.4.0"
+version = "1.4.1"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 description = "Async I/O and timers"
 homepage = "https://github.com/smol-rs/async-io"
@@ -43,12 +43,12 @@ version = "2.0.0"
 [dependencies.polling]
 version = "2.0.0"
 
+[dependencies.slab]
+version = "0.4.2"
+
 [dependencies.socket2]
 version = "0.4.0"
 features = ["all"]
-
-[dependencies.vec-arena]
-version = "1.0.0"
 
 [dependencies.waker-fn]
 version = "1.1.0"

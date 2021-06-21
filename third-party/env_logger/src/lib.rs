@@ -708,7 +708,10 @@ impl Builder {
 
     /// Sets the target for the log output.
     ///
-    /// Env logger can log to either stdout or stderr. The default is stderr.
+    /// Env logger can log to either stdout, stderr or a custom pipe. The default is stderr.
+    ///
+    /// The custom pipe can be used to send the log messages to a custom sink (for example a file).
+    /// Do note that direct writes to a file can become a bottleneck due to IO operation times.
     ///
     /// # Examples
     ///
@@ -1276,5 +1279,21 @@ mod tests {
         );
 
         assert_eq!(Some("from default".to_owned()), env.get_write_style());
+    }
+
+    #[test]
+    fn builder_parse_env_overrides_existing_filters() {
+        env::set_var(
+            "builder_parse_default_env_overrides_existing_filters",
+            "debug",
+        );
+        let env = Env::new().filter("builder_parse_default_env_overrides_existing_filters");
+
+        let mut builder = Builder::new();
+        builder.filter_level(LevelFilter::Trace);
+        // Overrides global level to debug
+        builder.parse_env(env);
+
+        assert_eq!(builder.filter.build().filter(), LevelFilter::Debug);
     }
 }

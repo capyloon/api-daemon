@@ -5,7 +5,7 @@ use std::ptr;
 
 use clang_sys::*;
 
-use libc::{c_char};
+use libc::c_char;
 
 fn parse() {
     unsafe {
@@ -25,15 +25,17 @@ fn parse() {
     }
 }
 
-#[cfg(feature="runtime")]
+#[cfg(feature = "runtime")]
 #[test]
 fn test() {
     load().unwrap();
+    let library = get_library().unwrap();
+    println!("{:?} ({:?})", library.version(), library.path());
     parse();
     unload().unwrap();
 }
 
-#[cfg(not(feature="runtime"))]
+#[cfg(not(feature = "runtime"))]
 #[test]
 fn test() {
     parse();
@@ -42,5 +44,12 @@ fn test() {
 #[test]
 fn test_support() {
     let clang = support::Clang::find(None, &[]).unwrap();
+    println!("{:?}", clang);
+}
+
+#[test]
+fn test_support_target() {
+    let args = &["-target".into(), "x86_64-unknown-linux-gnu".into()];
+    let clang = support::Clang::find(None, args).unwrap();
     println!("{:?}", clang);
 }

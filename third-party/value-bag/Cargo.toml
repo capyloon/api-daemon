@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "value-bag"
-version = "1.0.0-alpha.6"
+version = "1.0.0-alpha.7"
 authors = ["Ashley Mannix <ashleymannix@live.com.au>"]
 build = "build.rs"
 exclude = [".github/*"]
@@ -75,6 +75,9 @@ version = "0.2"
 
 [dev-dependencies.wasm-bindgen-test]
 version = "0.3"
+[build-dependencies.rustc]
+version = "0.9"
+package = "version_check"
 
 [features]
 error = ["std", "sval1_lib/std"]

@@ -11,8 +11,9 @@
 # will likely look very different (and much more reasonable)
 
 [package]
+edition = "2018"
 name = "redox_users"
-version = "0.3.5"
+version = "0.4.0"
 authors = ["Jose Narvaez <goyox86@gmail.com>", "Wesley Hershberger <mggmugginsmc@gmail.com>"]
 description = "A Rust library to access Redox users and groups functionality"
 documentation = "https://docs.rs/redox_users"
@@ -21,10 +22,11 @@ keywords = ["redox", "auth"]
 license = "MIT"
 repository = "https://gitlab.redox-os.org/redox-os/users"
 [dependencies.getrandom]
-version = "0.1"
+version = "0.2"
+features = ["std"]
 
 [dependencies.redox_syscall]
-version = "0.1"
+version = "0.2"
 
 [dependencies.rust-argon2]
 version = "0.8"

@@ -1,20 +1,19 @@
 #[cfg(feature = "alloc")]
 pub use alloc::vec::Vec;
 
-use crate::errors::{BlockModeError, InvalidKeyIvLength};
-use crate::utils::{to_blocks, Block, Key};
+use crate::{
+    errors::{BlockModeError, InvalidKeyIvLength},
+    utils::{to_blocks, Block, Key},
+};
 use block_padding::Padding;
-use cipher::block::{BlockCipher, NewBlockCipher};
-use cipher::generic_array::typenum::Unsigned;
-use cipher::generic_array::{ArrayLength, GenericArray};
+use cipher::{
+    generic_array::{typenum::Unsigned, ArrayLength, GenericArray},
+    BlockCipher, NewBlockCipher,
+};
 
 /// Trait for a block cipher mode of operation that is used to apply a block cipher
 /// operation to input data to transform it into a variable-length output message.
-pub trait BlockMode<C, P>: Sized
-where
-    C: BlockCipher + NewBlockCipher,
-    P: Padding,
-{
+pub trait BlockMode<C: BlockCipher, P: Padding>: Sized {
     /// Initialization Vector size.
     type IvSize: ArrayLength<u8>;
 
@@ -22,19 +21,25 @@ where
     fn new(cipher: C, iv: &GenericArray<u8, Self::IvSize>) -> Self;
 
     /// Create a new block mode instance from fixed sized key and IV.
-    fn new_fix(key: &Key<C>, iv: &GenericArray<u8, Self::IvSize>) -> Self {
+    fn new_fix(key: &Key<C>, iv: &GenericArray<u8, Self::IvSize>) -> Self
+    where
+        C: NewBlockCipher,
+    {
         Self::new(C::new(key), iv)
     }
 
     /// Create a new block mode instance from variable size key and IV.
     ///
     /// Returns an error if key or IV have unsupported length.
-    fn new_var(key: &[u8], iv: &[u8]) -> Result<Self, InvalidKeyIvLength> {
+    fn new_from_slices(key: &[u8], iv: &[u8]) -> Result<Self, InvalidKeyIvLength>
+    where
+        C: NewBlockCipher,
+    {
         if iv.len() != Self::IvSize::USIZE {
             return Err(InvalidKeyIvLength);
         }
         let iv = GenericArray::from_slice(iv);
-        let cipher = C::new_varkey(key).map_err(|_| InvalidKeyIvLength)?;
+        let cipher = C::new_from_slice(key).map_err(|_| InvalidKeyIvLength)?;
         Ok(Self::new(cipher, iv))
     }
 
@@ -102,4 +107,22 @@ where
         buf.truncate(n);
         Ok(buf)
     }
+}
+
+/// Trait for a BlockMode, used to obtain the current state in the form of an IV
+/// that can initialize a BlockMode later and resume the original operation.
+///
+/// The IV value SHOULD be used for resuming operations only and MUST NOT be
+/// exposed to attackers. Failing to comply with this requirement breaks
+/// unpredictability and opens attack venues (see e.g. [1], sec. 3.6.2).
+///
+/// [1]: https://www.cs.umd.edu/~jkatz/imc.html
+pub trait IvState<C, P>: BlockMode<C, P>
+where
+    C: BlockCipher,
+    P: Padding,
+{
+    /// Returns the IV needed to process the following block. This value MUST
+    /// NOT be exposed to attackers.
+    fn iv_state(&self) -> GenericArray<u8, Self::IvSize>;
 }

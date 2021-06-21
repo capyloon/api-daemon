@@ -233,9 +233,7 @@ cfg_if::cfg_if! {
         use soft::compress;
     } else if #[cfg(all(feature = "asm", any(target_arch = "x86", target_arch = "x86_64")))] {
         fn compress(state: &mut [u64; 8], blocks: &[[u8; 128]]) {
-            for block in blocks {
-                sha2_asm::compress512(state, block);
-            }
+            sha2_asm::compress512(state, blocks);
         }
     } else {
         mod soft;
@@ -243,6 +241,11 @@ cfg_if::cfg_if! {
     }
 }
 
+/// Raw SHA-512 compression function.
+///
+/// This is a low-level "hazmat" API which provides direct access to the core
+/// functionality of SHA-512.
+#[cfg_attr(docsrs, doc(cfg(feature = "compress")))]
 pub fn compress512(state: &mut [u64; 8], blocks: &[GenericArray<u8, U128>]) {
     // SAFETY: GenericArray<u8, U128> and [u8; 128] have
     // exactly the same memory layout

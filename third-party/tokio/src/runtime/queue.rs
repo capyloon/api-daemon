@@ -109,7 +109,10 @@ impl<T> Local<T> {
     }
 
     /// Pushes a task to the back of the local queue, skipping the LIFO slot.
-    pub(super) fn push_back(&mut self, mut task: task::Notified<T>, inject: &Inject<T>) {
+    pub(super) fn push_back(&mut self, mut task: task::Notified<T>, inject: &Inject<T>)
+    where
+        T: crate::runtime::task::Schedule,
+    {
         let tail = loop {
             let head = self.inner.head.load(Acquire);
             let (steal, real) = unpack(head);
@@ -121,9 +124,14 @@ impl<T> Local<T> {
                 // There is capacity for the task
                 break tail;
             } else if steal != real {
-                // Concurrently stealing, this will free up capacity, so
-                // only push the new task onto the inject queue
-                inject.push(task);
+                // Concurrently stealing, this will free up capacity, so only
+                // push the new task onto the inject queue
+                //
+                // If the task failes to be pushed on the injection queue, there
+                // is nothing to be done at this point as the task cannot be a
+                // newly spawned task. Shutting down this task is handled by the
+                // worker shutdown process.
+                let _ = inject.push(task);
                 return;
             } else {
                 // Push the current task and half of the queue into the
@@ -504,16 +512,19 @@ impl<T: 'static> Inject<T> {
     }
 
     /// Pushes a value into the queue.
-    pub(super) fn push(&self, task: task::Notified<T>) {
+    ///
+    /// Returns `Err(task)` if pushing fails due to the queue being shutdown.
+    /// The caller is expected to call `shutdown()` on the task **if and only
+    /// if** it is a newly spawned task.
+    pub(super) fn push(&self, task: task::Notified<T>) -> Result<(), task::Notified<T>>
+    where
+        T: crate::runtime::task::Schedule,
+    {
         // Acquire queue lock
         let mut p = self.pointers.lock();
 
         if p.is_closed {
-            // Drop the mutex to avoid a potential deadlock when
-            // re-entering.
-            drop(p);
-            drop(task);
-            return;
+            return Err(task);
         }
 
         // safety: only mutated with the lock held
@@ -532,6 +543,7 @@ impl<T: 'static> Inject<T> {
         p.tail = Some(task);
 
         self.len.store(len + 1, Release);
+        Ok(())
     }
 
     pub(super) fn push_batch(
@@ -617,7 +629,7 @@ fn set_next(header: NonNull<task::Header>, val: Option<NonNull<task::Header>>) {
 /// Split the head value into the real head and the index a stealer is working
 /// on.
 fn unpack(n: u32) -> (u16, u16) {
-    let real = n & u16::max_value() as u32;
+    let real = n & u16::MAX as u32;
     let steal = n >> 16;
 
     (steal as u16, real as u16)
@@ -630,5 +642,5 @@ fn pack(steal: u16, real: u16) -> u32 {
 
 #[test]
 fn test_local_queue_capacity() {
-    assert!(LOCAL_QUEUE_CAPACITY - 1 <= u8::max_value() as usize);
+    assert!(LOCAL_QUEUE_CAPACITY - 1 <= u8::MAX as usize);
 }

@@ -448,8 +448,8 @@ pub const EM_CYPRESS_M8C: u16 = 161;
 pub const EM_R32C: u16 = 162;
 /// NXP Semi. TriMedia
 pub const EM_TRIMEDIA: u16 = 163;
-/// QUALCOMM DSP6
-pub const EM_QDSP6: u16 = 164;
+/// QUALCOMM Hexagon
+pub const EM_HEXAGON: u16 = 164;
 /// Intel 8051 and variants
 pub const EM_8051: u16 = 165;
 /// STMicroelectronics STxP7x
@@ -735,6 +735,8 @@ pub const SHF_COMPRESSED: u32 = 1 << 11;
 pub const SHF_MASKOS: u32 = 0x0ff0_0000;
 /// Processor-specific section flags.
 pub const SHF_MASKPROC: u32 = 0xf000_0000;
+/// This section is excluded from the final executable or shared library.
+pub const SHF_EXCLUDE: u32 = 0x8000_0000;
 
 /// Section compression header.
 ///
@@ -1124,24 +1126,51 @@ pub struct Rela64<E: Endian> {
 }
 
 impl<E: Endian> Rela64<E> {
+    pub(crate) fn get_r_info(&self, endian: E, is_mips64el: bool) -> u64 {
+        let mut t = self.r_info.get(endian);
+        if is_mips64el {
+            t = (t << 32)
+                | ((t >> 8) & 0xff000000)
+                | ((t >> 24) & 0x00ff0000)
+                | ((t >> 40) & 0x0000ff00)
+                | ((t >> 56) & 0x000000ff);
+        }
+        t
+    }
+
     /// Get the `r_sym` component of the `r_info` field.
     #[inline]
-    pub fn r_sym(&self, endian: E) -> u32 {
-        (self.r_info.get(endian) >> 32) as u32
+    pub fn r_sym(&self, endian: E, is_mips64el: bool) -> u32 {
+        (self.get_r_info(endian, is_mips64el) >> 32) as u32
     }
 
     /// Get the `r_type` component of the `r_info` field.
     #[inline]
-    pub fn r_type(&self, endian: E) -> u32 {
-        (self.r_info.get(endian) & 0xffff_ffff) as u32
+    pub fn r_type(&self, endian: E, is_mips64el: bool) -> u32 {
+        (self.get_r_info(endian, is_mips64el) & 0xffff_ffff) as u32
     }
 
     /// Calculate the `r_info` field given the `r_sym` and `r_type` components.
+    // TODO: add is_mips64el parameter
     pub fn r_info(endian: E, r_sym: u32, r_type: u32) -> U64<E> {
         U64::new(endian, (u64::from(r_sym) << 32) | u64::from(r_type))
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn r_info2(endian: E, is_mips64el: bool, r_sym: u32, r_type: u32) -> U64<E> {
+        let mut t = (u64::from(r_sym) << 32) | u64::from(r_type);
+        if is_mips64el {
+            t = (t >> 32)
+                | ((t & 0xff000000) << 8)
+                | ((t & 0x00ff0000) << 24)
+                | ((t & 0x0000ff00) << 40)
+                | ((t & 0x000000ff) << 56);
+        }
+        U64::new(endian, t)
+    }
+
     /// Set the `r_info` field given the `r_sym` and `r_type` components.
+    // TODO: add is_mips64el parameter
     pub fn set_r_info(&mut self, endian: E, r_sym: u32, r_type: u32) {
         self.r_info = Self::r_info(endian, r_sym, r_type);
     }
@@ -4005,6 +4034,25 @@ pub const R_AARCH64_TLS_TPREL: u32 = 1030;
 pub const R_AARCH64_TLSDESC: u32 = 1031;
 /// STT_GNU_IFUNC relocation.
 pub const R_AARCH64_IRELATIVE: u32 = 1032;
+
+// AVR values for `Rel*::r_type`.
+
+/// Direct 32 bit
+pub const R_AVR_32: u32 = 1;
+/// Direct 16 bit
+pub const R_AVR_16: u32 = 4;
+
+// MSP430 values for `Rel*::r_type`.
+
+/// Direct 32 bit
+pub const R_MSP430_32: u32 = 1;
+/// Direct 16 bit
+pub const R_MSP430_16_BYTE: u32 = 5;
+
+// Hexagon values for `Rel*::r_type`.
+
+/// Direct 32 bit
+pub const R_HEX_32: u32 = 6;
 
 // ARM values for `Rel*::r_type`.
 
