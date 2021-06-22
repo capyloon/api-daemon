@@ -154,24 +154,42 @@ static UPGRADE_0_1_SQL: [&str; 1] = [r#"CREATE TABLE IF NOT EXISTS apps (
                                         install_time INTEGER,
                                         update_time INTEGER,
                                         manifest_hash TEXT,
-                                        package_hash TEXT,
-                                        manifest_etag TEXT)"#];
+                                        package_hash TEXT)"#];
+
+static UPGRADE_1_2_SQL: [&str; 1] = [r#"ALTER TABLE apps
+                                        ADD COLUMN manifest_etag TEXT"#];
 
 impl DatabaseUpgrader for AppsSchemaManager {
     fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
-        // We only support version 1 currently.
-        if !(from == 0 && to == 1) {
+        // Support version 2 only.
+        if to != 2 {
             return false;
         }
 
-        for cmd in &UPGRADE_0_1_SQL {
-            if let Err(err) = connection.execute(cmd, NO_PARAMS) {
-                error!("Upgrade step failure: {}", err);
-                return false;
+		let mut current = from;
+
+        macro_rules! execute_commands {
+            ($from:expr, $cmds:expr) => {
+                if current == $from && current < to {
+                    for cmd in $cmds {
+                        if let Err(err) = connection.execute(cmd, NO_PARAMS) {
+                            error!("Upgrade step failure: {}", err);
+                            return false;
+                        }
+                    }
+                    current += 1;
+                }
             }
         }
 
-        true
+        // Upgrade from version 0.
+        execute_commands!(0, &UPGRADE_0_1_SQL);
+
+        // Upgrade from version 1.
+        execute_commands!(1, &UPGRADE_1_2_SQL);
+
+        // At the end, the current version should match the expected one.
+        current == to
     }
 }
 
@@ -210,7 +228,8 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
 
 impl RegistryDb {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let db = SqliteDb::open(path, &mut AppsSchemaManager {}, 1)?;
+        // Open db with version 2.
+        let db = SqliteDb::open(path, &mut AppsSchemaManager {}, 2)?;
 
         if let Err(err) = db.enable_wal() {
             error!("Failed to enable WAL mode on settings db: {}", err);
