@@ -55,8 +55,11 @@ impl AdbDevice {
         };
         let device = host.device_or_default::<String>(None, AndroidStorageInput::Auto)?;
         debug!("Using device {}", device.serial);
-        forward_path_to_port(&device.host, port, uds_path)?;
-        if let Some(path) = backup_path {
+
+        let uds_exist = device.path_exists(Path::new(uds_path), true)?;
+        if uds_exist {
+            forward_path_to_port(&device.host, port, uds_path)?;
+        } else if let Some(path) = backup_path {
             forward_path_to_port(&device.host, port, path)?;
         }
         Ok(Self { device })
