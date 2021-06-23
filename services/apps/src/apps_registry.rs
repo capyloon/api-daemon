@@ -4,6 +4,7 @@
 /// - Exposes high level apis to manipulate the registry.
 use crate::apps_actor;
 use crate::apps_item::AppsItem;
+use crate::apps_request::is_new_version;
 use crate::apps_storage::AppsStorage;
 use crate::config::Config;
 use crate::downloader::DownloadError;
@@ -13,11 +14,13 @@ use crate::registry_db::RegistryDb;
 use crate::service::AppsService;
 use crate::shared_state::AppsSharedData;
 use crate::update_scheduler;
+use android_utils::{AndroidProperties, PropertyGetter};
 use common::traits::{DispatcherId, Shared};
 use common::JsonValue;
 use log::{debug, error, info};
-use serde_json::json;
+use serde_json::{json, Value};
 use settings_service::db::{DbObserver, ObserverType};
+use settings_service::generated::common::SettingInfo;
 use settings_service::service::SettingsService;
 use std::collections::hash_map::DefaultHasher;
 use std::convert::From;
@@ -26,16 +29,13 @@ use std::fs;
 use std::fs::{remove_dir_all, remove_file, File};
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::io::BufReader;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use thiserror::Error;
 use threadpool::ThreadPool;
-use url::Host::Domain;
-use url::{ParseError, Url};
-use zip::ZipArchive;
+use url::ParseError;
 
 #[cfg(test)]
 use crate::apps_storage::validate_package;
@@ -117,41 +117,6 @@ where
     let mut hasher = DefaultHasher::new();
     obj.hash(&mut hasher);
     hasher.finish()
-}
-
-fn read_zip_manifest<P: AsRef<Path>>(
-    zip_file: P,
-    manifest_name: &str,
-) -> Result<Manifest, AppsError> {
-    let file = File::open(zip_file)?;
-    let mut archive = ZipArchive::new(file)?;
-    let manifest = archive.by_name(manifest_name)?;
-    let value: Manifest = serde_json::from_reader(manifest)?;
-    Ok(value)
-}
-
-fn read_webapps<P: AsRef<Path>>(apps_json_file: P) -> Result<Vec<AppsItem>, AppsError> {
-    let file = File::open(apps_json_file)?;
-    let reader = BufReader::new(file);
-    let value: Vec<AppsItem> = serde_json::from_reader(reader)?;
-    Ok(value)
-}
-
-// Loads the manifest for an app from app_dir/application.zip!manifest.webmanifest
-// and fallbacks to app_dir/manifest.webmanifest if needed.
-fn load_manifest(app_dir: &PathBuf) -> Result<Manifest, AppsError> {
-    let zipfile = app_dir.join("application.zip");
-    if let Ok(manifest) = read_zip_manifest(zipfile.as_path(), "manifest.webmanifest") {
-        Ok(manifest)
-    } else if let Ok(manifest) = read_zip_manifest(zipfile.as_path(), "manifest.webapp") {
-        Ok(manifest)
-    } else {
-        let manifest = app_dir.join("manifest.webmanifest");
-        let file = File::open(manifest)?;
-        let reader = BufReader::new(file);
-        let value: Manifest = serde_json::from_reader(reader)?;
-        Ok(value)
-    }
 }
 
 #[derive(Clone)]
@@ -258,64 +223,13 @@ impl AppsRegistry {
         if count == 0 {
             info!("Initializing apps registry from {}", config.root_path);
 
-            let sys_apps = root_dir.join("webapps.json");
-            match read_webapps(sys_apps) {
+            let webapps_json = root_dir.join("webapps.json");
+            match AppsStorage::read_webapps(webapps_json) {
                 Ok(mut apps) => {
                     for app in &mut apps {
-                        let app_name = app.get_name();
-                        let source = root_dir.join(&app_name);
-                        let manifest_url = Url::parse(&app.get_manifest_url()).unwrap();
-                        // The manifest URLs of package apps and PWA apps are different.
-                        //   Package app: https://[app-name].localhost/manifest.webmanifest
-                        //   PWA app: https://cached.localhost/[app-name]/manifest.webmanifest
-                        // Extract the preload PWA app assets to the related dir.
-                        if manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost") {
-                            app.set_manifest_url(&AppsItem::new_pwa_url(&app_name, vhost_port));
-                            let dest = data_dir.join("cached").join(&app_name);
-                            let zip = source.join("application.zip");
-                            let file = match File::open(&zip) {
-                                Ok(file) => file,
-                                Err(err) => {
-                                    error!("Failed to open {}: {}", &zip.display(), err);
-                                    continue;
-                                }
-                            };
-                            let mut archive = match ZipArchive::new(file) {
-                                Ok(archive) => archive,
-                                Err(err) => {
-                                    error!("Failed to read {}: {}", &zip.display(), err);
-                                    continue;
-                                }
-                            };
-                            if let Err(err) = archive.extract(&dest) {
-                                error!("Failed to extract {:?} to {:?} : {}", source, dest, err);
-                            }
-                        } else {
-                            app.set_manifest_url(&AppsItem::new_manifest_url(
-                                &app_name, vhost_port,
-                            ));
-                            let dest = vroot_dir.join(&app_name);
-                            if let Err(err) = symlink(&source, &dest) {
-                                // Don't fail if the symlink already exists.
-                                if err.kind() != std::io::ErrorKind::AlreadyExists {
-                                    error!(
-                                        "Failed to create symlink {:?} -> {:?} : {}",
-                                        source, dest, err
-                                    );
-                                    return Err(err.into());
-                                }
-                            }
+                        if let Ok(app) = AppsStorage::add_app(app, config, vhost_port) {
+                            let _ = db.add(&app)?;
                         }
-                        app.set_preloaded(true);
-                        // Get version from manifest for preloaded apps.
-                        let app_dir = app.get_appdir(&data_dir).unwrap_or_default();
-                        if let Ok(manifest) = load_manifest(&app_dir) {
-                            if !manifest.get_version().is_empty() {
-                                app.set_version(&manifest.get_version());
-                            }
-                        }
-                        // Add the app to the database.
-                        db.add(&app)?;
                     }
                 }
                 Err(err) => {
@@ -624,7 +538,7 @@ impl AppsRegistry {
 
         if let Some(app) = &self.get_by_manifest_url(manifest_url) {
             let app_dir = app.get_appdir(&base_dir).unwrap_or_default();
-            if let Ok(manifest) = load_manifest(&app_dir) {
+            if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
                 if let Some(b2g_features) = manifest.get_b2g_features() {
                     return JsonValue::from(
                         serde_json::to_value(&b2g_features).unwrap_or(json!(null)),
@@ -665,11 +579,6 @@ impl AppsRegistry {
 
     pub fn get_vhost_port(&self) -> u16 {
         self.vhost_port
-    }
-
-    fn apps_list_remove(&mut self, manifest_url: &str) {
-        self.apps_list
-            .retain(|item| item.manifest_url != manifest_url);
     }
 
     fn apps_list_add_or_update(&mut self, app: &AppsObject) {
@@ -728,7 +637,8 @@ impl AppsRegistry {
         }
 
         if self.unregister(&manifest_url) {
-            self.apps_list_remove(manifest_url);
+            self.apps_list
+                .retain(|item| item.manifest_url != manifest_url);
             Ok(manifest_url.to_string())
         } else {
             Err(RegistrationError::ManifestURLNotFound)
@@ -737,7 +647,6 @@ impl AppsRegistry {
 
     pub fn uninstall_app(
         &mut self,
-        app_name: &str,
         manifest_url: &str,
         data_path: &str,
     ) -> Result<String, AppsServiceError> {
@@ -748,25 +657,16 @@ impl AppsRegistry {
         if !app.get_removable() {
             return Err(AppsServiceError::UninstallForbidden);
         }
-        match self.unregister_app(manifest_url) {
-            Ok(manifest_url) => {
-                let path = Path::new(&data_path);
-                let installed_dir = path.join("installed").join(app_name);
-                let webapp_dir = app.get_appdir(&path).unwrap_or_default();
-
-                let _ = remove_dir_all(&webapp_dir);
-                let _ = remove_dir_all(&installed_dir);
-
+        if let Ok(manifest_url) = self.unregister_app(manifest_url) {
+            if AppsStorage::remove_app(&app, data_path).is_ok() {
                 // Relay the request to Gecko using the bridge.
                 let bridge = GeckoBridgeService::shared_state();
                 bridge.lock().apps_service_on_uninstall(app.runtime_url());
-                Ok(manifest_url)
-            }
-            Err(err) => {
-                error!("Unregister app failed: {:?}", err);
-                Err(AppsServiceError::AppNotFound)
+                return Ok(manifest_url);
             }
         }
+        error!("Unregister app failed: {}", manifest_url);
+        Err(AppsServiceError::UninstallError)
     }
 
     // Register an app to the registry
@@ -786,15 +686,21 @@ impl AppsRegistry {
         }
     }
 
-    pub fn register_on_boot(&self, config: &Config) -> Result<(), AppsError> {
+    pub fn register_on_boot(&mut self, config: &Config) -> Result<(), AppsError> {
         let current = env::current_dir().unwrap();
         let base_dir = current.join(&config.data_path);
+
+        // In case of app needes to be add or removed after the system update,
+        // need to wait the gecko bridge to uninstall the local storage and permissions.
+        if let Err(err) = self.check_system_update(config) {
+            error!("Check post system update error: {:?}", err);
+        }
 
         if let Some(db) = &self.db {
             let apps = db.get_all()?;
             for app in &apps {
                 let app_dir = app.get_appdir(&base_dir).unwrap_or_default();
-                if let Ok(manifest) = load_manifest(&app_dir) {
+                if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
                     // Relay the request to Gecko using the bridge.
                     let features = match manifest.get_b2g_features() {
                         Some(b2g_features) => JsonValue::from(
@@ -815,6 +721,126 @@ impl AppsRegistry {
                 .lock()
                 .apps_service_on_boot_done();
         }
+        Ok(())
+    }
+
+    pub fn check_system_update(&mut self, config: &Config) -> Result<(), AppsError> {
+        let current = env::current_dir().unwrap();
+        let root_dir = current.join(config.root_path.clone());
+        let setting_service = SettingsService::shared_state();
+        let build_fingerprint =
+            AndroidProperties::get("ro.system.build.fingerprint", "").unwrap_or_default();
+
+        debug!("apps system update: fingerprint is {}", &build_fingerprint);
+        match setting_service.lock().db.get("system.saved.fingerprint") {
+            Ok(saved_fingerprint) => {
+                if *saved_fingerprint.as_str().unwrap_or("").to_string() == build_fingerprint {
+                    debug!("apps system update: The fingerprint is the same.");
+                    return Ok(());
+                }
+            }
+            Err(err) => {
+                debug!(
+                    "apps system update: Failed to Get saved fingerprint: {:?}",
+                    err
+                );
+            }
+        }
+
+        let webapps_json = root_dir.join("webapps.json");
+        if let Ok(mut sys_apps) = AppsStorage::read_webapps(webapps_json) {
+            if let Some(ref mut db) = &mut self.db {
+                let apps = db.get_all()?;
+                for app in &apps {
+                    let app_name = app.get_name();
+                    debug!("apps system update: check {}", &app_name);
+                    if sys_apps
+                        .iter()
+                        .any(|sys_app| !app.get_preloaded() || sys_app.get_name() == app_name)
+                    {
+                        if !app.get_preloaded() {
+                            continue;
+                        }
+                        // Case 1: if the preloaded app is newer after system update,
+                        let sys_app_dir = root_dir.join(&app_name);
+                        if let Ok(manifest) = AppsStorage::load_manifest(&sys_app_dir) {
+                            if !is_new_version(&app.get_version(), &manifest.get_version()) {
+                                continue;
+                            }
+                            debug!("apps system update: found newer version of {}", &app_name);
+                            let mut new_app = app.clone();
+                            if AppsStorage::remove_app(&app, &config.data_path).is_err() {
+                                error!("apps system update: Failed to remove old app.");
+                            }
+                            if let Ok(app) =
+                                AppsStorage::add_app(&mut new_app, config, self.vhost_port)
+                            {
+                                if let Err(err) = db.add(&app) {
+                                    error!(
+                                        "apps system update: Failed to update new app to db {:?}",
+                                        err
+                                    );
+                                }
+                            }
+                        };
+                        continue;
+                    }
+                    // Case 2: the preloaded app is removed after system update,
+                    // remove it from the db and registry.
+                    if config.allow_remove_preloaded {
+                        debug!(
+                            "apps system update: fremove an old preloaded app {}",
+                            &app_name
+                        );
+                        let _ = db.remove_by_manifest_url(&app.get_manifest_url());
+                        match AppsStorage::remove_app(&app, &config.data_path) {
+                            Ok(_) => {
+                                self.apps_list
+                                    .retain(|item| item.manifest_url != app.get_manifest_url());
+                                // Relay the request to Gecko using the bridge.
+                                let bridge = GeckoBridgeService::shared_state();
+                                bridge
+                                    .lock()
+                                    .apps_service_on_uninstall(app.runtime_origin());
+                            }
+                            Err(err) => {
+                                error!("apps system update: remvoe app failed: {}", err);
+                            }
+                        }
+                    }
+                }
+                // Case 3: there are new preloaded apps after system update,
+                // add it to the db and registry.
+                for sys_app in &mut sys_apps {
+                    let app_name = sys_app.get_name();
+                    if apps.iter().find(|app| app.get_name() == app_name).is_none() {
+                        debug!("apps system update: found new preload app {}", &app_name);
+                        if let Ok(app) = AppsStorage::add_app(sys_app, config, self.vhost_port) {
+                            self.apps_list.push(AppsObject::from(&app));
+                            if let Err(err) = db.add(&app) {
+                                error!(
+                                    "apps system update: Failed to update new app to db {:?}",
+                                    err
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let setting = [SettingInfo {
+            name: "system.saved.fingerprint".into(),
+            value: Value::String(build_fingerprint).into(),
+        }];
+        thread::spawn(move || match setting_service.lock().db.set(&setting) {
+            Ok(_) => debug!("apps system update: Successfully write fingerprint to setting."),
+            Err(err) => error!(
+                "apps system update: Failed to write fingerprint to setting: {:?}",
+                err
+            ),
+        });
+
         Ok(())
     }
 
@@ -940,6 +966,7 @@ fn test_init_apps_from_system() {
     use crate::config;
     use crate::manifest::Icons;
     use config::Config;
+    use url::Url;
 
     let _ = env_logger::try_init();
 
@@ -961,6 +988,7 @@ fn test_init_apps_from_system() {
         cert_type: String::from("production"),
         updater_socket: String::from("updater_socket"),
         user_agent: String::from("user_agent"),
+        allow_remove_preloaded: true,
     };
 
     let registry = match AppsRegistry::initialize(&config, 80) {
@@ -1010,7 +1038,7 @@ fn test_init_apps_from_system() {
     }
 
     let test_json = Path::new(&root_path).join("webapps.json");
-    if let Ok(test_items) = read_webapps(&test_json) {
+    if let Ok(test_items) = AppsStorage::read_webapps(&test_json) {
         for item in &test_items {
             assert!(registry.get_first_by_name(&item.get_name()).is_some());
             assert_eq!(
@@ -1051,6 +1079,7 @@ fn test_register_app() {
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
         user_agent: String::from("user_agent"),
+        allow_remove_preloaded: true,
     };
 
     let vhost_port = 80;
@@ -1201,6 +1230,7 @@ fn test_unregister_app() {
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
         user_agent: String::from("user_agent"),
+        allow_remove_preloaded: true,
     };
 
     let vhost_port = 8081;
@@ -1301,6 +1331,7 @@ fn test_apply_download() {
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
         user_agent: String::from("user_agent"),
+        allow_remove_preloaded: true,
     };
 
     let vhost_port = 80;

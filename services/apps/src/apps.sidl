@@ -47,8 +47,9 @@ enum AppsServiceError {
   PackageCorrupt          // Can't open the downloaded package
   RegistrationError       // Can't register the app webapps json
   ReinstallForbidden      // Do not allow reinstall an existing app
-  UpdateError             // Error durint update
+  UpdateError             // Error during update the app
   UninstallForbidden      // Do not allow to uninstall the app
+  UninstallError          // Error during uninstall the app
   UnknownError            // Other undefined error
 }
 

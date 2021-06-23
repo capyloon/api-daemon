@@ -22,3 +22,4 @@ uds_path = "/data/local/tmp/apps-uds.sock"
 cert_type = "production"
 updater_socket = "/dev/socket/updater_socket"
 user_agent = "Mozilla/5.0 (Mobile; rv:90.0) Gecko/90.0 Firefox/90.0 B2GOS/3.2"
+allow_remove_preloaded = true

@@ -1,0 +1,73 @@
+{
+  "name": "NewGallery",
+  "description": "Gaia Gallery",
+  "type": "certified",
+  "launch_path": "/index.html",
+  "fullscreen": true,
+  "permissions": {
+    "themeable":{},
+    "storage":{},
+    "device-storage:pictures":{ "access": "readwrite" },
+    "feature-detection": {},
+    "settings":{ "access": "readwrite" },
+    "contacts":{ "access": "readwrite" },
+    "softkey":{},
+    "device-storage:sdcard": { "access": "readwrite" },
+    "webapps-manage":{}
+  },
+  "activities": {
+    "browse": {
+      "filters": {
+        "type": "photos"
+       },
+      "disposition": "window"
+    },
+    "pick": {
+      "filters": {
+        "type": ["image/*", "image/jpeg", "image/png"]
+       },
+      "disposition": "inline",
+      "returnValue": true,
+      "href": "/index.html#pick"
+    },
+    "open": {
+      "filters": {
+        "type": ["image/jpeg", "image/png", "image/gif", "image/bmp"]
+       },
+      "disposition": "inline",
+      "returnValue": true,
+      "href": "/open.html"
+    }
+  },
+  "theme_color": "#fc3a75",
+  "locales": {
+    "ar": {
+      "name": "إستديو",
+      "description": "Gaia إستديو"
+    },
+    "en-US": {
+      "name": "Gallery",
+      "description": "Gaia Gallery"
+    },
+    "es-US": {
+      "name": "Galería",
+      "description": "Galería Gaia"
+    },
+    "fr": {
+      "name": "Galerie",
+      "description": "Galerie Gaia"
+    },
+    "zh-TW": {
+      "name": "相簿",
+      "description": "Gaia 相簿"
+    }
+  },
+  "chrome": {
+    "statusbar": "overlap"
+  },
+  "default_locale": "en-US",
+  "icons": {
+    "56": "/style/icons/gallery_56.png",
+    "112": "/style/icons/gallery_112.png"
+  }
+}

@@ -683,6 +683,18 @@ fn compute_manifest_hash<P: AsRef<Path>>(p: P) -> Result<String, AppsError> {
     }
 }
 
+pub fn is_new_version(old_version: &str, new_version: &str) -> bool {
+    if old_version.is_empty() || new_version.is_empty() {
+        return false;
+    }
+    if let (Some(new_version), Some(old_version)) =
+        (Version::from(&new_version), Version::from(&old_version))
+    {
+        return new_version.compare(&old_version) == CompOp::Gt;
+    }
+    false
+}
+
 fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> bool {
     let manifest = match UpdateManifest::read_from(&update_manifest) {
         Ok(manifest) => manifest,
@@ -704,14 +716,8 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
         if hash_str != app.get_manifest_hash() {
             is_update_available = true;
         }
-    }
-
-    if !app_version.is_empty() && !manifest_version.is_empty() {
-        if let Some(manifest_version) = Version::from(&manifest_version) {
-            if let Some(app_version) = Version::from(&app_version) {
-                is_update_available = manifest_version.compare(&app_version) == CompOp::Gt;
-            }
-        }
+    } else {
+        is_update_available = is_new_version(&app_version, &manifest_version);
     }
 
     debug!("compare_version_hash update {}", is_update_available);
@@ -744,6 +750,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
         user_agent: String::from("user_agent"),
+        allow_remove_preloaded: true,
     };
 
     let shared_data = &*APPS_SHARED_SHARED_DATA;

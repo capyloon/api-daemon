@@ -8,4 +8,5 @@ pub struct Config {
     pub cert_type: String,
     pub updater_socket: String,
     pub user_agent: String,
+    pub allow_remove_preloaded: bool,
 }

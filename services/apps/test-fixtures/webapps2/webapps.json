@@ -1,0 +1,47 @@
+[
+  {
+    "name": "apps",
+    "manifest_url": "http://apps.localhost/manifest.webmanifest",
+    "update_url": "http://127.0.0.1:8596/apps/apps/manifest.webmanifest"
+  },
+{
+  "name": "calculator",
+  "manifest_url": "http://calculator.localhost/manifest.webmanifest",
+  "update_url": "http://127.0.0.1:8596/apps/calculator/manifest.webmanifest",
+  "install_time": 1584670494752,
+  "manifest_hash": "c037b78fe4d5b8306d697512856dbcab4c636b35767a7502bf7abfd2cd5b43cd",
+  "package_hash": "1c483add477570866c3a9266eed97bd01ce268a5c5499ade7dc41a13f38dcac5"
+},
+{
+  "name": "system",
+  "manifest_url": "http://system.localhost/manifest.webmanifest",
+  "update_url": "https://store.server/system/manifest.webmanifest",
+  "install_time": 1584670494752,
+  "manifest_hash": "cce24c3687d93c1ee00815d575bf4e6d",
+  "package_hash": "fe16801bcceb73d135fbd4ac297edc2d"
+},
+{
+  "name": "newgallery",
+  "manifest_url": "http://newgallery.localhost/manifest.webmanifest",
+  "removable": true,
+  "install_time": 1584670494752,
+  "manifest_hash": "64a6dc4c342bbf1805f6c324ebc82b09",
+  "package_hash": "bf93bd0348cab5a5df8c135878a00db4"
+},
+{
+  "name": "launcher",
+  "manifest_url": "http://launcher.localhost/manifest.webmanifest",
+  "install_time": 1584670494752,
+  "manifest_hash": "7c6d3e6640e2218e5b1b085c00dd2715",
+  "package_hash": "5f39914539ac9479327b2813751e4b83"
+},
+{
+  "name": "newpreloadpwa",
+  "manifest_url": "http://cached.localhost/newpreloadpwa/manifest.webmanifest",
+  "removable": true,
+  "update_url": "https://newpreloadpwa.domain.url/manifest.webmanifest",
+  "install_time": 1584670494752,
+  "manifest_hash": "64a6dc4c342bbf1805f6c324ebc82b09",
+  "package_hash": "bf93bd0348cab5a5df8c135878a00db4"
+}
+]

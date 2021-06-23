@@ -135,10 +135,9 @@ impl AppMgmtTask for UninstallTask {
         let data_path = shared.config.data_path.clone();
         let current = env::current_dir().unwrap();
         let data_dir = current.join(data_path);
-        if let Err(err) =
-            shared
-                .registry
-                .uninstall_app(&app.name, &app.manifest_url, data_dir.to_str().unwrap())
+        if let Err(err) = shared
+            .registry
+            .uninstall_app(&app.manifest_url, data_dir.to_str().unwrap())
         {
             error!("Unregister app failed: {:?}", err);
             return responder.reject(err);

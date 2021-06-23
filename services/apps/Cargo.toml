@@ -7,6 +7,7 @@ license = "Apache-2.0"
 
 [dependencies]
 actix-rt = "1.0"
+android_utils = { path = "../../support/android-utils" }
 assert-json-diff = "1.1.0"
 common = { path = "../../common" }
 geckobridge = { path = "../geckobridge" }

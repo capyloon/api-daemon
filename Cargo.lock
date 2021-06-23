@@ -418,6 +418,7 @@ name = "apps_service"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
+ "android_utils",
  "assert-json-diff",
  "blake2",
  "common",

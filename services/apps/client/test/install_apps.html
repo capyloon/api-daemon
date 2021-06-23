@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Apps Service Update Tests</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/apps/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="results.js"></script>
+    <script src="common.js"></script>
+
+    <script>
+      async function run_tests() {
+        console.log(`Apps Update Test started!`);
+
+        let tester = await test_service(lib_apps.AppsManager, "apps-client");
+
+        let AppsServiceState = lib_apps.AppsServiceState;
+        let AppsServiceError = lib_apps.AppsServiceError;
+
+	wait_service_state(tester.service, AppsServiceState);
+
+        function sort_result(a, b) {
+          return a.name > b.name;
+        }
+
+        let provider = new TokenProvider(tester.service, tester.session);
+        await tester.service.setTokenProvider(provider);
+
+        // Test install again after update the preload apps from system.
+        let on_installing_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
+        let on_installed_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
+
+	let progress_received_times = 0;
+        let last_progress = 0;
+        function progress(result) {
+            if (result.name == 'ciautotest' && result.progress > 0) {
+                progress_received_times += 1;
+                last_progress = result.progress;
+            }
+        }
+        tester.service.addEventListener(tester.service.APP_INSTALLING_EVENT,  progress);
+
+        await tester.assert_eq(
+          "install app",
+          service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          install_expected(0)
+        );
+        await tester.assert_event_eq("on installing event", on_installing_handler, install_expected(1));
+        on_installing_handler.stop();
+        await tester.assert_event_eq("on installed event", on_installed_handler, install_expected(0));
+
+        // We must receive more than one installing event with progress here
+        await tester.assert_eq(
+          "insalling event with progress",
+          service => { return Promise.resolve() },
+          true,
+          () => { return progress_received_times > 0 && last_progress == 100; }
+        );
+        tester.service.removeEventListener(tester.service.APP_INSTALLING_EVENT,  progress);
+
+        on_installed_handler.stop();
+
+        await tester.assert_eq(
+          "get update manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/ciautotest/update.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(app => app.name);
+          },
+          "CIAutoTest",
+        );
+
+        await tester.assert_eq(
+          "get all 4",
+          service => {
+            return new Promise((resolve, reject) => {
+              service.getAll().then(
+                observed => {
+                  resolve(observed ? observed.sort(sort_result) : null);
+                },
+                err => {
+                  reject(err);
+                }
+              );
+            });
+          },
+          get_all_expected4.sort(sort_result)
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

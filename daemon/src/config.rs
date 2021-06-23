@@ -97,6 +97,7 @@ impl Config {
                 uds_path: "".into(),
                 cert_type: "".into(),
                 user_agent: "".into(),
+                allow_remove_preloaded: false,
             },
         }
     }

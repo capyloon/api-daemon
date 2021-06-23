@@ -166,7 +166,7 @@ impl DatabaseUpgrader for AppsSchemaManager {
             return false;
         }
 
-		let mut current = from;
+        let mut current = from;
 
         macro_rules! execute_commands {
             ($from:expr, $cmds:expr) => {
@@ -179,7 +179,7 @@ impl DatabaseUpgrader for AppsSchemaManager {
                     }
                     current += 1;
                 }
-            }
+            };
         }
 
         // Upgrade from version 0.

@@ -12,6 +12,7 @@
     <script src="http://127.0.0.1:8081/api/v1/apps/service.js"></script>
     <script src="http://127.0.0.1:8081/tests/testing.js"></script>
     <script src="results.js"></script>
+    <script src="common.js"></script>
 
     <script>
       async function run_tests() {
@@ -22,11 +23,7 @@
         let AppsServiceState = lib_apps.AppsServiceState;
         let AppsServiceError = lib_apps.AppsServiceError;
 
-        await tester.assert_eq(
-          "get state",
-          service => service.getState(),
-          AppsServiceState.RUNNING
-        );
+	wait_service_state(tester.service, AppsServiceState);
 
         function sort_result(a, b) {
           return a.name > b.name;
@@ -229,7 +226,8 @@
         console.log(`Test run done!`);
       }
 
-      run_tests();
+      // Wait for the gecko bridge.
+      setTimeout(run_tests, 1000);
     </script>
   </body>
 </html>

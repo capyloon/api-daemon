@@ -384,7 +384,7 @@ pub fn uninstall(
 
     let _ = shared
         .registry
-        .uninstall_app(&app.name, &app.manifest_url, &data_path)
+        .uninstall_app(&app.manifest_url, &data_path)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     shared
@@ -583,6 +583,7 @@ fn test_install_app() {
             cert_type: String::from("test"),
             updater_socket: String::from("updater_socket"),
             user_agent: String::from("user_agent"),
+            allow_remove_preloaded: true,
         };
         {
             let mut shared = shared_data.lock();
@@ -720,6 +721,7 @@ fn test_get_all() {
         cert_type: String::from("test"),
         updater_socket: String::from("updater_socket"),
         user_agent: String::from("user_agent"),
+        allow_remove_preloaded: true,
     };
     {
         let registry = match AppsRegistry::initialize(&config, 8443) {

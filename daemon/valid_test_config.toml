@@ -22,3 +22,4 @@ uds_path = "/tmp/uds_tmp.sock"
 cert_type = "test"
 updater_socket = "/tmp/updater_socket"
 user_agent = "Custom user-agent"
+allow_remove_preloaded = true

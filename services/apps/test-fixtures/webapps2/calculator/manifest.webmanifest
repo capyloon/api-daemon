@@ -1,0 +1,29 @@
+{
+  "name": "Calculator",
+  "description": "Calculator",
+  "launch_path": "/index.html",
+  "b2g_features": {
+    "version": "0.3",
+    "permissions": {
+      "themeable":{}
+     }
+   },
+  "lang": "en-US",
+  "theme_color": "#fbba32",
+  "icons": [
+    {
+      "src": "/style/icons/calculator_56.png",
+      "type": "image/png",
+      "sizes": "56x56"
+    },
+    {
+      "src": "/style/icons/calculator_112.png",
+      "type": "image/png",
+      "sizes": "112x112"
+    }
+  ],
+  "chrome": {
+    "statusbar": "overlap"
+  },
+  "orientation": "default"
+}

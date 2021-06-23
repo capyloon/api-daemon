@@ -23,24 +23,35 @@ cd $CI_PROJECT_DIR/tests/apps-test-server
 
 # Align with config-webdriver.toml
 rm -rf ../webapps
+rm -f $CI_PROJECT_DIR/daemon/settings.*
 rm -f $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
 ln -s $CI_PROJECT_DIR/services/apps/test-fixtures/webapps ../webapps
 ln -s $CI_PROJECT_DIR/services/apps/client $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
 
 $CI_PROJECT_DIR/target/release/apps_test_server &
 
+# Copy v1 of apps to the app server.
 $CI_PROJECT_DIR/tests/apps-test-server/v1.sh
 DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh http://apps.localhost:8081/test/tests.html
 
+# Copy v2 of apps to the app server.
 $CI_PROJECT_DIR/tests/apps-test-server/v2.sh
 DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh http://apps.localhost:8081/test/tests_update_app.html
+
+# Reset the apps with different set of preload apps.
+rm -rf ../webapps
+rm -f $CI_PROJECT_DIR/daemon/settings.*
+rm -f $CI_PROJECT_DIR/services/apps/test-fixtures/webapps2/apps
+ln -s $CI_PROJECT_DIR/services/apps/test-fixtures/webapps2 ../webapps
+ln -s $CI_PROJECT_DIR/services/apps/client $CI_PROJECT_DIR/services/apps/test-fixtures/webapps2/apps
 
 # Set apps to old version on the app server.
 # Expect that no app update is available.
 $CI_PROJECT_DIR/tests/apps-test-server/v1.sh
 DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh \
     http://apps.localhost:8081/test/not_allow_downgrade.html \
-    http://apps.localhost:8081/test/uninstall_apps.html
+    http://apps.localhost:8081/test/uninstall_apps.html \
+    http://apps.localhost:8081/test/install_apps.html
 
 kill_server
 
