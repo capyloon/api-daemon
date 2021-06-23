@@ -34,6 +34,181 @@
           0
         );
 
+        let same_family_name_contacts = [
+          {
+            familyName: "zhang",
+            givenName: "san",
+            name: "zhangsan",
+          },
+          {
+            familyName: "zhang",
+            givenName: "wu",
+            name: "zhangwu",
+          },
+          {
+            familyName: "zhang",
+            givenName: "liu",
+            name: "zhangliu",
+          },
+        ];
+
+        await tester.assert_eq(
+          "add same_family_name_contacts",
+          (service) => service.add(same_family_name_contacts),
+          {}
+        );
+
+        let get_all_sort_by_family_name_desc_cursor =
+          await tester.service.getAll(
+            {
+              sortBy: lib_contacts.SortOption.FAMILY_NAME,
+              sortOrder: lib_contacts.Order.DESCENDING,
+            },
+            20,
+            false
+          );
+
+        let get_all_sort_by_family_name_desc_result =
+          await get_all_sort_by_family_name_desc_cursor.next();
+
+        await tester.assert_eq(
+          "verify getall resut sorting by family name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              get_all_sort_by_family_name_desc_result.forEach(function (
+                contact
+              ) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["zhangwu", "zhangsan", "zhangliu"]
+        );
+
+        get_all_sort_by_family_name_desc_cursor.release();
+
+        let find_sort_by_family_name_asc_cursor = await tester.service.find({
+          sortBy: lib_contacts.SortOption.FAMILY_NAME,
+          sortOrder: lib_contacts.Order.ASCENDING,
+          filterValue: "zhang",
+          filterOption: lib_contacts.FilterOption.EQUALS,
+          filterBy: [lib_contacts.FilterByOption.FAMILY_NAME],
+          onlyMainData: false,
+        });
+
+        let find_sort_by_family_name_asc_result =
+          await find_sort_by_family_name_asc_cursor.next();
+
+        await tester.assert_eq(
+          "verify find result sorting by family name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              find_sort_by_family_name_asc_result.forEach(function (contact) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["zhangliu", "zhangsan", "zhangwu"]
+        );
+
+        find_sort_by_family_name_asc_cursor.release();
+
+        await tester.assert_eq(
+          "clear contacts db",
+          (service) => service.clearContacts(),
+          {}
+        );
+
+        let same_given_name_contacts = [
+          {
+            familyName: "ma",
+            givenName: "jack",
+            name: "jack ma",
+          },
+          {
+            familyName: "huang",
+            givenName: "jack",
+            name: "jack huang",
+          },
+          {
+            familyName: "tang",
+            givenName: "jack",
+            name: "jack tang",
+          },
+        ];
+
+        await tester.assert_eq(
+          "add same_given_name_contacts",
+          (service) => service.add(same_given_name_contacts),
+          {}
+        );
+
+        let get_all_sort_by_given_name_asc_cursor = await tester.service.getAll(
+          {
+            sortBy: lib_contacts.SortOption.GIVEN_NAME,
+            sortOrder: lib_contacts.Order.ASCENDING,
+          },
+          20,
+          false
+        );
+
+        let get_all_sort_by_given_name_asc_result =
+          await get_all_sort_by_given_name_asc_cursor.next();
+
+        await tester.assert_eq(
+          "verify getall result sorting by given name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              get_all_sort_by_given_name_asc_result.forEach(function (contact) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["jack huang", "jack ma", "jack tang"]
+        );
+
+        get_all_sort_by_given_name_asc_cursor.release();
+
+        let find_sort_by_given_name_desc_cursor = await tester.service.find({
+          sortBy: lib_contacts.SortOption.GIVEN_NAME,
+          sortOrder: lib_contacts.Order.DESCENDING,
+          filterValue: "jack",
+          filterOption: lib_contacts.FilterOption.EQUALS,
+          filterBy: [lib_contacts.FilterByOption.GIVEN_NAME],
+          onlyMainData: false,
+        });
+
+        let find_sort_by_given_name_desc_result =
+          await find_sort_by_given_name_desc_cursor.next();
+
+        await tester.assert_eq(
+          "verify find result sorting by given name",
+          (service) => {
+            return new Promise((resolve, reject) => {
+              let names = [];
+              find_sort_by_given_name_desc_result.forEach(function (contact) {
+                names.push(contact.name);
+              });
+              resolve(names);
+            });
+          },
+          ["jack tang", "jack ma", "jack huang"]
+        );
+
+        find_sort_by_given_name_desc_cursor.release();
+
+        await tester.assert_eq(
+          "clear contacts db",
+          (service) => service.clearContacts(),
+          {}
+        );
+
         let contact_none_1 = {
           published: new Date(),
           updated: new Date(),

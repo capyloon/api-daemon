@@ -975,9 +975,22 @@ impl ContactsDb {
                 debug!("field = {}", field);
                 debug!("order = {}", order);
 
+                let order: String = options.sort_order.into();
+                let order_field = match options.sort_by {
+                    SortOption::FamilyName => format!(
+                        "family_name COLLATE NOCASE {}, given_name COLLATE NOCASE {}",
+                        order, order
+                    ),
+                    SortOption::GivenName => format!(
+                        "given_name COLLATE NOCASE {}, family_name COLLATE NOCASE {}",
+                        order, order
+                    ),
+                    SortOption::Name => format!("name COLLATE NOCASE {}", order),
+                };
+
                 let sql = format!(
-                    "SELECT contact_id FROM contact_main ORDER BY {} COLLATE NOCASE {}",
-                    field, order
+                    "SELECT contact_id FROM contact_main ORDER BY {}",
+                    order_field
                 );
                 debug!("get_all sql is {}", sql);
                 let statement = match connection.prepare(&sql) {
@@ -1098,14 +1111,22 @@ impl ContactsDb {
                     params.push(value);
                 }
 
-                let order_filed: String = options.sort_by.into();
+                let order: String = options.sort_order.into();
+                let order_filed = match options.sort_by {
+                    SortOption::FamilyName => format!(
+                        "family_name COLLATE NOCASE {}, given_name COLLATE NOCASE {}",
+                        order, order
+                    ),
+                    SortOption::GivenName => format!(
+                        "given_name COLLATE NOCASE {}, family_name COLLATE NOCASE {}",
+                        order, order
+                    ),
+                    SortOption::Name => format!("name COLLATE NOCASE {}", order),
+                };
 
                 if !order_filed.is_empty() {
                     sql.push_str(" ORDER BY ");
                     sql.push_str(&order_filed);
-                    sql.push_str(&" COLLATE NOCASE ".to_string());
-                    let order: String = options.sort_order.into();
-                    sql.push_str(&order);
                 }
 
                 debug!("find sql is {}", sql);
