@@ -8,8 +8,8 @@ use common::traits::{
 };
 use log::{debug, error};
 
-pub struct SharedObj {
-    cpu_allowed: bool,
+pub struct PowerManagerState {
+    cpu_sleep_allowed: bool,
     screen_enabled: bool,
     ext_screen_enabled: bool,
     factory_reset: FactoryResetReason,
@@ -17,12 +17,56 @@ pub struct SharedObj {
     screen_brightness: i64,
     ext_screen_brightness: i64,
     key_light_brightness: i64,
+    init_done: bool,
 }
 
-impl StateLogger for SharedObj {}
+impl Default for PowerManagerState {
+    fn default() -> Self {
+        Self {
+            cpu_sleep_allowed: true,
+            screen_enabled: true,
+            ext_screen_enabled: true,
+            factory_reset: FactoryResetReason::Normal,
+            key_enabled: true,
+            screen_brightness: 100,
+            ext_screen_brightness: 100,
+            key_light_brightness: 100,
+            init_done: false,
+        }
+    }
+}
+
+impl PowerManagerState {
+    // Set the hardware in sync with the current state.
+    fn init(&mut self, provider: &mut Box<dyn PowerManagerSupport>) {
+        if self.init_done {
+            error!("We should not initialize PowerManagerState more than once!");
+            return;
+        }
+
+        // CPU wakelock
+        provider.set_cpu_sleep_allowed(self.cpu_sleep_allowed);
+
+        // Main screen
+        provider.set_screen_state(self.screen_enabled, 0);
+        provider.set_screen_brightness(self.screen_brightness as _, 0);
+
+        // Secondary screen
+        provider.set_screen_state(self.ext_screen_enabled, 1);
+        provider.set_screen_brightness(self.ext_screen_brightness as _, 1);
+
+        // Key lights.
+        provider.set_key_light_enabled(self.key_enabled);
+        provider.set_key_light_brightness(self.key_light_brightness as _);
+
+        self.init_done = true;
+    }
+}
+
+impl StateLogger for PowerManagerState {}
 
 pub struct PowerManager {
-    shared_obj: Shared<SharedObj>,
+    shared_obj: Shared<PowerManagerState>,
     inner: Box<dyn PowerManagerSupport>,
 }
 
@@ -147,14 +191,14 @@ impl PowermanagerMethods for PowerManager {
     fn get_cpu_sleep_allowed(&mut self, responder: &PowermanagerGetCpuSleepAllowedResponder) {
         debug!("get_cpu_sleep_allowed");
         let shared = self.shared_obj.lock();
-        responder.resolve(shared.cpu_allowed);
+        responder.resolve(shared.cpu_sleep_allowed);
     }
 
     fn set_cpu_sleep_allowed(&mut self, value: bool) {
         debug!("set_cpu_sleep_allowed");
         {
             let mut shared = self.shared_obj.lock();
-            shared.cpu_allowed = value;
+            shared.cpu_sleep_allowed = value;
         }
 
         self.inner.set_cpu_sleep_allowed(value);
@@ -255,19 +299,10 @@ impl PowermanagerMethods for PowerManager {
 
 impl Service<PowerManager> for PowerManager {
     // Shared among instances.
-    type State = SharedObj;
+    type State = PowerManagerState;
 
     fn shared_state() -> Shared<Self::State> {
-        Shared::adopt(SharedObj {
-            cpu_allowed: true,
-            screen_enabled: true,
-            ext_screen_enabled: true,
-            factory_reset: FactoryResetReason::Normal,
-            key_enabled: true,
-            screen_brightness: 100,
-            ext_screen_brightness: 100,
-            key_light_brightness: 100,
-        })
+        Shared::adopt(PowerManagerState::default())
     }
 
     fn create(
@@ -277,10 +312,10 @@ impl Service<PowerManager> for PowerManager {
         _helper: SessionSupport,
     ) -> Result<PowerManager, String> {
         debug!("PowerManager::create");
-        let service = PowerManager {
-            shared_obj,
-            inner: crate::platform::get_platform_support(),
-        };
+        let mut inner = crate::platform::get_platform_support();
+        shared_obj.lock().init(&mut inner);
+
+        let service = PowerManager { shared_obj, inner };
 
         Ok(service)
     }
