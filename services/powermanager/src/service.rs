@@ -51,9 +51,9 @@ impl PowerManagerState {
         provider.set_screen_state(self.screen_enabled, 0);
         provider.set_screen_brightness(self.screen_brightness as _, 0);
 
-        // Secondary screen
-        provider.set_screen_state(self.ext_screen_enabled, 1);
-        provider.set_screen_brightness(self.ext_screen_brightness as _, 1);
+        // TODO, we should prevent control state of secondary screen if
+        // the device doesn't have boot animation file to prevent showing
+        // noise in external screen.
 
         // Key lights.
         provider.set_key_light_enabled(self.key_enabled);
