@@ -27,10 +27,6 @@
         "default": false,
         "method": "android-property"
     },
-    "app.update.custom": {
-        "default": "",
-        "method": "preference"
-    },
     "device.bt": {
         "default": true,
         "method": "preference"
