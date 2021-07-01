@@ -186,7 +186,14 @@ impl DatabaseUpgrader for AppsSchemaManager {
         execute_commands!(0, &UPGRADE_0_1_SQL);
 
         // Upgrade from version 1.
-        execute_commands!(1, &UPGRADE_1_2_SQL);
+        // To be compatible with version 1 that has manifest_etag.
+        if let Ok(stmt) = connection.prepare("SELECT * FROM apps") {
+            if stmt.column_index("manifest_etag").is_err() {
+                execute_commands!(1, &UPGRADE_1_2_SQL);
+            } else {
+                current += 1;
+            }
+        }
 
         // At the end, the current version should match the expected one.
         current == to
