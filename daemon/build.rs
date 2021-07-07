@@ -16,6 +16,10 @@ fn main() {
     let features = features.join(",");
     println!("cargo:rustc-env=VERGEN_CARGO_FEATURES={}", features);
 
+    // Force to rebuild for environment variable change.
+    println!("cargo:rerun-if-env-changed=AWS_ACCESS_KEY_ID");
+    println!("cargo:rerun-if-env-changed=AWS_SECRET_ACCESS_KEY");
+
     // Get the target triple
     println!(
         "cargo:rustc-env=VERGEN_CARGO_TARGET_TRIPLE={}",
