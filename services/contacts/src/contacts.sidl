@@ -142,9 +142,9 @@ dictionary ContactSortOptions {
 }
 
 dictionary ContactFindSortOptions {
-  sortBy: SortOption
+  sortBy: SortOption?
 
-  sortOrder: Order
+  sortOrder: Order?
 
   // e.g. "de", "zh-Hant-TW".
   sortLanguage: str?
@@ -158,7 +158,7 @@ dictionary ContactFindSortOptions {
   filterBy: FilterByOption+
 
   // Only return the main data of a contact or not.
-  onlyMainData: bool
+  onlyMainData: bool?
 }
 
 dictionary BlockedNumberFindOptions {

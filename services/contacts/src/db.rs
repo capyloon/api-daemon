@@ -1013,7 +1013,7 @@ impl ContactsDb {
         debug!("ContactsDb::find {:#?}, batch_size {}", options, batch_size);
         Some(ContactDbCursor::new(
             batch_size,
-            options.only_main_data,
+            options.only_main_data.unwrap_or(false),
             &self.cursors,
             move |connection| {
                 let mut sql = String::from("SELECT contact_id FROM contact_main WHERE ");
@@ -1111,8 +1111,8 @@ impl ContactsDb {
                     params.push(value);
                 }
 
-                let order: String = options.sort_order.into();
-                let order_filed = match options.sort_by {
+                let order: String = options.sort_order.unwrap_or(Order::Ascending).into();
+                let order_field = match options.sort_by.unwrap_or(SortOption::FamilyName) {
                     SortOption::FamilyName => format!(
                         "family_name COLLATE NOCASE {}, given_name COLLATE NOCASE {}",
                         order, order
@@ -1124,9 +1124,9 @@ impl ContactsDb {
                     SortOption::Name => format!("name COLLATE NOCASE {}", order),
                 };
 
-                if !order_filed.is_empty() {
+                if !order_field.is_empty() {
                     sql.push_str(" ORDER BY ");
-                    sql.push_str(&order_filed);
+                    sql.push_str(&order_field);
                 }
 
                 debug!("find sql is {}", sql);

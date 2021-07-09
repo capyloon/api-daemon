@@ -922,12 +922,9 @@
         // Search with International format: +1 0269385485.
         let match_with_international_cursor = await tester.service.find(
           {
-            sortBy: lib_contacts.SortOption.NAME,
-            sortOrder: lib_contacts.Order.ASCENDING,
             filterValue: "+1 0269385485",
             filterOption: lib_contacts.FilterOption.MATCH,
             filterBy: [lib_contacts.FilterByOption.TEL],
-            onlyMainData: false,
           },
           20
         );
