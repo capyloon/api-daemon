@@ -16,8 +16,6 @@ use thiserror::Error;
 pub enum ManifestError {
     #[error("Manifest name missing")]
     NameMissing,
-    #[error("Manifest launch_path missing")]
-    LaunchPathMissing,
     #[error("Manifest missing")]
     ManifestMissing,
     #[error("Manifest wrong format")]
@@ -101,8 +99,6 @@ pub struct Icons {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Manifest {
     name: String,
-    #[serde(default = "String::new")]
-    launch_path: String,
     #[serde(default = "default_as_start_url")]
     start_url: String,
     icons: Option<Value>, // to backward compatible with icons object
@@ -124,7 +120,7 @@ pub struct Manifest {
 }
 
 fn default_as_start_url() -> String {
-    "/index.html".into()
+    "/".into()
 }
 
 impl Icons {
@@ -146,10 +142,16 @@ impl Icons {
 }
 
 impl Manifest {
-    pub fn new(name: &str, launch_path: &str, b2g_features: Option<B2GFeatures>) -> Self {
+    #[cfg(test)]
+    pub fn new(name: &str, start_url: &str, b2g_features: Option<B2GFeatures>) -> Self {
+        let url = if start_url.is_empty() {
+            default_as_start_url()
+        } else {
+            start_url.to_owned()
+        };
         Manifest {
             name: name.to_string(),
-            launch_path: launch_path.to_string(),
+            start_url: url,
             b2g_features,
             ..Default::default()
         }
@@ -158,12 +160,6 @@ impl Manifest {
     pub fn is_valid(&self) -> Result<(), ManifestError> {
         if self.name.is_empty() {
             return Err(ManifestError::NameMissing);
-        }
-
-        let launch_path = self.get_launch_path();
-        let start_url = self.get_start_url();
-        if launch_path.is_empty() && start_url.is_empty() {
-            return Err(ManifestError::LaunchPathMissing);
         }
 
         // We verify the properties in b2g_features
@@ -229,10 +225,6 @@ impl Manifest {
 
     pub fn set_name(&mut self, name: &str) {
         self.name = name.into();
-    }
-
-    pub fn get_launch_path(&self) -> String {
-        self.launch_path.clone()
     }
 
     pub fn get_start_url(&self) -> String {
