@@ -91,14 +91,14 @@ impl Config {
                 csp: "".into(),
             },
             #[cfg(feature = "apps-service")]
-            apps_service: apps_service::config::Config {
-                root_path: "".into(),
-                data_path: "".into(),
-                uds_path: "".into(),
-                cert_type: "".into(),
-                user_agent: "".into(),
-                allow_remove_preloaded: false,
-            },
+            apps_service: apps_service::config::Config::new(
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                false,
+            ),
         }
     }
 }
@@ -131,8 +131,12 @@ mod test {
         assert_eq!(config.http.root_path, "/tmp");
         #[cfg(feature = "apps-service")]
         {
-            assert_eq!(config.apps_service.root_path, "/tmp/test-fixtures/webapps");
-            assert_eq!(config.apps_service.data_path, "/tmp/apps");
+            use std::path::PathBuf;
+            assert_eq!(
+                config.apps_service.root_path(),
+                PathBuf::from("/tmp/test-fixtures/webapps")
+            );
+            assert_eq!(config.apps_service.data_path(), PathBuf::from("/tmp/apps"));
             assert_eq!(config.apps_service.uds_path, "/tmp/uds_tmp.sock");
             assert_eq!(config.apps_service.cert_type, "test");
         }

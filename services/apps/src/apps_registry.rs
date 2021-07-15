@@ -24,7 +24,6 @@ use settings_service::generated::common::SettingInfo;
 use settings_service::service::SettingsService;
 use std::collections::hash_map::DefaultHasher;
 use std::convert::From;
-use std::env;
 use std::fs;
 use std::fs::{remove_dir_all, remove_file, File};
 use std::hash::{Hash, Hasher};
@@ -146,6 +145,9 @@ pub struct AppsRegistry {
     lang: String,
     apps_list: Vec<AppsObject>,
     pub event_broadcaster: AppsEngineEventBroadcaster,
+    data_path: PathBuf,
+    root_path: PathBuf,
+    allow_remove_preloaded: bool,
 }
 
 impl AppsRegistry {
@@ -174,12 +176,11 @@ impl AppsRegistry {
     }
 
     pub fn initialize(config: &Config, vhost_port: u16) -> Result<Self, AppsError> {
-        let current = env::current_dir().unwrap();
-        let root_dir = current.join(config.root_path.clone());
-        let data_dir = current.join(config.data_path.clone());
+        let root_path = config.root_path();
+        let data_path = config.data_path();
 
         // Make sure the directory structure is set properly.
-        let installed_dir = data_dir.join("installed");
+        let installed_dir = data_path.join("installed");
         if !AppsStorage::ensure_dir(&installed_dir) {
             error!(
                 "Failed to ensure that the {} directory exists.",
@@ -188,7 +189,7 @@ impl AppsRegistry {
             return Err(AppsError::AppsConfigError);
         }
 
-        let cached_dir = data_dir.join("cached");
+        let cached_dir = data_path.join("cached");
         if !AppsStorage::ensure_dir(&cached_dir) {
             error!(
                 "Failed to ensure that the {} directory exists.",
@@ -197,8 +198,8 @@ impl AppsRegistry {
             return Err(AppsError::AppsConfigError);
         }
 
-        let db_dir = data_dir.join("db");
-        if !AppsStorage::ensure_dir(db_dir.as_path()) {
+        let db_dir = data_path.join("db");
+        if !AppsStorage::ensure_dir(&db_dir) {
             error!(
                 "Failed to ensure that the {} directory exists.",
                 db_dir.display()
@@ -206,8 +207,8 @@ impl AppsRegistry {
             return Err(AppsError::AppsConfigError);
         }
 
-        let vroot_dir = data_dir.join("vroot");
-        if !AppsStorage::ensure_dir(vroot_dir.as_path()) {
+        let vroot_dir = data_path.join("vroot");
+        if !AppsStorage::ensure_dir(&vroot_dir) {
             error!(
                 "Failed to ensure that the {} directory exists.",
                 vroot_dir.display()
@@ -221,13 +222,15 @@ impl AppsRegistry {
 
         // No apps yet, load the default ones from the json file.
         if count == 0 {
-            info!("Initializing apps registry from {}", config.root_path);
+            info!("Initializing apps registry from {}", root_path.display());
 
-            let webapps_json = root_dir.join("webapps.json");
+            let webapps_json = root_path.join("webapps.json");
             match AppsStorage::read_webapps(webapps_json) {
                 Ok(mut apps) => {
                     for app in &mut apps {
-                        if let Ok(app) = AppsStorage::add_app(app, config, vhost_port) {
+                        if let Ok(app) =
+                            AppsStorage::add_system_dir_app(app, &root_path, &data_path, vhost_port)
+                        {
                             let _ = db.add(&app)?;
                         }
                     }
@@ -266,6 +269,9 @@ impl AppsRegistry {
             lang,
             apps_list,
             event_broadcaster: AppsEngineEventBroadcaster::default(),
+            root_path,
+            data_path,
+            allow_remove_preloaded: config.allow_remove_preloaded,
         })
     }
 
@@ -321,10 +327,9 @@ impl AppsRegistry {
             if let Ok(apps) = db.get_all() {
                 let mut count = 1;
                 loop {
-                    if apps
+                    if !apps
                         .iter()
-                        .find(|app| app.is_found(&unique_name, update_url))
-                        .is_none()
+                        .any(|app| app.is_found(&unique_name, update_url))
                     {
                         break;
                     }
@@ -361,29 +366,25 @@ impl AppsRegistry {
         &mut self,
         manifest_url: &str,
         data_type: ClearType,
-        data_path: &str,
     ) -> Result<(), AppsServiceError> {
         let type_str = match data_type {
             ClearType::Browser => "Browser",
             ClearType::Storage => "Storage",
         };
 
-        let features = self.get_b2g_features(manifest_url, data_path);
+        let features = self
+            .get_b2g_features(manifest_url)
+            .unwrap_or_else(|| JsonValue::from(json!(null)));
 
-        Ok(GeckoBridgeService::shared_state()
+        GeckoBridgeService::shared_state()
             .lock()
             .apps_service_on_clear(manifest_url.to_string(), type_str.to_string(), features)
-            .map_err(|_| AppsServiceError::ClearDataError)?)
+            .map_err(|_| AppsServiceError::ClearDataError)
     }
 
-    pub fn get_pacakge_path(
-        &self,
-        webapp_dir: &str,
-        manifest_url: &str,
-    ) -> Result<PathBuf, AppsServiceError> {
+    pub fn get_package_path(&self, manifest_url: &str) -> Result<PathBuf, AppsServiceError> {
         if let Some(app) = self.get_by_manifest_url(manifest_url) {
-            let webapp_path = Path::new(&webapp_dir);
-            let app_path = webapp_path.join("vroot").join(&app.get_name());
+            let app_path = self.data_path.join("vroot").join(&app.get_name());
             let package_path = app_path.join("application.zip");
 
             if File::open(&package_path).is_ok() {
@@ -407,13 +408,12 @@ impl AppsRegistry {
         apps_item: &mut AppsItem,
         available_dir: &Path,
         manifest: &Manifest,
-        path: &Path,
         is_update: bool,
     ) -> Result<(), AppsServiceError> {
         let manifest_url = apps_item.get_manifest_url();
         let app_name = apps_item.get_name();
-        let installed_dir = path.join("installed").join(&app_name);
-        let webapp_dir = path.join("vroot").join(&app_name);
+        let installed_dir = self.data_path.join("installed").join(&app_name);
+        let webapp_dir = self.data_path.join("vroot").join(&app_name);
 
         // We can now replace the installed one with new version.
         let _ = remove_dir_all(&installed_dir);
@@ -437,7 +437,7 @@ impl AppsRegistry {
         // Save the downloaded update manifest file in cached dir.
         let download_update_manifest = installed_dir.join("update.webmanifest");
         if download_update_manifest.exists() {
-            let cached_dir = path.join("cached").join(&app_name);
+            let cached_dir = self.data_path.join("cached").join(&app_name);
             let cached_update_manifest = cached_dir.join("update.webmanifest");
             let _ = AppsStorage::ensure_dir(&cached_dir);
             if let Err(err) = fs::rename(&download_update_manifest, &cached_update_manifest) {
@@ -485,10 +485,9 @@ impl AppsRegistry {
         apps_item: &mut AppsItem,
         download_dir: &Path,
         manifest: &Manifest,
-        path: &Path,
         is_update: bool,
     ) -> Result<(), AppsServiceError> {
-        let cached_dir = path.join("cached").join(apps_item.get_name());
+        let cached_dir = self.data_path.join("cached").join(apps_item.get_name());
 
         // We can now replace the installed one with new version.
         let _ = fs::remove_dir_all(&cached_dir);
@@ -533,20 +532,14 @@ impl AppsRegistry {
         self.apps_list.clone()
     }
 
-    pub fn get_b2g_features(&self, manifest_url: &str, data_path: &str) -> JsonValue {
-        let base_dir = Path::new(&data_path);
-
-        if let Some(app) = &self.get_by_manifest_url(manifest_url) {
-            let app_dir = app.get_appdir(&base_dir).unwrap_or_default();
-            if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
-                if let Some(b2g_features) = manifest.get_b2g_features() {
-                    return JsonValue::from(
-                        serde_json::to_value(&b2g_features).unwrap_or(json!(null)),
-                    );
-                };
-            };
-        }
-        JsonValue::from(json!(null))
+    pub fn get_b2g_features(&self, manifest_url: &str) -> Option<JsonValue> {
+        let app = self.get_by_manifest_url(manifest_url)?;
+        let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
+        let manifest = AppsStorage::load_manifest(&app_dir).ok()?;
+        let b2g_features = manifest.get_b2g_features()?;
+        Some(JsonValue::from(
+            serde_json::to_value(&b2g_features).unwrap_or(json!(null)),
+        ))
     }
 
     pub fn get_by_manifest_url(&self, manifest_url: &str) -> Option<AppsItem> {
@@ -645,11 +638,7 @@ impl AppsRegistry {
         }
     }
 
-    pub fn uninstall_app(
-        &mut self,
-        manifest_url: &str,
-        data_path: &str,
-    ) -> Result<String, AppsServiceError> {
+    pub fn uninstall_app(&mut self, manifest_url: &str) -> Result<String, AppsServiceError> {
         let app = match self.get_by_manifest_url(manifest_url) {
             Some(app) => app,
             None => return Err(AppsServiceError::AppNotFound),
@@ -658,7 +647,7 @@ impl AppsRegistry {
             return Err(AppsServiceError::UninstallForbidden);
         }
         if let Ok(manifest_url) = self.unregister_app(manifest_url) {
-            if AppsStorage::remove_app(&app, data_path).is_ok() {
+            if AppsStorage::remove_app(&app, &self.data_path).is_ok() {
                 // Relay the request to Gecko using the bridge.
                 let bridge = GeckoBridgeService::shared_state();
                 bridge.lock().apps_service_on_uninstall(app.runtime_url());
@@ -675,7 +664,7 @@ impl AppsRegistry {
     pub fn update_app(&mut self, apps_item: &AppsItem) -> Result<(), RegistrationError> {
         // TODO: need to unregister something for update if needed.
 
-        Ok(self.register_app(apps_item)?)
+        self.register_app(apps_item)
     }
 
     pub fn count(&self) -> usize {
@@ -686,20 +675,17 @@ impl AppsRegistry {
         }
     }
 
-    pub fn register_on_boot(&mut self, config: &Config) -> Result<(), AppsError> {
-        let current = env::current_dir().unwrap();
-        let base_dir = current.join(&config.data_path);
-
-        // In case of app needes to be add or removed after the system update,
-        // need to wait the gecko bridge to uninstall the local storage and permissions.
-        if let Err(err) = self.check_system_update(config) {
+    pub fn register_on_boot(&mut self) -> Result<(), AppsError> {
+        // In case of app needs to be added or removed after the system update,
+        // we need to wait for the gecko bridge to uninstall the local storage and permissions.
+        if let Err(err) = self.check_system_update() {
             error!("Check post system update error: {:?}", err);
         }
 
         if let Some(db) = &self.db {
             let apps = db.get_all()?;
             for app in &apps {
-                let app_dir = app.get_appdir(&base_dir).unwrap_or_default();
+                let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
                 if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
                     // Relay the request to Gecko using the bridge.
                     let features = match manifest.get_b2g_features() {
@@ -724,9 +710,7 @@ impl AppsRegistry {
         Ok(())
     }
 
-    pub fn check_system_update(&mut self, config: &Config) -> Result<(), AppsError> {
-        let current = env::current_dir().unwrap();
-        let root_dir = current.join(config.root_path.clone());
+    pub fn check_system_update(&mut self) -> Result<(), AppsError> {
         let setting_service = SettingsService::shared_state();
         let build_fingerprint =
             AndroidProperties::get("ro.system.build.fingerprint", "").unwrap_or_default();
@@ -747,7 +731,7 @@ impl AppsRegistry {
             }
         }
 
-        let webapps_json = root_dir.join("webapps.json");
+        let webapps_json = self.root_path.join("webapps.json");
         if let Ok(mut sys_apps) = AppsStorage::read_webapps(webapps_json) {
             if let Some(ref mut db) = &mut self.db {
                 let apps = db.get_all()?;
@@ -762,19 +746,22 @@ impl AppsRegistry {
                             continue;
                         }
                         // Case 1: if the preloaded app is newer after system update,
-                        let sys_app_dir = root_dir.join(&app_name);
+                        let sys_app_dir = self.root_path.join(&app_name);
                         if let Ok(manifest) = AppsStorage::load_manifest(&sys_app_dir) {
                             if !is_new_version(&app.get_version(), &manifest.get_version()) {
                                 continue;
                             }
                             debug!("apps system update: found newer version of {}", &app_name);
                             let mut new_app = app.clone();
-                            if AppsStorage::remove_app(&app, &config.data_path).is_err() {
+                            if AppsStorage::remove_app(&app, &self.data_path).is_err() {
                                 error!("apps system update: Failed to remove old app.");
                             }
-                            if let Ok(app) =
-                                AppsStorage::add_app(&mut new_app, config, self.vhost_port)
-                            {
+                            if let Ok(app) = AppsStorage::add_system_dir_app(
+                                &mut new_app,
+                                &self.root_path,
+                                &self.data_path,
+                                self.vhost_port,
+                            ) {
                                 if let Err(err) = db.add(&app) {
                                     error!(
                                         "apps system update: Failed to update new app to db {:?}",
@@ -787,13 +774,13 @@ impl AppsRegistry {
                     }
                     // Case 2: the preloaded app is removed after system update,
                     // remove it from the db and registry.
-                    if config.allow_remove_preloaded {
+                    if self.allow_remove_preloaded {
                         debug!(
                             "apps system update: fremove an old preloaded app {}",
                             &app_name
                         );
                         let _ = db.remove_by_manifest_url(&app.get_manifest_url());
-                        match AppsStorage::remove_app(&app, &config.data_path) {
+                        match AppsStorage::remove_app(&app, &self.data_path) {
                             Ok(_) => {
                                 self.apps_list
                                     .retain(|item| item.manifest_url != app.get_manifest_url());
@@ -813,9 +800,14 @@ impl AppsRegistry {
                 // add it to the db and registry.
                 for sys_app in &mut sys_apps {
                     let app_name = sys_app.get_name();
-                    if apps.iter().find(|app| app.get_name() == app_name).is_none() {
+                    if !apps.iter().any(|app| app.get_name() == app_name) {
                         debug!("apps system update: found new preload app {}", &app_name);
-                        if let Ok(app) = AppsStorage::add_app(sys_app, config, self.vhost_port) {
+                        if let Ok(app) = AppsStorage::add_system_dir_app(
+                            sys_app,
+                            &self.root_path,
+                            &self.data_path,
+                            self.vhost_port,
+                        ) {
                             self.apps_list.push(AppsObject::from(&app));
                             if let Err(err) = db.add(&app) {
                                 error!(
@@ -848,7 +840,6 @@ impl AppsRegistry {
         &mut self,
         manifest_url: &str,
         status: AppsStatus,
-        data_dir: &Path,
     ) -> Result<(AppsObject, bool), AppsServiceError> {
         if let Some(mut app) = self.get_by_manifest_url(manifest_url) {
             let mut status_changed = false;
@@ -862,8 +853,8 @@ impl AppsRegistry {
                     .update_status(manifest_url, status)
                     .map_err(|_| AppsServiceError::FilesystemFailure)?;
 
-                let app_dir = app.get_appdir(&data_dir).unwrap_or_default();
-                let disabled_dir = data_dir.join("disabled");
+                let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
+                let disabled_dir = self.data_path.join("disabled");
                 let app_disabled_dir = disabled_dir.join(&app.get_name());
 
                 match status {
@@ -907,11 +898,11 @@ pub trait AppMgmtTask: Send {
     fn run(&self);
 }
 
-fn observe_bridge(shared_data: Shared<AppsSharedData>, config: &Config) {
+fn observe_bridge(shared_data: Shared<AppsSharedData>) {
     let receiver = GeckoBridgeService::shared_state().lock().observe_bridge();
     loop {
         if GeckoBridgeService::shared_state().lock().is_ready() {
-            if let Err(err) = shared_data.lock().registry.register_on_boot(config) {
+            if let Err(err) = shared_data.lock().registry.register_on_boot() {
                 error!("register_on_boot failed: {}", err);
             }
             let mut shared = shared_data.lock();
@@ -939,7 +930,7 @@ pub fn start(shared_data: Shared<AppsSharedData>, vhost_port: u16) {
             let shared_with_observer = shared_data.clone();
             thread::Builder::new()
                 .name("apps_bridge".to_string())
-                .spawn(move || observe_bridge(shared_with_observer, &config))
+                .spawn(move || observe_bridge(shared_with_observer))
                 .expect("Failed to start apps_bridge thread");
 
             let shared_with_actor = shared_data.clone();
@@ -971,7 +962,7 @@ fn test_init_apps_from_system() {
     let _ = env_logger::try_init();
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
-    let current = env::current_dir().unwrap();
+    let current = std::env::current_dir().unwrap();
     let root_path = format!("{}/test-fixtures/webapps", current.display());
     let test_dir = format!("{}/test-fixtures/test-apps-dir", current.display());
     let test_path = Path::new(&test_dir);
@@ -981,15 +972,15 @@ fn test_init_apps_from_system() {
     let _ = remove_dir_all(&test_path);
 
     println!("Register from: {}", &root_path);
-    let config = Config {
-        root_path: root_path.clone(),
-        data_path: test_dir.clone(),
-        uds_path: String::from("uds_path"),
-        cert_type: String::from("production"),
-        updater_socket: String::from("updater_socket"),
-        user_agent: String::from("user_agent"),
-        allow_remove_preloaded: true,
-    };
+    let config = Config::new(
+        root_path.clone(),
+        test_dir.clone(),
+        String::from("uds_path"),
+        String::from("production"),
+        String::from("updater_socket"),
+        String::from("user_agent"),
+        true,
+    );
 
     let registry = match AppsRegistry::initialize(&config, 80) {
         Ok(v) => v,
@@ -1063,7 +1054,7 @@ fn test_register_app() {
     let _ = env_logger::try_init();
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
-    let current = env::current_dir().unwrap();
+    let current = std::env::current_dir().unwrap();
     let root_path = format!("{}/test-fixtures/webapps", current.display());
     let test_dir = format!("{}/test-fixtures/test-apps-dir-actor", current.display());
 
@@ -1072,15 +1063,15 @@ fn test_register_app() {
     let _ = remove_dir_all(Path::new(&test_dir));
 
     println!("Register from: {}", &root_path);
-    let config = Config {
+    let config = Config::new(
         root_path,
-        data_path: test_dir,
-        uds_path: String::from("uds_path"),
-        cert_type: String::from("test"),
-        updater_socket: String::from("updater_socket"),
-        user_agent: String::from("user_agent"),
-        allow_remove_preloaded: true,
-    };
+        test_dir,
+        String::from("uds_path"),
+        String::from("test"),
+        String::from("updater_socket"),
+        String::from("user_agent"),
+        true,
+    );
 
     let vhost_port = 80;
     let mut registry = match AppsRegistry::initialize(&config, 80) {
@@ -1223,15 +1214,15 @@ fn test_unregister_app() {
     let _ = remove_dir_all(Path::new(&test_dir));
 
     println!("Register from: {}", &root_path);
-    let config = Config {
+    let config = Config::new(
         root_path,
-        data_path: test_dir,
-        uds_path: String::from("uds_path"),
-        cert_type: String::from("test"),
-        updater_socket: String::from("updater_socket"),
-        user_agent: String::from("user_agent"),
-        allow_remove_preloaded: true,
-    };
+        test_dir,
+        String::from("uds_path"),
+        String::from("test"),
+        String::from("updater_socket"),
+        String::from("user_agent"),
+        true,
+    );
 
     let vhost_port = 8081;
     let mut registry = AppsRegistry::initialize(&config, vhost_port).unwrap();
@@ -1314,7 +1305,7 @@ fn test_apply_download() {
     let _ = env_logger::try_init();
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
-    let current = env::current_dir().unwrap();
+    let current = std::env::current_dir().unwrap();
     let _root_dir = format!("{}/test-fixtures/webapps", current.display());
     let _test_dir = format!("{}/test-fixtures/test-apps-dir-apply", current.display());
     let test_path = Path::new(&_test_dir);
@@ -1324,15 +1315,15 @@ fn test_apply_download() {
     let _ = remove_dir_all(&test_path);
 
     println!("Register from: {}", &_root_dir);
-    let config = Config {
-        root_path: _root_dir.clone(),
-        data_path: _test_dir.clone(),
-        uds_path: String::from("uds_path"),
-        cert_type: String::from("test"),
-        updater_socket: String::from("updater_socket"),
-        user_agent: String::from("user_agent"),
-        allow_remove_preloaded: true,
-    };
+    let config = Config::new(
+        _root_dir.clone(),
+        _test_dir.clone(),
+        String::from("uds_path"),
+        String::from("test"),
+        String::from("updater_socket"),
+        String::from("user_agent"),
+        true,
+    );
 
     let vhost_port = 80;
     let mut registry = match AppsRegistry::initialize(&config, vhost_port) {
@@ -1352,12 +1343,12 @@ fn test_apply_download() {
     let update_manifest = available_dir.join("update.webmanifest");
 
     // Test 1: new app name new updat_url.
-    if let Err(err) = fs::create_dir_all(available_dir.as_path()) {
+    if let Err(err) = fs::create_dir_all(&available_dir) {
         println!("{:?}", err);
     }
-    let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
-    let _ = fs::copy(src_manifest.as_path(), update_manifest.as_path()).unwrap();
-    let manifest = validate_package(&available_app.as_path()).unwrap();
+    let _ = fs::copy(&src_app, &available_app).unwrap();
+    let _ = fs::copy(&src_manifest, &update_manifest).unwrap();
+    let manifest = validate_package(&available_app).unwrap();
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let app_name = registry
@@ -1373,13 +1364,7 @@ fn test_apply_download() {
         format!("http://cached.localhost/{}/update.webmanifest", &app_name);
 
     if registry
-        .apply_download(
-            &mut apps_item,
-            &available_dir.as_path(),
-            &manifest,
-            &test_path,
-            false,
-        )
+        .apply_download(&mut apps_item, &available_dir, &manifest, false)
         .is_ok()
     {
         assert_eq!(app_name, "helloworld");
@@ -1393,12 +1378,12 @@ fn test_apply_download() {
     // Test 2: same app name different updat_url 1 - 100.
     let mut count = 1;
     loop {
-        if let Err(err) = fs::create_dir_all(available_dir.as_path()) {
+        if let Err(err) = fs::create_dir_all(&available_dir) {
             println!("{:?}", err);
         }
-        let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
-        let _ = fs::copy(src_manifest.as_path(), update_manifest.as_path()).unwrap();
-        let manifest = validate_package(&available_app.as_path()).unwrap();
+        let _ = fs::copy(&src_app, &available_app).unwrap();
+        let _ = fs::copy(&src_manifest, &update_manifest).unwrap();
+        let manifest = validate_package(&available_app).unwrap();
         let update_url = &format!("https://test{}.helloworld/manifest.webmanifest", count);
         let app_name = registry
             .get_unique_name(&manifest.get_name(), Some(&update_url))
@@ -1410,13 +1395,7 @@ fn test_apply_download() {
         apps_item.set_install_state(AppsInstallState::Installing);
         apps_item.set_update_url(update_url);
         if registry
-            .apply_download(
-                &mut apps_item,
-                &available_dir.as_path(),
-                &manifest,
-                &test_path,
-                false,
-            )
+            .apply_download(&mut apps_item, &available_dir, &manifest, false)
             .is_ok()
         {
             let expected_name = format!("helloworld{}", count);
@@ -1431,12 +1410,12 @@ fn test_apply_download() {
     }
 
     // Test 3: same app name and old updat_url as test 0.
-    if let Err(err) = fs::create_dir_all(available_dir.as_path()) {
+    if let Err(err) = fs::create_dir_all(&available_dir) {
         println!("{:?}", err);
     }
-    let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
-    let _ = fs::copy(src_manifest.as_path(), update_manifest.as_path()).unwrap();
-    let manifest = validate_package(&available_app.as_path()).unwrap();
+    let _ = fs::copy(&src_app, &available_app).unwrap();
+    let _ = fs::copy(&src_manifest, &update_manifest).unwrap();
+    let manifest = validate_package(&available_app).unwrap();
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let app_name = registry
@@ -1449,13 +1428,7 @@ fn test_apply_download() {
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(update_url);
     if registry
-        .apply_download(
-            &mut apps_item,
-            &available_dir.as_path(),
-            &manifest,
-            &test_path,
-            true,
-        )
+        .apply_download(&mut apps_item, &available_dir, &manifest, true)
         .is_ok()
     {
         assert_eq!(app_name, "helloworld");
@@ -1465,11 +1438,11 @@ fn test_apply_download() {
 
     // Test 4: app name is reserved and not allowed.
     let src_app = current.join("test-fixtures/apps-from/invalid/name_not_allow.zip");
-    if let Err(err) = fs::create_dir_all(available_dir.as_path()) {
+    if let Err(err) = fs::create_dir_all(&available_dir) {
         println!("{:?}", err);
     }
-    let _ = fs::copy(src_app.as_path(), available_app.as_path()).unwrap();
-    let manifest = validate_package(&available_app.as_path()).unwrap();
+    let _ = fs::copy(&src_app, &available_app).unwrap();
+    let manifest = validate_package(&available_app).unwrap();
     let update_url = "https://invalidname.localhost/manifest.webmanifest";
     let app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url));
     assert_eq!(app_name, Err(AppsServiceError::InvalidAppName));
@@ -1484,18 +1457,14 @@ fn test_apply_download() {
             None => panic!(),
         }
 
-        if let Ok((app, changed)) =
-            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path)
-        {
+        if let Ok((app, changed)) = registry.set_enabled(&manifest_url, AppsStatus::Enabled) {
             assert_eq!(app.status, AppsStatus::Enabled);
             assert!(!changed);
         } else {
             panic!();
         }
 
-        if let Ok((app, changed)) =
-            registry.set_enabled(&manifest_url, AppsStatus::Disabled, &test_path)
-        {
+        if let Ok((app, changed)) = registry.set_enabled(&manifest_url, AppsStatus::Disabled) {
             assert_eq!(app.status, AppsStatus::Disabled);
             assert!(changed);
         } else {
@@ -1509,9 +1478,7 @@ fn test_apply_download() {
             None => panic!(),
         }
 
-        if let Ok((app, changed)) =
-            registry.set_enabled(&manifest_url, AppsStatus::Enabled, &test_path)
-        {
+        if let Ok((app, changed)) = registry.set_enabled(&manifest_url, AppsStatus::Enabled) {
             assert_eq!(app.status, AppsStatus::Enabled);
             assert!(changed);
         } else {

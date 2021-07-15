@@ -64,11 +64,11 @@ impl UpdateManifest {
     }
 
     pub fn get_packaged_size(&self) -> u64 {
-        self.packaged_size.clone().unwrap_or(0)
+        self.packaged_size.unwrap_or(0)
     }
 
     pub fn get_size(&self) -> u64 {
-        self.size.clone().unwrap_or(0)
+        self.size.unwrap_or(0)
     }
 
     pub fn get_type(&self) -> String {

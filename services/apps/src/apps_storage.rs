@@ -2,11 +2,9 @@
 
 use crate::apps_item::AppsItem;
 use crate::apps_registry::{AppsError, AppsMgmtError};
-use crate::config::Config;
 use crate::manifest::{Manifest, ManifestError};
 use log::{debug, error};
 use nix::sys::statvfs;
-use std::env;
 use std::fs::{self, remove_dir_all, File};
 use std::io::BufReader;
 use std::os::unix::fs::symlink;
@@ -63,15 +61,11 @@ impl AppsStorage {
 
     // Loads the manifest for an app from app_dir/application.zip!manifest.webmanifest
     // and fallbacks to app_dir/manifest.webmanifest if needed.
-    pub fn load_manifest(app_dir: &PathBuf) -> Result<Manifest, AppsError> {
+    pub fn load_manifest(app_dir: &Path) -> Result<Manifest, AppsError> {
         let zipfile = app_dir.join("application.zip");
-        if let Ok(manifest) =
-            AppsStorage::read_zip_manifest(zipfile.as_path(), "manifest.webmanifest")
-        {
+        if let Ok(manifest) = AppsStorage::read_zip_manifest(&zipfile, "manifest.webmanifest") {
             Ok(manifest)
-        } else if let Ok(manifest) =
-            AppsStorage::read_zip_manifest(zipfile.as_path(), "manifest.webapp")
-        {
+        } else if let Ok(manifest) = AppsStorage::read_zip_manifest(&zipfile, "manifest.webapp") {
             Ok(manifest)
         } else {
             let manifest = app_dir.join("manifest.webmanifest");
@@ -89,23 +83,21 @@ impl AppsStorage {
     //   vhost_port: the port number used by vhost.
     // Out
     //   A result of the app item or error
-    pub fn add_app(
+    pub fn add_system_dir_app(
         app: &mut AppsItem,
-        config: &Config,
+        root_path: &Path,
+        data_path: &Path,
         vhost_port: u16,
     ) -> Result<AppsItem, AppsError> {
-        let current = env::current_dir().unwrap();
-        let root_dir = current.join(config.root_path.clone());
-        let data_dir = current.join(config.data_path.clone());
         let app_name = app.get_name();
-        let source = root_dir.join(&app_name);
+        let source = root_path.join(&app_name);
         // The manifest URLs of package apps and PWA apps are different.
         //   Package app: https://[app-name].localhost/manifest.webmanifest
         //   PWA app: https://cached.localhost/[app-name]/manifest.webmanifest
         // Extract the preload PWA app assets to the related dir.
         if app.is_pwa() {
             app.set_manifest_url(&AppsItem::new_pwa_url(&app_name, vhost_port));
-            let dest = data_dir.join("cached").join(&app_name);
+            let dest = data_path.join("cached").join(&app_name);
             let zip = source.join("application.zip");
             let file = match File::open(&zip) {
                 Ok(file) => file,
@@ -127,7 +119,7 @@ impl AppsStorage {
             }
         } else {
             app.set_manifest_url(&AppsItem::new_manifest_url(&app_name, vhost_port));
-            let dest = data_dir.join("vroot").join(&app_name);
+            let dest = data_path.join("vroot").join(&app_name);
             if let Err(err) = symlink(&source, &dest) {
                 // Don't fail if the symlink already exists.
                 if err.kind() != std::io::ErrorKind::AlreadyExists {
@@ -141,7 +133,7 @@ impl AppsStorage {
         }
         app.set_preloaded(true);
         // Get version from manifest for preloaded apps.
-        let app_dir = app.get_appdir(&data_dir).unwrap_or_default();
+        let app_dir = app.get_appdir(&data_path).unwrap_or_default();
         if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
             if !manifest.get_version().is_empty() {
                 app.set_version(&manifest.get_version());
@@ -157,10 +149,9 @@ impl AppsStorage {
     //   data_path: the root dir of webapp in data.
     // Out
     //   A result of ()  or error
-    pub fn remove_app(app: &AppsItem, data_path: &str) -> Result<(), AppsError> {
-        let path = Path::new(data_path);
-        let installed_dir = path.join("installed").join(&app.get_name());
-        let webapp_dir = app.get_appdir(&path).unwrap_or_default();
+    pub fn remove_app(app: &AppsItem, data_path: &Path) -> Result<(), AppsError> {
+        let installed_dir = data_path.join("installed").join(&app.get_name());
+        let webapp_dir = app.get_appdir(data_path).unwrap_or_default();
 
         let _ = remove_dir_all(&webapp_dir);
         let _ = remove_dir_all(&installed_dir);
@@ -177,11 +168,11 @@ impl AppsStorage {
     }
 
     // Returns the available disk space, or 0 if an error occurs.
-    pub fn available_disk_space(path: &str) -> u64 {
+    pub fn available_disk_space(path: &Path) -> u64 {
         if let Ok(stat) = statvfs::statvfs(path) {
             debug!(
                 "vstatsfs for {} : bsize={} bfree={} bavail={}",
-                path,
+                path.display(),
                 stat.block_size(),
                 stat.blocks_free(),
                 stat.blocks_available()
@@ -204,7 +195,7 @@ impl AppsStorage {
     pub fn get_app_dir(path: &Path, id: &str) -> Result<PathBuf, AppsMgmtError> {
         let mut app_dir = PathBuf::from(path);
         app_dir.push(id);
-        AppsStorage::exist_or_mkdir(app_dir.as_path())?;
+        AppsStorage::exist_or_mkdir(&app_dir)?;
         Ok(app_dir)
     }
 }

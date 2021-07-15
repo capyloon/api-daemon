@@ -6,7 +6,6 @@ use crate::generated::common::*;
 use crate::shared_state::AppsSharedData;
 use common::traits::Shared;
 use log::{error, info};
-use std::env;
 
 pub struct InstallPackageTask(
     pub Shared<AppsSharedData>,
@@ -34,10 +33,8 @@ impl AppMgmtTask for InstallPackageTask {
             }
         }
 
-        let data_path = request.shared_data.lock().config.data_path.clone();
-        let current = env::current_dir().unwrap();
-        let data_dir = current.join(data_path);
-        match request.download_and_apply(data_dir.to_str().unwrap(), &url, false) {
+        let data_dir = request.shared_data.lock().config.data_path();
+        match request.download_and_apply(&data_dir, &url, false) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
                 let mut shared = request.shared_data.lock();
@@ -84,7 +81,7 @@ impl AppMgmtTask for InstallPwaTask {
             return responder.reject(AppsServiceError::ReinstallForbidden);
         }
 
-        let data_path = request.shared_data.lock().config.data_path.clone();
+        let data_path = request.shared_data.lock().config.data_path();
         match request.download_and_apply_pwa(&data_path, &url, false) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
@@ -130,13 +127,7 @@ impl AppMgmtTask for UninstallTask {
         };
 
         let mut shared = request.shared_data.lock();
-        let data_path = shared.config.data_path.clone();
-        let current = env::current_dir().unwrap();
-        let data_dir = current.join(data_path);
-        if let Err(err) = shared
-            .registry
-            .uninstall_app(&app.manifest_url, data_dir.to_str().unwrap())
-        {
+        if let Err(err) = shared.registry.uninstall_app(&app.manifest_url) {
             error!("Unregister app failed: {:?}", err);
             return responder.reject(err);
         }
@@ -181,14 +172,12 @@ impl AppMgmtTask for UpdateTask {
         };
 
         let update_url = old_app.get_update_url();
-        let data_path = request.shared_data.lock().config.data_path.clone();
-        let current = env::current_dir().unwrap();
-        let data_dir = current.join(&data_path);
+        let data_dir = request.shared_data.lock().config.data_path();
 
         let update_result = if old_app.is_pwa() {
-            request.download_and_apply_pwa(data_dir.to_str().unwrap(), &update_url, true)
+            request.download_and_apply_pwa(&data_dir, &update_url, true)
         } else {
-            request.download_and_apply(data_dir.to_str().unwrap(), &update_url, true)
+            request.download_and_apply(&data_dir, &update_url, true)
         };
 
         match update_result {
@@ -228,7 +217,7 @@ impl AppMgmtTask for CheckForUpdateTask {
             }
         }
         let mut request = request.unwrap();
-        let data_path = request.shared_data.lock().config.data_path.clone();
+        let data_path = request.shared_data.lock().config.data_path();
         let is_auto_update = apps_option.auto_install.unwrap_or(false);
         match request.check_for_update(&data_path, &url, is_auto_update) {
             Ok(ret) => {
@@ -271,13 +260,7 @@ impl AppMgmtTask for SetEnabledTask {
         let manifest_url = &self.1;
         let status = self.2;
         let responder = &self.3;
-        let current = env::current_dir().unwrap();
-        let config = shared.config.clone();
-        let data_path = current.join(config.data_path);
-        match shared
-            .registry
-            .set_enabled(&manifest_url, status, &data_path)
-        {
+        match shared.registry.set_enabled(&manifest_url, status) {
             Ok((app, changed)) => {
                 if changed {
                     if status == AppsStatus::Disabled {
@@ -313,8 +296,7 @@ impl AppMgmtTask for ClearTask {
             return responder.reject(AppsServiceError::AppNotFound);
         }
 
-        let data_path = shared.config.data_path.clone();
-        match shared.registry.clear(manifest_url, datatype, &data_path) {
+        match shared.registry.clear(manifest_url, datatype) {
             Ok(_) => responder.resolve(true),
             Err(err) => responder.reject(err),
         };

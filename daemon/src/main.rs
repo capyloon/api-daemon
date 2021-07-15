@@ -207,6 +207,7 @@ fn main() {
             };
             let mut shared = shared_data.lock();
             shared.config = config.apps_service;
+            shared.config.resolve_paths();
             #[cfg(feature = "virtual-host")]
             {
                 shared.vhost_api = VhostApi::new(vhost_data.clone());

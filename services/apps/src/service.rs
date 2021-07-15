@@ -183,8 +183,7 @@ impl AppsEngineMethods for AppsService {
     ) {
         info!("verify {}, {}, {}", manifest_url, cert_type, folder_name);
         let shared = self.shared_data.lock();
-        let data_path = shared.config.data_path.clone();
-        let package_path = match shared.registry.get_pacakge_path(&data_path, &manifest_url) {
+        let package_path = match shared.registry.get_package_path(&manifest_url) {
             Ok(path) => path,
             Err(err) => {
                 return responder.reject(err);

@@ -72,12 +72,20 @@ pub struct Response {
 }
 
 struct FileRemover {
-    pub path: String,
+    path: PathBuf,
+}
+
+impl FileRemover {
+    fn new(path: &str) -> Self {
+        Self {
+            path: PathBuf::from(path),
+        }
+    }
 }
 
 impl Drop for FileRemover {
     fn drop(&mut self) {
-        let _ = fs::remove_file(PathBuf::from(&self.path).as_path());
+        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -201,9 +209,7 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
         debug!("cmd {}, param path {:?}", request.cmd, request.param);
         match request.cmd.as_str() {
             "install" => {
-                let file = FileRemover {
-                    path: request.param.clone().unwrap(),
-                };
+                let file = FileRemover::new(&request.param.unwrap());
                 let mut checker = RestartChecker {
                     need_restart: false,
                     shared_state: shared_data.clone(),
@@ -228,7 +234,6 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
                 }
 
                 info!("Installation success");
-                debug!("{:?} is valid", &request.param);
                 write_response(&mut stream_write, &request.cmd, true, "success");
             }
             "install-pwa" => {
@@ -280,7 +285,7 @@ pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &str) -> Result<()
     let mut request =
         AppsRequest::new(shared_data.clone()).map_err(|_| AppsActorError::Internal)?;
     let is_update = shared_data.lock().registry.get_by_update_url(url).is_some();
-    let data_path = request.shared_data.lock().config.data_path.clone();
+    let data_path = request.shared_data.lock().config.data_path();
     let app = request
         .download_and_apply_pwa(&data_path, url, is_update)
         .map_err(AppsActorError::ServiceError)?;
@@ -302,12 +307,7 @@ pub fn install_package(
     from_path: &Path,
     manifest: &Manifest,
 ) -> Result<(AppsItem, bool), AppsActorError> {
-    let data_path = {
-        let shared = shared_data.lock();
-        shared.config.data_path.clone()
-    };
-    let current = std::env::current_dir().unwrap();
-    let path = current.join(&data_path);
+    let path = shared_data.lock().config.data_path();
 
     if !from_path.is_file() {
         return Err(AppsActorError::PackageMissing);
@@ -324,8 +324,8 @@ pub fn install_package(
     let download_dir = path.join(&format!("downloading/{}", &app_name));
     let download_app = download_dir.join("application.zip");
 
-    fs::create_dir_all(download_dir.as_path())?;
-    fs::copy(from_path, download_app.as_path())?;
+    fs::create_dir_all(&download_dir)?;
+    fs::copy(from_path, download_app)?;
 
     let is_update = shared.registry.get_first_by_name(&app_name).is_some();
     // Need create appsItem object and add to db to reflect status
@@ -341,7 +341,7 @@ pub fn install_package(
 
     let _ = shared
         .registry
-        .apply_download(&mut apps_item, &download_dir, &manifest, &path, is_update)
+        .apply_download(&mut apps_item, &download_dir, &manifest, is_update)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     if is_update {
@@ -380,11 +380,9 @@ pub fn uninstall(
         }
     };
 
-    let data_path = shared.config.data_path.clone();
-
     let _ = shared
         .registry
-        .uninstall_app(&app.manifest_url, &data_path)
+        .uninstall_app(&app.manifest_url)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     shared
@@ -557,16 +555,16 @@ fn test_install_app() {
 
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
-    let _root_dir = format!("{}/test-fixtures/webapps", current.display());
-    let _test_dir = format!("{}/test-fixtures/test-apps-dir-install", current.display());
-    let _test_path = Path::new(&_test_dir);
+    let root_dir = format!("{}/test-fixtures/webapps", current.display());
+    let test_dir = format!("{}/test-fixtures/test-apps-dir-install", current.display());
+    let test_path = Path::new(&test_dir);
 
     // This dir is created during the test.
     // Tring to remove it at the beginning to make the test at local easy.
-    if let Err(err) = fs::remove_dir_all(&_test_path) {
+    if let Err(err) = fs::remove_dir_all(&test_path) {
         println!("test_install_app error: {:?}", err);
     }
-    if let Err(err) = fs::create_dir_all(&_test_path) {
+    if let Err(err) = fs::create_dir_all(&test_path) {
         println!("test_install_app error: {:?}", err);
     }
 
@@ -576,15 +574,15 @@ fn test_install_app() {
     // Test from shared object
     {
         let shared_data = AppsService::shared_state();
-        let config = Config {
-            root_path: _root_dir,
-            data_path: _test_dir.clone(),
-            uds_path: String::from("uds_path"),
-            cert_type: String::from("test"),
-            updater_socket: String::from("updater_socket"),
-            user_agent: String::from("user_agent"),
-            allow_remove_preloaded: true,
-        };
+        let config = Config::new(
+            root_dir,
+            test_dir.clone(),
+            String::from("uds_path"),
+            String::from("test"),
+            String::from("updater_socket"),
+            String::from("user_agent"),
+            true,
+        );
         {
             let mut shared = shared_data.lock();
             shared.config = config.clone();
@@ -596,14 +594,12 @@ fn test_install_app() {
         }
 
         // Install
-        let manifest = validate_package(&src_app.as_path()).unwrap();
+        let manifest = validate_package(&src_app).unwrap();
         let milisec_before_installing = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        if let Ok((apps_item, need_restart)) =
-            install_package(&shared_data, &src_app.as_path(), &manifest)
-        {
+        if let Ok((apps_item, need_restart)) = install_package(&shared_data, &src_app, &manifest) {
             let app_name = apps_item.get_name();
             let shared = shared_data.lock();
             match shared.registry.get_first_by_name(&app_name) {
@@ -622,14 +618,12 @@ fn test_install_app() {
         }
 
         // Re-install
-        let manifest = validate_package(&src_app.as_path()).unwrap();
+        let manifest = validate_package(&src_app).unwrap();
         let milisec_before_reinstalling = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        if let Ok((apps_item, need_restart)) =
-            install_package(&shared_data, &src_app.as_path(), &manifest)
-        {
+        if let Ok((apps_item, need_restart)) = install_package(&shared_data, &src_app, &manifest) {
             let app_name = apps_item.get_name();
             let shared = shared_data.lock();
             match shared.registry.get_first_by_name(&app_name) {
@@ -650,7 +644,7 @@ fn test_install_app() {
 
     // Test by reloading data from persisted storage.
     {
-        if !_test_path.is_dir() {
+        if !test_path.is_dir() {
             println!("Webapp dir does not exist.");
             panic!();
         }
@@ -714,15 +708,15 @@ fn test_get_all() {
 
     println!("test_get_all dir: {}", &test_dir);
     let shared_data = AppsService::shared_state();
-    let config = Config {
+    let config = Config::new(
         root_path,
-        data_path: test_dir,
-        uds_path: String::from("uds_path"),
-        cert_type: String::from("test"),
-        updater_socket: String::from("updater_socket"),
-        user_agent: String::from("user_agent"),
-        allow_remove_preloaded: true,
-    };
+        test_dir,
+        String::from("uds_path"),
+        String::from("test"),
+        String::from("updater_socket"),
+        String::from("user_agent"),
+        true,
+    );
     {
         let registry = match AppsRegistry::initialize(&config, 8443) {
             Ok(registry) => registry,
