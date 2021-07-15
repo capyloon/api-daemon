@@ -58,6 +58,8 @@ pub struct B2GFeatures {
     focus_color: Option<String>,
     #[serde(default = "B2GFeatures::default_hashmap")]
     dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<String>,
 }
 
 fn default_as_false() -> bool {
@@ -86,6 +88,10 @@ impl B2GFeatures {
 
     pub fn get_version(&self) -> Option<String> {
         self.version.clone()
+    }
+
+    pub fn get_origin(&self) -> Option<String> {
+        self.origin.clone()
     }
 }
 
@@ -208,6 +214,11 @@ impl Manifest {
         self.start_url = url.to_string();
     }
 
+    pub fn get_origin(&self) -> Option<String> {
+        let b2g_features = self.get_b2g_features()?;
+        b2g_features.get_origin()
+    }
+
     pub fn get_version(&self) -> String {
         if let Some(b2g_features) = self.get_b2g_features() {
             if let Some(version) = b2g_features.get_version() {
@@ -221,10 +232,6 @@ impl Manifest {
 
     pub fn get_name(&self) -> String {
         self.name.clone()
-    }
-
-    pub fn set_name(&mut self, name: &str) {
-        self.name = name.into();
     }
 
     pub fn get_start_url(&self) -> String {

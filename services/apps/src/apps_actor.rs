@@ -318,7 +318,7 @@ pub fn install_package(
     let mut shared = shared_data.lock();
     let app_name = shared
         .registry
-        .get_unique_name(&manifest.get_name(), None)
+        .get_unique_name(&manifest.get_name(), manifest.get_origin(), None)
         .map_err(|_| AppsActorError::InvalidAppName)?;
 
     let download_dir = path.join(&format!("downloading/{}", &app_name));

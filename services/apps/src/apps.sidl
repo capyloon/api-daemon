@@ -39,6 +39,7 @@ enum AppsServiceError {
   InvalidStartUrl         // Error in the manifest file
   InvalidState            // The service is not ready
   InvalidManifest         // Error in the manifest file
+  InvalidOrigin           // The origin defined by the app is invalid
   InvalidPackage          // Error in the package file
   InvalidSignature        // Failed to verify the signature
   InvalidCertificate      // Failed to parse certificate

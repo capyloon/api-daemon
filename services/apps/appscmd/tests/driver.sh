@@ -54,6 +54,7 @@ tests=(
 "helloworld  apps-from/helloworld/application.zip"
 "helloworld  apps-from/helloworld1/application.zip"
 "12345       apps-from/12345/application.zip"
+"origintest  apps-from/origintest/application.zip"
 )
 
 echo tests: ${tests}
@@ -80,10 +81,13 @@ do
 done
 
 # array of uninstall test cases
-# "expected_name  uninstall-manifest_url"
+# "expected_applist uninstall-manifest_url"
 uninstalls=(
+# After uninstalling the last installed app,
+# the apps list will be the same as the one before the install.
+"12345          http://origintest.localhost:8081/manifest.webmanifest"
+# After uninstalling a removable:false app, the apps list should remain the same.
 "12345          http://launcher.localhost:8081/manifest.webmanifest"
-"helloworld     http://12345.localhost:8081/manifest.webmanifest"
 )
 
 echo uninstalls: ${uninstalls}

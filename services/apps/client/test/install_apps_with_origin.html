@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Apps Service Update Tests</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
+  </head>
+
+  <body>
+    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/apps/service.js"></script>
+    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <script src="results.js"></script>
+    <script src="common.js"></script>
+
+    <script>
+      async function run_tests() {
+        console.log(`Install apps with origin tests started!`);
+
+        let tester = await test_service(lib_apps.AppsManager, "apps-client");
+
+        let AppsServiceState = lib_apps.AppsServiceState;
+        let AppsServiceError = lib_apps.AppsServiceError;
+
+        wait_service_state(tester.service, AppsServiceState);
+
+        function sort_result(a, b) {
+          return a.name > b.name;
+        }
+
+        let provider = new TokenProvider(tester.service, tester.session);
+        await tester.service.setTokenProvider(provider);
+
+        // Test install again after update the preload apps from system.
+        let on_installed_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
+
+        await tester.assert_eq(
+          "install app with a good origin",
+          service => service.installPackage("http://127.0.0.1:8596/apps/origin-good/manifest.webmanifest"),
+          origin_good_expected
+        );
+        await tester.assert_event_eq("on installed event", on_installed_handler, origin_good_expected);
+
+        await tester.assert_eq(
+          "get update manifest",
+          service => {
+            let req = new Request("http://cached.localhost:8081/origin-good/update.webmanifest");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(app => app.name);
+          },
+          "AppOriginTest",
+        );
+
+        await tester.assert_rej_eq(
+          "install app with origin do not match",
+          service => service.installPackage("http://127.0.0.1:8596/apps/origin-notmatch/manifest.webmanifest"),
+          AppsServiceError.INVALID_ORIGIN
+        );
+
+        await tester.assert_rej_eq(
+          "install app with invalid origin",
+          service => service.installPackage("http://127.0.0.1:8596/apps/origin-invalid/manifest.webmanifest"),
+          AppsServiceError.INVALID_ORIGIN
+        );
+
+        on_installed_handler.stop();
+
+        await tester.assert_eq(
+          "get all 5",
+          service => {
+            return new Promise((resolve, reject) => {
+              service.getAll().then(
+                observed => {
+                  resolve(observed ? observed.sort(sort_result) : null);
+                },
+                err => {
+                  reject(err);
+                }
+              );
+            });
+          },
+          get_all_expected5.sort(sort_result)
+        );
+
+        let reporter = new TestReporter([tester]);
+        reporter.output();
+
+        console.log(`Test run done!`);
+      }
+
+      run_tests();
+    </script>
+  </body>
+</html>

@@ -375,8 +375,11 @@ impl AppsRequest {
 
                 app
             } else {
-                let app_name =
-                    registry.get_unique_name(&update_manifest.get_name(), Some(&update_url))?;
+                let app_name = registry.get_unique_name(
+                    &update_manifest.get_name(),
+                    update_manifest.get_origin(),
+                    Some(&update_url),
+                )?;
                 let mut app = AppsItem::default(&app_name, registry.get_vhost_port());
                 app.set_update_url(&update_url);
 
@@ -447,6 +450,11 @@ impl AppsRequest {
         let manifest =
             validate_package(&available_zip).map_err(|_| AppsServiceError::InvalidPackage)?;
 
+        if update_manifest.get_origin() != manifest.get_origin() {
+            error!("AppsRegistry::validate origin do not match");
+            return Err(AppsServiceError::InvalidOrigin);
+        }
+
         if let Err(err) = AppsRegistry::validate(&apps_item.get_manifest_url(), &manifest) {
             error!("AppsRegistry::validate error: {:?}", err);
             return Err(AppsServiceError::InvalidManifest);
@@ -505,7 +513,11 @@ impl AppsRequest {
         // Lock registry to do application registration, emit installing event
         {
             let registry = &mut self.shared_data.lock().registry;
-            app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url))?;
+            app_name = registry.get_unique_name(
+                &manifest.get_name(),
+                manifest.get_origin(),
+                Some(&update_url),
+            )?;
             apps_item = AppsItem::default_pwa(&app_name, registry.get_vhost_port());
             if is_update {
                 apps_item.set_update_state(AppsUpdateState::Updating);
@@ -806,7 +818,11 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
     let app_name = shared_data
         .lock()
         .registry
-        .get_unique_name(&manifest.get_name(), Some(&update_url))
+        .get_unique_name(
+            &manifest.get_name(),
+            manifest.get_origin(),
+            Some(&update_url),
+        )
         .unwrap();
     if let Some(icons_value) = manifest.get_icons() {
         let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);

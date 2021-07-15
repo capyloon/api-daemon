@@ -282,6 +282,19 @@ impl AppsRegistry {
     pub fn get_lang(&self) -> String {
         self.lang.clone()
     }
+
+    // Valid the host name [RFC 1123]
+    pub fn is_valid_hostname(name: &str) -> bool {
+        !(name
+            .bytes()
+            .any(|c| !(c.is_ascii_alphanumeric() || c == b'-' || c == b'.'))
+            || name.ends_with('-')
+            || name.starts_with('-')
+            || name.ends_with('.')
+            || name.starts_with('.')
+            || name.is_empty())
+    }
+
     // Returns a sanitized version of the name, usable as:
     // - a filename
     // - a subdomain
@@ -297,12 +310,16 @@ impl AppsRegistry {
     // Get a unique name for the app of a given update_url.
     // In:
     //    name - the app name in the app manifest.
-    //    update_url - the update_url of an app.
+    //    origin - the origin in the app manifest (optional).
+    //    update_url - the update_url of an app (optional).
     // return:
-    //    app_name - name or name + [1-999] for different update_url.
+    //    Ok() - The origin with lower case or
+    //           A sanitized name or name + [1-999] for different update_url.
+    //    Err() - The name or origin is not available or invalid.
     pub fn get_unique_name(
         &self,
         name: &str,
+        origin: Option<String>,
         update_url: Option<&str>,
     ) -> Result<String, AppsServiceError> {
         if let Some(db) = &self.db {
@@ -311,6 +328,14 @@ impl AppsRegistry {
                 if let Ok(app) = db.get_by_update_url(url) {
                     return Ok(app.get_name());
                 }
+            }
+
+            if let Some(origin) = origin {
+                let origin = origin.to_lowercase();
+                if !Self::is_valid_hostname(&origin) || db.get_first_by_name(&origin).is_ok() {
+                    return Err(AppsServiceError::InvalidOrigin);
+                }
+                return Ok(origin);
             }
 
             let sanitized_name: String = Self::sanitize_name(name);
@@ -615,6 +640,8 @@ impl AppsRegistry {
     }
 
     pub fn unregister(&mut self, manifest_url: &str) -> bool {
+        self.apps_list
+            .retain(|item| item.manifest_url != manifest_url);
         if let Some(ref mut db) = &mut self.db {
             let start_count = db.count().unwrap_or(0);
             let _ = db.remove_by_manifest_url(manifest_url);
@@ -630,8 +657,6 @@ impl AppsRegistry {
         }
 
         if self.unregister(&manifest_url) {
-            self.apps_list
-                .retain(|item| item.manifest_url != manifest_url);
             Ok(manifest_url.to_string())
         } else {
             Err(RegistrationError::ManifestURLNotFound)
@@ -1091,7 +1116,11 @@ fn test_register_app() {
     let b2g_features = None;
     let manifest = Manifest::new(name, launch_path, b2g_features);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), Some(&update_url))
+        .get_unique_name(
+            &manifest.get_name(),
+            manifest.get_origin(),
+            Some(&update_url),
+        )
         .err()
         .unwrap();
     assert_eq!(app_name, AppsServiceError::InvalidAppName);
@@ -1102,7 +1131,7 @@ fn test_register_app() {
     let b2g_features = None;
     let manifest = Manifest::new(name, launch_path, b2g_features);
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), None)
+        .get_unique_name(&manifest.get_name(), manifest.get_origin(), None)
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
@@ -1123,7 +1152,11 @@ fn test_register_app() {
     let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
     let manifest = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), Some(update_url))
+        .get_unique_name(
+            &manifest.get_name(),
+            manifest.get_origin(),
+            Some(update_url),
+        )
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
@@ -1157,7 +1190,11 @@ fn test_register_app() {
     let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
     let manifest1 = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
-        .get_unique_name(&manifest1.get_name(), Some(&update_url))
+        .get_unique_name(
+            &manifest1.get_name(),
+            manifest.get_origin(),
+            Some(&update_url),
+        )
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
@@ -1257,7 +1294,7 @@ fn test_unregister_app() {
     let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
     let manifest1 = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
-        .get_unique_name(&manifest1.get_name(), None)
+        .get_unique_name(&manifest1.get_name(), manifest1.get_origin(), None)
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
@@ -1352,7 +1389,11 @@ fn test_apply_download() {
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), Some(&update_url))
+        .get_unique_name(
+            &manifest.get_name(),
+            manifest.get_origin(),
+            Some(&update_url),
+        )
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     if !manifest.get_version().is_empty() {
@@ -1386,7 +1427,11 @@ fn test_apply_download() {
         let manifest = validate_package(&available_app).unwrap();
         let update_url = &format!("https://test{}.helloworld/manifest.webmanifest", count);
         let app_name = registry
-            .get_unique_name(&manifest.get_name(), Some(&update_url))
+            .get_unique_name(
+                &manifest.get_name(),
+                manifest.get_origin(),
+                Some(&update_url),
+            )
             .unwrap();
         let mut apps_item = AppsItem::default(&app_name, vhost_port);
         if !manifest.get_version().is_empty() {
@@ -1419,7 +1464,11 @@ fn test_apply_download() {
     let update_url = "https://test0.helloworld/manifest.webmanifest";
 
     let app_name = registry
-        .get_unique_name(&manifest.get_name(), Some(&update_url))
+        .get_unique_name(
+            &manifest.get_name(),
+            manifest.get_origin(),
+            Some(&update_url),
+        )
         .unwrap();
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     if !manifest.get_version().is_empty() {
@@ -1444,7 +1493,11 @@ fn test_apply_download() {
     let _ = fs::copy(&src_app, &available_app).unwrap();
     let manifest = validate_package(&available_app).unwrap();
     let update_url = "https://invalidname.localhost/manifest.webmanifest";
-    let app_name = registry.get_unique_name(&manifest.get_name(), Some(&update_url));
+    let app_name = registry.get_unique_name(
+        &manifest.get_name(),
+        manifest.get_origin(),
+        Some(&update_url),
+    );
     assert_eq!(app_name, Err(AppsServiceError::InvalidAppName));
 
     {
@@ -1492,4 +1545,18 @@ fn test_apply_download() {
             None => panic!(),
         }
     }
+}
+
+#[test]
+fn test_valid_hostname() {
+    assert!(AppsRegistry::is_valid_hostname("goodorigin"));
+    assert!(AppsRegistry::is_valid_hostname("good-origin"));
+    assert!(AppsRegistry::is_valid_hostname("good.origin"));
+
+    assert!(!AppsRegistry::is_valid_hostname("invalid@origin"));
+    assert!(!AppsRegistry::is_valid_hostname("invalid+origin"));
+    assert!(!AppsRegistry::is_valid_hostname("-invalid-origin"));
+    assert!(!AppsRegistry::is_valid_hostname(".invalid-origin"));
+    assert!(!AppsRegistry::is_valid_hostname("invalid-origin-"));
+    assert!(!AppsRegistry::is_valid_hostname("invalid-origin."));
 }
