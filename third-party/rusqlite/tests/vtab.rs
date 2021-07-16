@@ -2,13 +2,13 @@
 
 #[cfg(feature = "vtab")]
 #[test]
-fn test_dummy_module() {
-    use rusqlite::types::ToSql;
+fn test_dummy_module() -> rusqlite::Result<()> {
     use rusqlite::vtab::{
         eponymous_only_module, sqlite3_vtab, sqlite3_vtab_cursor, Context, IndexInfo, VTab,
         VTabConnection, VTabCursor, Values,
     };
     use rusqlite::{version_number, Connection, Result};
+    use std::marker::PhantomData;
     use std::os::raw::c_int;
 
     let module = eponymous_only_module::<DummyTab>();
@@ -19,9 +19,9 @@ fn test_dummy_module() {
         base: sqlite3_vtab,
     }
 
-    unsafe impl VTab for DummyTab {
+    unsafe impl<'vtab> VTab<'vtab> for DummyTab {
         type Aux = ();
-        type Cursor = DummyTabCursor;
+        type Cursor = DummyTabCursor<'vtab>;
 
         fn connect(
             _: &mut VTabConnection,
@@ -39,21 +39,22 @@ fn test_dummy_module() {
             Ok(())
         }
 
-        fn open(&self) -> Result<DummyTabCursor> {
+        fn open(&'vtab self) -> Result<DummyTabCursor<'vtab>> {
             Ok(DummyTabCursor::default())
         }
     }
 
     #[derive(Default)]
     #[repr(C)]
-    struct DummyTabCursor {
+    struct DummyTabCursor<'vtab> {
         /// Base class. Must be first
         base: sqlite3_vtab_cursor,
         /// The rowid
         row_id: i64,
+        phantom: PhantomData<&'vtab DummyTab>,
     }
 
-    unsafe impl VTabCursor for DummyTabCursor {
+    unsafe impl VTabCursor for DummyTabCursor<'_> {
         fn filter(
             &mut self,
             _idx_num: c_int,
@@ -82,20 +83,18 @@ fn test_dummy_module() {
         }
     }
 
-    let db = Connection::open_in_memory().unwrap();
+    let db = Connection::open_in_memory()?;
 
-    db.create_module::<DummyTab>("dummy", &module, None)
-        .unwrap();
+    db.create_module::<DummyTab>("dummy", &module, None)?;
 
     let version = version_number();
     if version < 3_008_012 {
-        return;
+        return Ok(());
     }
 
-    let mut s = db.prepare("SELECT * FROM dummy()").unwrap();
+    let mut s = db.prepare("SELECT * FROM dummy()")?;
 
-    let dummy = s
-        .query_row(&[] as &[&dyn ToSql], |row| row.get::<_, i32>(0))
-        .unwrap();
+    let dummy = s.query_row([], |row| row.get::<_, i32>(0))?;
     assert_eq!(1, dummy);
+    Ok(())
 }

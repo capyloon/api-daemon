@@ -12,7 +12,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct RawStatement {
     ptr: *mut ffi::sqlite3_stmt,
-    tail: bool,
+    tail: usize,
     // Cached indices of named parameters, computed on the fly.
     cache: crate::util::ParamIndexCache,
     // Cached SQL (trimmed) that we use as the key when we're in the statement
@@ -29,7 +29,8 @@ pub struct RawStatement {
 }
 
 impl RawStatement {
-    pub unsafe fn new(stmt: *mut ffi::sqlite3_stmt, tail: bool) -> RawStatement {
+    #[inline]
+    pub unsafe fn new(stmt: *mut ffi::sqlite3_stmt, tail: usize) -> RawStatement {
         RawStatement {
             ptr: stmt,
             tail,
@@ -38,31 +39,39 @@ impl RawStatement {
         }
     }
 
+    #[inline]
     pub fn is_null(&self) -> bool {
         self.ptr.is_null()
     }
 
+    #[inline]
     pub(crate) fn set_statement_cache_key(&mut self, p: impl Into<Arc<str>>) {
         self.statement_cache_key = Some(p.into());
     }
 
+    #[inline]
     pub(crate) fn statement_cache_key(&self) -> Option<Arc<str>> {
         self.statement_cache_key.clone()
     }
 
+    #[inline]
     pub unsafe fn ptr(&self) -> *mut ffi::sqlite3_stmt {
         self.ptr
     }
 
+    #[inline]
     pub fn column_count(&self) -> usize {
         // Note: Can't cache this as it changes if the schema is altered.
         unsafe { ffi::sqlite3_column_count(self.ptr) as usize }
     }
 
+    #[inline]
     pub fn column_type(&self, idx: usize) -> c_int {
         unsafe { ffi::sqlite3_column_type(self.ptr, idx as c_int) }
     }
 
+    #[inline]
+    #[cfg(feature = "column_decltype")]
     pub fn column_decltype(&self, idx: usize) -> Option<&CStr> {
         unsafe {
             let decltype = ffi::sqlite3_column_decltype(self.ptr, idx as c_int);
@@ -74,6 +83,7 @@ impl RawStatement {
         }
     }
 
+    #[inline]
     pub fn column_name(&self, idx: usize) -> Option<&CStr> {
         let idx = idx as c_int;
         if idx < 0 || idx >= self.column_count() as c_int {
@@ -91,6 +101,7 @@ impl RawStatement {
         }
     }
 
+    #[cfg_attr(not(feature = "unlock_notify"), inline)]
     pub fn step(&self) -> c_int {
         if cfg!(feature = "unlock_notify") {
             let db = unsafe { ffi::sqlite3_db_handle(self.ptr) };
@@ -112,14 +123,17 @@ impl RawStatement {
         }
     }
 
+    #[inline]
     pub fn reset(&self) -> c_int {
         unsafe { ffi::sqlite3_reset(self.ptr) }
     }
 
+    #[inline]
     pub fn bind_parameter_count(&self) -> usize {
         unsafe { ffi::sqlite3_bind_parameter_count(self.ptr) as usize }
     }
 
+    #[inline]
     pub fn bind_parameter_index(&self, name: &str) -> Option<usize> {
         self.cache.get_or_insert_with(name, |param_cstr| {
             let r = unsafe { ffi::sqlite3_bind_parameter_index(self.ptr, param_cstr.as_ptr()) };
@@ -130,10 +144,24 @@ impl RawStatement {
         })
     }
 
+    #[inline]
+    pub fn bind_parameter_name(&self, index: i32) -> Option<&CStr> {
+        unsafe {
+            let name = ffi::sqlite3_bind_parameter_name(self.ptr, index);
+            if name.is_null() {
+                None
+            } else {
+                Some(CStr::from_ptr(name))
+            }
+        }
+    }
+
+    #[inline]
     pub fn clear_bindings(&self) -> c_int {
         unsafe { ffi::sqlite3_clear_bindings(self.ptr) }
     }
 
+    #[inline]
     pub fn sql(&self) -> Option<&CStr> {
         if self.ptr.is_null() {
             None
@@ -142,32 +170,45 @@ impl RawStatement {
         }
     }
 
+    #[inline]
     pub fn finalize(mut self) -> c_int {
         self.finalize_()
     }
 
+    #[inline]
     fn finalize_(&mut self) -> c_int {
         let r = unsafe { ffi::sqlite3_finalize(self.ptr) };
         self.ptr = ptr::null_mut();
         r
     }
 
-    #[cfg(feature = "modern_sqlite")] // 3.7.4
+    // does not work for PRAGMA
+    #[inline]
+    #[cfg(all(feature = "extra_check", feature = "modern_sqlite"))] // 3.7.4
     pub fn readonly(&self) -> bool {
         unsafe { ffi::sqlite3_stmt_readonly(self.ptr) != 0 }
     }
 
+    #[inline]
     #[cfg(feature = "modern_sqlite")] // 3.14.0
     pub(crate) fn expanded_sql(&self) -> Option<SqliteMallocString> {
         unsafe { SqliteMallocString::from_raw(ffi::sqlite3_expanded_sql(self.ptr)) }
     }
 
+    #[inline]
     pub fn get_status(&self, status: StatementStatus, reset: bool) -> i32 {
         assert!(!self.ptr.is_null());
         unsafe { ffi::sqlite3_stmt_status(self.ptr, status as i32, reset as i32) }
     }
 
+    #[inline]
+    #[cfg(feature = "extra_check")]
     pub fn has_tail(&self) -> bool {
+        self.tail != 0
+    }
+
+    #[inline]
+    pub fn tail(&self) -> usize {
         self.tail
     }
 }

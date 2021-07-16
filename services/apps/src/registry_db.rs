@@ -3,7 +3,7 @@ use crate::apps_item::AppsItem;
 use crate::generated::common::*;
 use log::{debug, error};
 use rusqlite::types::*;
-use rusqlite::{named_params, Connection, Row, NO_PARAMS};
+use rusqlite::{named_params, Connection, Row};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb, SqliteDbError};
 use std::path::Path;
 use thiserror::Error;
@@ -172,7 +172,7 @@ impl DatabaseUpgrader for AppsSchemaManager {
             ($from:expr, $cmds:expr) => {
                 if current == $from && current < to {
                     for cmd in $cmds {
-                        if let Err(err) = connection.execute(cmd, NO_PARAMS) {
+                        if let Err(err) = connection.execute(cmd, []) {
                             error!("Upgrade step failure: {}", err);
                             return false;
                         }
@@ -249,7 +249,7 @@ impl RegistryDb {
         debug!("RegistryDb::count");
         let mut stmt = self.db.connection().prepare("SELECT COUNT(*) FROM apps")?;
 
-        let count = stmt.query_row(NO_PARAMS, |r| Ok(r.get_unwrap(0)))?;
+        let count = stmt.query_row([], |r| Ok(r.get_unwrap(0)))?;
 
         Ok(count)
     }
@@ -298,7 +298,7 @@ impl RegistryDb {
             let status: String = app.get_status().into();
             let install_state: String = app.get_install_state().into();
             let update_state: String = app.get_update_state().into();
-            stmt_ins.execute_named(named_params! {
+            stmt_ins.execute(named_params! {
                 ":name": &app.get_name(),
                 ":version": &app.get_version(),
                 ":removable": &app.get_removable(),
@@ -326,7 +326,7 @@ impl RegistryDb {
     pub fn get_all(&self) -> Result<Vec<AppsItem>, Error> {
         debug!("RegistryDb::get_all");
         let mut statement = self.db.connection().prepare("SELECT * FROM apps")?;
-        let rows = statement.query_map(NO_PARAMS, row_to_apps_item)?;
+        let rows = statement.query_map([], row_to_apps_item)?;
         let results = rows
             .filter_map(|item| {
                 if let Ok(app_item) = item {
@@ -346,7 +346,7 @@ impl RegistryDb {
             .connection()
             .prepare("SELECT * FROM apps WHERE manifest_url=:manifest_url")?;
 
-        stmt.query_row_named(named_params! {":manifest_url": manifest_url}, |r| {
+        stmt.query_row(named_params! {":manifest_url": manifest_url}, |r| {
             Ok(row_to_apps_item(r).map_err(|e| e.into()))
         })?
     }
@@ -358,7 +358,7 @@ impl RegistryDb {
             .connection()
             .prepare("SELECT * FROM apps WHERE update_url=:update_url")?;
 
-        stmt.query_row_named(named_params! {":update_url": update_url}, |r| {
+        stmt.query_row(named_params! {":update_url": update_url}, |r| {
             Ok(row_to_apps_item(r).map_err(|e| e.into()))
         })?
     }
@@ -370,7 +370,7 @@ impl RegistryDb {
             .connection()
             .prepare("SELECT * FROM apps WHERE name=:name")?;
 
-        stmt.query_row_named(named_params! {":name": name}, |r| {
+        stmt.query_row(named_params! {":name": name}, |r| {
             Ok(row_to_apps_item(r).map_err(|e| e.into()))
         })?
     }
@@ -381,7 +381,7 @@ impl RegistryDb {
         let tx = connection.transaction()?;
         {
             let mut stmt = tx.prepare("DELETE FROM apps WHERE manifest_url=:manifest_url")?;
-            stmt.execute_named(named_params! {":manifest_url": manifest_url})?;
+            stmt.execute(named_params! {":manifest_url": manifest_url})?;
         }
         tx.commit()?;
         Ok(())

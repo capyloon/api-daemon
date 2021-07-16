@@ -1,7 +1,7 @@
 //! Rusqlite wrapper that adds support for version management.
 
 use log::{error, info};
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
 use thiserror::Error;
 
@@ -33,11 +33,10 @@ impl SqliteDb {
         let mut connection = Connection::open_with_flags(&path, flags)?;
 
         // Get the current version.
-        let current_version: u32 = connection.query_row(
-            "SELECT user_version FROM pragma_user_version",
-            NO_PARAMS,
-            |r| r.get(0),
-        )?;
+        let current_version: u32 =
+            connection.query_row("SELECT user_version FROM pragma_user_version", [], |r| {
+                r.get(0)
+            })?;
 
         info!(
             "Current db {:?} version is {}, requested version is {}",
@@ -112,7 +111,7 @@ fn upgrader_test() {
                 connection
                     .execute(
                         "CREATE TABLE IF NOT EXISTS test ( name TEXT UNIQUE, value TEXT)",
-                        NO_PARAMS,
+                        [],
                     )
                     .unwrap();
             } else {
@@ -138,7 +137,7 @@ fn upgrader_test() {
 
         // We start with an empty database.
         let row_count: u32 = connection
-            .query_row("SELECT COUNT(*) FROM test", NO_PARAMS, |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM test", [], |r| r.get(0))
             .unwrap();
         assert_eq!(row_count, 0);
 
@@ -157,7 +156,7 @@ fn upgrader_test() {
 
         // Check that we have a row now.
         let row_count: u32 = connection
-            .query_row("SELECT COUNT(*) FROM test", NO_PARAMS, |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM test", [], |r| r.get(0))
             .unwrap();
         assert_eq!(row_count, 1);
     }

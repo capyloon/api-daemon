@@ -8,7 +8,7 @@ use common::SystemTime;
 use log::{debug, error};
 use phonenumber::country::Id;
 use phonenumber::Mode;
-use rusqlite::{Connection, Row, Statement, NO_PARAMS};
+use rusqlite::{named_params, Connection, Row, Statement};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -114,7 +114,7 @@ impl DatabaseUpgrader for ContactsSchemaManager {
         }
 
         for cmd in &UPGRADE_0_1_SQL {
-            if let Err(err) = connection.execute(cmd, NO_PARAMS) {
+            if let Err(err) = connection.execute(cmd, []) {
                 error!("Upgrade step failure: {}", err);
                 return false;
             }
@@ -403,25 +403,24 @@ impl ContactInfo {
         contact_main WHERE contact_id=:id",
         )?;
 
-        let rows =
-            stmt.query_map_named(&[(":id", &(self.id.clone().unwrap_or_default()))], |row| {
-                Ok(MainRowData {
-                    contact_id: row.get(0)?,
-                    name: row.get(1)?,
-                    family_name: row.get(2)?,
-                    given_name: row.get(3)?,
-                    tel_json: row.get(4)?,
-                    email_json: row.get(5)?,
-                    photo_type: row.get(6)?,
-                    photo_blob: row.get(7)?,
-                    published: row.get(8)?,
-                    updated: row.get(9)?,
-                    bday: row.get(10)?,
-                    anniversary: row.get(11)?,
-                    category: row.get(12)?,
-                    category_json: row.get(13)?,
-                })
-            })?;
+        let rows = stmt.query_map(&[(":id", &(self.id.clone().unwrap_or_default()))], |row| {
+            Ok(MainRowData {
+                contact_id: row.get(0)?,
+                name: row.get(1)?,
+                family_name: row.get(2)?,
+                given_name: row.get(3)?,
+                tel_json: row.get(4)?,
+                email_json: row.get(5)?,
+                photo_type: row.get(6)?,
+                photo_blob: row.get(7)?,
+                published: row.get(8)?,
+                updated: row.get(9)?,
+                bday: row.get(10)?,
+                anniversary: row.get(11)?,
+                category: row.get(12)?,
+                category_json: row.get(13)?,
+            })
+        })?;
 
         let mut rows = rows.peekable();
         if rows.peek().is_none() {
@@ -480,7 +479,7 @@ impl ContactInfo {
         let mut stmt = conn.prepare(
             "SELECT contact_id, data_type, value FROM contact_additional WHERE contact_id=:id",
         )?;
-        let rows = stmt.query_map_named(&[(":id", &id)], |row| {
+        let rows = stmt.query_map(&[(":id", &id)], |row| {
             Ok(AdditionalRowData {
                 contact_id: row.get(0)?,
                 data_type: row.get(1)?,
@@ -786,13 +785,13 @@ impl ContactsDb {
         let conn = self.db.mut_connection();
         let contact_ids = {
             let mut stmt = conn.prepare("SELECT contact_id FROM contact_main")?;
-            let rows = stmt.query_map(NO_PARAMS, |row| Ok(row_to_contact_id(row)))?;
+            let rows = stmt.query_map([], |row| Ok(row_to_contact_id(row)))?;
             rows_to_vec(rows)
         };
 
         let tx = conn.transaction()?;
-        tx.execute("UPDATE speed_dials SET contact_id = ''", NO_PARAMS)?;
-        tx.execute("DELETE FROM contact_main", NO_PARAMS)?;
+        tx.execute("UPDATE speed_dials SET contact_id = ''", [])?;
+        tx.execute("DELETE FROM contact_main", [])?;
         tx.commit()?;
 
         if !contact_ids.is_empty() {
@@ -830,7 +829,9 @@ impl ContactsDb {
 
             let mut stmt = connection.prepare(&sql)?;
 
-            stmt.query_row(contact_ids, |r| Ok(r.get_unwrap(0)))?
+            stmt.query_row(rusqlite::params_from_iter(contact_ids), |r| {
+                Ok(r.get_unwrap(0))
+            })?
         };
 
         if count != contact_ids.len() as i32 {
@@ -949,7 +950,7 @@ impl ContactsDb {
             .connection()
             .prepare("SELECT COUNT(contact_id) FROM contact_main")?;
 
-        let count = stmt.query_row(NO_PARAMS, |r| Ok(r.get_unwrap(0)))?;
+        let count = stmt.query_row([], |r| Ok(r.get_unwrap(0)))?;
 
         Ok(count)
     }
@@ -1193,16 +1194,16 @@ impl ContactsDb {
         };
 
         if item_count != 0 {
-            conn.execute_named(
+            conn.execute(
                 "UPDATE contact_additional SET value = :position WHERE contact_id = :contact_id
                 AND data_type = 'ice_position'",
-                &[(":position", &position), (":contact_id", &contact_id)],
+                named_params! {":position": position, ":contact_id": contact_id},
             )?;
         } else {
-            conn.execute_named(
+            conn.execute(
                 "INSERT INTO contact_additional (contact_id, data_type, value) 
                 VALUES (:contact_id, 'ice_position', :position)",
-                &[(":contact_id", &contact_id), (":position", &position)],
+                named_params! {":position": position, ":contact_id": contact_id},
             )?;
         }
 
@@ -1239,7 +1240,7 @@ impl ContactsDb {
             data_type = 'ice_position' AND value != '0' ORDER BY value ASC",
         )?;
 
-        let rows = stmt.query_map(NO_PARAMS, |row| {
+        let rows = stmt.query_map([], |row| {
             Ok(IceInfo {
                 position: {
                     let value: String = row.get(0)?;
@@ -1341,7 +1342,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt = conn.prepare("SELECT number FROM blocked_numbers")?;
 
-        let rows = stmt.query_map(NO_PARAMS, |row| row.get(0))?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
         Ok(rows_to_vec(rows))
     }
 
@@ -1378,7 +1379,7 @@ impl ContactsDb {
             FilterOption::Match => format_phone_number(&options.filter_value),
         };
 
-        let rows = stmt.query_map_named(&[(":param", &param)], |row| row.get(0))?;
+        let rows = stmt.query_map(&[(":param", &param)], |row| row.get(0))?;
         Ok(rows_to_vec(rows))
     }
 
@@ -1387,7 +1388,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt = conn.prepare("SELECT * FROM speed_dials")?;
 
-        let rows = stmt.query_map(NO_PARAMS, |row| {
+        let rows = stmt.query_map([], |row| {
             Ok(SpeedDialInfo {
                 dial_key: row.get(0)?,
                 tel: row.get(1)?,
@@ -1555,7 +1556,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt = conn.prepare("SELECT * FROM groups ORDER BY name COLLATE NOCASE ASC")?;
 
-        let rows = stmt.query_map(NO_PARAMS, |row| {
+        let rows = stmt.query_map([], |row| {
             Ok(GroupInfo {
                 name: row.get(1)?,
                 id: row.get(0)?,
@@ -1574,7 +1575,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         {
             let mut stmt = conn.prepare("SELECT id, hash FROM sim_contact_hash")?;
-            let rows = stmt.query_map(NO_PARAMS, |row| {
+            let rows = stmt.query_map([], |row| {
                 Ok(SimContactHash {
                     key: row.get(0)?,
                     value: row.get(1)?,

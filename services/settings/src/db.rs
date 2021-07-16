@@ -4,7 +4,7 @@ use common::observers::ObserverTracker;
 use common::traits::DispatcherId;
 use common::JsonValue;
 use log::{debug, error, info};
-use rusqlite::{named_params, params, Connection, NO_PARAMS};
+use rusqlite::{named_params, params, Connection};
 use serde_json::Value;
 use sqlite_utils::{DatabaseUpgrader, SqliteDb};
 use thiserror::Error;
@@ -56,7 +56,7 @@ impl DatabaseUpgrader for SettingsSchemaManager {
             ($from:expr, $cmds:expr) => {
                 if current == $from && current < to {
                     for cmd in $cmds {
-                        if let Err(err) = connection.execute(cmd, NO_PARAMS) {
+                        if let Err(err) = connection.execute(cmd, []) {
                             error!("Upgrade step failure: {}", err);
                             return false;
                         }
@@ -184,21 +184,18 @@ impl SettingsDb {
                     // setting_info.value is parsed from JSON.parse(object).
                     // If setting_info.value is empty string, it means that object
                     // is undefined, then delete the name from table.
-                    stmt_del.execute_named(named_params! {":name": setting_info.name})?;
+                    stmt_del.execute(named_params! {":name": setting_info.name})?;
                 } else {
                     // Store the string representation
                     // TODO: check if we should use SQlite json support.
                     let serialized = serde_json::to_string(&value).unwrap_or_else(|_| "{}".into());
                     if is_default {
-                        debug!(
-                            "Set {} default value: {}",
-                            setting_info.name, &serialized
-                        );
-                        stmt_default.execute_named(
+                        debug!("Set {} default value: {}", setting_info.name, &serialized);
+                        stmt_default.execute(
                             named_params! {":name": setting_info.name, ":value": serialized, ":default_value": serialized},
                         )?;
                     } else {
-                        stmt_ins.execute_named(
+                        stmt_ins.execute(
                             named_params! {":name": setting_info.name, ":value": serialized},
                         )?;
                     }
@@ -246,7 +243,7 @@ impl SettingsDb {
 
         let new_serialized = serde_json::to_string(new_default).unwrap_or_else(|_| "{}".into());
         let (current, default) = stmt
-            .query_row_named(named_params! {":name": name}, |r| {
+            .query_row(named_params! {":name": name}, |r| {
                 let value: String = r.get("value").unwrap_or_default();
                 let default_value: String = r.get("default_value").unwrap_or_default();
                 Ok((value, default_value))
@@ -266,7 +263,7 @@ impl SettingsDb {
             TABLE_NAME
         ))?;
 
-        let string: String = stmt.query_row_named(named_params! {":name": name}, |r| r.get(0))?;
+        let string: String = stmt.query_row(named_params! {":name": name}, |r| r.get(0))?;
         Ok(serde_json::from_str(&string).unwrap_or(Value::Null).into())
     }
 
@@ -283,7 +280,7 @@ impl SettingsDb {
             "?, ".repeat(names.len() - 1)
         ))?;
 
-        let mut rows = stmt.query(names)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(names))?;
         while let Some(row) = rows.next()? {
             let name: String = row.get(0).unwrap();
             let value: String = row.get(1).unwrap();
@@ -333,11 +330,9 @@ impl SettingsDb {
         let count = self
             .db
             .connection()
-            .query_row(
-                &format!("SELECT count(*) FROM {}", TABLE_NAME),
-                NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row(&format!("SELECT count(*) FROM {}", TABLE_NAME), [], |row| {
+                row.get(0)
+            })
             .unwrap_or(0);
         info!("  {} settings in db.", count);
 
