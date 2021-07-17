@@ -153,7 +153,7 @@ fn validate_request(request: &Request) -> bool {
     {
         true
     } else {
-        request.cmd == "list"
+        request.cmd == "list" || request.cmd == "ready"
     }
 }
 
@@ -276,6 +276,10 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
                     write_response(&mut stream_write, &request.cmd, true, &app_list);
                 }
             },
+            "ready" => {
+                let success = shared_data.lock().state == AppsServiceState::Running;
+                write_response(&mut stream_write, &request.cmd, success, "");
+            }
             _ => {}
         }
     }

@@ -9,7 +9,7 @@ mod zip_utils;
 use adb::{AdbDevice, AdbError};
 use clap::{crate_version, App, Arg, SubCommand};
 use dirs::home_dir;
-use log::error;
+use log::{debug, error};
 use prettytable::{format, Table};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -67,6 +67,8 @@ pub(crate) enum CmdLineError {
     FailedCommand(String, String),
     #[error("Zipper Error {0}")]
     Zipper(#[from] crate::zip_utils::ZipperError),
+    #[error("The api-daemon is not ready yet")]
+    NotReady,
     #[error("Error: {0}")]
     Other(String),
 }
@@ -126,6 +128,8 @@ fn handle_success(opts: &CmdOptions, response: Response) -> Result<(), CmdLineEr
             }
             table.printstd();
         }
+    } else if response.name == "ready" && response.error.is_some() {
+        return Err(CmdLineError::NotReady);
     }
 
     Ok(())
@@ -269,6 +273,7 @@ fn run() -> Result<(), CmdLineError> {
                 ),
         )
         .subcommand(SubCommand::with_name("list").about("List installed applications"))
+        .subcommand(SubCommand::with_name("wait").about("Wait for the api-daemon to be ready"))
         .get_matches();
 
     let opts = CmdOptions {
@@ -287,6 +292,24 @@ fn run() -> Result<(), CmdLineError> {
     } else {
         None
     };
+
+    // Special case, we need to retry the "ready" command until it succeeds
+    if matches.subcommand_matches("wait").is_some() {
+        let request = Request {
+            cmd: "ready".into(),
+            param: None
+        };
+        loop {
+            let response = send(&opts, &request);
+            if response.is_ok() {
+                error!("api-daemon is ready!!");
+                break;
+            }
+            debug!("Failed to connect to the api-daemon, will retry after 1 second.");
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        return Ok(());
+    }
 
     let request = if let Some(sub_command) = matches.subcommand_matches("install") {
         build_install_request(maybe_device, &opts, sub_command.value_of("path").unwrap())?

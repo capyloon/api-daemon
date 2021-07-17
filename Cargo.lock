@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "appscmd"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "clap",
  "dirs 3.0.2",

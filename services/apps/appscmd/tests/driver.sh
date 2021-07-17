@@ -33,12 +33,12 @@ DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh $CI_PROJECT_DIR/service
 
 cd ${CI_PROJECT_DIR}/services/apps/appscmd/tests
 
-# Let the daemon start and initialize.
-sleep 5
-
 CMD="${CI_PROJECT_DIR}/target/release/appscmd --socket /tmp/apps_service_uds.sock"
 FIXTURES="${CI_PROJECT_DIR}/services/apps/test-fixtures"
 VROOT="${CI_PROJECT_DIR}/prebuilts/http_root/webapps/vroot"
+
+# Let the daemon start and initialize.
+${CMD} wait
 
 ${CMD} --json list > apps_observed.json
 result=`compare_list apps_expected.json  apps_observed.json`
