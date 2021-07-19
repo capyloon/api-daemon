@@ -49,6 +49,7 @@ pub enum ConcreteType {
     Binary,
     Date,
     Json,
+    Blob,
     Callback(String),
     Enumeration(String),
     Dictionary(String),
@@ -74,6 +75,8 @@ impl ConcreteType {
                 ConcreteType::Date
             } else if typ == "json" {
                 ConcreteType::Json
+            } else if typ == "blob" {
+                ConcreteType::Blob
             } else {
                 return None;
             }

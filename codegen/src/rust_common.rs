@@ -652,7 +652,7 @@ impl Codegen {
 #![allow(clippy::large_enum_variant)]
 
 #[allow(unused_imports)]
-use crate::common::{JsonValue, SystemTime, ObjectRef};
+use crate::common::{Blob, JsonValue, SystemTime, ObjectRef};
 use serde::{Deserialize, Serialize};
 \n\n",
         )?;
@@ -736,7 +736,7 @@ use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use common::core::{BaseMessage, BaseMessageKind};
 #[allow(unused_imports)]
-use common::{JsonValue, SystemTime, is_event_in_map};
+use common::{Blob, JsonValue, SystemTime, is_event_in_map};
 #[allow(unused_imports)]
 use common::traits::{DispatcherId, OriginAttributes, SessionSupport, Shared, TrackerId};
 #[allow(unused_imports)]

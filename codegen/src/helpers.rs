@@ -31,6 +31,7 @@ pub fn needs_clone(full_type: &FullConcreteType) -> bool {
         | ConcreteType::Binary
         | ConcreteType::Json
         | ConcreteType::Date
+        | ConcreteType::Blob
         | ConcreteType::Dictionary(_)
         | ConcreteType::Interface(_)
         | ConcreteType::Callback(_) => true,
@@ -55,6 +56,7 @@ pub fn rust_type(full_type: &FullConcreteType) -> String {
         ConcreteType::Binary => res.push_str("Vec<u8>"),
         ConcreteType::Json => res.push_str("JsonValue"),
         ConcreteType::Date => res.push_str("SystemTime"),
+        ConcreteType::Blob => res.push_str("Blob"),
         ConcreteType::Dictionary(ref utype)
         | ConcreteType::Enumeration(ref utype)
         | ConcreteType::Interface(ref utype) => {
@@ -89,6 +91,7 @@ pub fn rust_type_for_param(full_type: &FullConcreteType) -> String {
         ConcreteType::Binary => res.push_str("Vec<u8>"),
         ConcreteType::Json => res.push_str("JsonValue"),
         ConcreteType::Date => res.push_str("SystemTime"),
+        ConcreteType::Blob => res.push_str("Blob"),
         ConcreteType::Dictionary(ref utype) | ConcreteType::Enumeration(ref utype) => {
             res.push_str(&utype.to_string());
         }

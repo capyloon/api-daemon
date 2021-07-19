@@ -143,6 +143,12 @@ interface TestFactory {
 	fn echo_somethings(some: SomeThings) -> SomeThings
 
 	fn echo_morethings(more: MoreThings) -> MoreThings
+
+	fn echo_blob(first: blob) -> blob
+
+	fn count_blob_size(blob1: blob, blob2: blob, not_blob: str) -> int
+
+	fn concat_blobs(blob1: blob, blob2: blob) -> str
 }
 
 #[rust:use=crate::private_traits::*,rust:shared-tracker]

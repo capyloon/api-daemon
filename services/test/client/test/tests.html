@@ -56,7 +56,10 @@
             counter++;
             asyncTask.finish();
           };
-          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
 
           await tester.service.postpone(1000);
           await asyncTask.isFinished;
@@ -67,7 +70,10 @@
             1
           );
 
-          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.removeEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
         }
 
         // Multiple identical event listeners.
@@ -81,9 +87,18 @@
           };
 
           // Try to call `addEventListener` multiple times with the same handler.
-          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
-          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
-          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
+          tester.service.addEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
+          tester.service.addEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
 
           await tester.service.postpone(1000);
           await asyncTask.isFinished;
@@ -95,7 +110,10 @@
             1
           );
 
-          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.removeEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
 
           await tester.service.postpone(1000);
 
@@ -118,11 +136,20 @@
           };
 
           // Add and remove the event listener to disable/re-enable the event.
-          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
-          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
+          tester.service.removeEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
 
           // Add another event listener for verification.
-          tester.service.addEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.addEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
 
           await tester.service.postpone(1000);
           await asyncTask.isFinished;
@@ -133,7 +160,10 @@
             1
           );
 
-          tester.service.removeEventListener(tester.service.TIMEOUT_EVENT, handler);
+          tester.service.removeEventListener(
+            tester.service.TIMEOUT_EVENT,
+            handler
+          );
         }
 
         let echo_obj = { foo: "bar", json: true, magic: 42 };
@@ -295,11 +325,7 @@
           "echo one or more arg",
           (service) =>
             service.echoArgOneOrMore([
-              42,
-              32,
-              0x1234567890,
-              0x80000000,
-              -0x80000000,
+              42, 32, 0x1234567890, 0x80000000, -0x80000000,
             ]),
           [42, 32, 0x1234567890, 0x80000000, -0x80000000]
         );
@@ -414,7 +440,6 @@
           );
         }
 
-
         const some1 = {
           key: "some1",
           value: "value1",
@@ -422,14 +447,14 @@
         const some2 = {
           key: "some2",
           value: "value2",
-          next: [some1]
+          next: [some1],
         };
         const some3 = {
           key: "some3",
           value: "value3",
-          next: [some1, some2]
+          next: [some1, some2],
         };
-        const somes = [ some1, some2, some3 ];
+        const somes = [some1, some2, some3];
 
         for (let i = 0; i < somes.length; i++) {
           await tester.assert_eq(
@@ -442,19 +467,19 @@
         const more1 = {
           key: "more1",
           value: "value1",
-          next: []
+          next: [],
         };
         const more2 = {
           key: "more2",
           value: "value2",
-          next: [more1]
+          next: [more1],
         };
         const more3 = {
           key: "more3",
           value: "value3",
-          next: [more1, more2]
+          next: [more1, more2],
         };
-        const mores = [ more1, more2, more3 ];
+        const mores = [more1, more2, more3];
 
         for (let i = 0; i < somes.length; i++) {
           await tester.assert_eq(
@@ -463,6 +488,29 @@
             mores[i]
           );
         }
+
+        let blob1 = new Blob(["hello world!"], { type: "text/plain" });
+        await tester.assert_eq(
+          `echo blob`,
+          (service) => service.echoBlob(blob1),
+          true,
+          (result) => {
+            return (result.type = blob1.type && result.size == blob1.size);
+          }
+        );
+
+        let blob2 = new Blob(["I am blob 2"], { type: "text/plain" });
+        await tester.assert_eq(
+          `count blob size`,
+          (service) => service.countBlobSize(blob1, blob2, "test"),
+          23 // 12 + 11
+        );
+
+        await tester.assert_eq(
+          `concatenate blobs`,
+          (service) => service.concatBlobs(blob1, blob2),
+          "hello world!I am blob 2"
+        );
 
         let reporter = new TestReporter([tester]);
         reporter.output();

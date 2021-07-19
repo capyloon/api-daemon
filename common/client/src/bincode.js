@@ -199,6 +199,13 @@ export class Decoder {
     date.setTime(this.i64());
     return date;
   }
+
+  // Read a blob as a mime type + u8 array.
+  blob() {
+    let mimeType = this.string();
+    let data = this.u8_array();
+    return new Blob([data], { type: mimeType });
+  }
 }
 
 function checkType(val, type) {
@@ -210,16 +217,23 @@ function checkType(val, type) {
     case "date":
       ok = typeof val.toGMTString === "function";
       break;
+    case "blob":
+      ok = val.__isblob__ === true;
+      break;
     default:
       ok = typeof val === type;
   }
   if (!ok) {
     let msg = `Expected ${type}, bug got ${typeof val}`;
     let e = new Error(msg);
-    console.error(`======================= Start Bincode Type Checking error =======================`);
+    console.error(
+      `======================= Start Bincode Type Checking error =======================`
+    );
     console.error(msg);
     console.error(e.stack);
-    console.error(`=======================  End Bincode Type Checking error  =======================`);
+    console.error(
+      `=======================  End Bincode Type Checking error  =======================`
+    );
     throw e;
   }
 }
@@ -386,6 +400,14 @@ export class Encoder {
     checkType(val, "date");
 
     this.i64(val.getTime());
+    return this;
+  }
+
+  blob(val) {
+    checkType(val, "blob");
+
+    this.string(val.type);
+    this.u8_array(val.data);
     return this;
   }
 

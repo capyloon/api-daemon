@@ -8,7 +8,7 @@ use common::traits::{
     CommonResponder, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
     SharedSessionContext, SimpleObjectTracker, StateLogger, TrackerId,
 };
-use common::{JsonValue, SystemTime};
+use common::{Blob, JsonValue, SystemTime};
 use log::{error, info};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -494,6 +494,31 @@ impl TestFactoryMethods for TestServiceImpl {
         input: MoreThings,
     ) {
         responder.resolve(input);
+    }
+
+    fn echo_blob(&mut self, responder: &TestFactoryEchoBlobResponder, first: Blob) {
+        responder.resolve(first.clone());
+    }
+
+    fn count_blob_size(
+        &mut self,
+        responder: &TestFactoryCountBlobSizeResponder,
+        blob1: Blob,
+        blob2: Blob,
+        _not_blob: String,
+    ) {
+        responder.resolve((blob1.len() + blob2.len()) as _);
+    }
+
+    fn concat_blobs(
+        &mut self,
+        responder: &TestFactoryConcatBlobsResponder,
+        blob1: Blob,
+        blob2: Blob,
+    ) {
+        let mut text = String::from_utf8_lossy(blob1.data()).to_string();
+        text.push_str(&String::from_utf8_lossy(blob2.data()));
+        responder.resolve(text);
     }
 }
 

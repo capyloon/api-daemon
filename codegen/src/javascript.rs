@@ -71,16 +71,33 @@ pub enum TypedMessage {
     Response(TypedResponse),
 }
 
-struct MethodWriter;
+struct MethodWriter<'m> {
+    method: &'m Method,
+}
 
-impl MethodWriter {
+impl<'m> MethodWriter<'m> {
+    fn new(method: &'m Method) -> Self {
+        Self { method }
+    }
+
+    // Returns the list of asynchronous parameters names.
+    // In this case we declare the method "async" and generate awaiting code for the parameters.
+    fn has_async_params(&self) -> bool {
+        for param in &self.method.params {
+            if param.typ.typ == ConcreteType::Blob {
+                return true;
+            }
+        }
+        false
+    }
+
     // Returns Request, Response as TypedMessage
-    fn get_types(method: &Method) -> (TypedMessage, TypedMessage) {
-        let camel_name = method.name.to_camel_case();
+    fn get_types(&self) -> (TypedMessage, TypedMessage) {
+        let camel_name = self.method.name.to_camel_case();
 
         // Request with all the parameters
         let mut typed_req = TypedRequest::new(&camel_name);
-        for param in &method.params {
+        for param in &self.method.params {
             typed_req
                 .types
                 .push(TypeItem::from(Some(param.name.clone()), &param.typ));
@@ -88,10 +105,10 @@ impl MethodWriter {
 
         // Success response
         let mut typed_resp = TypedResponse::new(&camel_name);
-        typed_resp.success = Some(TypeItem::from(None, &method.returns.success));
+        typed_resp.success = Some(TypeItem::from(None, &self.method.returns.success));
 
         // Error response
-        typed_resp.error = Some(TypeItem::from(None, &method.returns.error));
+        typed_resp.error = Some(TypeItem::from(None, &self.method.returns.error));
         (
             TypedMessage::Request(typed_req),
             TypedMessage::Response(typed_resp),
@@ -99,14 +116,11 @@ impl MethodWriter {
     }
 
     // Returns Request, Response as TypedMessage and writes the method signature
-    fn declare<'a, W: Write>(
-        method: &'a Method,
-        sink: &'a mut W,
-    ) -> Result<(TypedMessage, TypedMessage)> {
-        write!(sink, "{}(", method.name)?;
+    fn declare<W: Write>(&self, sink: &mut W) -> Result<(TypedMessage, TypedMessage)> {
+        write!(sink, "{}(", self.method.name)?;
         // Write parameters list
         let mut first = true;
-        for param in &method.params {
+        for param in &self.method.params {
             if !first {
                 write!(sink, ",")?;
             }
@@ -115,7 +129,7 @@ impl MethodWriter {
         }
         write!(sink, ")")?;
 
-        Ok(MethodWriter::get_types(method))
+        Ok(self.get_types())
     }
 }
 
@@ -124,20 +138,21 @@ pub struct Codegen {
     fingerprint: String,
 }
 
-fn js_type(typ: &ConcreteType) -> String {
-    let mut res = String::new();
+// Returns the bincode.js type matching a concrete type.
+fn bincode_js_type(typ: &ConcreteType) -> String {
     match *typ {
-        ConcreteType::Void => res.push_str("void"),
-        ConcreteType::Bool => res.push_str("bool"),
-        ConcreteType::Int => res.push_str("i64"),
-        ConcreteType::Float => res.push_str("f64"),
-        ConcreteType::Str => res.push_str("string"),
-        ConcreteType::Binary => res.push_str("u8_array"),
-        ConcreteType::Json => res.push_str("json"),
-        ConcreteType::Date => res.push_str("date"),
+        ConcreteType::Void => "void",
+        ConcreteType::Bool => "bool",
+        ConcreteType::Int => "i64",
+        ConcreteType::Float => "f64",
+        ConcreteType::Str => "string",
+        ConcreteType::Binary => "u8_array",
+        ConcreteType::Json => "json",
+        ConcreteType::Date => "date",
+        ConcreteType::Blob => "blob",
         _ => unimplemented!("No js type for this concrete type: {:?}", typ),
     }
-    res
+    .into()
 }
 
 impl Codegen {
@@ -245,7 +260,7 @@ impl Codegen {
                 writeln!(
                     sink,
                     "result = result.{}({});",
-                    js_type(&item.typ.typ),
+                    bincode_js_type(&item.typ.typ),
                     full_path
                 )?;
             }
@@ -423,7 +438,7 @@ impl Codegen {
                             .clone()
                             .map(|e| format!(".{}", e))
                             .unwrap_or_else(|| "".into()),
-                        js_type(&item.typ.typ),
+                        bincode_js_type(&item.typ.typ),
                     )?;
                 } else {
                     writeln!(
@@ -434,7 +449,7 @@ impl Codegen {
                             .clone()
                             .map(|e| format!(".{}", e))
                             .unwrap_or_else(|| "".into()),
-                        js_type(&item.typ.typ),
+                        bincode_js_type(&item.typ.typ),
                     )?;
                 }
             }
@@ -561,8 +576,43 @@ impl Codegen {
 
         // Methods
         for method in interface.methods.values() {
-            let (req, resp) = MethodWriter::declare(&method, sink)?;
+            let method_writer = MethodWriter::new(&method);
+            let (req, resp) = method_writer.declare(sink)?;
             writeln!(sink, "{{")?;
+
+            // Create a promise array to wait on.
+            if method_writer.has_async_params() {
+                writeln!(sink, "let promises = [];")?;
+            }
+
+            for param in &method.params {
+                if param.typ.typ == ConcreteType::Blob {
+                    // Turn blobs into pseudo blobs, generating this code:
+                    // TODO: async/await version once we update webpack
+                    //
+                    // let pname_type = pname.type;
+                    // let p = pname.arrayBuffer().then(data => {
+                    //  return { __isblob__: true, data: new Uint8Array(buffer), type: pname_type }
+                    //});
+                    // promises.push(p);
+
+                    let pname = &param.name;
+                    writeln!(sink, "let {}_type = {}.type;", pname, pname)?;
+                    writeln!(
+                        sink,
+                        "let {}_p = {}.arrayBuffer().then(data => {{",
+                        pname, pname
+                    )?;
+                    writeln!(
+                        sink,
+                        "return {{ __isblob__: true, data: new Uint8Array(data), type: {}_type }}",
+                        pname,
+                    )?;
+                    writeln!(sink, "}});")?;
+                    writeln!(sink, "promises.push({}_p);", pname)?;
+                }
+            }
+
             // Check if this is a callback with a single function that could be
             // simplified to a simple function.
             for param in &method.params {
@@ -582,7 +632,19 @@ impl Codegen {
                 }
             }
 
-            writeln!(
+            // If needed, wrap call_method() by the promise(s) for async types.
+            if method_writer.has_async_params() {
+                let mut index = 0;
+                writeln!(sink, "return Promise.all(promises).then(results => {{")?;
+                for param in &method.params {
+                    if param.typ.typ == ConcreteType::Blob {
+                        writeln!(sink, "let {} = results[{}];", param.name, index)?;
+                        index += 1;
+                    }
+                }
+            }
+
+            write!(
                 sink,
                 "return this.call_method(\"{}\", {{",
                 method.name.to_camel_case()
@@ -595,6 +657,12 @@ impl Codegen {
                 first = false;
                 write!(sink, "{}: {}", param.name, param.name)?;
             }
+
+            if method_writer.has_async_params() {
+                // close the outer promise for async types.
+                writeln!(sink, "}});")?;
+            }
+
             writeln!(sink, "}});")?;
             writeln!(sink, "}}")?;
 
@@ -767,7 +835,8 @@ impl Codegen {
 
         writeln!(sink, "switch (variant) {{")?;
         for method in callback.methods.values() {
-            let (req, resp) = MethodWriter::get_types(&method);
+            let method_writer = MethodWriter::new(method);
+            let (req, resp) = method_writer.get_types();
             let req = match req {
                 TypedMessage::Request(req) => req,
                 _ => panic!("Expected TypedMessage::Request!"),
