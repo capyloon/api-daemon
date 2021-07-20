@@ -10,6 +10,7 @@ use std::io::Write;
 #[macro_use]
 mod services_macro;
 mod api_server;
+mod cache_middleware;
 mod config;
 #[cfg(feature = "breakpad")]
 mod crash_uploader;

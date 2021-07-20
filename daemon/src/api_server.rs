@@ -1,4 +1,5 @@
 /// Actix WebSocket and HTTP server
+use crate::cache_middleware::NoCacheForErrors;
 use crate::global_context::GlobalContext;
 use crate::session::Session;
 use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler};
@@ -364,6 +365,7 @@ pub fn start(
             .wrap(Logger::new("\"%r\" %{Host}i %s %b %D")) // Custom log to display the vhost
             .wrap(Cors::default().allow_any_origin().send_wildcard())
             .wrap(Compress::default())
+            .wrap(NoCacheForErrors::default())
             .service(
                 web::scope("/")
                     .guard(VhostChecker::new(port))
@@ -393,7 +395,7 @@ mod test {
     use crate::config::Config;
     use crate::global_context::GlobalContext;
     use common::traits::Shared;
-    use reqwest::header::{CONTENT_ENCODING, CONTENT_TYPE};
+    use reqwest::header::{CACHE_CONTROL, CONTENT_ENCODING, CONTENT_TYPE};
     use reqwest::StatusCode;
     use std::net::TcpStream;
     use std::{thread, time};
@@ -501,6 +503,9 @@ mod test {
         {
             let content_type = headers.get(CONTENT_TYPE).unwrap();
             assert_eq!(content_type.as_bytes(), b"application/octet-stream");
+
+            // No Cache-Control header should be set on successful responses.
+            assert!(!headers.contains_key(CACHE_CONTROL));
         }
         {
             let mut content_encodings = headers
@@ -513,5 +518,20 @@ mod test {
         }
 
         assert_eq!(resp.headers()["content-length"], "29");
+    }
+
+    #[test]
+    fn test_cache_control() {
+        let port = start_server();
+        let client = reqwest::blocking::Client::builder().build().unwrap();
+
+        let resp = client
+            .get(&format!("http://127.0.0.1:{}/no/such/resource", port))
+            .send()
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        let cache_control = resp.headers().get(CACHE_CONTROL).unwrap().to_str().unwrap();
+        assert_eq!(cache_control, "no-cache");
     }
 }
