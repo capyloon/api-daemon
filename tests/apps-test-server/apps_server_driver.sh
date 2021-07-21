@@ -50,6 +50,7 @@ ln -s $CI_PROJECT_DIR/services/apps/client $CI_PROJECT_DIR/services/apps/test-fi
 $CI_PROJECT_DIR/tests/apps-test-server/v1.sh
 DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh \
     http://apps.localhost:8081/test/not_allow_downgrade.html \
+    http://apps.localhost:8081/test/tests_update_preload_pwa_app.html \
     http://apps.localhost:8081/test/uninstall_apps.html \
     http://apps.localhost:8081/test/install_apps.html \
     http://apps.localhost:8081/test/install_apps_with_origin.html \

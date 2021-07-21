@@ -160,7 +160,7 @@ async fn apps_responses(
         return HttpResponse::BadRequest().finish();
     }
     // Do not check the authorization header for pwa.
-    if app != "pwa" && !validate(&req) {
+    if app != "pwa" && app != "updatepwa" && !validate(&req) {
         return HttpResponse::Unauthorized().finish();
     }
     response_from_file(req, &app, &name)

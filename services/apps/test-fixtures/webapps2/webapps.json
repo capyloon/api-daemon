@@ -43,5 +43,13 @@
   "install_time": 1584670494752,
   "manifest_hash": "64a6dc4c342bbf1805f6c324ebc82b09",
   "package_hash": "bf93bd0348cab5a5df8c135878a00db4"
+},
+{
+  "name": "updatepwa",
+  "manifest_url": "http://cached.localhost/updatepwa/manifest.webmanifest",
+  "removable": false,
+  "update_url": "http://127.0.0.1:8596/apps/updatepwa/manifest.webmanifest",
+  "install_time": 1584670494752,
+  "manifest_hash": "6def0ae3d7438e60e804d21c368f5df3"
 }
 ]

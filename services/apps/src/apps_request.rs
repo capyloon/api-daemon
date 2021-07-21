@@ -544,23 +544,29 @@ impl AppsRequest {
             Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
         let _ = is_same_origin_with(&update_url_base, &manifest.get_start_url())?;
 
-        let app_name: String;
         let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
         {
             let registry = &mut self.shared_data.lock().registry;
-            app_name = registry.get_unique_name(
-                &manifest.get_name(),
-                manifest.get_origin(),
-                Some(&update_url),
-            )?;
-            apps_item = AppsItem::default_pwa(&app_name, registry.get_vhost_port());
-            if is_update {
-                apps_item.set_update_state(AppsUpdateState::Updating);
+            apps_item = if is_update {
+                let mut app = registry
+                    .get_by_update_url(&update_url)
+                    .ok_or(AppsServiceError::AppNotFound)?;
+                app.set_update_state(AppsUpdateState::Updating);
+
+                app
             } else {
-                apps_item.set_install_state(AppsInstallState::Installing);
-            }
-            apps_item.set_update_url(&update_url);
+                let app_name = registry.get_unique_name(
+                    &manifest.get_name(),
+                    manifest.get_origin(),
+                    Some(&update_url),
+                )?;
+                let mut app = AppsItem::default_pwa(&app_name, registry.get_vhost_port());
+                app.set_update_url(&update_url);
+                app.set_install_state(AppsInstallState::Installing);
+
+                app
+            };
             let version = manifest.get_version();
             if !version.is_empty() {
                 apps_item.set_version(&version);
