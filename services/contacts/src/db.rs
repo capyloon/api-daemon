@@ -306,7 +306,7 @@ impl From<&SimContactInfo> for ContactInfo {
             id: Some(sim_contact_info.id.to_string()),
             name: Some(sim_contact_info.name.to_string()),
             family_name: Some(sim_contact_info.name.to_string()),
-            given_name: Some(sim_contact_info.name.to_string()),
+            given_name: None,
             ..Default::default()
         };
 
@@ -314,7 +314,7 @@ impl From<&SimContactInfo> for ContactInfo {
         let tels = sim_tels
             .iter()
             .map(|x| ContactTelField {
-                atype: None,
+                atype: Some("mobile".to_string()),
                 value: (*x).to_string(),
                 pref: Some(false),
                 carrier: None,
@@ -1615,7 +1615,9 @@ impl ContactsDb {
         }
         let contacts_info: Vec<ContactInfo> =
             updated_contacts.iter().map(|item| item.into()).collect();
-        self.save(&contacts_info, true)?;
+        if !contacts_info.is_empty() {
+            self.save(&contacts_info, true)?;
+        }
         let event = SimContactLoadedEvent {
             remove_count: removed_ids.len() as i64,
             update_count: updated_contacts.len() as i64,
@@ -1781,6 +1783,7 @@ mod test {
         if let Ok(contact) = db.get(&"0001".to_string(), true) {
             // Verify sim_contact_1's tel update to "15229099710".
             assert_eq!(contact.tel.unwrap()[0].value, "15229099710".to_string());
+            assert_eq!(contact.given_name, None);
         }
 
         // To verify contact email changed to zx@163.com.
