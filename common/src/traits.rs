@@ -457,18 +457,26 @@ pub struct Shared<T> {
 }
 
 impl<T> Shared<T> {
-    pub fn lock(&self) -> MutexGuard<T> {
-        self.inner.lock()
-    }
-
     pub fn adopt(what: T) -> Self {
         Shared {
             inner: Arc::new(Mutex::new(what)),
         }
     }
 
+    pub fn from(what: Arc<Mutex<T>>) -> Self {
+        Shared { inner: what }
+    }
+
+    pub fn lock(&self) -> MutexGuard<T> {
+        self.inner.lock()
+    }
+
     pub fn is_locked(&self) -> bool {
         self.inner.is_locked()
+    }
+
+    pub fn downgrade(&self) -> std::sync::Weak<Mutex<T>> {
+        Arc::downgrade(&self.inner)
     }
 }
 
