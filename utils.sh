@@ -160,7 +160,7 @@ EOF
     printenv
     rustc --version
     cargo --version
-    cargo build --verbose --target=${TARGET_TRIPLE} ${FEATURES} ${OPT}
+    cargo build --verbose --target=${TARGET_TRIPLE} --features=${FEATURES} ${OPT}
 }
 
 function generate_breakpad_symbols() {

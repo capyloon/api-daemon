@@ -31,7 +31,7 @@ elif [[ "${BUILD_TYPE}" == "beta" ]]; then
 fi
 
 cd daemon
-FEATURES=--features=${BUILD_FEATURES} ./xcompile.sh ${OPT}
+FEATURES=${BUILD_FEATURES} ./xcompile.sh ${OPT}
 cd ..
 
 TARGET_ARCH=${TARGET_ARCH:-armv7-linux-androideabi}
