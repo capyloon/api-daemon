@@ -216,8 +216,8 @@ impl Default for ContactInfo {
             id: None,
             published: Some(SystemTime::from(UNIX_EPOCH)),
             updated: Some(SystemTime::from(UNIX_EPOCH)),
-            bday: Some(SystemTime::from(UNIX_EPOCH)),
-            anniversary: Some(SystemTime::from(UNIX_EPOCH)),
+            bday: None,
+            anniversary: None,
             sex: None,
             gender_identity: None,
             ringtone: None,
@@ -462,13 +462,20 @@ impl ContactInfo {
                 self.updated = Some(SystemTime::from(time));
             }
 
-            if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.bday as u64)) {
-                self.bday = Some(SystemTime::from(time));
+            let bday = row.bday as i64;
+            if bday >= 0 {
+                if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.bday as u64)) {
+                    self.bday = Some(SystemTime::from(time));
+                }
             }
 
-            if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.anniversary as u64))
-            {
-                self.anniversary = Some(SystemTime::from(time));
+            let anniversary = row.anniversary as i64;
+            if anniversary >= 0 {
+                if let Some(time) =
+                    UNIX_EPOCH.checked_add(Duration::from_secs(row.anniversary as u64))
+                {
+                    self.anniversary = Some(SystemTime::from(time));
+                }
             }
         }
         Ok(())
@@ -601,25 +608,35 @@ impl ContactInfo {
             updated = duration.as_secs() as i64;
         }
 
-        let mut bday = 0;
-        if let Ok(duration) = self
-            .bday
-            .as_ref()
-            .unwrap_or(&epoch)
-            .duration_since(UNIX_EPOCH)
-        {
-            bday = duration.as_secs() as i64;
-        }
+        let bday: i64 = if self.bday.is_some() {
+            if let Ok(duration) = self
+                .bday
+                .as_ref()
+                .unwrap_or(&epoch)
+                .duration_since(UNIX_EPOCH)
+            {
+                duration.as_secs() as i64
+            } else {
+                -1
+            }
+        } else {
+            -1
+        };
 
-        let mut anniversary = 0;
-        if let Ok(duration) = self
-            .anniversary
-            .as_ref()
-            .unwrap_or(&epoch)
-            .duration_since(UNIX_EPOCH)
-        {
-            anniversary = duration.as_secs() as i64;
-        }
+        let anniversary: i64 = if self.bday.is_some() {
+            if let Ok(duration) = self
+                .anniversary
+                .as_ref()
+                .unwrap_or(&epoch)
+                .duration_since(UNIX_EPOCH)
+            {
+                duration.as_secs() as i64
+            } else {
+                -1
+            }
+        } else {
+            -1
+        };
 
         stmt_ins.insert(&[
             &self.id as &dyn rusqlite::ToSql,

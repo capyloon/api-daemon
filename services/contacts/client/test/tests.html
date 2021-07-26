@@ -212,8 +212,6 @@
         let contact_none_1 = {
           published: new Date(),
           updated: new Date(),
-          bday: new Date(),
-          anniversary: new Date(),
           name: "ZX",
           tel: [{ value: "789456" }],
         };
@@ -264,6 +262,18 @@
           "verify search conact contain 94 name is ZX",
           () => Promise.resolve(search_contain_94_result[0].name),
           "ZX"
+        );
+
+        await tester.assert_eq(
+          "verify contact bday is undefined",
+          () => Promise.resolve(search_contain_94_result[0].bday),
+          undefined
+        );
+
+        await tester.assert_eq(
+          "verify contact anniversary is undefined",
+          () => Promise.resolve(search_contain_94_result[0].anniversary),
+          undefined
         );
 
         await tester.assert_eq(
