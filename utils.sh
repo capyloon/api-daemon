@@ -78,12 +78,14 @@ function setup_xcompile_envs() {
             echo "${BUILD_WITH_NDK_DIR} doesn't exixt."
 	    exit 1
 	fi
+        # If NDK_TOOLS_PATH is set and NULL, use the value NULL.
+        NDK_TOOLS_PATH=${NDK_TOOLS_PATH-/toolchains/llvm/prebuilt/linux-x86_64}
         export TOOLCHAIN_CC=${TOOLCHAIN_PREFIX}-clang
         export TOOLCHAIN_CXX=${TOOLCHAIN_PREFIX}-clang++
-        export SYSROOT=${BUILD_WITH_NDK_DIR}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+        export SYSROOT=${BUILD_WITH_NDK_DIR}${NDK_TOOLS_PATH}/sysroot
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
         export ANDROID_NDK=${BUILD_WITH_NDK_DIR}
-        export PATH=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}
+        export PATH=${ANDROID_NDK}${NDK_TOOLS_PATH}/bin:${PATH}
 
         echo "Building for ${TARGET_TRIPLE} using NDK '${BUILD_WITH_NDK_DIR}'"
     else
