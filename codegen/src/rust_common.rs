@@ -242,6 +242,20 @@ impl Codegen {
                     sink,
                     "let service_id = self.helper.session_tracker_id().service();"
                 )?;
+                if rtype != "()" {
+                    writeln!(
+                        sink,
+                        r#"log::debug!("{} dispatch {} on #{{}} : {{:?}}", service_id, value);"#,
+                        interface.name, event.name
+                    )?;
+                } else {
+                    writeln!(
+                        sink,
+                        r#"log::debug!("{} dispatch {} on #{{}}", service_id);"#,
+                        interface.name, event.name
+                    )?;
+                }
+
                 writeln!(sink,
                     "if is_event_in_map(&self.helper.event_map(), service_id, self.object_id, {}) {{",
                     index
