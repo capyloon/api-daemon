@@ -1683,6 +1683,25 @@ mod test {
             );
         }
         assert_eq!(db.count().unwrap(), 2);
+        let mut get_all_cursor = db
+            .get_all(
+                ContactSortOptions {
+                    sort_by: SortOption::Name,
+                    sort_order: Order::Ascending,
+                    sort_language: None,
+                },
+                10,
+                true,
+            )
+            .unwrap();
+
+        let preload_contacts = get_all_cursor.next().unwrap();
+        for contact in preload_contacts {
+            assert_eq!(
+                contact.tel.unwrap().pop().unwrap().atype,
+                Some("office".to_string())
+            );
+        }
         db.clear_contacts().unwrap();
         assert_eq!(db.count().unwrap(), 0);
 

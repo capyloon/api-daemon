@@ -141,6 +141,7 @@ impl From<&JsonContactTelField> for ContactTelField {
         let mut contact_tel_field = ContactTelField {
             pref: json_tel_field.pref,
             carrier: json_tel_field.carrier.clone(),
+            atype: json_tel_field.atype.clone(),
             ..Default::default()
         };
         if let Some(value) = &json_tel_field.value {
