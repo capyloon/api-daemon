@@ -19,12 +19,12 @@ impl HmacSha256 {
 }
 
 impl HmacSha256Methods for HmacSha256 {
-    fn update(&mut self, responder: &HmacSha256UpdateResponder, data: Vec<u8>) {
+    fn update(&mut self, responder: HmacSha256UpdateResponder, data: Vec<u8>) {
         self.ctxt.update(&data);
         responder.resolve();
     }
 
-    fn finalize(&mut self, responder: &HmacSha256FinalizeResponder) {
+    fn finalize(&mut self, responder: HmacSha256FinalizeResponder) {
         responder.resolve(self.ctxt.finalize_reset().into_bytes().to_vec());
     }
 }
@@ -57,12 +57,12 @@ impl SimpleObjectTracker for Sha512Digest {
 }
 
 impl Sha512DigestMethods for Sha512Digest {
-    fn update(&mut self, responder: &Sha512DigestUpdateResponder, data: Vec<u8>) {
+    fn update(&mut self, responder: Sha512DigestUpdateResponder, data: Vec<u8>) {
         self.ctxt.update(&data);
         responder.resolve();
     }
 
-    fn finalize(&mut self, responder: &Sha512DigestFinalizeResponder) {
+    fn finalize(&mut self, responder: Sha512DigestFinalizeResponder) {
         responder.resolve(self.ctxt.clone().finish().as_ref().to_vec());
     }
 }

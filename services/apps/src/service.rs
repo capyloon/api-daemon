@@ -30,7 +30,7 @@ impl AppsManager for AppsService {
 }
 
 impl AppsEngineMethods for AppsService {
-    fn get_all(&mut self, responder: &AppsEngineGetAllResponder) {
+    fn get_all(&mut self, responder: AppsEngineGetAllResponder) {
         info!("get_all");
         let shared = self.shared_data.lock();
         match shared.get_all_apps() {
@@ -45,7 +45,7 @@ impl AppsEngineMethods for AppsService {
         }
     }
 
-    fn get_app(&mut self, responder: &AppsEngineGetAppResponder, manifest_url: String) {
+    fn get_app(&mut self, responder: AppsEngineGetAppResponder, manifest_url: String) {
         info!("get_app: {}", manifest_url);
         let shared = self.shared_data.lock();
         match shared.get_by_manifest_url(&manifest_url) {
@@ -54,7 +54,7 @@ impl AppsEngineMethods for AppsService {
         }
     }
 
-    fn get_state(&mut self, responder: &AppsEngineGetStateResponder) {
+    fn get_state(&mut self, responder: AppsEngineGetStateResponder) {
         info!("get_state");
         let shared = self.shared_data.lock();
         responder.resolve(shared.state);
@@ -62,17 +62,17 @@ impl AppsEngineMethods for AppsService {
 
     fn install_package(
         &mut self,
-        responder: &AppsEngineInstallPackageResponder,
+        responder: AppsEngineInstallPackageResponder,
         update_url: String,
     ) {
         info!("install_package: {}", &update_url);
-        let task = InstallPackageTask(self.shared_data.clone(), update_url, responder.clone());
+        let task = InstallPackageTask(self.shared_data.clone(), update_url, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
     fn check_for_update(
         &mut self,
-        responder: &AppsEngineCheckForUpdateResponder,
+        responder: AppsEngineCheckForUpdateResponder,
         update_url: String,
         apps_option: AppsOptions,
     ) {
@@ -81,42 +81,42 @@ impl AppsEngineMethods for AppsService {
             self.shared_data.clone(),
             update_url,
             apps_option,
-            Some(responder.clone()),
+            Some(responder),
         );
         self.shared_data.lock().registry.queue_task(task);
     }
 
     fn cancel_download(
         &mut self,
-        responder: &AppsEngineCancelDownloadResponder,
+        responder: AppsEngineCancelDownloadResponder,
         update_url: String,
     ) {
         info!("cancel_download: {}", &update_url);
-        let task = CancelDownloadTask(self.shared_data.clone(), update_url, responder.clone());
+        let task = CancelDownloadTask(self.shared_data.clone(), update_url, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
-    fn install_pwa(&mut self, responder: &AppsEngineInstallPwaResponder, update_url: String) {
+    fn install_pwa(&mut self, responder: AppsEngineInstallPwaResponder, update_url: String) {
         info!("install_pwa: {}", &update_url);
-        let task = InstallPwaTask(self.shared_data.clone(), update_url, responder.clone());
+        let task = InstallPwaTask(self.shared_data.clone(), update_url, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
-    fn update(&mut self, responder: &AppsEngineUpdateResponder, manifest_url: String) {
+    fn update(&mut self, responder: AppsEngineUpdateResponder, manifest_url: String) {
         info!("update: {}", &manifest_url);
-        let task = UpdateTask(self.shared_data.clone(), manifest_url, responder.clone());
+        let task = UpdateTask(self.shared_data.clone(), manifest_url, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
-    fn uninstall(&mut self, responder: &AppsEngineUninstallResponder, manifest_url: String) {
+    fn uninstall(&mut self, responder: AppsEngineUninstallResponder, manifest_url: String) {
         info!("uninstall: {}", &manifest_url);
-        let task = UninstallTask(self.shared_data.clone(), manifest_url, responder.clone());
+        let task = UninstallTask(self.shared_data.clone(), manifest_url, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
     fn set_enabled(
         &mut self,
-        responder: &AppsEngineSetEnabledResponder,
+        responder: AppsEngineSetEnabledResponder,
         manifest_url: String,
         status: AppsStatus,
     ) {
@@ -125,14 +125,14 @@ impl AppsEngineMethods for AppsService {
             self.shared_data.clone(),
             manifest_url,
             status,
-            responder.clone(),
+            responder,
         );
         self.shared_data.lock().registry.queue_task(task);
     }
 
     fn set_update_policy(
         &mut self,
-        responder: &AppsEngineSetUpdatePolicyResponder,
+        responder: AppsEngineSetUpdatePolicyResponder,
         config: UpdatePolicy,
     ) {
         info!(
@@ -151,7 +151,7 @@ impl AppsEngineMethods for AppsService {
         }
     }
 
-    fn get_update_policy(&mut self, responder: &AppsEngineGetUpdatePolicyResponder) {
+    fn get_update_policy(&mut self, responder: AppsEngineGetUpdatePolicyResponder) {
         info!("get_update_policy");
         let scheduler = UpdateScheduler::new();
 
@@ -160,7 +160,7 @@ impl AppsEngineMethods for AppsService {
 
     fn clear(
         &mut self,
-        responder: &AppsEngineClearResponder,
+        responder: AppsEngineClearResponder,
         manifest_url: String,
         data_type: ClearType,
     ) {
@@ -169,14 +169,14 @@ impl AppsEngineMethods for AppsService {
             self.shared_data.clone(),
             manifest_url,
             data_type,
-            responder.clone(),
+            responder,
         );
         self.shared_data.lock().registry.queue_task(task);
     }
 
     fn verify(
         &mut self,
-        responder: &AppsEngineVerifyResponder,
+        responder: AppsEngineVerifyResponder,
         manifest_url: String,
         cert_type: String,
         folder_name: String,
@@ -203,7 +203,7 @@ impl AppsEngineMethods for AppsService {
 
     fn set_token_provider(
         &mut self,
-        responder: &AppsEngineSetTokenProviderResponder,
+        responder: AppsEngineSetTokenProviderResponder,
         provider: ObjectRef,
     ) {
         info!("set_token_provider");

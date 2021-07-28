@@ -254,18 +254,18 @@ impl SimpleObjectTracker for TcpSocket {
 }
 
 impl TcpSocketMethods for TcpSocket {
-    fn close(&mut self, responder: &TcpSocketCloseResponder) {
+    fn close(&mut self, responder: TcpSocketCloseResponder) {
         info!("Close the socket");
         self.close_internal();
         responder.resolve();
     }
 
-    fn resume(&mut self, responder: &TcpSocketResumeResponder) {
+    fn resume(&mut self, responder: TcpSocketResumeResponder) {
         info!("Resume the connection");
         responder.resolve();
     }
 
-    fn send(&mut self, responder: &TcpSocketSendResponder, data: Vec<u8>) {
+    fn send(&mut self, responder: TcpSocketSendResponder, data: Vec<u8>) {
         info!("Send data");
         let request = responder.base_message.response();
         self.send_queue(request, data);
@@ -274,7 +274,7 @@ impl TcpSocketMethods for TcpSocket {
         responder.resolve(true);
     }
 
-    fn suspend(&mut self, responder: &TcpSocketSuspendResponder) {
+    fn suspend(&mut self, responder: TcpSocketSuspendResponder) {
         info!("Suspend the connection");
         responder.resolve();
     }

@@ -26,14 +26,14 @@ pub struct FooProviderImpl {
 }
 
 impl FooProviderMethods for FooProviderImpl {
-    fn do_it(&mut self, responder: &FooProviderDoItResponder, what: String) {
+    fn do_it(&mut self, responder: FooProviderDoItResponder, what: String) {
         info!("FooProviderImpl::do_it `{}`", what);
         let len = what.len();
         self.event_dispatcher.dispatch_signal(what);
         responder.resolve(len as _);
     }
 
-    fn get_amount(&mut self, responder: &FooProviderGetAmountResponder) {
+    fn get_amount(&mut self, responder: FooProviderGetAmountResponder) {
         responder.resolve(self.amount);
     }
 
@@ -54,13 +54,13 @@ pub struct SharedFooProviderImpl {
 }
 
 impl SharedFooProviderMethods for SharedFooProviderImpl {
-    fn do_it(&mut self, responder: &SharedFooProviderDoItResponder, what: String) {
+    fn do_it(&mut self, responder: SharedFooProviderDoItResponder, what: String) {
         info!("SharedFooProviderImpl::do_it `{}`", what);
         let len = what.len();
         responder.resolve(len as _);
     }
 
-    fn get_amount(&mut self, responder: &SharedFooProviderGetAmountResponder) {
+    fn get_amount(&mut self, responder: SharedFooProviderGetAmountResponder) {
         responder.resolve(self.amount);
     }
 
@@ -81,13 +81,13 @@ pub struct SharedCustomProviderImpl {
 }
 
 impl SharedCustomProviderMethods for SharedCustomProviderImpl {
-    fn do_it(&mut self, responder: &SharedCustomProviderDoItResponder, what: String) {
+    fn do_it(&mut self, responder: SharedCustomProviderDoItResponder, what: String) {
         info!("SharedFooProviderImpl::do_it `{}`", what);
         let len = what.len();
         responder.resolve(len as _);
     }
 
-    fn get_amount(&mut self, responder: &SharedCustomProviderGetAmountResponder) {
+    fn get_amount(&mut self, responder: SharedCustomProviderGetAmountResponder) {
         responder.resolve(self.amount);
     }
 
@@ -142,16 +142,15 @@ impl TestService for TestServiceImpl {
 }
 
 impl TestFactoryMethods for TestServiceImpl {
-    fn crash(&mut self, responder: &TestFactoryCrashResponder) {
+    fn crash(&mut self, responder: TestFactoryCrashResponder) {
         // self.sigsegv();
         responder.resolve();
     }
 
-    fn postpone(&mut self, responder: &TestFactoryPostponeResponder, timeout: i64) {
+    fn postpone(&mut self, responder: TestFactoryPostponeResponder, timeout: i64) {
         info!("postpone {}", timeout);
 
-        // Make the responder and event dispatcher available in the thread.
-        let responder = responder.clone();
+        // Make the event dispatcher available in the thread.
         let event_dispatcher = self.event_dispatcher.clone();
 
         self.pool.execute(move || {
@@ -170,7 +169,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn update_bag(
         &mut self,
-        responder: &TestFactoryUpdateBagResponder,
+        responder: TestFactoryUpdateBagResponder,
         _index: i64,
         _bag: BagOfThings,
     ) {
@@ -178,12 +177,12 @@ impl TestFactoryMethods for TestServiceImpl {
         responder.reject();
     }
 
-    fn default_bag(&mut self, responder: &TestFactoryDefaultBagResponder) {
+    fn default_bag(&mut self, responder: TestFactoryDefaultBagResponder) {
         info!("default_bag");
         responder.reject("Something went wrong!".into());
     }
 
-    fn zero_or_more_bags(&mut self, responder: &TestFactoryZeroOrMoreBagsResponder, zero: bool) {
+    fn zero_or_more_bags(&mut self, responder: TestFactoryZeroOrMoreBagsResponder, zero: bool) {
         info!("zero_or_more_bag");
         if zero {
             responder.resolve(None);
@@ -205,7 +204,7 @@ impl TestFactoryMethods for TestServiceImpl {
         }
     }
 
-    fn one_or_more_bags(&mut self, responder: &TestFactoryOneOrMoreBagsResponder, one: bool) {
+    fn one_or_more_bags(&mut self, responder: TestFactoryOneOrMoreBagsResponder, one: bool) {
         info!("one_or_more_bag");
         let mut list = Vec::<BagOfThings>::new();
         if one {
@@ -230,7 +229,7 @@ impl TestFactoryMethods for TestServiceImpl {
         responder.resolve(list);
     }
 
-    fn get_state(&mut self, responder: &TestFactoryGetStateResponder) {
+    fn get_state(&mut self, responder: TestFactoryGetStateResponder) {
         info!("get_state");
         responder.resolve(self.state_prop);
     }
@@ -240,19 +239,19 @@ impl TestFactoryMethods for TestServiceImpl {
         self.state_prop = value;
     }
 
-    fn get_blob(&mut self, responder: &TestFactoryGetBlobResponder, size: i64) {
+    fn get_blob(&mut self, responder: TestFactoryGetBlobResponder, size: i64) {
         info!("get_blob {}", size);
         let mut result = Vec::new();
         result.resize(size as usize, 42);
         responder.resolve(result);
     }
 
-    fn echo_json(&mut self, responder: &TestFactoryEchoJsonResponder, input: JsonValue) {
+    fn echo_json(&mut self, responder: TestFactoryEchoJsonResponder, input: JsonValue) {
         info!("echo_json");
         responder.resolve(input);
     }
 
-    fn get_provider(&mut self, responder: &TestFactoryGetProviderResponder) {
+    fn get_provider(&mut self, responder: TestFactoryGetProviderResponder) {
         info!("get_provider");
         let mut tracker = self.tracker.lock();
         let id = tracker.next_id();
@@ -266,7 +265,7 @@ impl TestFactoryMethods for TestServiceImpl {
         responder.resolve(provider);
     }
 
-    fn get_shared_provider(&mut self, responder: &TestFactoryGetSharedProviderResponder) {
+    fn get_shared_provider(&mut self, responder: TestFactoryGetSharedProviderResponder) {
         info!("get_shared_provider");
         let mut tracker = self.tracker.lock();
         let id = tracker.next_id();
@@ -279,7 +278,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn get_shared_custom_provider(
         &mut self,
-        responder: &TestFactoryGetSharedCustomProviderResponder,
+        responder: TestFactoryGetSharedCustomProviderResponder,
     ) {
         info!("get_shared_custom_provider");
         let mut tracker = self.tracker.lock();
@@ -293,14 +292,14 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn test_string_arrays(
         &mut self,
-        responder: &TestFactoryTestStringArraysResponder,
+        responder: TestFactoryTestStringArraysResponder,
         input: Vec<String>,
     ) {
         info!("test_string_arrays with {} strings", input.len());
         responder.resolve(input.len() as _);
     }
 
-    fn optional(&mut self, responder: &TestFactoryOptionalResponder, optional: bool) {
+    fn optional(&mut self, responder: TestFactoryOptionalResponder, optional: bool) {
         if optional {
             responder.resolve(Some(42));
         } else {
@@ -308,7 +307,7 @@ impl TestFactoryMethods for TestServiceImpl {
         }
     }
 
-    fn one_or_more(&mut self, responder: &TestFactoryOneOrMoreResponder, one: bool) {
+    fn one_or_more(&mut self, responder: TestFactoryOneOrMoreResponder, one: bool) {
         if one {
             responder.resolve(vec![42]);
         } else {
@@ -316,7 +315,7 @@ impl TestFactoryMethods for TestServiceImpl {
         }
     }
 
-    fn zero_or_more(&mut self, responder: &TestFactoryZeroOrMoreResponder, zero: bool) {
+    fn zero_or_more(&mut self, responder: TestFactoryZeroOrMoreResponder, zero: bool) {
         if zero {
             responder.resolve(None);
         } else {
@@ -326,7 +325,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn arity_dict(
         &mut self,
-        responder: &TestFactoryArityDictResponder,
+        responder: TestFactoryArityDictResponder,
         optional: bool,
         zero: bool,
         one: bool,
@@ -385,7 +384,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn echo_arg_optional(
         &mut self,
-        responder: &TestFactoryEchoArgOptionalResponder,
+        responder: TestFactoryEchoArgOptionalResponder,
         arg: Option<i64>,
     ) {
         responder.resolve(arg);
@@ -393,7 +392,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn echo_arg_one_or_more(
         &mut self,
-        responder: &TestFactoryEchoArgOneOrMoreResponder,
+        responder: TestFactoryEchoArgOneOrMoreResponder,
         arg: Vec<i64>,
     ) {
         responder.resolve(arg);
@@ -401,7 +400,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn echo_arg_zero_or_more(
         &mut self,
-        responder: &TestFactoryEchoArgZeroOrMoreResponder,
+        responder: TestFactoryEchoArgZeroOrMoreResponder,
         arg: Option<Vec<i64>>,
     ) {
         responder.resolve(arg);
@@ -409,7 +408,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn configure_option(
         &mut self,
-        responder: &TestFactoryConfigureOptionResponder,
+        responder: TestFactoryConfigureOptionResponder,
         option: ConfigureOptionDictionary,
     ) {
         let res = match option.enabled {
@@ -421,7 +420,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn add_observer(
         &mut self,
-        responder: &TestFactoryAddObserverResponder,
+        responder: TestFactoryAddObserverResponder,
         name: String,
         observer: ObjectRef,
     ) {
@@ -448,7 +447,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn remove_observer(
         &mut self,
-        responder: &TestFactoryRemoveObserverResponder,
+        responder: TestFactoryRemoveObserverResponder,
         _name: String,
         _observer: ObjectRef,
     ) {
@@ -457,7 +456,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn add_time(
         &mut self,
-        responder: &TestFactoryAddTimeResponder,
+        responder: TestFactoryAddTimeResponder,
         start: SystemTime,
         seconds: i64,
     ) {
@@ -467,7 +466,7 @@ impl TestFactoryMethods for TestServiceImpl {
         responder.resolve(res.into());
     }
 
-    fn generate_timeout_event(&mut self, responder: &TestFactoryGenerateTimeoutEventResponder) {
+    fn generate_timeout_event(&mut self, responder: TestFactoryGenerateTimeoutEventResponder) {
         responder.resolve(TimeoutEvent {
             status: true,
             things: BagOfThings {
@@ -477,20 +476,20 @@ impl TestFactoryMethods for TestServiceImpl {
         });
     }
 
-    fn missing_permission(&mut self, responder: &TestFactoryMissingPermissionResponder) {
+    fn missing_permission(&mut self, responder: TestFactoryMissingPermissionResponder) {
         responder.permission_error(
             "test-permission",
             "The missing_permission() function needs a permission!",
         );
     }
 
-    fn echo_date(&mut self, responder: &TestFactoryEchoDateResponder, input: SystemTime) {
+    fn echo_date(&mut self, responder: TestFactoryEchoDateResponder, input: SystemTime) {
         responder.resolve(input);
     }
 
     fn echo_somethings(
         &mut self,
-        responder: &TestFactoryEchoSomethingsResponder,
+        responder: TestFactoryEchoSomethingsResponder,
         input: SomeThings,
     ) {
         responder.resolve(input);
@@ -498,19 +497,19 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn echo_morethings(
         &mut self,
-        responder: &TestFactoryEchoMorethingsResponder,
+        responder: TestFactoryEchoMorethingsResponder,
         input: MoreThings,
     ) {
         responder.resolve(input);
     }
 
-    fn echo_blob(&mut self, responder: &TestFactoryEchoBlobResponder, first: Blob) {
+    fn echo_blob(&mut self, responder: TestFactoryEchoBlobResponder, first: Blob) {
         responder.resolve(first.clone());
     }
 
     fn count_blob_size(
         &mut self,
-        responder: &TestFactoryCountBlobSizeResponder,
+        responder: TestFactoryCountBlobSizeResponder,
         blob1: Blob,
         blob2: Blob,
         _not_blob: String,
@@ -520,7 +519,7 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn concat_blobs(
         &mut self,
-        responder: &TestFactoryConcatBlobsResponder,
+        responder: TestFactoryConcatBlobsResponder,
         blob1: Blob,
         blob2: Blob,
     ) {

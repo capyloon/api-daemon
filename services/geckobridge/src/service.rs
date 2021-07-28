@@ -82,7 +82,7 @@ impl GeckoBridge for GeckoBridgeService {
 impl GeckoFeaturesMethods for GeckoBridgeService {
     fn bool_pref_changed(
         &mut self,
-        responder: &GeckoFeaturesBoolPrefChangedResponder,
+        responder: GeckoFeaturesBoolPrefChangedResponder,
         pref_name: String,
         value: bool,
     ) {
@@ -96,7 +96,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn char_pref_changed(
         &mut self,
-        responder: &GeckoFeaturesCharPrefChangedResponder,
+        responder: GeckoFeaturesCharPrefChangedResponder,
         pref_name: String,
         value: String,
     ) {
@@ -110,7 +110,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn int_pref_changed(
         &mut self,
-        responder: &GeckoFeaturesIntPrefChangedResponder,
+        responder: GeckoFeaturesIntPrefChangedResponder,
         pref_name: String,
         value: i64,
     ) {
@@ -124,7 +124,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn set_power_manager_delegate(
         &mut self,
-        responder: &GeckoFeaturesSetPowerManagerDelegateResponder,
+        responder: GeckoFeaturesSetPowerManagerDelegateResponder,
         delegate: ObjectRef,
     ) {
         if self.only_register_token {
@@ -143,7 +143,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn set_apps_service_delegate(
         &mut self,
-        responder: &GeckoFeaturesSetAppsServiceDelegateResponder,
+        responder: GeckoFeaturesSetAppsServiceDelegateResponder,
         delegate: ObjectRef,
     ) {
         if self.only_register_token {
@@ -162,7 +162,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn set_mobile_manager_delegate(
         &mut self,
-        responder: &GeckoFeaturesSetMobileManagerDelegateResponder,
+        responder: GeckoFeaturesSetMobileManagerDelegateResponder,
         delegate: ObjectRef,
     ) {
         if self.only_register_token {
@@ -183,7 +183,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn set_network_manager_delegate(
         &mut self,
-        responder: &GeckoFeaturesSetNetworkManagerDelegateResponder,
+        responder: GeckoFeaturesSetNetworkManagerDelegateResponder,
         delegate: ObjectRef,
     ) {
         if self.only_register_token {
@@ -204,7 +204,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn set_preference_delegate(
         &mut self,
-        responder: &GeckoFeaturesSetPreferenceDelegateResponder,
+        responder: GeckoFeaturesSetPreferenceDelegateResponder,
         delegate: ObjectRef,
     ) {
         if self.only_register_token {
@@ -223,7 +223,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
 
     fn register_token(
         &mut self,
-        responder: &GeckoFeaturesRegisterTokenResponder,
+        responder: GeckoFeaturesRegisterTokenResponder,
         token: String,
         url: String,
         permissions: Option<Vec<String>>,
@@ -241,22 +241,21 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         };
         let origin_attributes = OriginAttributes::new(&url, permissions_set);
         let shared_state = self.state.clone();
-        let res = responder.clone();
         self.pool.execute(move || {
             if shared_state
                 .lock()
                 .register_token(&token, origin_attributes)
             {
-                res.resolve();
+                responder.resolve();
             } else {
-                res.reject();
+                responder.reject();
             }
         });
     }
 
     fn import_sim_contacts(
         &mut self,
-        responder: &GeckoFeaturesImportSimContactsResponder,
+        responder: GeckoFeaturesImportSimContactsResponder,
         sim_contacts: Option<Vec<generated::common::SimContactInfo>>,
     ) {
         if self.only_register_token {

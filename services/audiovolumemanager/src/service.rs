@@ -48,17 +48,17 @@ impl AudioVolume {
 impl AudioVolumeManager for AudioVolume {}
 
 impl AudioVolumeMethods for AudioVolume {
-    fn request_volume_up(&mut self, responder: &AudioVolumeRequestVolumeUpResponder) {
+    fn request_volume_up(&mut self, responder: AudioVolumeRequestVolumeUpResponder) {
         self.set_state(AudioVolumeState::VolumeUp);
         responder.resolve();
     }
 
-    fn request_volume_down(&mut self, responder: &AudioVolumeRequestVolumeDownResponder) {
+    fn request_volume_down(&mut self, responder: AudioVolumeRequestVolumeDownResponder) {
         self.set_state(AudioVolumeState::VolumeDown);
         responder.resolve();
     }
 
-    fn request_volume_show(&mut self, responder: &AudioVolumeRequestVolumeShowResponder) {
+    fn request_volume_show(&mut self, responder: AudioVolumeRequestVolumeShowResponder) {
         self.set_state(AudioVolumeState::VolumeShow);
         responder.resolve();
     }

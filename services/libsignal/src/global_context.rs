@@ -155,7 +155,7 @@ impl GlobalContext {
 impl GlobalContextMethods for GlobalContext {
     fn generate_identity_key_pair(
         &mut self,
-        responder: &GlobalContextGenerateIdentityKeyPairResponder,
+        responder: GlobalContextGenerateIdentityKeyPairResponder,
     ) {
         if let Ok((public_key, private_key)) = self.signal_context.generate_identity_key_pair() {
             responder.resolve(RatchetIdentityKeyPair {
@@ -169,7 +169,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn generate_pre_keys(
         &mut self,
-        responder: &GlobalContextGeneratePreKeysResponder,
+        responder: GlobalContextGeneratePreKeysResponder,
         start: i64,
         count: i64,
     ) {
@@ -196,7 +196,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn generate_registration_id(
         &mut self,
-        responder: &GlobalContextGenerateRegistrationIdResponder,
+        responder: GlobalContextGenerateRegistrationIdResponder,
         extended_range: bool,
     ) {
         if let Ok(reg_id) = self
@@ -210,7 +210,7 @@ impl GlobalContextMethods for GlobalContext {
         }
     }
 
-    fn generate_sender_key(&mut self, responder: &GlobalContextGenerateSenderKeyResponder) {
+    fn generate_sender_key(&mut self, responder: GlobalContextGenerateSenderKeyResponder) {
         if let Ok(key) = self.signal_context.generate_sender_key() {
             responder.resolve(key);
         } else {
@@ -218,7 +218,7 @@ impl GlobalContextMethods for GlobalContext {
         }
     }
 
-    fn generate_sender_key_id(&mut self, responder: &GlobalContextGenerateSenderKeyIdResponder) {
+    fn generate_sender_key_id(&mut self, responder: GlobalContextGenerateSenderKeyIdResponder) {
         if let Ok(key_id) = self
             .signal_context
             .generate_sender_key_id()
@@ -232,7 +232,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn generate_sender_signing_key(
         &mut self,
-        responder: &GlobalContextGenerateSenderSigningKeyResponder,
+        responder: GlobalContextGenerateSenderSigningKeyResponder,
     ) {
         if let Ok(key_pair) = self.signal_context.generate_sender_signing_key() {
             responder.resolve(EcKeyPair {
@@ -246,7 +246,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn generate_signed_pre_key(
         &mut self,
-        responder: &GlobalContextGenerateSignedPreKeyResponder,
+        responder: GlobalContextGenerateSignedPreKeyResponder,
         identity_key_pair: RatchetIdentityKeyPair,
         signed_pre_key_id: i64,
         timestamp: i64,
@@ -276,7 +276,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn group_cipher(
         &mut self,
-        responder: &GlobalContextGroupCipherResponder,
+        responder: GlobalContextGroupCipherResponder,
         store_context: StoreContext,
         sender_key_name: SenderKeyName,
         callback: ObjectRef,
@@ -324,7 +324,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn group_session_builder(
         &mut self,
-        responder: &GlobalContextGroupSessionBuilderResponder,
+        responder: GlobalContextGroupSessionBuilderResponder,
         store_context: StoreContext,
     ) {
         // Fine because we know we didn't jump thread.
@@ -361,7 +361,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn session_builder(
         &mut self,
-        responder: &GlobalContextSessionBuilderResponder,
+        responder: GlobalContextSessionBuilderResponder,
         address: Address,
         store_context: StoreContext,
     ) {
@@ -400,7 +400,7 @@ impl GlobalContextMethods for GlobalContext {
 
     fn session_cipher(
         &mut self,
-        responder: &GlobalContextSessionCipherResponder,
+        responder: GlobalContextSessionCipherResponder,
         address: Address,
         store_context: StoreContext,
         callback: ObjectRef,

@@ -44,7 +44,7 @@ impl SimpleObjectTracker for ContactCursorImpl {
 }
 
 impl ContactCursorMethods for ContactCursorImpl {
-    fn next(&mut self, responder: &ContactCursorNextResponder) {
+    fn next(&mut self, responder: ContactCursorNextResponder) {
         match self.cursor.next() {
             Some(contacts) => responder.resolve(contacts),
             None => responder.reject(),
@@ -76,7 +76,7 @@ impl ContactsManager for ContactsService {
 }
 
 impl ContactsFactoryMethods for ContactsService {
-    fn clear_contacts(&mut self, responder: &ContactsFactoryClearContactsResponder) {
+    fn clear_contacts(&mut self, responder: ContactsFactoryClearContactsResponder) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "contacts:write",
@@ -94,8 +94,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn get(&mut self, responder: &ContactsFactoryGetResponder, id: String, only_main_data: bool) {
-        let responder = responder.clone();
+    fn get(&mut self, responder: ContactsFactoryGetResponder, id: String, only_main_data: bool) {
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &shared.lock().db;
@@ -109,7 +108,7 @@ impl ContactsFactoryMethods for ContactsService {
         });
     }
 
-    fn add(&mut self, responder: &ContactsFactoryAddResponder, contacts: Vec<ContactInfo>) {
+    fn add(&mut self, responder: ContactsFactoryAddResponder, contacts: Vec<ContactInfo>) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "contacts:create",
@@ -118,7 +117,6 @@ impl ContactsFactoryMethods for ContactsService {
             return;
         }
 
-        let responder = responder.clone();
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &mut shared.lock().db;
@@ -132,7 +130,7 @@ impl ContactsFactoryMethods for ContactsService {
         });
     }
 
-    fn update(&mut self, responder: &ContactsFactoryUpdateResponder, contacts: Vec<ContactInfo>) {
+    fn update(&mut self, responder: ContactsFactoryUpdateResponder, contacts: Vec<ContactInfo>) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "contacts:write",
@@ -141,7 +139,6 @@ impl ContactsFactoryMethods for ContactsService {
             return;
         }
 
-        let responder = responder.clone();
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &mut shared.lock().db;
@@ -155,7 +152,7 @@ impl ContactsFactoryMethods for ContactsService {
         });
     }
 
-    fn remove(&mut self, responder: &ContactsFactoryRemoveResponder, contact_ids: Vec<String>) {
+    fn remove(&mut self, responder: ContactsFactoryRemoveResponder, contact_ids: Vec<String>) {
         debug!("remove contacts");
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
@@ -179,7 +176,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn get_all(
         &mut self,
-        responder: &ContactsFactoryGetAllResponder,
+        responder: ContactsFactoryGetAllResponder,
         options: ContactSortOptions,
         batch_size: i64,
         only_main_data: bool,
@@ -202,7 +199,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn find(
         &mut self,
-        responder: &ContactsFactoryFindResponder,
+        responder: ContactsFactoryFindResponder,
         params: ContactFindSortOptions,
         batch_size: i64,
     ) {
@@ -220,7 +217,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn matches(
         &mut self,
-        responder: &ContactsFactoryMatchesResponder,
+        responder: ContactsFactoryMatchesResponder,
         filter_by_option: FilterByOption,
         filter: FilterOption,
         value: String,
@@ -254,7 +251,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn set_ice(
         &mut self,
-        responder: &ContactsFactorySetIceResponder,
+        responder: ContactsFactorySetIceResponder,
         contact_id: String,
         position: i64,
     ) {
@@ -279,7 +276,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn remove_ice(&mut self, responder: &ContactsFactoryRemoveIceResponder, contact_id: String) {
+    fn remove_ice(&mut self, responder: ContactsFactoryRemoveIceResponder, contact_id: String) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "contacts:write",
@@ -297,7 +294,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn get_all_ice(&mut self, responder: &ContactsFactoryGetAllIceResponder) {
+    fn get_all_ice(&mut self, responder: ContactsFactoryGetAllIceResponder) {
         match self.state.lock().db.get_all_ice() {
             Ok(value) => {
                 debug!("get_all_ice Ok {:#?}", value);
@@ -310,7 +307,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn get_count(&mut self, responder: &ContactsFactoryGetCountResponder) {
+    fn get_count(&mut self, responder: ContactsFactoryGetCountResponder) {
         let state = self.state.lock();
         let db = &state.db;
         match db.count() {
@@ -322,7 +319,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn import_vcf(&mut self, responder: &ContactsFactoryImportVcfResponder, vcf: String) {
+    fn import_vcf(&mut self, responder: ContactsFactoryImportVcfResponder, vcf: String) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "contacts:create",
@@ -331,7 +328,6 @@ impl ContactsFactoryMethods for ContactsService {
             return;
         }
 
-        let responder = responder.clone();
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &mut shared.lock().db;
@@ -347,7 +343,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn add_blocked_number(
         &mut self,
-        responder: &ContactsFactoryAddBlockedNumberResponder,
+        responder: ContactsFactoryAddBlockedNumberResponder,
         number: String,
     ) {
         debug!("add_blocked_number, number:{}", number);
@@ -373,7 +369,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn remove_blocked_number(
         &mut self,
-        responder: &ContactsFactoryRemoveBlockedNumberResponder,
+        responder: ContactsFactoryRemoveBlockedNumberResponder,
         number: String,
     ) {
         debug!("remove_blocked_number, number:{}", number);
@@ -399,7 +395,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn get_all_blocked_numbers(
         &mut self,
-        responder: &ContactsFactoryGetAllBlockedNumbersResponder,
+        responder: ContactsFactoryGetAllBlockedNumbersResponder,
     ) {
         debug!("get_all_blocked_numbers()");
         match self.state.lock().db.get_all_blocked_numbers() {
@@ -416,7 +412,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn find_blocked_numbers(
         &mut self,
-        responder: &ContactsFactoryFindBlockedNumbersResponder,
+        responder: ContactsFactoryFindBlockedNumbersResponder,
         options: BlockedNumberFindOptions,
     ) {
         debug!("find_blocked_numbers() options:{:?}", options);
@@ -432,7 +428,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn get_speed_dials(&mut self, responder: &ContactsFactoryGetSpeedDialsResponder) {
+    fn get_speed_dials(&mut self, responder: ContactsFactoryGetSpeedDialsResponder) {
         debug!("get_speed_dials");
         match self.state.lock().db.get_speed_dials() {
             Ok(vec) => {
@@ -448,7 +444,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn add_speed_dial(
         &mut self,
-        responder: &ContactsFactoryAddSpeedDialResponder,
+        responder: ContactsFactoryAddSpeedDialResponder,
         dial_key: String,
         tel: String,
         contact_id: String,
@@ -484,7 +480,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn update_speed_dial(
         &mut self,
-        responder: &ContactsFactoryUpdateSpeedDialResponder,
+        responder: ContactsFactoryUpdateSpeedDialResponder,
         dial_key: String,
         tel: String,
         contact_id: String,
@@ -520,7 +516,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn remove_speed_dial(
         &mut self,
-        responder: &ContactsFactoryRemoveSpeedDialResponder,
+        responder: ContactsFactoryRemoveSpeedDialResponder,
         dial_key: String,
     ) {
         debug!("remove_speed_dial, dial_key:{}", dial_key);
@@ -544,7 +540,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn remove_group(&mut self, responder: &ContactsFactoryRemoveGroupResponder, id: String) {
+    fn remove_group(&mut self, responder: ContactsFactoryRemoveGroupResponder, id: String) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "contacts:write",
@@ -565,7 +561,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn add_group(&mut self, responder: &ContactsFactoryAddGroupResponder, name: String) {
+    fn add_group(&mut self, responder: ContactsFactoryAddGroupResponder, name: String) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "contacts:write",
@@ -589,7 +585,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn update_group(
         &mut self,
-        responder: &ContactsFactoryUpdateGroupResponder,
+        responder: ContactsFactoryUpdateGroupResponder,
         id: String,
         name: String,
     ) {
@@ -615,7 +611,7 @@ impl ContactsFactoryMethods for ContactsService {
 
     fn get_contactids_from_group(
         &mut self,
-        responder: &ContactsFactoryGetContactidsFromGroupResponder,
+        responder: ContactsFactoryGetContactidsFromGroupResponder,
         group_id: String,
     ) {
         match self.state.lock().db.get_contactids_from_group(&group_id) {
@@ -630,7 +626,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn get_all_groups(&mut self, responder: &ContactsFactoryGetAllGroupsResponder) {
+    fn get_all_groups(&mut self, responder: ContactsFactoryGetAllGroupsResponder) {
         match self.state.lock().db.get_all_groups() {
             Ok(value) => {
                 debug!("get_all_groups Ok");

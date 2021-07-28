@@ -156,7 +156,7 @@ impl MethodWriter {
     ) -> Result<(), ::std::io::Error> {
         write!(
             sink,
-            "    fn {}(&mut self, responder: &{}{}Responder, ",
+            "    fn {}(&mut self, responder: {}{}Responder, ",
             method.name,
             interface_name,
             method.name.to_camel_case()

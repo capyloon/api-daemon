@@ -231,7 +231,7 @@ impl SimpleObjectTracker for TcpSocketService {
 }
 
 impl TcpSocketFactoryMethods for TcpSocketService {
-    fn open(&mut self, responder: &TcpSocketFactoryOpenResponder, addr: SocketAddress) {
+    fn open(&mut self, responder: TcpSocketFactoryOpenResponder, addr: SocketAddress) {
         if addr.port <= 0 {
             responder.reject();
             error!("Invalid port number");
@@ -243,7 +243,6 @@ impl TcpSocketFactoryMethods for TcpSocketService {
         let id = tracker.lock().next_id();
         let helper = self.helper.clone();
         let event_dispatcher = Shared::adopt(TcpSocketEventDispatcher::from(helper, id));
-        let tcp_responder = responder.clone();
 
         self.pool.execute(move || {
             if let Some(socket) = TcpSocket::new(id, addr, event_dispatcher) {
@@ -254,7 +253,7 @@ impl TcpSocketFactoryMethods for TcpSocketService {
                         tracker_lock.track(TcpSocketManagerTrackedObject::TcpSocket(provider));
                     token_map
                         .lock()
-                        .insert(Token(obj_id as usize), (obj_id, tcp_responder));
+                        .insert(Token(obj_id as usize), (obj_id, responder));
                     if let Some(obj) = tracker_lock.get_mut(obj_id) {
                         let TcpSocketManagerTrackedObject::TcpSocket(ctxt) = obj;
                         let ctxt = ctxt.lock();
@@ -265,7 +264,7 @@ impl TcpSocketFactoryMethods for TcpSocketService {
                     start_event_loop(poll, token_map, tracker);
                 }
             } else {
-                tcp_responder.reject();
+                responder.reject();
                 error!("Failed to create TcpSocket");
             }
         });

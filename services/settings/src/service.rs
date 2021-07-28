@@ -46,7 +46,7 @@ impl SettingsManager for SettingsService {
 }
 
 impl SettingsFactoryMethods for SettingsService {
-    fn clear(&mut self, responder: &SettingsFactoryClearResponder) {
+    fn clear(&mut self, responder: SettingsFactoryClearResponder) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "settings:write",
@@ -61,8 +61,7 @@ impl SettingsFactoryMethods for SettingsService {
         }
     }
 
-    fn get(&mut self, responder: &SettingsFactoryGetResponder, name: String) {
-        let responder = responder.clone();
+    fn get(&mut self, responder: SettingsFactoryGetResponder, name: String) {
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &shared.lock().db;
@@ -84,7 +83,7 @@ impl SettingsFactoryMethods for SettingsService {
         });
     }
 
-    fn set(&mut self, responder: &SettingsFactorySetResponder, settings: Vec<SettingInfo>) {
+    fn set(&mut self, responder: SettingsFactorySetResponder, settings: Vec<SettingInfo>) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "settings:write",
@@ -93,7 +92,6 @@ impl SettingsFactoryMethods for SettingsService {
             return;
         }
 
-        let responder = responder.clone();
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &mut shared.lock().db;
@@ -104,8 +102,7 @@ impl SettingsFactoryMethods for SettingsService {
         });
     }
 
-    fn get_batch(&mut self, responder: &SettingsFactoryGetBatchResponder, names: Vec<String>) {
-        let responder = responder.clone();
+    fn get_batch(&mut self, responder: SettingsFactoryGetBatchResponder, names: Vec<String>) {
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &shared.lock().db;
@@ -118,7 +115,7 @@ impl SettingsFactoryMethods for SettingsService {
 
     fn add_observer(
         &mut self,
-        responder: &SettingsFactoryAddObserverResponder,
+        responder: SettingsFactoryAddObserverResponder,
         name: String,
         observer: ObjectRef,
     ) {
@@ -150,7 +147,7 @@ impl SettingsFactoryMethods for SettingsService {
 
     fn remove_observer(
         &mut self,
-        responder: &SettingsFactoryRemoveObserverResponder,
+        responder: SettingsFactoryRemoveObserverResponder,
         name: String,
         observer: ObjectRef,
     ) {

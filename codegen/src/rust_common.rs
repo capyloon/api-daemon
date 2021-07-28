@@ -195,7 +195,7 @@ impl Codegen {
             // These are infallible.
             writeln!(
                 sink,
-                "fn get_{}(&mut self, responder: &{}Get{}Responder);",
+                "fn get_{}(&mut self, responder: {}Get{}Responder);",
                 member.0,
                 interface.name,
                 member.0.to_camel_case()

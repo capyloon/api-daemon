@@ -38,7 +38,7 @@ impl Signal for SignalService {
 impl LibSignalMethods for SignalService {
     fn curve_calculate_agreement(
         &mut self,
-        responder: &LibSignalCurveCalculateAgreementResponder,
+        responder: LibSignalCurveCalculateAgreementResponder,
         public_key: Vec<u8>,
         private_key: Vec<u8>,
     ) {
@@ -57,7 +57,7 @@ impl LibSignalMethods for SignalService {
 
     fn curve_verify_signature(
         &mut self,
-        responder: &LibSignalCurveVerifySignatureResponder,
+        responder: LibSignalCurveVerifySignatureResponder,
         public_key: Vec<u8>,
         message: Vec<u8>,
         signature: Vec<u8>,
@@ -71,7 +71,7 @@ impl LibSignalMethods for SignalService {
 
     fn download_and_decrypt(
         &mut self,
-        responder: &LibSignalDownloadAndDecryptResponder,
+        responder: LibSignalDownloadAndDecryptResponder,
         url: String,
         iv: Vec<u8>,
         cipher_key: Vec<u8>,
@@ -101,7 +101,6 @@ impl LibSignalMethods for SignalService {
         };
 
         let mut thread_callback = callback_proxy.clone();
-        let thread_responder = responder.clone();
 
         // Running this call on its own thread since this can take a while.
         self.pool.execute(move || {
@@ -119,16 +118,16 @@ impl LibSignalMethods for SignalService {
                     thread_callback.callback(buf.to_vec());
                 },
             ) {
-                Ok(res) => thread_responder.resolve(res),
+                Ok(res) => responder.resolve(res),
                 Err(err) => {
                     error!("download_and_decrypt error: {}", err);
-                    thread_responder.reject(err);
+                    responder.reject(err);
                 }
             }
         });
     }
 
-    fn start_hmac_sha256(&mut self, responder: &LibSignalStartHmacSha256Responder, key: Vec<u8>) {
+    fn start_hmac_sha256(&mut self, responder: LibSignalStartHmacSha256Responder, key: Vec<u8>) {
         let mut tracker = self.tracker.lock();
         if let Some(wrapper) = HmacSha256::new(tracker.next_id(), &key) {
             let object = Rc::new(wrapper);
@@ -140,14 +139,14 @@ impl LibSignalMethods for SignalService {
         }
     }
 
-    fn start_sha512_digest(&mut self, responder: &LibSignalStartSha512DigestResponder) {
+    fn start_sha512_digest(&mut self, responder: LibSignalStartSha512DigestResponder) {
         let mut tracker = self.tracker.lock();
         let object = Rc::new(Sha512Digest::new(tracker.next_id()));
         tracker.track(SignalTrackedObject::Sha512Digest(object.clone()));
         responder.resolve(object);
     }
 
-    fn new_global_context(&mut self, responder: &LibSignalNewGlobalContextResponder) {
+    fn new_global_context(&mut self, responder: LibSignalNewGlobalContextResponder) {
         let mut tracker = self.tracker.lock();
         if let Some(context) = GlobalContext::new(
             tracker.next_id(),

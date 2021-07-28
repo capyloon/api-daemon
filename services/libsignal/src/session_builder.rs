@@ -70,11 +70,10 @@ impl SimpleObjectTracker for SessionBuilder {
 impl SessionBuilderMethods for SessionBuilder {
     fn process_pre_key_bundle(
         &mut self,
-        responder: &SessionBuilderProcessPreKeyBundleResponder,
+        responder: SessionBuilderProcessPreKeyBundleResponder,
         bundle: SessionPreKeyBundle,
     ) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
         self.pool.execute(move || {
             fn key_from_slice(bytes: &[u8]) -> [u8; 32] {
                 let mut a = [0; 32];

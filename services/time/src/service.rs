@@ -139,7 +139,7 @@ impl TimeService for Time {
 }
 
 impl TimeMethods for Time {
-    fn set(&mut self, responder: &TimeSetResponder, time: SystemTime) {
+    fn set(&mut self, responder: TimeSetResponder, time: SystemTime) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "system-time:write",
@@ -148,7 +148,6 @@ impl TimeMethods for Time {
             return;
         }
 
-        let responder = responder.clone();
         self.pool.execute(move || {
             let since_epoch = (*time)
                 .duration_since(StdTime::UNIX_EPOCH)
@@ -190,7 +189,7 @@ impl TimeMethods for Time {
         });
     }
 
-    fn get(&mut self, responder: &TimeGetResponder) {
+    fn get(&mut self, responder: TimeGetResponder) {
         match TimeManager::get_system_clock() {
             Ok(since_epoch) => {
                 let time = StdTime::UNIX_EPOCH
@@ -205,7 +204,7 @@ impl TimeMethods for Time {
         }
     }
 
-    fn set_timezone(&mut self, responder: &TimeSetTimezoneResponder, timezone: String) {
+    fn set_timezone(&mut self, responder: TimeSetTimezoneResponder, timezone: String) {
         info!("set time zone {:?}", timezone);
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
@@ -228,7 +227,7 @@ impl TimeMethods for Time {
         }
     }
 
-    fn get_elapsed_real_time(&mut self, responder: &TimeGetElapsedRealTimeResponder) {
+    fn get_elapsed_real_time(&mut self, responder: TimeGetElapsedRealTimeResponder) {
         info!("get_elapse_real_time");
         match TimeManager::get_elapsed_real_time() {
             Ok(success) => responder.resolve(success),
@@ -238,7 +237,7 @@ impl TimeMethods for Time {
 
     fn add_observer(
         &mut self,
-        responder: &TimeAddObserverResponder,
+        responder: TimeAddObserverResponder,
         reason: CallbackReason,
         observer: ObjectRef,
     ) {
@@ -259,7 +258,7 @@ impl TimeMethods for Time {
 
     fn remove_observer(
         &mut self,
-        responder: &TimeRemoveObserverResponder,
+        responder: TimeRemoveObserverResponder,
         reason: CallbackReason,
         observer: ObjectRef,
     ) {

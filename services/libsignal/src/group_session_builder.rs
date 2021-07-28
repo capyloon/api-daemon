@@ -51,11 +51,10 @@ impl SimpleObjectTracker for GroupSessionBuilder {
 impl GroupSessionBuilderMethods for GroupSessionBuilder {
     fn create_session(
         &mut self,
-        responder: &GroupSessionBuilderCreateSessionResponder,
+        responder: GroupSessionBuilderCreateSessionResponder,
         sender_key_name: SenderKeyName,
     ) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
         self.pool.execute(move || {
             let addr = sender_key_name.sender;
 
@@ -75,16 +74,13 @@ impl GroupSessionBuilderMethods for GroupSessionBuilder {
 
     fn process_session(
         &mut self,
-        responder: &GroupSessionBuilderProcessSessionResponder,
+        responder: GroupSessionBuilderProcessSessionResponder,
         sender_key_name: SenderKeyName,
         distribution_message: SenderKeyDistributionMessage,
     ) {
         // This request will trigger synchronous callbacks from libsignal, so we run it in a thread
         // to return asap to the event loop.
-
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
-
         self.pool.execute(move || {
             let addr = sender_key_name.sender;
 

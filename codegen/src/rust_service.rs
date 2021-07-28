@@ -294,7 +294,7 @@ impl Codegen {
             }
             writeln!(
                 sink,
-                "Req::{} => {{ {} self.{}(&{}{}Responder {{ transport, base_message }}, {}); }}",
+                "Req::{} => {{ {} self.{}({}{}Responder {{ transport, base_message }}, {}); }}",
                 req_name,
                 bootstrap,
                 method.name,
@@ -315,7 +315,7 @@ impl Codegen {
             )?;
 
             writeln!(sink,
-                "Req::{}Get{} => {{ self.get_{}(&{}Get{}Responder {{ transport, base_message }}); }}",
+                "Req::{}Get{} => {{ self.get_{}({}Get{}Responder {{ transport, base_message }}); }}",
                 interface.name,
                 name.to_camel_case(),
                 name,
@@ -375,7 +375,7 @@ impl Codegen {
                 }
                 writeln!(
                     sink,
-                    "mut_ctxt.{}(&{}{}Responder {{ transport, base_message }}, {});",
+                    "mut_ctxt.{}({}{}Responder {{ transport, base_message }}, {});",
                     method.name,
                     interface.name,
                     method.name.to_camel_case(),
@@ -434,7 +434,7 @@ impl Codegen {
                 }
                 writeln!(
                     sink,
-                    "mut_ctxt.get_{}(&{}Get{}Responder {{ transport, base_message }});",
+                    "mut_ctxt.get_{}({}Get{}Responder {{ transport, base_message }});",
                     name, interface.name, camel_name
                 )?;
                 writeln!(sink, "}} else {{")?;

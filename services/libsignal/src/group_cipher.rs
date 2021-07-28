@@ -85,31 +85,29 @@ impl GroupCipher {
 }
 
 impl GroupCipherMethods for GroupCipher {
-    fn decrypt(&mut self, responder: &GroupCipherDecryptResponder, ciphertext: Vec<u8>) {
+    fn decrypt(&mut self, responder: GroupCipherDecryptResponder, ciphertext: Vec<u8>) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
 
         self.pool.execute(move || {
-                match ffi.decrypt(&ciphertext) {
-                    Ok(plaintext) => {
-                        responder.resolve(plaintext);
-                    }
-                    Err(code) => {
-                        responder.reject(code.as_int() as i64);
-                    }
-                };
-            });
+            match ffi.decrypt(&ciphertext) {
+                Ok(plaintext) => {
+                    responder.resolve(plaintext);
+                }
+                Err(code) => {
+                    responder.reject(code.as_int() as i64);
+                }
+            };
+        });
     }
 
-    fn encrypt(&mut self, responder: &GroupCipherEncryptResponder, padded_plaintext: Vec<u8>) {
+    fn encrypt(&mut self, responder: GroupCipherEncryptResponder, padded_plaintext: Vec<u8>) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
 
         self.pool.execute(move || {
-                match ffi.encrypt(&padded_plaintext) {
-                    Ok(message) => responder.resolve(message),
-                    Err(code) => responder.reject(code as i64),
-                };
-            });
+            match ffi.encrypt(&padded_plaintext) {
+                Ok(message) => responder.resolve(message),
+                Err(code) => responder.reject(code as i64),
+            };
+        });
     }
 }

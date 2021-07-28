@@ -122,7 +122,7 @@ impl PowermanagerService for PowerManager {}
 impl PowermanagerMethods for PowerManager {
     fn control_screen(
         &mut self,
-        responder: &PowermanagerControlScreenResponder,
+        responder: PowermanagerControlScreenResponder,
         info: crate::generated::common::ScreenControlInfo,
     ) {
         debug!("Control_screen {:?} ", info);
@@ -183,19 +183,19 @@ impl PowermanagerMethods for PowerManager {
         responder.resolve();
     }
 
-    fn power_off(&mut self, responder: &PowermanagerPowerOffResponder) {
+    fn power_off(&mut self, responder: PowermanagerPowerOffResponder) {
         debug!("power_off");
         responder.resolve();
         self.inner.power_off();
     }
 
-    fn reboot(&mut self, responder: &PowermanagerRebootResponder) {
+    fn reboot(&mut self, responder: PowermanagerRebootResponder) {
         debug!("reboot");
         responder.resolve();
         self.inner.reboot();
     }
 
-    fn get_cpu_sleep_allowed(&mut self, responder: &PowermanagerGetCpuSleepAllowedResponder) {
+    fn get_cpu_sleep_allowed(&mut self, responder: PowermanagerGetCpuSleepAllowedResponder) {
         debug!("get_cpu_sleep_allowed");
         let shared = self.shared_obj.lock();
         responder.resolve(shared.cpu_sleep_allowed);
@@ -213,7 +213,7 @@ impl PowermanagerMethods for PowerManager {
 
     fn get_ext_screen_brightness(
         &mut self,
-        responder: &PowermanagerGetExtScreenBrightnessResponder,
+        responder: PowermanagerGetExtScreenBrightnessResponder,
     ) {
         let shared = self.shared_obj.lock();
         responder.resolve(shared.ext_screen_brightness);
@@ -226,7 +226,7 @@ impl PowermanagerMethods for PowerManager {
         }
     }
 
-    fn get_ext_screen_enabled(&mut self, responder: &PowermanagerGetExtScreenEnabledResponder) {
+    fn get_ext_screen_enabled(&mut self, responder: PowermanagerGetExtScreenEnabledResponder) {
         let shared = self.shared_obj.lock();
         responder.resolve(shared.ext_screen_enabled);
         debug!("get_ext_screen_enabled {}", shared.ext_screen_enabled);
@@ -238,7 +238,7 @@ impl PowermanagerMethods for PowerManager {
         }
     }
 
-    fn get_factory_reset(&mut self, responder: &PowermanagerGetFactoryResetResponder) {
+    fn get_factory_reset(&mut self, responder: PowermanagerGetFactoryResetResponder) {
         debug!("get_factory_reset");
         let shared = self.shared_obj.lock();
         responder.resolve(shared.factory_reset);
@@ -253,7 +253,7 @@ impl PowermanagerMethods for PowerManager {
         self.inner.set_factory_reset_reason(value);
     }
 
-    fn get_key_light_brightness(&mut self, responder: &PowermanagerGetKeyLightBrightnessResponder) {
+    fn get_key_light_brightness(&mut self, responder: PowermanagerGetKeyLightBrightnessResponder) {
         debug!("get_key_light_brightness");
         let shared = self.shared_obj.lock();
         responder.resolve(shared.key_light_brightness);
@@ -271,7 +271,7 @@ impl PowermanagerMethods for PowerManager {
         self.inner.set_key_light_brightness(clamped as _);
     }
 
-    fn get_key_light_enabled(&mut self, responder: &PowermanagerGetKeyLightEnabledResponder) {
+    fn get_key_light_enabled(&mut self, responder: PowermanagerGetKeyLightEnabledResponder) {
         debug!("get_key_light_enabled");
         responder.resolve(self.shared_obj.lock().key_enabled);
     }
@@ -281,7 +281,7 @@ impl PowermanagerMethods for PowerManager {
         self.inner.set_key_light_enabled(value);
     }
 
-    fn get_screen_brightness(&mut self, responder: &PowermanagerGetScreenBrightnessResponder) {
+    fn get_screen_brightness(&mut self, responder: PowermanagerGetScreenBrightnessResponder) {
         debug!("get_screen_brightness");
         responder.resolve(self.shared_obj.lock().screen_brightness);
     }
@@ -292,7 +292,7 @@ impl PowermanagerMethods for PowerManager {
         }
     }
 
-    fn get_screen_enabled(&mut self, responder: &PowermanagerGetScreenEnabledResponder) {
+    fn get_screen_enabled(&mut self, responder: PowermanagerGetScreenEnabledResponder) {
         debug!("get_screen_enabled");
         responder.resolve(self.shared_obj.lock().screen_enabled);
     }

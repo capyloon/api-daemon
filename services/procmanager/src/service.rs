@@ -81,7 +81,7 @@ impl Drop for ProcManagerService {
 }
 
 impl ProcessServiceMethods for ProcManagerService {
-    fn reset(&mut self, responder: &ProcessServiceResetResponder) {
+    fn reset(&mut self, responder: ProcessServiceResetResponder) {
         if self.genid == 0 {
             debug!("No generation ID");
             responder.reject();
@@ -107,7 +107,7 @@ impl ProcessServiceMethods for ProcManagerService {
         responder.resolve();
     }
 
-    fn begin(&mut self, responder: &ProcessServiceBeginResponder, caller: String) {
+    fn begin(&mut self, responder: ProcessServiceBeginResponder, caller: String) {
         if self.genid != 0 {
             debug!("Begin a new generation while there is one");
             responder.reject();
@@ -128,7 +128,7 @@ impl ProcessServiceMethods for ProcManagerService {
             }
         }
     }
-    fn commit(&mut self, responder: &ProcessServiceCommitResponder) {
+    fn commit(&mut self, responder: ProcessServiceCommitResponder) {
         if self.genid == 0 {
             debug!("No generation ID");
             responder.reject();
@@ -167,7 +167,7 @@ impl ProcessServiceMethods for ProcManagerService {
         self.clear_generation();
     }
 
-    fn abort(&mut self, responder: &ProcessServiceAbortResponder) {
+    fn abort(&mut self, responder: ProcessServiceAbortResponder) {
         if self.genid == 0 {
             debug!("No generation ID");
             responder.reject();
@@ -190,7 +190,7 @@ impl ProcessServiceMethods for ProcManagerService {
         self.clear_generation();
     }
 
-    fn add(&mut self, responder: &ProcessServiceAddResponder, pid: i64, group: GroupType) {
+    fn add(&mut self, responder: ProcessServiceAddResponder, pid: i64, group: GroupType) {
         if self.genid == 0 {
             debug!("No generation ID");
             responder.reject();
@@ -206,7 +206,7 @@ impl ProcessServiceMethods for ProcManagerService {
         responder.resolve(true);
     }
 
-    fn remove(&mut self, responder: &ProcessServiceRemoveResponder, pid: i64) {
+    fn remove(&mut self, responder: ProcessServiceRemoveResponder, pid: i64) {
         if self.genid == 0 {
             debug!("No generation ID");
             responder.reject();
@@ -221,7 +221,7 @@ impl ProcessServiceMethods for ProcManagerService {
         responder.resolve(true);
     }
 
-    fn pending(&mut self, responder: &ProcessServicePendingResponder) {
+    fn pending(&mut self, responder: ProcessServicePendingResponder) {
         responder.resolve(self.genid != 0);
     }
 }

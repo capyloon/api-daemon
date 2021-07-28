@@ -99,11 +99,10 @@ impl SessionCipher {
 impl SessionCipherMethods for SessionCipher {
     fn decrypt_message(
         &mut self,
-        responder: &SessionCipherDecryptMessageResponder,
+        responder: SessionCipherDecryptMessageResponder,
         ciphertext: Vec<u8>,
     ) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
 
         self.pool.execute(move || {
             match ffi.decrypt_message(&ciphertext) {
@@ -115,11 +114,10 @@ impl SessionCipherMethods for SessionCipher {
 
     fn decrypt_pre_key_message(
         &mut self,
-        responder: &SessionCipherDecryptPreKeyMessageResponder,
+        responder: SessionCipherDecryptPreKeyMessageResponder,
         ciphertext: Vec<u8>,
     ) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
 
         self.pool.execute(move || {
             match ffi.decrypt_pre_key_message(&ciphertext) {
@@ -129,9 +127,8 @@ impl SessionCipherMethods for SessionCipher {
         });
     }
 
-    fn encrypt(&mut self, responder: &SessionCipherEncryptResponder, padded_message: Vec<u8>) {
+    fn encrypt(&mut self, responder: SessionCipherEncryptResponder, padded_message: Vec<u8>) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
 
         self.pool.execute(move || {
             match ffi.encrypt(&padded_message) {
@@ -146,9 +143,8 @@ impl SessionCipherMethods for SessionCipher {
         });
     }
 
-    fn remote_registration_id(&mut self, responder: &SessionCipherRemoteRegistrationIdResponder) {
+    fn remote_registration_id(&mut self, responder: SessionCipherRemoteRegistrationIdResponder) {
         let ffi = self.ffi.clone();
-        let responder = responder.clone();
 
         self.pool.execute(move || {
             match ffi.remote_registration_id() {
