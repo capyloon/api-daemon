@@ -101,7 +101,7 @@ fn upgrader_test() {
     #[derive(Default)]
     struct OneShotUpgrader {
         upgraded: bool,
-    };
+    }
     impl DatabaseUpgrader for OneShotUpgrader {
         fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
             if !self.upgraded {
@@ -149,7 +149,7 @@ fn upgrader_test() {
                 .unwrap();
 
             stmt_ins
-                .execute_named(named_params! {":name": "foo", ":value": "bar"})
+                .execute(named_params! {":name": "foo", ":value": "bar"})
                 .unwrap();
         }
         tx.commit().unwrap();

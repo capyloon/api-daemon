@@ -430,7 +430,6 @@ checksum = "595d3cfa7a60d4555cb5067b99f07142a08ea778de5cf993f7b75c7d8fabc486"
 name = "apps_service"
 version = "0.1.0"
 dependencies = [
- "actix-cors",
  "actix-rt",
  "actix-web",
  "android_utils",
@@ -1316,7 +1315,6 @@ dependencies = [
  "powermanager_service",
  "procmanager_service",
  "rand 0.8.4",
- "read-byte-slice",
  "reqwest",
  "rusty-s3",
  "serde",
@@ -2818,7 +2816,6 @@ name = "power"
 version = "0.1.0"
 dependencies = [
  "libc",
- "log",
 ]
 
 [[package]]
@@ -3101,20 +3098,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "read-byte-slice"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e0f20b97428c65b7adac4f5af5cf7c9674c15400fd08d56b67556297e8a933e"
-dependencies = [
- "fallible-streaming-iterator",
-]
-
-[[package]]
 name = "recovery"
 version = "0.1.0"
 dependencies = [
  "libc",
- "log",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@
  * This client should be run with |kaios.test.bar@1.0-service| that
  * provides a default instance of IBar over binder.
  */
-use hidl_utils::hidl;
+use hidl_utils::hidl::{self, HidlError};
 use hidl_utils::hidl::EmbeddedOps;
 use hidl_utils::hidl::ParcelHelper;
 use std::io::Read;
@@ -45,7 +45,7 @@ impl EmbeddedOps<Position> for Position {
         em_struct: *const Self::EmStruct,
         parent_handle: usize,
         parent_offset: usize,
-    ) -> Result<(), ()> {
+    ) -> Result<(), HidlError> {
         unsafe {
             parcel
                 .write_embedded(
@@ -71,7 +71,7 @@ impl EmbeddedOps<Position> for Position {
         em_struct: *const Self::EmStruct,
         parent_handle: usize,
         parent_offset: usize,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, HidlError> {
         unsafe {
             let ret = Position {
                 x: (*em_struct).x,
@@ -90,7 +90,7 @@ impl EmbeddedOps<Position> for Position {
             Ok(ret)
         }
     }
-    fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<(), ()> {
+    fn prepare_embedded(&self, em_struct: *mut Self::EmStruct) -> Result<(), HidlError> {
         unsafe {
             (*em_struct).x = self.x;
             (*em_struct).y = self.y;
