@@ -19,6 +19,7 @@ pub mod remote_services_registrar;
 mod selinux;
 pub mod socket_pair;
 pub mod tokens;
+#[macro_use]
 pub mod traits;
 pub mod observers;
 

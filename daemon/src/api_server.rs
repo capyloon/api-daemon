@@ -175,7 +175,6 @@ async fn ws_index(
         global_context.tokens_manager.clone(),
         global_context.session_context.clone(),
         global_context.remote_service_manager.clone(),
-        global_context.service_state(),
     );
 
     let mut res = ws::handshake(&req)?;

@@ -5,7 +5,8 @@ use crate::generated::common::*;
 use crate::generated::{self, service::*};
 use common::core::BaseMessage;
 use common::traits::{
-    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, TrackerId,
+    EmptyConfig, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
+    SharedSessionContext, TrackerId,
 };
 use contacts_service::generated::common::SimContactInfo;
 use contacts_service::service::ContactsService;
@@ -293,19 +294,12 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
     }
 }
 
+common::impl_shared_state!(GeckoBridgeService, GeckoBridgeState, EmptyConfig);
+
 impl Service<GeckoBridgeService> for GeckoBridgeService {
-    // Shared among instances.
-    type State = GeckoBridgeState;
-
-    fn shared_state() -> Shared<Self::State> {
-        let a = &*GECKO_BRIDGE_SHARED_STATE;
-        a.clone()
-    }
-
     fn create(
         attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        state: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<GeckoBridgeService, String> {
         info!("GeckoBridgeService::create");
@@ -319,6 +313,7 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
         // We only allow a single instance of this service to change delegates.
         // Content processes that will connect afterwards can still use it
         // to register tokens.
+        let state = Self::shared_state();
         let only_register_token = state.lock().is_ready();
         let service_id = helper.session_tracker_id().service();
         Ok(GeckoBridgeService {

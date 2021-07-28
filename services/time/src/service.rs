@@ -6,8 +6,8 @@ use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
 use common::observers::{ObserverTracker, ServiceObserverTracker};
 use common::traits::{
-    CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, StateLogger, TrackerId,
+    CommonResponder, DispatcherId, EmptyConfig, OriginAttributes, Service, SessionSupport, Shared,
+    SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
 use common::{JsonValue, SystemTime};
 use log::{debug, error, info};
@@ -90,8 +90,10 @@ impl SharedObj {
     }
 }
 
-lazy_static! {
-    pub(crate) static ref TIME_SHARED_DATA: Shared<SharedObj> = Shared::adopt(SharedObj::default());
+impl From<&EmptyConfig> for SharedObj {
+    fn from(_config: &EmptyConfig) -> Self {
+        Self::default()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -281,29 +283,24 @@ impl TimeMethods for Time {
     }
 }
 
+common::impl_shared_state!(Time, SharedObj, EmptyConfig);
+
 impl Service<Time> for Time {
-    type State = SharedObj;
-
-    fn shared_state() -> Shared<Self::State> {
-        let shared = &*TIME_SHARED_DATA;
-        shared.clone()
-    }
-
     fn create(
         origin_attributes: &OriginAttributes,
         _context: SharedSessionContext,
-        _shared_obj: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<Time, String> {
         info!("TimeService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = TimeEventDispatcher::from(helper, 0);
-        let dispatcher_id = _shared_obj.lock().event_broadcaster.add(&event_dispatcher);
+        let shared_obj = Self::shared_state();
+        let dispatcher_id = shared_obj.lock().event_broadcaster.add(&event_dispatcher);
 
         Ok(Time {
             id: service_id,
             pool: ThreadPool::new(1),
-            shared_obj: _shared_obj,
+            shared_obj,
             dispatcher_id,
             proxy_tracker: HashMap::new(),
             observers: ServiceObserverTracker::default(),

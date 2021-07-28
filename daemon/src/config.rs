@@ -7,6 +7,9 @@
 // [http]
 // root_path = /path/to/files
 
+#[cfg(feature = "apps-service")]
+use apps_service::config::Config as AppsConfig;
+use common::traits::EmptyConfig;
 use serde::{Deserialize, Deserializer};
 use std::fs::File;
 use std::io::Read;
@@ -58,7 +61,7 @@ pub struct Config {
     #[cfg(feature = "virtual-host")]
     pub vhost: vhost_server::config::Config,
     #[cfg(feature = "apps-service")]
-    pub apps_service: apps_service::config::Config,
+    pub apps_service: AppsConfig,
 }
 
 impl Config {
@@ -91,7 +94,7 @@ impl Config {
                 csp: "".into(),
             },
             #[cfg(feature = "apps-service")]
-            apps_service: apps_service::config::Config::new(
+            apps_service: AppsConfig::new(
                 "".into(),
                 "".into(),
                 "".into(),
@@ -100,6 +103,19 @@ impl Config {
                 false,
             ),
         }
+    }
+}
+
+impl Into<EmptyConfig> for &Config {
+    fn into(self) -> EmptyConfig {
+        EmptyConfig
+    }
+}
+
+#[cfg(feature = "apps-service")]
+impl Into<AppsConfig> for &Config {
+    fn into(self) -> AppsConfig {
+        self.apps_service.clone()
     }
 }
 

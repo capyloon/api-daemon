@@ -5,8 +5,8 @@ use crate::private_traits::PrivateTestTrait;
 use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
-    CommonResponder, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, SimpleObjectTracker, StateLogger, TrackerId,
+    CommonResponder, EmptyConfig, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
+    Shared, SharedServiceState, SharedSessionContext, SimpleObjectTracker, StateLogger, TrackerId,
 };
 use common::{Blob, JsonValue, SystemTime};
 use log::{error, info};
@@ -109,6 +109,12 @@ impl SimpleObjectTracker for SharedCustomProviderImpl {
 
 pub struct TestSharedData {
     request_count: u32,
+}
+
+impl From<&EmptyConfig> for TestSharedData {
+    fn from(_config: &EmptyConfig) -> Self {
+        Self { request_count: 0 }
+    }
 }
 
 impl StateLogger for TestSharedData {}
@@ -532,18 +538,12 @@ impl TestServiceImpl {
     }
 }
 
+common::impl_shared_state!(TestServiceImpl, TestSharedData, EmptyConfig);
+
 impl Service<TestServiceImpl> for TestServiceImpl {
-    // Shared among instances.
-    type State = TestSharedData;
-
-    fn shared_state() -> Shared<Self::State> {
-        Shared::adopt(TestSharedData { request_count: 0 })
-    }
-
     fn create(
         _attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        state: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<TestServiceImpl, String> {
         info!("TestService::create");
@@ -555,7 +555,7 @@ impl Service<TestServiceImpl> for TestServiceImpl {
             event_dispatcher,
             tracker: Arc::new(Mutex::new(ObjectTracker::default())),
             proxy_tracker: HashMap::new(),
-            state,
+            state: Self::shared_state(),
             state_prop: true,
             helper,
         })

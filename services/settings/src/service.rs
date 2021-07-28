@@ -4,8 +4,8 @@ use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::traits::{
-    CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, StateLogger, TrackerId,
+    CommonResponder, DispatcherId, EmptyConfig, OriginAttributes, Service, SessionSupport, Shared,
+    SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{error, info};
 use std::collections::HashMap;
@@ -21,11 +21,12 @@ impl StateLogger for SettingsSharedData {
     }
 }
 
-lazy_static! {
-    pub(crate) static ref SETTINGS_SHARED_DATA: Shared<SettingsSharedData> =
-        Shared::adopt(SettingsSharedData {
-            db: SettingsDb::new(SettingsFactoryEventBroadcaster::default())
-        });
+impl From<&EmptyConfig> for SettingsSharedData {
+    fn from(_config: &EmptyConfig) -> Self {
+        SettingsSharedData {
+            db: SettingsDb::new(SettingsFactoryEventBroadcaster::default()),
+        }
+    }
 }
 
 pub struct SettingsService {
@@ -160,36 +161,30 @@ impl SettingsFactoryMethods for SettingsService {
                         .db
                         .remove_observer(&target[idx].0, target[idx].1);
                     target.remove(idx);
-                    responder.resolve()
+                    responder.resolve();
+                    return;
                 }
             }
             error!("Failed to find observer in list");
-            responder.reject();
         } else {
             error!("Failed to find proxy for this observer");
-            responder.reject();
         }
+        responder.reject();
     }
 }
 
+common::impl_shared_state!(SettingsService, SettingsSharedData, EmptyConfig);
+
 impl Service<SettingsService> for SettingsService {
-    // Shared among instances.
-    type State = SettingsSharedData;
-
-    fn shared_state() -> Shared<Self::State> {
-        let shared = &*SETTINGS_SHARED_DATA;
-        shared.clone()
-    }
-
     fn create(
         origin_attributes: &OriginAttributes,
         _context: SharedSessionContext,
-        state: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<SettingsService, String> {
         info!("SettingsService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = SettingsFactoryEventDispatcher::from(helper, 0 /* object id */);
+        let state = Self::shared_state();
         let dispatcher_id = state.lock().db.add_dispatcher(&event_dispatcher);
         Ok(SettingsService {
             id: service_id,

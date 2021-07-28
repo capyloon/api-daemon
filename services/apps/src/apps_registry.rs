@@ -11,11 +11,10 @@ use crate::downloader::DownloadError;
 use crate::generated::common::*;
 use crate::manifest::{Manifest, ManifestError};
 use crate::registry_db::RegistryDb;
-use crate::service::AppsService;
 use crate::shared_state::AppsSharedData;
 use crate::update_scheduler;
 use android_utils::{AndroidProperties, PropertyGetter};
-use common::traits::{DispatcherId, Shared};
+use common::traits::{DispatcherId, Shared, SharedServiceState};
 use common::JsonValue;
 use log::{debug, error, info};
 use serde_json::{json, Value};
@@ -38,9 +37,10 @@ use url::ParseError;
 
 #[cfg(test)]
 use crate::apps_storage::validate_package;
+#[cfg(test)]
+use common::traits::EmptyConfig;
 
 // Relay the request to Gecko using the bridge.
-use common::traits::Service;
 use geckobridge::service::GeckoBridgeService;
 
 #[derive(Error, Debug)]
@@ -133,7 +133,10 @@ impl DbObserver for SettingObserver {
         }
 
         let lang = value.as_str().unwrap_or("en-US");
-        AppsService::shared_state().lock().registry.set_lang(lang);
+        crate::service::AppsService::shared_state()
+            .lock()
+            .registry
+            .set_lang(lang);
     }
 }
 
@@ -986,6 +989,8 @@ fn test_init_apps_from_system() {
 
     let _ = env_logger::try_init();
 
+    settings_service::service::SettingsService::init_shared_state(&EmptyConfig);
+
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = std::env::current_dir().unwrap();
     let root_path = format!("{}/test-fixtures/webapps", current.display());
@@ -1006,6 +1011,8 @@ fn test_init_apps_from_system() {
         String::from("user_agent"),
         true,
     );
+
+    crate::service::AppsService::init_shared_state(&config);
 
     let registry = match AppsRegistry::initialize(&config, 80) {
         Ok(v) => v,
@@ -1078,6 +1085,8 @@ fn test_register_app() {
 
     let _ = env_logger::try_init();
 
+    settings_service::service::SettingsService::init_shared_state(&EmptyConfig);
+
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = std::env::current_dir().unwrap();
     let root_path = format!("{}/test-fixtures/webapps", current.display());
@@ -1097,6 +1106,8 @@ fn test_register_app() {
         String::from("user_agent"),
         true,
     );
+
+    crate::service::AppsService::init_shared_state(&config);
 
     let vhost_port = 80;
     let mut registry = match AppsRegistry::initialize(&config, 80) {
@@ -1341,6 +1352,9 @@ fn test_apply_download() {
 
     let _ = env_logger::try_init();
 
+    settings_service::service::SettingsService::init_shared_state(&EmptyConfig);
+    geckobridge::service::GeckoBridgeService::init_shared_state(&EmptyConfig);
+
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = std::env::current_dir().unwrap();
     let _root_dir = format!("{}/test-fixtures/webapps", current.display());
@@ -1361,6 +1375,8 @@ fn test_apply_download() {
         String::from("user_agent"),
         true,
     );
+
+    crate::service::AppsService::init_shared_state(&config);
 
     let vhost_port = 80;
     let mut registry = match AppsRegistry::initialize(&config, vhost_port) {

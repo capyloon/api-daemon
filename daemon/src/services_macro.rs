@@ -9,49 +9,36 @@ macro_rules! declare_services {
             use $crate_name::service::$service;
         )*
 
-        pub enum SharedStateKind {
+        pub fn log_services_state() {
+            use common::traits::StateLogger;
             $(
                 #[cfg(feature = $feature)]
-                $service(Shared<<$service as Service<$service>>::State>),
+                {
+                    let state = $crate_name::service::$service::shared_state();
+                    log::info!(
+                        "Service: {:<25} {}",
+                        stringify!($service),
+                        if state.is_locked() {
+                            "[locked]"
+                        } else {
+                            "[ok]"
+                        }
+                    );
+
+                    // Log the service shared state if possible.
+                    if !state.is_locked() {
+                        state.lock().log();
+                    }
+                }
             )*
         }
 
-        impl SharedStateKind {
-            pub fn is_locked(&self) -> bool {
-                match &*self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        SharedStateKind::$service(shared) => shared.is_locked(),
-                    )*
-                }
-            }
 
-            pub fn log(&self) {
-                use common::traits::StateLogger;
-
-                match &*self {
-                    $(
-                        #[cfg(feature = $feature)]
-                        SharedStateKind::$service(shared) => shared.lock().log(),
-                    )*
-                }
-            }
-        }
-
-        pub type SharedStateMap = Shared<HashMap<String, SharedStateKind>>;
-
-        pub fn create_shared_state() -> SharedStateMap {
-            // The shared state for each service.
-            let mut map = HashMap::new();
+        pub fn create_shared_state(config: &crate::config::Config) {
             $(
                 #[cfg(feature = $feature)]
-                map.insert(
-                    $crate_name::generated::service::SERVICE_NAME.to_owned(),
-                    SharedStateKind::$service($service::shared_state()),
-                );
-
+                $service::init_shared_state(&config.into());
             )*
-            Shared::adopt(map)
         }
 
         // The session only tracks services, not individual
@@ -148,11 +135,6 @@ macro_rules! declare_services {
                                req.name, $crate_name::generated::service::SERVICE_FINGERPRINT, req.fingerprint);
                                return CoreResponse::GetService(GetServiceResponse::FingerprintMismatch);
                     }
-                    let lock = session.shared_state.lock();
-                    let state = match lock.get($crate_name::generated::service::SERVICE_NAME) {
-                        Some(SharedStateKind::$service(data)) => data,
-                        _ => panic!("Missing shared state for {}!!", $crate_name::generated::service::SERVICE_NAME),
-                    };
 
                     let helpers = session
                         .session_helper
@@ -170,7 +152,6 @@ macro_rules! declare_services {
                         match $service::create(
                         &origin_attributes,
                         session.context.clone(),
-                        state.clone(),
                         helpers,
                         ) {
                             Ok(s) => {

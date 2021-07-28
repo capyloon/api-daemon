@@ -23,8 +23,9 @@ mod uds_server;
 use crate::config::Config;
 use crate::global_context::GlobalContext;
 use crate::session_counter::SessionKind;
-use crate::shared_state::{enabled_services, SharedStateKind};
+use crate::shared_state::enabled_services;
 use common::remote_services_registrar::RemoteServicesRegistrar;
+use common::traits::SharedServiceState;
 use log::{error, info};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
@@ -94,10 +95,7 @@ fn display_build_info(config: &Config, registrar: &RemoteServicesRegistrar) {
 }
 
 // Logs status information about the daemon.
-fn log_daemon_status(global_context: &GlobalContext) {
-    let state = global_context.service_state();
-    let lock = state.lock();
-
+fn log_daemon_status() {
     // Display the numbe of active sessions.
     info!(
         "Active sessions: websocket={}, uds={}",
@@ -105,35 +103,19 @@ fn log_daemon_status(global_context: &GlobalContext) {
         SessionKind::Uds.count()
     );
 
-    // List all available services and whether their shared state is locked.
-    for (name, service) in lock.iter() {
-        info!(
-            "Service: {:<25} {}",
-            name,
-            if service.is_locked() {
-                "[locked]"
-            } else {
-                "[ok]"
-            }
-        );
-
-        // Log the service shared state if possible.
-        if !service.is_locked() {
-            service.log();
-        }
-    }
+    crate::shared_state::log_services_state();
 }
 
 // Installs a signal handler for SIGUSR1 and display information about the
 // daemon state when the signal is handled.
-fn install_signal_handler(global_context: GlobalContext) {
+fn install_signal_handler() {
     let mut signals = Signals::new(&[SIGUSR1]).expect("Failed to create SIGUSR1 signal handler");
     let _thread = thread::spawn(move || {
         for signal in &mut signals {
             match signal {
                 SIGUSR1 => {
                     info!("SIGUSR1 signal received!");
-                    log_daemon_status(&global_context);
+                    log_daemon_status();
                 }
                 _ => unreachable!(),
             }
@@ -183,7 +165,7 @@ fn main() {
             }));
 
             let uploader = crash_uploader::CrashUploader::new(&log_path);
-            let can_upload = uploader.can_upload(&global_context);
+            let can_upload = uploader.can_upload();
             info!("Will upload crash reports: {}", can_upload);
             if can_upload {
                 uploader.upload_reports();
@@ -192,7 +174,7 @@ fn main() {
             }
         }
 
-        install_signal_handler(global_context.clone());
+        install_signal_handler();
 
         // Start the vhost server
         #[cfg(feature = "virtual-host")]
@@ -200,20 +182,13 @@ fn main() {
 
         #[cfg(feature = "apps-service")]
         {
-            let service_state = global_context.service_state();
-            let lock = service_state.lock();
-            let shared_data = match lock.get(&"AppsManager".to_string()) {
-                Some(SharedStateKind::AppsService(data)) => data,
-                _ => panic!("Missing shared state for AppsService!!"),
-            };
-            let mut shared = shared_data.lock();
-            shared.config = config.apps_service;
-            shared.config.resolve_paths();
+            let shared = apps_service::service::AppsService::shared_state();
+            shared.lock().config.resolve_paths();
             #[cfg(feature = "virtual-host")]
             {
-                shared.vhost_api = VhostApi::new(vhost_data.clone());
+                shared.lock().vhost_api = VhostApi::new(vhost_data.clone());
             }
-            apps_service::start_registry(shared_data.clone(), config.general.port);
+            apps_service::start_registry(shared, config.general.port);
         }
 
         // Starts the web socket server in its own thread.

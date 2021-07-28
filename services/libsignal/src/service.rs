@@ -6,8 +6,8 @@ use crate::generated::service::*;
 use crate::global_context::GlobalContext;
 use common::core::BaseMessage;
 use common::traits::{
-    CommonResponder, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
-    SharedSessionContext, TrackerId,
+    CommonResponder, EmptyConfig, EmptyState, ObjectTrackerMethods, OriginAttributes, Service,
+    SessionSupport, Shared, SharedServiceState, SharedSessionContext, TrackerId,
 };
 use libsignal_sys::SignalContext;
 use log::{error, info};
@@ -171,18 +171,12 @@ impl LibSignalMethods for SignalService {
     }
 }
 
+common::impl_shared_state!(SignalService, EmptyState, EmptyConfig);
+
 impl Service<SignalService> for SignalService {
-    // Shared among instances.
-    type State = ();
-
-    fn shared_state() -> Shared<Self::State> {
-        Shared::default()
-    }
-
     fn create(
         origin_attributes: &OriginAttributes,
         _context: SharedSessionContext,
-        _state: Shared<Self::State>,
         transport: SessionSupport,
     ) -> Result<SignalService, String> {
         info!("SignalService::create");

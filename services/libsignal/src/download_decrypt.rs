@@ -3,12 +3,12 @@
 
 use crate::generated::common::DownloadDecryptResult;
 use aes::Aes256;
-use cipher::generic_array::{ArrayLength, GenericArray};
 use block_modes::block_padding::Padding;
 use block_modes::block_padding::Pkcs7;
 use block_modes::{BlockMode, Cbc};
 use buf_redux::policy::MinBuffered;
 use buf_redux::BufReader;
+use cipher::generic_array::{ArrayLength, GenericArray};
 use core::slice;
 use hmac::{Hmac, Mac, NewMac};
 use log::error;

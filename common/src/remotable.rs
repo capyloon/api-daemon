@@ -19,8 +19,8 @@ use common::remote_service::{ChildToParentMessage, LockedIpcWriter, ParentToChil
 use common::socket_pair::PairedStream;
 use common::traits::{SessionTrackerId, MessageSender, StdSender,
     SharedEventMap, EventMapKey, IdFactory, MessageKind, ObjectTrackerMethods, OriginAttributes, Service,
-    SessionContext, SessionSupport, Shared, SharedIdFactory, SharedSessionContext,
-    TrackerId,
+    SessionContext, SessionSupport, Shared, SharedIdFactory, SharedSessionContext, EmptyConfig,
+    TrackerId, SharedServiceState
 };
 use common::try_continue;
 use log::{debug, error, info};
@@ -34,6 +34,9 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 fn handle_ipc(fd: RawFd) {
+    // Initialize the service shared data.
+    $crate_name::service::$service_name::init_shared_state(&EmptyConfig);
+
     let (sender, receiver) = mpsc::channel();
     let base_stream = unsafe { PairedStream::from_raw_fd(fd) };
     let reader_stream = base_stream.clone();
@@ -144,7 +147,7 @@ pub struct Session {
     sender: mpsc::Sender<MessageKind>,
     id_factory: SharedIdFactory,
     event_map: SharedEventMap,
-    shared_state: Shared<<$service_name as Service<$service_name>>::State>,
+    shared_state: Shared<<$service_name as SharedServiceState>::State>,
 }
 
 #[derive(Debug)]
@@ -217,7 +220,6 @@ impl Session {
             match $service_name::create(
             &origin_attributes.clone(),
             self.context.clone(),
-            self.shared_state.clone(),
             helpers,
             ) {
                 Ok(s) => {

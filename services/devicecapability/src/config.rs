@@ -1,6 +1,6 @@
 /// Config interface for DeviceCapability
 use android_utils::{AndroidProperties, AndroidPropertyError, PropertyGetter};
-use common::traits::Service;
+use common::traits::SharedServiceState;
 use common::JsonValue;
 use geckobridge::service::GeckoBridgeService;
 use geckobridge::state::PrefValue;
@@ -215,7 +215,11 @@ fn test_import_devicecapability() {
 
 #[test]
 fn test_basic_calls() {
+    use common::traits::{EmptyConfig, SharedServiceState};
     use serde_json::Value;
+
+    geckobridge::service::GeckoBridgeService::init_shared_state(&EmptyConfig);
+
     let config = DeviceCapabilityConfig::default();
 
     assert_eq!(*config.get("device.bt").unwrap(), Value::Bool(true));

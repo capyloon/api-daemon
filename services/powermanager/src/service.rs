@@ -4,7 +4,8 @@ use crate::generated::service::*;
 use crate::PowerManagerSupport;
 use common::core::BaseMessage;
 use common::traits::{
-    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, StateLogger,
+    EmptyConfig, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
+    SharedSessionContext, StateLogger,
 };
 use log::{debug, error};
 
@@ -18,6 +19,12 @@ pub struct PowerManagerState {
     ext_screen_brightness: i64,
     key_light_brightness: i64,
     init_done: bool,
+}
+
+impl From<&EmptyConfig> for PowerManagerState {
+    fn from(_config: &EmptyConfig) -> Self {
+        Self::default()
+    }
 }
 
 impl Default for PowerManagerState {
@@ -297,22 +304,17 @@ impl PowermanagerMethods for PowerManager {
     }
 }
 
+common::impl_shared_state!(PowerManager, PowerManagerState, EmptyConfig);
+
 impl Service<PowerManager> for PowerManager {
-    // Shared among instances.
-    type State = PowerManagerState;
-
-    fn shared_state() -> Shared<Self::State> {
-        Shared::adopt(PowerManagerState::default())
-    }
-
     fn create(
         _attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        shared_obj: Shared<Self::State>,
         _helper: SessionSupport,
     ) -> Result<PowerManager, String> {
         debug!("PowerManager::create");
         let mut inner = crate::platform::get_platform_support();
+        let shared_obj = Self::shared_state();
         shared_obj.lock().init(&mut inner);
 
         let service = PowerManager { shared_obj, inner };

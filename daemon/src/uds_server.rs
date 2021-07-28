@@ -32,7 +32,6 @@ fn handle_client(
     let sender2 = sender.clone();
 
     // Create a new session attached to this stream.
-    let state = context.service_state();
     let mut session = Session::uds(
         session_id,
         &context.config,
@@ -40,7 +39,6 @@ fn handle_client(
         context.tokens_manager,
         context.session_context,
         context.remote_service_manager,
-        state,
     );
 
     // Launch a thread to receive data from the session.

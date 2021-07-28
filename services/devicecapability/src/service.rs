@@ -4,13 +4,22 @@ use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::traits::{
-    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, StateLogger, TrackerId,
+    EmptyConfig, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
+    SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{error, info};
 use std::thread;
 
 pub struct DeviceCapabilitySharedData {
     pub config: DeviceCapabilityConfig,
+}
+
+impl From<&EmptyConfig> for DeviceCapabilitySharedData {
+    fn from(_config: &EmptyConfig) -> Self {
+        Self {
+            config: DeviceCapabilityConfig::default(),
+        }
+    }
 }
 
 impl StateLogger for DeviceCapabilitySharedData {}
@@ -39,27 +48,23 @@ impl DeviceCapabilityFactoryMethods for DeviceCapabilityService {
     }
 }
 
+common::impl_shared_state!(
+    DeviceCapabilityService,
+    DeviceCapabilitySharedData,
+    EmptyConfig
+);
+
 impl Service<DeviceCapabilityService> for DeviceCapabilityService {
-    // Shared among instances.
-    type State = DeviceCapabilitySharedData;
-
-    fn shared_state() -> Shared<Self::State> {
-        Shared::adopt(DeviceCapabilitySharedData {
-            config: DeviceCapabilityConfig::default(),
-        })
-    }
-
     fn create(
         _attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        state: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<DeviceCapabilityService, String> {
         info!("DeviceCapabilitiyService::create");
         let service_id = helper.session_tracker_id().service();
         Ok(DeviceCapabilityService {
             id: service_id,
-            state,
+            state: Self::shared_state(),
         })
     }
 

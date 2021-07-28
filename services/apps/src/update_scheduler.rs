@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 #[cfg(not(test))]
-use common::traits::Service;
+use common::traits::SharedServiceState;
 #[cfg(not(test))]
 use geckobridge::generated::common::NetworkState;
 #[cfg(not(test))]

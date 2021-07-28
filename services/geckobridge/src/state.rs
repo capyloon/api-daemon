@@ -9,7 +9,7 @@ use crate::generated::common::{
 use crate::generated::service::{GeckoBridgeProxy, GeckoBridgeProxyTracker};
 use crate::service::PROXY_TRACKER;
 use common::tokens::SharedTokensManager;
-use common::traits::{OriginAttributes, Shared, StateLogger};
+use common::traits::{EmptyConfig, OriginAttributes, StateLogger};
 use common::JsonValue;
 use log::{debug, error};
 use parking_lot::Mutex;
@@ -36,11 +36,6 @@ pub enum PrefValue {
     Bool(bool),
 }
 
-lazy_static! {
-    pub(crate) static ref GECKO_BRIDGE_SHARED_STATE: Shared<GeckoBridgeState> =
-        Shared::adopt(GeckoBridgeState::default());
-}
-
 #[derive(Default)]
 pub struct GeckoBridgeState {
     prefs: HashMap<String, PrefValue>,
@@ -51,6 +46,12 @@ pub struct GeckoBridgeState {
     networkmanager: Option<NetworkManagerDelegateProxy>,
     observers: Vec<Sender<()>>,
     tokens: SharedTokensManager,
+}
+
+impl From<&EmptyConfig> for GeckoBridgeState {
+    fn from(_config: &EmptyConfig) -> Self {
+        Self::default()
+    }
 }
 
 impl StateLogger for GeckoBridgeState {

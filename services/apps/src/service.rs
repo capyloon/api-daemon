@@ -9,8 +9,8 @@ use crate::tasks::{
 use crate::update_scheduler::{SchedulerMessage, UpdateScheduler};
 use common::core::BaseMessage;
 use common::traits::{
-    DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
-    TrackerId,
+    DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
+    SharedSessionContext, TrackerId,
 };
 use log::{debug, error, info};
 use std::collections::HashMap;
@@ -222,24 +222,18 @@ impl AppsEngineMethods for AppsService {
     }
 }
 
+common::impl_shared_state!(AppsService, AppsSharedData, crate::config::Config);
+
 impl Service<AppsService> for AppsService {
-    // Shared among instances.
-    type State = AppsSharedData;
-
-    fn shared_state() -> Shared<Self::State> {
-        let shared = &*APPS_SHARED_SHARED_DATA;
-        shared.clone()
-    }
-
     fn create(
         _attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        shared_data: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<AppsService, String> {
         info!("AppsService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = AppsEngineEventDispatcher::from(helper, 0 /* object id */);
+        let shared_data = Self::shared_state();
         let dispatcher_id = shared_data
             .lock()
             .registry

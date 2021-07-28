@@ -560,9 +560,9 @@ pub struct RemoteService {
     manager: SharedRemoteServiceManager,
 }
 
-impl Service<RemoteService> for RemoteService {
-    type State = ();
+crate::impl_shared_state!(RemoteService, EmptyState, EmptyConfig);
 
+impl Service<RemoteService> for RemoteService {
     fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage) {
         // Relay the request to the child.
         match crate::get_bincode().serialize(message) {
@@ -661,10 +661,6 @@ impl Service<RemoteService> for RemoteService {
             }
             None => Err(format!("Failed to spawn remote service {}", service_name)),
         }
-    }
-
-    fn shared_state() -> Shared<Self::State> {
-        Shared::default()
     }
 }
 

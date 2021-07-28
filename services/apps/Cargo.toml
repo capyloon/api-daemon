@@ -14,7 +14,6 @@ blake2 = "0.9"
 common = { path = "../../common" }
 geckobridge = { path = "../geckobridge" }
 http = "0.2.1"
-lazy_static = "1.4"
 log = "0.4"
 mkstemp-rs = "1.0.0"
 nix = "0.19"

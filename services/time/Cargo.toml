@@ -15,7 +15,6 @@ serde = "1.0"
 settings_service = { path = "../settings" }
 threadpool = "1.7"
 time = "0.1"
-lazy_static = "1.4"
 
 [build-dependencies]
 common = { path = "../../common" }

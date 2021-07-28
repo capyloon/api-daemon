@@ -2,8 +2,8 @@ use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::traits::{
-    DispatcherId, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
-    StateLogger, TrackerId,
+    DispatcherId, EmptyConfig, OriginAttributes, Service, SessionSupport, Shared,
+    SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
 
 use log::{debug, info};
@@ -11,6 +11,15 @@ use log::{debug, info};
 pub struct SharedObj {
     volume_state: AudioVolumeState,
     event_broadcaster: AudioVolumeEventBroadcaster,
+}
+
+impl From<&EmptyConfig> for SharedObj {
+    fn from(_config: &EmptyConfig) -> Self {
+        Self {
+            volume_state: AudioVolumeState::None,
+            event_broadcaster: AudioVolumeEventBroadcaster::default(),
+        }
+    }
 }
 
 impl StateLogger for SharedObj {
@@ -55,25 +64,18 @@ impl AudioVolumeMethods for AudioVolume {
     }
 }
 
+common::impl_shared_state!(AudioVolume, SharedObj, EmptyConfig);
+
 impl Service<AudioVolume> for AudioVolume {
-    type State = SharedObj;
-
-    fn shared_state() -> Shared<Self::State> {
-        Shared::adopt(SharedObj {
-            volume_state: AudioVolumeState::None,
-            event_broadcaster: AudioVolumeEventBroadcaster::default(),
-        })
-    }
-
     fn create(
         _attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        shared_obj: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<AudioVolume, String> {
         info!("AudioVolumeService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = AudioVolumeEventDispatcher::from(helper, 0);
+        let shared_obj = Self::shared_state();
         let dispatcher_id = shared_obj.lock().event_broadcaster.add(&event_dispatcher);
         info!("AudioVolume::create with dispatcher_id {}", dispatcher_id);
 

@@ -405,15 +405,26 @@ pub trait StateLogger {
     fn log(&self) {}
 }
 
-impl StateLogger for () {}
-
 pub type SharedSessionContext = Shared<SessionContext>;
 
-pub trait Service<S> {
+pub trait SharedServiceState {
     /// The type of the shared state if multiple instances of this service need to
     /// share access.
     type State: StateLogger;
 
+    /// The type used to carry the service configuration, if any.
+    type Config;
+
+    /// Returns the current shared state for the service.
+    /// Can be called as often as needed.
+    fn shared_state() -> Shared<Self::State>;
+
+    /// Creates the shared state for all the service instances.
+    /// This will be called only once per process.
+    fn init_shared_state(config: &Self::Config);
+}
+
+pub trait Service<S>: SharedServiceState {
     /// Called once we have checked that BaseMessage was targetted at this service.
     fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage);
 
@@ -428,7 +439,6 @@ pub trait Service<S> {
     fn create(
         _origin_attributes: &OriginAttributes,
         _context: SharedSessionContext,
-        _state: Shared<Self::State>,
         _helper: SessionSupport,
     ) -> Result<S, String> {
         Err("NotImplemented".into())
@@ -445,10 +455,57 @@ pub trait Service<S> {
     ) -> Result<S, String> {
         Err("NotImplemented".into())
     }
+}
 
-    /// Factory to create a shared state instance.
-    /// This will be called only once per process for a given service.
-    fn shared_state() -> Shared<Self::State>;
+pub struct EmptyConfig;
+pub struct EmptyState;
+
+impl StateLogger for EmptyState {}
+
+impl Into<EmptyState> for &EmptyConfig {
+    fn into(self) -> EmptyState {
+        EmptyState
+    }
+}
+
+// Implements the init_shared_state() and shared_state() functions
+// for a given service type.
+#[macro_export]
+macro_rules! impl_shared_state {
+    ($service:tt, $state:ty, $config: ty) => {
+        use std::sync::Once;
+        static mut SERVICE_SHARED_STATE: Option<Shared<<$service as SharedServiceState>::State>> =
+            None;
+        static SERVICE_INIT_SHARED: Once = Once::new();
+
+        impl SharedServiceState for $service {
+            type State = $state;
+            type Config = $config;
+
+            fn shared_state() -> Shared<Self::State> {
+                log::debug!("Requesting shared state for {}", stringify!($service));
+                unsafe {
+                    SERVICE_SHARED_STATE
+                        .as_ref()
+                        .expect(&format!(
+                            "shared state for {} was not initialized!",
+                            stringify!($service)
+                        ))
+                        .clone()
+                }
+            }
+
+            fn init_shared_state(config: &Self::Config) {
+                log::debug!("Initializing shared state for {}", stringify!($service));
+                unsafe {
+                    SERVICE_INIT_SHARED.call_once(|| {
+                        log::debug!("Setting shared state for {}", stringify!($service));
+                        SERVICE_SHARED_STATE = Some(Shared::adopt(config.into()));
+                    });
+                }
+            }
+        }
+    };
 }
 
 // Utility to simplify Arc<Mutex<T>> patterns.

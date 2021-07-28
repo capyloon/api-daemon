@@ -1274,46 +1274,44 @@ impl ContactsDb {
         debug!("import_vcf {}", vcf.len());
         let parser = ical::VcardParser::new(BufReader::new(vcf.as_bytes()));
         let mut contacts = vec![];
-        for item in parser {
-            if let Ok(vcard) = item {
-                // Initialize the contact with default values.
-                let mut contact = ContactInfo::default();
-                for prop in vcard.properties {
-                    if prop.name == "EMAIL" {
-                        if let Some(email_vcard) = &prop.value {
-                            fill_vec_field(
-                                &mut contact.email,
-                                ContactField {
-                                    atype: None,
-                                    value: email_vcard.clone(),
-                                    pref: Some(false),
-                                },
-                            );
-                        }
-                    } else if prop.name == "TEL" {
-                        if let Some(tel_vcard) = &prop.value {
-                            fill_vec_field(
-                                &mut contact.tel,
-                                ContactTelField {
-                                    atype: None,
-                                    value: tel_vcard.clone(),
-                                    pref: Some(false),
-                                    carrier: None,
-                                },
-                            );
-                        }
-                    } else if prop.name == "FN" {
-                        contact.name = prop.value;
-                    } else if prop.name == "TITLE" {
+        for vcard in parser.flatten() {
+            // Initialize the contact with default values.
+            let mut contact = ContactInfo::default();
+            for prop in vcard.properties {
+                if prop.name == "EMAIL" {
+                    if let Some(email_vcard) = &prop.value {
                         fill_vec_field(
-                            &mut contact.job_title,
-                            prop.value.unwrap_or_else(|| "".into()),
+                            &mut contact.email,
+                            ContactField {
+                                atype: None,
+                                value: email_vcard.clone(),
+                                pref: Some(false),
+                            },
                         );
                     }
+                } else if prop.name == "TEL" {
+                    if let Some(tel_vcard) = &prop.value {
+                        fill_vec_field(
+                            &mut contact.tel,
+                            ContactTelField {
+                                atype: None,
+                                value: tel_vcard.clone(),
+                                pref: Some(false),
+                                carrier: None,
+                            },
+                        );
+                    }
+                } else if prop.name == "FN" {
+                    contact.name = prop.value;
+                } else if prop.name == "TITLE" {
+                    fill_vec_field(
+                        &mut contact.job_title,
+                        prop.value.unwrap_or_else(|| "".into()),
+                    );
                 }
-                debug!("contact in vcard is : {:?}", contact);
-                contacts.push(contact);
             }
+            debug!("contact in vcard is : {:?}", contact);
+            contacts.push(contact);
         }
         self.save(&contacts, false).map(|_| contacts.len())
     }

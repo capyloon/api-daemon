@@ -7,8 +7,8 @@ use crate::tcpsocket::{EventType, TcpSocket, TokenMap};
 use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
-    ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext,
-    SimpleObjectTracker, TrackerId,
+    EmptyConfig, EmptyState, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
+    Shared, SharedServiceState, SharedSessionContext, SimpleObjectTracker, TrackerId,
 };
 
 use log::{debug, error, info};
@@ -266,17 +266,12 @@ impl TcpSocketFactoryMethods for TcpSocketService {
     }
 }
 
+common::impl_shared_state!(TcpSocketService, EmptyState, EmptyConfig);
+
 impl Service<TcpSocketService> for TcpSocketService {
-    type State = ();
-
-    fn shared_state() -> Shared<Self::State> {
-        Shared::default()
-    }
-
     fn create(
         _attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        _shared_obj: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<TcpSocketService, String> {
         let tracker = ObjectTracker::default();

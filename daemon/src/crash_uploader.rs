@@ -4,10 +4,9 @@
 // The last time a crash was uploaded is saved in the $LOG_PATH/last_upload
 // file as seconds since epoch.
 
-use crate::global_context::GlobalContext;
-use crate::shared_state::SharedStateKind;
 #[cfg(target_os = "android")]
 use android_utils::{AndroidProperties, PropertyGetter};
+use common::traits::SharedServiceState;
 use flate2::bufread::GzEncoder;
 use flate2::Compression;
 use log::{debug, error};
@@ -169,7 +168,7 @@ impl CrashUploader {
     // - we don't need to throttle uploads.
     // - S3 credentials are available.
     // Note: this code only runs at daemon startup so we don't need to listen for settings change.
-    pub fn can_upload(&self, global_context: &GlobalContext) -> bool {
+    pub fn can_upload(&self) -> bool {
         if S3_ACCESS_KEY_ID.is_none() || S3_SECRET_ACCESS_KEY.is_none() {
             error!(
                 "Invalid S3 authentication data: `{:?}` `{:?}`",
@@ -179,21 +178,14 @@ impl CrashUploader {
         }
 
         // Verify that the user gave consent by checking the value of the "eventlogger.telemetry.consent" setting.
-        let service_state = global_context.service_state();
-        let lock = service_state.lock();
-        let res = if let Some(SharedStateKind::SettingsService(data)) =
-            lock.get(&"SettingsManager".to_string())
-        {
-            match data.lock().db.get("eventlogger.telemetry.consent") {
-                Ok(value) => *value == serde_json::Value::Bool(true),
-                _ => {
-                    error!("No `eventlogger.telemetry.consent` setting found, denying crash report upload.");
-                    false
-                }
+        let settings = settings_service::service::SettingsService::shared_state();
+
+        let res = match settings.lock().db.get("eventlogger.telemetry.consent") {
+            Ok(value) => *value == serde_json::Value::Bool(true),
+            _ => {
+                error!("No `eventlogger.telemetry.consent` setting found, denying crash report upload.");
+                false
             }
-        } else {
-            error!("Failed to access SettingsService.");
-            false
         };
 
         // When in dev mode, don't block on delay.
@@ -235,12 +227,10 @@ impl CrashUploader {
         // We keep going as much as possible in case of error instead of
         // returning early to clean up as much as possible.
         if let Ok(reader) = read_dir(&self.path) {
-            for entry in reader {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_file() && path.extension() == dmp_ext {
-                        res.push(path);
-                    }
+            for entry in reader.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension() == dmp_ext {
+                    res.push(path);
                 }
             }
         }

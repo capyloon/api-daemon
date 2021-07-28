@@ -46,10 +46,7 @@ impl TokensManager {
     // This will remove the token from the set of valid tokens to
     // prevent session reuse.
     pub fn get_origin_attributes(&mut self, token: &str) -> Option<OriginAttributes> {
-        match self.ids.remove(token) {
-            Some(attr) => Some(attr),
-            None => None,
-        }
+        self.ids.remove(token)
     }
 }
 

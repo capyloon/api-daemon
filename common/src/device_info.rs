@@ -37,10 +37,8 @@ pub fn check_system_state(needs_selinux: bool,
         }
 
         if let Some(lists) = white_list {
-            if lists.split('\n')
-                .map(|item| item.trim())
-                .find(|item| build_prop == *item)
-                .is_none()
+            if !lists.split('\n')
+                .map(|item| item.trim()).any(|item| build_prop == item)
             {
                 return Ok(false);
             }

@@ -4,7 +4,7 @@ use crate::apps_registry::AppsRegistry;
 use crate::config::Config;
 use crate::generated::common::*;
 use crate::update_scheduler::SchedulerMessage;
-use common::traits::{Shared, StateLogger};
+use common::traits::StateLogger;
 use log::info;
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
@@ -13,9 +13,13 @@ use vhost_server::config::VhostApi;
 
 pub struct DeviceInfo;
 
-lazy_static! {
-    pub(crate) static ref APPS_SHARED_SHARED_DATA: Shared<AppsSharedData> =
-        Shared::adopt(AppsSharedData::default());
+impl From<&Config> for AppsSharedData {
+    fn from(config: &Config) -> Self {
+        AppsSharedData {
+            config: config.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 pub struct AppsSharedData {

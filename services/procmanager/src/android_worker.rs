@@ -4,7 +4,7 @@ use crate::cgroups::{CGroupError, GenerationWorker};
 use log::{debug, error};
 use std::collections::HashSet;
 use std::fs::{read_dir, DirEntry, File, OpenOptions};
-use std::io::{Error, Write, Read};
+use std::io::{Error, Read, Write};
 use std::path::Path;
 
 const CGROUP_MEM: &str = "/dev/memcg/b2g";

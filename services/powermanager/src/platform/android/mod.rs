@@ -2,7 +2,7 @@
 use crate::generated::common::FactoryResetReason;
 use crate::PowerManagerSupport;
 use android_utils::AndroidProperties;
-use common::traits::Service;
+use common::traits::SharedServiceState;
 use geckobridge::service::*;
 use log::debug;
 use log::error;

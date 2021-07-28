@@ -1,7 +1,4 @@
 #[macro_use]
-extern crate lazy_static;
-
-#[macro_use]
 pub mod service;
 pub mod apps_actor;
 pub mod apps_item;

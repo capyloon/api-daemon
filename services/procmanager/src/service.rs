@@ -6,11 +6,34 @@ use log::{debug, error};
 use std::convert::Into;
 
 use common::traits::{
-    OriginAttributes, Service, SessionSupport, Shared, SharedSessionContext, StateLogger,
+    EmptyConfig, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
+    SharedSessionContext, StateLogger,
 };
 
 pub struct ProcessSharedData {
     pub cgservice: CGService,
+}
+
+impl From<&EmptyConfig> for ProcessSharedData {
+    fn from(_config: &EmptyConfig) -> Self {
+        let mut shared = ProcessSharedData {
+            cgservice: CGService::default(),
+        };
+        let genid = shared.cgservice.get_active();
+        let genid = shared
+            .cgservice
+            .begin(genid, String::from("shared_state"))
+            .unwrap();
+        shared.cgservice.add_group(genid, "fg", "<<root>>").unwrap();
+        shared.cgservice.add_group(genid, "bg", "<<root>>").unwrap();
+        shared
+            .cgservice
+            .add_group(genid, "try_to_keep", "bg")
+            .unwrap();
+        shared.cgservice.commit_noop(genid).unwrap();
+
+        shared
+    }
 }
 
 impl StateLogger for ProcessSharedData {
@@ -21,7 +44,7 @@ impl StateLogger for ProcessSharedData {
 
 pub struct ProcManagerService {
     genid: GenID,
-    shared_state: Shared<<ProcManagerService as Service<ProcManagerService>>::State>,
+    shared_state: Shared<ProcessSharedData>,
     proc_removings: Vec<i32>,
     proc_movings: Vec<(i32, String)>,
 }
@@ -203,38 +226,18 @@ impl ProcessServiceMethods for ProcManagerService {
     }
 }
 
+common::impl_shared_state!(ProcManagerService, ProcessSharedData, EmptyConfig);
+
 impl Service<ProcManagerService> for ProcManagerService {
-    type State = ProcessSharedData;
-
-    fn shared_state() -> Shared<Self::State> {
-        let mut shared = ProcessSharedData {
-            cgservice: CGService::default(),
-        };
-        let genid = shared.cgservice.get_active();
-        let genid = shared
-            .cgservice
-            .begin(genid, String::from("shared_state"))
-            .unwrap();
-        shared.cgservice.add_group(genid, "fg", "<<root>>").unwrap();
-        shared.cgservice.add_group(genid, "bg", "<<root>>").unwrap();
-        shared
-            .cgservice
-            .add_group(genid, "try_to_keep", "bg")
-            .unwrap();
-        shared.cgservice.commit_noop(genid).unwrap();
-        Shared::adopt(shared)
-    }
-
     fn create(
         _attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        shared_obj: Shared<Self::State>,
         _helper: SessionSupport,
     ) -> Result<ProcManagerService, String> {
         debug!("ProcManagerService::create");
         let service = ProcManagerService {
             genid: 0,
-            shared_state: shared_obj,
+            shared_state: Self::shared_state(),
             proc_removings: vec![],
             proc_movings: vec![],
         };

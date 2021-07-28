@@ -6,8 +6,9 @@ use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
 use common::traits::{
-    CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
-    Shared, SharedSessionContext, SimpleObjectTracker, StateLogger, TrackerId,
+    CommonResponder, DispatcherId, EmptyConfig, ObjectTrackerMethods, OriginAttributes, Service,
+    SessionSupport, Shared, SharedServiceState, SharedSessionContext, SimpleObjectTracker,
+    StateLogger, TrackerId,
 };
 use log::{debug, error, info};
 use std::rc::Rc;
@@ -51,11 +52,12 @@ impl ContactCursorMethods for ContactCursorImpl {
     }
 }
 
-lazy_static! {
-    pub(crate) static ref CONTACTS_SHARED_DATA: Shared<ContactsSharedData> =
-        Shared::adopt(ContactsSharedData {
-            db: ContactsDb::new(ContactsFactoryEventBroadcaster::default())
-        });
+impl From<&EmptyConfig> for ContactsSharedData {
+    fn from(_config: &EmptyConfig) -> Self {
+        Self {
+            db: ContactsDb::new(ContactsFactoryEventBroadcaster::default()),
+        }
+    }
 }
 
 pub struct ContactsService {
@@ -641,24 +643,18 @@ impl ContactsFactoryMethods for ContactsService {
     }
 }
 
+common::impl_shared_state!(ContactsService, ContactsSharedData, EmptyConfig);
+
 impl Service<ContactsService> for ContactsService {
-    // Shared among instances.
-    type State = ContactsSharedData;
-
-    fn shared_state() -> Shared<Self::State> {
-        let shared = &*CONTACTS_SHARED_DATA;
-        shared.clone()
-    }
-
     fn create(
         attrs: &OriginAttributes,
         _context: SharedSessionContext,
-        state: Shared<Self::State>,
         helper: SessionSupport,
     ) -> Result<ContactsService, String> {
         info!("ContactsService::create");
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = ContactsFactoryEventDispatcher::from(helper, 0 /* object id */);
+        let state = Self::shared_state();
         let dispatcher_id = state.lock().db.add_dispatcher(&event_dispatcher);
         Ok(ContactsService {
             id: service_id,

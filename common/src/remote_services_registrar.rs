@@ -87,17 +87,15 @@ impl RemoteServicesRegistrar {
         // id which is the next largest id.
         let mut services = HashMap::new();
         if let Ok(dir) = read_dir(&root_dir) {
-            for item in dir {
-                if let Ok(entry) = item {
-                    if let Ok(file_type) = entry.file_type() {
-                        if file_type.is_dir() {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if !config_services.contains_key(&name) {
-                                max_id += 1;
-                                services.insert(name, max_id);
-                            } else {
-                                services.insert(name.clone(), *config_services.get(&name).unwrap());
-                            }
+            for entry in dir.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if !config_services.contains_key(&name) {
+                            max_id += 1;
+                            services.insert(name, max_id);
+                        } else {
+                            services.insert(name.clone(), *config_services.get(&name).unwrap());
                         }
                     }
                 }

@@ -442,7 +442,6 @@ dependencies = [
  "geckobridge",
  "hawk",
  "http",
- "lazy_static",
  "log",
  "mime_guess",
  "mkstemp-rs",
@@ -1113,7 +1112,6 @@ dependencies = [
  "common",
  "env_logger",
  "ical",
- "lazy_static",
  "log",
  "phonenumber",
  "rusqlite",
@@ -3533,7 +3531,6 @@ name = "settings_service"
 version = "0.1.1"
 dependencies = [
  "common",
- "lazy_static",
  "log",
  "rusqlite",
  "serde",
@@ -3962,7 +3959,6 @@ version = "0.1.0"
 dependencies = [
  "android_utils",
  "common",
- "lazy_static",
  "libc",
  "log",
  "nix",

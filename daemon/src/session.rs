@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::session_counter::SessionKind;
 use crate::shared_state::{
     enabled_services, format_request_helper, on_create_service_helper, on_release_object_helper,
-    process_base_message_helper, SharedStateMap, TrackableServices,
+    process_base_message_helper, TrackableServices,
 };
 use bincode::{self, Options};
 use common::core::{
@@ -39,7 +39,7 @@ pub struct Session {
     services_names: HashSet<String>,
     pub(crate) context: SharedSessionContext,
     remote_services_manager: SharedRemoteServiceManager,
-    pub(crate) shared_state: SharedStateMap,
+    // pub(crate) shared_state: SharedStateMap,
     pub(crate) session_helper: SessionSupport,
     bytes_received: usize,
     kind: SessionKind,
@@ -67,7 +67,6 @@ impl Session {
         token_manager: SharedTokensManager,
         session_context: SharedSessionContext,
         remote_services_manager: SharedRemoteServiceManager,
-        shared_state: SharedStateMap,
         state: SessionState,
         origin_attributes: Option<OriginAttributes>,
         kind: SessionKind,
@@ -89,7 +88,6 @@ impl Session {
             services_names: enabled_services(&config, &registrar),
             context: session_context,
             remote_services_manager,
-            shared_state,
             session_helper: SessionSupport::new(
                 SessionTrackerId::from(session_id, 0),
                 sender,
@@ -110,7 +108,6 @@ impl Session {
         token_manager: SharedTokensManager,
         session_context: SharedSessionContext,
         remote_services_manager: SharedRemoteServiceManager,
-        shared_state: SharedStateMap,
     ) -> Self {
         Session::create(
             session_id,
@@ -119,7 +116,6 @@ impl Session {
             token_manager,
             session_context,
             remote_services_manager,
-            shared_state,
             SessionState::Handshake,
             None,
             SessionKind::Ws,
@@ -135,7 +131,6 @@ impl Session {
         token_manager: SharedTokensManager,
         session_context: SharedSessionContext,
         remote_services_manager: SharedRemoteServiceManager,
-        shared_state: SharedStateMap,
     ) -> Self {
         Session::create(
             session_id,
@@ -144,7 +139,6 @@ impl Session {
             token_manager,
             session_context,
             remote_services_manager,
-            shared_state,
             SessionState::Request,
             Some(OriginAttributes::new("uds", HashSet::new())),
             SessionKind::Uds,
@@ -513,7 +507,6 @@ mod test {
             token_manager.clone(),
             context,
             shared_rsm,
-            Shared::<_>::default(),
         );
 
         let handshake = SessionHandshake {
@@ -573,7 +566,6 @@ mod test {
             token_manager,
             context,
             shared_rsm,
-            Shared::<_>::default(),
         );
         session.state = SessionState::Request;
         // Enable event listener

@@ -550,7 +550,7 @@ fn test_install_app() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
-    use common::traits::Service;
+    use common::traits::SharedServiceState;
     use config::Config;
     use std::env;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -577,7 +577,6 @@ fn test_install_app() {
 
     // Test from shared object
     {
-        let shared_data = AppsService::shared_state();
         let config = Config::new(
             root_dir,
             test_dir.clone(),
@@ -587,10 +586,10 @@ fn test_install_app() {
             String::from("user_agent"),
             true,
         );
+        AppsService::init_shared_state(&config);
+        let shared_data = AppsService::shared_state();
         {
             let mut shared = shared_data.lock();
-            shared.config = config.clone();
-
             let registry = AppsRegistry::initialize(&config, 4443).unwrap();
             shared.registry = registry;
             println!("shared.apps_objects.len: {}", shared.registry.count());
@@ -687,7 +686,7 @@ fn test_get_all() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
-    use common::traits::Service;
+    use common::traits::SharedServiceState;
     use config::Config;
     use std::env;
 
@@ -711,7 +710,6 @@ fn test_get_all() {
     println!("Register from: {}", &root_path);
 
     println!("test_get_all dir: {}", &test_dir);
-    let shared_data = AppsService::shared_state();
     let config = Config::new(
         root_path,
         test_dir,
@@ -721,6 +719,8 @@ fn test_get_all() {
         String::from("user_agent"),
         true,
     );
+    AppsService::init_shared_state(&config);
+    let shared_data = AppsService::shared_state();
     {
         let registry = match AppsRegistry::initialize(&config, 8443) {
             Ok(registry) => registry,
