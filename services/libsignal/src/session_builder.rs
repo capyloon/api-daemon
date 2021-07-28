@@ -9,7 +9,7 @@ use libsignal_sys::{
 use log::{debug, error};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread;
+use threadpool::ThreadPool;
 
 pub struct SessionBuilder {
     id: TrackerId,
@@ -17,6 +17,7 @@ pub struct SessionBuilder {
     address: *const signal_protocol_address,
     #[allow(dead_code)] // We need to hold the store context alive with the same lifetime.
     store_context: StoreContext,
+    pool: ThreadPool,
 }
 
 impl Drop for SessionBuilder {
@@ -34,6 +35,7 @@ impl SessionBuilder {
         remote_address: Address,
         ctxt: &SignalContext,
         id: TrackerId,
+        pool: ThreadPool,
     ) -> Option<Self> {
         let signal_address = Rc::new(signal_protocol_address::new(
             &remote_address.name,
@@ -48,6 +50,7 @@ impl SessionBuilder {
                 ffi: Arc::new(builder),
                 address,
                 store_context,
+                pool,
             });
         }
 
@@ -72,42 +75,39 @@ impl SessionBuilderMethods for SessionBuilder {
     ) {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
-        thread::Builder::new()
-            .name("process_pre_key_bundle".to_string())
-            .spawn(move || {
-                fn key_from_slice(bytes: &[u8]) -> [u8; 32] {
-                    let mut a = [0; 32];
-                    a.clone_from_slice(bytes);
-                    a
-                }
+        self.pool.execute(move || {
+            fn key_from_slice(bytes: &[u8]) -> [u8; 32] {
+                let mut a = [0; 32];
+                a.clone_from_slice(bytes);
+                a
+            }
 
-                let key: [u8; 32];
-                let prekey_pub = match bundle.pre_key_public.len() {
-                    32 => {
-                        key = key_from_slice(&bundle.pre_key_public);
-                        Some(&key)
-                    }
-                    _ => None,
-                };
-
-                if let Some(ffi_bundle) = FfiSessionPreKeyBundle::new(
-                    bundle.registration_id as u32,
-                    bundle.device_id as u32,
-                    bundle.pre_key_id as u32,
-                    prekey_pub,
-                    bundle.signed_pre_key_id as u32,
-                    &key_from_slice(&bundle.signed_pre_key_public),
-                    &bundle.signed_pre_key_signature,
-                    &key_from_slice(&bundle.identity_key),
-                ) {
-                    if ffi.process_pre_key_bundle(&ffi_bundle) {
-                        responder.resolve();
-                    } else {
-                        error!("ffi.process_pre_key_bundle returned false");
-                        responder.reject();
-                    }
+            let key: [u8; 32];
+            let prekey_pub = match bundle.pre_key_public.len() {
+                32 => {
+                    key = key_from_slice(&bundle.pre_key_public);
+                    Some(&key)
                 }
-            })
-            .expect("Failed to create process_pre_key_bundle thread");
+                _ => None,
+            };
+
+            if let Some(ffi_bundle) = FfiSessionPreKeyBundle::new(
+                bundle.registration_id as u32,
+                bundle.device_id as u32,
+                bundle.pre_key_id as u32,
+                prekey_pub,
+                bundle.signed_pre_key_id as u32,
+                &key_from_slice(&bundle.signed_pre_key_public),
+                &bundle.signed_pre_key_signature,
+                &key_from_slice(&bundle.identity_key),
+            ) {
+                if ffi.process_pre_key_bundle(&ffi_bundle) {
+                    responder.resolve();
+                } else {
+                    error!("ffi.process_pre_key_bundle returned false");
+                    responder.reject();
+                }
+            }
+        });
     }
 }

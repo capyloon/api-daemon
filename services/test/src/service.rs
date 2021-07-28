@@ -17,6 +17,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use threadpool::ThreadPool;
 
 pub struct FooProviderImpl {
     id: TrackerId,
@@ -127,6 +128,7 @@ pub struct TestServiceImpl {
     state_prop: bool,
     state: Shared<TestSharedData>,
     helper: SessionSupport,
+    pool: ThreadPool,
 }
 
 impl TestService for TestServiceImpl {
@@ -152,7 +154,7 @@ impl TestFactoryMethods for TestServiceImpl {
         let responder = responder.clone();
         let event_dispatcher = self.event_dispatcher.clone();
 
-        thread::spawn(move || {
+        self.pool.execute(move || {
             thread::sleep(Duration::from_millis(timeout as u64));
             responder.resolve(true);
 
@@ -429,7 +431,7 @@ impl TestFactoryMethods for TestServiceImpl {
         match self.proxy_tracker.get(&observer) {
             Some(TestServiceProxy::Callback(callback)) => {
                 let mut callback = callback.clone();
-                thread::spawn(move || {
+                self.pool.execute(move || {
                     thread::sleep(Duration::from_secs(1));
                     let receiver = callback.handle(name);
                     match receiver.recv().unwrap() {
@@ -558,6 +560,7 @@ impl Service<TestServiceImpl> for TestServiceImpl {
             state: Self::shared_state(),
             state_prop: true,
             helper,
+            pool: ThreadPool::with_name("TestService".into(), 5),
         })
     }
 

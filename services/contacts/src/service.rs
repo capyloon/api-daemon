@@ -12,7 +12,7 @@ use common::traits::{
 };
 use log::{debug, error, info};
 use std::rc::Rc;
-use std::thread;
+use threadpool::ThreadPool;
 
 pub struct ContactsSharedData {
     pub db: ContactsDb,
@@ -66,6 +66,7 @@ pub struct ContactsService {
     dispatcher_id: DispatcherId,
     tracker: ContactsManagerTrackerType,
     origin_attributes: OriginAttributes,
+    pool: ThreadPool,
 }
 
 impl ContactsManager for ContactsService {
@@ -96,7 +97,7 @@ impl ContactsFactoryMethods for ContactsService {
     fn get(&mut self, responder: &ContactsFactoryGetResponder, id: String, only_main_data: bool) {
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let db = &shared.lock().db;
             match db.get(&id, only_main_data) {
                 Ok(value) => responder.resolve(value),
@@ -119,7 +120,7 @@ impl ContactsFactoryMethods for ContactsService {
 
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let db = &mut shared.lock().db;
             match db.save(&contacts, false) {
                 Ok(_) => responder.resolve(),
@@ -142,7 +143,7 @@ impl ContactsFactoryMethods for ContactsService {
 
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let db = &mut shared.lock().db;
             match db.save(&contacts, true) {
                 Ok(_) => responder.resolve(),
@@ -332,7 +333,7 @@ impl ContactsFactoryMethods for ContactsService {
 
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let db = &mut shared.lock().db;
             match db.import_vcf(&vcf) {
                 Ok(count) => responder.resolve(count as _),
@@ -662,6 +663,7 @@ impl Service<ContactsService> for ContactsService {
             dispatcher_id,
             tracker: ObjectTracker::default(),
             origin_attributes: attrs.clone(),
+            pool: ThreadPool::with_name("ContactsService".into(), 5),
         })
     }
 

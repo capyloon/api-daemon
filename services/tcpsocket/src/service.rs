@@ -18,6 +18,7 @@ use parking_lot::Mutex;
 use std::io::ErrorKind;
 use std::sync::Arc;
 use std::thread;
+use threadpool::ThreadPool;
 
 const MAX_SOCKET_NUM: usize = 1024;
 const RECV_BUFF_SIZE: usize = 16384;
@@ -171,37 +172,41 @@ pub fn start_event_loop(
         "Starting event loop with {} sockets.",
         token_map.lock().len()
     );
-    thread::spawn(move || {
-        let mut buf = [0; RECV_BUFF_SIZE];
-        let mut events = Events::with_capacity(MAX_SOCKET_NUM);
-        let mut is_connected = false;
+    // Not using a thread from the pool here because we never run
+    // multiple event loop threads.
+    let _ = thread::Builder::new()
+        .name("TcpSocketEventLoop".into())
+        .spawn(move || {
+            let mut buf = [0; RECV_BUFF_SIZE];
+            let mut events = Events::with_capacity(MAX_SOCKET_NUM);
+            let mut is_connected = false;
 
-        loop {
-            match poll.clone().poll(&mut events, None) {
-                Ok(size) => debug!("Polled {} events", size),
-                Err(err) => error!("Error in poll: {:?}", err),
-            }
+            loop {
+                match poll.clone().poll(&mut events, None) {
+                    Ok(size) => debug!("Polled {} events", size),
+                    Err(err) => error!("Error in poll: {:?}", err),
+                }
 
-            for event in &events {
-                is_connected = process_event(
-                    &event,
-                    is_connected,
-                    &mut buf,
-                    Arc::clone(&poll),
-                    &token_map,
-                    tracker.clone(),
-                );
+                for event in &events {
+                    is_connected = process_event(
+                        &event,
+                        is_connected,
+                        &mut buf,
+                        Arc::clone(&poll),
+                        &token_map,
+                        tracker.clone(),
+                    );
+                }
+                // Used to exit running thread.
+                // Usually, it's pending on poll event queue.
+                // Flip poll ready to trigger exit poll region.
+                // It will break at here since no socket relay on current queue.
+                if token_map.lock().len() == 0 {
+                    info!("All sockets are closed, exiting the event loop.");
+                    break;
+                }
             }
-            // Used to exit running thread.
-            // Usually, it's pending on poll event queue.
-            // Flip poll ready to trigger exit poll region.
-            // It will break at here since no socket relay on current queue.
-            if token_map.lock().len() == 0 {
-                info!("All sockets are closed, exiting the event loop.");
-                break;
-            }
-        }
-    });
+        });
 }
 
 pub struct TcpSocketService {
@@ -210,6 +215,7 @@ pub struct TcpSocketService {
     id: TrackerId,
     tracker: Arc<Mutex<TcpSocketManagerTrackerType>>,
     helper: SessionSupport,
+    pool: ThreadPool,
 }
 
 impl TcpSocketManager for TcpSocketService {
@@ -239,7 +245,7 @@ impl TcpSocketFactoryMethods for TcpSocketService {
         let event_dispatcher = Shared::adopt(TcpSocketEventDispatcher::from(helper, id));
         let tcp_responder = responder.clone();
 
-        let _handle = thread::spawn(move || {
+        self.pool.execute(move || {
             if let Some(socket) = TcpSocket::new(id, addr, event_dispatcher) {
                 {
                     let provider = Arc::new(Mutex::new(socket));
@@ -284,6 +290,7 @@ impl Service<TcpSocketService> for TcpSocketService {
                 tracker: Arc::new(Mutex::new(tracker)),
                 poll: Arc::new(poll),
                 helper,
+                pool: ThreadPool::with_name("TcpSocketService".into(), 5),
             })
         } else {
             error!("Creation of the Poll failed.");

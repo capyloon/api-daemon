@@ -266,7 +266,7 @@ impl AppsRegistry {
         info!("add_observer to SettingsService with id {}", id);
 
         Ok(Self {
-            pool: ThreadPool::new(5),
+            pool: ThreadPool::with_name("AppsRegistry".into(), 5),
             db: Some(db),
             vhost_port,
             lang,
@@ -853,7 +853,7 @@ impl AppsRegistry {
             name: "system.saved.fingerprint".into(),
             value: Value::String(build_fingerprint).into(),
         }];
-        thread::spawn(move || match setting_service.lock().db.set(&setting) {
+        self.pool.execute(move || match setting_service.lock().db.set(&setting) {
             Ok(_) => debug!("apps system update: Successfully write fingerprint to setting."),
             Err(err) => error!(
                 "apps system update: Failed to write fingerprint to setting: {:?}",

@@ -7,7 +7,7 @@ use log::debug;
 use std::os::raw::{c_int, c_void};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread;
+use threadpool::ThreadPool;
 
 pub struct SessionCipher {
     id: TrackerId,
@@ -17,6 +17,7 @@ pub struct SessionCipher {
     callback: Rc<DecryptionCallbackProxy>,
     #[allow(dead_code)] // We need to hold the store context alive with the same lifetime.
     store_context: StoreContext,
+    pool: ThreadPool,
 }
 
 impl Drop for SessionCipher {
@@ -60,6 +61,7 @@ impl SessionCipher {
         remote_address: Address,
         ctxt: &SignalContext,
         decrypt_callback: DecryptionCallbackProxy,
+        pool: ThreadPool,
     ) -> Option<Self> {
         let signal_address = Rc::new(signal_protocol_address::new(
             &remote_address.name,
@@ -80,6 +82,7 @@ impl SessionCipher {
                 address,
                 callback,
                 store_context,
+                pool,
             };
             cipher.ffi.set_callback(native_decrypt_callback, ptr);
             return Some(cipher);
@@ -102,15 +105,12 @@ impl SessionCipherMethods for SessionCipher {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
 
-        thread::Builder::new()
-            .name("decrypt".to_string())
-            .spawn(move || {
-                match ffi.decrypt_message(&ciphertext) {
-                    Ok(plaintext) => responder.resolve(plaintext),
-                    Err(code) => responder.reject(code.as_int() as i64),
-                };
-            })
-            .expect("Failed to create decrypt thread");
+        self.pool.execute(move || {
+            match ffi.decrypt_message(&ciphertext) {
+                Ok(plaintext) => responder.resolve(plaintext),
+                Err(code) => responder.reject(code.as_int() as i64),
+            };
+        });
     }
 
     fn decrypt_pre_key_message(
@@ -121,49 +121,40 @@ impl SessionCipherMethods for SessionCipher {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
 
-        thread::Builder::new()
-            .name("decrypt_pre_key".to_string())
-            .spawn(move || {
-                match ffi.decrypt_pre_key_message(&ciphertext) {
-                    Ok(plaintext) => responder.resolve(plaintext),
-                    Err(code) => responder.reject(code.as_int() as i64),
-                };
-            })
-            .expect("Failed to create decrypt_pre_key thread");
+        self.pool.execute(move || {
+            match ffi.decrypt_pre_key_message(&ciphertext) {
+                Ok(plaintext) => responder.resolve(plaintext),
+                Err(code) => responder.reject(code.as_int() as i64),
+            };
+        });
     }
 
     fn encrypt(&mut self, responder: &SessionCipherEncryptResponder, padded_message: Vec<u8>) {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
 
-        thread::Builder::new()
-            .name("encrypt".to_string())
-            .spawn(move || {
-                match ffi.encrypt(&padded_message) {
-                    Ok(message) => {
-                        responder.resolve(CiphertextMessage {
-                            message_type: message.0 as i64,
-                            serialized: message.1,
-                        });
-                    }
-                    Err(code) => responder.reject(code as i64),
-                };
-            })
-            .expect("Failed to create encrypt thread");
+        self.pool.execute(move || {
+            match ffi.encrypt(&padded_message) {
+                Ok(message) => {
+                    responder.resolve(CiphertextMessage {
+                        message_type: message.0 as i64,
+                        serialized: message.1,
+                    });
+                }
+                Err(code) => responder.reject(code as i64),
+            };
+        });
     }
 
     fn remote_registration_id(&mut self, responder: &SessionCipherRemoteRegistrationIdResponder) {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
 
-        thread::Builder::new()
-            .name("remote_registration_id".to_string())
-            .spawn(move || {
-                match ffi.remote_registration_id() {
-                    Some(result) => responder.resolve(result as i64),
-                    None => responder.reject(),
-                };
-            })
-            .expect("Failed to create remote_registration_id thread");
+        self.pool.execute(move || {
+            match ffi.remote_registration_id() {
+                Some(result) => responder.resolve(result as i64),
+                None => responder.reject(),
+            };
+        });
     }
 }

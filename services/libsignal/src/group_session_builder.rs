@@ -7,13 +7,14 @@ use libsignal_sys::{
 };
 use log::{debug, error};
 use std::sync::Arc;
-use std::thread;
+use threadpool::ThreadPool;
 
 pub struct GroupSessionBuilder {
     id: TrackerId,
     ffi: Arc<FfiGroupSessionBuilder>,
     #[allow(dead_code)] // We need to hold the store context alive with the same lifetime.
     store_context: StoreContext,
+    pool: ThreadPool,
 }
 
 impl Drop for GroupSessionBuilder {
@@ -23,12 +24,18 @@ impl Drop for GroupSessionBuilder {
 }
 
 impl GroupSessionBuilder {
-    pub fn new(store_context: StoreContext, ctxt: &SignalContext, id: TrackerId) -> Option<Self> {
+    pub fn new(
+        store_context: StoreContext,
+        ctxt: &SignalContext,
+        id: TrackerId,
+        pool: ThreadPool,
+    ) -> Option<Self> {
         if let Some(builder) = FfiGroupSessionBuilder::new(store_context.ffi(), ctxt) {
             return Some(GroupSessionBuilder {
                 id,
                 ffi: Arc::new(builder),
                 store_context,
+                pool,
             });
         }
         None
@@ -49,24 +56,21 @@ impl GroupSessionBuilderMethods for GroupSessionBuilder {
     ) {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
-        thread::Builder::new()
-            .name("create_session".to_string())
-            .spawn(move || {
-                let addr = sender_key_name.sender;
+        self.pool.execute(move || {
+            let addr = sender_key_name.sender;
 
-                if let Ok(key_message) =
-                    ffi.create_session(&sender_key_name.group_id, &addr.name, addr.device_id as i32)
-                {
-                    let message = SenderKeyDistributionMessage {
-                        serialized: key_message.serialize(),
-                    };
-                    responder.resolve(message);
-                } else {
-                    error!("ffi.create_session failed");
-                    responder.reject();
-                }
-            })
-            .expect("Failed to create create_session thread");
+            if let Ok(key_message) =
+                ffi.create_session(&sender_key_name.group_id, &addr.name, addr.device_id as i32)
+            {
+                let message = SenderKeyDistributionMessage {
+                    serialized: key_message.serialize(),
+                };
+                responder.resolve(message);
+            } else {
+                error!("ffi.create_session failed");
+                responder.reject();
+            }
+        });
     }
 
     fn process_session(
@@ -81,30 +85,27 @@ impl GroupSessionBuilderMethods for GroupSessionBuilder {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
 
-        thread::Builder::new()
-            .name("process_session".to_string())
-            .spawn(move || {
-                let addr = sender_key_name.sender;
+        self.pool.execute(move || {
+            let addr = sender_key_name.sender;
 
-                if ffi
-                    .process_session(
-                        &sender_key_name.group_id,
-                        &addr.name,
-                        addr.device_id as i32,
-                        &FfiSenderKeyDistributionMessage::deserialize(
-                            &distribution_message.serialized,
-                            ffi.global_context(),
-                        )
-                        .unwrap(),
+            if ffi
+                .process_session(
+                    &sender_key_name.group_id,
+                    &addr.name,
+                    addr.device_id as i32,
+                    &FfiSenderKeyDistributionMessage::deserialize(
+                        &distribution_message.serialized,
+                        ffi.global_context(),
                     )
-                    .is_ok()
-                {
-                    responder.resolve();
-                } else {
-                    error!("ffi.processs_session failed");
-                    responder.reject();
-                }
-            })
-            .expect("Failed to create process_session thread");
+                    .unwrap(),
+                )
+                .is_ok()
+            {
+                responder.resolve();
+            } else {
+                error!("ffi.processs_session failed");
+                responder.reject();
+            }
+        });
     }
 }

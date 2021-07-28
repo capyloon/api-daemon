@@ -13,6 +13,7 @@ use log::error;
 use parking_lot::Mutex;
 use std::rc::Rc;
 use std::sync::Arc;
+use threadpool::ThreadPool;
 
 pub struct GlobalContext {
     id: TrackerId,
@@ -21,6 +22,7 @@ pub struct GlobalContext {
     tracker: Arc<Mutex<SignalTrackerType>>,
     proxy_tracker: Arc<Mutex<SignalProxyTracker>>,
     transport: SessionSupport,
+    pool: ThreadPool,
 }
 
 impl GlobalContext {
@@ -30,6 +32,7 @@ impl GlobalContext {
         tracker: Arc<Mutex<SignalTrackerType>>,
         proxy_tracker: Arc<Mutex<SignalProxyTracker>>,
         transport: SessionSupport,
+        pool: ThreadPool,
     ) -> Option<Self> {
         SignalContext::new().map(|signal_context| GlobalContext {
             id,
@@ -38,6 +41,7 @@ impl GlobalContext {
             tracker,
             proxy_tracker,
             transport,
+            pool,
         })
     }
 }
@@ -301,6 +305,7 @@ impl GlobalContextMethods for GlobalContext {
                         &self.signal_context,
                         sender_key_name,
                         proxy.clone(),
+                        self.pool.clone(),
                     ) {
                         let object = Rc::new(group_cipher);
                         tracker.track(SignalTrackedObject::GroupCipher(object.clone()));
@@ -334,9 +339,12 @@ impl GlobalContextMethods for GlobalContext {
                 ImplStoreContext::new(&self.signal_context, Rc::new(proxies))
             {
                 let mut tracker = self.tracker.lock();
-                if let Some(session_builder) =
-                    GroupSessionBuilder::new(store_context, &self.signal_context, tracker.next_id())
-                {
+                if let Some(session_builder) = GroupSessionBuilder::new(
+                    store_context,
+                    &self.signal_context,
+                    tracker.next_id(),
+                    self.pool.clone(),
+                ) {
                     let object = Rc::new(session_builder);
                     tracker.track(SignalTrackedObject::GroupSessionBuilder(object.clone()));
                     success = true;
@@ -374,6 +382,7 @@ impl GlobalContextMethods for GlobalContext {
                     address,
                     &self.signal_context,
                     tracker.next_id(),
+                    self.pool.clone(),
                 ) {
                     let object = Rc::new(session_builder);
                     tracker.track(SignalTrackedObject::SessionBuilder(object.clone()));
@@ -420,6 +429,7 @@ impl GlobalContextMethods for GlobalContext {
                         address,
                         &self.signal_context,
                         proxy.clone(),
+                        self.pool.clone(),
                     ) {
                         let object = Rc::new(session_cipher);
                         tracker.track(SignalTrackedObject::SessionCipher(object.clone()));

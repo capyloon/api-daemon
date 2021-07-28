@@ -7,7 +7,7 @@ use log::debug;
 use std::os::raw::{c_int, c_void};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread;
+use threadpool::ThreadPool;
 
 // Returns a negative value in case of failure.
 pub struct GroupCipher {
@@ -17,6 +17,7 @@ pub struct GroupCipher {
     callback: Rc<DecryptionCallbackProxy>,
     #[allow(dead_code)] // We need to hold the store context alive with the same lifetime.
     store_context: StoreContext,
+    pool: ThreadPool,
 }
 
 impl Drop for GroupCipher {
@@ -56,6 +57,7 @@ impl GroupCipher {
         ctxt: &SignalContext,
         sender_key_name: SenderKeyName,
         decrypt_callback: DecryptionCallbackProxy,
+        pool: ThreadPool,
     ) -> Option<Self> {
         if let Some(cipher) = FfiGroupCipher::new(
             store_context.ffi(),
@@ -73,6 +75,7 @@ impl GroupCipher {
                 ffi: Arc::new(cipher),
                 callback,
                 store_context,
+                pool,
             };
             cipher.ffi.set_callback(native_decrypt_callback, ptr);
             return Some(cipher);
@@ -86,9 +89,7 @@ impl GroupCipherMethods for GroupCipher {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
 
-        thread::Builder::new()
-            .name("decrypt".to_string())
-            .spawn(move || {
+        self.pool.execute(move || {
                 match ffi.decrypt(&ciphertext) {
                     Ok(plaintext) => {
                         responder.resolve(plaintext);
@@ -97,22 +98,18 @@ impl GroupCipherMethods for GroupCipher {
                         responder.reject(code.as_int() as i64);
                     }
                 };
-            })
-            .expect("Failed to create decrypt thread");
+            });
     }
 
     fn encrypt(&mut self, responder: &GroupCipherEncryptResponder, padded_plaintext: Vec<u8>) {
         let ffi = self.ffi.clone();
         let responder = responder.clone();
 
-        thread::Builder::new()
-            .name("encrypt".to_string())
-            .spawn(move || {
+        self.pool.execute(move || {
                 match ffi.encrypt(&padded_plaintext) {
                     Ok(message) => responder.resolve(message),
                     Err(code) => responder.reject(code as i64),
                 };
-            })
-            .expect("Failed to create encrypt thread");
+            });
     }
 }

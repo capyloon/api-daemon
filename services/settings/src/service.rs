@@ -9,7 +9,7 @@ use common::traits::{
 };
 use log::{error, info};
 use std::collections::HashMap;
-use std::thread;
+use threadpool::ThreadPool;
 
 pub struct SettingsSharedData {
     pub db: SettingsDb,
@@ -36,6 +36,7 @@ pub struct SettingsService {
     dispatcher_id: DispatcherId,
     observers: HashMap<ObjectRef, Vec<(String, DispatcherId)>>,
     origin_attributes: OriginAttributes,
+    pool: ThreadPool,
 }
 
 impl SettingsManager for SettingsService {
@@ -63,7 +64,7 @@ impl SettingsFactoryMethods for SettingsService {
     fn get(&mut self, responder: &SettingsFactoryGetResponder, name: String) {
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let db = &shared.lock().db;
             match db.get(&name) {
                 Ok(value) => responder.resolve(SettingInfo { name, value }),
@@ -94,7 +95,7 @@ impl SettingsFactoryMethods for SettingsService {
 
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let db = &mut shared.lock().db;
             match db.set(&settings) {
                 Ok(_) => responder.resolve(),
@@ -106,7 +107,7 @@ impl SettingsFactoryMethods for SettingsService {
     fn get_batch(&mut self, responder: &SettingsFactoryGetBatchResponder, names: Vec<String>) {
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let db = &shared.lock().db;
             match db.get_batch(&names) {
                 Ok(values) => responder.resolve(values),
@@ -193,6 +194,7 @@ impl Service<SettingsService> for SettingsService {
             dispatcher_id,
             observers: HashMap::new(),
             origin_attributes: origin_attributes.clone(),
+            pool: ThreadPool::with_name("SettingsService".into(), 5)
         })
     }
 

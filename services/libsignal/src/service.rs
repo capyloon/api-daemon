@@ -14,7 +14,7 @@ use log::{error, info};
 use parking_lot::Mutex;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread;
+use threadpool::ThreadPool;
 
 pub struct SignalService {
     id: TrackerId,
@@ -22,6 +22,7 @@ pub struct SignalService {
     proxy_tracker: Arc<Mutex<SignalProxyTracker>>,
     transport: SessionSupport,
     origin_attributes: OriginAttributes,
+    pool: ThreadPool,
 }
 
 impl Signal for SignalService {
@@ -103,34 +104,28 @@ impl LibSignalMethods for SignalService {
         let thread_responder = responder.clone();
 
         // Running this call on its own thread since this can take a while.
-        if let Err(err) = thread::Builder::new()
-            .name("download_and_encrypt".to_string())
-            .spawn(move || {
-                match download_decrypt(
-                    &url,
-                    &iv,
-                    &cipher_key,
-                    &hmac_key,
-                    num_ciphertext_bytes,
-                    num_tail_bytes,
-                    |buf| {
-                        // Send the decrypted chunk to the callback.
-                        // In this case we don't care about the callback response so we don't
-                        // block on getting a response.
-                        thread_callback.callback(buf.to_vec());
-                    },
-                ) {
-                    Ok(res) => thread_responder.resolve(res),
-                    Err(err) => {
-                        error!("download_and_decrypt error: {}", err);
-                        thread_responder.reject(err);
-                    }
+        self.pool.execute(move || {
+            match download_decrypt(
+                &url,
+                &iv,
+                &cipher_key,
+                &hmac_key,
+                num_ciphertext_bytes,
+                num_tail_bytes,
+                |buf| {
+                    // Send the decrypted chunk to the callback.
+                    // In this case we don't care about the callback response so we don't
+                    // block on getting a response.
+                    thread_callback.callback(buf.to_vec());
+                },
+            ) {
+                Ok(res) => thread_responder.resolve(res),
+                Err(err) => {
+                    error!("download_and_decrypt error: {}", err);
+                    thread_responder.reject(err);
                 }
-            })
-        {
-            error!("Failed to spawn thread for download_and_encrypt: {}", err);
-            responder.reject("internal_error".into());
-        }
+            }
+        });
     }
 
     fn start_hmac_sha256(&mut self, responder: &LibSignalStartHmacSha256Responder, key: Vec<u8>) {
@@ -160,6 +155,7 @@ impl LibSignalMethods for SignalService {
             Arc::clone(&self.tracker),
             Arc::clone(&self.proxy_tracker),
             self.transport.clone(),
+            self.pool.clone(),
         ) {
             let object = Rc::new(context);
             tracker.track(SignalTrackedObject::GlobalContext(object.clone()));
@@ -188,6 +184,7 @@ impl Service<SignalService> for SignalService {
             proxy_tracker: Arc::default(),
             transport,
             origin_attributes: origin_attributes.clone(),
+            pool: ThreadPool::with_name("SignalService".into(), 5),
         })
     }
 

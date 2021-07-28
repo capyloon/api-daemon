@@ -8,7 +8,7 @@ use common::traits::{
     SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{error, info};
-use std::thread;
+use threadpool::ThreadPool;
 
 pub struct DeviceCapabilitySharedData {
     pub config: DeviceCapabilityConfig,
@@ -27,6 +27,7 @@ impl StateLogger for DeviceCapabilitySharedData {}
 pub struct DeviceCapabilityService {
     id: TrackerId,
     state: Shared<DeviceCapabilitySharedData>,
+    pool: ThreadPool,
 }
 
 impl DeviceCapabilityManager for DeviceCapabilityService {}
@@ -35,7 +36,7 @@ impl DeviceCapabilityFactoryMethods for DeviceCapabilityService {
     fn get(&mut self, responder: &DeviceCapabilityFactoryGetResponder, name: String) {
         let responder = responder.clone();
         let shared = self.state.clone();
-        thread::spawn(move || {
+        self.pool.execute(move || {
             let config = &shared.lock().config;
             match config.get(&name) {
                 Ok(value) => responder.resolve(value),
@@ -65,6 +66,7 @@ impl Service<DeviceCapabilityService> for DeviceCapabilityService {
         Ok(DeviceCapabilityService {
             id: service_id,
             state: Self::shared_state(),
+            pool: ThreadPool::with_name("DeviceCapabilityService".into(), 5),
         })
     }
 

@@ -14,7 +14,7 @@ use log::{error, info};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::thread;
+use threadpool::ThreadPool;
 
 lazy_static! {
     pub(crate) static ref PROXY_TRACKER: Arc<Mutex<GeckoBridgeProxyTracker>> =
@@ -38,6 +38,7 @@ pub struct GeckoBridgeService {
     id: TrackerId,
     state: Shared<GeckoBridgeState>,
     only_register_token: bool,
+    pool: ThreadPool,
 }
 
 getDelegateWrapper!(
@@ -241,18 +242,16 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
         let origin_attributes = OriginAttributes::new(&url, permissions_set);
         let shared_state = self.state.clone();
         let res = responder.clone();
-        let _ = thread::Builder::new()
-            .name("register_token".to_string())
-            .spawn(move || {
-                if shared_state
-                    .lock()
-                    .register_token(&token, origin_attributes)
-                {
-                    res.resolve();
-                } else {
-                    res.reject();
-                }
-            });
+        self.pool.execute(move || {
+            if shared_state
+                .lock()
+                .register_token(&token, origin_attributes)
+            {
+                res.resolve();
+            } else {
+                res.reject();
+            }
+        });
     }
 
     fn import_sim_contacts(
@@ -320,6 +319,7 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
             id: service_id,
             state,
             only_register_token,
+            pool: ThreadPool::with_name("GeckoBridgeService".into(), 5),
         })
     }
 
