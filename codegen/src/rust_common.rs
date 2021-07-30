@@ -29,51 +29,16 @@ fn rust_type_for_resolve_reject(ast: &Ast, full_type: &FullConcreteType) -> Stri
 }
 
 pub trait SanitizedKeyword {
-   fn sanitized_keyword(&self) -> String;
+    fn sanitized_keyword(&self) -> String;
 }
 
 impl SanitizedKeyword for str {
     fn sanitized_keyword(&self) -> String {
         static KEYWORDS: [&str; 39] = [
-            "as",
-            "async",
-            "await",
-            "break",
-            "const",
-            "continue",
-            "crate",
-            "dyn",
-            "else",
-            "enum",
-            "extern",
-            "false",
-            "fn",
-            "for",
-            "if",
-            "impl",
-            "in",
-            "let",
-            "loop",
-            "match",
-            "mod",
-            "move",
-            "mut",
-            "pub",
-            "ref",
-            "return",
-            "Self",
-            "self",
-            "static",
-            "struct",
-            "super",
-            "trait",
-            "true",
-            "type",
-            "union",
-            "unsafe",
-            "use",
-            "where",
-            "while",
+            "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+            "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod",
+            "move", "mut", "pub", "ref", "return", "Self", "self", "static", "struct", "super",
+            "trait", "true", "type", "union", "unsafe", "use", "where", "while",
         ];
 
         if KEYWORDS.iter().any(|v| v == &self) {
@@ -106,7 +71,12 @@ impl EnumWriter {
         writeln!(sink, "pub enum {} {{", enumeration.name)?;
 
         for member in &enumeration.members {
-            writeln!(sink, "    {}, // #{}", member.name.sanitized_keyword(), member.order)?;
+            writeln!(
+                sink,
+                "    {}, // #{}",
+                member.name.sanitized_keyword(),
+                member.order
+            )?;
         }
         writeln!(sink, "}}")?;
         writeln!(sink, "impl Copy for {} {{}}\n", enumeration.name)?;
@@ -124,7 +94,12 @@ impl DictWriter {
         writeln!(sink, "pub struct {} {{", dict.name)?;
 
         for member in &dict.members {
-            writeln!(sink, "    pub {}: {},", member.name.sanitized_keyword(), rust_type(&member.typ))?;
+            writeln!(
+                sink,
+                "    pub {}: {},",
+                member.name.sanitized_keyword(),
+                rust_type(&member.typ)
+            )?;
         }
         writeln!(sink, "}}\n")?;
 
@@ -328,16 +303,16 @@ impl Codegen {
                     if needs_clone(&ctype) {
                         writeln!(
                             sink,
-                            r#"for dispatcher in &self.dispatchers {{
-                        dispatcher.1.dispatch_{}(value.clone());
+                            r#"for dispatcher in self.dispatchers.values() {{
+                        dispatcher.dispatch_{}(value.clone());
                     }}"#,
                             event_name
                         )?;
                     } else {
                         writeln!(
                             sink,
-                            r#"for dispatcher in &self.dispatchers {{
-                        dispatcher.1.dispatch_{}(value);
+                            r#"for dispatcher in self.dispatchers.values() {{
+                        dispatcher.dispatch_{}(value);
                     }}"#,
                             event_name
                         )?;
@@ -346,8 +321,8 @@ impl Codegen {
                     writeln!(sink, "pub fn broadcast_{}(&self) {{", event_name)?;
                     writeln!(
                         sink,
-                        r#"for dispatcher in &self.dispatchers {{
-                        dispatcher.1.dispatch_{}();
+                        r#"for dispatcher in self.dispatchers.values() {{
+                        dispatcher.dispatch_{}();
                     }}"#,
                         event_name
                     )?;
@@ -375,22 +350,25 @@ impl Codegen {
 
                 writeln!(sink, "#[derive(Clone)]")?;
                 writeln!(sink, "pub struct {}Responder {{", camel_name)?;
-                writeln!(sink, "pub transport: SessionSupport,")?;
-                writeln!(sink, "pub base_message: BaseMessage,")?;
+                writeln!(sink, "pub inner: InnerResponder,")?;
                 writeln!(sink, "}}\n")?;
 
-                writeln!(sink, "impl common::traits::CommonResponder for {}Responder {{", camel_name)?;
-                sink.write_all(b"fn get_transport(&self) -> &SessionSupport {
-                    &self.transport
-                }\n")?;
-
-                sink.write_all(b"fn get_base_message(&self) -> &BaseMessage {
-                    &self.base_message
-                }\n")?;
-
-                writeln!(sink, "}}\n")?; // End of `impl CommonResponder`
+                writeln!(sink, "impl core::ops::Deref for {}Responder {{", camel_name)?;
+                sink.write_all(
+                    br#"type Target = InnerResponder;
+                fn deref(&self) -> &InnerResponder { &self.inner }"#,
+                )?;
+                writeln!(sink, "}}\n")?;
 
                 writeln!(sink, "impl {}Responder {{", camel_name)?;
+
+                sink.write_all(
+                    br#"pub fn new(transport: SessionSupport, base_message: BaseMessage) -> Self {
+                    Self {
+                        inner: InnerResponder::new(transport, base_message),
+                    }
+                }"#,
+                )?;
 
                 // Resolve with the success response.
                 write!(sink, "pub fn resolve(&self")?;
@@ -401,7 +379,7 @@ impl Codegen {
                 writeln!(sink, ") {{")?;
                 write!(
                     sink,
-                    "self.transport.serialize_message(&self.base_message, &{}::{}Success",
+                    "self.inner.send(&{}::{}Success",
                     enum_name, camel_name
                 )?;
                 if stype != "()" {
@@ -439,7 +417,7 @@ impl Codegen {
                 writeln!(sink, ") {{")?;
                 write!(
                     sink,
-                    "self.transport.serialize_message(&self.base_message, &{}::{}Error",
+                    "self.inner.send(&{}::{}Error",
                     enum_name, camel_name
                 )?;
                 if stype != "()" {
@@ -482,11 +460,18 @@ impl Codegen {
                     "pub struct {}Get{}Responder {{",
                     interface.name, camel_name
                 )?;
-                writeln!(sink, "pub transport: SessionSupport,")?;
-                writeln!(sink, "pub base_message: BaseMessage,")?;
+                writeln!(sink, "pub inner: InnerResponder,")?;
                 writeln!(sink, "}}\n")?;
 
                 writeln!(sink, "impl {}Get{}Responder {{", interface.name, camel_name)?;
+
+                sink.write_all(
+                    br#"pub fn new(transport: SessionSupport, base_message: BaseMessage) -> Self {
+                    Self {
+                        inner: InnerResponder::new(transport, base_message),
+                    }
+                }"#,
+                )?;
 
                 // Resolve with the member type.
                 let repr = member.1;
@@ -498,7 +483,7 @@ impl Codegen {
                 writeln!(sink, ") {{")?;
                 write!(
                     sink,
-                    "self.transport.serialize_message(&self.base_message, &{}::{}Get{}",
+                    "self.inner.send(&{}::{}Get{}",
                     enum_name, interface.name, camel_name
                 )?;
                 if stype != "()" {
@@ -752,7 +737,7 @@ use common::core::{BaseMessage, BaseMessageKind};
 #[allow(unused_imports)]
 use common::{Blob, JsonValue, SystemTime, is_event_in_map};
 #[allow(unused_imports)]
-use common::traits::{DispatcherId, OriginAttributes, SessionSupport, Shared, TrackerId};
+use common::traits::{DispatcherId, InnerResponder, OriginAttributes, SessionSupport, Shared, TrackerId};
 #[allow(unused_imports)]
 use log::error;
 #[allow(unused_imports)]

@@ -556,6 +556,34 @@ where
     }
 }
 
+#[derive(Clone)]
+pub struct InnerResponder {
+    pub transport: SessionSupport,
+    pub base_message: BaseMessage,
+}
+
+impl InnerResponder {
+    pub fn new(transport: SessionSupport, base_message: BaseMessage) -> Self {
+        Self {
+            transport,
+            base_message,
+        }
+    }
+
+    pub fn send<S: Serialize>(&self, value: &S) {
+        self.transport.serialize_message(&self.base_message, value);
+    }
+}
+
+impl CommonResponder for InnerResponder {
+    fn get_transport(&self) -> &SessionSupport {
+        &self.transport
+    }
+    fn get_base_message(&self) -> &BaseMessage {
+        &self.base_message
+    }
+}
+
 pub trait CommonResponder {
     fn get_transport(&self) -> &SessionSupport;
     fn get_base_message(&self) -> &BaseMessage;
