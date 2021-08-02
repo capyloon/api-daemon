@@ -597,19 +597,34 @@ impl Codegen {
                     // promises.push(p);
 
                     let pname = &param.name;
-                    writeln!(sink, "let {}_type = {}.type;", pname, pname)?;
-                    writeln!(
-                        sink,
-                        "let {}_p = {}.arrayBuffer().then(data => {{",
-                        pname, pname
-                    )?;
-                    writeln!(
-                        sink,
-                        "return {{ __isblob__: true, data: new Uint8Array(data), type: {}_type }}",
-                        pname,
-                    )?;
-                    writeln!(sink, "}});")?;
-                    writeln!(sink, "promises.push({}_p);", pname)?;
+
+                    // Allow null/undefined values depending on arity.
+                    if param.typ.arity == Arity::Optional || param.typ.arity == Arity::ZeroOrMore {
+                        writeln!(sink, "if ({}) {{", pname)?;
+                    }
+
+                    // For blob* and blob+, we need to produce an array of blob wrappers, not an array
+                    // of promises.
+                    let is_array = param.typ.arity == Arity::OneOrMore || param.typ.arity == Arity::ZeroOrMore;
+
+                    if is_array {
+                        writeln!(sink, "let {}_array_p = [];", pname)?;
+                        writeln!(sink, "{}.forEach(blob => {{", pname)?;
+                        writeln!(sink, "{}_array_p.push(wrapBlob(blob));", pname)?;
+                        writeln!(sink, "}});")?;
+
+                        writeln!(sink, "promises.push(Promise.all({}_array_p));", pname)?;
+                    } else {
+                        writeln!(sink, "promises.push(wrapBlob({}));", pname)?;
+                    }
+
+                    if param.typ.arity == Arity::Optional || param.typ.arity == Arity::ZeroOrMore {
+                        writeln!(
+                            sink,
+                            "}} else {{ promises.push(Promise.resolve({})); }}",
+                            pname
+                        )?;
+                    }
                 }
             }
 
@@ -956,6 +971,14 @@ impl Codegen {
             service.name, service.name, self.fingerprint, service.interface
         )?;
         writeln!(sink)?;
+
+        // Helper function that returns a wrapper object from a blob suitable for bincode.
+        write!(sink, r#"function wrapBlob(blob) {{
+            let btype = blob.type;
+            return blob.arrayBuffer().then(data => {{
+                return {{ __isblob__: true, data: new Uint8Array(data), type: btype }}
+            }});
+        }}"#)?;
 
         Ok(())
     }

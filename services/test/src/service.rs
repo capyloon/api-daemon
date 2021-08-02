@@ -527,6 +527,33 @@ impl TestFactoryMethods for TestServiceImpl {
         text.push_str(&String::from_utf8_lossy(blob2.data()));
         responder.resolve(text);
     }
+
+    fn is_blob_optional(
+        &mut self,
+        responder: TestFactoryIsBlobOptionalResponder,
+        blob1: Option<Blob>,
+    ) {
+        responder.resolve(blob1.is_some())
+    }
+
+    fn count_blobs(&mut self, responder: TestFactoryCountBlobsResponder, blobs: Vec<Blob>) {
+        responder.resolve(blobs.len() as _);
+    }
+
+    fn count_optional_blobs(
+        &mut self,
+        responder: TestFactoryCountOptionalBlobsResponder,
+        blobs: Option<Vec<Blob>>,
+    ) {
+        responder.resolve(match blobs {
+            Some(vec) => vec.len() as _,
+            None => -1,
+        })
+    }
+
+    fn full_blob_size(&mut self, responder: TestFactoryFullBlobSizeResponder, blobs: Vec<Blob>) {
+        responder.resolve(blobs.iter().map(|b| b.len()).sum::<usize>() as _);
+    }
 }
 
 impl TestServiceImpl {

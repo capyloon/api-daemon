@@ -149,6 +149,14 @@ interface TestFactory {
 	fn count_blob_size(blob1: blob, blob2: blob, not_blob: str) -> int
 
 	fn concat_blobs(blob1: blob, blob2: blob) -> str
+
+	fn is_blob_optional(blob1: blob?) -> bool
+
+	fn count_blobs(blobs: blob+) -> int
+
+	fn count_optional_blobs(blobs: blob*) -> int
+
+	fn full_blob_size(blobs: blob+) -> int
 }
 
 #[rust:use=crate::private_traits::*,rust:shared-tracker]

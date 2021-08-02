@@ -224,7 +224,7 @@ function checkType(val, type) {
       ok = typeof val === type;
   }
   if (!ok) {
-    let msg = `Expected ${type}, bug got ${typeof val}`;
+    let msg = `Expected ${type}, but got ${typeof val}`;
     let e = new Error(msg);
     console.error(
       `======================= Start Bincode Type Checking error =======================`

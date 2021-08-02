@@ -131,11 +131,13 @@ class ServiceTester {
             resolve();
           },
           error => {
+            console.error(`Testing Errror is ${error} ${JSON.stringify(error)}`);
             this.results.push({ description, success: false, error });
             resolve();
           }
         );
       } catch(error) {
+        console.error(`Testing Exception is ${error} ${JSON.stringify(error)}`);
         this.results.push({ description, success: false, error});
         resolve();
       }

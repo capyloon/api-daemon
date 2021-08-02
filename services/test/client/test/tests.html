@@ -512,6 +512,54 @@
           "hello world!I am blob 2"
         );
 
+        await tester.assert_eq(
+          `optional blob: true`,
+          (service) => service.isBlobOptional(blob1),
+          true
+        );
+
+        await tester.assert_eq(
+          `optional blob: false`,
+          (service) => service.isBlobOptional(),
+          false
+        );
+
+        await tester.assert_eq(
+          `count blobs: 0`,
+          (service) => service.countBlobs([]),
+          0
+        );
+
+        await tester.assert_eq(
+          `count blobs: 2`,
+          (service) => service.countBlobs([blob1, blob2]),
+          2
+        );
+
+        await tester.assert_eq(
+          `count optional blobs: -1`,
+          (service) => service.countOptionalBlobs(),
+          -1
+        );
+
+        await tester.assert_eq(
+          `count optional blobs: []`,
+          (service) => service.countOptionalBlobs([]),
+          -1
+        );
+
+        await tester.assert_eq(
+          `count optional blobs: 2`,
+          (service) => service.countOptionalBlobs([blob1, blob2]),
+          2
+        );
+
+        await tester.assert_eq(
+          `full blob size`,
+          (service) => service.fullBlobSize([blob1, blob2]),
+          23
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 
