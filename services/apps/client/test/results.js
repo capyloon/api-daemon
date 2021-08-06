@@ -84,4 +84,4 @@ var get_all_expected5 = [ apps_expected, calculator_update_expected, new_gallery
 
 var expected_sha1 = "B2 95 1A FD 74 7F 40 B7 E9 D2 E6 37 A3 5D 12 F3 B8 5B 0E 4A";
 
-var config_expected = {"enabled":true,"connType":0,"delay":86400};
+var config_expected = {"enabled":true,"connType":1,"delay":86400};

@@ -49,7 +49,7 @@ impl Default for UpdateScheduler {
     fn default() -> Self {
         UpdateScheduler {
             enabled: true,
-            conn_type: ConnectionType::WiFiOnly,
+            conn_type: ConnectionType::Any,
             delay: ONE_DAY,
             last_check: 0,
         }
@@ -269,7 +269,7 @@ fn test_in_order() {
         // Default
         let mut scheduler = UpdateScheduler::new();
         assert_eq!(scheduler.enabled, true);
-        assert_eq!(scheduler.conn_type, ConnectionType::WiFiOnly);
+        assert_eq!(scheduler.conn_type, ConnectionType::Any);
         assert_eq!(scheduler.delay, ONE_DAY);
         assert_eq!(scheduler.should_trigger(), true);
 
