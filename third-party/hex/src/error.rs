@@ -33,17 +33,13 @@ impl fmt::Display for FromHexError {
 }
 
 #[cfg(test)]
-// this feature flag is here to suppress unused
-// warnings of `super::*` and `pretty_assertions::assert_eq`
-#[cfg(feature = "alloc")]
 mod tests {
     use super::*;
-    #[cfg(feature = "alloc")]
+    #[cfg(not(feature = "std"))]
     use alloc::string::ToString;
     use pretty_assertions::assert_eq;
 
     #[test]
-    #[cfg(feature = "alloc")]
     fn test_display() {
         assert_eq!(
             FromHexError::InvalidHexCharacter { c: '\n', index: 5 }.to_string(),

@@ -1908,9 +1908,9 @@ dependencies = [
 
 [[package]]
 name = "hex"
-version = "0.4.3"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
 
 [[package]]
 name = "hex-slice"
@@ -2902,9 +2902,8 @@ dependencies = [
 
 [[package]]
 name = "procfs"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab8809e0c18450a2db0f236d2a44ec0b4c1412d0eb936233579f0990faa5d5cd"
+version = "0.10.0"
+source = "git+https://github.com/kaiostech/procfs.git?branch=kernel-patch-u16#0d4b51cf53cdde06c82aff95212a017b4b5246e3"
 dependencies = [
  "bitflags",
  "byteorder",

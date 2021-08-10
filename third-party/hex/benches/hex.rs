@@ -35,25 +35,34 @@ fn bench_decode(c: &mut Criterion) {
     c.bench_function("faster_hex_decode", move |b| {
         let hex = faster_hex::hex_string(DATA).unwrap();
         let len = DATA.len();
-        let mut dst = vec![0; len];
-
-        b.iter(|| faster_hex::hex_decode(hex.as_bytes(), &mut dst).unwrap())
+        b.iter(|| {
+            let mut dst = Vec::with_capacity(len);
+            dst.resize(len, 0);
+            faster_hex::hex_decode(hex.as_bytes(), &mut dst).unwrap();
+            dst
+        })
     });
 
     c.bench_function("faster_hex_decode_unchecked", |b| {
         let hex = faster_hex::hex_string(DATA).unwrap();
         let len = DATA.len();
-        let mut dst = vec![0; len];
-
-        b.iter(|| faster_hex::hex_decode_unchecked(hex.as_bytes(), &mut dst))
+        b.iter(|| {
+            let mut dst = Vec::with_capacity(len);
+            dst.resize(len, 0);
+            faster_hex::hex_decode_unchecked(hex.as_bytes(), &mut dst);
+            dst
+        })
     });
 
     c.bench_function("faster_hex_decode_fallback", |b| {
         let hex = faster_hex::hex_string(DATA).unwrap();
         let len = DATA.len();
-        let mut dst = vec![0; len];
-
-        b.iter(|| faster_hex::hex_decode_fallback(hex.as_bytes(), &mut dst))
+        b.iter(|| {
+            let mut dst = Vec::with_capacity(len);
+            dst.resize(len, 0);
+            faster_hex::hex_decode_fallback(hex.as_bytes(), &mut dst);
+            dst
+        })
     });
 }
 
