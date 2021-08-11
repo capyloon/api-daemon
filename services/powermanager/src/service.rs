@@ -18,7 +18,7 @@ pub struct PowerManagerState {
     screen_brightness: i64,
     ext_screen_brightness: i64,
     key_light_brightness: i64,
-    init_done: bool,
+    inner: Box<dyn PowerManagerSupport>,
 }
 
 impl From<&EmptyConfig> for PowerManagerState {
@@ -29,7 +29,7 @@ impl From<&EmptyConfig> for PowerManagerState {
 
 impl Default for PowerManagerState {
     fn default() -> Self {
-        Self {
+        let mut res = Self {
             cpu_sleep_allowed: true,
             screen_enabled: true,
             ext_screen_enabled: true,
@@ -38,46 +38,34 @@ impl Default for PowerManagerState {
             screen_brightness: 100,
             ext_screen_brightness: 100,
             key_light_brightness: 100,
-            init_done: false,
-        }
+            inner: crate::platform::get_platform_support(),
+        };
+        res.init();
+        res
     }
 }
 
 impl PowerManagerState {
     // Set the hardware in sync with the current state.
-    fn init(&mut self, provider: &mut Box<dyn PowerManagerSupport>) {
-        if self.init_done {
-            error!("We should not initialize PowerManagerState more than once!");
-            return;
-        }
-
+    fn init(&mut self) {
         // CPU wakelock
-        provider.set_cpu_sleep_allowed(self.cpu_sleep_allowed);
+        self.inner.set_cpu_sleep_allowed(self.cpu_sleep_allowed);
 
         // Main screen
-        provider.set_screen_state(self.screen_enabled, 0);
-        provider.set_screen_brightness(self.screen_brightness as _, 0);
+        self.inner.set_screen_state(self.screen_enabled, 0);
+        self.inner
+            .set_screen_brightness(self.screen_brightness as _, 0);
 
         // TODO, we should prevent control state of secondary screen if
         // the device doesn't have boot animation file to prevent showing
         // noise in external screen.
 
         // Key lights.
-        provider.set_key_light_enabled(self.key_enabled);
-        provider.set_key_light_brightness(self.key_light_brightness as _);
-
-        self.init_done = true;
+        self.inner.set_key_light_enabled(self.key_enabled);
+        self.inner
+            .set_key_light_brightness(self.key_light_brightness as _);
     }
-}
 
-impl StateLogger for PowerManagerState {}
-
-pub struct PowerManager {
-    shared_obj: Shared<PowerManagerState>,
-    inner: Box<dyn PowerManagerSupport>,
-}
-
-impl PowerManager {
     fn screen_brightness(&mut self, value: i64, is_external: bool) -> bool {
         debug!(
             "screen_brightness: brightness {} is external {}",
@@ -89,13 +77,13 @@ impl PowerManager {
         }
 
         if is_external {
-            self.shared_obj.lock().ext_screen_brightness = value;
+            self.ext_screen_brightness = value;
             return self
                 .inner
                 .set_screen_brightness(value as _, 1 /* external screen index */);
         }
 
-        self.shared_obj.lock().screen_brightness = value;
+        self.screen_brightness = value;
         self.inner
             .set_screen_brightness(value as _, 0 /* main screen index */)
     }
@@ -107,14 +95,20 @@ impl PowerManager {
         );
 
         if is_external {
-            self.shared_obj.lock().ext_screen_enabled = state;
+            self.ext_screen_enabled = state;
         } else {
-            self.shared_obj.lock().screen_enabled = state;
+            self.screen_enabled = state;
         }
 
         self.inner
             .set_screen_state(state, if is_external { 1 } else { 0 })
     }
+}
+
+impl StateLogger for PowerManagerState {}
+
+pub struct PowerManager {
+    shared_obj: Shared<PowerManagerState>,
 }
 
 impl PowermanagerService for PowerManager {}
@@ -127,7 +121,8 @@ impl PowermanagerMethods for PowerManager {
     ) {
         debug!("Control_screen {:?} ", info);
 
-        // Hanlde the screen enable/disable and backlight with
+        let mut shared = self.shared_obj.lock();
+        // Handle the screen enable/disable and backlight with
         // different order to prevent abnormal display.
         if info.state.is_some() && info.brightness.is_some() {
             let state = match info.state.unwrap() {
@@ -138,11 +133,11 @@ impl PowermanagerMethods for PowerManager {
             let brightness = info.brightness.expect("Invalid brightness");
             // Enabled the screen before turn on the backlight.
             if state {
-                if !self.screen_enabled(state, info.is_external) {
+                if !shared.screen_enabled(state, info.is_external) {
                     responder.reject();
                     return;
                 }
-                if !self.screen_brightness(brightness, info.is_external) {
+                if !shared.screen_brightness(brightness, info.is_external) {
                     responder.reject();
                     return;
                 }
@@ -150,11 +145,11 @@ impl PowermanagerMethods for PowerManager {
                 return;
             }
             // Turn off the backlight before disable the screen.
-            if !self.screen_brightness(brightness, info.is_external) {
+            if !shared.screen_brightness(brightness, info.is_external) {
                 responder.reject();
                 return;
             }
-            if !self.screen_enabled(state, info.is_external) {
+            if !shared.screen_enabled(state, info.is_external) {
                 responder.reject();
                 return;
             }
@@ -168,14 +163,14 @@ impl PowermanagerMethods for PowerManager {
                 ScreenState::Off => false,
             };
 
-            if !self.screen_enabled(state, info.is_external) {
+            if !shared.screen_enabled(state, info.is_external) {
                 responder.reject();
                 return;
             }
         }
 
         if let Some(brightness) = info.brightness {
-            if !self.screen_brightness(brightness, info.is_external) {
+            if !shared.screen_brightness(brightness, info.is_external) {
                 responder.reject();
                 return;
             }
@@ -186,13 +181,13 @@ impl PowermanagerMethods for PowerManager {
     fn power_off(&mut self, responder: PowermanagerPowerOffResponder) {
         debug!("power_off");
         responder.resolve();
-        self.inner.power_off();
+        self.shared_obj.lock().inner.power_off();
     }
 
     fn reboot(&mut self, responder: PowermanagerRebootResponder) {
         debug!("reboot");
         responder.resolve();
-        self.inner.reboot();
+        self.shared_obj.lock().inner.reboot();
     }
 
     fn get_cpu_sleep_allowed(&mut self, responder: PowermanagerGetCpuSleepAllowedResponder) {
@@ -203,12 +198,9 @@ impl PowermanagerMethods for PowerManager {
 
     fn set_cpu_sleep_allowed(&mut self, value: bool) {
         debug!("set_cpu_sleep_allowed");
-        {
-            let mut shared = self.shared_obj.lock();
-            shared.cpu_sleep_allowed = value;
-        }
-
-        self.inner.set_cpu_sleep_allowed(value);
+        let mut shared = self.shared_obj.lock();
+        shared.cpu_sleep_allowed = value;
+        shared.inner.set_cpu_sleep_allowed(value);
     }
 
     fn get_ext_screen_brightness(
@@ -221,7 +213,7 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_ext_screen_brightness(&mut self, value: i64) {
-        if !self.screen_brightness(value, true) {
+        if !self.shared_obj.lock().screen_brightness(value, true) {
             error!("Failed to set external screen brightness");
         }
     }
@@ -233,7 +225,7 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_ext_screen_enabled(&mut self, value: bool) {
-        if !self.screen_enabled(value, true) {
+        if !self.shared_obj.lock().screen_enabled(value, true) {
             error!("Failed to set external screen");
         }
     }
@@ -250,7 +242,7 @@ impl PowermanagerMethods for PowerManager {
             let mut shared = self.shared_obj.lock();
             shared.factory_reset = value;
         }
-        self.inner.set_factory_reset_reason(value);
+        self.shared_obj.lock().inner.set_factory_reset_reason(value);
     }
 
     fn get_key_light_brightness(&mut self, responder: PowermanagerGetKeyLightBrightnessResponder) {
@@ -260,7 +252,8 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_key_light_brightness(&mut self, value: i64) {
-        self.shared_obj.lock().key_light_brightness = value;
+        let mut shared = self.shared_obj.lock();
+        shared.key_light_brightness = value;
         let clamped = if value < 0 {
             0
         } else if value > 100 {
@@ -268,7 +261,7 @@ impl PowermanagerMethods for PowerManager {
         } else {
             value
         };
-        self.inner.set_key_light_brightness(clamped as _);
+        shared.inner.set_key_light_brightness(clamped as _);
     }
 
     fn get_key_light_enabled(&mut self, responder: PowermanagerGetKeyLightEnabledResponder) {
@@ -277,8 +270,9 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_key_light_enabled(&mut self, value: bool) {
-        self.shared_obj.lock().key_enabled = value;
-        self.inner.set_key_light_enabled(value);
+        let mut shared = self.shared_obj.lock();
+        shared.key_enabled = value;
+        shared.inner.set_key_light_enabled(value);
     }
 
     fn get_screen_brightness(&mut self, responder: PowermanagerGetScreenBrightnessResponder) {
@@ -287,7 +281,7 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_screen_brightness(&mut self, value: i64) {
-        if !self.screen_brightness(value, false) {
+        if !self.shared_obj.lock().screen_brightness(value, false) {
             error!("Failed to set screen brightness");
         }
     }
@@ -298,7 +292,7 @@ impl PowermanagerMethods for PowerManager {
     }
 
     fn set_screen_enabled(&mut self, value: bool) {
-        if !self.screen_enabled(value, false) {
+        if !self.shared_obj.lock().screen_enabled(value, false) {
             error!("Failed to set screen");
         }
     }
@@ -313,13 +307,8 @@ impl Service<PowerManager> for PowerManager {
         _helper: SessionSupport,
     ) -> Result<PowerManager, String> {
         debug!("PowerManager::create");
-        let mut inner = crate::platform::get_platform_support();
         let shared_obj = Self::shared_state();
-        shared_obj.lock().init(&mut inner);
-
-        let service = PowerManager { shared_obj, inner };
-
-        Ok(service)
+        Ok(PowerManager { shared_obj })
     }
 
     // Returns a human readable version of the request.
