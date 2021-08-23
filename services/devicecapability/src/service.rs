@@ -12,12 +12,14 @@ use threadpool::ThreadPool;
 
 pub struct DeviceCapabilitySharedData {
     pub config: DeviceCapabilityConfig,
+    pool: ThreadPool,
 }
 
 impl From<&EmptyConfig> for DeviceCapabilitySharedData {
     fn from(_config: &EmptyConfig) -> Self {
         Self {
             config: DeviceCapabilityConfig::default(),
+            pool: ThreadPool::with_name("DeviceCapabilityService".into(), 5),
         }
     }
 }
@@ -62,10 +64,12 @@ impl Service<DeviceCapabilityService> for DeviceCapabilityService {
     ) -> Result<DeviceCapabilityService, String> {
         info!("DeviceCapabilitiyService::create");
         let service_id = helper.session_tracker_id().service();
+        let state = Self::shared_state();
+        let pool = state.lock().pool.clone();
         Ok(DeviceCapabilityService {
             id: service_id,
-            state: Self::shared_state(),
-            pool: ThreadPool::with_name("DeviceCapabilityService".into(), 5),
+            state,
+            pool,
         })
     }
 

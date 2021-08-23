@@ -16,6 +16,7 @@ use threadpool::ThreadPool;
 
 pub struct ContactsSharedData {
     pub db: ContactsDb,
+    pool: ThreadPool,
 }
 
 impl StateLogger for ContactsSharedData {
@@ -56,6 +57,7 @@ impl From<&EmptyConfig> for ContactsSharedData {
     fn from(_config: &EmptyConfig) -> Self {
         Self {
             db: ContactsDb::new(ContactsFactoryEventBroadcaster::default()),
+            pool: ThreadPool::with_name("ContactsService".into(), 5),
         }
     }
 }
@@ -393,10 +395,7 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
-    fn get_all_blocked_numbers(
-        &mut self,
-        responder: ContactsFactoryGetAllBlockedNumbersResponder,
-    ) {
+    fn get_all_blocked_numbers(&mut self, responder: ContactsFactoryGetAllBlockedNumbersResponder) {
         debug!("get_all_blocked_numbers()");
         match self.state.lock().db.get_all_blocked_numbers() {
             Ok(vec) => {
@@ -653,13 +652,14 @@ impl Service<ContactsService> for ContactsService {
         let event_dispatcher = ContactsFactoryEventDispatcher::from(helper, 0 /* object id */);
         let state = Self::shared_state();
         let dispatcher_id = state.lock().db.add_dispatcher(&event_dispatcher);
+        let pool = state.lock().pool.clone();
         Ok(ContactsService {
             id: service_id,
             state,
             dispatcher_id,
             tracker: ObjectTracker::default(),
             origin_attributes: attrs.clone(),
-            pool: ThreadPool::with_name("ContactsService".into(), 5),
+            pool,
         })
     }
 

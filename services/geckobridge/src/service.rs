@@ -314,11 +314,12 @@ impl Service<GeckoBridgeService> for GeckoBridgeService {
         let state = Self::shared_state();
         let only_register_token = state.lock().is_ready();
         let service_id = helper.session_tracker_id().service();
+        let pool = state.lock().pool.clone();
         Ok(GeckoBridgeService {
             id: service_id,
             state,
             only_register_token,
-            pool: ThreadPool::with_name("GeckoBridgeService".into(), 5),
+            pool,
         })
     }
 

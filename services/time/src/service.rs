@@ -22,6 +22,7 @@ pub struct SharedObj {
     event_broadcaster: TimeEventBroadcaster,
     // An observer tracker, using the callback reason as key.
     observers: ObserverTracker<CallbackReason, TimeObserverProxy>,
+    pool: ThreadPool,
 }
 
 impl StateLogger for SharedObj {
@@ -48,6 +49,7 @@ impl SharedObj {
 
         info!("add_observer to SettingsService with id {}", id);
         SharedObj {
+            pool: ThreadPool::with_name("TimeService".into(), 3),
             ..Default::default()
         }
     }
@@ -294,11 +296,12 @@ impl Service<Time> for Time {
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = TimeEventDispatcher::from(helper, 0);
         let shared_obj = Self::shared_state();
+        let pool = shared_obj.lock().pool.clone();
         let dispatcher_id = shared_obj.lock().event_broadcaster.add(&event_dispatcher);
 
         Ok(Time {
             id: service_id,
-            pool: ThreadPool::new(1),
+            pool,
             shared_obj,
             dispatcher_id,
             proxy_tracker: HashMap::new(),

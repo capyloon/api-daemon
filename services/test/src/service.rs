@@ -110,11 +110,15 @@ impl SimpleObjectTracker for SharedCustomProviderImpl {
 
 pub struct TestSharedData {
     request_count: u32,
+    pool: ThreadPool,
 }
 
 impl From<&EmptyConfig> for TestSharedData {
     fn from(_config: &EmptyConfig) -> Self {
-        Self { request_count: 0 }
+        Self {
+            request_count: 0,
+            pool: ThreadPool::with_name("TestService".into(), 5),
+        }
     }
 }
 
@@ -578,15 +582,17 @@ impl Service<TestServiceImpl> for TestServiceImpl {
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher =
             TestFactoryEventDispatcher::from(helper.clone(), 0 /* object id */);
+        let state = Self::shared_state();
+        let pool = state.lock().pool.clone();
         Ok(TestServiceImpl {
             id: service_id,
             event_dispatcher,
             tracker: Arc::new(Mutex::new(ObjectTracker::default())),
             proxy_tracker: HashMap::new(),
-            state: Self::shared_state(),
+            state,
             state_prop: true,
             helper,
-            pool: ThreadPool::with_name("TestService".into(), 5),
+            pool,
         })
     }
 

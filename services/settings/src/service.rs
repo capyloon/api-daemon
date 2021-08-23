@@ -13,6 +13,7 @@ use threadpool::ThreadPool;
 
 pub struct SettingsSharedData {
     pub db: SettingsDb,
+    pub pool: ThreadPool,
 }
 
 impl StateLogger for SettingsSharedData {
@@ -25,6 +26,7 @@ impl From<&EmptyConfig> for SettingsSharedData {
     fn from(_config: &EmptyConfig) -> Self {
         SettingsSharedData {
             db: SettingsDb::new(SettingsFactoryEventBroadcaster::default()),
+            pool: ThreadPool::with_name("SettingsService".into(), 5),
         }
     }
 }
@@ -184,6 +186,7 @@ impl Service<SettingsService> for SettingsService {
         let event_dispatcher = SettingsFactoryEventDispatcher::from(helper, 0 /* object id */);
         let state = Self::shared_state();
         let dispatcher_id = state.lock().db.add_dispatcher(&event_dispatcher);
+        let pool = state.lock().pool.clone();
         Ok(SettingsService {
             id: service_id,
             proxy_tracker: HashMap::new(),
@@ -191,7 +194,7 @@ impl Service<SettingsService> for SettingsService {
             dispatcher_id,
             observers: HashMap::new(),
             origin_attributes: origin_attributes.clone(),
-            pool: ThreadPool::with_name("SettingsService".into(), 5)
+            pool,
         })
     }
 

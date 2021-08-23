@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use thiserror::Error;
+use threadpool::ThreadPool;
 
 #[derive(Clone, Error, Debug)]
 pub enum DelegateError {
@@ -46,11 +47,15 @@ pub struct GeckoBridgeState {
     networkmanager: Option<NetworkManagerDelegateProxy>,
     observers: Vec<Sender<()>>,
     tokens: SharedTokensManager,
+    pub(crate) pool: ThreadPool,
 }
 
 impl From<&EmptyConfig> for GeckoBridgeState {
     fn from(_config: &EmptyConfig) -> Self {
-        Self::default()
+        Self {
+            pool: ThreadPool::with_name("GeckoBridgeService".into(), 5),
+            ..Default::default()
+        }
     }
 }
 
