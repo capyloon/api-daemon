@@ -328,10 +328,6 @@ mod tests {
         let a = Version::from_str("3.16.0_1").unwrap();
         let b = Version::new(3, 16, 0);
         assert_eq!(a, b);
-        
-        let a = Version::from_str("4.9.268-perf+-ab76").unwrap();
-        let b = Version::new(4, 9, 268);
-        assert_eq!(a, b);
     }
 
     #[test]

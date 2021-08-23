@@ -43,8 +43,6 @@ pest = { git = "https://github.com/fabricedesre/pest.git" }
 pest_derive = { git = "https://github.com/fabricedesre/pest.git" }
 pest_generator = { git = "https://github.com/fabricedesre/pest.git" }
 pest_meta = { git = "https://github.com/fabricedesre/pest.git" }
-# Until upstream supports kernel version patch number > 255
-procfs = { git = "https://github.com/kaiostech/procfs.git", branch = "kernel-patch-u16" }
 
 [profile.release]
 opt-level = 3

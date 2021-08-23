@@ -2903,7 +2903,8 @@ dependencies = [
 [[package]]
 name = "procfs"
 version = "0.10.0"
-source = "git+https://github.com/kaiostech/procfs.git?branch=kernel-patch-u16#0d4b51cf53cdde06c82aff95212a017b4b5246e3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2531125ce792721beae67f5cb920630a92e5befb9c154b23f50fd138444696a3"
 dependencies = [
  "bitflags",
  "byteorder",

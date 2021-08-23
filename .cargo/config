@@ -34,11 +34,6 @@ git = "https://github.com/fabricedesre/rust-phonenumber.git"
 branch = "api-daemon"
 replace-with = "vendored-sources"
 
-[source."https://github.com/kaiostech/procfs.git"]
-git = "https://github.com/kaiostech/procfs.git"
-branch = "kernel-patch-u16"
-replace-with = "vendored-sources"
-
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
 branch = "update-bindgen"
