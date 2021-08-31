@@ -24,9 +24,7 @@ cd $CI_PROJECT_DIR/tests/apps-test-server
 # Align with config-webdriver.toml
 rm -rf ../webapps
 rm -f $CI_PROJECT_DIR/daemon/settings.*
-rm -f $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
 ln -s $CI_PROJECT_DIR/services/apps/test-fixtures/webapps ../webapps
-ln -s $CI_PROJECT_DIR/services/apps/client $CI_PROJECT_DIR/services/apps/test-fixtures/webapps/apps
 
 $CI_PROJECT_DIR/target/release/apps_test_server &
 
@@ -41,9 +39,7 @@ DONT_CREATE_WEBAPPS=1 $CI_PROJECT_DIR/tests/webdriver.sh http://apps.localhost:8
 # Reset the apps with different set of preload apps.
 rm -rf ../webapps
 rm -f $CI_PROJECT_DIR/daemon/settings.*
-rm -f $CI_PROJECT_DIR/services/apps/test-fixtures/webapps2/apps
 ln -s $CI_PROJECT_DIR/services/apps/test-fixtures/webapps2 ../webapps
-ln -s $CI_PROJECT_DIR/services/apps/client $CI_PROJECT_DIR/services/apps/test-fixtures/webapps2/apps
 
 # Set apps to old version on the app server.
 # Expect that no app update is available.

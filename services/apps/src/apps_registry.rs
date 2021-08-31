@@ -27,7 +27,6 @@ use std::fs;
 use std::fs::{remove_dir_all, remove_file, File};
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -181,6 +180,7 @@ impl AppsRegistry {
     pub fn initialize(config: &Config, vhost_port: u16) -> Result<Self, AppsError> {
         let root_path = config.root_path();
         let data_path = config.data_path();
+        static PERSIST_APPSINIT: &str = "persist.kaios.apps-init.done";
 
         // Make sure the directory structure is set properly.
         let installed_dir = data_path.join("installed");
@@ -219,12 +219,13 @@ impl AppsRegistry {
             return Err(AppsError::AppsConfigError);
         }
 
+        let init_done = AndroidProperties::get(PERSIST_APPSINIT, "").unwrap_or_default();
+
         // Open the registry database.
         let mut db = RegistryDb::new(db_dir.join(&"apps.sqlite"))?;
-        let count = db.count()?;
 
-        // No apps yet, load the default ones from the json file.
-        if count == 0 {
+        // Apps are not initialized yet, load the default ones from the json file.
+        if init_done != "1" {
             info!("Initializing apps registry from {}", root_path.display());
 
             let webapps_json = root_path.join("webapps.json");
@@ -245,13 +246,20 @@ impl AppsRegistry {
 
             // Create a symbolic link for cached in vroot.
             let dest = vroot_dir.join("cached");
-            let _ = symlink(&cached_dir, &dest);
+            if let Err(err) = AppsStorage::safe_symlink(&cached_dir, &dest) {
+                error!("Failed to create cached symbolic link: {:?}", err);
+            }
         }
 
         let apps_list = match db.get_all() {
             Ok(apps) => apps.iter().map(AppsObject::from).collect(),
             Err(_) => vec![],
         };
+
+        // Set the PERSIST_APPSINIT at the end.
+        if let Err(err) = AndroidProperties::set(PERSIST_APPSINIT, "1") {
+            error!("Failed to set {}, error: {:?}", PERSIST_APPSINIT,  err);
+        }
 
         let setting_service = SettingsService::shared_state();
         let lang = match setting_service.lock().db.get("language.current") {
@@ -456,7 +464,7 @@ impl AppsRegistry {
             );
             return Err(AppsServiceError::FilesystemFailure);
         }
-        if let Err(err) = symlink(&installed_dir, &webapp_dir) {
+        if let Err(err) = AppsStorage::safe_symlink(&installed_dir, &webapp_dir) {
             error!("Link installed app failed: {:?}", err);
             return Err(AppsServiceError::FilesystemFailure);
         }

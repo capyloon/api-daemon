@@ -120,16 +120,7 @@ impl AppsStorage {
         } else {
             app.set_manifest_url(&AppsItem::new_manifest_url(&app_name, vhost_port));
             let dest = data_path.join("vroot").join(&app_name);
-            if let Err(err) = symlink(&source, &dest) {
-                // Don't fail if the symlink already exists.
-                if err.kind() != std::io::ErrorKind::AlreadyExists {
-                    error!(
-                        "Failed to create symlink {:?} -> {:?} : {}",
-                        source, dest, err
-                    );
-                    return Err(err.into());
-                }
-            }
+            let _ = Self::safe_symlink(&source, &dest)?;
         }
         app.set_preloaded(true);
         // Get version from manifest for preloaded apps.
@@ -197,6 +188,29 @@ impl AppsStorage {
         app_dir.push(id);
         AppsStorage::exist_or_mkdir(&app_dir)?;
         Ok(app_dir)
+    }
+
+    // Create a symbolic link and sync to the destination.
+    // If the destination does exist, return Ok.
+    // In
+    //   source: the source path
+    //   dest: the destination path
+    // Out
+    //   A result of success or error
+    pub fn safe_symlink(source: &Path, dest: &Path) -> Result<(), AppsError> {
+        if let Err(err) = symlink(source, dest) {
+            // Don't fail if the symlink already exists.
+            if err.kind() != std::io::ErrorKind::AlreadyExists {
+                error!(
+                    "Failed to create symlink {:?} -> {:?} : {}",
+                    source, dest, err
+                );
+                return Err(err.into());
+            }
+        }
+        let f = File::open(dest)?;
+        f.sync_all()?;
+        Ok(())
     }
 }
 
