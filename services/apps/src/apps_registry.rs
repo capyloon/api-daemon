@@ -14,6 +14,7 @@ use crate::registry_db::RegistryDb;
 use crate::shared_state::AppsSharedData;
 use crate::update_scheduler;
 use android_utils::{AndroidProperties, PropertyGetter};
+use common::threadpool_status;
 use common::traits::{DispatcherId, Shared, SharedServiceState};
 use common::JsonValue;
 use log::{debug, error, info};
@@ -292,6 +293,10 @@ impl AppsRegistry {
 
     pub fn get_lang(&self) -> String {
         self.lang.clone()
+    }
+
+    pub fn print_pool_status(&self) {
+        info!("  Threadpool {}", threadpool_status(&self.pool));
     }
 
     // Valid the host name [RFC 1123]

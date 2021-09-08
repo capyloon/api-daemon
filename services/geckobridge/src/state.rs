@@ -8,6 +8,7 @@ use crate::generated::common::{
 };
 use crate::generated::service::{GeckoBridgeProxy, GeckoBridgeProxyTracker};
 use crate::service::PROXY_TRACKER;
+use common::threadpool_status;
 use common::tokens::SharedTokensManager;
 use common::traits::{EmptyConfig, OriginAttributes, StateLogger};
 use common::JsonValue;
@@ -80,6 +81,8 @@ impl StateLogger for GeckoBridgeState {
         log_delegate!("Preferences", preference);
         log_delegate!("Mobile Manager", mobilemanager);
         log_delegate!("Network Manager", networkmanager);
+
+        info!("  Threadpool {}", threadpool_status(&self.pool));
     }
 }
 

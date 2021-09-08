@@ -5,6 +5,7 @@ use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
 use common::object_tracker::ObjectTracker;
+use common::threadpool_status;
 use common::traits::{
     CommonResponder, DispatcherId, EmptyConfig, ObjectTrackerMethods, OriginAttributes, Service,
     SessionSupport, Shared, SharedServiceState, SharedSessionContext, SimpleObjectTracker,
@@ -22,6 +23,7 @@ pub struct ContactsSharedData {
 impl StateLogger for ContactsSharedData {
     fn log(&self) {
         self.db.log();
+        info!("  Threadpool {}", threadpool_status(&self.pool));
     }
 }
 

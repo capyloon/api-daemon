@@ -4,6 +4,7 @@ use crate::generated::service::*;
 use crate::time_manager::*;
 use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
+use common::threadpool_status;
 use common::observers::{ObserverTracker, ServiceObserverTracker};
 use common::traits::{
     CommonResponder, DispatcherId, EmptyConfig, OriginAttributes, Service, SessionSupport, Shared,
@@ -32,6 +33,7 @@ impl StateLogger for SharedObj {
             self.observers.count(),
             self.observers.key_count()
         );
+        info!("  Threadpool {}", threadpool_status(&self.pool));
 
         self.event_broadcaster.log();
     }

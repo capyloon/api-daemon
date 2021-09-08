@@ -3,6 +3,7 @@ use crate::config::DeviceCapabilityConfig;
 use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
+use common::threadpool_status;
 use common::traits::{
     EmptyConfig, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
     SharedSessionContext, StateLogger, TrackerId,
@@ -24,7 +25,11 @@ impl From<&EmptyConfig> for DeviceCapabilitySharedData {
     }
 }
 
-impl StateLogger for DeviceCapabilitySharedData {}
+impl StateLogger for DeviceCapabilitySharedData {
+    fn log(&self) {
+        info!("  Threadpool {}", threadpool_status(&self.pool));
+    }
+}
 
 pub struct DeviceCapabilityService {
     id: TrackerId,

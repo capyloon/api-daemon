@@ -3,6 +3,7 @@ use crate::db::{ObserverType, SettingsDb};
 use crate::generated::common::*;
 use crate::generated::service::*;
 use common::core::BaseMessage;
+use common::threadpool_status;
 use common::traits::{
     CommonResponder, DispatcherId, EmptyConfig, OriginAttributes, Service, SessionSupport, Shared,
     SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
@@ -19,6 +20,7 @@ pub struct SettingsSharedData {
 impl StateLogger for SettingsSharedData {
     fn log(&self) {
         self.db.log();
+        info!("  Threadpool {}", threadpool_status(&self.pool));
     }
 }
 

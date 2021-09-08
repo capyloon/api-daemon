@@ -7,6 +7,7 @@ use std::fmt;
 use std::ops::Deref;
 use std::time::UNIX_EPOCH;
 use traits::{EventMapKey, SharedEventMap};
+use threadpool::ThreadPool;
 
 pub mod build_helper;
 pub mod core;
@@ -49,6 +50,15 @@ pub fn is_event_in_map(map: &SharedEventMap, service: u32, object: u32, event: u
     );
 
     res
+}
+
+pub fn threadpool_status(pool: &ThreadPool) -> String {
+    format!(
+        "size: {}, active: {}, queued: {}",
+        pool.max_count(),
+        pool.active_count(),
+        pool.queued_count(),
+    )
 }
 
 // A wrapper around a JsonValue to help with the encoding/decoding of JSON strings.

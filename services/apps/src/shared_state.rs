@@ -46,6 +46,7 @@ impl StateLogger for AppsSharedData {
             self.token_provider.get_provider().is_some()
         );
         self.registry.event_broadcaster.log();
+        self.registry.print_pool_status();
     }
 }
 
