@@ -1420,6 +1420,7 @@ dependencies = [
  "env_logger",
  "fantoccini",
  "log",
+ "procfs",
  "serde",
  "serde_json",
  "tokio 1.8.1",

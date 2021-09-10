@@ -95,6 +95,15 @@ async fn test_script(script: &str, client: &mut Client) -> Result<(), CmdError> 
     Ok(())
 }
 
+fn find_process(process_name: &str) -> bool {
+    for prc in procfs::process::all_processes().unwrap() {
+        if prc.stat.comm.as_str() == process_name {
+            return true;
+        }
+    }
+    false
+}
+
 #[tokio::main]
 async fn main() -> Result<(), CmdError> {
     env_logger::init();
@@ -169,8 +178,10 @@ async fn main() -> Result<(), CmdError> {
     info!("Testing connectivity to geckodriver");
     let mut retries = 0;
     loop {
-        // Try to connect to localhost:4444 with a socket.
-        if TcpStream::connect("localhost:4444").is_ok() {
+        // Try to connect to localhost:4444 with a socket,
+        // and wait the homescreen app is started.
+        if TcpStream::connect("localhost:4444").is_ok() &&
+           find_process("Web Content") {
             break;
         }
 
