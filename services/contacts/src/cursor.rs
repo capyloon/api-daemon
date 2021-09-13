@@ -10,6 +10,7 @@ enum CursorCommand {
     Stop,
 }
 
+#[derive(Clone)]
 pub struct ContactDbCursor {
     sender: Sender<CursorCommand>,
 }

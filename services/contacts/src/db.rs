@@ -4,8 +4,8 @@ use crate::generated::common::*;
 use crate::preload::*;
 use android_utils::{AndroidProperties, PropertyGetter};
 use common::traits::DispatcherId;
-use common::SystemTime;
-use log::{debug, error};
+use common::{threadpool_status, SystemTime};
+use log::{debug, error, info};
 use phonenumber::country::Id;
 use phonenumber::Mode;
 use rusqlite::{named_params, Connection, Row, Statement};
@@ -1644,6 +1644,7 @@ impl ContactsDb {
 
     pub fn log(&self) {
         self.event_broadcaster.log();
+        info!("  Cursor Threadpool {}", threadpool_status(&self.cursors));
     }
 }
 

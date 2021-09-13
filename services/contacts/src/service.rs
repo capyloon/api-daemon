@@ -23,7 +23,7 @@ pub struct ContactsSharedData {
 impl StateLogger for ContactsSharedData {
     fn log(&self) {
         self.db.log();
-        info!("  Threadpool {}", threadpool_status(&self.pool));
+        info!("  Service Threadpool {}", threadpool_status(&self.pool));
     }
 }
 
@@ -32,11 +32,16 @@ impl StateLogger for ContactsSharedData {
 struct ContactCursorImpl {
     id: TrackerId,
     cursor: ContactDbCursor,
+    pool: ThreadPool, // Shared pool with other service calls.
 }
 
 impl ContactCursorImpl {
-    fn new(id: TrackerId, cursor: ContactDbCursor) -> Self {
-        Self { id, cursor }
+    fn new(id: TrackerId, cursor: ContactDbCursor, pool: &ThreadPool) -> Self {
+        Self {
+            id,
+            cursor,
+            pool: pool.clone(),
+        }
     }
 }
 
@@ -48,10 +53,11 @@ impl SimpleObjectTracker for ContactCursorImpl {
 
 impl ContactCursorMethods for ContactCursorImpl {
     fn next(&mut self, responder: ContactCursorNextResponder) {
-        match self.cursor.next() {
+        let mut cursor = self.cursor.clone();
+        self.pool.execute(move || match cursor.next() {
             Some(contacts) => responder.resolve(contacts),
             None => responder.reject(),
-        }
+        });
     }
 }
 
@@ -192,7 +198,7 @@ impl ContactsFactoryMethods for ContactsService {
         let state = self.state.lock();
         if let Some(db_cursor) = state.db.get_all(options, batch_size, only_main_data) {
             let id = self.tracker.next_id();
-            let cursor = Rc::new(ContactCursorImpl::new(id, db_cursor));
+            let cursor = Rc::new(ContactCursorImpl::new(id, db_cursor, &self.pool));
             self.tracker
                 .track(ContactsManagerTrackedObject::ContactCursor(cursor.clone()));
             responder.resolve(cursor);
@@ -210,7 +216,7 @@ impl ContactsFactoryMethods for ContactsService {
         let state = self.state.lock();
         if let Some(db_cursor) = state.db.find(params, batch_size) {
             let id = self.tracker.next_id();
-            let cursor = Rc::new(ContactCursorImpl::new(id, db_cursor));
+            let cursor = Rc::new(ContactCursorImpl::new(id, db_cursor, &self.pool));
             self.tracker
                 .track(ContactsManagerTrackedObject::ContactCursor(cursor.clone()));
             responder.resolve(cursor);
