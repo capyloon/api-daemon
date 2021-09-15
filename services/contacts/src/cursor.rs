@@ -34,13 +34,6 @@ impl Iterator for ContactDbCursor {
     }
 }
 
-impl Drop for ContactDbCursor {
-    fn drop(&mut self) {
-        debug!("ContactDbCursor::drop");
-        let _ = self.sender.send(CursorCommand::Stop);
-    }
-}
-
 enum ProcessCommandResult {
     ForceExit,
     Break,
@@ -166,5 +159,10 @@ impl ContactDbCursor {
                 None
             }
         }
+    }
+
+    pub fn release(&mut self) {
+        debug!("ContactDbCursor::release");
+        let _ = self.sender.send(CursorCommand::Stop);
     }
 }

@@ -64,27 +64,33 @@
               sortBy: lib_contacts.SortOption.FAMILY_NAME,
               sortOrder: lib_contacts.Order.DESCENDING,
             },
-            20,
+            1,
             false
           );
 
-        let get_all_sort_by_family_name_desc_result =
+        let first_result = await get_all_sort_by_family_name_desc_cursor.next();
+
+        await tester.assert_eq(
+          "verify first_result is zhangwu",
+          () => Promise.resolve(first_result[0].name),
+          "zhangwu"
+        );
+
+        let second_result =
           await get_all_sort_by_family_name_desc_cursor.next();
 
         await tester.assert_eq(
-          "verify getall resut sorting by family name",
-          (service) => {
-            return new Promise((resolve, reject) => {
-              let names = [];
-              get_all_sort_by_family_name_desc_result.forEach(function (
-                contact
-              ) {
-                names.push(contact.name);
-              });
-              resolve(names);
-            });
-          },
-          ["zhangwu", "zhangsan", "zhangliu"]
+          "verify second_result is zhangsan",
+          () => Promise.resolve(second_result[0].name),
+          "zhangsan"
+        );
+
+        let third_result = await get_all_sort_by_family_name_desc_cursor.next();
+
+        await tester.assert_eq(
+          "verify third_result is zhangliu",
+          () => Promise.resolve(third_result[0].name),
+          "zhangliu"
         );
 
         get_all_sort_by_family_name_desc_cursor.release();

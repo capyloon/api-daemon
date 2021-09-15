@@ -45,6 +45,13 @@ impl ContactCursorImpl {
     }
 }
 
+impl Drop for ContactCursorImpl {
+    fn drop(&mut self) {
+        debug!("ContactCursorImpl::drop");
+        self.cursor.release();
+    }
+}
+
 impl SimpleObjectTracker for ContactCursorImpl {
     fn id(&self) -> TrackerId {
         self.id
