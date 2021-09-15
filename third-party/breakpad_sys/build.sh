@@ -37,8 +37,8 @@ configure() {
 if test $(uname) = "Linux"; then
     if ! [ -e "${CC_BUILD_DIR}/.git" ];
     then
-        cmd git clone https://chromium.googlesource.com/breakpad/breakpad ./${CC_BUILD_DIR} 
-        cmd git clone https://chromium.googlesource.com/linux-syscall-support ./${CC_BUILD_DIR}/src/third_party/lss
+        cmd git clone https://github.com/kaiostech/breakpad.git ./${CC_BUILD_DIR}
+        cmd git clone https://github.com/kaiostech/linux-syscall-support.git ./${CC_BUILD_DIR}/src/third_party/lss
 
         cmd pushd "${CC_BUILD_DIR}"
         configure
