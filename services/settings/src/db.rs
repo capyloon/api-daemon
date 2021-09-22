@@ -4,7 +4,7 @@ use common::observers::ObserverTracker;
 use common::traits::DispatcherId;
 use common::JsonValue;
 use log::{debug, error, info};
-use rusqlite::{named_params, params, Connection};
+use rusqlite::{named_params, params, Transaction};
 use serde_json::Value;
 use sqlite_utils::{DatabaseUpgrader, SqliteDb};
 use thiserror::Error;
@@ -44,7 +44,7 @@ impl PartialEq for Error {
 pub struct SettingsSchemaManager {}
 
 impl DatabaseUpgrader for SettingsSchemaManager {
-    fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
+    fn upgrade(&mut self, from: u32, to: u32, transaction: &Transaction) -> bool {
         // We only support version 2 currently.
         if to != 2 {
             return false;
@@ -56,7 +56,7 @@ impl DatabaseUpgrader for SettingsSchemaManager {
             ($from:expr, $cmds:expr) => {
                 if current == $from && current < to {
                     for cmd in $cmds {
-                        if let Err(err) = connection.execute(cmd, []) {
+                        if let Err(err) = transaction.execute(cmd, []) {
                             error!("Upgrade step failure: {}", err);
                             return false;
                         }

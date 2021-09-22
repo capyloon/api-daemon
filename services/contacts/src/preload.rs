@@ -2,7 +2,7 @@ use crate::generated::common::*;
 use chrono::{self, NaiveDateTime};
 use common::SystemTime;
 use log::{debug, error};
-use rusqlite::Connection;
+use rusqlite::Transaction;
 use serde::Deserialize;
 use serde_json::Value;
 use std::fs::File;
@@ -237,12 +237,8 @@ impl From<&JsonContactInfo> for ContactInfo {
     }
 }
 
-fn import_contacts_to_db(
-    connection: &mut Connection,
-    contacts: &[ContactInfo],
-) -> Result<(), Error> {
+fn import_contacts_to_db(tx: &Transaction, contacts: &[ContactInfo]) -> Result<(), Error> {
     for contact_info in contacts {
-        let tx = connection.transaction()?;
         let mut contact = contact_info.clone();
 
         contact.id = Some(Uuid::new_v4().to_string());
@@ -257,14 +253,12 @@ fn import_contacts_to_db(
             error!("save_additional_data error: {}, continue", err);
             continue;
         }
-
-        tx.commit()?;
     }
 
     Ok(())
 }
 
-pub fn load_contacts_to_db(file_path: &str, connection: &mut Connection) -> Result<(), Error> {
+pub fn load_contacts_to_db(file_path: &str, tx: &Transaction) -> Result<(), Error> {
     debug!("load_contacts_to_db start");
 
     let file = File::open(file_path)?;
@@ -272,7 +266,7 @@ pub fn load_contacts_to_db(file_path: &str, connection: &mut Connection) -> Resu
     debug!("load_contacts_to_db got json_contacts: {:?}", json_contacts);
 
     let contacts: Vec<ContactInfo> = json_contacts.iter().map(|item| item.into()).collect();
-    import_contacts_to_db(connection, &contacts)?;
+    import_contacts_to_db(tx, &contacts)?;
 
     Ok(())
 }

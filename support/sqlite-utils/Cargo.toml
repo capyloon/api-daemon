@@ -1,11 +1,14 @@
 [package]
-name = "sqlite-utils"
-version = "0.1.0"
 authors = ["Fabrice Desré <fabrice@desre.org>"]
 edition = "2018"
 license = "Apache-2.0"
+name = "sqlite-utils"
+version = "0.1.0"
 
 [dependencies]
 log = "0.4"
-rusqlite = { version = "0.25", features = ["bundled"] }
+rusqlite = {version = "0.25", features = ["bundled"]}
 thiserror = "1.0"
+
+[dev-dependencies]
+env_logger = "0.8"

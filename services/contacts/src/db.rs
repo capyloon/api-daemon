@@ -8,7 +8,7 @@ use common::{threadpool_status, SystemTime};
 use log::{debug, error, info};
 use phonenumber::country::Id;
 use phonenumber::Mode;
-use rusqlite::{named_params, Connection, Row, Statement};
+use rusqlite::{named_params, Connection, Row, Statement, Transaction};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -107,7 +107,7 @@ static UPGRADE_0_1_SQL: [&str; 14] = [
 ];
 
 impl DatabaseUpgrader for ContactsSchemaManager {
-    fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
+    fn upgrade(&mut self, from: u32, to: u32, connection: &Transaction) -> bool {
         // We only support version 1 currently.
         if !(from == 0 && to == 1) {
             return false;
@@ -1673,13 +1673,16 @@ mod test {
         db.clear_contacts().unwrap();
         assert_eq!(db.count().unwrap(), 0);
 
-        if let Err(error) =
-            load_contacts_to_db("./test-fixtures/contacts.json", db.db.mut_connection())
         {
-            debug!(
-                "load_contacts_to_db ./test-fixtures/contacts.json error {}",
-                error
-            );
+            let tx = db.db.mut_connection().transaction().unwrap();
+            if let Err(error) = load_contacts_to_db("./test-fixtures/contacts.json", &tx) {
+                debug!(
+                    "load_contacts_to_db ./test-fixtures/contacts.json error {}",
+                    error
+                );
+            } else {
+                tx.commit().unwrap();
+            }
         }
         assert_eq!(db.count().unwrap(), 2);
         let mut get_all_cursor = db
@@ -1704,14 +1707,17 @@ mod test {
         db.clear_contacts().unwrap();
         assert_eq!(db.count().unwrap(), 0);
 
-        if let Err(error) = load_contacts_to_db(
-            "./test-fixtures/contacts_incorrect.json",
-            db.db.mut_connection(),
-        ) {
-            debug!(
-                "load_contacts_to_db ./test-fixtures/contacts_incorrect.json error {}",
-                error
-            );
+        {
+            let tx = db.db.mut_connection().transaction().unwrap();
+            if let Err(error) = load_contacts_to_db("./test-fixtures/contacts_incorrect.json", &tx)
+            {
+                debug!(
+                    "load_contacts_to_db ./test-fixtures/contacts_incorrect.json error {}",
+                    error
+                );
+            } else {
+                tx.commit().unwrap();
+            }
         }
         assert_eq!(db.count().unwrap(), 0);
 

@@ -3,7 +3,7 @@ use crate::apps_item::AppsItem;
 use crate::generated::common::*;
 use log::{debug, error};
 use rusqlite::types::*;
-use rusqlite::{named_params, Connection, Row};
+use rusqlite::{named_params, Transaction, Row};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb, SqliteDbError};
 use std::path::Path;
 use thiserror::Error;
@@ -160,7 +160,7 @@ static UPGRADE_1_2_SQL: [&str; 1] = [r#"ALTER TABLE apps
                                         ADD COLUMN manifest_etag TEXT"#];
 
 impl DatabaseUpgrader for AppsSchemaManager {
-    fn upgrade(&mut self, from: u32, to: u32, connection: &mut Connection) -> bool {
+    fn upgrade(&mut self, from: u32, to: u32, connection: &Transaction) -> bool {
         // Support version 2 only.
         if to != 2 {
             return false;
