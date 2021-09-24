@@ -47,7 +47,7 @@ mod cutils {
         pub fn parcel_write_int64(_p: *mut CParcel, _v: i64) -> i32;
         pub fn parcel_read_int64(_p: *mut CParcel, _v: *mut i64) -> i32;
         pub fn parcel_write_uint64(_p: *mut CParcel, _v: u64) -> i32;
-        pub fn parcel_read_uin64(_p: *mut CParcel, _v: *mut u64) -> i32;
+        pub fn parcel_read_uint64(_p: *mut CParcel, _v: *mut u64) -> i32;
 
         pub fn parcel_write_float(_p: *mut CParcel, _v: f32) -> i32;
         pub fn parcel_read_float(_p: *mut CParcel, _v: *mut f32) -> i32;
@@ -201,7 +201,7 @@ mod cutils {
     pub unsafe fn parcel_write_uint64(_p: *mut CParcel, _v: u64) -> i32 {
         0
     }
-    pub unsafe fn parcel_read_uin64(_p: *mut CParcel, _v: *mut u64) -> i32 {
+    pub unsafe fn parcel_read_uint64(_p: *mut CParcel, _v: *mut u64) -> i32 {
         0
     }
     pub unsafe fn parcel_write_float(_p: *mut CParcel, _v: f32) -> i32 {
@@ -461,7 +461,7 @@ pub mod hidl {
             }
         }
         pub fn read_u64(&mut self, v: &mut u64) -> Result<()> {
-            if unsafe { crate::cutils::parcel_read_uin64(self.parcel, v) } == 0 {
+            if unsafe { crate::cutils::parcel_read_uint64(self.parcel, v) } == 0 {
                 Ok(())
             } else {
                 Err(HidlError)
@@ -512,11 +512,7 @@ pub mod hidl {
                 Err(HidlError)
             }
         }
-        pub fn read_buffer<T>(
-            &mut self,
-            buffer_handle: &mut usize,
-            buffer: &mut T,
-        ) -> Result<()> {
+        pub fn read_buffer<T>(&mut self, buffer_handle: &mut usize, buffer: &mut T) -> Result<()> {
             if unsafe {
                 crate::cutils::parcel_read_buffer(
                     self.parcel,
