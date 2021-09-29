@@ -198,7 +198,13 @@ function test_service(service, tester_name, existing_session) {
       }
     };
 
-    session.open("websocket", "localhost:8081", "secrettoken", sessionstate);
+    if (navigator.b2g.externalapi) {
+      navigator.b2g.externalapi.getToken().then(token => {
+        session.open("websocket", "localhost:8081", token, sessionstate);
+      });
+    } else {
+      reject("Failed to open session.");
+    }
   });
 }
 

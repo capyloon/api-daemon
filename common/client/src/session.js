@@ -30,9 +30,6 @@ export class Session {
    *
    * @param {string} url - the url to connect to, should start with ws:// or wss://
    * @param {string} token - the token used to get accese to service.
-   *                 If navigator.b2g.externalapi is available, then we use the token
-   *                 from navigator.b2g.externalapi.getToken() as default. Else, we use
-   *                 token to get access to service.
    * @param {object} session_state - it has three callbacks, onsessionconnected,
    *                 onsessiondisconnected and onsessionconnectionfailed. They
    *                 are called when session is connected, disconnected when previously
@@ -49,6 +46,12 @@ export class Session {
       success: false,
       cause: "error",
     };
+
+    if (!token || token.length == 0) {
+      ret.success = false;
+      ret.cause = `Invalid token`;
+      return ret;
+    }
 
     if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
       ret.success = false;
@@ -70,15 +73,7 @@ export class Session {
       ret.cause = "success";
     };
 
-    if (navigator.b2g && navigator.b2g.externalapi) {
-      navigator.b2g.externalapi.getToken().then((token) => {
-        //console.log("JS Client tcpsocket get token is " + token);
-        this.token = token;
-        ws_start(this);
-      });
-    } else {
-      ws_start(this);
-    }
+    ws_start(this);
 
     return ret;
   }
