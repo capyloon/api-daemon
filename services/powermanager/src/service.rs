@@ -32,11 +32,11 @@ impl Default for PowerManagerState {
         let mut res = Self {
             cpu_sleep_allowed: true,
             screen_enabled: true,
-            ext_screen_enabled: true,
+            ext_screen_enabled: false,
             factory_reset: FactoryResetReason::Normal,
             key_enabled: true,
             screen_brightness: 100,
-            ext_screen_brightness: 100,
+            ext_screen_brightness: 0,
             key_light_brightness: 100,
             inner: crate::platform::get_platform_support(),
         };
@@ -56,9 +56,12 @@ impl PowerManagerState {
         self.inner
             .set_screen_brightness(self.screen_brightness as _, 0);
 
-        // TODO, we should prevent control state of secondary screen if
-        // the device doesn't have boot animation file to prevent showing
-        // noise in external screen.
+        // Most of customer's specs don't show boot animation for
+        // external screen when device boot up. It should be no harm
+        // to turn off external screen at initial stage.
+        self.inner.set_screen_state(self.ext_screen_enabled, 1);
+        self.inner
+            .set_screen_brightness(self.ext_screen_brightness as _, 1);
 
         // Key lights.
         self.inner.set_key_light_enabled(self.key_enabled);
