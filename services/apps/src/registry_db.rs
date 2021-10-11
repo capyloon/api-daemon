@@ -3,7 +3,7 @@ use crate::apps_item::AppsItem;
 use crate::generated::common::*;
 use log::{debug, error};
 use rusqlite::types::*;
-use rusqlite::{named_params, Transaction, Row};
+use rusqlite::{named_params, Row, Transaction};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb, SqliteDbError};
 use std::path::Path;
 use thiserror::Error;

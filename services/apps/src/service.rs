@@ -121,12 +121,7 @@ impl AppsEngineMethods for AppsService {
         status: AppsStatus,
     ) {
         info!("set_enabled: {:?}, for {}", &status, &manifest_url);
-        let task = SetEnabledTask(
-            self.shared_data.clone(),
-            manifest_url,
-            status,
-            responder,
-        );
+        let task = SetEnabledTask(self.shared_data.clone(), manifest_url, status, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
@@ -165,12 +160,7 @@ impl AppsEngineMethods for AppsService {
         data_type: ClearType,
     ) {
         info!("clear: {}", &manifest_url);
-        let task = ClearTask(
-            self.shared_data.clone(),
-            manifest_url,
-            data_type,
-            responder,
-        );
+        let task = ClearTask(self.shared_data.clone(), manifest_url, data_type, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
@@ -210,10 +200,7 @@ impl AppsEngineMethods for AppsService {
         if let Some(AppsManagerProxy::TokenProvider(token_provider)) =
             self.proxy_tracker.get(&provider)
         {
-            self.shared_data
-                .lock()
-                .token_provider
-                .set_provider(token_provider.clone());
+            self.shared_data.lock().token_provider = Some(token_provider.clone());
             responder.resolve();
         } else {
             error!("Failed to get token proxy_tracker");

@@ -259,7 +259,7 @@ impl AppsRegistry {
 
         // Set the PERSIST_APPSINIT at the end.
         if let Err(err) = AndroidProperties::set(PERSIST_APPSINIT, "1") {
-            error!("Failed to set {}, error: {:?}", PERSIST_APPSINIT,  err);
+            error!("Failed to set {}, error: {:?}", PERSIST_APPSINIT, err);
         }
 
         let setting_service = SettingsService::shared_state();
@@ -866,13 +866,14 @@ impl AppsRegistry {
             name: "system.saved.fingerprint".into(),
             value: Value::String(build_fingerprint).into(),
         }];
-        self.pool.execute(move || match setting_service.lock().db.set(&setting) {
-            Ok(_) => debug!("apps system update: Successfully write fingerprint to setting."),
-            Err(err) => error!(
-                "apps system update: Failed to write fingerprint to setting: {:?}",
-                err
-            ),
-        });
+        self.pool
+            .execute(move || match setting_service.lock().db.set(&setting) {
+                Ok(_) => debug!("apps system update: Successfully write fingerprint to setting."),
+                Err(err) => error!(
+                    "apps system update: Failed to write fingerprint to setting: {:?}",
+                    err
+                ),
+            });
 
         Ok(())
     }
