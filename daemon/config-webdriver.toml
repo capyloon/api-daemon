@@ -30,7 +30,7 @@ data_path = "../prebuilts/http_root/webapps"
 uds_path = "/tmp/apps_service_uds.sock"
 cert_type = "test"
 updater_socket = "/tmp/updater_socket"
-user_agent = "Mozilla/5.0 (Mobile; rv:90.0) Gecko/90.0 Firefox/90.0 KAIOS/3.2"
+user_agent = "Mozilla/5.0 (Mobile; rv:95.0) Gecko/95.0 Firefox/95.0 KAIOS/3.5"
 allow_remove_preloaded = true
 
 [procmanager_service]
