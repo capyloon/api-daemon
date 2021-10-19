@@ -136,7 +136,6 @@ pub struct AppsRequest {
 }
 
 const DOWNLOAD_TIMEOUT: u64 = 600; // 10 mins
-const TOKEN_EXPIRY: u64 = 5 * 60; // 5 mins
 
 impl AppsRequest {
     pub fn new(shared_data: Shared<AppsSharedData>) -> Result<Self, AppsMgmtError> {
