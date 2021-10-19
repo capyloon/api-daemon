@@ -482,7 +482,7 @@ impl Codegen {
                     req_index += 1;
                     // generate the encoder for the request payload.
                     for ptype in &req.types {
-                        self.write_encoder_for_item("data", &ptype, sink)?;
+                        self.write_encoder_for_item("data", ptype, sink)?;
                     }
 
                     writeln!(sink, "return result.value();")?;
@@ -502,7 +502,7 @@ impl Codegen {
                         writeln!(sink, "// Success")?;
 
                         writeln!(sink, "let result = null;")?;
-                        self.write_decoder_for_item(&item, sink, "result")?;
+                        self.write_decoder_for_item(item, sink, "result")?;
                         writeln!(sink, "return {{ success: result }}")?;
                         writeln!(sink, "}}")?;
 
@@ -516,7 +516,7 @@ impl Codegen {
                         writeln!(sink, "// Error")?;
 
                         writeln!(sink, "let result = null;")?;
-                        self.write_decoder_for_item(&item, sink, "result")?;
+                        self.write_decoder_for_item(item, sink, "result")?;
                         writeln!(sink, "return {{ error: result }}")?;
                         writeln!(sink, "}}")?;
                         resp_index += 1;
@@ -564,7 +564,6 @@ impl Codegen {
             "super(object_id , session, service_id, {}Messages);",
             interface.name
         )?;
-        writeln!(sink, "this.service_id = service_id;")?;
 
         if !interface.events.is_empty() {
             writeln!(sink, "session.track_events(service_id, object_id, this);")?;
@@ -576,7 +575,7 @@ impl Codegen {
 
         // Methods
         for method in interface.methods.values() {
-            let method_writer = MethodWriter::new(&method);
+            let method_writer = MethodWriter::new(method);
             let (req, resp) = method_writer.declare(sink)?;
             writeln!(sink, "{{")?;
 
@@ -605,7 +604,8 @@ impl Codegen {
 
                     // For blob* and blob+, we need to produce an array of blob wrappers, not an array
                     // of promises.
-                    let is_array = param.typ.arity == Arity::OneOrMore || param.typ.arity == Arity::ZeroOrMore;
+                    let is_array =
+                        param.typ.arity == Arity::OneOrMore || param.typ.arity == Arity::ZeroOrMore;
 
                     if is_array {
                         writeln!(sink, "let {}_array_p = [];", pname)?;
@@ -802,7 +802,6 @@ impl Codegen {
         writeln!(sink, "constructor(service_id, session) {{")?;
         writeln!(sink, "super(session.next_id , session, service_id, null);")?;
         writeln!(sink, "session.track(this);")?;
-        writeln!(sink, "this.service_id = service_id;")?;
         writeln!(sink, "}}")?;
 
         // If a callback has a single function, it can be used as wrapper for pure
@@ -876,7 +875,7 @@ impl Codegen {
             // Decode the parameters, storing them in a temp struct.
             writeln!(sink, "let result = {{}};")?;
             for item in &req.types {
-                self.write_decoder_for_item(&item, sink, "result")?;
+                self.write_decoder_for_item(item, sink, "result")?;
             }
 
             writeln!(sink, "let output = this.{}(", method.name)?;
@@ -958,27 +957,32 @@ impl Codegen {
     // core common one.
     pub fn generate_service<'a, W: Write>(&self, service: &Service, sink: &'a mut W) -> Result<()> {
         // Write the main entry point used to instanciate the service.
+        let name = &service.name;
         write!(
             sink,
             r#"export const {} = {{
             get: (session) => {{
                 return Services.get("{}", "{}", session).then((service_id) => {{
+                    session.registerService(service_id, "{}");
                     // object_id is always 0 for the service itself.
                     return new {}Session(0, service_id, session);
                 }});
             }},
         }};"#,
-            service.name, service.name, self.fingerprint, service.interface
+            name, name, self.fingerprint, name, service.interface
         )?;
         writeln!(sink)?;
 
         // Helper function that returns a wrapper object from a blob suitable for bincode.
-        write!(sink, r#"function wrapBlob(blob) {{
+        write!(
+            sink,
+            r#"function wrapBlob(blob) {{
             let btype = blob.type;
             return blob.arrayBuffer().then(data => {{
                 return {{ __isblob__: true, data: new Uint8Array(data), type: btype }}
             }});
-        }}"#)?;
+        }}"#
+        )?;
 
         Ok(())
     }
@@ -1013,7 +1017,7 @@ impl Codegen {
 
         // Generate enums representations.
         for item in &self.ast.enumerations {
-            self.generate_enumeration(&item.1, sink)?;
+            self.generate_enumeration(item.1, sink)?;
         }
 
         let mut req_index = 0;
@@ -1023,7 +1027,7 @@ impl Codegen {
             // We need to keep track of the current request and response indexes because
             // they need to match the variant index of the Rust side.
             let (new_req, new_resp) =
-                self.generate_interface(&interface, req_index, resp_index, sink)?;
+                self.generate_interface(interface, req_index, resp_index, sink)?;
             req_index = new_req;
             resp_index = new_resp;
         }
@@ -1033,14 +1037,14 @@ impl Codegen {
             // We need to keep track of the current request and response indexes because
             // they need to match the variant index of the Rust side.
             let (new_req, new_resp) =
-                self.generate_callback(&callback, req_index, resp_index, sink)?;
+                self.generate_callback(callback, req_index, resp_index, sink)?;
             req_index = new_req;
             resp_index = new_resp;
         }
 
         // Generate service wrapper.
         for service in &self.ast.services {
-            self.generate_service(&service, sink)?;
+            self.generate_service(service, sink)?;
         }
 
         Ok(())

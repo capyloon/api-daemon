@@ -7,7 +7,37 @@
 import WSTransport from "./ws_transport";
 import services from "./services";
 
+var kcore = ExternalAPI.core;
+
 const DEBUG = false;
+
+/**
+ * Release an object registered in the finalization registry of this session.
+ */
+function releaseObject(object, session) {
+  let buff = services.create_core_message(kcore.CoreRequest.RELEASE_OBJECT, {
+    service: object.service,
+    object: object.id,
+  });
+  let message = new kcore.BaseMessage(0, 0, buff);
+  session.send_request(message, kcore.CoreResponse).then((res) => {
+    let msg = res.msg;
+    if (msg.variant === kcore.CoreRequest.RELEASE_OBJECT && msg.success) {
+      DEBUG &&
+        console.log(
+          `Object #${object.id} on service ${
+            session.services[object.service]
+          } released`
+        );
+    } else {
+      console.error(
+        `Failed to release object #${object.id} on service ${
+          session.services[object.service]
+        }`
+      );
+    }
+  });
+}
 
 export class Session {
   constructor() {
@@ -21,6 +51,25 @@ export class Session {
     this.tracked_events = new Map();
     this.connected = false;
     this.reconnecting = false;
+
+    this.objectRegistry = new FinalizationRegistry((heldValue) => {
+      releaseObject(heldValue, this);
+    });
+
+    this.services = {};
+  }
+
+  registerService(id, name) {
+    DEBUG && console.log(`Session::registerService #${id} -> ${name}`);
+    this.services[id] = name;
+  }
+
+  // Register an object to be tracked for finalization.
+  registerObject(object) {
+    // Use the (id, service id) tuple as a held value to send the release
+    // message in the finalization callback.
+    let value = { id: object.id, service: object.service_id };
+    this.objectRegistry.register(object, value);
   }
 
   /**
@@ -98,7 +147,12 @@ export class Session {
 
     host = host || "localhost:8081";
 
-    return this.open_url(`ws://${host}/ws`, token, session_state, lazy_reconnect);
+    return this.open_url(
+      `ws://${host}/ws`,
+      token,
+      session_state,
+      lazy_reconnect
+    );
   }
 
   /**
@@ -524,31 +578,34 @@ export class Session {
   }
 
   wait_reopen() {
-    setTimeout(() => {
-      if (this.connected) {
-        return;
+    setTimeout(
+      () => {
+        if (this.connected) {
+          return;
+        }
+        // Get a new token if possible.
+        if (navigator.b2g && navigator.b2g.externalapi) {
+          navigator.b2g.externalapi.getToken().then(
+            (token) => {
+              this.token = token;
+              this.reconnect();
+            },
+            (e) => {
+              this.wait_reopen();
+            }
+          );
+        } else {
+          this.reconnect();
+        }
+      },
+      () => {
+        this.reconnect_interval = this.reconnect_interval * 2;
+        if (this.reconnect_interval > 8000) {
+          return 8000;
+        }
+        return this.reconnect_interval;
       }
-      // Get a new token if possible.
-      if (navigator.b2g && navigator.b2g.externalapi) {
-        navigator.b2g.externalapi.getToken().then(
-          (token) => {
-            this.token = token;
-            this.reconnect();
-          },
-          (e) => {
-            this.wait_reopen();
-          }
-        );
-      } else {
-        this.reconnect();
-      }
-    }, () => {
-      this.reconnect_interval = this.reconnect_interval * 2;
-      if (this.reconnect_interval > 8000) {
-        return 8000;
-      }
-      return this.reconnect_interval;
-    });
+    );
   }
 
   has_service(name) {

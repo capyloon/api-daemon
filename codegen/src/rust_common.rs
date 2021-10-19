@@ -156,7 +156,7 @@ impl Codegen {
 
         // Methods
         for method in interface.methods.values() {
-            MethodWriter::declare(&interface.name, &method, sink)?;
+            MethodWriter::declare(&interface.name, method, sink)?;
             writeln!(sink, ";")?;
         }
 
@@ -202,7 +202,7 @@ impl Codegen {
 
             for (index, event) in interface.events.values().enumerate() {
                 let ctype = &event.returns;
-                let (rtype, _itype) = rust_type_with_reqresp(&ctype);
+                let (rtype, _itype) = rust_type_with_reqresp(ctype);
 
                 if rtype != "()" {
                     writeln!(
@@ -292,7 +292,7 @@ impl Codegen {
             for event in interface.events.values() {
                 let ctype = &event.returns;
                 let event_name = &event.name;
-                let (rtype, _itype) = rust_type_with_reqresp(&ctype);
+                let (rtype, _itype) = rust_type_with_reqresp(ctype);
 
                 if rtype != "()" {
                     writeln!(
@@ -300,7 +300,7 @@ impl Codegen {
                         "pub fn broadcast_{}(&self, value: {}) {{",
                         event_name, rtype,
                     )?;
-                    if needs_clone(&ctype) {
+                    if needs_clone(ctype) {
                         writeln!(
                             sink,
                             r#"for dispatcher in self.dispatchers.values() {{
@@ -415,11 +415,7 @@ impl Codegen {
                     write!(sink, ", value: {}", stype)?;
                 }
                 writeln!(sink, ") {{")?;
-                write!(
-                    sink,
-                    "self.inner.send(&{}::{}Error",
-                    enum_name, camel_name
-                )?;
+                write!(sink, "self.inner.send(&{}::{}Error", enum_name, camel_name)?;
                 if stype != "()" {
                     let is_interface =
                         if let ConcreteType::Interface(name) = &method.returns.error.typ {
@@ -665,12 +661,12 @@ use serde::{Deserialize, Serialize};
 
         // Include enums
         for a_enum in self.ast.enumerations.values() {
-            EnumWriter::declare(&a_enum, sink)?;
+            EnumWriter::declare(a_enum, sink)?;
         }
 
         // Include dictionnaries.
         for dict in self.ast.dictionaries.values() {
-            DictWriter::declare(&dict, sink)?;
+            DictWriter::declare(dict, sink)?;
         }
 
         // Get all the possible requests and responses.
@@ -795,26 +791,26 @@ type ProxyRequest<T, E> = Shared<HashMap<u64, Sender<Result<T, E>>>>;
         // client implementations.
         for interface in &self.ast.interfaces {
             let interface = interface.1;
-            self.generate_interface(&interface, sink)?;
+            self.generate_interface(interface, sink)?;
         }
 
         // Generate enums.
         for a_enum in &self.ast.enumerations {
-            EnumWriter::declare(&a_enum.1, sink)?;
+            EnumWriter::declare(a_enum.1, sink)?;
         }
 
         // Generate stucts from dictionaries.
         for a_dict in &self.ast.dictionaries {
-            DictWriter::declare(&a_dict.1, sink)?;
+            DictWriter::declare(a_dict.1, sink)?;
         }
 
         for callback in self.ast.callbacks.values() {
-            self.generate_proxy(&self.ast.services[0].name, &callback, sink)?;
+            self.generate_proxy(&self.ast.services[0].name, callback, sink)?;
         }
 
         // Generate service responders.
         for service in &self.ast.services {
-            self.generate_responders(&service, sink)?;
+            self.generate_responders(service, sink)?;
         }
 
         // Get all the possible requests and responses.

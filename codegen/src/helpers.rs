@@ -189,7 +189,7 @@ pub fn get_all_reqs_resps(ast: &Ast) -> (Vec<String>, Vec<String>) {
 
     for interface in ast.interfaces.values() {
         for method in interface.methods.values() {
-            let (req, success_resp, error_resp) = MethodWriter::get_req_resps(&method);
+            let (req, success_resp, error_resp) = MethodWriter::get_req_resps(method);
 
             add_to_reqs_resps(true, format!("{}{}", interface.name, req));
             add_to_reqs_resps(false, format!("{}{}", interface.name, success_resp));
@@ -221,7 +221,7 @@ pub fn get_all_reqs_resps(ast: &Ast) -> (Vec<String>, Vec<String>) {
         // Events
         for event in interface.events.values() {
             let ctype = &event.returns;
-            let (_rtype, itype) = rust_type_with_reqresp(&ctype);
+            let (_rtype, itype) = rust_type_with_reqresp(ctype);
             let event_name = event.name.to_camel_case();
             if ctype.typ != ConcreteType::Void {
                 add_to_reqs_resps(
@@ -236,7 +236,7 @@ pub fn get_all_reqs_resps(ast: &Ast) -> (Vec<String>, Vec<String>) {
 
     for callback in ast.callbacks.values() {
         for method in callback.methods.values() {
-            let (req, success_resp, error_resp) = MethodWriter::get_req_resps(&method);
+            let (req, success_resp, error_resp) = MethodWriter::get_req_resps(method);
 
             add_to_reqs_resps(false, format!("{}{}", callback.name, req));
             add_to_reqs_resps(true, format!("{}{}", callback.name, success_resp));

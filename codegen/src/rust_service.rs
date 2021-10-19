@@ -73,7 +73,7 @@ impl Codegen {
         // These are all success/error returned interfaces, with a recursive descent.
         let mut tracked_interfaces = HashSet::new();
         let interface = self.ast.interfaces.get(&service.interface).unwrap();
-        self.find_tracked_interfaces(&interface, &mut tracked_interfaces);
+        self.find_tracked_interfaces(interface, &mut tracked_interfaces);
 
         // Check the "rust:shared-tracker" annotation to decide if we will use
         // Arc<Mutex<TrackerType>> or TrackerType.
@@ -125,11 +125,13 @@ impl Codegen {
                 // We can have other service annotations, but not the permission one.
                 sink.write_all(b"true\n")?;
             } else {
-                sink.write_all(b"let identity = origin_attributes.identity();
+                sink.write_all(
+                    b"let identity = origin_attributes.identity();
                                 if identity == \"uds\" {
                                     // Grant all permissions to uds sessions.
                                     true
-                                } else {\n")?;
+                                } else {\n",
+                )?;
                 writeln!(
                     sink,
                     "origin_attributes.has_permission(\"{}\") }}",
@@ -687,7 +689,7 @@ use std::rc::Rc;
 
         // Generate service trait.
         for service in &ast.services {
-            self.generate_service(&service, sink)?;
+            self.generate_service(service, sink)?;
         }
 
         Ok(())

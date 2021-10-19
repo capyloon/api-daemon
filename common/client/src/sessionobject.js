@@ -12,17 +12,18 @@ class SessionObject {
    * @constructor
    * @param {string} id - object id.
    * @param {Session} session - the service session to send function calls.
-   * @param {object} service - the service which represents a context
+   * @param {object} service - the service id which represents a context
    * @param {string} wrapper_payload_message - the payload message for each different
    * service.
-   *
    */
-  constructor(id, session, service, wrapper_payload_message) {
+  constructor(id, session, service_id, wrapper_payload_message) {
     this.id = id;
     this.session = session;
-    this.service_id = service ? service.id : 0;
+    this.service_id = service_id;
     this.wrapper_payload_message = wrapper_payload_message;
     this.event_callbacks = Object.create(null);
+
+    session.registerObject(this);
   }
 
   /**
