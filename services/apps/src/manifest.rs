@@ -2,6 +2,7 @@
 
 use crate::apps_registry::AppsMgmtError;
 use crate::apps_utils;
+use crate::generated::common::*;
 
 use log::debug;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use thiserror::Error;
+use url::Url;
 
 #[derive(Error, Debug)]
 pub enum ManifestError {
@@ -60,6 +62,24 @@ pub struct B2GFeatures {
     dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
+}
+
+pub trait ExtendUrl {
+    fn same_scope(&self, match_url: &Url) -> bool;
+}
+
+impl ExtendUrl for Url {
+    fn same_scope(&self, match_url: &Url) -> bool {
+        match self.make_relative(&match_url) {
+            Some(path) => {
+                if !path.starts_with("..") {
+                    return true;
+                }
+            }
+            None => return false,
+        }
+        false
+    }
 }
 
 fn default_as_false() -> bool {
@@ -214,6 +234,10 @@ impl Manifest {
         self.start_url = url.to_string();
     }
 
+    pub fn set_scope(&mut self, scope: &str) {
+        self.scope = scope.to_string();
+    }
+
     pub fn get_origin(&self) -> Option<String> {
         let b2g_features = self.get_b2g_features()?;
         b2g_features.get_origin()
@@ -238,12 +262,50 @@ impl Manifest {
         self.start_url.clone()
     }
 
+    pub fn get_scope(&self) -> String {
+        self.scope.clone()
+    }
+
     pub fn get_b2g_features(&self) -> Option<B2GFeatures> {
         self.b2g_features.clone()
     }
 
     pub fn get_icons(&self) -> Option<Value> {
         self.icons.clone()
+    }
+
+    // Process the scope member of the app manifest.
+    //   In:
+    //     The app manifest url
+    //   Return:
+    //     The result of the processing
+    pub fn process_scope(&mut self, base_url: &Url) -> Result<(), AppsServiceError> {
+        debug!("process_scope with base_url {}", base_url);
+        // Set the scope to the parsed start_url.
+        let start_url = base_url
+            .join(&self.get_start_url())
+            .map_err(|_| AppsServiceError::InvalidScope)?;
+        let mut scope = start_url
+            .join(".")
+            .map_err(|_| AppsServiceError::InvalidScope)?;
+        // The app scope and start url need to be the same scope.
+        if !scope.same_scope(&base_url) {
+            return Err(AppsServiceError::InvalidScope);
+        }
+        // If the manifest json["scope"] is not empty.,
+        // set the scope with manifest url as base.
+        let manifest_scope = self.get_scope();
+        if !manifest_scope.is_empty() {
+            scope = base_url
+                .join(&manifest_scope)
+                .map_err(|_| AppsServiceError::InvalidScope)?;
+        }
+        // The app scope and start url need to be the same scope.
+        if !scope.same_scope(&start_url) {
+            return Err(AppsServiceError::InvalidScope);
+        }
+        self.set_scope(scope.as_str());
+        Ok(())
     }
 
     pub fn read_from<P: AsRef<Path>>(manifest_file: P) -> Result<Manifest, AppsMgmtError> {
@@ -355,4 +417,23 @@ mod tests {
 
         assert!(manifest.is_valid().is_err());
     }
+}
+
+#[test]
+fn test_same_scope() {
+    let base_url = Url::parse("https://domain.com/foo/").unwrap();
+
+    assert!(base_url.same_scope(&Url::parse("https://domain.com/foo/index.html").unwrap()));
+    assert!(base_url.same_scope(&Url::parse("https://domain.com/foo/bar/index.html").unwrap()));
+    assert!(base_url.same_scope(&Url::parse("https://domain.com/foo/bar/../index.html").unwrap()));
+    assert!(base_url.same_scope(&Url::parse("https://domain.com/xyz/../foo/index.html").unwrap()));
+    assert!(
+        base_url.same_scope(&Url::parse("https://domain.com/xyz/../foo/bar/index.html").unwrap())
+    );
+
+    assert!(!base_url.same_scope(&Url::parse("https://domain.com/foo/../index.html").unwrap()));
+    assert!(!base_url.same_scope(&Url::parse("https://different.com/foo/bar/index.html").unwrap()));
+    assert!(!base_url.same_scope(&Url::parse("https://domain.com/index.html").unwrap()));
+    assert!(!base_url.same_scope(&Url::parse("https://domain.com/xyz/index.html").unwrap()));
+    assert!(!base_url.same_scope(&Url::parse("https://domain.com/bar/foo/index.html").unwrap()));
 }

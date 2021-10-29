@@ -1,7 +1,7 @@
 {
     "name": "hellopwa",
     "launch_path": "",
-    "start_url": "index.html",
+    "start_url": "/apps/different/index.html",
     "version": "",
     "theme_color": "#008eff",
     "background_color": "#008eff",

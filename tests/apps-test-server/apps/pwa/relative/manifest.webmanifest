@@ -1,16 +1,16 @@
 {
-    "name": "hellopwa",
-    "launch_path": "",
-    "start_url": "index.html",
+    "name": "relative pwa",
+    "start_url": "/apps/pwa/relative/index.html",
     "version": "",
-    "theme_color": "#008eff",
-    "background_color": "#008eff",
+    "theme_color": "#008fff",
+    "background_color": "#008fff",
     "display": "browser",
+    "scope": "/apps/pwa/relative/",
     "orientation": "portrait",
     "lang":"en-US",
     "extra":"extra field",
     "dir":"rtl",
-    "short_name": "hipwa",
+    "short_name": "relative pwa",
     "icons": [{
       "sizes": "16x16",
       "src": "icons/icon16x16.png",
@@ -37,8 +37,8 @@
       "default_locale": "",
       "core": false,
       "cursor": true,
-      "focus_color": "#7dcb1e",
-      "version": "1.2.3",
+      "focus_color": "#7dcc1f",
+      "version": "1.2.6",
       "dependencies": {}
     }
   }

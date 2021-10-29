@@ -1,16 +1,15 @@
 {
-    "name": "different origin pwa",
-    "start_url": "http://128.0.0.1:8596/apps/different/index.html",
+    "name": "same origin pwa",
+    "start_url": "http://127.0.0.1:8596/apps/pwa/same-origin/index.html",
     "version": "",
     "theme_color": "#008fff",
     "background_color": "#008fff",
     "display": "browser",
-    "scope": "/",
     "orientation": "portrait",
     "lang":"en-US",
     "extra":"extra field",
     "dir":"rtl",
-    "short_name": "different origin pwa",
+    "short_name": "same origin pwa",
     "icons": [{
       "sizes": "16x16",
       "src": "icons/icon16x16.png",
@@ -38,7 +37,7 @@
       "core": false,
       "cursor": true,
       "focus_color": "#7dcc1f",
-      "version": "1.2.5",
+      "version": "1.2.7",
       "dependencies": {}
     }
   }

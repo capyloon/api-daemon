@@ -48,11 +48,11 @@ function install_pwa_expected(installState, status=0) {
 }
 
 function relative_pwa_expected(installState) {
-  return {"name":"relativepwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/relativepwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/relativepwa/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/pwa/relative.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
+  return {"name":"relativepwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/relativepwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/relativepwa/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/pwa/relative/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
 }
 
 function same_origin_pwa_expected(installState) {
-  return {"name":"sameoriginpwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/sameoriginpwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/sameoriginpwa/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/pwa/same-origin.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
+  return {"name":"sameoriginpwa","installState":installState,"manifestUrl":"http://cached.localhost:8081/sameoriginpwa/manifest.webmanifest","removable":true,"status":0,"updateManifestUrl":"http://cached.localhost:8081/sameoriginpwa/update.webmanifest","updateState":0,"updateUrl":"http://127.0.0.1:8596/apps/pwa/same-origin/manifest.webmanifest","allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
 }
 
 function update_pwa_expected(updateState, allowedAutoDownload=false) {

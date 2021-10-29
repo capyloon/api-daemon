@@ -543,6 +543,7 @@ impl AppsRequest {
         let update_url_base =
             Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
         let _ = is_same_origin_with(&update_url_base, &manifest.get_start_url())?;
+        manifest.process_scope(&update_url_base)?;
 
         let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
@@ -571,6 +572,11 @@ impl AppsRequest {
             if !version.is_empty() {
                 apps_item.set_version(&version);
             }
+
+            if !is_update {
+                registry.validate_pwa_scope(&manifest)?;
+            }
+
             // We make no difference for update or new install at the moment.
             let _ = registry.save_app(false, &apps_item);
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
@@ -913,11 +919,14 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
         let update_manifest = cached_dir.join(app.get_name()).join("manifest.webmanifest");
         let manifest = Manifest::read_from(&update_manifest).unwrap();
 
-        // start url should be absolute url of remote address
-        assert_eq!(
-            manifest.get_start_url(),
-            "https://testpwa.github.io/index.html"
-        );
+        // The start url in cached manifest is an absolute url of remote address.
+        let expected_start_url = Url::parse(&app_url)
+            .unwrap()
+            .join("index.html")
+            .unwrap()
+            .as_str()
+            .to_string();
+        assert_eq!(manifest.get_start_url(), expected_start_url);
 
         // icon url should be relative path of local cached address
         if let Some(icons_value) = manifest.get_icons() {
@@ -944,15 +953,20 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
 #[test]
 fn test_pwa() {
     test_apply_pwa("https://testpwa.github.io/manifest.webmanifest", None);
-    test_apply_pwa("https://testpwa.github.io/manifest2.webmanifest", None);
+    test_apply_pwa("https://testpwa.github.io/abs/manifest.webmanifest", None);
     test_apply_pwa(
         "https://testpwa.github.io/invalid.webmanifest",
         Some(AppsServiceError::InvalidIcon),
     );
-    test_apply_pwa("https://testpwa.github.io/test/manifest.webmanifest", None);
+    test_apply_pwa("https://testpwa.github.io/test/valid.webmanifest", None);
     test_apply_pwa(
         "https://testpwa.github.io/test/invalid.webmanifest",
         Some(AppsServiceError::InvalidIcon),
+    );
+    test_apply_pwa("https://testpwa.github.io/scope/valid.webmanifest", None);
+    test_apply_pwa(
+        "https://testpwa.github.io/scope/invalid.webmanifest",
+        Some(AppsServiceError::InvalidScope),
     );
 }
 

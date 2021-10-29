@@ -41,6 +41,7 @@ enum AppsServiceError {
   InvalidManifest         // Error in the manifest file
   InvalidOrigin           // The origin defined by the app is invalid
   InvalidPackage          // Error in the package file
+  InvalidScope            // The scope is invalid or already used by an installed app
   InvalidSignature        // Failed to verify the signature
   InvalidCertificate      // Failed to parse certificate
   NetworkFailure          // Error in the Network

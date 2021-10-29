@@ -213,7 +213,7 @@
                 manifest.start_url == "http://127.0.0.1:8596/apps/pwa/index.html" &&
                 manifest.display == "browser" &&
                 manifest.short_name == "hipwa" &&
-                manifest.scope == "/" &&
+                manifest.scope == "http://127.0.0.1:8596/apps/pwa/" &&
                 manifest.dir == "rtl" &&
                 manifest.lang == "en-US" &&
                 manifest.orientation == "portrait" &&
@@ -229,7 +229,7 @@
 // Install PWA with relative start URL case 2.
         await tester.assert_eq(
           "install pwa app relative start url case 2",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/relative.webmanifest"),
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/relative/manifest.webmanifest"),
           relative_pwa_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_pwa_handler, relative_pwa_expected(1));
@@ -242,7 +242,7 @@
             return fetch(req)
               .then(response => response.json())
               .then(manifest =>
-                manifest.start_url == "http://127.0.0.1:8596/index.html" &&
+                manifest.start_url == "http://127.0.0.1:8596/apps/pwa/relative/index.html" &&
                 manifest.display == "browser" &&
                 manifest.short_name == "relative pwa" &&
                 manifest.dir == "rtl" &&
@@ -260,7 +260,7 @@
 // Install PWA with same origin start URL.
         await tester.assert_eq(
           "install same origin start url pwa app",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/same-origin.webmanifest"),
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/same-origin/manifest.webmanifest"),
           same_origin_pwa_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_pwa_handler, same_origin_pwa_expected(1));
@@ -273,7 +273,7 @@
             return fetch(req)
               .then(response => response.json())
               .then(manifest =>
-                manifest.start_url == "http://127.0.0.1:8596/apps/same/index.html" &&
+                manifest.start_url == "http://127.0.0.1:8596/apps/pwa/same-origin/index.html" &&
                 manifest.display == "browser" &&
                 manifest.short_name == "same origin pwa" &&
                 manifest.dir == "rtl" &&
@@ -291,7 +291,7 @@
 // Install PWA with different origin start URL.
         await tester.assert_rej_eq(
           "install different origin start url pwa app",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/different-origin.webmanifest"),
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/different-origin/manifest.webmanifest"),
           AppsServiceError.INVALID_MANIFEST
         );
 
@@ -333,6 +333,27 @@
                     .then(response => response.ok)
             },
             true,
+        );
+
+// Install PWA with a duplicate scope.
+        await tester.assert_rej_eq(
+          "install pwa app with dupilcate scope",
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/duplicate-scope.webmanifest"),
+          AppsServiceError.INVALID_SCOPE
+        );
+
+// Install PWA with an invalid scope.
+        await tester.assert_rej_eq(
+          "install pwa app with invalid scope",
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/invalid-scope.webmanifest"),
+          AppsServiceError.INVALID_SCOPE
+        );
+
+// Install PWA - start url with a different scope.
+        await tester.assert_rej_eq(
+          "install pwa app with a different sope",
+          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/different-scope.webmanifest"),
+          AppsServiceError.INVALID_SCOPE
         );
 
         await tester.assert_rej_eq(

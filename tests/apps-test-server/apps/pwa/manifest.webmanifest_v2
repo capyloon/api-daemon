@@ -6,7 +6,7 @@
     "theme_color": "#008fff",
     "background_color": "#008fff",
     "display": "browser",
-    "scope": "/",
+    "scope": "/apps/pwa/",
     "orientation": "portrait",
     "lang":"en-US",
     "extra":"extra field",

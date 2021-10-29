@@ -6,6 +6,7 @@
     "theme_color": "#008eff",
     "background_color": "#008eff",
     "display": "browser",
+    "scope": "/invalid/scope/",
     "orientation": "portrait",
     "lang":"en-US",
     "extra":"extra field",

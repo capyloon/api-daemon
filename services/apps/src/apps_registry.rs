@@ -611,6 +611,13 @@ impl AppsRegistry {
         None
     }
 
+    pub fn get_manifest(&self, manifest_url: &str) -> Option<Manifest> {
+        let app = self.get_by_manifest_url(manifest_url)?;
+        let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
+
+        AppsStorage::load_manifest(&app_dir).ok()
+    }
+
     pub fn get_vhost_port(&self) -> u16 {
         self.vhost_port
     }
@@ -652,6 +659,36 @@ impl AppsRegistry {
             return Err(RegistrationError::WrongManifest(err));
         }
 
+        Ok(())
+    }
+
+    // Validate if the app scope is already used by an installed app.
+    // In:
+    //    manifest - the manifest of the installed app.
+    // Return:
+    //    Ok - the scope is allowed to use.
+    //    Error - the scope is already used by an installed app.
+    pub fn validate_pwa_scope(&self, manifest: &Manifest) -> Result<(), AppsServiceError> {
+        let app_scope = manifest.get_scope();
+        // For the install case, check if the scope is occupied.
+        debug!("check if the scope is available: {}", &app_scope);
+        if let Some(db) = &self.db {
+            if let Ok(apps) = db.get_all() {
+                for item in &apps {
+                    if !item.is_pwa() {
+                        continue;
+                    }
+                    let item_manifest = self
+                        .get_manifest(&item.get_manifest_url())
+                        .ok_or(AppsServiceError::FilesystemFailure)?;
+                    // Do not allow installing an occupied scope to a new app.
+                    if item_manifest.get_scope() == app_scope {
+                        error!("The scope {} is occupied.", &app_scope);
+                        return Err(AppsServiceError::InvalidScope);
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
