@@ -219,3 +219,6 @@ impl Blob {
         self.data = data.to_vec();
     }
 }
+
+// Re-export url::Url to make it available to generated code.
+pub use url::Url;

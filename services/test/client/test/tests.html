@@ -560,6 +560,14 @@
           23
         );
 
+        let base = new URL("http://example.com");
+        let expected_url = new URL("http://example.com/foo/bar.html");
+        await tester.assert_eq(
+          `url resolution`,
+          (service) => service.resolveUrl(base, "foo/bar.html"),
+          expected_url
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 

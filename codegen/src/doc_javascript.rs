@@ -36,6 +36,7 @@ pub fn js_type(typ: &ConcreteType, arity: Arity) -> Vec<String> {
         ConcreteType::Json => res.push_str("json"),
         ConcreteType::Date => res.push_str("Date"),
         ConcreteType::Blob => res.push_str("Blob"),
+        ConcreteType::Url => res.push_str("URL"),
         ConcreteType::Dictionary(ref utype)
         | ConcreteType::Enumeration(ref utype)
         | ConcreteType::Interface(ref utype)
@@ -60,6 +61,7 @@ pub fn js_type(typ: &ConcreteType, arity: Arity) -> Vec<String> {
         | ConcreteType::Binary
         | ConcreteType::Date
         | ConcreteType::Blob
+        | ConcreteType::Url
         | ConcreteType::Json => "".to_owned(),
         ConcreteType::Dictionary(ref utype) => format!("#dictionary_{}", utype),
         ConcreteType::Enumeration(ref utype) => format!("#enumeration_{}", utype),

@@ -150,6 +150,7 @@ fn bincode_js_type(typ: &ConcreteType) -> String {
         ConcreteType::Json => "json",
         ConcreteType::Date => "date",
         ConcreteType::Blob => "blob",
+        ConcreteType::Url => "url",
         _ => unimplemented!("No js type for this concrete type: {:?}", typ),
     }
     .into()

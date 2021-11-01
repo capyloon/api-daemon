@@ -1080,6 +1080,7 @@ dependencies = [
  "thiserror",
  "threadpool",
  "toml",
+ "url",
 ]
 
 [[package]]
@@ -3861,6 +3862,7 @@ dependencies = [
  "serde",
  "serde_json",
  "threadpool",
+ "url",
 ]
 
 [[package]]
@@ -4264,6 +4266,7 @@ dependencies = [
  "idna",
  "matches",
  "percent-encoding",
+ "serde",
 ]
 
 [[package]]

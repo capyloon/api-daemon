@@ -50,6 +50,7 @@ pub enum ConcreteType {
     Date,
     Json,
     Blob,
+    Url,
     Callback(String),
     Enumeration(String),
     Dictionary(String),
@@ -77,6 +78,8 @@ impl ConcreteType {
                 ConcreteType::Json
             } else if typ == "blob" {
                 ConcreteType::Blob
+            } else if typ == "url" {
+                ConcreteType::Url
             } else {
                 return None;
             }

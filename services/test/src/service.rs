@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use threadpool::ThreadPool;
+use url::Url;
 
 pub struct FooProviderImpl {
     id: TrackerId,
@@ -557,6 +558,18 @@ impl TestFactoryMethods for TestServiceImpl {
 
     fn full_blob_size(&mut self, responder: TestFactoryFullBlobSizeResponder, blobs: Vec<Blob>) {
         responder.resolve(blobs.iter().map(|b| b.len()).sum::<usize>() as _);
+    }
+
+    fn resolve_url(
+        &mut self,
+        responder: TestFactoryResolveUrlResponder,
+        base: Url,
+        relative: String,
+    ) {
+        match base.join(&relative) {
+            Ok(full) => responder.resolve(full),
+            Err(_) => responder.reject(),
+        }
     }
 }
 

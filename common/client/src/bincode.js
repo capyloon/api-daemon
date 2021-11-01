@@ -206,6 +206,12 @@ export class Decoder {
     let data = this.u8_array();
     return new Blob([data], { type: mimeType });
   }
+
+  // Read a url as a string
+  url() {
+    let url = this.string();
+    return new URL(url);
+  }
 }
 
 function checkType(val, type) {
@@ -219,6 +225,9 @@ function checkType(val, type) {
       break;
     case "blob":
       ok = val.__isblob__ === true;
+      break;
+    case "url":
+      ok = Object.getPrototypeOf(val) === URL.prototype;
       break;
     default:
       ok = typeof val === type;
@@ -408,6 +417,12 @@ export class Encoder {
 
     this.string(val.type);
     this.u8_array(val.data);
+    return this;
+  }
+
+  url(val) {
+    checkType(val, "url");
+    this.string(val.href);
     return this;
   }
 

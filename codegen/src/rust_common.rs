@@ -647,7 +647,7 @@ impl Codegen {
 #![allow(clippy::large_enum_variant)]
 
 #[allow(unused_imports)]
-use crate::common::{Blob, JsonValue, SystemTime, ObjectRef};
+use crate::common::{Blob, JsonValue, ObjectRef, SystemTime, Url};
 use serde::{Deserialize, Serialize};
 \n\n",
         )?;
@@ -741,6 +741,8 @@ use std::collections::HashMap;
 #[allow(unused_imports)]
 use std::sync::mpsc::{Sender, Receiver, channel};
 use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
+use common::Url;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ObjectRef(TrackerId);
 impl From<TrackerId> for ObjectRef {

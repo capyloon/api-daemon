@@ -8,6 +8,14 @@ function deep_equals(a, b) {
     return true;
   }
 
+  // Special case for URL objects: we compare the full href.
+  if (
+    Object.getPrototypeOf(a) === URL.prototype &&
+    Object.getPrototypeOf(b) === URL.prototype
+  ) {
+    return a.href === b.href;
+  }
+
   // If they weren't equal, they must be objects to be different
   if (typeof a != "object" || typeof b != "object") {
     return false;
@@ -91,7 +99,7 @@ class ServiceTester {
   // Return a promise than resolves with the next value dispatched
   // for this event.
   next_event_value(event_handler) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       event_handler.add_waiter(resolve);
     });
   }
@@ -110,10 +118,10 @@ class ServiceTester {
   assert_eq(description, runnable, expected, transform) {
     let start = Date.now();
     description = `${this.tester_name}:${description}`;
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       try {
         runnable(this.service).then(
-          observed => {
+          (observed) => {
             let elapsed = Date.now() - start;
             if (transform) {
               observed = transform(observed);
@@ -125,20 +133,23 @@ class ServiceTester {
                 description,
                 success: false,
                 observed: `${typeof observed} ${JSON.stringify(observed)}`,
-                expected: `${typeof expected} ${JSON.stringify(expected)}`
+                expected: `${typeof expected} ${JSON.stringify(expected)}`,
               });
             }
             resolve();
           },
-          error => {
-            console.error(`Testing Errror is ${error} ${JSON.stringify(error)}`);
+          (error) => {
+            console.error(
+              `Testing Errror is ${error} ${JSON.stringify(error)}`
+            );
             this.results.push({ description, success: false, error });
             resolve();
           }
         );
-      } catch(error) {
-        console.error(`Testing Exception is ${error} ${JSON.stringify(error)}`);
-        this.results.push({ description, success: false, error});
+      } catch (error) {
+        console.error(`Testing Exception: ${error}`);
+        console.error(error.stack);
+        this.results.push({ description, success: false, error });
         resolve();
       }
     });
@@ -148,14 +159,14 @@ class ServiceTester {
   assert_rej_eq(description, runnable, expected, transform) {
     let start = Date.now();
     description = `${this.tester_name}:${description}`;
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       try {
         runnable(this.service).then(
-          error => {
+          (error) => {
             this.results.push({ description, success: false, error });
             resolve();
           },
-          observed => {
+          (observed) => {
             observed = observed.value;
             let elapsed = Date.now() - start;
             if (transform) {
@@ -168,14 +179,14 @@ class ServiceTester {
                 description,
                 success: false,
                 observed: `${typeof observed} ${JSON.stringify(observed)}`,
-                expected: `${typeof expected} ${JSON.stringify(expected)}`
+                expected: `${typeof expected} ${JSON.stringify(expected)}`,
               });
             }
             resolve();
           }
         );
-      } catch(error) {
-        this.results.push({ description, success: false, error});
+      } catch (error) {
+        this.results.push({ description, success: false, error });
         resolve();
       }
     });
@@ -185,21 +196,23 @@ class ServiceTester {
 // Returns a promise resolving to a ServiceTester attached to the service.
 function test_service(service, tester_name, existing_session) {
   return new Promise((resolve, reject) => {
-    let session = existing_session ? existing_session : new lib_session.Session();
+    let session = existing_session
+      ? existing_session
+      : new lib_session.Session();
     let sessionstate = {
       onsessionconnected() {
-        service.get(session).then(service => {
+        service.get(session).then((service) => {
           resolve(new ServiceTester(service, tester_name, session));
         }, reject);
       },
 
       onsessiondisconnected() {
         reject("Session Disconnected");
-      }
+      },
     };
 
     if (navigator.b2g.externalapi) {
-      navigator.b2g.externalapi.getToken().then(token => {
+      navigator.b2g.externalapi.getToken().then((token) => {
         session.open("websocket", "localhost:8081", token, sessionstate);
       });
     } else {
@@ -213,7 +226,7 @@ function test_service(service, tester_name, existing_session) {
 class TestReporter {
   constructor(testers) {
     this.results = [];
-    testers.forEach(tester => {
+    testers.forEach((tester) => {
       this.results = this.results.concat(tester.results);
     });
   }
@@ -226,7 +239,7 @@ class TestReporter {
     let success = 0;
     let failures = 0;
     let html = `<div id="header">${this.results.length} tests completed.</div>`;
-    this.results.forEach(item => {
+    this.results.forEach((item) => {
       if (item.success) {
         success += 1;
         html += `<div class="success">[${item.description}] : Success</div>`;
@@ -239,7 +252,9 @@ class TestReporter {
       }
     });
 
-    html += `<div id="footer" class="${(failures == 0) ? 'success' : ''}"><span class="success">Success: ${success}</span>, <span class="failure">Failures: ${failures}</span></div>`;
+    html += `<div id="footer" class="${
+      failures == 0 ? "success" : ""
+    }"><span class="success">Success: ${success}</span>, <span class="failure">Failures: ${failures}</span></div>`;
 
     element.innerHTML = html;
     let hidden = document.createElement("div");
@@ -254,6 +269,6 @@ function createAsyncTask() {
   const asyncTask = {};
   asyncTask.isFinished = new Promise((resolve) => {
     asyncTask.finish = resolve;
-  });;
+  });
   return asyncTask;
 }

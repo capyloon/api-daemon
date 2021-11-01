@@ -157,6 +157,8 @@ interface TestFactory {
 	fn count_optional_blobs(blobs: blob*) -> int
 
 	fn full_blob_size(blobs: blob+) -> int
+
+	fn resolve_url(base: url, relative: str) -> url
 }
 
 #[rust:use=crate::private_traits::*,rust:shared-tracker]
