@@ -172,7 +172,7 @@ impl AppsRegistry {
 
     pub fn restore_apps_status(&mut self, is_update: bool, apps_item: &AppsItem) {
         if is_update {
-            let _ = self.save_app(is_update, &apps_item);
+            let _ = self.save_app(is_update, apps_item);
         } else {
             let _ = self.unregister(&apps_item.get_manifest_url());
         }
@@ -499,7 +499,7 @@ impl AppsRegistry {
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
-        let _ = self.save_app(is_update, &apps_item)?;
+        let _ = self.save_app(is_update, apps_item)?;
 
         // Relay the request to Gecko using the bridge.
         let features = match manifest.get_b2g_features() {
@@ -709,7 +709,7 @@ impl AppsRegistry {
             return Err(RegistrationError::ManifestUrlMissing);
         }
 
-        if self.unregister(&manifest_url) {
+        if self.unregister(manifest_url) {
             Ok(manifest_url.to_string())
         } else {
             Err(RegistrationError::ManifestURLNotFound)
@@ -831,7 +831,7 @@ impl AppsRegistry {
                             }
                             debug!("apps system update: found newer version of {}", &app_name);
                             let mut new_app = app.clone();
-                            if AppsStorage::remove_app(&app, &self.data_path).is_err() {
+                            if AppsStorage::remove_app(app, &self.data_path).is_err() {
                                 error!("apps system update: Failed to remove old app.");
                             }
                             if let Ok(app) = AppsStorage::add_system_dir_app(
@@ -858,7 +858,7 @@ impl AppsRegistry {
                             &app_name
                         );
                         let _ = db.remove_by_manifest_url(&app.get_manifest_url());
-                        match AppsStorage::remove_app(&app, &self.data_path) {
+                        match AppsStorage::remove_app(app, &self.data_path) {
                             Ok(_) => {
                                 self.apps_list
                                     .retain(|item| item.manifest_url != app.get_manifest_url());

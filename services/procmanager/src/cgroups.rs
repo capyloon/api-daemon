@@ -746,7 +746,7 @@ impl Groups {
         let mut i = 0;
         while i < added_groups.len() {
             let (group_name, parent_name) = added_groups[i];
-            if let Ok(path) = target.get_group_path(&parent_name) {
+            if let Ok(path) = target.get_group_path(parent_name) {
                 let _ = activities.add_group(group_name, &path);
             }
             if let Some(group) = target.names2groups.get(group_name) {
@@ -756,7 +756,7 @@ impl Groups {
                     }
                 }
                 if !group.attributes.is_empty() {
-                    Self::make_sure_attr_chgs(&mut attr_chgs, &group_name, |_| {});
+                    Self::make_sure_attr_chgs(&mut attr_chgs, group_name, |_| {});
                 }
                 for (attr, value) in group.attributes.iter() {
                     if let Some((_, set_attrs)) = attr_chgs.get_mut(group_name) {

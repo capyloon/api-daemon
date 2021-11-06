@@ -147,7 +147,7 @@ impl CrashUploader {
         // Default to epoch if we don't have a valid value, since it should
         // only happen at first crash when there is no saved upload time.
         let last_upload =
-            CrashUploader::last_upload_time(&Path::new(path)).unwrap_or(SystemTime::UNIX_EPOCH);
+            CrashUploader::last_upload_time(Path::new(path)).unwrap_or(SystemTime::UNIX_EPOCH);
 
         #[cfg(target_os = "android")]
         let dev_mode =

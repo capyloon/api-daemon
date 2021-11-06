@@ -53,7 +53,7 @@ impl ContactDbCursor {
         pool.execute(move || {
             let mut db = crate::db::create_db();
             let connection = db.mut_connection();
-            let mut statement = match prepare(&connection) {
+            let mut statement = match prepare(connection) {
                 Some(statement) => statement,
                 None => {
                     // Return an empty cursor.

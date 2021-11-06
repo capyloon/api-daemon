@@ -27,7 +27,7 @@ impl GlobalContext {
         ));
 
         // Get the shared tokens manager from the GeckoBridge shared state.
-        create_shared_state(&config);
+        create_shared_state(config);
 
         let tokens_manager = geckobridge::service::GeckoBridgeService::shared_state()
             .lock()

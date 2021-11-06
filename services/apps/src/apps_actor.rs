@@ -179,7 +179,7 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
             continue;
         }
         let line_w = line.as_ref().unwrap();
-        let request = match serde_json::from_str::<Request>(&line_w) {
+        let request = match serde_json::from_str::<Request>(line_w) {
             Ok(request) => {
                 debug!("{:?}", request.clone());
                 if !validate_request(&request) {
@@ -224,7 +224,7 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
 
                 // Delete it at drop
                 let from_file = Path::new(&file.path);
-                match install_package(&shared_data, &from_file, &manifest) {
+                match install_package(&shared_data, from_file, &manifest) {
                     Ok((_, need_restart)) => checker.need_restart = need_restart,
                     Err(err) => {
                         error!("Installation fails, {}", err);
@@ -345,7 +345,7 @@ pub fn install_package(
 
     let _ = shared
         .registry
-        .apply_download(&mut apps_item, &download_dir, &manifest, is_update)
+        .apply_download(&mut apps_item, &download_dir, manifest, is_update)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     if is_update {

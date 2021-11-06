@@ -118,7 +118,7 @@ where
 
     // Prepare the HMAC, initializing it with the IV.
     let mut hmac_ctxt = Hmac::<Sha256>::new_varkey(hmac_key).map_err(|_| "hmac_error")?;
-    hmac_ctxt.update(&iv);
+    hmac_ctxt.update(iv);
 
     // Prepare the SHA256 hasher.
     let mut sha256_hasher = digest::Context::new(&digest::SHA256);
@@ -131,7 +131,7 @@ where
         BufReader::with_capacity(BUFFER_SIZE, response).set_policy(MinBuffered(CHUNK_SIZE));
 
     // Prepare the AES cbc decryptor.
-    let mut cipher = match Aes256Cbc::new_from_slices(&cipher_key, &iv) {
+    let mut cipher = match Aes256Cbc::new_from_slices(cipher_key, iv) {
         Ok(cipher) => cipher,
         Err(err) => {
             error!("Failure in Aes256Cbc::new_var : {}", err);

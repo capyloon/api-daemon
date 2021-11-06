@@ -191,7 +191,7 @@ extern "C" fn sha512_digest_final_func(
     let slice = digest.as_ref();
 
     unsafe {
-        *output = signal_buffer::from_slice(&slice);
+        *output = signal_buffer::from_slice(slice);
     }
     0
 }
@@ -240,7 +240,7 @@ extern "C" fn encrypt_func(
     let eplain = unsafe { slice::from_raw_parts_mut(plaintext as *mut u8, plaintext_len as _) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
-        let cipher = match Aes256Cbc::new_from_slices(&ekey, &eiv) {
+        let cipher = match Aes256Cbc::new_from_slices(ekey, eiv) {
             Ok(cipher) => cipher,
             Err(err) => {
                 error!("Failure in Aes256Cbc::new_from_slices() : {}", err);
@@ -261,7 +261,7 @@ extern "C" fn encrypt_func(
         cipher.apply_keystream(eplain);
 
         unsafe {
-            *output = signal_buffer::from_slice(&eplain);
+            *output = signal_buffer::from_slice(eplain);
         }
     } else {
         error!("Unexpected cipher: {}", cipher);
@@ -301,7 +301,7 @@ extern "C" fn decrypt_func(
     let ecipher = unsafe { slice::from_raw_parts_mut(ciphertext as *mut u8, ciphertext_len as _) };
 
     if cipher == SG_CIPHER_AES_CBC_PKCS5 {
-        let cipher = match Aes256Cbc::new_from_slices(&ekey, &eiv) {
+        let cipher = match Aes256Cbc::new_from_slices(ekey, eiv) {
             Ok(cipher) => cipher,
             Err(err) => {
                 error!("Failure in Aes256Cbc::new_from_slices() : {}", err);
@@ -327,7 +327,7 @@ extern "C" fn decrypt_func(
         let mut cipher = Aes128Ctr::new(ekey.into(), eiv.into());
         cipher.apply_keystream(ecipher);
         unsafe {
-            *output = signal_buffer::from_slice(&ecipher);
+            *output = signal_buffer::from_slice(ecipher);
         }
     } else {
         error!("Unexpected cipher: {}", cipher);

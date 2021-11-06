@@ -47,7 +47,7 @@ pub enum Error {
     #[error("Android property get error")]
     AndroidPropertyGetErr(#[from] AndroidPropertyError),
     #[error("Standard io error")]
-    StdIOError(#[from] std::io::Error),
+    StdIO(#[from] std::io::Error),
 }
 
 impl PartialEq for Error {
@@ -56,7 +56,7 @@ impl PartialEq for Error {
             (Error::InvalidName, Error::InvalidName) => true,
             (Error::InvalidMethod, Error::InvalidMethod) => true,
             (Error::AndroidPropertyGetErr(e1), Error::AndroidPropertyGetErr(e2)) => e1 == e2,
-            (Error::StdIOError(e1), Error::StdIOError(e2)) => e1.kind() == e2.kind(),
+            (Error::StdIO(e1), Error::StdIO(e2)) => e1.kind() == e2.kind(),
             (..) => false,
         }
     }
@@ -69,7 +69,7 @@ pub struct DeviceCapabilityConfig {
 fn get_from_prop(name: &str, default: Option<&serde_json::Value>) -> Result<JsonValue, Error> {
     debug!("get_from_prop {}", name);
 
-    match AndroidProperties::get(&name, "") {
+    match AndroidProperties::get(name, "") {
         Ok(value) => match value.as_ref() {
             "" => {
                 debug!("empty");

@@ -160,7 +160,7 @@ impl MessageSender {
     ) {
         match crate::get_bincode().serialize(content) {
             Ok(buffer) => {
-                let mut message = BaseMessage::empty_from(&base);
+                let mut message = BaseMessage::empty_from(base);
                 message.content = buffer.to_vec();
                 self.send_message(&message, session_id);
             }
@@ -462,8 +462,8 @@ pub struct EmptyState;
 
 impl StateLogger for EmptyState {}
 
-impl Into<EmptyState> for &EmptyConfig {
-    fn into(self) -> EmptyState {
+impl From<&EmptyConfig> for EmptyState {
+    fn from(_c: &EmptyConfig) -> EmptyState {
         EmptyState
     }
 }

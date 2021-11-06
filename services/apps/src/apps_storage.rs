@@ -124,7 +124,7 @@ impl AppsStorage {
         }
         app.set_preloaded(true);
         // Get version from manifest for preloaded apps.
-        let app_dir = app.get_appdir(&data_path).unwrap_or_default();
+        let app_dir = app.get_appdir(data_path).unwrap_or_default();
         if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
             if !manifest.get_version().is_empty() {
                 app.set_version(&manifest.get_version());

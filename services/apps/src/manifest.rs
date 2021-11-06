@@ -70,7 +70,7 @@ pub trait ExtendUrl {
 
 impl ExtendUrl for Url {
     fn same_scope(&self, match_url: &Url) -> bool {
-        match self.make_relative(&match_url) {
+        match self.make_relative(match_url) {
             Some(path) => {
                 if !path.starts_with("..") {
                     return true;
@@ -194,7 +194,7 @@ impl Manifest {
                 if let Some(activities) = activities_json.as_object() {
                     for activity in activities.values() {
                         if let Some(href) = activity.get("href").unwrap_or(&json!(null)).as_str() {
-                            if apps_utils::is_absolute_uri(&href) {
+                            if apps_utils::is_absolute_uri(href) {
                                 return Err(ManifestError::AbsoluteUrl);
                             }
                         }
@@ -210,7 +210,7 @@ impl Manifest {
                         if let Some(message_obj) = message.as_object() {
                             for value in message_obj.values() {
                                 if let Some(href) = value.as_str() {
-                                    if apps_utils::is_absolute_uri(&href) {
+                                    if apps_utils::is_absolute_uri(href) {
                                         return Err(ManifestError::AbsoluteUrl);
                                     }
                                 }
@@ -289,7 +289,7 @@ impl Manifest {
             .join(".")
             .map_err(|_| AppsServiceError::InvalidScope)?;
         // The app scope and start url need to be the same scope.
-        if !scope.same_scope(&base_url) {
+        if !scope.same_scope(base_url) {
             return Err(AppsServiceError::InvalidScope);
         }
         // If the manifest json["scope"] is not empty.,

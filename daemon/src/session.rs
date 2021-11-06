@@ -85,7 +85,7 @@ impl Session {
             token_manager,
             origin_attributes,
             message_max_time: config.general.message_max_time,
-            services_names: enabled_services(&config, &registrar),
+            services_names: enabled_services(config, &registrar),
             context: session_context,
             remote_services_manager,
             session_helper: SessionSupport::new(
@@ -174,7 +174,7 @@ impl Session {
             Ok(success) => {
                 let response = CoreResponse::ReleaseObject(ReleaseObjectResponse { success });
                 message.kind = BaseMessageKind::Response(message.request());
-                self.session_helper.serialize_message(&message, &response);
+                self.session_helper.serialize_message(message, &response);
             }
             Err(err) => {
                 self.abort_connection(&err);
@@ -193,7 +193,7 @@ impl Session {
         {
             error!("Could not instanciate service named `{}`", req.name);
             self.session_helper
-                .serialize_message(&message, &GetServiceResponse::UnknownService);
+                .serialize_message(message, &GetServiceResponse::UnknownService);
             return;
         }
 
@@ -226,7 +226,7 @@ impl Session {
         }
 
         message.kind = BaseMessageKind::Response(message.request());
-        self.session_helper.serialize_message(&message, &response);
+        self.session_helper.serialize_message(message, &response);
     }
 
     fn on_has_service(&mut self, req: &HasServiceRequest, message: &mut BaseMessage) {
@@ -239,7 +239,7 @@ impl Session {
 
         message.kind = BaseMessageKind::Response(message.request());
         self.session_helper.serialize_message(
-            &message,
+            message,
             &CoreResponse::HasService(HasServiceResponse {
                 success: has_service,
             }),
@@ -254,7 +254,7 @@ impl Session {
             .insert(EventMapKey::from_ids(req), true);
         let response = CoreResponse::EnableEvent(EnableEventListenerResponse { success: true });
         message.kind = BaseMessageKind::Response(message.request());
-        self.session_helper.serialize_message(&message, &response);
+        self.session_helper.serialize_message(message, &response);
 
         // Relay the event enabling to remote services.
         self.remote_services_manager
@@ -273,7 +273,7 @@ impl Session {
 
         let response = CoreResponse::DisableEvent(DisableEventListenerResponse { success });
         message.kind = BaseMessageKind::Response(message.request());
-        self.session_helper.serialize_message(&message, &response);
+        self.session_helper.serialize_message(message, &response);
 
         // Relay the event disabling to remote services.
         self.remote_services_manager
@@ -585,9 +585,8 @@ mod test {
         let mut buffer2 = encode_message(&message).expect("Failed to encode");
         session.on_message(&buffer2);
         receiver.recv().unwrap();
-        assert_eq!(
-            is_event_in_map(&session.session_helper.event_map(), 1, 1, 1),
-            true
+        assert!(
+            is_event_in_map(&session.session_helper.event_map(), 1, 1, 1)
         );
 
         // Disable a unexist event listener
@@ -607,9 +606,8 @@ mod test {
         buffer2 = encode_message(&message).expect("Failed to encode");
         session.on_message(&buffer2);
         receiver.recv().unwrap();
-        assert_eq!(
-            is_event_in_map(&session.session_helper.event_map(), 1, 1, 1),
-            true
+        assert!(
+            is_event_in_map(&session.session_helper.event_map(), 1, 1, 1)
         );
         assert_eq!(session.session_helper.event_map().lock().len(), 1);
 
@@ -630,9 +628,8 @@ mod test {
         buffer2 = encode_message(&message).expect("Failed to encode");
         session.on_message(&buffer2);
         receiver.recv().unwrap();
-        assert_ne!(
-            is_event_in_map(&session.session_helper.event_map(), 1, 1, 1),
-            true
+        assert!(
+            !is_event_in_map(&session.session_helper.event_map(), 1, 1, 1)
         );
         assert_eq!(session.session_helper.event_map().lock().len(), 0);
     }

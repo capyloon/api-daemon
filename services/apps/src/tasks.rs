@@ -32,7 +32,7 @@ impl AppMgmtTask for InstallPackageTask {
         }
 
         let data_dir = request.shared_data.lock().config.data_path();
-        match request.download_and_apply(&data_dir, &url, false) {
+        match request.download_and_apply(&data_dir, url, false) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
                 let mut shared = request.shared_data.lock();
@@ -44,7 +44,7 @@ impl AppMgmtTask for InstallPackageTask {
                     .broadcast_app_installed(app);
             }
             Err(err) => {
-                request.broadcast_download_failed(&url, err);
+                request.broadcast_download_failed(url, err);
                 responder.reject(err);
             }
         }
@@ -76,7 +76,7 @@ impl AppMgmtTask for InstallPwaTask {
         }
 
         let data_path = request.shared_data.lock().config.data_path();
-        match request.download_and_apply_pwa(&data_path, &url, false) {
+        match request.download_and_apply_pwa(&data_path, url, false) {
             Ok(app) => {
                 info!("broadcast event: app_installed");
                 responder.resolve(app.clone());
@@ -112,7 +112,7 @@ impl AppMgmtTask for UninstallTask {
             return responder.reject(AppsServiceError::UnknownError);
         }
         let request = request.unwrap();
-        let app = match request.shared_data.lock().get_by_manifest_url(&url) {
+        let app = match request.shared_data.lock().get_by_manifest_url(url) {
             Ok(app) => app,
             Err(err) => {
                 error!("Do not find uninstall app: {:?}", err);
@@ -162,7 +162,7 @@ impl AppMgmtTask for UpdateTask {
             .shared_data
             .lock()
             .registry
-            .get_by_manifest_url(&url)
+            .get_by_manifest_url(url)
         {
             Some(app) => {
                 if app.get_status() == AppsStatus::Disabled {
@@ -231,7 +231,7 @@ impl AppMgmtTask for CheckForUpdateTask {
         let mut request = request.unwrap();
         let data_path = request.shared_data.lock().config.data_path();
         let is_auto_update = apps_option.auto_install.unwrap_or(false);
-        let some_app = request.shared_data.lock().registry.get_by_update_url(&url);
+        let some_app = request.shared_data.lock().registry.get_by_update_url(url);
         let app;
         if let Some(app_) = some_app {
             if app_.get_status() == AppsStatus::Disabled {
@@ -291,7 +291,7 @@ impl AppMgmtTask for SetEnabledTask {
         let manifest_url = &self.1;
         let status = self.2;
         let responder = &self.3;
-        match shared.registry.set_enabled(&manifest_url, status) {
+        match shared.registry.set_enabled(manifest_url, status) {
             Ok((app, changed)) => {
                 if changed {
                     if status == AppsStatus::Disabled {
@@ -323,7 +323,7 @@ impl AppMgmtTask for ClearTask {
         let datatype = self.2;
         let responder = &self.3;
 
-        if shared.registry.get_by_manifest_url(&manifest_url).is_none() {
+        if shared.registry.get_by_manifest_url(manifest_url).is_none() {
             return responder.reject(AppsServiceError::AppNotFound);
         }
 
@@ -347,7 +347,7 @@ impl AppMgmtTask for CancelDownloadTask {
         let responder = &self.2;
 
         info!("cancel dwonload {}", &update_url);
-        let app = match shared.registry.get_by_update_url(&update_url) {
+        let app = match shared.registry.get_by_update_url(update_url) {
             Some(app) => app,
             None => return responder.reject(AppsServiceError::AppNotFound),
         };

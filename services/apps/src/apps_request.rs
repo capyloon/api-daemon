@@ -171,10 +171,10 @@ impl AppsRequest {
             self.downloader
                 .clone()
                 .download(url, &zip_path, Some(headers));
-        self.set_or_update_canceller(&app_update_url, cancel_sender.clone());
+        self.set_or_update_canceller(app_update_url, cancel_sender.clone());
         let _sender_remover = SenderRemover::new(self.shared_data.clone(), app_update_url);
         // Check if cancel is called
-        if self.check_cancelled(&app_update_url) {
+        if self.check_cancelled(app_update_url) {
             debug!("Download cancelled.");
             let _ = cancel_sender.send(());
             return Err(AppsMgmtError::PackageDownloadFailed(
@@ -223,7 +223,7 @@ impl AppsRequest {
 
         // Check if cancel is called. If not, we remove canceller.
         // Any further cancel requests will be rejected.
-        if self.check_cancelled(&app_update_url) {
+        if self.check_cancelled(app_update_url) {
             debug!("Download cancelled after finished.");
             return Err(AppsMgmtError::PackageDownloadFailed(
                 DownloadError::Canceled,
@@ -255,7 +255,7 @@ impl AppsRequest {
                 .clone()
                 .download(url, &update_manifest, Some(headers));
         let sender_remover = if canceller_needed {
-            self.set_or_update_canceller(&url, cancel_sender);
+            self.set_or_update_canceller(url, cancel_sender);
             Some(SenderRemover::new(self.shared_data.clone(), url))
         } else {
             None
@@ -378,7 +378,7 @@ impl AppsRequest {
         is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let path = Path::new(&webapp_path);
-        let update_manifest_result = match self.get_update_manifest(&update_url, &path, None, true)
+        let update_manifest_result = match self.get_update_manifest(update_url, path, None, true)
         {
             Ok(update_manifest_result) => update_manifest_result,
             Err(err) => {
@@ -404,7 +404,7 @@ impl AppsRequest {
             // Need create appsItem object and add to db to reflect status
             apps_item = if is_update {
                 let mut app = registry
-                    .get_by_update_url(&update_url)
+                    .get_by_update_url(update_url)
                     .ok_or(AppsServiceError::AppNotFound)?;
                 apps_item_restore = app.clone();
                 app.set_update_state(AppsUpdateState::Updating);
@@ -414,10 +414,10 @@ impl AppsRequest {
                 let app_name = registry.get_unique_name(
                     &update_manifest.get_name(),
                     update_manifest.get_origin(),
-                    Some(&update_url),
+                    Some(update_url),
                 )?;
                 let mut app = AppsItem::default(&app_name, registry.get_vhost_port());
-                app.set_update_url(&update_url);
+                app.set_update_url(update_url);
 
                 apps_item_restore = app.clone();
                 app.set_install_state(AppsInstallState::Installing);
@@ -449,7 +449,7 @@ impl AppsRequest {
             return Err(AppsServiceError::InvalidManifest);
         }
 
-        if AppsStorage::available_disk_space(&webapp_path) < update_manifest.get_packaged_size() * 2
+        if AppsStorage::available_disk_space(webapp_path) < update_manifest.get_packaged_size() * 2
         {
             error!("Do not have enough disk space.");
             return Err(AppsServiceError::DiskSpaceNotEnough);
@@ -551,7 +551,7 @@ impl AppsRequest {
             let registry = &mut self.shared_data.lock().registry;
             apps_item = if is_update {
                 let mut app = registry
-                    .get_by_update_url(&update_url)
+                    .get_by_update_url(update_url)
                     .ok_or(AppsServiceError::AppNotFound)?;
                 app.set_update_state(AppsUpdateState::Updating);
 
@@ -560,10 +560,10 @@ impl AppsRequest {
                 let app_name = registry.get_unique_name(
                     &manifest.get_name(),
                     manifest.get_origin(),
-                    Some(&update_url),
+                    Some(update_url),
                 )?;
                 let mut app = AppsItem::default_pwa(&app_name, registry.get_vhost_port());
-                app.set_update_url(&update_url);
+                app.set_update_url(update_url);
                 app.set_install_state(AppsInstallState::Installing);
 
                 app
@@ -592,7 +592,7 @@ impl AppsRequest {
             .map_err(|_| AppsServiceError::InvalidManifest)?;
         if let Some(icons_value) = manifest.get_icons() {
             let mut icons: Vec<Icons> =
-                serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+                serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
             for icon in &mut icons {
                 let mut icon_src = icon.get_src();
                 // If the icon src is a complete url remove the leading protocol for the download path.
@@ -609,7 +609,7 @@ impl AppsRequest {
                 let icon_url = update_url_base
                     .join(&icon.get_src())
                     .map_err(|_| AppsServiceError::InvalidManifest)?;
-                let _ = AppsStorage::ensure_dir(&icon_dir);
+                let _ = AppsStorage::ensure_dir(icon_dir);
                 if let Err(err) = self.download(icon_url.as_str(), &icon_path) {
                     error!(
                         "Failed to download icon {} -> {:?} : {:?}",
@@ -650,7 +650,7 @@ impl AppsRequest {
             AppsObject::from(apps_item)
         } else {
             let mut apps_item = AppsItem::default("unknown", 80);
-            apps_item.set_update_url(&update_url);
+            apps_item.set_update_url(update_url);
             AppsObject::from(&apps_item)
         };
 
@@ -757,7 +757,7 @@ pub fn is_new_version(old_version: &str, new_version: &str) -> bool {
         return false;
     }
     if let (Some(new_version), Some(old_version)) =
-        (Version::from(&new_version), Version::from(&old_version))
+        (Version::from(new_version), Version::from(old_version))
     {
         return new_version.compare(&old_version) == CompOp::Gt;
     }

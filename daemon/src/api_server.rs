@@ -251,8 +251,7 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
     {
         Some(header_value) => match header_value.to_str() {
             Ok(value) => {
-                let values: Vec<_> = value.split(',').map(|e| e.trim()).collect();
-                values.into_iter().any(|encoding| encoding == "gzip")
+                value.split(',').map(|e| e.trim()).any(|encoding| encoding == "gzip")
             }
             Err(_) => false,
         },
@@ -326,7 +325,7 @@ impl VhostChecker {
 impl actix_web::guard::Guard for VhostChecker {
     fn check(&self, request: &actix_web::dev::RequestHead) -> bool {
         if let Some(host) = request.headers().get("Host") {
-            let parts: Vec<&str> = host.to_str().unwrap_or(&"").split('.').collect();
+            let parts: Vec<&str> = host.to_str().unwrap_or("").split('.').collect();
             if parts.len() == 1 && parts[0] == self.check {
                 let path = request.uri.path();
                 let paths: Vec<&str> = path.split('/').collect();

@@ -160,7 +160,7 @@ impl DateTime {
     /// Converts the datetime to a Tm structure
     ///
     /// The fields `tm_wday`, `tm_yday`, `tm_utcoff` and `tm_nsec` are set to their defaults.
-    pub fn to_time(&self) -> ::time::Tm {
+    pub fn to_time(self) -> ::time::Tm {
         ::time::Tm {
             tm_sec: self.second as i32,
             tm_min: self.minute as i32,

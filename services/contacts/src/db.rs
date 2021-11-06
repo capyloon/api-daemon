@@ -713,13 +713,13 @@ impl ContactInfo {
         save_str_field(
             &mut stmt,
             &self.id,
-            &"phonetic_given_name",
+            "phonetic_given_name",
             &self.phonetic_given_name,
         )?;
         save_str_field(
             &mut stmt,
             &self.id,
-            &"phonetic_family_name",
+            "phonetic_family_name",
             &self.phonetic_family_name,
         )?;
 
@@ -748,7 +748,7 @@ impl ContactInfo {
                 // Update the group_contacts when contact with group info.
                 let mut stmt_group =
                     tx.prepare("INSERT INTO group_contacts (group_id, contact_id) VALUES(?, ?)")?;
-                stmt_group.insert(&[&group, &self.id.clone().unwrap_or_default()])?;
+                stmt_group.insert(&[group, &self.id.clone().unwrap_or_default()])?;
             }
         }
 
@@ -953,9 +953,9 @@ impl ContactsDb {
         );
         let mut contact = ContactInfo::default();
         let conn = self.db.connection();
-        contact.fill_main_data(&id, &conn)?;
+        contact.fill_main_data(id, conn)?;
         if !only_main_data {
-            contact.fill_additional_data(&id, &conn)?;
+            contact.fill_additional_data(id, conn)?;
         }
         Ok(contact)
     }

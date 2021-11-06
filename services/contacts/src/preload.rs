@@ -245,11 +245,11 @@ fn import_contacts_to_db(tx: &Transaction, contacts: &[ContactInfo]) -> Result<(
         contact.published = Some(SystemTime::from(std::time::SystemTime::now()));
         debug!("save current contact id is {:?}", contact.id);
 
-        if let Err(err) = contact.save_main_data(&tx) {
+        if let Err(err) = contact.save_main_data(tx) {
             error!("save_main_data error: {}, continue", err);
             continue;
         }
-        if let Err(err) = contact.save_additional_data(&tx) {
+        if let Err(err) = contact.save_additional_data(tx) {
             error!("save_additional_data error: {}, continue", err);
             continue;
         }

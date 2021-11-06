@@ -23,9 +23,9 @@ pub struct RegistryDb {
     db: SqliteDb,
 }
 
-impl Into<String> for AppsStatus {
-    fn into(self) -> String {
-        match &self {
+impl From<AppsStatus> for String {
+    fn from(s: AppsStatus) -> String {
+        match s {
             AppsStatus::Disabled => "Disabled".into(),
             AppsStatus::Enabled => "Enabled".into(),
         }
@@ -51,9 +51,9 @@ impl FromSql for AppsStatus {
     }
 }
 
-impl Into<String> for AppsInstallState {
-    fn into(self) -> String {
-        match &self {
+impl From<AppsInstallState> for String {
+    fn from(a: AppsInstallState) -> String {
+        match a {
             AppsInstallState::Installed => "Installed".into(),
             AppsInstallState::Installing => "Installing".into(),
             AppsInstallState::Pending => "Pending".into(),
@@ -82,9 +82,9 @@ impl FromSql for AppsInstallState {
     }
 }
 
-impl Into<String> for AppsUpdateState {
-    fn into(self) -> String {
-        match &self {
+impl From<AppsUpdateState> for String {
+    fn from(a: AppsUpdateState) -> String {
+        match a {
             AppsUpdateState::Available => "Available".into(),
             AppsUpdateState::Downloading => "Downloading".into(),
             AppsUpdateState::Idle => "Idle".into(),

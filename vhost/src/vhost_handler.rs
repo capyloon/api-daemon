@@ -68,7 +68,7 @@ fn response_from_zip<'a>(
     if_none_match: Option<&HeaderValue>,
 ) -> HttpResponse {
     // Check if we can return NotModified without reading the file content.
-    let etag = Etag::for_zip(&zip);
+    let etag = Etag::for_zip(zip);
     let mime = mime_type_for(zip.name());
     if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime, Some(csp)) {
         return response;
@@ -266,7 +266,7 @@ pub async fn vhost(
                     let full_path = Path::new(&path);
                     if full_path.exists() {
                         debug!("Direct Opening of {}", lang_file);
-                        return Some(response_from_file(&full_path, &csp, if_none_match));
+                        return Some(response_from_file(full_path, &csp, if_none_match));
                     }
                     None
                 }) {
@@ -277,7 +277,7 @@ pub async fn vhost(
                         let full_path = Path::new(&path);
                         if full_path.exists() {
                             debug!("Direct Opening of {}", filename);
-                            Ok(response_from_file(&full_path, &csp, if_none_match))
+                            Ok(response_from_file(full_path, &csp, if_none_match))
                         } else {
                             Ok(HttpResponse::NotFound().finish())
                         }
@@ -296,7 +296,7 @@ pub async fn vhost(
 
                 match check_lang_files(&languages, filename, &mut |lang_file| {
                     if let Ok(mut zip) =
-                        archive.by_name_maybe_raw(&lang_file, CompressionMethod::Deflated)
+                        archive.by_name_maybe_raw(lang_file, CompressionMethod::Deflated)
                     {
                         debug!("Opening {}", lang_file);
                         return Some(response_from_zip(&mut zip, &csp, if_none_match));

@@ -222,7 +222,7 @@ mod test {
         // Decode the response
         let response: CoreResponse = common::deserialize_bincode(&base.content).unwrap();
         match response {
-            CoreResponse::HasService(r) => assert_eq!(r.success, true),
+            CoreResponse::HasService(r) => assert!(r.success),
             _ => panic!("Cannot deserialize HasService response"),
         }
 

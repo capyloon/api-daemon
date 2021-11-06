@@ -19,7 +19,7 @@ use thiserror::Error as ThisError;
 #[derive(ThisError, Debug)]
 pub enum Error {
     #[error("Custom Error")]
-    CustomError,
+    Custom,
     #[error("TOML error: {0}")]
     Toml(#[from] toml::de::Error),
     #[error("IO Error")]
@@ -33,7 +33,7 @@ impl<'de> Deserialize<'de> for Error {
     where
         D: Deserializer<'de>,
     {
-        Ok(Error::CustomError)
+        Ok(Error::Custom)
     }
 }
 
@@ -113,16 +113,16 @@ impl Config {
     }
 }
 
-impl Into<EmptyConfig> for &Config {
-    fn into(self) -> EmptyConfig {
+impl From<&Config> for EmptyConfig {
+    fn from(_c: &Config) -> EmptyConfig {
         EmptyConfig
     }
 }
 
 #[cfg(feature = "apps-service")]
-impl Into<AppsConfig> for &Config {
-    fn into(self) -> AppsConfig {
-        self.apps_service.clone()
+impl From <&Config> for AppsConfig {
+    fn from(c: &Config) -> AppsConfig {
+        c.apps_service.clone()
     }
 }
 
@@ -148,7 +148,7 @@ mod test {
         assert_eq!(config.general.host, "0.0.0.0");
         assert_eq!(config.general.port, 8081);
         assert_eq!(config.general.message_max_time, 10);
-        assert_eq!(config.general.verbose_log, false);
+        assert!(!config.general.verbose_log);
         assert_eq!(config.general.remote_services_config, "remote_config.toml");
         assert_eq!(config.general.remote_services_path, "./remote/");
         assert_eq!(config.http.root_path, "/tmp");

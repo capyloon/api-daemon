@@ -174,9 +174,9 @@ impl ProcManagerService {
     }
 }
 
-impl Into<String> for GroupType {
-    fn into(self) -> String {
-        match self {
+impl From<GroupType> for String {
+    fn from(g: GroupType) -> String {
+        match g {
             GroupType::Foreground => String::from("fg"),
             GroupType::Background => String::from("bg"),
             GroupType::TryToKeep => String::from("try_to_keep"),
