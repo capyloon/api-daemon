@@ -1,6 +1,53 @@
-FROM ubuntu:18.04
+# syntax=docker/dockerfile:1.0-experimental
+
+ARG RUSTUP_TOOLCHAIN="1.56.1"
+# separate into multiple stages in order for parallelism when DOCKER_BUILDKIT=1
+# intermediate image 0: download prebuilt .mozbuild
+FROM alpine:3.12.3 as mozbuild_downloader
+# PREFERRED_MOZBUILD_VER must be passed with --build-arg
+ARG PREFERRED_MOZBUILD_VER
+ADD https://packages.preprod.kaiostech.com/ndk/v${PREFERRED_MOZBUILD_VER}/mozbuild.tar.bz2 /mozbuild.tar.bz2
+
+# intermediate image 1: download other essentials
+FROM alpine:3.12.3 as essential_downloader
+# node
+ARG NODE_VERSION="9.11.2"
+ADD https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz /node.tar.xz
+# yarn
+ARG YARN_VERSION="1.22.10"
+ADD https://github.com/yarnpkg/yarn/releases/download/v${YARN_VERSION}/yarn-v${YARN_VERSION}.tar.gz /yarn.tar.gz
+# geckodriver
+ARG GECKODRIVER_VERSION="0.29.0"
+ADD https://github.com/mozilla/geckodriver/releases/download/v${GECKODRIVER_VERSION}/geckodriver-v${GECKODRIVER_VERSION}-linux64.tar.gz /geckodriver.tar.gz
+
+# intermediate image 2: install bindgen via cargo
+FROM rust:${RUSTUP_TOOLCHAIN} as bindgen_installer
+ARG BINDGEN_VERSION="0.59.0"
+RUN cargo install --version ${BINDGEN_VERSION} bindgen
+
+# intermediate image 3: install cargo-deny via cargo
+FROM rust:${RUSTUP_TOOLCHAIN} as cargodeny_installer
+ARG CARGODENY_VERSION="0.10.0"
+RUN cargo install --version ${CARGODENY_VERSION} cargo-deny --locked
+
+# intermediate image 4: install bindgen via cargo
+FROM rust:${RUSTUP_TOOLCHAIN} as sccache_installer
+ARG SCCACHE_VERSION="0.2.15"
+RUN cargo install --version ${SCCACHE_VERSION} sccache
+
+# intermediate image 5: download cc for osx
+FROM alpine:3.12.3 as osxcc_downloader
+ADD https://packages.preprod.kaiostech.com/tools/osxcross.tgz /osxcross.tgz
+
+# final image
+FROM ubuntu:18.04 as final
 
 ARG LAST_EDIT_COMMIT
+# reuse previous value of RUSTUP_TOOLCHAIN
+ARG RUSTUP_TOOLCHAIN
+ARG PREFERRED_MOZBUILD_VER
+# update MINOR_VER when minor changes are made
+ARG MINOR_VER=1
 
 LABEL maintainer="viga.li@kaiostech.com" \
 # Update that value for automation to pick up the new tag.
