@@ -136,7 +136,7 @@ interface AppsEngine {
 
   // In: the URL of a app in store server
   // Return: the app update available or an error string.
-  fn check_for_update(update_url:str, appsOption: AppsOptions) -> bool, AppsServiceError
+  fn check_for_update(update_url:str, appsOption: AppsOptions?) -> bool, AppsServiceError
 
   // In: The URL of a PWA manifest from the host server
   // Return: the app object or an error
@@ -148,7 +148,7 @@ interface AppsEngine {
 
   // In: the URL of a app in store server
   // Return: the app object or an error string.
-  fn update(manifest_url: str) -> AppsObject, AppsServiceError
+  fn update(manifest_url: str, appsOption: AppsOptions?) -> AppsObject, AppsServiceError
 
   // In: the URL of an app in store server
   // Return: the app object or an error string.

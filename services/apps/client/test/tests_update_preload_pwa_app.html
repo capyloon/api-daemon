@@ -56,8 +56,8 @@
         let update_updatepwa_manifest_url = "http://cached.localhost:8081/updatepwa/manifest.webmanifest";
         await tester.assert_eq(
           "update preload pwa app",
-          service => service.update(update_updatepwa_manifest_url),
-	  update_prelaod_pwa_expected
+          service => service.update(update_updatepwa_manifest_url, {autoInstall: true}),
+          update_prelaod_pwa_auto_download_available
         );
 
         // Verify updatepwa app manifest after update.

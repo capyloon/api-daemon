@@ -170,9 +170,9 @@ impl UpdateScheduler {
             let update_url: String = app.update_url.to_owned();
             if !update_url.is_empty() {
                 // Create tasks and check for update
-                let apps_options = AppsOptions {
+                let apps_options = Some(AppsOptions {
                     auto_install: Some(true),
-                };
+                });
                 let task = CheckForUpdateTask(shared_data.clone(), update_url, apps_options, None);
                 shared.registry.queue_task(task);
             }

@@ -74,7 +74,7 @@ impl AppsEngineMethods for AppsService {
         &mut self,
         responder: AppsEngineCheckForUpdateResponder,
         update_url: String,
-        apps_option: AppsOptions,
+        apps_option: Option<AppsOptions>,
     ) {
         info!("check_for_update: {}", &update_url);
         let task = CheckForUpdateTask(
@@ -102,9 +102,19 @@ impl AppsEngineMethods for AppsService {
         self.shared_data.lock().registry.queue_task(task);
     }
 
-    fn update(&mut self, responder: AppsEngineUpdateResponder, manifest_url: String) {
+    fn update(
+        &mut self,
+        responder: AppsEngineUpdateResponder,
+        manifest_url: String,
+        apps_option: Option<AppsOptions>,
+    ) {
         info!("update: {}", &manifest_url);
-        let task = UpdateTask(self.shared_data.clone(), manifest_url, responder);
+        let task = UpdateTask(
+            self.shared_data.clone(),
+            manifest_url,
+            apps_option,
+            responder,
+        );
         self.shared_data.lock().registry.queue_task(task);
     }
 

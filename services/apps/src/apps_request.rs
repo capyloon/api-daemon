@@ -378,8 +378,7 @@ impl AppsRequest {
         is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let path = Path::new(&webapp_path);
-        let update_manifest_result = match self.get_update_manifest(update_url, path, None, true)
-        {
+        let update_manifest_result = match self.get_update_manifest(update_url, path, None, true) {
             Ok(update_manifest_result) => update_manifest_result,
             Err(err) => {
                 debug!("get_update_manifest err {:?}", err);
