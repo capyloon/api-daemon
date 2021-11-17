@@ -13,13 +13,13 @@
 [package]
 edition = "2018"
 name = "prost-build"
-version = "0.7.0"
-authors = ["Dan Burkert <dan@danburkert.com>"]
+version = "0.9.0"
+authors = ["Dan Burkert <dan@danburkert.com>", "Tokio Contributors <team@tokio.rs>"]
 description = "A Protocol Buffers implementation for the Rust Language."
 documentation = "https://docs.rs/prost-build"
 readme = "README.md"
 license = "Apache-2.0"
-repository = "https://github.com/danburkert/prost"
+repository = "https://github.com/tokio-rs/prost"
 [dependencies.bytes]
 version = "1"
 default-features = false
@@ -28,7 +28,10 @@ default-features = false
 version = "0.3"
 
 [dependencies.itertools]
-version = "0.9"
+version = "0.10"
+
+[dependencies.lazy_static]
+version = "1.4.0"
 
 [dependencies.log]
 version = "0.4"
@@ -38,16 +41,19 @@ version = "0.8"
 default-features = false
 
 [dependencies.petgraph]
-version = "0.5"
+version = "0.6"
 default-features = false
 
 [dependencies.prost]
-version = "0.7.0"
+version = "0.9.0"
 default-features = false
 
 [dependencies.prost-types]
-version = "0.7.0"
+version = "0.9.0"
 default-features = false
+
+[dependencies.regex]
+version = "1.5.4"
 
 [dependencies.tempfile]
 version = "3"

@@ -10,9 +10,13 @@ Note: In this file, do not use the hard wrap in the middle of a sentence for com
 
 ## [Unreleased]
 
+## [1.0.8] - 2021-07-21
+
+- [Suppress `clippy::use_self` and `clippy::type_repetition_in_bounds` lints in generated code.](https://github.com/taiki-e/pin-project/pull/331)
+
 ## [1.0.7] - 2021-04-16
 
-- Fix compile error when using `self::` as prefix of path inside `#[pinned_drop]` impl.
+- [Fix compile error when using `self::` as prefix of path inside `#[pinned_drop]` impl.](https://github.com/taiki-e/pin-project/pull/326)
 
 ## [1.0.6] - 2021-03-25
 
@@ -598,7 +602,8 @@ See also [tracking issue for 0.4 release](https://github.com/taiki-e/pin-project
 
 Initial release
 
-[Unreleased]: https://github.com/taiki-e/pin-project/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/taiki-e/pin-project/compare/v1.0.8...HEAD
+[1.0.8]: https://github.com/taiki-e/pin-project/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/taiki-e/pin-project/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/taiki-e/pin-project/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/taiki-e/pin-project/compare/v1.0.4...v1.0.5

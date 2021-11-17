@@ -1,4 +1,4 @@
-#![doc(html_root_url = "https://docs.rs/prost-build/0.7.0")]
+#![doc(html_root_url = "https://docs.rs/prost-build/0.9.0")]
 #![allow(clippy::option_as_ref_deref)]
 
 //! `prost-build` compiles `.proto` files into Rust.
@@ -36,14 +36,14 @@
 //!
 //! // A snazzy new shirt!
 //! message Shirt {
-//! enum Size {
-//!     SMALL = 0;
-//!     MEDIUM = 1;
-//!     LARGE = 2;
-//! }
+//!     enum Size {
+//!         SMALL = 0;
+//!         MEDIUM = 1;
+//!         LARGE = 2;
+//!     }
 //!
-//! string color = 1;
-//! Size size = 2;
+//!     string color = 1;
+//!     Size size = 2;
 //! }
 //! ```
 //!
@@ -51,10 +51,10 @@
 //! `build.rs` build-script:
 //!
 //! ```rust,no_run
-//! # use std::io::Result;
+//! use std::io::Result;
 //! fn main() -> Result<()> {
-//!   prost_build::compile_protos(&["src/items.proto"], &["src/"])?;
-//!   Ok(())
+//!     prost_build::compile_protos(&["src/items.proto"], &["src/"])?;
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -114,6 +114,7 @@ mod code_generator;
 mod extern_paths;
 mod ident;
 mod message_graph;
+mod path;
 
 use std::collections::HashMap;
 use std::default;
@@ -121,7 +122,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -134,6 +135,7 @@ use crate::code_generator::CodeGenerator;
 use crate::extern_paths::ExternPaths;
 use crate::ident::to_snake;
 use crate::message_graph::MessageGraph;
+use crate::path::PathMap;
 
 type Module = Vec<String>;
 
@@ -182,22 +184,57 @@ pub trait ServiceGenerator {
     fn finalize_package(&mut self, _package: &str, _buf: &mut String) {}
 }
 
+/// The map collection type to output for Protobuf `map` fields.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MapType {
+    /// The [`std::collections::HashMap`] type.
+    HashMap,
+    /// The [`std::collections::BTreeMap`] type.
+    BTreeMap,
+}
+
+impl Default for MapType {
+    fn default() -> MapType {
+        MapType::HashMap
+    }
+}
+
+/// The bytes collection type to output for Protobuf `bytes` fields.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum BytesType {
+    /// The [`alloc::collections::Vec::<u8>`] type.
+    Vec,
+    /// The [`bytes::Bytes`] type.
+    Bytes,
+}
+
+impl Default for BytesType {
+    fn default() -> BytesType {
+        BytesType::Vec
+    }
+}
+
 /// Configuration options for Protobuf code generation.
 ///
 /// This configuration builder can be used to set non-default code generation options.
 pub struct Config {
     file_descriptor_set_path: Option<PathBuf>,
     service_generator: Option<Box<dyn ServiceGenerator>>,
-    btree_map: Vec<String>,
-    bytes: Vec<String>,
-    type_attributes: Vec<(String, String)>,
-    field_attributes: Vec<(String, String)>,
+    map_type: PathMap<MapType>,
+    bytes_type: PathMap<BytesType>,
+    type_attributes: PathMap<String>,
+    field_attributes: PathMap<String>,
     prost_types: bool,
     strip_enum_prefix: bool,
     out_dir: Option<PathBuf>,
     extern_paths: Vec<(String, String)>,
+    default_package_filename: String,
     protoc_args: Vec<OsString>,
-    disable_comments: Vec<String>,
+    disable_comments: PathMap<()>,
+    skip_protoc_run: bool,
+    include_file: Option<PathBuf>,
 }
 
 impl Config {
@@ -259,7 +296,11 @@ impl Config {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.btree_map = paths.into_iter().map(|s| s.as_ref().to_string()).collect();
+        self.map_type.clear();
+        for matcher in paths {
+            self.map_type
+                .insert(matcher.as_ref().to_string(), MapType::BTreeMap);
+        }
         self
     }
 
@@ -316,7 +357,11 @@ impl Config {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.bytes = paths.into_iter().map(|s| s.as_ref().to_string()).collect();
+        self.bytes_type.clear();
+        for matcher in paths {
+            self.bytes_type
+                .insert(matcher.as_ref().to_string(), BytesType::Bytes);
+        }
         self
     }
 
@@ -324,7 +369,7 @@ impl Config {
     ///
     /// # Arguments
     ///
-    /// **`path`** - a patch matching any number of fields. These fields get the attribute.
+    /// **`path`** - a path matching any number of fields. These fields get the attribute.
     /// For details about matching fields see [`btree_map`](#method.btree_map).
     ///
     /// **`attribute`** - an arbitrary string that'll be placed before each matched field. The
@@ -349,7 +394,7 @@ impl Config {
         A: AsRef<str>,
     {
         self.field_attributes
-            .push((path.as_ref().to_string(), attribute.as_ref().to_string()));
+            .insert(path.as_ref().to_string(), attribute.as_ref().to_string());
         self
     }
 
@@ -398,7 +443,7 @@ impl Config {
         A: AsRef<str>,
     {
         self.type_attributes
-            .push((path.as_ref().to_string(), attribute.as_ref().to_string()));
+            .insert(path.as_ref().to_string(), attribute.as_ref().to_string());
         self
     }
 
@@ -440,7 +485,11 @@ impl Config {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.disable_comments = paths.into_iter().map(|s| s.as_ref().to_string()).collect();
+        self.disable_comments.clear();
+        for matcher in paths {
+            self.disable_comments
+                .insert(matcher.as_ref().to_string(), ());
+        }
         self
     }
 
@@ -556,10 +605,11 @@ impl Config {
         self
     }
 
-    /// When set, the `FileDescriptorSet` generated by `protoc` is written to the provided path.
+    /// When set, the `FileDescriptorSet` generated by `protoc` is written to the provided
+    /// filesystem path.
     ///
-    /// This option can be used in conjunction with the `include_bytes!` macro and the types in the
-    /// `prost-types` crate for implementing reflection capabilities, among other things.
+    /// This option can be used in conjunction with the [`include_bytes!`] macro and the types in
+    /// the `prost-types` crate for implementing reflection capabilities, among other things.
     ///
     /// ## Example
     ///
@@ -588,6 +638,25 @@ impl Config {
         self
     }
 
+    /// In combination with with `file_descriptor_set_path`, this can be used to provide a file
+    /// descriptor set as an input file, rather than having prost-build generate the file by calling
+    /// protoc.  Prost-build does require that the descriptor set was generated with
+    /// --include_source_info.
+    ///
+    /// In `build.rs`:
+    ///
+    /// ```rust
+    /// # let mut config = prost_build::Config::new();
+    /// config.file_descriptor_set_path("path/from/build/system")
+    ///     .skip_protoc_run()
+    ///     .compile_protos(&["src/items.proto"], &["src/"]);
+    /// ```
+    ///
+    pub fn skip_protoc_run(&mut self) -> &mut Self {
+        self.skip_protoc_run = true;
+        self
+    }
+
     /// Configures the code generator to not strip the enum name from variant names.
     ///
     /// Protobuf enum definitions commonly include the enum name as a prefix of every variant name.
@@ -608,6 +677,15 @@ impl Config {
         P: Into<PathBuf>,
     {
         self.out_dir = Some(path.into());
+        self
+    }
+
+    /// Configures what filename protobufs with no package definition are written to.
+    pub fn default_package_filename<S>(&mut self, filename: S) -> &mut Self
+    where
+        S: Into<String>,
+    {
+        self.default_package_filename = filename.into();
         self
     }
 
@@ -633,12 +711,47 @@ impl Config {
         self
     }
 
+    /// Configures the optional module filename for easy inclusion of all generated Rust files
+    ///
+    /// If set, generates a file (inside the `OUT_DIR` or `out_dir()` as appropriate) which contains
+    /// a set of `pub mod XXX` statements combining to load all Rust files generated.  This can allow
+    /// for a shortcut where multiple related proto files have been compiled together resulting in
+    /// a semi-complex set of includes.
+    ///
+    /// Turning a need for:
+    ///
+    /// ```rust,no_run,ignore
+    /// pub mod Foo {
+    ///     pub mod Bar {
+    ///         include!(concat!(env!("OUT_DIR"), "/foo.bar.rs"));
+    ///     }
+    ///     pub mod Baz {
+    ///         include!(concat!(env!("OUT_DIR"), "/foo.baz.rs"));
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Into the simpler:
+    ///
+    /// ```rust,no_run,ignore
+    /// include!(concat!(env!("OUT_DIR"), "/_includes.rs"));
+    /// ```
+    pub fn include_file<P>(&mut self, path: P) -> &mut Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.include_file = Some(path.into());
+        self
+    }
+
     /// Compile `.proto` files into Rust files during a Cargo build with additional code generator
     /// configuration options.
     ///
     /// This method is like the `prost_build::compile_protos` function, with the added ability to
     /// specify non-default code generation options. See that function for more information about
     /// the arguments and generated outputs.
+    ///
+    /// The `protos` and `includes` arguments are ignored if `skip_protoc_run` is specified.
     ///
     /// # Example `build.rs`
     ///
@@ -651,16 +764,21 @@ impl Config {
     ///   Ok(())
     /// }
     /// ```
-    pub fn compile_protos<P>(&mut self, protos: &[P], includes: &[P]) -> Result<()>
-    where
-        P: AsRef<Path>,
-    {
+    pub fn compile_protos(
+        &mut self,
+        protos: &[impl AsRef<Path>],
+        includes: &[impl AsRef<Path>],
+    ) -> Result<()> {
+        let mut target_is_env = false;
         let target: PathBuf = self.out_dir.clone().map(Ok).unwrap_or_else(|| {
             env::var_os("OUT_DIR")
                 .ok_or_else(|| {
                     Error::new(ErrorKind::Other, "OUT_DIR environment variable is not set")
                 })
-                .map(Into::into)
+                .map(|val| {
+                    target_is_env = true;
+                    Into::into(val)
+                })
         })?;
 
         // TODO: This should probably emit 'rerun-if-changed=PATH' directives for cargo, however
@@ -670,48 +788,55 @@ impl Config {
         // [1]: http://doc.crates.io/build-script.html#outputs-of-the-build-script
 
         let tmp;
-        let file_descriptor_set_path = match self.file_descriptor_set_path.clone() {
-            Some(file_descriptor_set_path) => file_descriptor_set_path,
-            None => {
-                tmp = tempfile::Builder::new().prefix("prost-build").tempdir()?;
-                tmp.path().join("prost-descriptor-set")
+        let file_descriptor_set_path = if let Some(path) = &self.file_descriptor_set_path {
+            path.clone()
+        } else {
+            if self.skip_protoc_run {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "file_descriptor_set_path is required with skip_protoc_run",
+                ));
             }
+            tmp = tempfile::Builder::new().prefix("prost-build").tempdir()?;
+            tmp.path().join("prost-descriptor-set")
         };
 
-        let mut cmd = Command::new(protoc());
-        cmd.arg("--include_imports")
-            .arg("--include_source_info")
-            .arg("-o")
-            .arg(&file_descriptor_set_path);
+        if !self.skip_protoc_run {
+            let mut cmd = Command::new(protoc());
+            cmd.arg("--include_imports")
+                .arg("--include_source_info")
+                .arg("-o")
+                .arg(&file_descriptor_set_path);
 
-        for include in includes {
-            cmd.arg("-I").arg(include.as_ref());
-        }
+            for include in includes {
+                cmd.arg("-I").arg(include.as_ref());
+            }
 
-        // Set the protoc include after the user includes in case the user wants to
-        // override one of the built-in .protos.
-        cmd.arg("-I").arg(protoc_include());
+            // Set the protoc include after the user includes in case the user wants to
+            // override one of the built-in .protos.
+            cmd.arg("-I").arg(protoc_include());
 
-        for arg in &self.protoc_args {
-            cmd.arg(arg);
-        }
+            for arg in &self.protoc_args {
+                cmd.arg(arg);
+            }
 
-        for proto in protos {
-            cmd.arg(proto.as_ref());
-        }
+            for proto in protos {
+                cmd.arg(proto.as_ref());
+            }
 
-        let output = cmd.output().map_err(|error| {
+            let output = cmd.output().map_err(|error| {
             Error::new(
                 error.kind(),
                 format!("failed to invoke protoc (hint: https://docs.rs/prost-build/#sourcing-protoc): {}", error),
             )
         })?;
 
-        if !output.status.success() {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!("protoc failed: {}", String::from_utf8_lossy(&output.stderr)),
-            ));
+            if !output.status.success() {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    format!("protoc failed: {}", String::from_utf8_lossy(&output.stderr)),
+                ));
+            }
         }
 
         let buf = fs::read(file_descriptor_set_path)?;
@@ -723,8 +848,13 @@ impl Config {
         })?;
 
         let modules = self.generate(file_descriptor_set.file)?;
-        for (module, content) in modules {
-            let mut filename = module.join(".");
+        for (module, content) in &modules {
+            let mut filename = if module.is_empty() {
+                self.default_package_filename.clone()
+            } else {
+                module.join(".")
+            };
+
             filename.push_str(".rs");
 
             let output_path = target.join(&filename);
@@ -742,7 +872,81 @@ impl Config {
             }
         }
 
+        if let Some(ref include_file) = self.include_file {
+            trace!("Writing include file: {:?}", target.join(include_file));
+            let mut file = fs::File::create(target.join(include_file))?;
+            self.write_includes(
+                modules.keys().collect(),
+                &mut file,
+                0,
+                if target_is_env { None } else { Some(&target) },
+            )?;
+            file.flush()?;
+        }
+
         Ok(())
+    }
+
+    fn write_includes(
+        &self,
+        mut entries: Vec<&Module>,
+        outfile: &mut fs::File,
+        depth: usize,
+        basepath: Option<&PathBuf>,
+    ) -> Result<usize> {
+        let mut written = 0;
+        while !entries.is_empty() {
+            let modident = &entries[0][depth];
+            let matching: Vec<&Module> = entries
+                .iter()
+                .filter(|&v| &v[depth] == modident)
+                .copied()
+                .collect();
+            {
+                // Will NLL sort this mess out?
+                let _temp = entries
+                    .drain(..)
+                    .filter(|&v| &v[depth] != modident)
+                    .collect();
+                entries = _temp;
+            }
+            self.write_line(outfile, depth, &format!("pub mod {} {{", modident))?;
+            let subwritten = self.write_includes(
+                matching
+                    .iter()
+                    .filter(|v| v.len() > depth + 1)
+                    .copied()
+                    .collect(),
+                outfile,
+                depth + 1,
+                basepath,
+            )?;
+            written += subwritten;
+            if subwritten != matching.len() {
+                let modname = matching[0][..=depth].join(".");
+                if let Some(_) = basepath {
+                    self.write_line(
+                        outfile,
+                        depth + 1,
+                        &format!("include!(\"{}.rs\");", modname),
+                    )?;
+                } else {
+                    self.write_line(
+                        outfile,
+                        depth + 1,
+                        &format!("include!(concat!(env!(\"OUT_DIR\"), \"/{}.rs\"));", modname),
+                    )?;
+                }
+                written += 1;
+            }
+
+            self.write_line(outfile, depth, "}")?;
+        }
+        Ok(written)
+    }
+
+    fn write_line(&self, outfile: &mut fs::File, depth: usize, line: &str) -> Result<()> {
+        outfile.write_all(format!("{}{}\n", ("    ").to_owned().repeat(depth), line).as_bytes())
     }
 
     fn generate(&mut self, files: Vec<FileDescriptorProto>) -> Result<HashMap<Module, String>> {
@@ -790,16 +994,19 @@ impl default::Default for Config {
         Config {
             file_descriptor_set_path: None,
             service_generator: None,
-            btree_map: Vec::new(),
-            bytes: Vec::new(),
-            type_attributes: Vec::new(),
-            field_attributes: Vec::new(),
+            map_type: PathMap::default(),
+            bytes_type: PathMap::default(),
+            type_attributes: PathMap::default(),
+            field_attributes: PathMap::default(),
             prost_types: true,
             strip_enum_prefix: true,
             out_dir: None,
             extern_paths: Vec::new(),
+            default_package_filename: "_".to_string(),
             protoc_args: Vec::new(),
-            disable_comments: Vec::new(),
+            disable_comments: PathMap::default(),
+            skip_protoc_run: false,
+            include_file: None,
         }
     }
 }
@@ -807,13 +1014,19 @@ impl default::Default for Config {
 impl fmt::Debug for Config {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("Config")
-            .field("btree_map", &self.btree_map)
+            .field("file_descriptor_set_path", &self.file_descriptor_set_path)
+            .field("service_generator", &self.service_generator.is_some())
+            .field("map_type", &self.map_type)
+            .field("bytes_type", &self.bytes_type)
             .field("type_attributes", &self.type_attributes)
             .field("field_attributes", &self.field_attributes)
             .field("prost_types", &self.prost_types)
             .field("strip_enum_prefix", &self.strip_enum_prefix)
             .field("out_dir", &self.out_dir)
             .field("extern_paths", &self.extern_paths)
+            .field("default_package_filename", &self.default_package_filename)
+            .field("protoc_args", &self.protoc_args)
+            .field("disable_comments", &self.disable_comments)
             .finish()
     }
 }
@@ -860,10 +1073,7 @@ impl fmt::Debug for Config {
 /// [2]: http://doc.crates.io/build-script.html#case-study-code-generation
 /// [3]: https://developers.google.com/protocol-buffers/docs/proto3#importing-definitions
 /// [4]: https://developers.google.com/protocol-buffers/docs/proto#packages
-pub fn compile_protos<P>(protos: &[P], includes: &[P]) -> Result<()>
-where
-    P: AsRef<Path>,
-{
+pub fn compile_protos(protos: &[impl AsRef<Path>], includes: &[impl AsRef<Path>]) -> Result<()> {
     Config::new().compile_protos(protos, includes)
 }
 
@@ -970,6 +1180,7 @@ mod tests {
 
         Config::new()
             .service_generator(Box::new(gen))
+            .include_file("_protos.rs")
             .compile_protos(&["src/hello.proto", "src/goodbye.proto"], &["src"])
             .unwrap();
 

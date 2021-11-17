@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "crypto-mac"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["RustCrypto Developers"]
 description = "Trait for Message Authentication Code (MAC) algorithms"
 documentation = "https://docs.rs/crypto-mac"
@@ -37,7 +37,7 @@ optional = true
 version = "0.14"
 
 [dependencies.subtle]
-version = "2"
+version = "=2.4"
 default-features = false
 
 [features]

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "cpufeatures"
-version = "0.1.5"
+version = "0.2.1"
 authors = ["RustCrypto Developers"]
 description = "Lightweight and efficient no-std compatible alternative to the\nis_x86_feature_detected! macro\n"
 documentation = "https://docs.rs/cpufeatures"
@@ -23,6 +23,6 @@ categories = ["no-std"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/RustCrypto/utils"
 [target.aarch64-apple-darwin.dependencies.libc]
-version = "0.2.95"
+version = "0.2.101"
 [target."cfg(all(target_arch = \"aarch64\", target_os = \"linux\"))".dependencies.libc]
-version = "0.2.95"
+version = "0.2.101"

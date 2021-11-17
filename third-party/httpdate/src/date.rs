@@ -1,7 +1,6 @@
 use std::cmp;
 use std::fmt::{self, Display, Formatter};
-use std::num::ParseIntError;
-use std::str::{from_utf8_unchecked, FromStr};
+use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::Error;
@@ -189,6 +188,7 @@ impl Display for HttpDate {
             7 => b"Sun",
             _ => unreachable!(),
         };
+
         let mon = match self.mon {
             1 => b"Jan",
             2 => b"Feb",
@@ -204,12 +204,8 @@ impl Display for HttpDate {
             12 => b"Dec",
             _ => unreachable!(),
         };
-        let mut buf: [u8; 29] = [
-            // Too long to write as: b"Thu, 01 Jan 1970 00:00:00 GMT"
-            b' ', b' ', b' ', b',', b' ', b'0', b'0', b' ', b' ', b' ', b' ', b' ', b'0', b'0',
-            b'0', b'0', b' ', b'0', b'0', b':', b'0', b'0', b':', b'0', b'0', b' ', b'G', b'M',
-            b'T',
-        ];
+
+        let mut buf: [u8; 29] = *b"   , 00     0000 00:00:00 GMT";
         buf[0] = wday[0];
         buf[1] = wday[1];
         buf[2] = wday[2];
@@ -228,7 +224,7 @@ impl Display for HttpDate {
         buf[21] = b'0' + (self.min % 10) as u8;
         buf[23] = b'0' + (self.sec / 10) as u8;
         buf[24] = b'0' + (self.sec % 10) as u8;
-        f.write_str(unsafe { from_utf8_unchecked(&buf[..]) })
+        f.write_str(std::str::from_utf8(&buf[..]).unwrap())
     }
 }
 
@@ -244,27 +240,50 @@ impl PartialOrd for HttpDate {
     }
 }
 
-/// Convert &[u8] to &str with zero checks.
-///
-/// For internal use only.
-/// Intended to be used with ASCII-only strings.
-fn conv(s: &[u8]) -> &str {
-    unsafe { from_utf8_unchecked(s) }
+fn toint_1(x: u8) -> Result<u8, Error> {
+    let result = x.wrapping_sub(b'0');
+    if result < 10 {
+        Ok(result)
+    } else {
+        Err(Error(()))
+    }
 }
 
-fn cvt_err(_: ParseIntError) -> Error {
-    Error(())
+fn toint_2(s: &[u8]) -> Result<u8, Error> {
+    let high = s[0].wrapping_sub(b'0');
+    let low = s[1].wrapping_sub(b'0');
+
+    if high < 10 && low < 10 {
+        Ok(high * 10 + low)
+    } else {
+        Err(Error(()))
+    }
 }
+
+#[allow(clippy::many_single_char_names)]
+fn toint_4(s: &[u8]) -> Result<u16, Error> {
+    let a = u16::from(s[0].wrapping_sub(b'0'));
+    let b = u16::from(s[1].wrapping_sub(b'0'));
+    let c = u16::from(s[2].wrapping_sub(b'0'));
+    let d = u16::from(s[3].wrapping_sub(b'0'));
+
+    if a < 10 && b < 10 && c < 10 && d < 10 {
+        Ok(a * 1000 + b * 100 + c * 10 + d)
+    } else {
+        Err(Error(()))
+    }
+}
+
 fn parse_imf_fixdate(s: &[u8]) -> Result<HttpDate, Error> {
     // Example: `Sun, 06 Nov 1994 08:49:37 GMT`
     if s.len() != 29 || &s[25..] != b" GMT" || s[16] != b' ' || s[19] != b':' || s[22] != b':' {
         return Err(Error(()));
     }
     Ok(HttpDate {
-        sec: conv(&s[23..25]).parse().map_err(cvt_err)?,
-        min: conv(&s[20..22]).parse().map_err(cvt_err)?,
-        hour: conv(&s[17..19]).parse().map_err(cvt_err)?,
-        day: conv(&s[5..7]).parse().map_err(cvt_err)?,
+        sec: toint_2(&s[23..25])?,
+        min: toint_2(&s[20..22])?,
+        hour: toint_2(&s[17..19])?,
+        day: toint_2(&s[5..7])?,
         mon: match &s[7..12] {
             b" Jan " => 1,
             b" Feb " => 2,
@@ -280,7 +299,7 @@ fn parse_imf_fixdate(s: &[u8]) -> Result<HttpDate, Error> {
             b" Dec " => 12,
             _ => return Err(Error(())),
         },
-        year: conv(&s[12..16]).parse().map_err(cvt_err)?,
+        year: toint_4(&s[12..16])?,
         wday: match &s[..5] {
             b"Mon, " => 1,
             b"Tue, " => 2,
@@ -317,17 +336,17 @@ fn parse_rfc850_date(s: &[u8]) -> Result<HttpDate, Error> {
     if s.len() != 22 || s[12] != b':' || s[15] != b':' || &s[18..22] != b" GMT" {
         return Err(Error(()));
     }
-    let mut year = conv(&s[7..9]).parse::<u16>().map_err(cvt_err)?;
+    let mut year = u16::from(toint_2(&s[7..9])?);
     if year < 70 {
         year += 2000;
     } else {
         year += 1900;
     }
     Ok(HttpDate {
-        sec: conv(&s[16..18]).parse().map_err(cvt_err)?,
-        min: conv(&s[13..15]).parse().map_err(cvt_err)?,
-        hour: conv(&s[10..12]).parse().map_err(cvt_err)?,
-        day: conv(&s[0..2]).parse().map_err(cvt_err)?,
+        sec: toint_2(&s[16..18])?,
+        min: toint_2(&s[13..15])?,
+        hour: toint_2(&s[10..12])?,
+        day: toint_2(&s[0..2])?,
         mon: match &s[2..7] {
             b"-Jan-" => 1,
             b"-Feb-" => 2,
@@ -354,14 +373,18 @@ fn parse_asctime(s: &[u8]) -> Result<HttpDate, Error> {
         return Err(Error(()));
     }
     Ok(HttpDate {
-        sec: conv(&s[17..19]).parse().map_err(cvt_err)?,
-        min: conv(&s[14..16]).parse().map_err(cvt_err)?,
-        hour: conv(&s[11..13]).parse().map_err(cvt_err)?,
+        sec: toint_2(&s[17..19])?,
+        min: toint_2(&s[14..16])?,
+        hour: toint_2(&s[11..13])?,
         day: {
             let x = &s[8..10];
-            conv(if x[0] == b' ' { &x[1..2] } else { x })
-                .parse()
-                .map_err(cvt_err)?
+            {
+                if x[0] == b' ' {
+                    toint_1(x[1])
+                } else {
+                    toint_2(x)
+                }
+            }?
         },
         mon: match &s[4..8] {
             b"Jan " => 1,
@@ -378,7 +401,7 @@ fn parse_asctime(s: &[u8]) -> Result<HttpDate, Error> {
             b"Dec " => 12,
             _ => return Err(Error(())),
         },
-        year: conv(&s[20..24]).parse().map_err(cvt_err)?,
+        year: toint_4(&s[20..24])?,
         wday: match &s[0..4] {
             b"Mon " => 1,
             b"Tue " => 2,

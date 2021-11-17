@@ -1,5 +1,30 @@
 # Change Log
 
+## [4.1.5](https://github.com/sunng87/handlebars-rust/compare/4.1.4...4.1.5) - 2021-11-17
+
+* [Fixed] Single-quote string literal is supported, again [#475]
+
+## [4.1.4](https://github.com/sunng87/handlebars-rust/compare/4.1.3...4.1.4) - 2021-11-06
+
+* [Fixed] Corrected empty line stripping strategy [#473]
+
+## [4.1.3](https://github.com/sunng87/handlebars-rust/compare/4.1.2...4.1.3) - 2021-09-10
+
+* [Added] `@last` variable for `each` block with object [#466]
+* [Fixed] Missing whitespaces behind expression [#468]
+
+## [4.1.2](https://github.com/sunng87/handlebars-rust/compare/4.1.1...4.1.2) - 2021-08-11
+
+* [Added] Support for generic types in `handlebars_helper!`.
+* [Added] Getter and setter for rhai `Engine` from registry.
+* [Fixed] Improve doc for `dev_mode` that it has to be enabled before
+  adding templates.
+
+## [4.1.1](https://github.com/sunng87/handlebars-rust/compare/4.1.0...4.1.1) - 2021-07-31
+
+* [Changed] Update rhai to 1.0 [#455]
+* [Fixed] Empty line stripping for partial include statement, and other corner cases [#458]
+
 ## [4.1.0](https://github.com/sunng87/handlebars-rust/compare/4.0.1...4.1.0) - 2021-07-05
 
 * [Added] export `StringOutput` as requested in #442

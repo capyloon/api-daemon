@@ -5,7 +5,7 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "force-soft")] {
         mod soft;
         use soft::compress as compress_inner;
-    } else if #[cfg(all(feature = "asm", target_arch = "aarch64", target_os = "linux"))] {
+    } else if #[cfg(all(feature = "asm", target_arch = "aarch64"))] {
         mod soft;
         mod aarch64;
         use aarch64::compress as compress_inner;
@@ -15,9 +15,7 @@ cfg_if::cfg_if! {
         #[cfg(feature = "asm")]
         mod soft {
             pub(crate) fn compress(state: &mut [u32; 5], blocks: &[[u8; 64]]) {
-                for block in blocks {
-                    sha1_asm::compress(state, block);
-                }
+                sha1_asm::compress(state, blocks)
             }
         }
         mod x86;

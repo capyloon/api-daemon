@@ -5,7 +5,7 @@
 //! without losing their original structure.
 
 #![cfg_attr(value_bag_capture_const_type_id, feature(const_type_id))]
-#![doc(html_root_url = "https://docs.rs/value-bag/1.0.0-alpha.7")]
+#![doc(html_root_url = "https://docs.rs/value-bag/1.0.0-alpha.8")]
 #![no_std]
 
 #[cfg(any(feature = "std", test))]
@@ -353,6 +353,15 @@ pub struct ValueBag<'v> {
     inner: internal::Internal<'v>,
 }
 
+impl<'v> ValueBag<'v> {
+    /// Get a `ValueBag` from a reference to a `ValueBag`.
+    pub fn by_ref<'u>(&'u self) -> ValueBag<'u> {
+        ValueBag {
+            inner: self.inner,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,7 +370,7 @@ mod tests {
     #[test]
     fn value_bag_size() {
         let size = mem::size_of::<ValueBag<'_>>();
-        let limit = mem::size_of::<u64>() * 4;
+        let limit = mem::size_of::<u64>() * 6;
 
         if size > limit {
             panic!(

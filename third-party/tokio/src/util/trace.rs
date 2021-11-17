@@ -11,20 +11,31 @@ cfg_trace! {
             #[cfg(tokio_track_caller)]
             let span = tracing::trace_span!(
                 target: "tokio::task",
-                "task",
+                "runtime.spawn",
                 %kind,
-                spawn.location = %format_args!("{}:{}:{}", location.file(), location.line(), location.column()),
-                task.name = %name.unwrap_or_default()
+                task.name = %name.unwrap_or_default(),
+                loc.file = location.file(),
+                loc.line = location.line(),
+                loc.col = location.column(),
             );
             #[cfg(not(tokio_track_caller))]
             let span = tracing::trace_span!(
                 target: "tokio::task",
-                "task",
+                "runtime.spawn",
                 %kind,
-                task.name = %name.unwrap_or_default()
+                task.name = %name.unwrap_or_default(),
             );
             task.instrument(span)
         }
+    }
+}
+cfg_time! {
+    #[cfg_attr(tokio_track_caller, track_caller)]
+    pub(crate) fn caller_location() -> Option<&'static std::panic::Location<'static>> {
+        #[cfg(all(tokio_track_caller, tokio_unstable, feature = "tracing"))]
+        return Some(std::panic::Location::caller());
+        #[cfg(not(all(tokio_track_caller, tokio_unstable, feature = "tracing")))]
+        None
     }
 }
 

@@ -5,7 +5,6 @@ use alloc::vec::Vec;
 use core::{fmt, result};
 
 use crate::common::*;
-use crate::ByteString;
 
 mod read_ref;
 pub use read_ref::*;
@@ -16,7 +15,7 @@ mod read_cache;
 pub use read_cache::*;
 
 mod util;
-pub use util::StringTable;
+pub use util::*;
 
 #[cfg(any(
     feature = "coff",
@@ -87,6 +86,12 @@ impl<T> ReadError<T> for result::Result<T, ()> {
     }
 }
 
+impl<T> ReadError<T> for result::Result<T, Error> {
+    fn read_error(self, error: &'static str) -> Result<T> {
+        self.map_err(|_| Error(error))
+    }
+}
+
 impl<T> ReadError<T> for Option<T> {
     fn read_error(self, error: &'static str) -> Result<T> {
         self.ok_or(Error(error))
@@ -131,7 +136,7 @@ pub type NativeFile<'data, R = &'data [u8]> = pe::PeFile64<'data, R>;
 #[cfg(all(feature = "wasm", target_arch = "wasm32", feature = "wasm"))]
 pub type NativeFile<'data, R = &'data [u8]> = wasm::WasmFile<'data, R>;
 
-/// An object file kind.
+/// A file format kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum FileKind {
@@ -235,6 +240,22 @@ impl FileKind {
         };
         Ok(kind)
     }
+}
+
+/// An object kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ObjectKind {
+    /// The object kind is unknown.
+    Unknown,
+    /// Relocatable object.
+    Relocatable,
+    /// Executable.
+    Executable,
+    /// Dynamic shared object.
+    Dynamic,
+    /// Core.
+    Core,
 }
 
 /// The index used to identify a section of a file.
@@ -433,9 +454,9 @@ impl<'data> SymbolMapEntry for ObjectMapEntry<'data> {
 /// An imported symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Import<'data> {
+    library: ByteString<'data>,
     // TODO: or ordinal
     name: ByteString<'data>,
-    library: ByteString<'data>,
 }
 
 impl<'data> Import<'data> {

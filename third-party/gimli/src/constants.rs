@@ -7,7 +7,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     https://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -81,14 +81,48 @@ macro_rules! dw {
                 if let Some(s) = self.static_string() {
                     f.pad(s)
                 } else {
-                    f.pad(&format!("Unknown {}: {}",
-                                   stringify!($struct_name),
-                                   self.0))
+                    #[cfg(feature = "read")]
+                    {
+                        f.pad(&format!("Unknown {}: {}", stringify!($struct_name), self.0))
+                    }
+                    #[cfg(not(feature = "read"))]
+                    {
+                        write!(f, "Unknown {}: {}", stringify!($struct_name), self.0)
+                    }
                 }
             }
         }
     };
 }
+
+dw!(
+/// The section type field in a `.dwp` unit index.
+///
+/// This is used for version 5 and later.
+///
+/// See Section 7.3.5.
+DwSect(u32) {
+    DW_SECT_INFO = 1,
+    DW_SECT_ABBREV = 3,
+    DW_SECT_LINE = 4,
+    DW_SECT_LOCLISTS = 5,
+    DW_SECT_STR_OFFSETS = 6,
+    DW_SECT_MACRO = 7,
+    DW_SECT_RNGLISTS = 8,
+});
+
+dw!(
+/// The section type field in a `.dwp` unit index with version 2.
+DwSectV2(u32) {
+    DW_SECT_V2_INFO = 1,
+    DW_SECT_V2_TYPES = 2,
+    DW_SECT_V2_ABBREV = 3,
+    DW_SECT_V2_LINE = 4,
+    DW_SECT_V2_LOC = 5,
+    DW_SECT_V2_STR_OFFSETS = 6,
+    DW_SECT_V2_MACINFO = 7,
+    DW_SECT_V2_MACRO = 8,
+});
 
 dw!(
 /// The unit type field in a unit header.
@@ -822,6 +856,15 @@ DwLang(u16) {
     DW_LANG_Fortran08 = 0x0023,
     DW_LANG_RenderScript = 0x0024,
     DW_LANG_BLISS = 0x0025,
+    DW_LANG_Kotlin = 0x0026,
+    DW_LANG_Zig = 0x0027,
+    DW_LANG_Crystal = 0x0028,
+    DW_LANG_C_plus_plus_17 = 0x002a,
+    DW_LANG_C_plus_plus_20 = 0x002b,
+    DW_LANG_C17 = 0x002c,
+    DW_LANG_Fortran18 = 0x002d,
+    DW_LANG_Ada2005 = 0x002e,
+    DW_LANG_Ada2012 = 0x002f,
 
     DW_LANG_lo_user = 0x8000,
     DW_LANG_hi_user = 0xffff,
@@ -1233,7 +1276,7 @@ dw!(
 /// format of the pointer, the upper four bits describe how the encoding should
 /// be applied.
 ///
-/// Defined in http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/dwarfext.html
+/// Defined in https://refspecs.linuxfoundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/dwarfext.html
 DwEhPe(u8) {
 // Format of pointer encoding.
 

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "security-framework-sys"
-version = "2.3.0"
+version = "2.4.2"
 authors = ["Steven Fackler <sfackler@gmail.com>", "Kornel <kornel@geekhood.net>"]
 description = "Apple `Security.framework` low-level FFI bindings"
 homepage = "https://lib.rs/crates/security-framework-sys"
@@ -29,7 +29,7 @@ targets = ["x86_64-apple-darwin", "aarch64-apple-ios"]
 version = "0.8.2"
 
 [dependencies.libc]
-version = "0.2.95"
+version = "0.2.100"
 
 [features]
 OSX_10_10 = ["OSX_10_9"]

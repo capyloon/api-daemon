@@ -1,10 +1,10 @@
 # blocking
 
-[![Build](https://github.com/stjepang/blocking/workflows/Build%20and%20test/badge.svg)](
-https://github.com/stjepang/blocking/actions)
+[![Build](https://github.com/smol-rs/blocking/workflows/Build%20and%20test/badge.svg)](
+https://github.com/smol-rs/blocking/actions)
 ![Rustc version](https://img.shields.io/badge/rustc-1.40+-lightgray.svg)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](
-https://github.com/stjepang/blocking)
+[![License](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](
+https://github.com/smol-rs/blocking)
 [![Cargo](https://img.shields.io/crates/v/blocking.svg)](
 https://crates.io/crates/blocking)
 [![Documentation](https://docs.rs/blocking/badge.svg)](
@@ -23,6 +23,8 @@ current number of running I/O jobs.
 Note that there is a limit on the number of active threads. Once that limit is hit, a running
 job has to finish before others get a chance to run. When a thread is idle, it waits for the
 next job or shuts down after a certain timeout.
+
+The default number of threads (set to 500) can be altered by setting BLOCKING_MAX_THREADS environment variable with value between 1 and 10000.
 
 [IOCP]: https://en.wikipedia.org/wiki/Input/output_completion_port
 [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html

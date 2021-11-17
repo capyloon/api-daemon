@@ -3,18 +3,21 @@
 use core_foundation::array::{CFArray, CFArrayIterator};
 use core_foundation::base::TCFType;
 use core_foundation::base::ToVoid;
+use core_foundation::data::CFData;
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::error::CFError;
 use core_foundation::string::CFString;
 use security_framework_sys::certificate::*;
 use std::os::raw::c_void;
 use std::ptr;
+use std::convert::TryInto;
 
 use crate::base::Error;
 use crate::certificate::SecCertificate;
 use crate::cvt;
 use crate::key::SecKey;
 use crate::os::macos::certificate_oids::CertificateOid;
+use crate::os::macos::digest_transform::{Builder, DigestType};
 
 /// An extension trait adding OSX specific functionality to `SecCertificate`.
 pub trait SecCertificateExt {
@@ -22,6 +25,7 @@ pub trait SecCertificateExt {
     fn common_name(&self) -> Result<String, Error>;
 
     /// Returns the public key associated with the certificate.
+    #[cfg_attr(not(feature = "OSX_10_14"), deprecated(note = "Uses deprecated SecCertificateCopyPublicKey. Enable OSX_10_14 feature to avoid it"))]
     fn public_key(&self) -> Result<SecKey, Error>;
 
     /// Returns the set of properties associated with the certificate.
@@ -30,6 +34,9 @@ pub trait SecCertificateExt {
     /// subset.
     fn properties(&self, keys: Option<&[CertificateOid]>)
         -> Result<CertificateProperties, CFError>;
+
+    /// Returns the SHA-256 fingerprint of the certificate.
+    fn fingerprint(&self) -> Result<[u8; 32], CFError> { unimplemented!() }
 }
 
 impl SecCertificateExt for SecCertificate {
@@ -44,7 +51,20 @@ impl SecCertificateExt for SecCertificate {
         }
     }
 
+    #[cfg(feature = "OSX_10_14")]
     fn public_key(&self) -> Result<SecKey, Error> {
+        unsafe {
+            let key = SecCertificateCopyKey(self.as_concrete_TypeRef());
+            if key.is_null() {
+                return Err(Error::from_code(-26275));
+            }
+            Ok(SecKey::wrap_under_create_rule(key))
+        }
+    }
+
+    #[cfg(not(feature = "OSX_10_14"))]
+    fn public_key(&self) -> Result<SecKey, Error> {
+        #[allow(deprecated)]
         unsafe {
             let mut key = ptr::null_mut();
             cvt(SecCertificateCopyPublicKey(
@@ -82,6 +102,16 @@ impl SecCertificateExt for SecCertificate {
                 Err(CFError::wrap_under_create_rule(error))
             }
         }
+    }
+
+    /// Returns the SHA-256 fingerprint of the certificate.
+    fn fingerprint(&self) -> Result<[u8; 32], CFError> {
+        let data = CFData::from_buffer(&self.to_der());
+        let hash = Builder::new()
+            .type_(DigestType::sha2())
+            .length(256)
+            .execute(&data)?;
+        Ok(hash.bytes().try_into().unwrap())
     }
 }
 
@@ -159,6 +189,7 @@ pub struct PropertySectionIter<'a>(CFArrayIterator<'a, CFDictionary>);
 impl<'a> Iterator for PropertySectionIter<'a> {
     type Item = CertificateProperty;
 
+    #[inline]
     fn next(&mut self) -> Option<CertificateProperty> {
         self.0.next().map(|t| CertificateProperty(t.clone()))
     }
@@ -193,9 +224,20 @@ mod test {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn public_key() {
         let certificate = certificate();
         p!(certificate.public_key());
+    }
+
+    #[test]
+    fn fingerprint() {
+        let certificate = certificate();
+        let fingerprint = p!(certificate.fingerprint());
+        assert_eq!(
+            "af9dd180a326ae08b37e6398f9262f8b9d4c55674a233a7c84975024f873655d",
+            hex::encode(fingerprint)
+        );
     }
 
     #[test]

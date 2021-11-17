@@ -6,6 +6,7 @@ use std::mem::MaybeUninit;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tracing::{debug, trace};
 
 use super::{Http1Transaction, ParseContext, ParsedMessage};
 use crate::common::buf::BufList;
@@ -96,12 +97,18 @@ where
         self.read_buf_strategy = ReadStrategy::Exact(sz);
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn set_write_strategy_flatten(&mut self) {
         // this should always be called only at construction time,
         // so this assert is here to catch myself
         debug_assert!(self.write_buf.queue.bufs_cnt() == 0);
         self.write_buf.set_strategy(WriteStrategy::Flatten);
+    }
+
+    pub(crate) fn set_write_strategy_queue(&mut self) {
+        // this should always be called only at construction time,
+        // so this assert is here to catch myself
+        debug_assert!(self.write_buf.queue.bufs_cnt() == 0);
+        self.write_buf.set_strategy(WriteStrategy::Queue);
     }
 
     pub(crate) fn read_buf(&self) -> &[u8] {
@@ -118,6 +125,15 @@ where
     /// that could be allocated in the future.
     fn read_buf_remaining_mut(&self) -> usize {
         self.read_buf.capacity() - self.read_buf.len()
+    }
+
+    /// Return whether we can append to the headers buffer.
+    ///
+    /// Reasons we can't:
+    /// - The write buf is in queue mode, and some of the past body is still
+    ///   needing to be flushed.
+    pub(crate) fn can_headers_buf(&self) -> bool {
+        !self.write_buf.queue.has_remaining()
     }
 
     pub(crate) fn headers_buf(&mut self) -> &mut Vec<u8> {
@@ -168,6 +184,8 @@ where
                     preserve_header_case: parse_ctx.preserve_header_case,
                     h09_responses: parse_ctx.h09_responses,
                     #[cfg(feature = "ffi")]
+                    on_informational: parse_ctx.on_informational,
+                    #[cfg(feature = "ffi")]
                     raw_headers: parse_ctx.raw_headers,
                 },
             )? {
@@ -206,6 +224,7 @@ where
         match Pin::new(&mut self.io).poll_read(cx, &mut buf) {
             Poll::Ready(Ok(_)) => {
                 let n = buf.filled().len();
+                trace!("received {} bytes", n);
                 unsafe {
                     // Safety: we just read that many bytes into the
                     // uninitialized part of the buffer, so this is okay.
@@ -502,7 +521,6 @@ impl<B> WriteBuf<B>
 where
     B: Buf,
 {
-    #[cfg(feature = "server")]
     fn set_strategy(&mut self, strategy: WriteStrategy) {
         self.strategy = strategy;
     }
@@ -677,6 +695,8 @@ mod tests {
                 h1_parser_config: Default::default(),
                 preserve_header_case: false,
                 h09_responses: false,
+                #[cfg(feature = "ffi")]
+                on_informational: &mut None,
                 #[cfg(feature = "ffi")]
                 raw_headers: false,
             };

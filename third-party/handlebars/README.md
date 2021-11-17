@@ -8,8 +8,8 @@ Handlebars-rust is the template engine that renders the official Rust website
 [rust-lang.org](https://www.rust-lang.org), [its
 book](https://doc.rust-lang.org/book/).
 
-[![Build Status](https://travis-ci.org/sunng87/handlebars-rust.svg?branch=master)](https://travis-ci.org/sunng87/handlebars-rust)
-[![](https://meritbadge.herokuapp.com/handlebars)](https://crates.io/crates/handlebars)
+[![CI](https://github.com/sunng87/handlebars-rust/actions/workflows/main.yml/badge.svg)](https://github.com/sunng87/handlebars-rust/actions/workflows/main.yml)
+[![](https://img.shields.io/crates/v/handlebars)](https://crates.io/crates/handlebars)
 [![](https://img.shields.io/crates/d/handlebars.svg)](https://crates.io/crates/handlebars)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Docs](https://docs.rs/handlebars/badge.svg)](https://docs.rs/crate/handlebars/)
@@ -133,7 +133,7 @@ And using it in your template:
 {{hex 16}}
 ```
 
-By default, handlebars-rust ships [additional helpers](https://github.com/sunng87/handlebars-rust/blob/master/src/helpers/helper_boolean.rs#L5)
+By default, handlebars-rust ships [additional helpers](https://github.com/sunng87/handlebars-rust/blob/master/src/helpers/helper_extras.rs#L6)
 (compared with original js version)
 that is useful when working with `if`.
 
@@ -146,7 +146,7 @@ moment, and can change in future.
 
 Every time I look into a templating system, I will investigate its
 support for [template
-inheritance](https://docs.djangoproject.com/en/1.9/ref/templates/language/#template-inheritance).
+inheritance](https://docs.djangoproject.com/en/3.2/ref/templates/language/#template-inheritance).
 
 Template include is not sufficient for template reuse. In most cases
 you will need a skeleton of page as parent (header, footer, etc.), and

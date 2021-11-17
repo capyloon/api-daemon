@@ -12,8 +12,9 @@ pub(crate) use worker::Launch;
 pub(crate) use worker::block_in_place;
 
 use crate::loom::sync::Arc;
-use crate::runtime::task::{self, JoinHandle};
-use crate::runtime::Parker;
+use crate::runtime::stats::RuntimeStats;
+use crate::runtime::task::JoinHandle;
+use crate::runtime::{Callback, Parker};
 
 use std::fmt;
 use std::future::Future;
@@ -23,14 +24,14 @@ pub(crate) struct ThreadPool {
     spawner: Spawner,
 }
 
-/// Submit futures to the associated thread pool for execution.
+/// Submits futures to the associated thread pool for execution.
 ///
 /// A `Spawner` instance is a handle to a single thread pool that allows the owner
 /// of the handle to spawn futures onto the thread pool.
 ///
 /// The `Spawner` handle is *only* used for spawning new futures. It does not
 /// impact the lifecycle of the thread pool in any way. The thread pool may
-/// shutdown while there are outstanding `Spawner` instances.
+/// shut down while there are outstanding `Spawner` instances.
 ///
 /// `Spawner` instances are obtained by calling [`ThreadPool::spawner`].
 ///
@@ -43,8 +44,13 @@ pub(crate) struct Spawner {
 // ===== impl ThreadPool =====
 
 impl ThreadPool {
-    pub(crate) fn new(size: usize, parker: Parker) -> (ThreadPool, Launch) {
-        let (shared, launch) = worker::create(size, parker);
+    pub(crate) fn new(
+        size: usize,
+        parker: Parker,
+        before_park: Option<Callback>,
+        after_unpark: Option<Callback>,
+    ) -> (ThreadPool, Launch) {
+        let (shared, launch) = worker::create(size, parker, before_park, after_unpark);
         let spawner = Spawner { shared };
         let thread_pool = ThreadPool { spawner };
 
@@ -93,19 +99,15 @@ impl Spawner {
         F: crate::future::Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let (task, handle) = task::joinable(future);
-
-        if let Err(task) = self.shared.schedule(task, false) {
-            // The newly spawned task could not be scheduled because the runtime
-            // is shutting down. The task must be explicitly shutdown at this point.
-            task.shutdown();
-        }
-
-        handle
+        worker::Shared::bind_new_task(&self.shared, future)
     }
 
     pub(crate) fn shutdown(&mut self) {
         self.shared.close();
+    }
+
+    pub(crate) fn stats(&self) -> &RuntimeStats {
+        self.shared.stats()
     }
 }
 

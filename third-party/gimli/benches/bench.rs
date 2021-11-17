@@ -6,7 +6,7 @@ use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
     DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
     DebugRngLists, Encoding, EndianSlice, EntriesTreeNode, Expression, LittleEndian, LocationLists,
-    Operation, RangeLists, Reader, ReaderOffset,
+    Operation, RangeLists, RangeListsOffset, Reader, ReaderOffset,
 };
 use std::env;
 use std::fs::File;
@@ -384,7 +384,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let gimli::AttributeValue::RangeListsRef(offset) = attr.value() {
-                    offsets.push((offset, unit.encoding(), low_pc));
+                    offsets.push((RangeListsOffset(offset.0), unit.encoding(), low_pc));
                 }
             }
         }
@@ -579,8 +579,8 @@ mod cfi {
     use fallible_iterator::FallibleIterator;
 
     use gimli::{
-        BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian,
-        UninitializedUnwindContext, UnwindSection,
+        BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian, UnwindContext,
+        UnwindSection,
     };
 
     #[bench]
@@ -677,7 +677,7 @@ mod cfi {
             .set_got(0)
             .set_text(0);
 
-        let mut ctx = UninitializedUnwindContext::new();
+        let mut ctx = Box::new(UnwindContext::new());
 
         b.iter(|| {
             let mut entries = eh_frame.entries(&bases);
@@ -773,7 +773,7 @@ mod cfi {
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame, &bases);
 
         b.iter(|| {
-            let mut ctx = UninitializedUnwindContext::new();
+            let mut ctx = Box::new(UnwindContext::new());
             let mut table = fde
                 .rows(&eh_frame, &bases, &mut ctx)
                 .expect("Should initialize the ctx OK");
@@ -793,7 +793,7 @@ mod cfi {
             .set_text(0);
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame, &bases);
 
-        let mut ctx = UninitializedUnwindContext::new();
+        let mut ctx = Box::new(UnwindContext::new());
 
         b.iter(|| {
             let mut table = fde

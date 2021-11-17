@@ -1,3 +1,25 @@
+# 0.3.7 (October 22, 2021)
+
+* Fix panic if server sends a malformed frame on a stream client was about to open.
+* Fix server to treat `:status` in a request as a stream error instead of connection error.
+
+# 0.3.6 (September 30, 2021)
+
+* Fix regression of `h2::Error` that were created via `From<h2::Reason>` not returning their reason code in `Error::reason()`.
+
+# 0.3.5 (September 29, 2021)
+
+* Fix sending of very large headers. Previously when a single header was too big to fit in a single `HEADERS` frame, an error was returned. Now it is broken up and sent correctly.
+* Fix buffered data field to be a bigger integer size.
+* Refactor error format to include what initiated the error (remote, local, or user), if it was a stream or connection-level error, and any received debug data.
+
+# 0.3.4 (August 20, 2021)
+
+* Fix panic when encoding header size update over a certain size.
+* Fix `SendRequest` to wake up connection when dropped.
+* Fix potential hang if `RecvStream` is placed in the request or response `extensions`.
+* Stop calling `Instant::now` if zero reset streams are configured.
+
 # 0.3.3 (April 29, 2021)
 
 * Fix client being able to make `CONNECT` requests without a `:path`.

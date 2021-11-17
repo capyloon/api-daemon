@@ -1,11 +1,10 @@
 //! AES encryption support
 
-use super::vst1q_u8;
 use crate::{Block, ParBlocks};
 use core::arch::aarch64::*;
 
 /// Perform AES encryption using the given expanded keys.
-#[target_feature(enable = "crypto")]
+#[target_feature(enable = "aes")]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn encrypt<const N: usize>(expanded_keys: &[uint8x16_t; N], block: &mut Block) {
     let rounds = N - 1;
@@ -31,7 +30,7 @@ pub(super) unsafe fn encrypt<const N: usize>(expanded_keys: &[uint8x16_t; N], bl
 }
 
 /// Perform parallel AES encryption 8-blocks-at-a-time using the given expanded keys.
-#[target_feature(enable = "crypto")]
+#[target_feature(enable = "aes")]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn encrypt8<const N: usize>(
     expanded_keys: &[uint8x16_t; N],

@@ -6,31 +6,45 @@ In the future when `min_specialization` is stabilized we could use it instead an
 the `'static` bound altogether.
 */
 
+#[cfg(feature = "std")]
+use crate::std::string::String;
+
 use crate::internal::Primitive;
 
-pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
+pub(super) fn from_any<'v, T: ?Sized + 'static>(value: &'v T) -> Option<Primitive<'v>> {
     // When we're on `nightly`, we can use const type ids
     #[cfg(value_bag_capture_const_type_id)]
     {
         use crate::std::any::TypeId;
 
         macro_rules! to_primitive {
-            ($($ty:ty : ($const_ident:ident, $option_ident:ident),)*) => {
-                trait ToPrimitive
+            ($(
+                $(#[cfg($($cfg:tt)*)])*
+                $ty:ty : ($const_ident:ident, $option_ident:ident),
+            )*) => {
+                trait ToPrimitive<'a>
                 where
                     Self: 'static,
                 {
-                    const CALL: fn(&Self) -> Option<Primitive> = {
+                    const CALL: fn(&'_ &'a Self) -> Option<Primitive<'a>> = {
                         $(
+                            $(#[cfg($($cfg)*)])*
                             const $const_ident: TypeId = TypeId::of::<$ty>();
+
+                            $(#[cfg($($cfg)*)])*
                             const $option_ident: TypeId = TypeId::of::<Option<$ty>>();
                         )*
 
+                        const STR: TypeId = TypeId::of::<str>();
+
                         match TypeId::of::<Self>() {
                             $(
-                                $const_ident => |v| Some(Primitive::from(unsafe { *(v as *const Self as *const $ty) })),
+                                $(#[cfg($($cfg)*)])*
+                                $const_ident => |v| Some(Primitive::from(unsafe { &*(*v as *const Self as *const $ty) })),
+
+                                $(#[cfg($($cfg)*)])*
                                 $option_ident => |v| Some({
-                                    let v = unsafe { *(v as *const Self as *const Option<$ty>) };
+                                    let v = unsafe { &*(*v as *const Self as *const Option<$ty>) };
                                     match v {
                                         Some(v) => Primitive::from(v),
                                         None => Primitive::None,
@@ -38,16 +52,18 @@ pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
                                 }),
                             )*
 
+                            STR => |v| Some(Primitive::from(unsafe { &**(v as *const &'a Self as *const &'a str) })),
+
                             _ => |_| None,
                         }
                     };
 
-                    fn to_primitive(&self) -> Option<Primitive> {
-                        (Self::CALL)(self)
+                    fn to_primitive(&'a self) -> Option<Primitive<'a>> {
+                        (Self::CALL)(&self)
                     }
                 }
 
-                impl<T: ?Sized + 'static> ToPrimitive for T {}
+                impl<'a, T: ?Sized + 'static> ToPrimitive<'a> for T {}
             }
         }
 
@@ -72,14 +88,20 @@ pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
 
             char: (CHAR, OPTION_CHAR),
             bool: (BOOL, OPTION_BOOL),
-            &'static str: (STR, OPTION_STR),
+
+            &'static str: (STATIC_STR, OPTION_STATIC_STR),
+            // We deal with `str` separately because it's unsized
+            // str: (STR),
+            #[cfg(feature = "std")]
+            String: (STRING, OPTION_STRING),
         ];
 
         value.to_primitive()
     }
 
     // When we're not on `nightly`, use the ctor crate
-    #[cfg(value_bag_capture_ctor)]
+    // For `miri` though, we can't rely on `ctor` so use the fallback
+    #[cfg(all(value_bag_capture_ctor, not(miri)))]
     {
         #![allow(unused_unsafe)]
 
@@ -89,41 +111,6 @@ pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
             any::{Any, TypeId},
             cmp::Ordering,
         };
-
-        macro_rules! type_ids {
-            ($($ty:ty,)*) => {
-                [
-                    $(
-                        (
-                            std::any::TypeId::of::<$ty>(),
-                            (|value| unsafe {
-                                debug_assert_eq!(value.type_id(), std::any::TypeId::of::<$ty>());
-
-                                // SAFETY: We verify the value is $ty before casting
-                                let value = *(value as *const dyn std::any::Any as *const $ty);
-                                Primitive::from(value)
-                            }) as for<'a> fn(&'a (dyn std::any::Any + 'static)) -> Primitive<'a>
-                        ),
-                    )*
-                    $(
-                        (
-                            std::any::TypeId::of::<Option<$ty>>(),
-                            (|value| unsafe {
-                                debug_assert_eq!(value.type_id(), std::any::TypeId::of::<Option<$ty>>());
-
-                                // SAFETY: We verify the value is Option<$ty> before casting
-                                let value = *(value as *const dyn std::any::Any as *const Option<$ty>);
-                                if let Some(value) = value {
-                                    Primitive::from(value)
-                                } else {
-                                    Primitive::None
-                                }
-                            }) as for<'a> fn(&'a (dyn std::any::Any + 'static)) -> Primitive<'a>
-                        ),
-                    )*
-                ]
-            };
-        }
 
         // From: https://github.com/servo/rust-quicksort
         // We use this algorithm instead of the standard library's `sort_by` because it
@@ -203,11 +190,65 @@ pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
             quicksort_helper(arr, 0, (len - 1) as isize, &compare);
         }
 
+        enum Void {}
+
+        #[repr(transparent)]
+        struct VoidRef<'a>(*const &'a Void);
+
+        macro_rules! type_ids {
+            ($(
+                $(#[cfg($($cfg:tt)*)])*
+                $ty:ty,
+            )*) => {
+                [
+                    (
+                        std::any::TypeId::of::<str>(),
+                        (|v| unsafe {
+                            // SAFETY: We verify the value is str before casting
+                            let v = *(v.0 as *const &'_ str);
+
+                            Primitive::from(v)
+                        }) as for<'a> fn(VoidRef<'a>) -> Primitive<'a>
+                    ),
+                    $(
+                        $(#[cfg($($cfg)*)])*
+                        (
+                            std::any::TypeId::of::<$ty>(),
+                            (|v| unsafe {
+                                // SAFETY: We verify the value is $ty before casting
+                                let v = *(v.0 as *const &'_ $ty);
+
+                                Primitive::from(v)
+                            }) as for<'a> fn(VoidRef<'a>) -> Primitive<'a>
+                        ),
+                    )*
+                    $(
+                        $(#[cfg($($cfg)*)])*
+                        (
+                            std::any::TypeId::of::<Option<$ty>>(),
+                            (|v| unsafe {
+                                // SAFETY: We verify the value is Option<$ty> before casting
+                                let v = *(v.0 as *const &'_ Option<$ty>);
+
+                                if let Some(v) = v {
+                                    Primitive::from(v)
+                                } else {
+                                    Primitive::None
+                                }
+                            }) as for<'a> fn(VoidRef<'a>) -> Primitive<'a>
+                        ),
+                    )*
+                ]
+            };
+        }
+
+        #[cfg(not(feature = "std"))]
+        const LEN: usize = 35;
+        #[cfg(feature = "std")]
+        const LEN: usize = 37;
+
         #[ctor]
-        static TYPE_IDS: [(
-            TypeId,
-            for<'a> fn(&'a (dyn std::any::Any + 'static)) -> Primitive<'a>,
-        ); 34] = {
+        static TYPE_IDS: [(TypeId, for<'a> fn(VoidRef<'a>) -> Primitive<'a>); LEN] = {
             // NOTE: The types here *must* match the ones used above when `const_type_id` is available
             let mut type_ids = type_ids![
                 usize,
@@ -227,6 +268,9 @@ pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
                 char,
                 bool,
                 &'static str,
+                // We deal with `str` separately because it's unsized
+                #[cfg(feature = "std")]
+                String,
             ];
 
             quicksort_by(&mut type_ids, |&(ref a, _), &(ref b, _)| a.cmp(b));
@@ -235,27 +279,57 @@ pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
         };
 
         if let Ok(i) = TYPE_IDS.binary_search_by_key(&value.type_id(), |&(k, _)| k) {
-            Some((TYPE_IDS[i].1)(value))
+            Some((TYPE_IDS[i].1)(VoidRef(
+                &(value) as *const &'v T as *const &'v Void,
+            )))
         } else {
             None
         }
     }
 
-    // When we're not on `nightly` and aren't on a supported arch, we can't do capturing
-    #[cfg(value_bag_capture_fallback)]
+    // NOTE: The casts for unsized values (str) are dubious here. To really do this properly
+    // we need https://github.com/rust-lang/rust/issues/81513
+    // When we're not on `nightly` and aren't on a supported arch, we can't do any
+    // work at compile time for capturing
+    #[cfg(any(all(value_bag_capture_ctor, miri), value_bag_capture_fallback))]
     {
+        use crate::std::any::TypeId;
+
+        enum Void {}
+
+        #[repr(transparent)]
+        struct VoidRef<'a>(*const &'a Void);
+
         macro_rules! type_ids {
-            ($($ty:ty,)*) => {
-                |value| {
+            ($(
+                $(#[cfg($($cfg:tt)*)])*
+                $ty:ty,
+            )*) => {
+                |v: VoidRef<'_>| {
+                    if TypeId::of::<T>() == TypeId::of::<str>() {
+                        // SAFETY: We verify the value is str before casting
+                        let v = unsafe { *(v.0 as *const &'_ str) };
+
+                        return Some(Primitive::from(v));
+                    }
+
                     $(
-                        if let Some(value) = (value as &dyn std::any::Any).downcast_ref::<$ty>() {
-                            return Some(Primitive::from(*value));
+                        $(#[cfg($($cfg)*)])*
+                        if TypeId::of::<T>() == TypeId::of::<$ty>() {
+                            // SAFETY: We verify the value is $ty before casting
+                            let v = unsafe { *(v.0 as *const &'_ $ty) };
+
+                            return Some(Primitive::from(v));
                         }
                     )*
                     $(
-                        if let Some(value) = (value as &dyn std::any::Any).downcast_ref::<Option<$ty>>() {
-                            if let Some(value) = value {
-                                return Some(Primitive::from(*value));
+                        $(#[cfg($($cfg)*)])*
+                        if TypeId::of::<T>() == TypeId::of::<Option<$ty>>() {
+                            // SAFETY: We verify the value is Option<$ty> before casting
+                            let v = unsafe { *(v.0 as *const &'_ Option<$ty>) };
+
+                            if let Some(v) = v {
+                                return Some(Primitive::from(v));
                             } else {
                                 return Some(Primitive::None);
                             }
@@ -285,8 +359,13 @@ pub(super) fn from_any<'v, T: 'static>(value: &'v T) -> Option<Primitive<'v>> {
             char,
             bool,
             &'static str,
+            // We deal with `str` separately because it's unsized
+            #[cfg(feature = "std")]
+            String,
         ];
 
-        (type_ids)(value)
+        (type_ids)(VoidRef(
+            &(value) as *const &'v T as *const &'v Void,
+        ))
     }
 }

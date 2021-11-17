@@ -12,7 +12,7 @@ cfg_io_util! {
 }
 
 cfg_net! {
-    /// A UDP socket
+    /// A UDP socket.
     ///
     /// UDP is "connectionless", unlike TCP. Meaning, regardless of what address you've bound to, a `UdpSocket`
     /// is free to communicate with many different remotes. In tokio there are basically two main ways to use `UdpSocket`:
@@ -211,7 +211,7 @@ impl UdpSocket {
         UdpSocket::new(io)
     }
 
-    /// Turn a [`tokio::net::UdpSocket`] into a [`std::net::UdpSocket`].
+    /// Turns a [`tokio::net::UdpSocket`] into a [`std::net::UdpSocket`].
     ///
     /// The returned [`std::net::UdpSocket`] will have nonblocking mode set as
     /// `true`.  Use [`set_nonblocking`] to change the blocking mode if needed.
@@ -317,7 +317,7 @@ impl UdpSocket {
         }))
     }
 
-    /// Wait for any of the requested ready states.
+    /// Waits for any of the requested ready states.
     ///
     /// This function is usually paired with `try_recv()` or `try_send()`. It
     /// can be used to concurrently recv / send to the same socket on a single
@@ -388,7 +388,7 @@ impl UdpSocket {
         Ok(event.ready)
     }
 
-    /// Wait for the socket to become writable.
+    /// Waits for the socket to become writable.
     ///
     /// This function is equivalent to `ready(Interest::WRITABLE)` and is
     /// usually paired with `try_send()` or `try_send_to()`.
@@ -441,6 +441,39 @@ impl UdpSocket {
     pub async fn writable(&self) -> io::Result<()> {
         self.ready(Interest::WRITABLE).await?;
         Ok(())
+    }
+
+    /// Polls for write/send readiness.
+    ///
+    /// If the udp stream is not currently ready for sending, this method will
+    /// store a clone of the `Waker` from the provided `Context`. When the udp
+    /// stream becomes ready for sending, `Waker::wake` will be called on the
+    /// waker.
+    ///
+    /// Note that on multiple calls to `poll_send_ready` or `poll_send`, only
+    /// the `Waker` from the `Context` passed to the most recent call is
+    /// scheduled to receive a wakeup. (However, `poll_recv_ready` retains a
+    /// second, independent waker.)
+    ///
+    /// This function is intended for cases where creating and pinning a future
+    /// via [`writable`] is not feasible. Where possible, using [`writable`] is
+    /// preferred, as this supports polling from multiple tasks at once.
+    ///
+    /// # Return value
+    ///
+    /// The function returns:
+    ///
+    /// * `Poll::Pending` if the udp stream is not ready for writing.
+    /// * `Poll::Ready(Ok(()))` if the udp stream is ready for writing.
+    /// * `Poll::Ready(Err(e))` if an error is encountered.
+    ///
+    /// # Errors
+    ///
+    /// This function may encounter any standard I/O error except `WouldBlock`.
+    ///
+    /// [`writable`]: method@Self::writable
+    pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.io.registration().poll_write_ready(cx).map_ok(|_| ())
     }
 
     /// Sends data on the socket to the remote address that the socket is
@@ -516,7 +549,7 @@ impl UdpSocket {
             .poll_write_io(cx, || self.io.send(buf))
     }
 
-    /// Try to send data on the socket to the remote address to which it is
+    /// Tries to send data on the socket to the remote address to which it is
     /// connected.
     ///
     /// When the socket buffer is full, `Err(io::ErrorKind::WouldBlock)` is
@@ -570,7 +603,7 @@ impl UdpSocket {
             .try_io(Interest::WRITABLE, || self.io.send(buf))
     }
 
-    /// Wait for the socket to become readable.
+    /// Waits for the socket to become readable.
     ///
     /// This function is equivalent to `ready(Interest::READABLE)` and is usually
     /// paired with `try_recv()`.
@@ -628,6 +661,39 @@ impl UdpSocket {
     pub async fn readable(&self) -> io::Result<()> {
         self.ready(Interest::READABLE).await?;
         Ok(())
+    }
+
+    /// Polls for read/receive readiness.
+    ///
+    /// If the udp stream is not currently ready for receiving, this method will
+    /// store a clone of the `Waker` from the provided `Context`. When the udp
+    /// socket becomes ready for reading, `Waker::wake` will be called on the
+    /// waker.
+    ///
+    /// Note that on multiple calls to `poll_recv_ready`, `poll_recv` or
+    /// `poll_peek`, only the `Waker` from the `Context` passed to the most
+    /// recent call is scheduled to receive a wakeup. (However,
+    /// `poll_send_ready` retains a second, independent waker.)
+    ///
+    /// This function is intended for cases where creating and pinning a future
+    /// via [`readable`] is not feasible. Where possible, using [`readable`] is
+    /// preferred, as this supports polling from multiple tasks at once.
+    ///
+    /// # Return value
+    ///
+    /// The function returns:
+    ///
+    /// * `Poll::Pending` if the udp stream is not ready for reading.
+    /// * `Poll::Ready(Ok(()))` if the udp stream is ready for reading.
+    /// * `Poll::Ready(Err(e))` if an error is encountered.
+    ///
+    /// # Errors
+    ///
+    /// This function may encounter any standard I/O error except `WouldBlock`.
+    ///
+    /// [`readable`]: method@Self::readable
+    pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.io.registration().poll_read_ready(cx).map_ok(|_| ())
     }
 
     /// Receives a single datagram message on the socket from the remote address
@@ -715,7 +781,7 @@ impl UdpSocket {
         Poll::Ready(Ok(()))
     }
 
-    /// Try to receive a single datagram message on the socket from the remote
+    /// Tries to receive a single datagram message on the socket from the remote
     /// address to which it is connected. On success, returns the number of
     /// bytes read.
     ///
@@ -772,7 +838,7 @@ impl UdpSocket {
     }
 
     cfg_io_util! {
-        /// Try to receive data from the stream into the provided buffer, advancing the
+        /// Tries to receive data from the stream into the provided buffer, advancing the
         /// buffer's internal cursor, returning how many bytes were read.
         ///
         /// The function must be called with valid byte array buf of sufficient size
@@ -837,7 +903,7 @@ impl UdpSocket {
             })
         }
 
-        /// Try to receive a single datagram message on the socket. On success,
+        /// Tries to receive a single datagram message on the socket. On success,
         /// returns the number of bytes read and the origin.
         ///
         /// The function must be called with valid byte array buf of sufficient size
@@ -978,7 +1044,7 @@ impl UdpSocket {
             .poll_write_io(cx, || self.io.send_to(buf, target))
     }
 
-    /// Try to send data on the socket to the given address, but if the send is
+    /// Tries to send data on the socket to the given address, but if the send is
     /// blocked this will return right away.
     ///
     /// This function is usually paired with `writable()`.
@@ -1116,7 +1182,7 @@ impl UdpSocket {
         Poll::Ready(Ok(addr))
     }
 
-    /// Try to receive a single datagram message on the socket. On success,
+    /// Tries to receive a single datagram message on the socket. On success,
     /// returns the number of bytes read and the origin.
     ///
     /// The function must be called with valid byte array buf of sufficient size
@@ -1168,6 +1234,41 @@ impl UdpSocket {
         self.io
             .registration()
             .try_io(Interest::READABLE, || self.io.recv_from(buf))
+    }
+
+    /// Tries to read or write from the socket using a user-provided IO operation.
+    ///
+    /// If the socket is ready, the provided closure is called. The closure
+    /// should attempt to perform IO operation from the socket by manually
+    /// calling the appropriate syscall. If the operation fails because the
+    /// socket is not actually ready, then the closure should return a
+    /// `WouldBlock` error and the readiness flag is cleared. The return value
+    /// of the closure is then returned by `try_io`.
+    ///
+    /// If the socket is not ready, then the closure is not called
+    /// and a `WouldBlock` error is returned.
+    ///
+    /// The closure should only return a `WouldBlock` error if it has performed
+    /// an IO operation on the socket that failed due to the socket not being
+    /// ready. Returning a `WouldBlock` error in any other situation will
+    /// incorrectly clear the readiness flag, which can cause the socket to
+    /// behave incorrectly.
+    ///
+    /// The closure should not perform the IO operation using any of the methods
+    /// defined on the Tokio `UdpSocket` type, as this will mess with the
+    /// readiness flag and can cause the socket to behave incorrectly.
+    ///
+    /// Usually, [`readable()`], [`writable()`] or [`ready()`] is used with this function.
+    ///
+    /// [`readable()`]: UdpSocket::readable()
+    /// [`writable()`]: UdpSocket::writable()
+    /// [`ready()`]: UdpSocket::ready()
+    pub fn try_io<R>(
+        &self,
+        interest: Interest,
+        f: impl FnOnce() -> io::Result<R>,
+    ) -> io::Result<R> {
+        self.io.registration().try_io(interest, f)
     }
 
     /// Receives data from the socket, without removing it from the input queue.

@@ -15,7 +15,7 @@ use core::cmp::Ordering::{Equal, Greater, Less};
 use core::convert::TryFrom;
 use core::mem;
 use core::str::FromStr;
-use num_integer::Integer;
+use num_integer::{Integer, Roots};
 use num_traits::float::FloatCore;
 use num_traits::{FromPrimitive, Num, PrimInt, ToPrimitive, Zero};
 
@@ -65,9 +65,8 @@ fn from_inexact_bitwise_digits_le(v: &[u8], bits: u8) -> BigUint {
     debug_assert!(!v.is_empty() && bits <= 8 && big_digit::BITS % bits != 0);
     debug_assert!(v.iter().all(|&c| BigDigit::from(c) < (1 << bits)));
 
-    let big_digits = (v.len() as u64)
-        .saturating_mul(bits.into())
-        .div_ceil(&big_digit::BITS.into())
+    let total_bits = (v.len() as u64).saturating_mul(bits.into());
+    let big_digits = Integer::div_ceil(&total_bits, &big_digit::BITS.into())
         .to_usize()
         .unwrap_or(core::usize::MAX);
     let mut data = Vec::with_capacity(big_digits);
@@ -580,9 +579,7 @@ pub(super) fn to_bitwise_digits_le(u: &BigUint, bits: u8) -> Vec<u8> {
     let last_i = u.data.len() - 1;
     let mask: BigDigit = (1 << bits) - 1;
     let digits_per_big_digit = big_digit::BITS / bits;
-    let digits = u
-        .bits()
-        .div_ceil(&u64::from(bits))
+    let digits = Integer::div_ceil(&u.bits(), &u64::from(bits))
         .to_usize()
         .unwrap_or(core::usize::MAX);
     let mut res = Vec::with_capacity(digits);
@@ -608,9 +605,7 @@ fn to_inexact_bitwise_digits_le(u: &BigUint, bits: u8) -> Vec<u8> {
     debug_assert!(!u.is_zero() && bits <= 8 && big_digit::BITS % bits != 0);
 
     let mask: BigDigit = (1 << bits) - 1;
-    let digits = u
-        .bits()
-        .div_ceil(&u64::from(bits))
+    let digits = Integer::div_ceil(&u.bits(), &u64::from(bits))
         .to_usize()
         .unwrap_or(core::usize::MAX);
     let mut res = Vec::with_capacity(digits);
@@ -664,6 +659,39 @@ pub(super) fn to_radix_digits_le(u: &BigUint, radix: u32) -> Vec<u8> {
 
     let (base, power) = get_radix_base(radix, big_digit::HALF_BITS);
     let radix = radix as BigDigit;
+
+    // For very large numbers, the O(n²) loop of repeated `div_rem_digit` dominates the
+    // performance. We can mitigate this by dividing into chunks of a larger base first.
+    // The threshold for this was chosen by anecdotal performance measurements to
+    // approximate where this starts to make a noticeable difference.
+    if digits.data.len() >= 64 {
+        let mut big_base = BigUint::from(base * base);
+        let mut big_power = 2usize;
+
+        // Choose a target base length near √n.
+        let target_len = digits.data.len().sqrt();
+        while big_base.data.len() < target_len {
+            big_base = &big_base * &big_base;
+            big_power *= 2;
+        }
+
+        // This outer loop will run approximately √n times.
+        while digits > big_base {
+            // This is still the dominating factor, with n digits divided by √n digits.
+            let (q, mut big_r) = digits.div_rem(&big_base);
+            digits = q;
+
+            // This inner loop now has O(√n²)=O(n) behavior altogether.
+            for _ in 0..big_power {
+                let (q, mut r) = div_rem_digit(big_r, base);
+                big_r = q;
+                for _ in 0..power {
+                    res.push((r % radix) as u8);
+                    r /= radix;
+                }
+            }
+        }
+    }
 
     while digits.data.len() > 1 {
         let (q, mut r) = div_rem_digit(digits, base);

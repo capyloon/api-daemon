@@ -1,7 +1,7 @@
 # encoding_rs
 
 [![Build Status](https://travis-ci.org/hsivonen/encoding_rs.svg?branch=master)](https://travis-ci.org/hsivonen/encoding_rs)
-[![crates.io](https://meritbadge.herokuapp.com/encoding_rs)](https://crates.io/crates/encoding_rs)
+[![crates.io](https://img.shields.io/crates/v/encoding_rs.svg)](https://crates.io/crates/encoding_rs)
 [![docs.rs](https://docs.rs/encoding_rs/badge.svg)](https://docs.rs/encoding_rs/)
 [![Apache 2 / MIT dual-licensed](https://img.shields.io/badge/license-Apache%202%20%2F%20MIT-blue.svg)](https://github.com/hsivonen/encoding_rs/blob/master/COPYRIGHT)
 
@@ -77,11 +77,10 @@ crate provides that capability.
 
 ## `no_std` Environment
 
-The crate works in a `no_std` environment assuming that `alloc` is present.
-The `alloc`-using part are on the outer edge of the crate, so if there is
-interest in using the crate in environments without `alloc` it would be
-feasible to add a way to turn off those parts of the API of this crate that
-use `Vec`/`String`/`Cow`.
+The crate works in a `no_std` environment. By default, the `alloc` feature,
+which assumes that an allocator is present is enabled. For a no-allocator
+environment, the default features (i.e. `alloc`) can be turned off. This
+makes the part of the API that returns `Vec`/`String`/`Cow` unavailable.
 
 ## Decoding Email
 
@@ -431,6 +430,10 @@ To regenerate the generated code:
 - [ ] Migrate to `std::simd` once it is stable and declare 1.0.
 
 ## Release Notes
+
+### 0.8.29
+
+* Make the parts that use an allocator optional.
 
 ### 0.8.28
 

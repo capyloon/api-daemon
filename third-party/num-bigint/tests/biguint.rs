@@ -1008,10 +1008,24 @@ fn test_checked_mul() {
 #[test]
 fn test_mul_overflow() {
     // Test for issue #187 - overflow due to mac3 incorrectly sizing temporary
-    let s = "531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502232636710047537552105951370000796528760829212940754539968588340162273730474622005920097370111";
+    let s = "5311379928167670986895882065524686273295931177270319231994441382\
+             0040355986085224273916250223263671004753755210595137000079652876\
+             0829212940754539968588340162273730474622005920097370111";
     let a: BigUint = s.parse().unwrap();
     let b = a.clone();
     let _ = a.checked_mul(&b);
+}
+
+#[test]
+fn test_mul_overflow_2() {
+    // Try a bunch of sizes that are right on the edge of multiplication length
+    // overflow, where (x * x).data.len() == 2 * x.data.len() + 1.
+    for i in 1u8..20 {
+        let bits = 1u32 << i;
+        let x = (BigUint::one() << bits) - 1u32;
+        let x2 = (BigUint::one() << (2 * bits)) - &x - &x - 1u32;
+        assert_eq!(&x * &x, x2);
+    }
 }
 
 #[test]
@@ -1601,6 +1615,16 @@ fn test_all_str_radix() {
 }
 
 #[test]
+fn test_big_str() {
+    for n in 2..=20_u32 {
+        let x: BigUint = BigUint::from(n).pow(10_000_u32);
+        let s = x.to_string();
+        let y: BigUint = s.parse().unwrap();
+        assert_eq!(x, y);
+    }
+}
+
+#[test]
 fn test_lower_hex() {
     let a = BigUint::parse_bytes(b"A", 16).unwrap();
     let hello = BigUint::parse_bytes(b"22405534230753963835153736737", 10).unwrap();
@@ -1776,6 +1800,10 @@ fn test_pow() {
     check!(u64);
     check!(u128);
     check!(usize);
+
+    let pow_1e10000 = BigUint::from(10u32).pow(10_000_u32);
+    let manual_1e10000 = repeat(10u32).take(10_000).product::<BigUint>();
+    assert!(manual_1e10000 == pow_1e10000);
 }
 
 #[test]

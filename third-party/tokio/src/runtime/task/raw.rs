@@ -10,22 +10,22 @@ pub(super) struct RawTask {
 }
 
 pub(super) struct Vtable {
-    /// Poll the future
+    /// Polls the future.
     pub(super) poll: unsafe fn(NonNull<Header>),
 
-    /// Deallocate the memory
+    /// Deallocates the memory.
     pub(super) dealloc: unsafe fn(NonNull<Header>),
 
-    /// Read the task output, if complete
+    /// Reads the task output, if complete.
     pub(super) try_read_output: unsafe fn(NonNull<Header>, *mut (), &Waker),
 
-    /// The join handle has been dropped
+    /// The join handle has been dropped.
     pub(super) drop_join_handle_slow: unsafe fn(NonNull<Header>),
 
-    /// The task is remotely aborted
+    /// The task is remotely aborted.
     pub(super) remote_abort: unsafe fn(NonNull<Header>),
 
-    /// Scheduler is being shutdown
+    /// Scheduler is being shutdown.
     pub(super) shutdown: unsafe fn(NonNull<Header>),
 }
 
@@ -42,12 +42,12 @@ pub(super) fn vtable<T: Future, S: Schedule>() -> &'static Vtable {
 }
 
 impl RawTask {
-    pub(super) fn new<T, S>(task: T) -> RawTask
+    pub(super) fn new<T, S>(task: T, scheduler: S) -> RawTask
     where
         T: Future,
         S: Schedule,
     {
-        let ptr = Box::into_raw(Cell::<_, S>::new(task, State::new()));
+        let ptr = Box::into_raw(Cell::<_, S>::new(task, scheduler, State::new()));
         let ptr = unsafe { NonNull::new_unchecked(ptr as *mut Header) };
 
         RawTask { ptr }

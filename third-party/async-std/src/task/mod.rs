@@ -103,7 +103,7 @@
 //! the desired task name to [`Builder::name`]. To retrieve the task name from within the
 //! task, use [`Task::name`].
 //!
-//! [`Arc`]: ../gsync/struct.Arc.html
+//! [`Arc`]: ../sync/struct.Arc.html
 //! [`spawn`]: fn.spawn.html
 //! [`JoinHandle`]: struct.JoinHandle.html
 //! [`JoinHandle::task`]: struct.JoinHandle.html#method.task
@@ -133,7 +133,7 @@ cfg_std! {
 cfg_default! {
     pub use block_on::block_on;
     pub use builder::Builder;
-    pub use current::current;
+    pub use current::{current, try_current};
     pub use task::Task;
     pub use task_id::TaskId;
     pub use join_handle::JoinHandle;

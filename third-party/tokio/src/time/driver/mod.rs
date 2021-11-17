@@ -4,7 +4,7 @@
 #![allow(unused_unsafe)]
 #![cfg_attr(not(feature = "rt"), allow(dead_code))]
 
-//! Time driver
+//! Time driver.
 
 mod entry;
 pub(self) use self::entry::{EntryList, TimerEntry, TimerHandle, TimerShared};
@@ -83,13 +83,13 @@ use std::{num::NonZeroU64, ptr::NonNull, task::Waker};
 /// [interval]: crate::time::Interval
 #[derive(Debug)]
 pub(crate) struct Driver<P: Park + 'static> {
-    /// Timing backend in use
+    /// Timing backend in use.
     time_source: ClockTime,
 
-    /// Shared state
+    /// Shared state.
     handle: Handle,
 
-    /// Parker to delegate to
+    /// Parker to delegate to.
     park: P,
 
     // When `true`, a call to `park_timeout` should immediately return and time
@@ -146,25 +146,25 @@ struct Inner {
     // The state is split like this so `Handle` can access `is_shutdown` without locking the mutex
     pub(super) state: Mutex<InnerState>,
 
-    /// True if the driver is being shutdown
+    /// True if the driver is being shutdown.
     pub(super) is_shutdown: AtomicBool,
 }
 
 /// Time state shared which must be protected by a `Mutex`
 struct InnerState {
-    /// Timing backend in use
+    /// Timing backend in use.
     time_source: ClockTime,
 
     /// The last published timer `elapsed` value.
     elapsed: u64,
 
-    /// The earliest time at which we promise to wake up without unparking
+    /// The earliest time at which we promise to wake up without unparking.
     next_wake: Option<NonZeroU64>,
 
-    /// Timer wheel
+    /// Timer wheel.
     wheel: wheel::Wheel,
 
-    /// Unparker that can be used to wake the time driver
+    /// Unparker that can be used to wake the time driver.
     unpark: Box<dyn Unpark>,
 }
 
@@ -288,13 +288,21 @@ impl Handle {
         self.process_at_time(now)
     }
 
-    pub(self) fn process_at_time(&self, now: u64) {
+    pub(self) fn process_at_time(&self, mut now: u64) {
         let mut waker_list: [Option<Waker>; 32] = Default::default();
         let mut waker_idx = 0;
 
         let mut lock = self.get().lock();
 
-        assert!(now >= lock.elapsed);
+        if now < lock.elapsed {
+            // Time went backwards! This normally shouldn't happen as the Rust language
+            // guarantees that an Instant is monotonic, but can happen when running
+            // Linux in a VM on a Windows host due to std incorrectly trusting the
+            // hardware clock to be monotonic.
+            //
+            // See <https://github.com/tokio-rs/tokio/issues/3619> for more information.
+            now = lock.elapsed;
+        }
 
         while let Some(entry) = lock.wheel.poll(now) {
             debug_assert!(unsafe { entry.is_pending() });

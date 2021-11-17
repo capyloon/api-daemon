@@ -1,6 +1,6 @@
 //! Trust evaluation support.
 
-use core_foundation::array::CFArray;
+use core_foundation::array::{CFArray, CFArrayRef};
 use core_foundation::base::TCFType;
 use core_foundation_sys::base::{Boolean, CFIndex};
 
@@ -46,10 +46,7 @@ impl TrustResult {
     /// Returns true if the result is "successful" - specifically `PROCEED` or `UNSPECIFIED`.
     #[inline]
     pub fn success(self) -> bool {
-        match self {
-            Self::PROCEED | Self::UNSPECIFIED => true,
-            _ => false,
-        }
+        matches!(self, Self::PROCEED | Self::UNSPECIFIED)
     }
 }
 
@@ -69,8 +66,8 @@ impl SecTrust {
         certs: &[SecCertificate],
         policies: &[SecPolicy],
     ) -> Result<Self> {
-        let cert_array = CFArray::from_CFTypes(&certs);
-        let policy_array = CFArray::from_CFTypes(&policies);
+        let cert_array = CFArray::from_CFTypes(certs);
+        let policy_array = CFArray::from_CFTypes(policies);
         let mut trust = ptr::null_mut();
         unsafe {
             cvt(SecTrustCreateWithCertificates(
@@ -84,7 +81,7 @@ impl SecTrust {
 
     /// Sets additional anchor certificates used to validate trust.
     pub fn set_anchor_certificates(&mut self, certs: &[SecCertificate]) -> Result<()> {
-        let certs = CFArray::from_CFTypes(&certs);
+        let certs = CFArray::from_CFTypes(certs);
 
         unsafe {
             cvt(SecTrustSetAnchorCertificates(
@@ -94,14 +91,33 @@ impl SecTrust {
         }
     }
 
+    /// Retrieves the anchor (root) certificates stored by macOS
+    #[cfg(target_os = "macos")]
+    pub fn copy_anchor_certificates() -> Result<Vec<SecCertificate>> {
+        let mut array: CFArrayRef = ptr::null();
+
+        unsafe {
+            cvt(SecTrustCopyAnchorCertificates(&mut array))?;
+        }
+
+        if array.is_null() {
+            return Ok(vec![]);
+        }
+
+        let array = unsafe { CFArray::<SecCertificate>::wrap_under_create_rule(array) };
+        Ok(array.into_iter().map(|c| c.clone()).collect())
+    }
+
     /// If set to `true`, only the certificates specified by
     /// `set_anchor_certificates` will be trusted, but not globally trusted
     /// certificates.
+    #[inline]
     pub fn set_trust_anchor_certificates_only(&mut self, only: bool) -> Result<()> {
         unsafe { cvt(SecTrustSetAnchorCertificatesOnly(self.0, only as Boolean)) }
     }
 
     /// Sets the policy used to evaluate trust.
+    #[inline]
     pub fn set_policy(&mut self, policy: &SecPolicy) -> Result<()> {
         unsafe { cvt(SecTrustSetPolicies(self.0, policy.as_CFTypeRef())) }
     }
@@ -117,7 +133,9 @@ impl SecTrust {
     }
 
     /// Evaluates trust.
+    #[deprecated(note = "use evaluate_with_error")]
     pub fn evaluate(&self) -> Result<TrustResult> {
+        #[allow(deprecated)]
         unsafe {
             let mut result = kSecTrustResultInvalid;
             cvt(SecTrustEvaluate(self.0, &mut result))?;
@@ -138,6 +156,7 @@ impl SecTrust {
             Ok(())
         }
         #[cfg(not(feature = "OSX_10_14"))]
+        #[allow(deprecated)]
         {
             use security_framework_sys::base::errSecNotTrusted;
             use security_framework_sys::base::errSecTrustSettingDeny;
@@ -163,7 +182,9 @@ impl SecTrust {
     /// Returns a specific certificate from the certificate chain used to evaluate trust.
     ///
     /// Note: evaluate must first be called on the SecTrust.
+    #[deprecated(note = "deprecated by Apple")]
     pub fn certificate_at_index(&self, ix: CFIndex) -> Option<SecCertificate> {
+        #[allow(deprecated)]
         unsafe {
             if self.certificate_count() <= ix {
                 None
@@ -197,6 +218,7 @@ mod test {
     use crate::trust::SecTrust;
 
     #[test]
+    #[allow(deprecated)]
     fn create_with_certificates() {
         let cert = certificate();
         let ssl_policy = SecPolicy::create_ssl(SslProtocolSide::CLIENT, Some("certifi.io"));
@@ -213,6 +235,7 @@ mod test {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn certificate_count_and_at_index() {
         let cert = certificate();
         let ssl_policy = SecPolicy::create_ssl(SslProtocolSide::CLIENT, Some("certifi.io"));
@@ -227,6 +250,7 @@ mod test {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn certificate_count_and_at_index_new() {
         let cert = certificate();
         let ssl_policy = SecPolicy::create_ssl(SslProtocolSide::CLIENT, Some("certifi.io"));
@@ -241,6 +265,7 @@ mod test {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn certificate_at_index_out_of_bounds() {
         let cert = certificate();
         let ssl_policy = SecPolicy::create_ssl(SslProtocolSide::CLIENT, Some("certifi.io"));
@@ -249,12 +274,13 @@ mod test {
         trust.evaluate().unwrap();
         assert!(trust.certificate_at_index(1).is_none());
 
-        let trust = SecTrust::create_with_certificates(&[cert.clone()], &[ssl_policy.clone()]).unwrap();
+        let trust = SecTrust::create_with_certificates(&[cert], &[ssl_policy]).unwrap();
         assert!(trust.evaluate_with_error().is_err());
         assert!(trust.certificate_at_index(1).is_none());
     }
 
     #[test]
+    #[allow(deprecated)]
     fn set_policy() {
         let cert = certificate();
         let ssl_policy = SecPolicy::create_ssl(SslProtocolSide::CLIENT, Some("certifi.io.bogus"));

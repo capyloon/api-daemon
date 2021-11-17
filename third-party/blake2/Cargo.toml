@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "blake2"
-version = "0.9.1"
+version = "0.9.2"
 authors = ["RustCrypto Developers"]
 description = "BLAKE2 hash functions"
 documentation = "https://docs.rs/blake2"

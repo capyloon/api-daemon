@@ -3,30 +3,33 @@ use core::{iter, mem, slice, str};
 
 use crate::elf;
 use crate::endian::{self, Endianness, U32Bytes};
-use crate::pod::{Bytes, Pod};
+use crate::pod::Pod;
 use crate::read::{
-    self, CompressedData, CompressedFileRange, CompressionFormat, Error, ObjectSection, ReadError,
-    ReadRef, SectionFlags, SectionIndex, SectionKind, StringTable,
+    self, Bytes, CompressedData, CompressedFileRange, CompressionFormat, Error, ObjectSection,
+    ReadError, ReadRef, SectionFlags, SectionIndex, SectionKind, StringTable,
 };
 
 use super::{
-    CompressionHeader, ElfFile, ElfSectionRelocationIterator, FileHeader, NoteIterator,
-    RelocationSections, SymbolTable,
+    CompressionHeader, ElfFile, ElfSectionRelocationIterator, FileHeader, GnuHashTable, HashTable,
+    NoteIterator, RelocationSections, SymbolTable, VerdefIterator, VerneedIterator, VersionTable,
 };
 
 /// The table of section headers in an ELF file.
 ///
 /// Also includes the string table used for the section names.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct SectionTable<'data, Elf: FileHeader> {
+pub struct SectionTable<'data, Elf: FileHeader, R = &'data [u8]>
+where
+    R: ReadRef<'data>,
+{
     sections: &'data [Elf::SectionHeader],
-    strings: StringTable<'data>,
+    strings: StringTable<'data, R>,
 }
 
-impl<'data, Elf: FileHeader> SectionTable<'data, Elf> {
+impl<'data, Elf: FileHeader, R: ReadRef<'data>> SectionTable<'data, Elf, R> {
     /// Create a new section table.
     #[inline]
-    pub fn new(sections: &'data [Elf::SectionHeader], strings: StringTable<'data>) -> Self {
+    pub fn new(sections: &'data [Elf::SectionHeader], strings: StringTable<'data, R>) -> Self {
         SectionTable { sections, strings }
     }
 
@@ -49,9 +52,9 @@ impl<'data, Elf: FileHeader> SectionTable<'data, Elf> {
     }
 
     /// Return the section header at the given index.
-    pub fn section(&self, index: usize) -> read::Result<&'data Elf::SectionHeader> {
+    pub fn section(&self, index: SectionIndex) -> read::Result<&'data Elf::SectionHeader> {
         self.sections
-            .get(index)
+            .get(index.0)
             .read_error("Invalid ELF section index")
     }
 
@@ -78,16 +81,31 @@ impl<'data, Elf: FileHeader> SectionTable<'data, Elf> {
         section.name(endian, self.strings)
     }
 
+    /// Return the string table at the given section index.
+    ///
+    /// Returns an error if the section is not a string table.
+    #[inline]
+    pub fn strings(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+        index: SectionIndex,
+    ) -> read::Result<StringTable<'data, R>> {
+        self.section(index)?
+            .strings(endian, data)?
+            .read_error("Invalid ELF string section type")
+    }
+
     /// Return the symbol table of the given section type.
     ///
     /// Returns an empty symbol table if the symbol table does not exist.
     #[inline]
-    pub fn symbols<R: ReadRef<'data>>(
+    pub fn symbols(
         &self,
         endian: Elf::Endian,
         data: R,
         sh_type: u32,
-    ) -> read::Result<SymbolTable<'data, Elf>> {
+    ) -> read::Result<SymbolTable<'data, Elf, R>> {
         debug_assert!(sh_type == elf::SHT_DYNSYM || sh_type == elf::SHT_SYMTAB);
 
         let (index, section) = match self
@@ -99,23 +117,23 @@ impl<'data, Elf: FileHeader> SectionTable<'data, Elf> {
             None => return Ok(SymbolTable::default()),
         };
 
-        SymbolTable::parse(endian, data, self, index, section)
+        SymbolTable::parse(endian, data, self, SectionIndex(index), section)
     }
 
     /// Return the symbol table at the given section index.
     ///
     /// Returns an error if the section is not a symbol table.
     #[inline]
-    pub fn symbol_table_by_index<R: ReadRef<'data>>(
+    pub fn symbol_table_by_index(
         &self,
         endian: Elf::Endian,
         data: R,
-        index: usize,
-    ) -> read::Result<SymbolTable<'data, Elf>> {
+        index: SectionIndex,
+    ) -> read::Result<SymbolTable<'data, Elf, R>> {
         let section = self.section(index)?;
         match section.sh_type(endian) {
             elf::SHT_DYNSYM | elf::SHT_SYMTAB => {}
-            _ => return Err(Error("Invalid ELF symbol table section type.")),
+            _ => return Err(Error("Invalid ELF symbol table section type")),
         }
         SymbolTable::parse(endian, data, self, index, section)
     }
@@ -125,9 +143,177 @@ impl<'data, Elf: FileHeader> SectionTable<'data, Elf> {
     pub fn relocation_sections(
         &self,
         endian: Elf::Endian,
-        symbol_section: usize,
+        symbol_section: SectionIndex,
     ) -> read::Result<RelocationSections> {
         RelocationSections::parse(endian, self, symbol_section)
+    }
+
+    /// Return the contents of a dynamic section.
+    ///
+    /// Also returns the linked string table index.
+    ///
+    /// Returns `Ok(None)` if there is no `SHT_DYNAMIC` section.
+    /// Returns `Err` for invalid values.
+    pub fn dynamic(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<(&'data [Elf::Dyn], SectionIndex)>> {
+        for section in self.sections {
+            if let Some(dynamic) = section.dynamic(endian, data)? {
+                return Ok(Some(dynamic));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the header of a SysV hash section.
+    ///
+    /// Returns `Ok(None)` if there is no SysV GNU hash section.
+    /// Returns `Err` for invalid values.
+    pub fn hash_header(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<&'data elf::HashHeader<Elf::Endian>>> {
+        for section in self.sections {
+            if let Some(hash) = section.hash_header(endian, data)? {
+                return Ok(Some(hash));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the contents of a SysV hash section.
+    ///
+    /// Also returns the linked symbol table index.
+    ///
+    /// Returns `Ok(None)` if there is no SysV hash section.
+    /// Returns `Err` for invalid values.
+    pub fn hash(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<(HashTable<'data, Elf>, SectionIndex)>> {
+        for section in self.sections {
+            if let Some(hash) = section.hash(endian, data)? {
+                return Ok(Some(hash));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the header of a GNU hash section.
+    ///
+    /// Returns `Ok(None)` if there is no GNU hash section.
+    /// Returns `Err` for invalid values.
+    pub fn gnu_hash_header(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<&'data elf::GnuHashHeader<Elf::Endian>>> {
+        for section in self.sections {
+            if let Some(hash) = section.gnu_hash_header(endian, data)? {
+                return Ok(Some(hash));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the contents of a GNU hash section.
+    ///
+    /// Also returns the linked symbol table index.
+    ///
+    /// Returns `Ok(None)` if there is no GNU hash section.
+    /// Returns `Err` for invalid values.
+    pub fn gnu_hash(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<(GnuHashTable<'data, Elf>, SectionIndex)>> {
+        for section in self.sections {
+            if let Some(hash) = section.gnu_hash(endian, data)? {
+                return Ok(Some(hash));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the contents of a `SHT_GNU_VERSYM` section.
+    ///
+    /// Also returns the linked symbol table index.
+    ///
+    /// Returns `Ok(None)` if there is no `SHT_GNU_VERSYM` section.
+    /// Returns `Err` for invalid values.
+    pub fn gnu_versym(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<(&'data [elf::Versym<Elf::Endian>], SectionIndex)>> {
+        for section in self.sections {
+            if let Some(syms) = section.gnu_versym(endian, data)? {
+                return Ok(Some(syms));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the contents of a `SHT_GNU_VERDEF` section.
+    ///
+    /// Also returns the linked string table index.
+    ///
+    /// Returns `Ok(None)` if there is no `SHT_GNU_VERDEF` section.
+    /// Returns `Err` for invalid values.
+    pub fn gnu_verdef(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<(VerdefIterator<'data, Elf>, SectionIndex)>> {
+        for section in self.sections {
+            if let Some(defs) = section.gnu_verdef(endian, data)? {
+                return Ok(Some(defs));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the contents of a `SHT_GNU_VERNEED` section.
+    ///
+    /// Also returns the linked string table index.
+    ///
+    /// Returns `Ok(None)` if there is no `SHT_GNU_VERNEED` section.
+    /// Returns `Err` for invalid values.
+    pub fn gnu_verneed(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<(VerneedIterator<'data, Elf>, SectionIndex)>> {
+        for section in self.sections {
+            if let Some(needs) = section.gnu_verneed(endian, data)? {
+                return Ok(Some(needs));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Returns the symbol version table.
+    ///
+    /// Returns `Ok(None)` if there is no `SHT_GNU_VERSYM` section.
+    /// Returns `Err` for invalid values.
+    pub fn versions(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<Option<VersionTable<'data, Elf>>> {
+        let (versyms, link) = match self.gnu_versym(endian, data)? {
+            Some(val) => val,
+            None => return Ok(None),
+        };
+        let strings = self.symbol_table_by_index(endian, data, link)?.strings();
+        // TODO: check links?
+        let verdefs = self.gnu_verdef(endian, data)?.map(|x| x.0);
+        let verneeds = self.gnu_verneed(endian, data)?.map(|x| x.0);
+        VersionTable::parse(endian, versyms, verdefs, verneeds, strings).map(Some)
     }
 }
 
@@ -332,14 +518,22 @@ where
         self.compressed_file_range()?.data(self.file.data)
     }
 
-    fn name(&self) -> read::Result<&str> {
-        let name = self
-            .file
+    fn name_bytes(&self) -> read::Result<&[u8]> {
+        self.file
             .sections
-            .section_name(self.file.endian, self.section)?;
+            .section_name(self.file.endian, self.section)
+    }
+
+    fn name(&self) -> read::Result<&str> {
+        let name = self.name_bytes()?;
         str::from_utf8(name)
             .ok()
             .read_error("Non UTF-8 ELF section name")
+    }
+
+    #[inline]
+    fn segment_name_bytes(&self) -> read::Result<Option<&[u8]>> {
+        Ok(None)
     }
 
     #[inline]
@@ -393,7 +587,7 @@ where
 
     fn relocations(&self) -> ElfSectionRelocationIterator<'data, 'file, Elf, R> {
         ElfSectionRelocationIterator {
-            section_index: self.index.0,
+            section_index: self.index,
             file: self.file,
             relocations: None,
         }
@@ -425,10 +619,10 @@ pub trait SectionHeader: Debug + Pod {
     fn sh_entsize(&self, endian: Self::Endian) -> Self::Word;
 
     /// Parse the section name from the string table.
-    fn name<'data>(
+    fn name<'data, R: ReadRef<'data>>(
         &self,
         endian: Self::Endian,
-        strings: StringTable<'data>,
+        strings: StringTable<'data, R>,
     ) -> read::Result<&'data [u8]> {
         strings
             .get(self.sh_name(endian))
@@ -454,9 +648,10 @@ pub trait SectionHeader: Debug + Pod {
         &self,
         endian: Self::Endian,
         data: R,
-    ) -> Result<&'data [u8], ()> {
+    ) -> read::Result<&'data [u8]> {
         if let Some((offset, size)) = self.file_range(endian) {
             data.read_bytes_at(offset, size)
+                .read_error("Invalid ELF section size or offset")
         } else {
             Ok(&[])
         }
@@ -471,14 +666,35 @@ pub trait SectionHeader: Debug + Pod {
         &self,
         endian: Self::Endian,
         data: R,
-    ) -> Result<&'data [T], ()> {
+    ) -> read::Result<&'data [T]> {
         let mut data = self.data(endian, data).map(Bytes)?;
         data.read_slice(data.len() / mem::size_of::<T>())
+            .read_error("Invalid ELF section size or offset")
+    }
+
+    /// Return the strings in the section.
+    ///
+    /// Returns `Ok(None)` if the section does not contain strings.
+    /// Returns `Err` for invalid values.
+    fn strings<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<StringTable<'data, R>>> {
+        if self.sh_type(endian) != elf::SHT_STRTAB {
+            return Ok(None);
+        }
+        let str_offset = self.sh_offset(endian).into();
+        let str_size = self.sh_size(endian).into();
+        let str_end = str_offset
+            .checked_add(str_size)
+            .read_error("Invalid ELF string section offset or size")?;
+        Ok(Some(StringTable::new(data, str_offset, str_end)))
     }
 
     /// Return the symbols in the section.
     ///
-    /// Also finds the corresponding string table in `sections`.
+    /// Also finds the linked string table in `sections`.
     ///
     /// `section_index` must be the 0-based index of this section, and is used
     /// to find the corresponding extended section index table in `sections`.
@@ -489,9 +705,9 @@ pub trait SectionHeader: Debug + Pod {
         &self,
         endian: Self::Endian,
         data: R,
-        sections: &SectionTable<Self::Elf>,
-        section_index: usize,
-    ) -> read::Result<Option<SymbolTable<'data, Self::Elf>>> {
+        sections: &SectionTable<'data, Self::Elf, R>,
+        section_index: SectionIndex,
+    ) -> read::Result<Option<SymbolTable<'data, Self::Elf, R>>> {
         let sh_type = self.sh_type(endian);
         if sh_type != elf::SHT_SYMTAB && sh_type != elf::SHT_DYNSYM {
             return Ok(None);
@@ -501,22 +717,28 @@ pub trait SectionHeader: Debug + Pod {
 
     /// Return the `Elf::Rel` entries in the section.
     ///
+    /// Also returns the linked symbol table index.
+    ///
     /// Returns `Ok(None)` if the section does not contain relocations.
     /// Returns `Err` for invalid values.
     fn rel<'data, R: ReadRef<'data>>(
         &self,
         endian: Self::Endian,
         data: R,
-    ) -> read::Result<Option<&'data [<Self::Elf as FileHeader>::Rel]>> {
+    ) -> read::Result<Option<(&'data [<Self::Elf as FileHeader>::Rel], SectionIndex)>> {
         if self.sh_type(endian) != elf::SHT_REL {
             return Ok(None);
         }
-        self.data_as_array(endian, data)
-            .map(Some)
-            .read_error("Invalid ELF relocation section offset or size")
+        let rel = self
+            .data_as_array(endian, data)
+            .read_error("Invalid ELF relocation section offset or size")?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((rel, link)))
     }
 
     /// Return the `Elf::Rela` entries in the section.
+    ///
+    /// Also returns the linked symbol table index.
     ///
     /// Returns `Ok(None)` if the section does not contain relocations.
     /// Returns `Err` for invalid values.
@@ -524,30 +746,36 @@ pub trait SectionHeader: Debug + Pod {
         &self,
         endian: Self::Endian,
         data: R,
-    ) -> read::Result<Option<&'data [<Self::Elf as FileHeader>::Rela]>> {
+    ) -> read::Result<Option<(&'data [<Self::Elf as FileHeader>::Rela], SectionIndex)>> {
         if self.sh_type(endian) != elf::SHT_RELA {
             return Ok(None);
         }
-        self.data_as_array(endian, data)
-            .map(Some)
-            .read_error("Invalid ELF relocation section offset or size")
+        let rela = self
+            .data_as_array(endian, data)
+            .read_error("Invalid ELF relocation section offset or size")?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((rela, link)))
     }
 
-    /// Return the symbol table for a relocation section.
+    /// Return entries in a dynamic section.
     ///
-    /// Returns `Err` for invalid values, including if the section does not contain
-    /// relocations.
-    fn relocation_symbols<'data, R: ReadRef<'data>>(
+    /// Also returns the linked string table index.
+    ///
+    /// Returns `Ok(None)` if the section type is not `SHT_DYNAMIC`.
+    /// Returns `Err` for invalid values.
+    fn dynamic<'data, R: ReadRef<'data>>(
         &self,
         endian: Self::Endian,
         data: R,
-        sections: &SectionTable<'data, Self::Elf>,
-    ) -> read::Result<SymbolTable<'data, Self::Elf>> {
-        let sh_type = self.sh_type(endian);
-        if sh_type != elf::SHT_REL && sh_type != elf::SHT_RELA {
-            return Err(Error("Invalid ELF relocation section type"));
+    ) -> read::Result<Option<(&'data [<Self::Elf as FileHeader>::Dyn], SectionIndex)>> {
+        if self.sh_type(endian) != elf::SHT_DYNAMIC {
+            return Ok(None);
         }
-        sections.symbol_table_by_index(endian, data, self.sh_link(endian) as usize)
+        let dynamic = self
+            .data_as_array(endian, data)
+            .read_error("Invalid ELF dynamic section offset or size")?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((dynamic, link)))
     }
 
     /// Return a note iterator for the section data.
@@ -597,6 +825,155 @@ pub trait SectionHeader: Debug + Pod {
             .read_slice(count)
             .read_error("Invalid ELF group section offset or size")?;
         Ok(Some((flag, sections)))
+    }
+
+    /// Return the header of a SysV hash section.
+    ///
+    /// Returns `Ok(None)` if the section does not contain a SysV hash.
+    /// Returns `Err` for invalid values.
+    fn hash_header<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<&'data elf::HashHeader<Self::Endian>>> {
+        if self.sh_type(endian) != elf::SHT_HASH {
+            return Ok(None);
+        }
+        let data = self
+            .data(endian, data)
+            .read_error("Invalid ELF hash section offset or size")?;
+        let header = data
+            .read_at::<elf::HashHeader<Self::Endian>>(0)
+            .read_error("Invalid hash header")?;
+        Ok(Some(header))
+    }
+
+    /// Return the contents of a SysV hash section.
+    ///
+    /// Also returns the linked symbol table index.
+    ///
+    /// Returns `Ok(None)` if the section does not contain a SysV hash.
+    /// Returns `Err` for invalid values.
+    fn hash<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<(HashTable<'data, Self::Elf>, SectionIndex)>> {
+        if self.sh_type(endian) != elf::SHT_HASH {
+            return Ok(None);
+        }
+        let data = self
+            .data(endian, data)
+            .read_error("Invalid ELF hash section offset or size")?;
+        let hash = HashTable::parse(endian, data)?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((hash, link)))
+    }
+
+    /// Return the header of a GNU hash section.
+    ///
+    /// Returns `Ok(None)` if the section does not contain a GNU hash.
+    /// Returns `Err` for invalid values.
+    fn gnu_hash_header<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<&'data elf::GnuHashHeader<Self::Endian>>> {
+        if self.sh_type(endian) != elf::SHT_GNU_HASH {
+            return Ok(None);
+        }
+        let data = self
+            .data(endian, data)
+            .read_error("Invalid ELF GNU hash section offset or size")?;
+        let header = data
+            .read_at::<elf::GnuHashHeader<Self::Endian>>(0)
+            .read_error("Invalid GNU hash header")?;
+        Ok(Some(header))
+    }
+
+    /// Return the contents of a GNU hash section.
+    ///
+    /// Also returns the linked symbol table index.
+    ///
+    /// Returns `Ok(None)` if the section does not contain a GNU hash.
+    /// Returns `Err` for invalid values.
+    fn gnu_hash<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<(GnuHashTable<'data, Self::Elf>, SectionIndex)>> {
+        if self.sh_type(endian) != elf::SHT_GNU_HASH {
+            return Ok(None);
+        }
+        let data = self
+            .data(endian, data)
+            .read_error("Invalid ELF GNU hash section offset or size")?;
+        let hash = GnuHashTable::parse(endian, data)?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((hash, link)))
+    }
+
+    /// Return the contents of a `SHT_GNU_VERSYM` section.
+    ///
+    /// Also returns the linked symbol table index.
+    ///
+    /// Returns `Ok(None)` if the section type is not `SHT_GNU_VERSYM`.
+    /// Returns `Err` for invalid values.
+    fn gnu_versym<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<(&'data [elf::Versym<Self::Endian>], SectionIndex)>> {
+        if self.sh_type(endian) != elf::SHT_GNU_VERSYM {
+            return Ok(None);
+        }
+        let versym = self
+            .data_as_array(endian, data)
+            .read_error("Invalid ELF GNU versym section offset or size")?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((versym, link)))
+    }
+
+    /// Return an iterator for the entries of a `SHT_GNU_VERDEF` section.
+    ///
+    /// Also returns the linked string table index.
+    ///
+    /// Returns `Ok(None)` if the section type is not `SHT_GNU_VERDEF`.
+    /// Returns `Err` for invalid values.
+    fn gnu_verdef<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<(VerdefIterator<'data, Self::Elf>, SectionIndex)>> {
+        if self.sh_type(endian) != elf::SHT_GNU_VERDEF {
+            return Ok(None);
+        }
+        let verdef = self
+            .data(endian, data)
+            .read_error("Invalid ELF GNU verdef section offset or size")?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((VerdefIterator::new(endian, verdef), link)))
+    }
+
+    /// Return an iterator for the entries of a `SHT_GNU_VERNEED` section.
+    ///
+    /// Also returns the linked string table index.
+    ///
+    /// Returns `Ok(None)` if the section type is not `SHT_GNU_VERNEED`.
+    /// Returns `Err` for invalid values.
+    fn gnu_verneed<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+    ) -> read::Result<Option<(VerneedIterator<'data, Self::Elf>, SectionIndex)>> {
+        if self.sh_type(endian) != elf::SHT_GNU_VERNEED {
+            return Ok(None);
+        }
+        let verneed = self
+            .data(endian, data)
+            .read_error("Invalid ELF GNU verneed section offset or size")?;
+        let link = SectionIndex(self.sh_link(endian) as usize);
+        Ok(Some((VerneedIterator::new(endian, verneed), link)))
     }
 }
 

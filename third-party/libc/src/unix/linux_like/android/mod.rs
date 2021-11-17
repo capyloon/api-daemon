@@ -422,6 +422,12 @@ s_no_extra_traits! {
         pub ivlen: u32,
         pub iv: [::c_uchar; 0],
     }
+
+    pub struct prop_info {
+        __name: [::c_char; 32],
+        __serial: ::c_uint,
+        __value: [[::c_char; 4]; 23],
+    }
 }
 
 cfg_if! {
@@ -740,6 +746,24 @@ cfg_if! {
                 self.as_slice().hash(state);
             }
         }
+
+        impl PartialEq for prop_info {
+            fn eq(&self, other: &prop_info) -> bool {
+                self.__name == other.__name &&
+                    self.__serial == other.__serial &&
+                    self.__value == other.__value
+            }
+        }
+        impl Eq for prop_info {}
+        impl ::fmt::Debug for prop_info {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("prop_info")
+                    .field("__name", &self.__name)
+                    .field("__serial", &self.__serial)
+                    .field("__value", &self.__value)
+                    .finish()
+            }
+        }
     }
 }
 
@@ -768,9 +792,6 @@ pub const EPROTO: ::c_int = 71;
 pub const EDOTDOT: ::c_int = 73;
 
 pub const EPOLL_CLOEXEC: ::c_int = 0x80000;
-pub const EPOLLONESHOT: ::c_int = 0x40000000;
-pub const EPOLLRDHUP: ::c_int = 0x00002000;
-pub const EPOLLWAKEUP: ::c_int = 0x20000000;
 
 // sys/eventfd.h
 pub const EFD_SEMAPHORE: ::c_int = 0x1;
@@ -1181,6 +1202,9 @@ pub const SO_SNDLOWAT: ::c_int = 19;
 pub const SO_RCVTIMEO: ::c_int = 20;
 pub const SO_SNDTIMEO: ::c_int = 21;
 pub const SO_BINDTODEVICE: ::c_int = 25;
+pub const SO_ATTACH_FILTER: ::c_int = 26;
+pub const SO_DETACH_FILTER: ::c_int = 27;
+pub const SO_GET_FILTER: ::c_int = SO_ATTACH_FILTER;
 pub const SO_TIMESTAMP: ::c_int = 29;
 pub const SO_ACCEPTCONN: ::c_int = 30;
 pub const SO_PEERSEC: ::c_int = 31;
@@ -1277,6 +1301,8 @@ pub const PTRACE_SETOPTIONS: ::c_int = 0x4200;
 pub const PTRACE_GETEVENTMSG: ::c_int = 0x4201;
 pub const PTRACE_GETSIGINFO: ::c_int = 0x4202;
 pub const PTRACE_SETSIGINFO: ::c_int = 0x4203;
+pub const PTRACE_GETREGSET: ::c_int = 0x4204;
+pub const PTRACE_SETREGSET: ::c_int = 0x4205;
 
 pub const PTRACE_EVENT_STOP: ::c_int = 128;
 
@@ -1315,6 +1341,10 @@ pub const TCGETS: ::c_int = 0x5401;
 pub const TCSETS: ::c_int = 0x5402;
 pub const TCSETSW: ::c_int = 0x5403;
 pub const TCSETSF: ::c_int = 0x5404;
+pub const TCGETS2: ::c_int = 0x802c542a;
+pub const TCSETS2: ::c_int = 0x402c542b;
+pub const TCSETSW2: ::c_int = 0x402c542c;
+pub const TCSETSF2: ::c_int = 0x402c542d;
 pub const TCGETA: ::c_int = 0x5405;
 pub const TCSETA: ::c_int = 0x5406;
 pub const TCSETAW: ::c_int = 0x5407;
@@ -1761,6 +1791,11 @@ pub const NETLINK_BROADCAST_ERROR: ::c_int = 4;
 pub const NETLINK_NO_ENOBUFS: ::c_int = 5;
 pub const NETLINK_RX_RING: ::c_int = 6;
 pub const NETLINK_TX_RING: ::c_int = 7;
+pub const NETLINK_LISTEN_ALL_NSID: ::c_int = 8;
+pub const NETLINK_LIST_MEMBERSHIPS: ::c_int = 9;
+pub const NETLINK_CAP_ACK: ::c_int = 10;
+pub const NETLINK_EXT_ACK: ::c_int = 11;
+pub const NETLINK_GET_STRICT_CHK: ::c_int = 12;
 
 pub const GRND_NONBLOCK: ::c_uint = 0x0001;
 pub const GRND_RANDOM: ::c_uint = 0x0002;
@@ -1840,6 +1875,25 @@ pub const O_TMPFILE: ::c_int = 0o20000000 | O_DIRECTORY;
 pub const MFD_CLOEXEC: ::c_uint = 0x0001;
 pub const MFD_ALLOW_SEALING: ::c_uint = 0x0002;
 pub const MFD_HUGETLB: ::c_uint = 0x0004;
+
+// these are used in the p_type field of Elf32_Phdr and Elf64_Phdr, which has
+// the type Elf32Word and Elf64Word respectively. Luckily, both of those are u32
+// so we can use that type here to avoid having to cast.
+pub const PT_NULL: u32 = 0;
+pub const PT_LOAD: u32 = 1;
+pub const PT_DYNAMIC: u32 = 2;
+pub const PT_INTERP: u32 = 3;
+pub const PT_NOTE: u32 = 4;
+pub const PT_SHLIB: u32 = 5;
+pub const PT_PHDR: u32 = 6;
+pub const PT_TLS: u32 = 7;
+pub const PT_LOOS: u32 = 0x60000000;
+pub const PT_GNU_EH_FRAME: u32 = 0x6474e550;
+pub const PT_GNU_STACK: u32 = 0x6474e551;
+pub const PT_GNU_RELRO: u32 = 0x6474e552;
+pub const PT_HIOS: u32 = 0x6fffffff;
+pub const PT_LOPROC: u32 = 0x70000000;
+pub const PT_HIPROC: u32 = 0x7fffffff;
 
 // linux/netfilter.h
 pub const NF_DROP: ::c_int = 0;
@@ -2398,6 +2452,10 @@ pub const SCHED_BATCH: ::c_int = 3;
 pub const SCHED_IDLE: ::c_int = 5;
 pub const SCHED_DEADLINE: ::c_int = 6;
 
+pub const SCHED_RESET_ON_FORK: ::c_int = 0x40000000;
+
+pub const CLONE_PIDFD: ::c_int = 0x1000;
+
 // bits/seek_constants.h
 pub const SEEK_DATA: ::c_int = 3;
 pub const SEEK_HOLE: ::c_int = 4;
@@ -2410,6 +2468,11 @@ pub const PF_VSOCK: ::c_int = AF_VSOCK;
 
 // sys/system_properties.h
 pub const PROP_VALUE_MAX: ::c_int = 92;
+pub const PROP_NAME_MAX: ::c_int = 32;
+
+// sys/prctl.h
+pub const PR_SET_VMA: ::c_int = 0x53564d41;
+pub const PR_SET_VMA_ANON_NAME: ::c_int = 0;
 
 f! {
     pub fn CMSG_NXTHDR(mhdr: *const msghdr,
@@ -2426,6 +2489,12 @@ f! {
         }
     }
 
+    pub fn CPU_ALLOC_SIZE(count: ::c_int) -> ::size_t {
+        let _dummy: cpu_set_t = ::mem::zeroed();
+        let size_in_bits = 8 * ::mem::size_of_val(&_dummy.__bits[0]);
+        ((count as ::size_t + size_in_bits - 1) / 8) as ::size_t
+    }
+
     pub fn CPU_ZERO(cpuset: &mut cpu_set_t) -> () {
         for slot in cpuset.__bits.iter_mut() {
             *slot = 0;
@@ -2433,28 +2502,44 @@ f! {
     }
 
     pub fn CPU_SET(cpu: usize, cpuset: &mut cpu_set_t) -> () {
-        let size_in___bits = 8 * ::mem::size_of_val(&cpuset.__bits[0]);
-        let (idx, offset) = (cpu / size_in___bits, cpu % size_in___bits);
+        let size_in_bits
+            = 8 * ::mem::size_of_val(&cpuset.__bits[0]); // 32, 64 etc
+        let (idx, offset) = (cpu / size_in_bits, cpu % size_in_bits);
         cpuset.__bits[idx] |= 1 << offset;
         ()
     }
 
     pub fn CPU_CLR(cpu: usize, cpuset: &mut cpu_set_t) -> () {
-        let size_in___bits = 8 * ::mem::size_of_val(&cpuset.__bits[0]);
-        let (idx, offset) = (cpu / size_in___bits, cpu % size_in___bits);
+        let size_in_bits
+            = 8 * ::mem::size_of_val(&cpuset.__bits[0]); // 32, 64 etc
+        let (idx, offset) = (cpu / size_in_bits, cpu % size_in_bits);
         cpuset.__bits[idx] &= !(1 << offset);
         ()
     }
 
     pub fn CPU_ISSET(cpu: usize, cpuset: &cpu_set_t) -> bool {
-        let size_in___bits = 8 * ::mem::size_of_val(&cpuset.__bits[0]);
-        let (idx, offset) = (cpu / size_in___bits, cpu % size_in___bits);
+        let size_in_bits = 8 * ::mem::size_of_val(&cpuset.__bits[0]);
+        let (idx, offset) = (cpu / size_in_bits, cpu % size_in_bits);
         0 != (cpuset.__bits[idx] & (1 << offset))
+    }
+
+    pub fn CPU_COUNT_S(size: usize, cpuset: &cpu_set_t) -> ::c_int {
+        let mut s: u32 = 0;
+        let size_of_mask = ::mem::size_of_val(&cpuset.__bits[0]);
+        for i in cpuset.__bits[..(size / size_of_mask)].iter() {
+            s += i.count_ones();
+        };
+        s as ::c_int
+    }
+
+    pub fn CPU_COUNT(cpuset: &cpu_set_t) -> ::c_int {
+        CPU_COUNT_S(::mem::size_of::<cpu_set_t>(), cpuset)
     }
 
     pub fn CPU_EQUAL(set1: &cpu_set_t, set2: &cpu_set_t) -> bool {
         set1.__bits == set2.__bits
     }
+
     pub fn major(dev: ::dev_t) -> ::c_int {
         ((dev >> 8) & 0xfff) as ::c_int
     }
@@ -2543,6 +2628,9 @@ extern "C" {
     pub fn __sched_cpucount(setsize: ::size_t, set: *const cpu_set_t) -> ::c_int;
     pub fn sched_getcpu() -> ::c_int;
     pub fn mallinfo() -> ::mallinfo;
+    // available from API 23
+    pub fn malloc_info(options: ::c_int, stream: *mut ::FILE) -> ::c_int;
+
     pub fn malloc_usable_size(ptr: *const ::c_void) -> ::size_t;
 
     pub fn utmpname(name: *const ::c_char) -> ::c_int;
@@ -2862,6 +2950,12 @@ extern "C" {
 
     pub fn __system_property_set(__name: *const ::c_char, __value: *const ::c_char) -> ::c_int;
     pub fn __system_property_get(__name: *const ::c_char, __value: *mut ::c_char) -> ::c_int;
+    pub fn __system_property_find(__name: *const ::c_char) -> *const prop_info;
+    pub fn __system_property_find_nth(__n: ::c_uint) -> *const prop_info;
+    pub fn __system_property_foreach(
+        __callback: unsafe extern "C" fn(__pi: *const prop_info, __cookie: *mut ::c_void),
+        __cookie: *mut ::c_void,
+    ) -> ::c_int;
 
     // #include <link.h>
     /// Only available in API Version 21+
@@ -2879,6 +2973,10 @@ extern "C" {
     pub fn arc4random() -> u32;
     pub fn arc4random_uniform(__upper_bound: u32) -> u32;
     pub fn arc4random_buf(__buf: *mut ::c_void, __n: ::size_t);
+
+    pub fn reallocarray(ptr: *mut ::c_void, nmemb: ::size_t, size: ::size_t) -> *mut ::c_void;
+
+    pub fn pthread_getcpuclockid(thread: ::pthread_t, clk_id: *mut ::clockid_t) -> ::c_int;
 }
 
 cfg_if! {

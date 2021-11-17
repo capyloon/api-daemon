@@ -3,8 +3,8 @@ use core::{mem, slice, str};
 
 use crate::elf;
 use crate::endian::{self, Endianness};
-use crate::pod::{Bytes, Pod};
-use crate::read::{self, ObjectSegment, ReadError, ReadRef};
+use crate::pod::Pod;
+use crate::read::{self, Bytes, ObjectSegment, ReadError, ReadRef};
 
 use super::{ElfFile, FileHeader, NoteIterator};
 
@@ -117,6 +117,11 @@ where
             address,
             size,
         ))
+    }
+
+    #[inline]
+    fn name_bytes(&self) -> read::Result<Option<&[u8]>> {
+        Ok(None)
     }
 
     #[inline]

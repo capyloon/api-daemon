@@ -138,6 +138,14 @@ pub struct DebugMacroOffset<T = usize>(pub T);
 
 /// An offset into either the `.debug_ranges` section or the `.debug_rnglists` section,
 /// depending on the version of the unit the offset was contained in.
+///
+/// If this is from a DWARF 4 DWO file, then it must additionally be offset by the
+/// value of `DW_AT_GNU_ranges_base`. You can use `Dwarf::ranges_offset_from_raw` to do this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RawRangeListsOffset<T = usize>(pub T);
+
+/// An offset into either the `.debug_ranges` section or the `.debug_rnglists` section,
+/// depending on the version of the unit the offset was contained in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RangeListsOffset<T = usize>(pub T);
 
@@ -241,6 +249,8 @@ pub enum SectionId {
     DebugAddr,
     /// The `.debug_aranges` section.
     DebugAranges,
+    /// The `.debug_cu_index` section.
+    DebugCuIndex,
     /// The `.debug_frame` section.
     DebugFrame,
     /// The `.eh_frame` section.
@@ -273,6 +283,8 @@ pub enum SectionId {
     DebugStr,
     /// The `.debug_str_offsets` section.
     DebugStrOffsets,
+    /// The `.debug_tu_index` section.
+    DebugTuIndex,
     /// The `.debug_types` section.
     DebugTypes,
 }
@@ -284,6 +296,7 @@ impl SectionId {
             SectionId::DebugAbbrev => ".debug_abbrev",
             SectionId::DebugAddr => ".debug_addr",
             SectionId::DebugAranges => ".debug_aranges",
+            SectionId::DebugCuIndex => ".debug_cu_index",
             SectionId::DebugFrame => ".debug_frame",
             SectionId::EhFrame => ".eh_frame",
             SectionId::EhFrameHdr => ".eh_frame_hdr",
@@ -300,14 +313,16 @@ impl SectionId {
             SectionId::DebugRngLists => ".debug_rnglists",
             SectionId::DebugStr => ".debug_str",
             SectionId::DebugStrOffsets => ".debug_str_offsets",
+            SectionId::DebugTuIndex => ".debug_tu_index",
             SectionId::DebugTypes => ".debug_types",
         }
     }
 
-    /// Returns the ELF section name for this kind, when found in a .dwo file.
+    /// Returns the ELF section name for this kind, when found in a .dwo or .dwp file.
     pub fn dwo_name(self) -> Option<&'static str> {
         Some(match self {
             SectionId::DebugAbbrev => ".debug_abbrev.dwo",
+            SectionId::DebugCuIndex => ".debug_cu_index",
             SectionId::DebugInfo => ".debug_info.dwo",
             SectionId::DebugLine => ".debug_line.dwo",
             // The debug_loc section can be present in the dwo when using the
@@ -318,6 +333,8 @@ impl SectionId {
             SectionId::DebugRngLists => ".debug_rnglists.dwo",
             SectionId::DebugStr => ".debug_str.dwo",
             SectionId::DebugStrOffsets => ".debug_str_offsets.dwo",
+            SectionId::DebugTuIndex => ".debug_tu_index",
+            SectionId::DebugTypes => ".debug_types.dwo",
             _ => return None,
         })
     }

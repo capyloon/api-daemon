@@ -3,17 +3,16 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
 name = "handlebars"
-version = "4.1.0"
+version = "4.1.5"
 authors = ["Ning Sun <sunng@pm.me>"]
 description = "Handlebars templating implemented in Rust."
 homepage = "https://github.com/sunng87/handlebars-rust"
@@ -51,7 +50,7 @@ version = "2.1.0"
 version = "2.0"
 
 [dependencies.rhai]
-version = "0.20"
+version = "1"
 features = ["sync", "serde"]
 optional = true
 
@@ -64,11 +63,15 @@ version = "1.0.39"
 [dependencies.walkdir]
 version = "2.2.3"
 optional = true
+[dev-dependencies.chrono]
+version = "0.4.19"
+features = ["serde"]
+
 [dev-dependencies.criterion]
 version = "0.3"
 
 [dev-dependencies.env_logger]
-version = "0.8"
+version = "0.9"
 
 [dev-dependencies.maplit]
 version = "1.0.0"
@@ -92,7 +95,7 @@ dir_source = ["walkdir"]
 no_logging = []
 script_helper = ["rhai"]
 [target."cfg(unix)".dev-dependencies.pprof]
-version = "0.3.13"
+version = "0.5"
 features = ["flamegraph", "protobuf"]
 [badges.maintenance]
 status = "actively-developed"

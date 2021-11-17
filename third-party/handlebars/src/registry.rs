@@ -178,7 +178,7 @@ impl<'reg> Registry<'reg> {
     /// Return dev mode state, default is false
     ///
     /// With dev mode turned on, handlebars enables a set of development
-    /// firendly features, that may affect its performance.
+    /// friendly features, that may affect its performance.
     pub fn dev_mode(&self) -> bool {
         self.dev_mode
     }
@@ -186,9 +186,17 @@ impl<'reg> Registry<'reg> {
     /// Enable or disable dev mode
     ///
     /// With dev mode turned on, handlebars enables a set of development
-    /// firendly features, that may affect its performance.
+    /// friendly features, that may affect its performance.
+    ///
+    /// **Note that you have to enable dev mode before adding templates to
+    /// the registry**. Otherwise it won't take effect at all.
     pub fn set_dev_mode(&mut self, enabled: bool) {
         self.dev_mode = enabled;
+
+        // clear template source when disabling dev mode
+        if !enabled {
+            self.template_sources.clear();
+        }
     }
 
     /// Register a `Template`
@@ -196,6 +204,9 @@ impl<'reg> Registry<'reg> {
     /// This is infallible since the template has already been parsed and
     /// insert cannot fail. If there is an existing template with this name it
     /// will be overwritten.
+    ///
+    /// Dev mode doesn't apply for pre-compiled template because it's lifecycle
+    /// is not managed by the registry.
     pub fn register_template(&mut self, name: &str, tpl: Template) {
         self.templates.insert(name.to_string(), tpl);
     }
@@ -227,7 +238,10 @@ impl<'reg> Registry<'reg> {
         self.register_template_string(name, partial_str)
     }
 
-    /// Register a template from a path
+    /// Register a template from a path on file system
+    ///
+    /// If dev mode is enabled, the registry will keep reading the template file
+    /// from file system everytime it's visited.
     pub fn register_template_file<P>(
         &mut self,
         name: &str,
@@ -262,6 +276,9 @@ impl<'reg> Registry<'reg> {
     ///
     /// This method is not available by default.
     /// You will need to enable the `dir_source` feature to use it.
+    ///
+    /// When dev_mode enabled, like `register_template_file`, templates is reloaded
+    /// from file system everytime it's visied.
     #[cfg(feature = "dir_source")]
     #[cfg_attr(docsrs, doc(cfg(feature = "dir_source")))]
     pub fn register_templates_directory<P>(
@@ -308,6 +325,7 @@ impl<'reg> Registry<'reg> {
     /// Remove a template from the registry
     pub fn unregister_template(&mut self, name: &str) {
         self.templates.remove(name);
+        self.template_sources.remove(name);
     }
 
     /// Register a helper
@@ -335,7 +353,6 @@ impl<'reg> Registry<'reg> {
     /// (value * 100).to_string() + label
     /// ```
     ///
-    ///
     #[cfg(feature = "script_helper")]
     #[cfg_attr(docsrs, doc(cfg(feature = "script_helper")))]
     pub fn register_script_helper(&mut self, name: &str, script: &str) -> Result<(), ScriptError> {
@@ -347,6 +364,9 @@ impl<'reg> Registry<'reg> {
     }
 
     /// Register a [rhai](https://docs.rs/rhai/) script from file
+    ///
+    /// When dev mode is enable, script file is reloaded from original file
+    /// everytime it is called.
     #[cfg(feature = "script_helper")]
     #[cfg_attr(docsrs, doc(cfg(feature = "script_helper")))]
     pub fn register_script_helper_file<P>(
@@ -363,6 +383,22 @@ impl<'reg> Registry<'reg> {
         self.script_sources
             .insert(name.to_owned(), Arc::new(source));
         self.register_script_helper(name, &script)
+    }
+
+    /// Borrow a read-only reference to current rhai engine
+    #[cfg(feature = "script_helper")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "script_helper")))]
+    pub fn engine(&self) -> &Engine {
+        self.engine.as_ref()
+    }
+
+    /// Set a custom rhai engine for the registry.
+    ///
+    /// *Note that* you need to set custom engine before adding scripts.
+    #[cfg(feature = "script_helper")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "script_helper")))]
+    pub fn set_engine(&mut self, engine: Engine) {
+        self.engine = Arc::new(engine);
     }
 
     /// Register a decorator
@@ -433,6 +469,7 @@ impl<'reg> Registry<'reg> {
     }
 
     /// Return a registered helper
+    #[inline]
     pub(crate) fn get_or_load_helper(
         &'reg self,
         name: &str,
@@ -460,6 +497,7 @@ impl<'reg> Registry<'reg> {
     }
 
     /// Return a registered decorator
+    #[inline]
     pub(crate) fn get_decorator(
         &self,
         name: &str,
@@ -468,6 +506,10 @@ impl<'reg> Registry<'reg> {
     }
 
     /// Return all templates registered
+    ///
+    /// **Note that** in dev mode, the template returned from this method may
+    /// not reflect its latest state. This method doesn't try to reload templates
+    /// from its source.
     pub fn get_templates(&self) -> &HashMap<String, Template> {
         &self.templates
     }
@@ -475,6 +517,7 @@ impl<'reg> Registry<'reg> {
     /// Unregister all templates
     pub fn clear_templates(&mut self) {
         self.templates.clear();
+        self.template_sources.clear();
     }
 
     #[inline]
@@ -489,7 +532,7 @@ impl<'reg> Registry<'reg> {
     {
         self.get_or_load_template(name).and_then(|t| {
             let mut render_context = RenderContext::new(t.name.as_ref());
-            t.render(self, &ctx, &mut render_context, output)
+            t.render(self, ctx, &mut render_context, output)
         })
     }
 
@@ -548,7 +591,7 @@ impl<'reg> Registry<'reg> {
         let mut out = StringOutput::new();
         {
             let mut render_context = RenderContext::new(None);
-            tpl.render(self, &ctx, &mut render_context, &mut out)?;
+            tpl.render(self, ctx, &mut render_context, &mut out)?;
         }
 
         out.into_string().map_err(RenderError::from)
@@ -1088,5 +1131,18 @@ mod test {
         );
 
         dir.close().unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "script_helper")]
+    fn test_engine_access() {
+        use rhai::Engine;
+
+        let mut registry = Registry::new();
+        let mut eng = Engine::new();
+        eng.set_max_string_size(1000);
+        registry.set_engine(eng);
+
+        assert_eq!(1000, registry.engine().max_string_size());
     }
 }

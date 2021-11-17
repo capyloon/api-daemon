@@ -13,17 +13,16 @@
 //! ```no_run
 //! # #[cfg(all(feature = "client", feature = "http1", feature = "runtime"))]
 //! # mod rt {
+//! use tower::ServiceExt;
 //! use http::{Request, StatusCode};
-//! use hyper::{client::conn::Builder, Body};
+//! use hyper::{client::conn, Body};
 //! use tokio::net::TcpStream;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let target_stream = TcpStream::connect("example.com:80").await?;
 //!
-//!     let (mut request_sender, connection) = Builder::new()
-//!         .handshake::<TcpStream, Body>(target_stream)
-//!         .await?;
+//!     let (mut request_sender, connection) = conn::handshake(target_stream).await?;
 //!
 //!     // spawn a task to poll the connection and drive the HTTP state
 //!     tokio::spawn(async move {
@@ -33,11 +32,20 @@
 //!     });
 //!
 //!     let request = Request::builder()
-//!     // We need to manually add the host header because SendRequest does not
+//!         // We need to manually add the host header because SendRequest does not
 //!         .header("Host", "example.com")
 //!         .method("GET")
 //!         .body(Body::from(""))?;
+//!     let response = request_sender.send_request(request).await?;
+//!     assert!(response.status() == StatusCode::OK);
 //!
+//!     // To send via the same connection again, it may not work as it may not be ready,
+//!     // so we have to wait until the request_sender becomes ready.
+//!     request_sender.ready().await?;
+//!     let request = Request::builder()
+//!         .header("Host", "example.com")
+//!         .method("GET")
+//!         .body(Body::from(""))?;
 //!     let response = request_sender.send_request(request).await?;
 //!     assert!(response.status() == StatusCode::OK);
 //!     Ok(())
@@ -60,6 +68,7 @@ use httparse::ParserConfig;
 use pin_project_lite::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tower_service::Service;
+use tracing::{debug, trace};
 
 use super::dispatch;
 use crate::body::HttpBody;
@@ -108,6 +117,7 @@ pin_project! {
 /// Returns a handshake future over some IO.
 ///
 /// This is a shortcut for `Builder::new().handshake(io)`.
+/// See [`client::conn`](crate::client::conn) for more.
 pub async fn handshake<T>(
     io: T,
 ) -> crate::Result<(SendRequest<crate::Body>, Connection<T, crate::Body>)>
@@ -143,6 +153,7 @@ pub struct Builder {
     pub(super) exec: Exec,
     h09_responses: bool,
     h1_parser_config: ParserConfig,
+    h1_writev: Option<bool>,
     h1_title_case_headers: bool,
     h1_preserve_header_case: bool,
     h1_read_buf_exact_size: Option<usize>,
@@ -525,6 +536,7 @@ impl Builder {
         Builder {
             exec: Exec::Default,
             h09_responses: false,
+            h1_writev: None,
             h1_read_buf_exact_size: None,
             h1_parser_config: Default::default(),
             h1_title_case_headers: false,
@@ -550,12 +562,34 @@ impl Builder {
         self
     }
 
-    pub(super) fn h09_responses(&mut self, enabled: bool) -> &mut Builder {
+    /// Set whether HTTP/0.9 responses should be tolerated.
+    ///
+    /// Default is false.
+    pub fn http09_responses(&mut self, enabled: bool) -> &mut Builder {
         self.h09_responses = enabled;
         self
     }
 
-    pub(crate) fn h1_allow_spaces_after_header_name_in_responses(
+    /// Set whether HTTP/1 connections will accept spaces between header names
+    /// and the colon that follow them in responses.
+    ///
+    /// You probably don't need this, here is what [RFC 7230 Section 3.2.4.] has
+    /// to say about it:
+    ///
+    /// > No whitespace is allowed between the header field-name and colon. In
+    /// > the past, differences in the handling of such whitespace have led to
+    /// > security vulnerabilities in request routing and response handling. A
+    /// > server MUST reject any received request message that contains
+    /// > whitespace between a header field-name and colon with a response code
+    /// > of 400 (Bad Request). A proxy MUST remove any such whitespace from a
+    /// > response message before forwarding the message downstream.
+    ///
+    /// Note that this setting does not affect HTTP/2.
+    ///
+    /// Default is false.
+    ///
+    /// [RFC 7230 Section 3.2.4.]: https://tools.ietf.org/html/rfc7230#section-3.2.4
+    pub fn http1_allow_spaces_after_header_name_in_responses(
         &mut self,
         enabled: bool,
     ) -> &mut Builder {
@@ -564,24 +598,75 @@ impl Builder {
         self
     }
 
-    pub(super) fn h1_title_case_headers(&mut self, enabled: bool) -> &mut Builder {
+    /// Set whether HTTP/1 connections should try to use vectored writes,
+    /// or always flatten into a single buffer.
+    ///
+    /// Note that setting this to false may mean more copies of body data,
+    /// but may also improve performance when an IO transport doesn't
+    /// support vectored writes well, such as most TLS implementations.
+    ///
+    /// Setting this to true will force hyper to use queued strategy
+    /// which may eliminate unnecessary cloning on some TLS backends
+    ///
+    /// Default is `auto`. In this mode hyper will try to guess which
+    /// mode to use
+    pub fn http1_writev(&mut self, enabled: bool) -> &mut Builder {
+        self.h1_writev = Some(enabled);
+        self
+    }
+
+    /// Set whether HTTP/1 connections will write header names as title case at
+    /// the socket level.
+    ///
+    /// Note that this setting does not affect HTTP/2.
+    ///
+    /// Default is false.
+    pub fn http1_title_case_headers(&mut self, enabled: bool) -> &mut Builder {
         self.h1_title_case_headers = enabled;
         self
     }
 
-    pub(crate) fn h1_preserve_header_case(&mut self, enabled: bool) -> &mut Builder {
+    /// Set whether to support preserving original header cases.
+    ///
+    /// Currently, this will record the original cases received, and store them
+    /// in a private extension on the `Response`. It will also look for and use
+    /// such an extension in any provided `Request`.
+    ///
+    /// Since the relevant extension is still private, there is no way to
+    /// interact with the original cases. The only effect this can have now is
+    /// to forward the cases in a proxy-like fashion.
+    ///
+    /// Note that this setting does not affect HTTP/2.
+    ///
+    /// Default is false.
+    pub fn http1_preserve_header_case(&mut self, enabled: bool) -> &mut Builder {
         self.h1_preserve_header_case = enabled;
         self
     }
 
-    pub(super) fn h1_read_buf_exact_size(&mut self, sz: Option<usize>) -> &mut Builder {
+    /// Sets the exact size of the read buffer to *always* use.
+    ///
+    /// Note that setting this option unsets the `http1_max_buf_size` option.
+    ///
+    /// Default is an adaptive read buffer.
+    pub fn http1_read_buf_exact_size(&mut self, sz: Option<usize>) -> &mut Builder {
         self.h1_read_buf_exact_size = sz;
         self.h1_max_buf_size = None;
         self
     }
 
+    /// Set the maximum buffer size for the connection.
+    ///
+    /// Default is ~400kb.
+    ///
+    /// Note that setting this option unsets the `http1_read_exact_buf_size` option.
+    ///
+    /// # Panics
+    ///
+    /// The minimum value allowed is 8192. This method panics if the passed `max` is less than the minimum.
     #[cfg(feature = "http1")]
-    pub(super) fn h1_max_buf_size(&mut self, max: usize) -> &mut Self {
+    #[cfg_attr(docsrs, doc(cfg(feature = "http1")))]
+    pub fn http1_max_buf_size(&mut self, max: usize) -> &mut Self {
         assert!(
             max >= proto::h1::MINIMUM_MAX_BUFFER_SIZE,
             "the max_buf_size cannot be smaller than the minimum that h1 specifies."
@@ -753,6 +838,10 @@ impl Builder {
     }
 
     /// Constructs a connection with the configured options and IO.
+    /// See [`client::conn`](crate::client::conn) for more.
+    ///
+    /// Note, if [`Connection`] is not `await`-ed, [`SendRequest`] will
+    /// do nothing.
     pub fn handshake<T, B>(
         &self,
         io: T,
@@ -774,6 +863,13 @@ impl Builder {
                 Proto::Http1 => {
                     let mut conn = proto::Conn::new(io);
                     conn.set_h1_parser_config(opts.h1_parser_config);
+                    if let Some(writev) = opts.h1_writev {
+                        if writev {
+                            conn.set_write_strategy_queue();
+                        } else {
+                            conn.set_write_strategy_flatten();
+                        }
+                    }
                     if opts.h1_title_case_headers {
                         conn.set_title_case_headers();
                     }

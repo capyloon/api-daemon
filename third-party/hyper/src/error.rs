@@ -38,11 +38,7 @@ pub(super) enum Kind {
     #[allow(unused)]
     Connect,
     /// Error creating a TcpListener.
-    #[cfg(all(
-        any(feature = "http1", feature = "http2"),
-        feature = "tcp",
-        feature = "server"
-    ))]
+    #[cfg(all(feature = "tcp", feature = "server"))]
     Listen,
     /// Error accepting on an Incoming stream.
     #[cfg(any(feature = "http1", feature = "http2"))]
@@ -84,7 +80,7 @@ pub(super) enum Header {
     Token,
     #[cfg(feature = "http1")]
     ContentLengthInvalid,
-    #[cfg(feature = "http1")]
+    #[cfg(all(feature = "http1", feature = "server"))]
     TransferEncodingInvalid,
     #[cfg(feature = "http1")]
     TransferEncodingUnexpected,
@@ -131,6 +127,10 @@ pub(super) enum User {
     /// User polled for an upgrade, but low-level API is not using upgrades.
     #[cfg(feature = "http1")]
     ManualUpgrade,
+
+    /// User called `server::Connection::without_shutdown()` on an HTTP/2 conn.
+    #[cfg(feature = "server")]
+    WithoutShutdownNonHttp1,
 
     /// User aborted in an FFI callback.
     #[cfg(feature = "ffi")]
@@ -214,7 +214,7 @@ impl Error {
         &self.inner.kind
     }
 
-    fn find_source<E: StdError + 'static>(&self) -> Option<&E> {
+    pub(crate) fn find_source<E: StdError + 'static>(&self) -> Option<&E> {
         let mut cause = self.source();
         while let Some(err) = cause {
             if let Some(ref typed) = err.downcast_ref() {
@@ -265,8 +265,7 @@ impl Error {
         Error::new(Kind::Io).with(cause)
     }
 
-    #[cfg(all(any(feature = "http1", feature = "http2"), feature = "tcp"))]
-    #[cfg(feature = "server")]
+    #[cfg(all(feature = "server", feature = "tcp"))]
     pub(super) fn new_listen<E: Into<Cause>>(cause: E) -> Error {
         Error::new(Kind::Listen).with(cause)
     }
@@ -360,6 +359,11 @@ impl Error {
         Error::new_user(User::Body).with(cause)
     }
 
+    #[cfg(feature = "server")]
+    pub(super) fn new_without_shutdown_not_h1() -> Error {
+        Error::new(Kind::User(User::WithoutShutdownNonHttp1))
+    }
+
     #[cfg(feature = "http1")]
     pub(super) fn new_shutdown(cause: std::io::Error) -> Error {
         Error::new(Kind::Shutdown).with(cause)
@@ -391,7 +395,7 @@ impl Error {
             Kind::Parse(Parse::Header(Header::ContentLengthInvalid)) => {
                 "invalid content-length parsed"
             }
-            #[cfg(feature = "http1")]
+            #[cfg(all(feature = "http1", feature = "server"))]
             Kind::Parse(Parse::Header(Header::TransferEncodingInvalid)) => {
                 "invalid transfer-encoding parsed"
             }
@@ -410,8 +414,7 @@ impl Error {
             Kind::ChannelClosed => "channel closed",
             Kind::Connect => "error trying to connect",
             Kind::Canceled => "operation was canceled",
-            #[cfg(all(any(feature = "http1", feature = "http2"), feature = "tcp"))]
-            #[cfg(feature = "server")]
+            #[cfg(all(feature = "server", feature = "tcp"))]
             Kind::Listen => "error creating server listener",
             #[cfg(any(feature = "http1", feature = "http2"))]
             #[cfg(feature = "server")]
@@ -455,6 +458,10 @@ impl Error {
             Kind::User(User::NoUpgrade) => "no upgrade available",
             #[cfg(feature = "http1")]
             Kind::User(User::ManualUpgrade) => "upgrade expected but low level API in use",
+            #[cfg(feature = "server")]
+            Kind::User(User::WithoutShutdownNonHttp1) => {
+                "without_shutdown() called on a non-HTTP/1 connection"
+            }
             #[cfg(feature = "ffi")]
             Kind::User(User::AbortedByCallback) => "operation aborted by an application callback",
         }
@@ -504,6 +511,7 @@ impl Parse {
         Parse::Header(Header::ContentLengthInvalid)
     }
 
+    #[cfg(all(feature = "http1", feature = "server"))]
     pub(crate) fn transfer_encoding_invalid() -> Self {
         Parse::Header(Header::TransferEncodingInvalid)
     }

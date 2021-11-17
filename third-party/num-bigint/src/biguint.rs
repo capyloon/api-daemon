@@ -395,7 +395,7 @@ impl Roots for BigUint {
                 // Try to guess by scaling down such that it does fit in `f64`.
                 // With some (x * 2ⁿᵏ), its nth root ≈ (ⁿ√x * 2ᵏ)
                 let extra_bits = bits - (core::f64::MAX_EXP as u64 - 1);
-                let root_scale = extra_bits.div_ceil(&n64);
+                let root_scale = Integer::div_ceil(&extra_bits, &n64);
                 let scale = root_scale * n64;
                 if scale < bits && bits - scale > n64 {
                     (self >> scale).nth_root(n) << root_scale
@@ -846,8 +846,9 @@ impl BigUint {
     /// be nonzero.
     #[inline]
     fn normalize(&mut self) {
-        while let Some(&0) = self.data.last() {
-            self.data.pop();
+        if let Some(&0) = self.data.last() {
+            let len = self.data.iter().rposition(|&d| d != 0).map_or(0, |i| i + 1);
+            self.data.truncate(len);
         }
         if self.data.len() < self.data.capacity() / 4 {
             self.data.shrink_to_fit();

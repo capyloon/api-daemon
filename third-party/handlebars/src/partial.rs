@@ -20,7 +20,7 @@ fn find_partial<'reg: 'rc, 'rc: 'a, 'a>(
     d: &Decorator<'reg, 'rc>,
     name: &str,
 ) -> Result<Option<Cow<'a, Template>>, RenderError> {
-    if let Some(ref partial) = rc.get_partial(name) {
+    if let Some(partial) = rc.get_partial(name) {
         return Ok(Some(Cow::Borrowed(partial)));
     }
 
@@ -67,7 +67,7 @@ pub fn expand_partial<'reg: 'rc, 'rc>(
 
         let mut block_created = false;
 
-        if let Some(ref base_path) = d.param(0).and_then(|p| p.context_path()) {
+        if let Some(base_path) = d.param(0).and_then(|p| p.context_path()) {
             // path given, update base_path
             let mut block = BlockContext::new();
             *block.base_path_mut() = base_path.to_vec();
@@ -328,6 +328,33 @@ mod test {
         assert_eq!(
             handlebars.render("outer", &data).unwrap(),
             "fruit: carrot,fruit: tomato,"
+        );
+    }
+
+    #[test]
+    fn line_stripping_with_inline_and_partial() {
+        let tpl0 = r#"{{#*inline "foo"}}foo
+{{/inline}}
+{{> foo}}
+{{> foo}}
+{{> foo}}"#;
+        let tpl1 = r#"{{#*inline "foo"}}foo{{/inline}}
+{{> foo}}
+{{> foo}}
+{{> foo}}"#;
+
+        let hbs = Registry::new();
+        assert_eq!(
+            r#"foo
+foo
+foo
+"#,
+            hbs.render_template(tpl0, &json!({})).unwrap()
+        );
+        assert_eq!(
+            r#"
+foofoofoo"#,
+            hbs.render_template(tpl1, &json!({})).unwrap()
         );
     }
 }

@@ -1,4 +1,4 @@
-#![doc(html_root_url = "https://docs.rs/handlebars/4.1.0")]
+#![doc(html_root_url = "https://docs.rs/handlebars/4.1.5")]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //! # Handlebars
 //!
@@ -73,7 +73,7 @@
 //! Every time I look into a templating system, I will investigate its
 //! support for [template inheritance][t].
 //!
-//! [t]: https://docs.djangoproject.com/en/1.9/ref/templates/language/#template-inheritance
+//! [t]: https://docs.djangoproject.com/en/3.2/ref/templates/language/#template-inheritance
 //!
 //! Template include is not sufficient for template reuse. In most cases
 //! you will need a skeleton of page as parent (header, footer, etc.), and
@@ -155,7 +155,7 @@
 //! use handlebars::Handlebars;
 //! use std::collections::BTreeMap;
 //!
-//! # fn main() -> Result<(), Box<Error>> {
+//! # fn main() -> Result<(), Box<dyn Error>> {
 //!   let mut handlebars = Handlebars::new();
 //!   let source = "hello {{world}}";
 //!
@@ -188,7 +188,7 @@
 //!   age: i16,
 //! }
 //!
-//! # fn main() -> Result<(), Box<Error>> {
+//! # fn main() -> Result<(), Box<dyn Error>> {
 //!   let source = "Hello, {{name}}";
 //!
 //!   let mut handlebars = Handlebars::new();

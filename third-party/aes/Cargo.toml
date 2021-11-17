@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "aes"
-version = "0.7.4"
+version = "0.7.5"
 authors = ["RustCrypto Developers"]
 description = "Pure Rust implementation of the Advanced Encryption Standard (a.k.a. Rijndael)\nincluding support for AES in counter mode (a.k.a. AES-CTR)\n"
 documentation = "https://docs.rs/aes"
@@ -32,7 +32,7 @@ version = "1"
 version = "0.3"
 
 [dependencies.ctr]
-version = "0.7"
+version = "0.8"
 optional = true
 
 [dependencies.opaque-debug]
@@ -50,4 +50,4 @@ compact = []
 force-soft = []
 hazmat = []
 [target."cfg(any(target_arch = \"aarch64\", target_arch = \"x86_64\", target_arch = \"x86\"))".dependencies.cpufeatures]
-version = "0.1.4"
+version = "0.2"

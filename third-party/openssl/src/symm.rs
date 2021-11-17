@@ -279,15 +279,35 @@ impl Cipher {
     }
 
     /// Requires OpenSSL 1.1.0 or newer.
-    #[cfg(any(ossl110))]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_CHACHA")))]
     pub fn chacha20() -> Cipher {
         unsafe { Cipher(ffi::EVP_chacha20()) }
     }
 
     /// Requires OpenSSL 1.1.0 or newer.
-    #[cfg(any(ossl110))]
+    #[cfg(all(ossl110, not(osslconf = "OPENSSL_NO_CHACHA")))]
     pub fn chacha20_poly1305() -> Cipher {
         unsafe { Cipher(ffi::EVP_chacha20_poly1305()) }
+    }
+
+    #[cfg(not(osslconf = "OPENSSL_NO_SEED"))]
+    pub fn seed_cbc() -> Cipher {
+        unsafe { Cipher(ffi::EVP_seed_cbc()) }
+    }
+
+    #[cfg(not(osslconf = "OPENSSL_NO_SEED"))]
+    pub fn seed_cfb128() -> Cipher {
+        unsafe { Cipher(ffi::EVP_seed_cfb128()) }
+    }
+
+    #[cfg(not(osslconf = "OPENSSL_NO_SEED"))]
+    pub fn seed_ecb() -> Cipher {
+        unsafe { Cipher(ffi::EVP_seed_ecb()) }
+    }
+
+    #[cfg(not(osslconf = "OPENSSL_NO_SEED"))]
+    pub fn seed_ofb() -> Cipher {
+        unsafe { Cipher(ffi::EVP_seed_ofb()) }
     }
 
     /// Creates a `Cipher` from a raw pointer to its OpenSSL type.
@@ -426,7 +446,7 @@ unsafe impl Sync for Crypter {}
 unsafe impl Send for Crypter {}
 
 impl Crypter {
-    /// Creates a new `Crypter`.  The initialisation vector, `iv`, is not necesarry for certain
+    /// Creates a new `Crypter`.  The initialisation vector, `iv`, is not necessary for certain
     /// types of `Cipher`.
     ///
     /// # Panics
@@ -681,7 +701,7 @@ impl Drop for Crypter {
 /// Encrypts data in one go, and returns the encrypted data.
 ///
 /// Data is encrypted using the specified cipher type `t` in encrypt mode with the specified `key`
-/// and initailization vector `iv`. Padding is enabled.
+/// and initialization vector `iv`. Padding is enabled.
 ///
 /// This is a convenient interface to `Crypter` to encrypt all data in one go.  To encrypt a stream
 /// of data increamentally , use `Crypter` instead.
@@ -720,7 +740,7 @@ pub fn encrypt(
 /// Decrypts data in one go, and returns the decrypted data.
 ///
 /// Data is decrypted using the specified cipher type `t` in decrypt mode with the specified `key`
-/// and initailization vector `iv`. Padding is enabled.
+/// and initialization vector `iv`. Padding is enabled.
 ///
 /// This is a convenient interface to `Crypter` to decrypt all data in one go.  To decrypt a  stream
 /// of data increamentally , use `Crypter` instead.
@@ -1559,5 +1579,47 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pt, hex::encode(out));
+    }
+
+    #[test]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_SEED", ossl300)))]
+    fn test_seed_cbc() {
+        let pt = "5363686f6b6f6c6164656e6b756368656e0a";
+        let ct = "c2edf0fb2eb11bf7b2f39417a8528896d34b24b6fd79e5923b116dfcd2aba5a4";
+        let key = "41414141414141414141414141414141";
+        let iv = "41414141414141414141414141414141";
+
+        cipher_test(super::Cipher::seed_cbc(), pt, ct, key, iv);
+    }
+
+    #[test]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_SEED", ossl300)))]
+    fn test_seed_cfb128() {
+        let pt = "5363686f6b6f6c6164656e6b756368656e0a";
+        let ct = "71d4d25fc1750cb7789259e7f34061939a41";
+        let key = "41414141414141414141414141414141";
+        let iv = "41414141414141414141414141414141";
+
+        cipher_test(super::Cipher::seed_cfb128(), pt, ct, key, iv);
+    }
+    #[test]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_SEED", ossl300)))]
+    fn test_seed_ecb() {
+        let pt = "5363686f6b6f6c6164656e6b756368656e0a";
+        let ct = "0263a9cd498cf0edb0ef72a3231761d00ce601f7d08ad19ad74f0815f2c77f7e";
+        let key = "41414141414141414141414141414141";
+        let iv = "41414141414141414141414141414141";
+
+        cipher_test(super::Cipher::seed_ecb(), pt, ct, key, iv);
+    }
+    #[test]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_SEED", ossl300)))]
+    fn test_seed_ofb() {
+        let pt = "5363686f6b6f6c6164656e6b756368656e0a";
+        let ct = "71d4d25fc1750cb7789259e7f34061930afd";
+        let key = "41414141414141414141414141414141";
+        let iv = "41414141414141414141414141414141";
+
+        cipher_test(super::Cipher::seed_ofb(), pt, ct, key, iv);
     }
 }

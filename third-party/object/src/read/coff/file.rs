@@ -1,8 +1,7 @@
 use alloc::vec::Vec;
-use core::str;
 
 use crate::read::{
-    self, Architecture, Export, FileFlags, Import, NoDynamicRelocationIterator, Object,
+    self, Architecture, Export, FileFlags, Import, NoDynamicRelocationIterator, Object, ObjectKind,
     ObjectSection, ReadError, ReadRef, Result, SectionIndex, SymbolIndex,
 };
 use crate::{pe, LittleEndian as LE};
@@ -15,10 +14,10 @@ use super::{
 
 /// The common parts of `PeFile` and `CoffFile`.
 #[derive(Debug)]
-pub(crate) struct CoffCommon<'data> {
+pub(crate) struct CoffCommon<'data, R: ReadRef<'data>> {
     pub(crate) sections: SectionTable<'data>,
     // TODO: ImageSymbolExBytes
-    pub(crate) symbols: SymbolTable<'data>,
+    pub(crate) symbols: SymbolTable<'data, R>,
     pub(crate) image_base: u64,
 }
 
@@ -26,7 +25,7 @@ pub(crate) struct CoffCommon<'data> {
 #[derive(Debug)]
 pub struct CoffFile<'data, R: ReadRef<'data> = &'data [u8]> {
     pub(super) header: &'data pe::ImageFileHeader,
-    pub(super) common: CoffCommon<'data>,
+    pub(super) common: CoffCommon<'data, R>,
     pub(super) data: R,
 }
 
@@ -63,9 +62,9 @@ where
     type SectionIterator = CoffSectionIterator<'data, 'file, R>;
     type Comdat = CoffComdat<'data, 'file, R>;
     type ComdatIterator = CoffComdatIterator<'data, 'file, R>;
-    type Symbol = CoffSymbol<'data, 'file>;
-    type SymbolIterator = CoffSymbolIterator<'data, 'file>;
-    type SymbolTable = CoffSymbolTable<'data, 'file>;
+    type Symbol = CoffSymbol<'data, 'file, R>;
+    type SymbolIterator = CoffSymbolIterator<'data, 'file, R>;
+    type SymbolTable = CoffSymbolTable<'data, 'file, R>;
     type DynamicRelocationIterator = NoDynamicRelocationIterator;
 
     fn architecture(&self) -> Architecture {
@@ -89,6 +88,10 @@ where
         false
     }
 
+    fn kind(&self) -> ObjectKind {
+        ObjectKind::Relocatable
+    }
+
     fn segments(&'file self) -> CoffSegmentIterator<'data, 'file, R> {
         CoffSegmentIterator {
             file: self,
@@ -96,9 +99,12 @@ where
         }
     }
 
-    fn section_by_name(&'file self, section_name: &str) -> Option<CoffSection<'data, 'file, R>> {
+    fn section_by_name_bytes(
+        &'file self,
+        section_name: &[u8],
+    ) -> Option<CoffSection<'data, 'file, R>> {
         self.sections()
-            .find(|section| section.name() == Ok(section_name))
+            .find(|section| section.name_bytes() == Ok(section_name))
     }
 
     fn section_by_index(&'file self, index: SectionIndex) -> Result<CoffSection<'data, 'file, R>> {
@@ -124,7 +130,7 @@ where
         }
     }
 
-    fn symbol_by_index(&'file self, index: SymbolIndex) -> Result<CoffSymbol<'data, 'file>> {
+    fn symbol_by_index(&'file self, index: SymbolIndex) -> Result<CoffSymbol<'data, 'file, R>> {
         let symbol = self.common.symbols.symbol(index.0)?;
         Ok(CoffSymbol {
             file: &self.common,
@@ -133,7 +139,7 @@ where
         })
     }
 
-    fn symbols(&'file self) -> CoffSymbolIterator<'data, 'file> {
+    fn symbols(&'file self) -> CoffSymbolIterator<'data, 'file, R> {
         CoffSymbolIterator {
             file: &self.common,
             index: 0,
@@ -141,11 +147,11 @@ where
     }
 
     #[inline]
-    fn symbol_table(&'file self) -> Option<CoffSymbolTable<'data, 'file>> {
+    fn symbol_table(&'file self) -> Option<CoffSymbolTable<'data, 'file, R>> {
         Some(CoffSymbolTable { file: &self.common })
     }
 
-    fn dynamic_symbols(&'file self) -> CoffSymbolIterator<'data, 'file> {
+    fn dynamic_symbols(&'file self) -> CoffSymbolIterator<'data, 'file, R> {
         CoffSymbolIterator {
             file: &self.common,
             // Hack: don't return any.
@@ -154,7 +160,7 @@ where
     }
 
     #[inline]
-    fn dynamic_symbol_table(&'file self) -> Option<CoffSymbolTable<'data, 'file>> {
+    fn dynamic_symbol_table(&'file self) -> Option<CoffSymbolTable<'data, 'file, R>> {
         None
     }
 
@@ -232,7 +238,10 @@ impl pe::ImageFileHeader {
     ///
     /// `data` must be the entire file data.
     #[inline]
-    pub fn symbols<'data, R: ReadRef<'data>>(&self, data: R) -> read::Result<SymbolTable<'data>> {
+    pub fn symbols<'data, R: ReadRef<'data>>(
+        &self,
+        data: R,
+    ) -> read::Result<SymbolTable<'data, R>> {
         SymbolTable::parse(self, data)
     }
 }

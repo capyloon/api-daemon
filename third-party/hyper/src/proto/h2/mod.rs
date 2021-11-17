@@ -1,9 +1,6 @@
 use bytes::{Buf, Bytes};
-use h2::{RecvStream, SendStream};
-use http::header::{
-    HeaderName, CONNECTION, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION, TE, TRAILER,
-    TRANSFER_ENCODING, UPGRADE,
-};
+use h2::{Reason, RecvStream, SendStream};
+use http::header::{HeaderName, CONNECTION, TE, TRAILER, TRANSFER_ENCODING, UPGRADE};
 use http::HeaderMap;
 use pin_project_lite::pin_project;
 use std::error::Error as StdError;
@@ -11,6 +8,7 @@ use std::io::{self, Cursor, IoSlice};
 use std::mem;
 use std::task::Context;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tracing::{debug, trace, warn};
 
 use crate::body::HttpBody;
 use crate::common::{task, Future, Pin, Poll};
@@ -40,8 +38,6 @@ fn strip_connection_headers(headers: &mut HeaderMap, is_request: bool) {
     let connection_headers = [
         HeaderName::from_lowercase(b"keep-alive").unwrap(),
         HeaderName::from_lowercase(b"proxy-connection").unwrap(),
-        PROXY_AUTHENTICATE,
-        PROXY_AUTHORIZATION,
         TRAILER,
         TRANSFER_ENCODING,
         UPGRADE,
@@ -318,7 +314,13 @@ where
                         break buf;
                     }
                     Some(Err(e)) => {
-                        return Poll::Ready(Err(h2_to_io_error(e)));
+                        return Poll::Ready(match e.reason() {
+                            Some(Reason::NO_ERROR) | Some(Reason::CANCEL) => Ok(()),
+                            Some(Reason::STREAM_CLOSED) => {
+                                Err(io::Error::new(io::ErrorKind::BrokenPipe, e))
+                            }
+                            _ => Err(h2_to_io_error(e)),
+                        })
                     }
                 }
             };
@@ -340,21 +342,36 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        if let Poll::Ready(reset) = self.send_stream.poll_reset(cx) {
-            return Poll::Ready(Err(h2_to_io_error(match reset {
-                Ok(reason) => reason.into(),
-                Err(e) => e,
-            })));
-        }
         if buf.is_empty() {
             return Poll::Ready(Ok(0));
         }
         self.send_stream.reserve_capacity(buf.len());
-        Poll::Ready(match ready!(self.send_stream.poll_capacity(cx)) {
-            None => Ok(0),
-            Some(Ok(cnt)) => self.send_stream.write(&buf[..cnt], false).map(|()| cnt),
-            Some(Err(e)) => Err(h2_to_io_error(e)),
-        })
+
+        // We ignore all errors returned by `poll_capacity` and `write`, as we
+        // will get the correct from `poll_reset` anyway.
+        let cnt = match ready!(self.send_stream.poll_capacity(cx)) {
+            None => Some(0),
+            Some(Ok(cnt)) => self
+                .send_stream
+                .write(&buf[..cnt], false)
+                .ok()
+                .map(|()| cnt),
+            Some(Err(_)) => None,
+        };
+
+        if let Some(cnt) = cnt {
+            return Poll::Ready(Ok(cnt));
+        }
+
+        Poll::Ready(Err(h2_to_io_error(
+            match ready!(self.send_stream.poll_reset(cx)) {
+                Ok(Reason::NO_ERROR) | Ok(Reason::CANCEL) | Ok(Reason::STREAM_CLOSED) => {
+                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()))
+                }
+                Ok(reason) => reason.into(),
+                Err(e) => e,
+            },
+        )))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
@@ -363,9 +380,24 @@ where
 
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
-        Poll::Ready(self.send_stream.write(&[], true))
+        if self.send_stream.write(&[], true).is_ok() {
+            return Poll::Ready(Ok(()))
+        }
+
+        Poll::Ready(Err(h2_to_io_error(
+            match ready!(self.send_stream.poll_reset(cx)) {
+                Ok(Reason::NO_ERROR) => {
+                    return Poll::Ready(Ok(()))
+                }
+                Ok(Reason::CANCEL) | Ok(Reason::STREAM_CLOSED) => {
+                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()))
+                }
+                Ok(reason) => reason.into(),
+                Err(e) => e,
+            },
+        )))
     }
 }
 

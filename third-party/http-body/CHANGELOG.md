@@ -2,6 +2,14 @@
 
 None.
 
+# 0.4.4 (October 22, 2021)
+
+- Add `UnsyncBoxBody` and `Body::boxed_unsync`.
+
+# 0.4.3 (August 8, 2021)
+
+- Implement `Default` for `BoxBody`.
+
 # 0.4.2 (May 8, 2021)
 
 - Correctly override `Body::size_hint` and `Body::is_end_stream` for `Empty`.

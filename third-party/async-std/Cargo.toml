@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "async-std"
-version = "1.9.0"
+version = "1.10.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>", "Yoshua Wuyts <yoshuawuyts@gmail.com>", "Friedel Ziegelmayer <me@dignifiedquire.com>", "Contributors to async-std"]
 description = "Async version of the Rust standard library"
 homepage = "https://async.rs"

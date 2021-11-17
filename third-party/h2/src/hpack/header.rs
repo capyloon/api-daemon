@@ -5,7 +5,7 @@ use http::header::{HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use std::fmt;
 
-/// HTTP/2.0 Header
+/// HTTP/2 Header
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Header<T = HeaderName> {
     Field { name: T, value: HeaderValue },
@@ -246,8 +246,12 @@ impl<'a> Name<'a> {
 // ===== impl BytesStr =====
 
 impl BytesStr {
-    pub(crate) unsafe fn from_utf8_unchecked(bytes: Bytes) -> Self {
-        BytesStr(bytes)
+    pub(crate) const fn from_static(value: &'static str) -> Self {
+        BytesStr(Bytes::from_static(value.as_bytes()))
+    }
+
+    pub(crate) fn from(value: &str) -> Self {
+        BytesStr(Bytes::copy_from_slice(value.as_bytes()))
     }
 
     #[doc(hidden)]

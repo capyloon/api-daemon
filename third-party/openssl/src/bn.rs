@@ -108,6 +108,19 @@ impl BigNumContext {
             cvt_p(ffi::BN_CTX_new()).map(BigNumContext)
         }
     }
+
+    /// Returns a new secure `BigNumContext`.
+    ///
+    /// See OpenSSL documentation at [`BN_CTX_secure_new`].
+    ///
+    /// [`BN_CTX_secure_new`]: https://www.openssl.org/docs/man1.1.0/crypto/BN_CTX_secure_new.html
+    #[cfg(ossl110)]
+    pub fn new_secure() -> Result<BigNumContext, ErrorStack> {
+        unsafe {
+            ffi::init();
+            cvt_p(ffi::BN_CTX_secure_new()).map(BigNumContext)
+        }
+    }
 }
 
 foreign_type_and_impl_send_sync! {
@@ -120,7 +133,7 @@ foreign_type_and_impl_send_sync! {
     /// with [`new`].  Perform standard mathematics on large numbers using
     /// methods from [`Dref<Target = BigNumRef>`]
     ///
-    /// OpenSSL documenation at [`BN_new`].
+    /// OpenSSL documentation at [`BN_new`].
     ///
     /// [`new`]: struct.BigNum.html#method.new
     /// [`Dref<Target = BigNumRef>`]: struct.BigNum.html#deref-methods
@@ -885,6 +898,37 @@ impl BigNumRef {
         v
     }
 
+    /// Returns a big-endian byte vector representation of the absolute value of `self` padded
+    /// to `pad_to` bytes.
+    ///
+    /// If `pad_to` is less than `self.num_bytes()` then an error is returned.
+    ///
+    /// `self` can be recreated by using `from_slice`.
+    ///
+    /// ```
+    /// # use openssl::bn::BigNum;
+    /// let bn = BigNum::from_u32(0x4543).unwrap();
+    ///
+    /// let bn_vec = bn.to_vec_padded(4).unwrap();
+    /// assert_eq!(&bn_vec, &[0, 0, 0x45, 0x43]);
+    ///
+    /// let r = bn.to_vec_padded(1);
+    /// assert!(r.is_err());
+    ///
+    /// let bn = -BigNum::from_u32(0x4543).unwrap();
+    /// let bn_vec = bn.to_vec_padded(4).unwrap();
+    /// assert_eq!(&bn_vec, &[0, 0, 0x45, 0x43]);
+    /// ```
+    #[cfg(ossl110)]
+    pub fn to_vec_padded(&self, pad_to: i32) -> Result<Vec<u8>, ErrorStack> {
+        let mut v = Vec::with_capacity(pad_to as usize);
+        unsafe {
+            cvt(ffi::BN_bn2binpad(self.as_ptr(), v.as_mut_ptr(), pad_to))?;
+            v.set_len(pad_to as usize);
+        }
+        Ok(v)
+    }
+
     /// Returns a decimal string representation of `self`.
     ///
     /// ```
@@ -922,6 +966,30 @@ impl BigNumRef {
                 .map(|p| Asn1Integer::from_ptr(p))
         }
     }
+
+    /// Force constant time computation on this value.
+    #[cfg(ossl110)]
+    pub fn set_const_time(&mut self) {
+        unsafe { ffi::BN_set_flags(self.as_ptr(), ffi::BN_FLG_CONSTTIME) }
+    }
+
+    /// Returns true if `self` is in const time mode.
+    #[cfg(ossl110)]
+    pub fn is_const_time(&self) -> bool {
+        unsafe {
+            let ret = ffi::BN_get_flags(self.as_ptr(), ffi::BN_FLG_CONSTTIME);
+            ret == ffi::BN_FLG_CONSTTIME
+        }
+    }
+
+    /// Returns true if `self` was created with [`BigNum::new_secure`].
+    #[cfg(ossl110)]
+    pub fn is_secure(&self) -> bool {
+        unsafe {
+            let ret = ffi::BN_get_flags(self.as_ptr(), ffi::BN_FLG_SECURE);
+            ret == ffi::BN_FLG_SECURE
+        }
+    }
 }
 
 impl BigNum {
@@ -930,6 +998,20 @@ impl BigNum {
         unsafe {
             ffi::init();
             let v = cvt_p(ffi::BN_new())?;
+            Ok(BigNum::from_ptr(v))
+        }
+    }
+
+    /// Returns a new secure `BigNum`.
+    ///
+    /// See OpenSSL documentation at [`BN_secure_new`].
+    ///
+    /// [`BN_secure_new`]: https://www.openssl.org/docs/man1.1.0/crypto/BN_secure_new.html
+    #[cfg(ossl110)]
+    pub fn new_secure() -> Result<BigNum, ErrorStack> {
+        unsafe {
+            ffi::init();
+            let v = cvt_p(ffi::BN_secure_new())?;
             Ok(BigNum::from_ptr(v))
         }
     }
@@ -1427,5 +1509,39 @@ mod tests {
         let mut ctx = BigNumContext::new().unwrap();
         assert!(p.is_prime(100, &mut ctx).unwrap());
         assert!(p.is_prime_fasttest(100, &mut ctx, true).unwrap());
+    }
+
+    #[cfg(ossl110)]
+    #[test]
+    fn test_secure_bn_ctx() {
+        let mut cxt = BigNumContext::new_secure().unwrap();
+        let a = BigNum::from_u32(8).unwrap();
+        let b = BigNum::from_u32(3).unwrap();
+
+        let mut remainder = BigNum::new().unwrap();
+        remainder.nnmod(&a, &b, &mut cxt).unwrap();
+
+        assert!(remainder.eq(&BigNum::from_u32(2).unwrap()));
+    }
+
+    #[cfg(ossl110)]
+    #[test]
+    fn test_secure_bn() {
+        let a = BigNum::new().unwrap();
+        assert!(!a.is_secure());
+
+        let b = BigNum::new_secure().unwrap();
+        assert!(b.is_secure())
+    }
+
+    #[cfg(ossl110)]
+    #[test]
+    fn test_const_time_bn() {
+        let a = BigNum::new().unwrap();
+        assert!(!a.is_const_time());
+
+        let mut b = BigNum::new().unwrap();
+        b.set_const_time();
+        assert!(b.is_const_time())
     }
 }

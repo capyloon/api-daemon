@@ -61,13 +61,37 @@ struct Mapping {
     _stash: Stash,
 }
 
+enum Either<A, B> {
+    #[allow(dead_code)]
+    A(A),
+    B(B),
+}
+
 impl Mapping {
+    /// Creates a `Mapping` by ensuring that the `data` specified is used to
+    /// create a `Context` and it can only borrow from that or the `Stash` of
+    /// decompressed sections or auxiliary data.
     fn mk<F>(data: Mmap, mk: F) -> Option<Mapping>
     where
-        F: for<'a> Fn(&'a [u8], &'a Stash) -> Option<Context<'a>>,
+        F: for<'a> FnOnce(&'a [u8], &'a Stash) -> Option<Context<'a>>,
+    {
+        Mapping::mk_or_other(data, move |data, stash| {
+            let cx = mk(data, stash)?;
+            Some(Either::B(cx))
+        })
+    }
+
+    /// Creates a `Mapping` from `data`, or if the closure decides to, returns a
+    /// different mapping.
+    fn mk_or_other<F>(data: Mmap, mk: F) -> Option<Mapping>
+    where
+        F: for<'a> FnOnce(&'a [u8], &'a Stash) -> Option<Either<Mapping, Context<'a>>>,
     {
         let stash = Stash::new();
-        let cx = mk(&data, &stash)?;
+        let cx = match mk(&data, &stash)? {
+            Either::A(mapping) => return Some(mapping),
+            Either::B(cx) => cx,
+        };
         Some(Mapping {
             // Convert to 'static lifetimes since the symbols should
             // only borrow `map` and `stash` and we're preserving them below.
@@ -84,12 +108,25 @@ struct Context<'a> {
 }
 
 impl<'data> Context<'data> {
-    fn new(stash: &'data Stash, object: Object<'data>) -> Option<Context<'data>> {
-        let sections = gimli::Dwarf::load(|id| -> Result<_, ()> {
+    fn new(
+        stash: &'data Stash,
+        object: Object<'data>,
+        sup: Option<Object<'data>>,
+    ) -> Option<Context<'data>> {
+        let mut sections = gimli::Dwarf::load(|id| -> Result<_, ()> {
             let data = object.section(stash, id.name()).unwrap_or(&[]);
             Ok(EndianSlice::new(data, Endian))
         })
         .ok()?;
+
+        if let Some(sup) = sup {
+            sections
+                .load_sup(|id| -> Result<_, ()> {
+                    let data = sup.section(stash, id.name()).unwrap_or(&[]);
+                    Ok(EndianSlice::new(data, Endian))
+                })
+                .ok()?;
+        }
         let dwarf = addr2line::Context::from_dwarf(sections).ok()?;
 
         Some(Context { dwarf, object })
@@ -140,6 +177,7 @@ cfg_if::cfg_if! {
             target_os = "linux",
             target_os = "fuchsia",
             target_os = "freebsd",
+            target_os = "openbsd",
             all(target_os = "android", feature = "dl_iterate_phdr"),
         ),
         not(target_env = "uclibc"),

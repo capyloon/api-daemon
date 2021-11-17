@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.8 (2021-09-09)
+### Fixed
+- Bug in the AVX2 backend ([#314])
+
+[#314]: https://github.com/RustCrypto/hashes/pull/314
+
+## 0.9.7 (2021-09-08) [YANKED]
+### Added
+- x86 intrinsics support for SHA-512 ([#312])
+
+[#312]: https://github.com/RustCrypto/hashes/pull/312
+
+## 0.9.6 (2021-08-27)
+### Changed
+- Bump `cpufeatures` dependency to 0.2 ([#306])
+
+[#306]: https://github.com/RustCrypto/hashes/pull/306
+
 ## 0.9.5 (2021-05-11)
 ### Changed
 - Use `cpufeatures` to detect intrinsics support on `aarch64` targets ([#267])

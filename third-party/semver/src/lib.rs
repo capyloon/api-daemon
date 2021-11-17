@@ -60,7 +60,7 @@
 //!
 //! [Specifying Dependencies]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html
 
-#![doc(html_root_url = "https://docs.rs/semver/1.0.3")]
+#![doc(html_root_url = "https://docs.rs/semver/1.0.4")]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![cfg_attr(all(not(feature = "std"), not(no_alloc_crate)), no_std)]
 #![cfg_attr(not(no_unsafe_op_in_unsafe_fn_lint), deny(unsafe_op_in_unsafe_fn))]
@@ -78,6 +78,7 @@
     clippy::option_if_let_else,
     clippy::ptr_as_ptr,
     clippy::redundant_else,
+    clippy::semicolon_if_nothing_returned, // https://github.com/rust-lang/rust-clippy/issues/7324
     clippy::similar_names,
     clippy::unnested_or_patterns,
     clippy::unseparated_literal_suffix,
@@ -317,7 +318,7 @@ pub struct Prerelease {
 }
 
 /// Optional build metadata identifier. This comes after `+` in a SemVer
-/// verison, as in `0.8.1+zstd.1.5.0`.
+/// version, as in `0.8.1+zstd.1.5.0`.
 ///
 /// # Examples
 ///

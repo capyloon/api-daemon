@@ -140,6 +140,7 @@ where
 
 /// JSON input source that reads from a std::io input stream.
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub struct IoRead<R>
 where
     R: io::Read,
@@ -676,7 +677,7 @@ impl<'a> Read<'a> for StrRead<'a> {
 
     #[cfg(feature = "raw_value")]
     fn begin_raw_buffering(&mut self) {
-        self.delegate.begin_raw_buffering()
+        self.delegate.begin_raw_buffering();
     }
 
     #[cfg(feature = "raw_value")]
@@ -716,7 +717,7 @@ where
     }
 
     fn discard(&mut self) {
-        R::discard(self)
+        R::discard(self);
     }
 
     fn position(&self) -> Position {
@@ -752,7 +753,7 @@ where
 
     #[cfg(feature = "raw_value")]
     fn begin_raw_buffering(&mut self) {
-        R::begin_raw_buffering(self)
+        R::begin_raw_buffering(self);
     }
 
     #[cfg(feature = "raw_value")]
@@ -766,7 +767,7 @@ where
     const should_early_return_if_failed: bool = R::should_early_return_if_failed;
 
     fn set_failed(&mut self, failed: &mut bool) {
-        R::set_failed(self, failed)
+        R::set_failed(self, failed);
     }
 }
 

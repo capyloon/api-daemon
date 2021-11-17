@@ -251,18 +251,18 @@ pub fn get_public_key(cert_raw: &[u8]) -> Result<String, ZipVerificationError> {
     Ok(sig_verification::get_public_key(cert_raw)?)
 }
 
-static CERT_TEST: &[u8] = include_bytes!("../service-center-test.crt");
-static CERT_DEV: &[u8] = include_bytes!("../service-center-dev-public.crt");
-static CERT_PROD: &[u8] = include_bytes!("../service-center-prod-public.crt");
-static CERT_VEN1: &[u8] = include_bytes!("../vendor1.crt");
-static CERT_VEN2: &[u8] = include_bytes!("../vendor2.crt");
+static CERT_TEST: &[u8] = include_bytes!("../certs/service-center-test.crt");
+static CERT_DEV: &[u8] = include_bytes!("../certs/service-center-dev-public.crt");
+static CERT_PROD: &[u8] = include_bytes!("../certs/service-center-prod-public.crt");
+static CERT_VEN1: &[u8] = include_bytes!("../certs/vendor1.crt");
+static CERT_VEN2: &[u8] = include_bytes!("../certs/vendor2.crt");
 
 #[test]
 fn test_get_cert_type() {
     let cert = CertificateType::from("production").as_vec();
 
     let mut root_cert: Vec<u8> = Vec::new();
-    let mut root_cert_file = File::open("./service-center-prod-public.crt").unwrap();
+    let mut root_cert_file = File::open("./certs/service-center-prod-public.crt").unwrap();
     root_cert_file.read_to_end(&mut root_cert).unwrap();
     assert_eq!(cert, root_cert);
 
@@ -270,7 +270,7 @@ fn test_get_cert_type() {
         let cert = CertificateType::from("stage").as_vec();
 
         let mut root_cert: Vec<u8> = Vec::new();
-        let mut root_cert_file = File::open("./service-center-dev-public.crt").unwrap();
+        let mut root_cert_file = File::open("./certs/service-center-dev-public.crt").unwrap();
         root_cert_file.read_to_end(&mut root_cert).unwrap();
         assert_eq!(cert, root_cert);
     }
@@ -279,7 +279,7 @@ fn test_get_cert_type() {
         let cert = CertificateType::from("test").as_vec();
 
         let mut root_cert: Vec<u8> = Vec::new();
-        let mut root_cert_file = File::open("./service-center-test.crt").unwrap();
+        let mut root_cert_file = File::open("./certs/service-center-test.crt").unwrap();
         root_cert_file.read_to_end(&mut root_cert).unwrap();
         assert_eq!(cert, root_cert);
     }

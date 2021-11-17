@@ -1,3 +1,34 @@
+# Release 0.4.3 (2021-11-02)
+
+- [GHSA-v935-pqmr-g8v9]: [Fix unexpected panics in multiplication.][228]
+
+**Contributors**: @arvidn, @cuviper, @guidovranken
+
+[228]: https://github.com/rust-num/num-bigint/pull/228
+[GHSA-v935-pqmr-g8v9]: https://github.com/rust-num/num-bigint/security/advisories/GHSA-v935-pqmr-g8v9
+
+# Release 0.4.2 (2021-09-03)
+
+- [Use explicit `Integer::div_ceil` to avoid the new unstable method.][219]
+
+**Contributors**: @catenacyber, @cuviper
+
+[219]: https://github.com/rust-num/num-bigint/pull/219
+
+# Release 0.4.1 (2021-08-27)
+
+- [Fixed scalar divide-by-zero panics.][200]
+- [Implemented `DoubleEndedIterator` for `U32Digits` and `U64Digits`.][208]
+- [Optimized multiplication to avoid unnecessary allocations.][199]
+- [Optimized string formatting for very large values.][216]
+
+**Contributors**: @cuviper, @PatrickNorton
+
+[199]: https://github.com/rust-num/num-bigint/pull/199
+[200]: https://github.com/rust-num/num-bigint/pull/200
+[208]: https://github.com/rust-num/num-bigint/pull/208
+[216]: https://github.com/rust-num/num-bigint/pull/216
+
 # Release 0.4.0 (2021-03-05)
 
 ### Breaking Changes
@@ -14,6 +45,12 @@
 [185]: https://github.com/rust-num/num-bigint/pull/185
 [194]: https://github.com/rust-num/num-bigint/pull/194
 [195]: https://github.com/rust-num/num-bigint/pull/195
+
+# Release 0.3.3 (2021-09-03)
+
+- [Use explicit `Integer::div_ceil` to avoid the new unstable method.][219]
+
+**Contributors**: @catenacyber, @cuviper
 
 # Release 0.3.2 (2021-03-04)
 
