@@ -17,22 +17,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-extern crate thiserror;
-#[macro_use]
-extern crate nom;
-
-extern crate regex;
-extern crate regex_cache;
-extern crate fnv;
-extern crate quick_xml as xml;
-extern crate itertools;
-extern crate either;
-
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate bincode;
-
 #[cfg(test)]
 #[macro_use]
 extern crate doc_comment;
@@ -60,7 +44,6 @@ mod consts;
 mod national_number;
 pub use crate::national_number::NationalNumber;
 
-
 mod extension;
 pub use crate::extension::Extension;
 
@@ -74,7 +57,7 @@ mod parser;
 pub use crate::parser::{parse, parse_with};
 
 mod formatter;
-pub use crate::formatter::{Mode, Formatter, format, format_with};
+pub use crate::formatter::{format, format_with, Formatter, Mode};
 
 mod validator;
-pub use crate::validator::{Validation, is_viable, is_valid, is_valid_with};
+pub use crate::validator::{is_valid, is_valid_with, is_viable, Validation};
