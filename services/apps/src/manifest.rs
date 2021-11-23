@@ -4,6 +4,7 @@ use crate::apps_registry::AppsMgmtError;
 use crate::apps_utils;
 use crate::generated::common::*;
 
+use common::JsonValue;
 use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -79,6 +80,12 @@ impl ExtendUrl for Url {
             None => return false,
         }
         false
+    }
+}
+
+impl From<&Manifest> for JsonValue {
+    fn from(v: &Manifest) -> Self {
+        JsonValue::from(serde_json::to_value(v).unwrap_or_else(|_| json!({})))
     }
 }
 

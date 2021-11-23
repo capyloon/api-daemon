@@ -18,7 +18,7 @@ use common::threadpool_status;
 use common::traits::{DispatcherId, Shared, SharedServiceState};
 use common::JsonValue;
 use log::{debug, error, info};
-use serde_json::{json, Value};
+use serde_json::Value;
 use settings_service::db::{DbObserver, ObserverType};
 use settings_service::generated::common::SettingInfo;
 use settings_service::service::SettingsService;
@@ -412,14 +412,15 @@ impl AppsRegistry {
             ClearType::Browser => "Browser",
             ClearType::Storage => "Storage",
         };
-
-        let features = self
-            .get_b2g_features(manifest_url)
-            .unwrap_or_else(|| JsonValue::from(json!(null)));
+        let manifest = &self.get_manifest(manifest_url).unwrap_or_default();
 
         GeckoBridgeService::shared_state()
             .lock()
-            .apps_service_on_clear(manifest_url.to_string(), type_str.to_string(), features)
+            .apps_service_on_clear(
+                manifest_url.to_string(),
+                type_str.to_string(),
+                manifest.into(),
+            )
             .map_err(|_| AppsServiceError::ClearDataError)
     }
 
@@ -502,20 +503,15 @@ impl AppsRegistry {
         let _ = self.save_app(is_update, apps_item)?;
 
         // Relay the request to Gecko using the bridge.
-        let features = match manifest.get_b2g_features() {
-            Some(b2g_features) => {
-                JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)))
-            }
-            _ => JsonValue::from(json!(null)),
-        };
-
         let bridge = GeckoBridgeService::shared_state();
         if is_update {
-            bridge.lock().apps_service_on_update(manifest_url, features);
+            bridge
+                .lock()
+                .apps_service_on_update(manifest_url, manifest.into());
         } else {
             bridge
                 .lock()
-                .apps_service_on_install(manifest_url, features);
+                .apps_service_on_install(manifest_url, manifest.into());
         }
 
         Ok(())
@@ -551,36 +547,22 @@ impl AppsRegistry {
             .map_err(|_| AppsServiceError::RegistrationError)?;
 
         // Relay the request to Gecko using the bridge.
-        if let Some(b2g_features) = manifest.get_b2g_features() {
-            let bridge = GeckoBridgeService::shared_state();
-            let b2g_features =
-                JsonValue::from(serde_json::to_value(&b2g_features).unwrap_or(json!(null)));
-            // for pwa app, the permission need to be applied to the host origin
-            if is_update {
-                bridge
-                    .lock()
-                    .apps_service_on_update(apps_item.runtime_url(), b2g_features);
-            } else {
-                bridge
-                    .lock()
-                    .apps_service_on_install(apps_item.runtime_url(), b2g_features);
-            }
+        let bridge = GeckoBridgeService::shared_state();
+        // for pwa app, the permission need to be applied to the host origin
+        if is_update {
+            bridge
+                .lock()
+                .apps_service_on_update(apps_item.runtime_url(), manifest.into());
+        } else {
+            bridge
+                .lock()
+                .apps_service_on_install(apps_item.runtime_url(), manifest.into());
         }
         Ok(())
     }
 
     pub fn get_all(&self) -> Vec<AppsObject> {
         self.apps_list.clone()
-    }
-
-    pub fn get_b2g_features(&self, manifest_url: &str) -> Option<JsonValue> {
-        let app = self.get_by_manifest_url(manifest_url)?;
-        let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
-        let manifest = AppsStorage::load_manifest(&app_dir).ok()?;
-        let b2g_features = manifest.get_b2g_features()?;
-        Some(JsonValue::from(
-            serde_json::to_value(&b2g_features).unwrap_or(json!(null)),
-        ))
     }
 
     pub fn get_by_manifest_url(&self, manifest_url: &str) -> Option<AppsItem> {
@@ -764,21 +746,13 @@ impl AppsRegistry {
             let apps = db.get_all()?;
             for app in &apps {
                 let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
-                if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
-                    // Relay the request to Gecko using the bridge.
-                    let features = match manifest.get_b2g_features() {
-                        Some(b2g_features) => JsonValue::from(
-                            serde_json::to_value(&b2g_features).unwrap_or(json!(null)),
-                        ),
-                        _ => JsonValue::from(json!(null)),
-                    };
-
-                    debug!("Register on boot manifest_url: {}", &app.get_manifest_url());
-                    let bridge = GeckoBridgeService::shared_state();
-                    bridge
-                        .lock()
-                        .apps_service_on_boot(app.runtime_url(), features);
-                }
+                let manifest = &AppsStorage::load_manifest(&app_dir).unwrap_or_default();
+                // Relay the request to Gecko using the bridge.
+                debug!("Register on boot manifest_url: {}", &app.get_manifest_url());
+                let bridge = GeckoBridgeService::shared_state();
+                bridge
+                    .lock()
+                    .apps_service_on_boot(app.runtime_url(), manifest.into());
             }
             // Notify the bridge that we processed all apps on boot.
             GeckoBridgeService::shared_state()
