@@ -214,6 +214,24 @@ impl ContactsFactoryMethods for ContactsService {
         }
     }
 
+    fn alphabet_search(
+        &mut self,
+        responder: ContactsFactoryAlphabetSearchResponder,
+        options: AlphabetSearchOptions,
+    ) {
+        debug!("alphabet_search");
+        let state = self.state.lock();
+        if let Some(db_cursor) = state.db.alphabet_search(options) {
+            let id = self.tracker.next_id();
+            let cursor = Rc::new(ContactCursorImpl::new(id, db_cursor, &self.pool));
+            self.tracker
+                .track(ContactsManagerTrackedObject::ContactCursor(cursor.clone()));
+            responder.resolve(cursor);
+        } else {
+            responder.reject();
+        }
+    }
+
     fn find(
         &mut self,
         responder: ContactsFactoryFindResponder,

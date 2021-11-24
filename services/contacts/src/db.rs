@@ -27,6 +27,43 @@ const DB_PATH: &str = "/data/local/service/api-daemon/contacts.sqlite";
 
 const MIN_MATCH_DIGITS: usize = 7;
 
+lazy_static! {
+    static ref MAP_CHAR2NUM: HashMap<char, char> = {
+        let map_num2_char: HashMap<char, &'static str> = {
+            let mut m = HashMap::new();
+            m.insert('2', "abcABC");
+            m.insert('3', "defDEF");
+            m.insert('4', "ghiGHI");
+            m.insert('5', "jklJKL");
+            m.insert('6', "mnoMNO");
+            m.insert('7', "pqrsPQRS");
+            m.insert('8', "tuvTUV");
+            m.insert('9', "wxyzWXYZ");
+            m.insert('0', " ");
+            m
+        };
+        let mut m = HashMap::new();
+        for (_key, _val) in map_num2_char.iter() {
+            for c in _val.chars() {
+                m.insert(c, *_key);
+            }
+        }
+        m
+    };
+}
+
+fn alphabet_2_number(param: &Option<String>) -> Option<String> {
+    if let Some(value) = param {
+        let mut result = String::new();
+        for c in value.chars() {
+            result.push(*MAP_CHAR2NUM.get(&c).unwrap_or(&c));
+        }
+        Some(result)
+    } else {
+        None
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("SQlite error: {0}")]
@@ -723,6 +760,40 @@ impl ContactInfo {
             &self.phonetic_family_name,
         )?;
 
+        if self.given_name.is_some() || self.family_name.is_some() {
+            // The order of family and given can be changed by contact app settings,
+            // save the two format then no matter which one is first, it can be
+            // search by alphabet in dialer sucessful.
+            save_str_field(
+                &mut stmt,
+                &self.id,
+                "numeric_name",
+                &alphabet_2_number(&Some(format!(
+                    "{} {}",
+                    self.given_name.clone().unwrap_or_default(),
+                    self.family_name.clone().unwrap_or_default()
+                ))),
+            )?;
+
+            save_str_field(
+                &mut stmt,
+                &self.id,
+                "numeric_name",
+                &alphabet_2_number(&Some(format!(
+                    "{} {}",
+                    self.family_name.clone().unwrap_or_default(),
+                    self.given_name.clone().unwrap_or_default()
+                ))),
+            )?;
+        } else {
+            save_str_field(
+                &mut stmt,
+                &self.id,
+                "numeric_name",
+                &alphabet_2_number(&self.name),
+            )?;
+        }
+
         if self.ice_position != 0 {
             save_str_field(
                 &mut stmt,
@@ -1018,6 +1089,56 @@ impl ContactsDb {
                         return None;
                     }
                 };
+                Some(statement)
+            },
+        ))
+    }
+
+    pub fn alphabet_search(&self, options: AlphabetSearchOptions) -> Option<ContactDbCursor> {
+        debug!("alphabet_search, options: {:#?}", options);
+        Some(ContactDbCursor::new(
+            options.batch_size,
+            options.only_main_data.unwrap_or(false),
+            &self.cursors,
+            move |connection| {
+                let mut sql = String::from(
+                    "SELECT DISTINCT contact_id FROM contact_additional WHERE data_type is 
+                    'numeric_name' and value like ?",
+                );
+
+                let mut params = vec![];
+                params.push(format!("{}%", options.filter_value));
+
+                if let Some(value) = &options.filter_limit {
+                    sql.push_str(" LIMIT ?");
+                    params.push(value.to_string());
+                }
+
+                debug!("alphabet_search sql is :{}", sql);
+
+                let mut statement = match connection.prepare(&sql) {
+                    Ok(statement) => statement,
+                    Err(err) => {
+                        error!(
+                            "Failed to prepare `alphabet_search` statement: {} error: {}",
+                            sql, err
+                        );
+                        return None;
+                    }
+                };
+
+                for (n, param) in params.iter().enumerate() {
+                    debug!("current n is {}, param = {}", n, params[n]);
+                    // SQLite binding indexes are 1 based, not 0 based...
+                    if let Err(err) = statement.raw_bind_parameter(n + 1, param) {
+                        error!(
+                            "Failed to bind #{} `find` parameter to `{}`: {}",
+                            n, sql, err
+                        );
+                        return None;
+                    }
+                }
+
                 Some(statement)
             },
         ))
@@ -1908,5 +2029,13 @@ mod test {
         debug!("Importing contacts from vcf.");
         let _count = db.import_vcf(&input).unwrap();
         assert_eq!(db.count().unwrap(), 200);
+
+        let dialer_character = "abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        assert_eq!(
+            alphabet_2_number(&Some(dialer_character.to_string())),
+            Some("22233344455566677778889999022233344455566677778889999".to_string())
+        );
+
+        assert_eq!(alphabet_2_number(&None), None);
     }
 }

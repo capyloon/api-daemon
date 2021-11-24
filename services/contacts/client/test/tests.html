@@ -153,6 +153,44 @@
           {}
         );
 
+        let alphabet_search_8264_cursor = await tester.service.alphabetSearch({
+          // tang: 8264
+          filterValue: "8264",
+          batchSize: 1,
+        });
+
+        let alphabet_search_8264_result =
+          await alphabet_search_8264_cursor.next();
+
+        await tester.assert_eq(
+          "verify alphabet_search_8264_result name is: jack tang",
+          () => Promise.resolve(alphabet_search_8264_result[0].name),
+          "jack tang"
+        );
+
+        alphabet_search_8264_cursor.release();
+
+        let alphabet_search_522504_cursor = await tester.service.alphabetSearch(
+          {
+            // jack h: 522504
+            filterValue: "522504",
+            batchSize: 1,
+            filterLimit: 10,
+            onlyMainData: true,
+          }
+        );
+
+        let alphabet_search_522504_result =
+          await alphabet_search_522504_cursor.next();
+
+        await tester.assert_eq(
+          "verify alphabet_search_522504_result name is: jack huang",
+          () => Promise.resolve(alphabet_search_522504_result[0].name),
+          "jack huang"
+        );
+
+        alphabet_search_522504_cursor.release();
+
         let get_all_sort_by_given_name_asc_cursor = await tester.service.getAll(
           {
             sortBy: lib_contacts.SortOption.GIVEN_NAME,

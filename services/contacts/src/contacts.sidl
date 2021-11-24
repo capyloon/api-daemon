@@ -161,6 +161,18 @@ dictionary ContactFindSortOptions {
   onlyMainData: bool?
 }
 
+dictionary AlphabetSearchOptions {
+  // e.g. numbers user input "123".
+  filterValue: str
+
+  batchSize: int
+
+  filterLimit: int?
+
+  // Only return the main data of a contact or not.
+  onlyMainData: bool?
+}
+
 dictionary BlockedNumberFindOptions {
   filterValue: str
   filterOption: FilterOption
@@ -237,6 +249,9 @@ interface ContactsFactory {
 
   // Returns a cursor that will iterate over contacts matching the query.
   fn find(params: ContactFindSortOptions, batch_size: int) -> ContactCursor
+
+  // Dialer alphabet search.
+  fn alphabet_search(options: AlphabetSearchOptions)-> ContactCursor
 
   // Returns a bool indicating whether this value exists.
   fn matches(filter_by_option: FilterByOption, filter: FilterOption, value: str) -> bool

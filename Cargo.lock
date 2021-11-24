@@ -1113,6 +1113,7 @@ dependencies = [
  "common",
  "env_logger",
  "ical",
+ "lazy_static",
  "log",
  "phonenumber",
  "rusqlite",

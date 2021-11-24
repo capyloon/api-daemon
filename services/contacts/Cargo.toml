@@ -10,6 +10,7 @@ android_utils = { path = "../../support/android-utils" }
 chrono = "0.4"
 common = { path = "../../common" }
 ical = "0.7"
+lazy_static = "1.4"
 log = "0.4"
 phonenumber = { git = "https://github.com/fabricedesre/rust-phonenumber.git", branch = "api-daemon" }
 rusqlite = { version = "0.25", features = ["bundled"] }
