@@ -1,5 +1,6 @@
 /// A actix-web vhost handler
 use crate::etag::*;
+use actix_web::dev::{BodyEncoding, HttpResponseBuilder};
 use actix_web::http::header::{self, Header, HeaderValue};
 use actix_web::{http, web, Error, HttpRequest, HttpResponse};
 use common::traits::Shared;
@@ -60,6 +61,19 @@ pub fn maybe_not_modified(
     None
 }
 
+// Resources that are already compressed formats don't benefit from being compressed again,
+// so force the use of the 'Identity' content encoding for these.
+fn update_response_encoding(mime: &Mime, builder: &mut HttpResponseBuilder) {
+    let mime_str = mime.as_ref();
+    if mime_str != "image/svg+xml"
+        && (mime_str.starts_with("image/")
+            || mime_str.starts_with("audio/")
+            || mime_str.starts_with("video/"))
+    {
+        builder.encoding(http::ContentEncoding::Identity);
+    }
+}
+
 // Naive conversion of a ZipFile into an HttpResponse.
 // TODO: streaming version.
 fn response_from_zip<'a>(
@@ -78,7 +92,7 @@ fn response_from_zip<'a>(
     let _ = zip.read_to_end(&mut buf);
 
     let mut ok = HttpResponse::Ok();
-    let builder = ok
+    let mut builder = ok
         .set_header("Content-Security-Policy", csp)
         .set_header("ETag", etag)
         .content_type(mime.as_ref());
@@ -88,6 +102,8 @@ fn response_from_zip<'a>(
     // on the supported content-encoding supplied by the client.
     if zip.compression() == CompressionMethod::Deflated {
         builder.set_header("Content-Encoding", "deflate");
+    } else {
+        update_response_encoding(&mime, &mut builder);
     }
     builder.body(buf)
 }
@@ -113,11 +129,15 @@ fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue
             return internal_server_error();
         }
 
-        HttpResponse::Ok()
+        let mut builder = HttpResponse::Ok();
+        builder
             .set_header("Content-Security-Policy", csp)
             .content_type(mime.as_ref())
-            .set_header("ETag", etag)
-            .body(buf)
+            .set_header("ETag", etag);
+
+        update_response_encoding(&mime, &mut builder);
+
+        builder.body(buf)
     } else {
         HttpResponse::NotFound().finish()
     }

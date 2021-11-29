@@ -358,8 +358,6 @@ pub fn start(
 
     HttpServer::new(move || {
         App::new()
-            .app_data(shared_data.clone())
-            .app_data(vhost_data.clone())
             .wrap(Logger::new("\"%r\" %{Host}i %s %b %D")) // Custom log to display the vhost
             .wrap(Cors::default().allow_any_origin().send_wildcard())
             .wrap(Compress::default())
@@ -373,6 +371,7 @@ pub fn start(
             )
             .service(
                 web::scope("/")
+                    .app_data(shared_data.clone())
                     .route("*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route("/ws", web::get().to(ws_index))
                     .route("/*", web::get().to(http_index)),
