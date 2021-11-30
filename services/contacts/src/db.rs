@@ -31,14 +31,21 @@ lazy_static! {
     static ref MAP_CHAR2NUM: HashMap<char, char> = {
         let map_num2_char: HashMap<char, &'static str> = {
             let mut m = HashMap::new();
-            m.insert('2', "abcABC");
-            m.insert('3', "defDEF");
-            m.insert('4', "ghiGHI");
-            m.insert('5', "jklJKL");
-            m.insert('6', "mnoMNO");
-            m.insert('7', "pqrsPQRS");
-            m.insert('8', "tuvTUV");
-            m.insert('9', "wxyzWXYZ");
+            // Contain accents/diacritics to their alphabetic equivalents.
+            m.insert('2', "abcABCÀÁÂÃÄÅàáâãäåĀāăĄąǍǎǞǟǠǡǺǻȀȁȂȃȦȧƀƁƂƃÇçĆćĈĉĊċČčƇƈ");
+            m.insert('3', "defDEFÐðďĐđƉƊƋƌƍǲÈÉÊËèéêëĒēĔĕĖėĘęĚěƐȄȅȆȇȨȩƑƒ");
+            m.insert('4', "ghiGHIĜĝĞğĠġĢģƓƔǤǥǦǧǴǵĤĥĦħȞȟÌÍÎÏìíîïĨĩĪīĬĭĮįİıƗƖǏȈȉȊȋ");
+            m.insert('5', "jklJKLĴĵǰĶķĸƘƙǨǩĹĺĻļĽľĿŀŁłƚƛ");
+            m.insert(
+                '6',
+                "mnoMNOÑñŃńŅņŇňƝƞǸǹÒÓÔÕÖØòóôõöøŌōŎŏŐőƆƟƠơǑǒǪǫǬǭǾǿȌȍȎȏȪȫȬȭȮȯȰȱ",
+            );
+            m.insert('7', "pqrsPQRSƤƥŔŕŖŗŘřȐȑȒȓŚśŜŝŞşŠšſȘș");
+            m.insert(
+                '8',
+                "tuvTUVŢţŤťŦŧƫƬƭƮȚțÙÚÛÝùúûüŨũŪūŬŭŮůŰűŲųƯưǓǔǕǖǗǘǙǚǛǜȔȕȖȗƲ",
+            );
+            m.insert('9', "wxyzWXYZŴŵƜƿǷ×ýÿŸƱƳƴȜȝȲȳŹźŻżŽžƵƶȤȥ");
             m.insert('0', " ");
             m
         };
@@ -2034,6 +2041,56 @@ mod test {
         assert_eq!(
             alphabet_2_number(&Some(dialer_character.to_string())),
             Some("22233344455566677778889999022233344455566677778889999".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some(
+                "abcABCÀÁÂÃÄÅàáâãäåĀāăĄąǍǎǞǟǠǡǺǻȀȁȂȃȦȧƀƁƂƃÇçĆćĈĉĊċČčƇƈ".to_string()
+            )),
+            Some("22222222222222222222222222222222222222222222222222222".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some(
+                "defDEFÐðďĐđƉƊƋƌƍǲÈÉÊËèéêëĒēĔĕĖėĘęĚěƐȄȅȆȇȨȩƑƒ".to_string()
+            )),
+            Some("33333333333333333333333333333333333333333333".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some(
+                "ghiGHIĜĝĞğĠġĢģƓƔǤǥǦǧǴǵĤĥĦħȞȟÌÍÎÏìíîïĨĩĪīĬĭĮįİıƗƖǏȈȉȊȋ".to_string()
+            )),
+            Some("44444444444444444444444444444444444444444444444444444".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some("jklJKLĴĵǰĶķĸƘƙǨǩĹĺĻļĽľĿŀŁłƚƛ".to_string())),
+            Some("5555555555555555555555555555".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some(
+                "mnoMNOÑñŃńŅņŇňƝƞǸǹÒÓÔÕÖØòóôõöøŌōŎŏŐőƆƟƠơǑǒǪǫǬǭǾǿȌȍȎȏȪȫȬȭȮȯȰȱ".to_string()
+            )),
+            Some("666666666666666666666666666666666666666666666666666666666666".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some("pqrsPQRSƤƥŔŕŖŗŘřȐȑȒȓŚśŜŝŞşŠšſȘș".to_string())),
+            Some("7777777777777777777777777777777".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some(
+                "tuvTUVŢţŤťŦŧƫƬƭƮȚțÙÚÛÝùúûüŨũŪūŬŭŮůŰűŲųƯưǓǔǕǖǗǘǙǚǛǜȔȕȖȗƲ".to_string()
+            )),
+            Some("8888888888888888888888888888888888888888888888888888888".to_string())
+        );
+
+        assert_eq!(
+            alphabet_2_number(&Some("wxyzWXYZŴŵƜƿǷ×ýÿŸƱƳƴȜȝȲȳŹźŻżŽžƵƶȤȥ".to_string())),
+            Some("9999999999999999999999999999999999".to_string())
         );
 
         assert_eq!(alphabet_2_number(&None), None);
