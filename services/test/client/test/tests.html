@@ -568,6 +568,27 @@
           expected_url
         );
 
+        // Test if the string will be parsed as URL?
+        await tester.assert_eq(
+          `url string resolution`,
+          (service) => service.resolveUrl("http://example.com", "foo/bar.html"),
+          expected_url
+        );
+
+        await tester.assert_eq(
+          `invalid url resolution`,
+          service => {
+            return new Promise((resolve) => {
+              try {
+                service.resolveUrl("com", "foo/bar.html");
+              } catch(err) {
+                resolve(err);
+              };
+            });
+          },
+          new Error("Expected url, but got string")
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 

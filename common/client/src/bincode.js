@@ -421,6 +421,9 @@ export class Encoder {
   }
 
   url(val) {
+    if (typeof val === "string") {
+        try { val = new URL(val); } catch(e) {}
+    }
     checkType(val, "url");
     this.string(val.href);
     return this;
