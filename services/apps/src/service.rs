@@ -14,6 +14,7 @@ use common::traits::{
 };
 use log::{debug, error, info};
 use std::collections::HashMap;
+use url::Url;
 use zip_utils::verify_zip;
 
 pub struct AppsService {
@@ -45,7 +46,7 @@ impl AppsEngineMethods for AppsService {
         }
     }
 
-    fn get_app(&mut self, responder: AppsEngineGetAppResponder, manifest_url: String) {
+    fn get_app(&mut self, responder: AppsEngineGetAppResponder, manifest_url: Url) {
         info!("get_app: {}", manifest_url);
         let shared = self.shared_data.lock();
         match shared.get_by_manifest_url(&manifest_url) {
@@ -60,11 +61,7 @@ impl AppsEngineMethods for AppsService {
         responder.resolve(shared.state);
     }
 
-    fn install_package(
-        &mut self,
-        responder: AppsEngineInstallPackageResponder,
-        update_url: String,
-    ) {
+    fn install_package(&mut self, responder: AppsEngineInstallPackageResponder, update_url: Url) {
         info!("install_package: {}", &update_url);
         let task = InstallPackageTask(self.shared_data.clone(), update_url, responder);
         self.shared_data.lock().registry.queue_task(task);
@@ -73,7 +70,7 @@ impl AppsEngineMethods for AppsService {
     fn check_for_update(
         &mut self,
         responder: AppsEngineCheckForUpdateResponder,
-        update_url: String,
+        update_url: Url,
         apps_option: Option<AppsOptions>,
     ) {
         info!("check_for_update: {}", &update_url);
@@ -86,17 +83,13 @@ impl AppsEngineMethods for AppsService {
         self.shared_data.lock().registry.queue_task(task);
     }
 
-    fn cancel_download(
-        &mut self,
-        responder: AppsEngineCancelDownloadResponder,
-        update_url: String,
-    ) {
+    fn cancel_download(&mut self, responder: AppsEngineCancelDownloadResponder, update_url: Url) {
         info!("cancel_download: {}", &update_url);
         let task = CancelDownloadTask(self.shared_data.clone(), update_url, responder);
         self.shared_data.lock().registry.queue_task(task);
     }
 
-    fn install_pwa(&mut self, responder: AppsEngineInstallPwaResponder, update_url: String) {
+    fn install_pwa(&mut self, responder: AppsEngineInstallPwaResponder, update_url: Url) {
         info!("install_pwa: {}", &update_url);
         let task = InstallPwaTask(self.shared_data.clone(), update_url, responder);
         self.shared_data.lock().registry.queue_task(task);
@@ -105,7 +98,7 @@ impl AppsEngineMethods for AppsService {
     fn update(
         &mut self,
         responder: AppsEngineUpdateResponder,
-        manifest_url: String,
+        manifest_url: Url,
         apps_option: Option<AppsOptions>,
     ) {
         info!("update: {}", &manifest_url);
@@ -118,7 +111,7 @@ impl AppsEngineMethods for AppsService {
         self.shared_data.lock().registry.queue_task(task);
     }
 
-    fn uninstall(&mut self, responder: AppsEngineUninstallResponder, manifest_url: String) {
+    fn uninstall(&mut self, responder: AppsEngineUninstallResponder, manifest_url: Url) {
         info!("uninstall: {}", &manifest_url);
         let task = UninstallTask(self.shared_data.clone(), manifest_url, responder);
         self.shared_data.lock().registry.queue_task(task);
@@ -127,7 +120,7 @@ impl AppsEngineMethods for AppsService {
     fn set_enabled(
         &mut self,
         responder: AppsEngineSetEnabledResponder,
-        manifest_url: String,
+        manifest_url: Url,
         status: AppsStatus,
     ) {
         info!("set_enabled: {:?}, for {}", &status, &manifest_url);
@@ -166,7 +159,7 @@ impl AppsEngineMethods for AppsService {
     fn clear(
         &mut self,
         responder: AppsEngineClearResponder,
-        manifest_url: String,
+        manifest_url: Url,
         data_type: ClearType,
     ) {
         info!("clear: {}", &manifest_url);
@@ -177,7 +170,7 @@ impl AppsEngineMethods for AppsService {
     fn verify(
         &mut self,
         responder: AppsEngineVerifyResponder,
-        manifest_url: String,
+        manifest_url: Url,
         cert_type: String,
         folder_name: String,
     ) {

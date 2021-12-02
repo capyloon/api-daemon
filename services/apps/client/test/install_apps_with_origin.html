@@ -37,7 +37,7 @@
 
         await tester.assert_eq(
           "install app with a good origin",
-          service => service.installPackage("http://127.0.0.1:8596/apps/origin-good/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/origin-good/manifest.webmanifest")),
           origin_good_expected
         );
         await tester.assert_event_eq("on installed event", on_installed_handler, origin_good_expected);
@@ -56,13 +56,13 @@
 
         await tester.assert_rej_eq(
           "install app with origin do not match",
-          service => service.installPackage("http://127.0.0.1:8596/apps/origin-notmatch/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/origin-notmatch/manifest.webmanifest")),
           AppsServiceError.INVALID_ORIGIN
         );
 
         await tester.assert_rej_eq(
           "install app with invalid origin",
-          service => service.installPackage("http://127.0.0.1:8596/apps/origin-invalid/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/origin-invalid/manifest.webmanifest")),
           AppsServiceError.INVALID_ORIGIN
         );
 

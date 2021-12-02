@@ -43,6 +43,7 @@ enum AppsServiceError {
   InvalidPackage          // Error in the package file
   InvalidScope            // The scope is invalid or already used by an installed app
   InvalidSignature        // Failed to verify the signature
+  InvalidUpdateUrl        // The update Url is invalid
   InvalidCertificate      // Failed to parse certificate
   NetworkFailure          // Error in the Network
   FilesystemFailure       // Error in app stroage filesystem
@@ -81,19 +82,50 @@ callback TokenProvider {
   fn get_token(token_type: TokenType) -> Token
 }
 
+// The definition of an App object.
+// name:
+//   The unique name of the app.
+//   If the name is in use will append a number (01~99) to make it unique.
+// installState:
+//   The install state as defined in AppsInstallState.
+// manifestURL:
+//   The manifest URL to access the App in the apps service.
+//   Package App: http://[app_name].localhost/manifest.webmanifest
+//   PWA App: http://cached.local/[app_name]/manifest.webmanifest
+// removable:
+//   Allow to uninstall the app or not.
+// status:
+//   The app enabled state as defined in AppsStatus.
+// updateManifestURL (optional):
+//   The URL of the cached update manifest which is in the device.
+//   It is present after the update manifest is downloaded.
+//   Package App: http://[app_name].localhost/update.webmanifest
+//   PWA App: http://cached.local/[app_name]/update.webmanifest
+// updateState:
+//   The update state as define in AppsUpdateState.
+// updateURL (optional):
+//   The URL to check for updates from the store server or PWA server.
+//   It presents if the app can update from the server.
+//   Package App: Defined by the store server.
+//   PWA App: Defined by the PWA app hosted server.
+// allowedAutoDownload:
+//   Aallow to start download the update without user action or not.
+// preloaded: App is preloaded or not.
+// progress: The download progress, a value from 0 to 100.
+// origin: The origin or the app.
 dictionary AppsObject {
   name: str
   installState: AppsInstallState
-  manifestURL: str
+  manifestURL: url
   removable: bool
   status: AppsStatus
-  updateManifestURL: str
+  updateManifestURL: url?
   updateState: AppsUpdateState
-  updateURL: str
+  updateURL: url?
   allowedAutoDownload: bool
   preloaded: bool
-  progress: int  // From 0 to 100
-  origin: str    // The app runtime origin
+  progress: int
+  origin: str
 }
 
 dictionary DownloadFailedReason {
@@ -120,7 +152,7 @@ interface AppsEngine {
 
   // In: the manifest URL of a app
   // Return: the app object or an error string.
-  fn get_app(manifest_url: str) -> AppsObject, AppsServiceError
+  fn get_app(manifest_url: url) -> AppsObject, AppsServiceError
 
   // In: None
   // Return: the runtime state for the appservice
@@ -128,31 +160,31 @@ interface AppsEngine {
 
   // In: the URL of a app in store server
   // Return: the app object or an error
-  fn install_package(update_url: str) -> AppsObject, AppsServiceError
+  fn install_package(update_url: url) -> AppsObject, AppsServiceError
 
   // In: the URL of a app in store server
   // Return: the app object or an error
-  fn uninstall(manifest_url: str) -> str, AppsServiceError
+  fn uninstall(manifest_url: url) -> url, AppsServiceError
 
   // In: the URL of a app in store server
   // Return: the app update available or an error string.
-  fn check_for_update(update_url:str, appsOption: AppsOptions?) -> bool, AppsServiceError
+  fn check_for_update(update_url: url, appsOption: AppsOptions?) -> bool, AppsServiceError
 
   // In: The URL of a PWA manifest from the host server
   // Return: the app object or an error
-  fn install_pwa(manifest_url: str) -> AppsObject, AppsServiceError
+  fn install_pwa(manifest_url: url) -> AppsObject, AppsServiceError
 
   // In: the manifest URL of a app and data type to be cleared.
   // Return: resolve or an error string.
-  fn clear(manifest_url: str, data_type: ClearType) -> bool, AppsServiceError
+  fn clear(manifest_url: url, data_type: ClearType) -> bool, AppsServiceError
 
   // In: the URL of a app in store server
   // Return: the app object or an error string.
-  fn update(manifest_url: str, appsOption: AppsOptions?) -> AppsObject, AppsServiceError
+  fn update(manifest_url: url, appsOption: AppsOptions?) -> AppsObject, AppsServiceError
 
   // In: the URL of an app in store server
   // Return: the app object or an error string.
-  fn cancel_download(update_url: str) -> AppsObject, AppsServiceError
+  fn cancel_download(update_url: url) -> AppsObject, AppsServiceError
 
   // In: config for update policy
   // Return: successfully set or not.
@@ -178,11 +210,11 @@ interface AppsEngine {
   // Report AppsObject when an update is available
   event appUpdateAvailable -> AppsObject
   // Report the manifest URL which is uninstalled successfully.
-  event appUninstalled -> str
+  event appUninstalled -> url
 
   event appstatusChanged -> AppsObject
 
-  fn setEnabled(manifest_url: str, status: AppsStatus) -> AppsObject, AppsServiceError
+  fn setEnabled(manifest_url: url, status: AppsStatus) -> AppsObject, AppsServiceError
   // Verify the signature of an application.
   // manifestUrl, the manifest url of the app to be verified
   // cert_type, the certificate to verify against, possible values are:
@@ -190,7 +222,7 @@ interface AppsEngine {
   // folder_name, the name of the folder that contains signed data.
   // Possible values are(case insensitive): "INF", "VEN", etc.
   // Return: the fingerprint of the certificate in rsa or AppsServiceError
-  fn verify(manifestUrl: str, cert_type: str, folder_name: str) -> str, AppsServiceError
+  fn verify(manifestUrl: url, cert_type: str, folder_name: str) -> str, AppsServiceError
 
 }
 

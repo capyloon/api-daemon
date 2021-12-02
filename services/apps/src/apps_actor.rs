@@ -13,6 +13,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::thread;
 use thiserror::Error;
+use url::Url;
 
 #[derive(Error, Debug)]
 pub enum AppsActorError {
@@ -238,7 +239,20 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
             }
             "install-pwa" => {
                 // request.param is assured to be Some.
-                let url = request.param.clone().unwrap();
+                let url = match Url::parse(&request.param.unwrap()) {
+                    Ok(url) => url,
+                    Err(err) => {
+                        error!("Invalid URL, error: {:?}", err);
+                        write_response(
+                            &mut stream_write,
+                            &request.cmd,
+                            false,
+                            &format!("{:?}", err),
+                        );
+                        continue;
+                    }
+                };
+
                 if let Err(err) = install_pwa(&shared_data, &url) {
                     error!("Installation fails, {}", err);
                     write_response(
@@ -250,11 +264,24 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
                     continue;
                 }
 
-                info!("Installation {:?} success", &request.param);
+                info!("Installation success");
                 write_response(&mut stream_write, &request.cmd, true, "success");
             }
             "uninstall" => {
-                if let Err(err) = uninstall(&shared_data, &request.param.unwrap()) {
+                let url = match Url::parse(&request.param.unwrap()) {
+                    Ok(url) => url,
+                    Err(err) => {
+                        error!("Invalid URL,  error: {:?}", err);
+                        write_response(
+                            &mut stream_write,
+                            &request.cmd,
+                            false,
+                            &format!("{:?}", err),
+                        );
+                        continue;
+                    }
+                };
+                if let Err(err) = uninstall(&shared_data, &url) {
                     error!("Uninstallation fails, {}", err);
                     write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
 
@@ -285,7 +312,7 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
     }
 }
 
-pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &str) -> Result<(), AppsActorError> {
+pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &Url) -> Result<(), AppsActorError> {
     let mut request =
         AppsRequest::new(shared_data.clone()).map_err(|_| AppsActorError::Internal)?;
     let is_update = shared_data.lock().registry.get_by_update_url(url).is_some();
@@ -369,30 +396,21 @@ pub fn install_package(
 
 pub fn uninstall(
     shared_data: &Shared<AppsSharedData>,
-    manifest_url: &str,
+    manifest_url: &Url,
 ) -> Result<(), AppsActorError> {
-    if manifest_url.is_empty() {
-        return Err(AppsActorError::EmptyUrl);
-    }
-
     let mut shared = shared_data.lock();
-    let app = match shared.get_by_manifest_url(manifest_url) {
-        Ok(app) => app,
-        Err(err) => {
-            error!("Do not find uninstall app: {:?}", err);
-            return Err(AppsActorError::AppNotFound);
-        }
-    };
-
+    let app = shared
+        .get_by_manifest_url(manifest_url)
+        .map_err(|_| AppsActorError::AppNotFound)?;
     let _ = shared
         .registry
-        .uninstall_app(&app.manifest_url)
+        .uninstall_app(manifest_url)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     shared
         .registry
         .event_broadcaster
-        .broadcast_app_uninstalled(manifest_url.into());
+        .broadcast_app_uninstalled(manifest_url.clone());
 
     shared.vhost_api.app_uninstalled(&app.name);
 
@@ -653,7 +671,7 @@ fn test_install_app() {
         }
 
         let shared_data = AppsService::shared_state();
-        let manifest_url: String;
+        let manifest_url: Url;
         {
             let shared = shared_data.lock();
             let app_name: String = "helloworldactor".into();
@@ -736,7 +754,7 @@ fn test_get_all() {
             shared.state = AppsServiceState::Running;
         }
         let app_list = get_all(&shared_data).unwrap();
-        let expected = r#"[{"name":"apps","install_state":"Installed","manifest_url":"http://apps.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"http://127.0.0.1:8596/apps/apps/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://apps.localhost:8443"},{"name":"calculator","install_state":"Installed","manifest_url":"http://calculator.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"http://127.0.0.1:8596/apps/calculator/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://calculator.localhost:8443"},{"name":"system","install_state":"Installed","manifest_url":"http://system.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://store.server/system/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://system.localhost:8443"},{"name":"gallery","install_state":"Installed","manifest_url":"http://gallery.localhost:8443/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://gallery.localhost:8443"},{"name":"launcher","install_state":"Installed","manifest_url":"http://launcher.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://launcher.localhost:8443"},{"name":"preloadpwa","install_state":"Installed","manifest_url":"http://cached.localhost:8443/preloadpwa/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":"","update_state":"Idle","update_url":"https://preloadpwa.domain.url/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"https://preloadpwa.domain.url"}]"#;
+        let expected = r#"[{"name":"apps","install_state":"Installed","manifest_url":"http://apps.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":null,"update_state":"Idle","update_url":"http://127.0.0.1:8596/apps/apps/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://apps.localhost:8443"},{"name":"calculator","install_state":"Installed","manifest_url":"http://calculator.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":null,"update_state":"Idle","update_url":"http://127.0.0.1:8596/apps/calculator/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://calculator.localhost:8443"},{"name":"system","install_state":"Installed","manifest_url":"http://system.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":null,"update_state":"Idle","update_url":"https://store.server/system/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://system.localhost:8443"},{"name":"gallery","install_state":"Installed","manifest_url":"http://gallery.localhost:8443/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":null,"update_state":"Idle","update_url":null,"allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://gallery.localhost:8443"},{"name":"launcher","install_state":"Installed","manifest_url":"http://launcher.localhost:8443/manifest.webmanifest","removable":false,"status":"Enabled","update_manifest_url":null,"update_state":"Idle","update_url":null,"allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"http://launcher.localhost:8443"},{"name":"preloadpwa","install_state":"Installed","manifest_url":"http://cached.localhost:8443/preloadpwa/manifest.webmanifest","removable":true,"status":"Enabled","update_manifest_url":null,"update_state":"Idle","update_url":"https://preloadpwa.domain.url/manifest.webmanifest","allowed_auto_download":false,"preloaded":true,"progress":0,"origin":"https://preloadpwa.domain.url"}]"#;
 
         assert_eq!(app_list, expected);
     }

@@ -96,7 +96,7 @@
         console.log("Step 1");
         await tester.assert_eq(
           "check for update for ciautotest, no update available",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {autoInstall: true}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"), {autoInstall: true}),
           false
         );
         console.log("Step 2");
@@ -120,7 +120,7 @@
         // Test checkForUpdate pwa app.
         await tester.assert_eq(
           "check for update PWA app",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest", {autoInstall: true}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"), {autoInstall: true}),
           false
         );
 
@@ -130,7 +130,7 @@
         await tester.assert_eq(
           "get cached app update manifest",
           service => {
-            let req = new Request("http://cached.localhost:8081/hellopwa/update.webmanifest");
+            let req = new Request(new URL("http://cached.localhost:8081/hellopwa/update.webmanifest"));
             req.responseType = "json";
             return fetch(req)
               .then(response => response.json())

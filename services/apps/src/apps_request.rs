@@ -59,7 +59,7 @@ impl Drop for DirRemover {
 
 struct SenderRemover {
     shared_data: Shared<AppsSharedData>,
-    app_update_url: String,
+    app_update_url: Url,
     delay_delete: bool,
 }
 
@@ -72,10 +72,10 @@ impl Drop for SenderRemover {
 }
 
 impl SenderRemover {
-    pub fn new(shared_data: Shared<AppsSharedData>, app_update_url: &str) -> Self {
+    pub fn new(shared_data: Shared<AppsSharedData>, app_update_url: &Url) -> Self {
         Self {
             shared_data,
-            app_update_url: app_update_url.into(),
+            app_update_url: app_update_url.clone(),
             delay_delete: false,
         }
     }
@@ -89,7 +89,9 @@ impl Drop for AppsRequest {
     fn drop(&mut self) {
         debug!("AppsRequest drop");
         if let Some(apps_item) = self.installing_apps_item.clone() {
-            remove_canceller(self.shared_data.clone(), &apps_item.get_update_url());
+            if let Some(url) = apps_item.get_update_url() {
+                remove_canceller(self.shared_data.clone(), &url);
+            }
         }
     }
 }
@@ -157,8 +159,8 @@ impl AppsRequest {
     // before the downloading finishes.
     fn get_available_zip(
         &mut self,
-        app_update_url: &str,
-        url: &str,
+        app_update_url: &Url,
+        url: &Url,
         is_update: bool,
         path: &Path,
     ) -> Result<PathBuf, AppsMgmtError> {
@@ -235,7 +237,7 @@ impl AppsRequest {
 
     fn get_update_manifest(
         &mut self,
-        url: &str,
+        url: &Url,
         path: &Path,
         some_headers: Option<HeaderMap>,
         canceller_needed: bool, // Check for update does not support cancel
@@ -313,7 +315,9 @@ impl AppsRequest {
         debug!("check_for_update is_auto_update {}", is_auto_update);
         let mut headers = HeaderMap::new();
         get_etag_header(&app, &mut headers);
-        let update_url = app.get_update_url();
+        let update_url = app
+            .get_update_url()
+            .ok_or(AppsServiceError::InvalidUpdateUrl)?;
         let update_manifest_result =
             match self.get_update_manifest(&update_url, webapp_path, Some(headers), false) {
                 Ok(update_manifest_result) => update_manifest_result,
@@ -356,8 +360,8 @@ impl AppsRequest {
         // Lock to save app
         {
             let registry = &mut self.shared_data.lock().registry;
-            if app.get_update_manifest_url().is_empty() {
-                app.set_update_manifest_url(&AppsItem::new_update_manifest_url(
+            if app.get_update_manifest_url().is_none() {
+                app.set_update_manifest_url(AppsItem::new_update_manifest_url(
                     &app.get_name(),
                     registry.get_vhost_port(),
                 ));
@@ -374,7 +378,7 @@ impl AppsRequest {
     pub fn download_and_apply(
         &mut self,
         webapp_path: &Path,
-        update_url: &str,
+        update_url: &Url,
         is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let path = Path::new(&webapp_path);
@@ -413,10 +417,10 @@ impl AppsRequest {
                 let app_name = registry.get_unique_name(
                     &update_manifest.get_name(),
                     update_manifest.get_origin(),
-                    Some(update_url),
+                    Some(update_url.clone()),
                 )?;
                 let mut app = AppsItem::default(&app_name, registry.get_vhost_port());
-                app.set_update_url(update_url);
+                app.set_update_url(Some(update_url.clone()));
 
                 apps_item_restore = app.clone();
                 app.set_install_state(AppsInstallState::Installing);
@@ -443,34 +447,27 @@ impl AppsRequest {
         let mut available_dir_remover = DirRemover::new(&update_manifest_result.available_dir);
         let available_dir = update_manifest_result.available_dir;
 
-        if update_manifest.get_package_path().is_empty() {
-            error!("No package path.");
-            return Err(AppsServiceError::InvalidManifest);
-        }
-
+        let package_url = Url::parse(&update_manifest.get_package_path())
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
         if AppsStorage::available_disk_space(webapp_path) < update_manifest.get_packaged_size() * 2
         {
             error!("Do not have enough disk space.");
             return Err(AppsServiceError::DiskSpaceNotEnough);
         }
 
-        let available_zip = match self.get_available_zip(
-            update_url,
-            &update_manifest.get_package_path(),
-            is_update,
-            &available_dir,
-        ) {
-            Ok(package) => package,
-            Err(err) => {
-                let mut error = Err(AppsServiceError::DownloadPackageFailed);
-                debug!("get_available_zip error {}", err);
-                if err == AppsMgmtError::PackageDownloadFailed(DownloadError::Canceled) {
-                    error = Err(AppsServiceError::Canceled);
-                }
+        let available_zip =
+            match self.get_available_zip(update_url, &package_url, is_update, &available_dir) {
+                Ok(package) => package,
+                Err(err) => {
+                    let mut error = Err(AppsServiceError::DownloadPackageFailed);
+                    debug!("get_available_zip error {}", err);
+                    if err == AppsMgmtError::PackageDownloadFailed(DownloadError::Canceled) {
+                        error = Err(AppsServiceError::Canceled);
+                    }
 
-                return error;
-            }
-        };
+                    return error;
+                }
+            };
 
         info!("available_zip: {}", available_zip.display());
         // We can lock registry now, since no waiting job.
@@ -490,7 +487,7 @@ impl AppsRequest {
             return Err(AppsServiceError::InvalidOrigin);
         }
 
-        if let Err(err) = AppsRegistry::validate(&apps_item.get_manifest_url(), &manifest) {
+        if let Err(err) = AppsRegistry::validate(&manifest) {
             error!("AppsRegistry::validate error: {:?}", err);
             return Err(AppsServiceError::InvalidManifest);
         }
@@ -515,18 +512,22 @@ impl AppsRequest {
     pub fn download_and_apply_pwa(
         &mut self,
         webapp_path: &Path,
-        update_url: &str,
+        update_url: &Url,
         is_update: bool,
     ) -> Result<AppsObject, AppsServiceError> {
         let download_dir = AppsStorage::get_app_dir(
             &webapp_path.join("downloading"),
-            &hash(update_url).to_string(),
+            &hash(update_url.as_str()).to_string(),
         )
         .map_err(|_| AppsServiceError::DownloadManifestFailed)?;
         let download_manifest = download_dir.join("update.webmanifest");
 
         // 1. download manfiest to cache dir.
-        debug!("dowload {} to {}", update_url, download_manifest.display());
+        debug!(
+            "download {} to {}",
+            update_url.as_str(),
+            download_manifest.display()
+        );
         if let Err(err) = self.download(update_url, &download_manifest) {
             error!(
                 "Downloading {} to {} failed: {:?}",
@@ -539,8 +540,7 @@ impl AppsRequest {
 
         let mut manifest = Manifest::read_from(&download_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
-        let update_url_base =
-            Url::parse(update_url).map_err(|_| AppsServiceError::InvalidManifest)?;
+        let update_url_base = update_url.clone();
         let _ = is_same_origin_with(&update_url_base, &manifest.get_start_url())?;
         manifest.process_scope(&update_url_base)?;
 
@@ -559,10 +559,10 @@ impl AppsRequest {
                 let app_name = registry.get_unique_name(
                     &manifest.get_name(),
                     manifest.get_origin(),
-                    Some(update_url),
+                    Some(update_url.clone()),
                 )?;
                 let mut app = AppsItem::default_pwa(&app_name, registry.get_vhost_port());
-                app.set_update_url(update_url);
+                app.set_update_url(Some(update_url.clone()));
                 app.set_install_state(AppsInstallState::Installing);
 
                 app
@@ -581,14 +581,13 @@ impl AppsRequest {
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
         }
 
-        if let Err(err) = AppsRegistry::validate(&apps_item.get_manifest_url(), &manifest) {
+        if let Err(err) = AppsRegistry::validate(&manifest) {
             error!("AppsRegistry::validate error: {:?}", err);
             return Err(AppsServiceError::InvalidManifest);
         }
 
         // 2-1. download icons to cached dir.
-        let manifest_url_base = Url::parse(&apps_item.get_manifest_url())
-            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        let manifest_url_base = apps_item.get_manifest_url();
         if let Some(icons_value) = manifest.get_icons() {
             let mut icons: Vec<Icons> =
                 serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
@@ -609,7 +608,7 @@ impl AppsRequest {
                     .join(&icon.get_src())
                     .map_err(|_| AppsServiceError::InvalidManifest)?;
                 let _ = AppsStorage::ensure_dir(icon_dir);
-                if let Err(err) = self.download(icon_url.as_str(), &icon_path) {
+                if let Err(err) = self.download(&icon_url, &icon_path) {
                     error!(
                         "Failed to download icon {} -> {:?} : {:?}",
                         icon_url, icon_path, err
@@ -644,12 +643,12 @@ impl AppsRequest {
         Ok(AppsObject::from(&apps_item))
     }
 
-    pub fn broadcast_download_failed(&mut self, update_url: &str, reason: AppsServiceError) {
+    pub fn broadcast_download_failed(&mut self, update_url: &Url, reason: AppsServiceError) {
         let apps_object = if let Some(apps_item) = &self.installing_apps_item {
             AppsObject::from(apps_item)
         } else {
             let mut apps_item = AppsItem::default("unknown", 80);
-            apps_item.set_update_url(update_url);
+            apps_item.set_update_url(Some(update_url.clone()));
             AppsObject::from(&apps_item)
         };
 
@@ -664,7 +663,7 @@ impl AppsRequest {
             });
     }
 
-    fn download<P: AsRef<Path>>(&self, url: &str, path: P) -> Result<(), DownloadError> {
+    fn download<P: AsRef<Path>>(&self, url: &Url, path: P) -> Result<(), DownloadError> {
         let (result_recv, _cancel_sender) = self.downloader.clone().download(url, path, None);
         loop {
             // Wait for 10 mins
@@ -687,10 +686,10 @@ impl AppsRequest {
         Ok(())
     }
 
-    fn set_or_update_canceller(&mut self, url: &str, cancel_sender: Sender<()>) {
+    fn set_or_update_canceller(&mut self, url: &Url, cancel_sender: Sender<()>) {
         let downloadings = &mut self.shared_data.lock().downloadings;
         downloadings
-            .entry(url.into())
+            .entry(url.to_owned())
             .and_modify(|canceller| canceller.cancel_sender = Some(cancel_sender.clone()))
             .or_insert(DownloadingCanceller {
                 cancel_sender: Some(cancel_sender),
@@ -698,7 +697,7 @@ impl AppsRequest {
             });
     }
 
-    fn check_cancelled(&self, url: &str) -> bool {
+    fn check_cancelled(&self, url: &Url) -> bool {
         let downloadings = &self.shared_data.lock().downloadings;
         downloadings
             .get(url)
@@ -792,12 +791,12 @@ fn compare_version_hash<P: AsRef<Path>>(app: &AppsItem, update_manifest: P) -> b
     is_update_available
 }
 
-fn remove_canceller(shared_data: Shared<AppsSharedData>, url: &str) {
+fn remove_canceller(shared_data: Shared<AppsSharedData>, url: &Url) {
     let _ = shared_data.lock().downloadings.remove(url);
 }
 
 #[cfg(test)]
-fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
+fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
     use crate::config;
     use config::Config;
     use std::env;
@@ -843,10 +842,10 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
 
     // Test 1: apply from a local dir
     let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webmanifest");
-    let update_url = "https://pwa1.test/manifest.webmanifest";
+    let update_url = Url::parse("https://pwa1.test/manifest.webmanifest").unwrap();
     let download_dir = AppsStorage::get_app_dir(
         &test_path.join("downloading"),
-        &format!("{}", hash(update_url)),
+        &format!("{}", hash(update_url.as_str())),
     )
     .unwrap();
     let download_manifest = download_dir.join("manifest.webmanifest");
@@ -862,7 +861,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
         .get_unique_name(
             &manifest.get_name(),
             manifest.get_origin(),
-            Some(&update_url),
+            Some(update_url.clone()),
         )
         .unwrap();
     if let Some(icons_value) = manifest.get_icons() {
@@ -873,7 +872,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
     }
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
-    apps_item.set_update_url(&update_url);
+    apps_item.set_update_url(Some(update_url.clone()));
 
     match shared_data
         .lock()
@@ -892,7 +891,8 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
 
     // Test 2: download and apply from a remote url
     let mut request = AppsRequest::new(shared_data.clone()).unwrap();
-    match request.download_and_apply_pwa(test_path, app_url, false) {
+    let app_url = Url::parse(app_url_str).unwrap();
+    match request.download_and_apply_pwa(test_path, &app_url, false) {
         Ok(app) => {
             if expected_err.is_some() {
                 panic!();
@@ -911,7 +911,7 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
         }
     }
     let lock = shared_data.lock();
-    if let Some(app) = lock.registry.get_by_update_url(app_url) {
+    if let Some(app) = lock.registry.get_by_update_url(&app_url) {
         assert_eq!(app.get_name(), "hellopwa");
 
         let cached_dir = test_path.join("cached");
@@ -919,19 +919,14 @@ fn test_apply_pwa(app_url: &str, expected_err: Option<AppsServiceError>) {
         let manifest = Manifest::read_from(&update_manifest).unwrap();
 
         // The start url in cached manifest is an absolute url of remote address.
-        let expected_start_url = Url::parse(&app_url)
-            .unwrap()
-            .join("index.html")
-            .unwrap()
-            .as_str()
-            .to_string();
+        let expected_start_url = app_url.join("index.html").unwrap().as_str().to_string();
         assert_eq!(manifest.get_start_url(), expected_start_url);
 
         // icon url should be relative path of local cached address
         if let Some(icons_value) = manifest.get_icons() {
             let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
             assert_eq!(4, icons.len());
-            let manifest_url_base = Url::parse(&app.get_manifest_url()).unwrap().join("/");
+            let manifest_url_base = app.get_manifest_url().join("/");
             for icon in icons {
                 let icon_src = icon.get_src();
                 let icon_url = Url::parse(&icon_src).unwrap();

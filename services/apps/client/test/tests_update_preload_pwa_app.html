@@ -35,7 +35,7 @@
         // Test checkForUpdate updatepwa app.
         await tester.assert_eq(
           "check for update preload pwa app",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/updatepwa/manifest.webmanifest", {autoInstall: true}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/updatepwa/manifest.webmanifest"), {autoInstall: true}),
           true
         );
 
@@ -56,7 +56,7 @@
         let update_updatepwa_manifest_url = "http://cached.localhost:8081/updatepwa/manifest.webmanifest";
         await tester.assert_eq(
           "update preload pwa app",
-          service => service.update(update_updatepwa_manifest_url, {autoInstall: true}),
+          service => service.update(new URL(update_updatepwa_manifest_url), {autoInstall: true}),
           update_prelaod_pwa_auto_download_available
         );
 
@@ -79,8 +79,8 @@
         // Verify the prelaod pwa app after update.
         await tester.assert_eq(
           "get preload pwa after update",
-          service => service.getApp(update_updatepwa_manifest_url),
-	  update_prelaod_pwa_expected
+          service => service.getApp(new URL(update_updatepwa_manifest_url)),
+	      update_prelaod_pwa_expected
         );
 
         let reporter = new TestReporter([tester]);

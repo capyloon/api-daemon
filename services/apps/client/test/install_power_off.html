@@ -35,7 +35,7 @@
         // Make sure app is installing
         let on_installing_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
 
-        tester.service.installPackage("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest")
+        tester.service.installPackage(new URL("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest"));
 
         await tester.assert_event_eq("on installing event", on_installing_handler, power_off_installing_expected(1));
 

@@ -48,7 +48,7 @@
 
         await tester.assert_eq(
           "install app",
-          service => service.installPackage("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest")),
           power_off_installing_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_handler, power_off_installing_expected(1));

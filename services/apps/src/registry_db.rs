@@ -7,6 +7,7 @@ use rusqlite::{named_params, Row, Transaction};
 use sqlite_utils::{DatabaseUpgrader, SqliteDb, SqliteDbError};
 use std::path::Path;
 use thiserror::Error;
+use url::Url;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -205,7 +206,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let name: String = row.get("name")?;
     let version: String = row.get("version")?;
     let removable: bool = row.get("removable")?;
-    let manifest_url: String = row.get("manifest_url")?;
+    let manifest_url: Url = row.get("manifest_url")?;
     let update_manifest_url: String = row.get("update_manifest_url")?;
     let update_url: String = row.get("update_url")?;
     let preloaded: bool = row.get("preloaded")?;
@@ -215,12 +216,11 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let package_hash: String = row.get("package_hash")?;
     let manifest_etag: Option<String> = row.get("manifest_etag").ok();
 
-    let mut item = AppsItem::new(&name);
-    item.set_manifest_url(&manifest_url);
+    let mut item = AppsItem::new(&name, manifest_url);
     item.set_version(&version);
     item.set_removable(removable);
-    item.set_update_manifest_url(&update_manifest_url);
-    item.set_update_url(&update_url);
+    item.set_update_manifest_url(Url::parse(&update_manifest_url).ok());
+    item.set_update_url(Url::parse(&update_url).ok());
     item.set_preloaded(preloaded);
     item.set_status(row.get("status")?);
     item.set_install_state(row.get("install_state")?);
@@ -256,8 +256,18 @@ impl RegistryDb {
 
     pub fn add(&mut self, app: &AppsItem) -> Result<(), Error> {
         debug!("RegistryDb::add {}", app.get_name());
-        debug!("  manifest_url is {}", app.get_manifest_url());
-        debug!("  update_url is {}", app.get_update_url());
+        debug!("  manifest_url is {:?}", app.get_manifest_url());
+        debug!("  update_url is {:?}", app.get_update_url());
+
+        macro_rules! url_not_null {
+            ($url:expr) => {
+                if let Some(url) = $url {
+                    url.as_str()
+                } else {
+                    "".into()
+                }
+            };
+        }
 
         let connection = self.db.mut_connection();
         let tx = connection.transaction()?;
@@ -303,8 +313,8 @@ impl RegistryDb {
                 ":version": &app.get_version(),
                 ":removable": &app.get_removable(),
                 ":manifest_url": &app.get_manifest_url(),
-                ":update_manifest_url": &app.get_update_manifest_url(),
-                ":update_url": &app.get_update_url(),
+                ":update_manifest_url": url_not_null!(&app.get_update_manifest_url()),
+                ":update_url": url_not_null!(&app.get_update_url()),
                 ":preloaded": &app.get_preloaded(),
                 ":status": &status,
                 ":install_state": &install_state,
@@ -339,26 +349,27 @@ impl RegistryDb {
         Ok(results)
     }
 
-    pub fn get_by_manifest_url(&self, manifest_url: &str) -> Result<AppsItem, Error> {
-        debug!("RegistryDb::get_by_manifest_url {}", manifest_url);
+    pub fn get_by_manifest_url(&self, manifest_url: &Url) -> Result<AppsItem, Error> {
+        debug!("RegistryDb::get_by_manifest_url {}", manifest_url.as_str());
         let mut stmt = self
             .db
             .connection()
             .prepare("SELECT * FROM apps WHERE manifest_url=:manifest_url")?;
 
-        stmt.query_row(named_params! {":manifest_url": manifest_url}, |r| {
-            Ok(row_to_apps_item(r).map_err(|e| e.into()))
-        })?
+        stmt.query_row(
+            named_params! {":manifest_url": manifest_url.as_str()},
+            |r| Ok(row_to_apps_item(r).map_err(|e| e.into())),
+        )?
     }
 
-    pub fn get_by_update_url(&self, update_url: &str) -> Result<AppsItem, Error> {
-        debug!("RegistryDb::get_by_update_url {}", update_url);
+    pub fn get_by_update_url(&self, update_url: &Url) -> Result<AppsItem, Error> {
+        debug!("RegistryDb::get_by_update_url {}", update_url.as_str());
         let mut stmt = self
             .db
             .connection()
             .prepare("SELECT * FROM apps WHERE update_url=:update_url")?;
 
-        stmt.query_row(named_params! {":update_url": update_url}, |r| {
+        stmt.query_row(named_params! {":update_url": update_url.as_str()}, |r| {
             Ok(row_to_apps_item(r).map_err(|e| e.into()))
         })?
     }
@@ -375,26 +386,33 @@ impl RegistryDb {
         })?
     }
 
-    pub fn remove_by_manifest_url(&mut self, manifest_url: &str) -> Result<(), Error> {
-        debug!("RegistryDb::remove_by_manifest_url {}", manifest_url);
+    pub fn remove_by_manifest_url(&mut self, manifest_url: &Url) -> Result<(), Error> {
+        debug!(
+            "RegistryDb::remove_by_manifest_url {}",
+            manifest_url.as_str()
+        );
         let connection = self.db.mut_connection();
         let tx = connection.transaction()?;
         {
             let mut stmt = tx.prepare("DELETE FROM apps WHERE manifest_url=:manifest_url")?;
-            stmt.execute(named_params! {":manifest_url": manifest_url})?;
+            stmt.execute(named_params! {":manifest_url": manifest_url.as_str()})?;
         }
         tx.commit()?;
         Ok(())
     }
 
-    pub fn update_status(&mut self, manifest_url: &str, status: AppsStatus) -> Result<(), Error> {
+    pub fn update_status(&mut self, manifest_url: &Url, status: AppsStatus) -> Result<(), Error> {
         let status: String = status.into();
-        debug!("RegistryDb::update_status {} for {}", status, manifest_url);
+        debug!(
+            "RegistryDb::update_status {} for {}",
+            status,
+            manifest_url.as_str()
+        );
         let connection = self.db.mut_connection();
         let tx = connection.transaction()?;
         {
             let mut stmt = tx.prepare("UPDATE apps SET status = ?1 WHERE manifest_url = ?2")?;
-            stmt.execute(&[&status, manifest_url])?;
+            stmt.execute(&[&status, manifest_url.as_str()])?;
         }
         tx.commit()?;
         Ok(())

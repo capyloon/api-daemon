@@ -11,13 +11,11 @@ use url::Url;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppsItem {
     name: String,
-    manifest_url: String,
+    manifest_url: Url,
     #[serde(default = "AppsItem::default_install_state")]
     install_state: AppsInstallState,
-    #[serde(default = "AppsItem::default_string")]
-    update_manifest_url: String,
-    #[serde(default = "AppsItem::default_string")]
-    update_url: String,
+    update_manifest_url: Option<Url>,
+    update_url: Option<Url>,
     #[serde(default = "AppsItem::default_status")]
     status: AppsStatus,
     #[serde(default = "AppsItem::default_update_state")]
@@ -41,13 +39,13 @@ pub struct AppsItem {
 }
 
 impl AppsItem {
-    pub fn new(name: &str) -> AppsItem {
+    pub fn new(name: &str, manifest_url: Url) -> AppsItem {
         AppsItem {
             name: name.into(),
-            manifest_url: AppsItem::default_string(),
+            manifest_url,
             install_state: AppsItem::default_install_state(),
-            update_manifest_url: AppsItem::default_string(),
-            update_url: AppsItem::default_string(),
+            update_manifest_url: None,
+            update_url: None,
             status: AppsItem::default_status(),
             update_state: AppsItem::default_update_state(),
             install_time: AppsItem::default_time(),
@@ -62,16 +60,14 @@ impl AppsItem {
     }
 
     pub fn default(name: &str, vhost_port: u16) -> AppsItem {
-        let mut app = AppsItem::new(name);
-        app.set_manifest_url(&AppsItem::new_manifest_url(name, vhost_port));
-        app.set_update_manifest_url(&AppsItem::new_update_manifest_url(name, vhost_port));
+        let mut app = AppsItem::new(name, AppsItem::new_manifest_url(name, vhost_port));
+        app.set_update_manifest_url(AppsItem::new_update_manifest_url(name, vhost_port));
         app
     }
 
     pub fn default_pwa(name: &str, vhost_port: u16) -> AppsItem {
-        let mut app = AppsItem::new(name);
-        app.set_manifest_url(&AppsItem::new_pwa_url(name, vhost_port));
-        app.set_update_manifest_url(&AppsItem::new_update_manifest_url(name, vhost_port));
+        let mut app = AppsItem::new(name, AppsItem::new_pwa_url(name, vhost_port));
+        app.set_update_manifest_url(AppsItem::new_update_manifest_url(name, vhost_port));
         app
     }
 
@@ -80,10 +76,7 @@ impl AppsItem {
     //     TRUE: If the manifest URL is http://cached.localhost/*
     //     FALSE: Others.
     pub fn is_pwa(&self) -> bool {
-        if let Ok(manifest_url) = Url::parse(&self.get_manifest_url()) {
-            return manifest_url.host().unwrap_or(Domain("")) == Domain("cached.localhost");
-        }
-        false
+        return self.get_manifest_url().host().unwrap_or(Domain("")) == Domain("cached.localhost");
     }
 
     // Return the storage path of the app to load the manifest file.
@@ -105,11 +98,11 @@ impl AppsItem {
     //   Return:
     //     PWA app: update URL
     //     Package app: manifest URL
-    pub fn runtime_url(&self) -> String {
+    pub fn runtime_url(&self) -> Option<Url> {
         if self.is_pwa() {
             self.get_update_url()
         } else {
-            self.get_manifest_url()
+            Some(self.get_manifest_url())
         }
     }
 
@@ -119,8 +112,7 @@ impl AppsItem {
     //     PWA app: the origin of update URL
     //     Package app: the origin manifest URL
     pub fn runtime_origin(&self) -> String {
-        let url = self.runtime_url();
-        if let Ok(url) = Url::parse(&url) {
+        if let Some(url) = self.runtime_url() {
             url.origin().unicode_serialization()
         } else {
             String::new()
@@ -131,11 +123,7 @@ impl AppsItem {
         self.name.clone()
     }
 
-    pub fn set_manifest_url(&mut self, manifest_url: &str) {
-        self.manifest_url = manifest_url.into();
-    }
-
-    pub fn get_manifest_url(&self) -> String {
+    pub fn get_manifest_url(&self) -> Url {
         self.manifest_url.clone()
     }
 
@@ -143,20 +131,24 @@ impl AppsItem {
         self.removable = removable;
     }
 
-    pub fn get_update_manifest_url(&self) -> String {
+    pub fn get_update_manifest_url(&self) -> Option<Url> {
         self.update_manifest_url.clone()
     }
 
-    pub fn get_update_url(&self) -> String {
+    pub fn get_update_url(&self) -> Option<Url> {
         self.update_url.clone()
     }
 
-    pub fn set_update_manifest_url(&mut self, url: &str) {
-        self.update_manifest_url = url.into();
+    pub fn set_manifest_url(&mut self, url: Url) {
+        self.manifest_url = url;
     }
 
-    pub fn set_update_url(&mut self, url: &str) {
-        self.update_url = url.into();
+    pub fn set_update_manifest_url(&mut self, url: Option<Url>) {
+        self.update_manifest_url = url;
+    }
+
+    pub fn set_update_url(&mut self, url: Option<Url>) {
+        self.update_url = url;
     }
 
     pub fn set_version(&mut self, version: &str) {
@@ -243,9 +235,9 @@ impl AppsItem {
         self.preloaded
     }
 
-    pub fn is_found(&self, unique_name: &str, update_url: Option<&str>) -> bool {
+    pub fn is_found(&self, unique_name: &str, update_url: Option<Url>) -> bool {
         let found = self.name == unique_name;
-        if self.update_url.is_empty() && update_url.is_none() {
+        if self.update_url.is_none() && update_url.is_none() {
             // If the update_url is empty and the removable is true,
             // allow the sideload one to override the preload one.
             found && !self.removable
@@ -285,36 +277,55 @@ impl AppsItem {
         }
     }
 
-    pub fn new_manifest_url(app_name: &str, vhost_port: u16) -> String {
+    pub fn new_manifest_url(app_name: &str, vhost_port: u16) -> Url {
         if vhost_port == 80 {
-            format!("http://{}.localhost/manifest.webmanifest", &app_name)
+            Url::parse(&format!(
+                "http://{}.localhost/manifest.webmanifest",
+                &app_name
+            ))
+            // It is safe to unwrap here.
+            .unwrap()
         } else {
-            format!(
+            Url::parse(&format!(
                 "http://{}.localhost:{}/manifest.webmanifest",
                 &app_name, vhost_port
-            )
+            ))
+            // It is safe to unwrap here.
+            .unwrap()
         }
     }
 
-    pub fn new_pwa_url(app_name: &str, vhost_port: u16) -> String {
+    pub fn new_pwa_url(app_name: &str, vhost_port: u16) -> Url {
         if vhost_port == 80 {
-            format!("http://cached.localhost/{}/manifest.webmanifest", &app_name)
+            Url::parse(&format!(
+                "http://cached.localhost/{}/manifest.webmanifest",
+                &app_name
+            ))
+            // It is safe to unwrap here.
+            .unwrap()
         } else {
-            format!(
+            Url::parse(&format!(
                 "http://cached.localhost:{}/{}/manifest.webmanifest",
                 vhost_port, &app_name
-            )
+            ))
+            // It is safe to unwrap here.
+            .unwrap()
         }
     }
 
-    pub fn new_update_manifest_url(app_name: &str, vhost_port: u16) -> String {
+    pub fn new_update_manifest_url(app_name: &str, vhost_port: u16) -> Option<Url> {
         if vhost_port == 80 {
-            format!("http://cached.localhost/{}/update.webmanifest", &app_name)
+            Url::parse(&format!(
+                "http://cached.localhost/{}/update.webmanifest",
+                &app_name
+            ))
+            .ok()
         } else {
-            format!(
+            Url::parse(&format!(
                 "http://cached.localhost:{}/{}/update.webmanifest",
                 vhost_port, &app_name
-            )
+            ))
+            .ok()
         }
     }
 }

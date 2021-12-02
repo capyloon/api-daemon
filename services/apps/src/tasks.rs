@@ -6,10 +6,11 @@ use crate::generated::common::*;
 use crate::shared_state::AppsSharedData;
 use common::traits::Shared;
 use log::{error, info};
+use url::Url;
 
 pub struct InstallPackageTask(
     pub Shared<AppsSharedData>,
-    pub String,                            // Update url
+    pub Url,                               // Update url
     pub AppsEngineInstallPackageResponder, // responder
 );
 
@@ -53,7 +54,7 @@ impl AppMgmtTask for InstallPackageTask {
 
 pub struct InstallPwaTask(
     pub Shared<AppsSharedData>,
-    pub String,                        // Update url
+    pub Url,                           // Update url
     pub AppsEngineInstallPwaResponder, // responder
 );
 
@@ -97,7 +98,7 @@ impl AppMgmtTask for InstallPwaTask {
 
 pub struct UninstallTask(
     pub Shared<AppsSharedData>,
-    pub String,                       // Manifest url
+    pub Url,                          // Manifest url
     pub AppsEngineUninstallResponder, // Responder.
 );
 
@@ -121,23 +122,23 @@ impl AppMgmtTask for UninstallTask {
         };
 
         let mut shared = request.shared_data.lock();
-        if let Err(err) = shared.registry.uninstall_app(&app.manifest_url) {
+        if let Err(err) = shared.registry.uninstall_app(url) {
             error!("Unregister app failed: {:?}", err);
             return responder.reject(err);
         }
 
         shared.vhost_api.app_uninstalled(&app.name);
-        responder.resolve(app.manifest_url.clone());
+        responder.resolve(url.clone());
         shared
             .registry
             .event_broadcaster
-            .broadcast_app_uninstalled(app.manifest_url);
+            .broadcast_app_uninstalled(url.clone());
     }
 }
 
 pub struct UpdateTask(
     pub Shared<AppsSharedData>,
-    pub String,                    // Manifest url
+    pub Url,                       // Manifest url
     pub Option<AppsOptions>,       // For auto update option
     pub AppsEngineUpdateResponder, // Responder.
 );
@@ -180,7 +181,10 @@ impl AppMgmtTask for UpdateTask {
             }
         };
 
-        let update_url = old_app.get_update_url();
+        let update_url = match old_app.get_update_url() {
+            Some(url) => url,
+            None => return responder.reject(AppsServiceError::AppNotFound),
+        };
         let data_dir = request.shared_data.lock().config.data_path();
 
         let update_result = if old_app.is_pwa() {
@@ -203,7 +207,7 @@ impl AppMgmtTask for UpdateTask {
                 shared.registry.event_broadcaster.broadcast_app_updated(app);
             }
             Err(err) => {
-                request.broadcast_download_failed(&update_url, err);
+                request.broadcast_download_failed(url, err);
                 responder.reject(err);
             }
         }
@@ -212,7 +216,7 @@ impl AppMgmtTask for UpdateTask {
 
 pub struct CheckForUpdateTask(
     pub Shared<AppsSharedData>,
-    pub String,                                    // Update url
+    pub Url,                                       // Update url
     pub Option<AppsOptions>,                       // For auto update option
     pub Option<AppsEngineCheckForUpdateResponder>, // some responder
 );
@@ -286,7 +290,7 @@ impl AppMgmtTask for CheckForUpdateTask {
 
 pub struct SetEnabledTask(
     pub Shared<AppsSharedData>,
-    pub String,                        // manifest url
+    pub Url,                           // manifest url
     pub AppsStatus,                    // App status
     pub AppsEngineSetEnabledResponder, // responder
 );
@@ -317,7 +321,7 @@ impl AppMgmtTask for SetEnabledTask {
 
 pub struct ClearTask(
     pub Shared<AppsSharedData>,
-    pub String,                   // manifest url
+    pub Url,                      // manifest url
     pub ClearType,                // App status
     pub AppsEngineClearResponder, // responder
 );
@@ -342,7 +346,7 @@ impl AppMgmtTask for ClearTask {
 
 pub struct CancelDownloadTask(
     pub Shared<AppsSharedData>,
-    pub String,                            // update url
+    pub Url,                               // update url
     pub AppsEngineCancelDownloadResponder, // responder
 );
 
@@ -371,7 +375,7 @@ impl AppMgmtTask for CancelDownloadTask {
     }
 }
 
-fn install_allowed(request: &mut AppsRequest, update_url: &str) -> bool {
+fn install_allowed(request: &mut AppsRequest, update_url: &Url) -> bool {
     let shared = request.shared_data.lock();
 
     if shared.downloadings.get(update_url).is_some() {

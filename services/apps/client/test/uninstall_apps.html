@@ -32,12 +32,13 @@
         // Test uninstall is forbidden
         await tester.assert_rej_eq(
           "Uninstall Forbidden",
-          service => service.uninstall("http://launcher.localhost:8081/manifest.webmanifest"),
+          service => service.uninstall(new URL("http://launcher.localhost:8081/manifest.webmanifest")),
           AppsServiceError.UNINSTALL_FORBIDDEN
         );
 
         // Test uninstall
-        let testapp_manifest_url = "http://ciautotest.localhost:8081/manifest.webmanifest";
+        let testapp_manifest_str = "http://ciautotest.localhost:8081/manifest.webmanifest";
+        let testapp_manifest_url = new URL(testapp_manifest_str);
         let on_uninstall1_handler = tester.setup_event(tester.service.APP_UNINSTALLED_EVENT);
         await tester.assert_eq(
           "uninstall app",
@@ -48,7 +49,7 @@
         await tester.assert_eq(
           "get app manifest",
           service => {
-            let req = new Request(testapp_manifest_url);
+            let req = new Request(testapp_manifest_str);
             req.responseType = "json";
             return fetch(req).then(response => response.status);
           },
@@ -56,7 +57,8 @@
         );
 
         // Test uninstall PWA
-        let pwa_manifest_url = "http://cached.localhost:8081/newpreloadpwa/manifest.webmanifest";
+        let pwa_manifest_str = "http://cached.localhost:8081/newpreloadpwa/manifest.webmanifest";
+        let pwa_manifest_url = new URL(pwa_manifest_str);
         await tester.assert_eq(
           "uninstall pwa app",
           service => service.uninstall(pwa_manifest_url),
@@ -68,7 +70,7 @@
         await tester.assert_eq(
           "get pwa app manifest",
           service => {
-            let req = new Request(pwa_manifest_url);
+            let req = new Request(pwa_manifest_str);
             req.responseType = "json";
             return fetch(req).then(response => response.status);
           },

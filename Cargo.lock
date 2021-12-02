@@ -1748,6 +1748,7 @@ dependencies = [
  "serde",
  "thiserror",
  "threadpool",
+ "url",
 ]
 
 [[package]]
@@ -3276,6 +3277,7 @@ dependencies = [
  "libsqlite3-sys",
  "memchr",
  "smallvec",
+ "url",
 ]
 
 [[package]]

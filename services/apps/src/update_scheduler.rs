@@ -167,13 +167,13 @@ impl UpdateScheduler {
         let shared = shared_data.lock();
         shared.registry.get_all().iter().for_each(|app| {
             debug!("checking apps");
-            let update_url: String = app.update_url.to_owned();
-            if !update_url.is_empty() {
+            if let Some(update_url) = &app.update_url {
                 // Create tasks and check for update
                 let apps_options = Some(AppsOptions {
                     auto_install: Some(true),
                 });
-                let task = CheckForUpdateTask(shared_data.clone(), update_url, apps_options, None);
+                let task =
+                    CheckForUpdateTask(shared_data.clone(), update_url.clone(), apps_options, None);
                 shared.registry.queue_task(task);
             }
         });

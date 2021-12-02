@@ -5,9 +5,10 @@ use crate::config::Config;
 use crate::generated::common::*;
 use crate::update_scheduler::SchedulerMessage;
 use common::traits::StateLogger;
-use log::info;
+use log::{error, info};
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
+use url::Url;
 use vhost_server::config::VhostApi;
 
 pub struct DeviceInfo;
@@ -29,7 +30,7 @@ pub struct AppsSharedData {
     pub token_provider: Option<TokenProviderProxy>,
     pub device_info: Option<DeviceInfo>,
     pub scheduler: Option<Sender<SchedulerMessage>>,
-    pub downloadings: HashMap<String, DownloadingCanceller>,
+    pub downloadings: HashMap<Url, DownloadingCanceller>,
 }
 
 pub struct DownloadingCanceller {
@@ -67,12 +68,13 @@ impl Default for AppsSharedData {
 impl AppsSharedData {
     pub fn get_all_apps(&self) -> Result<Vec<AppsObject>, AppsServiceError> {
         if self.state != AppsServiceState::Running {
+            error!("get_all_apps AppsService state is invalid!");
             return Err(AppsServiceError::InvalidState);
         }
         Ok(self.registry.get_all())
     }
 
-    pub fn get_by_manifest_url(&self, manifest_url: &str) -> Result<AppsObject, AppsServiceError> {
+    pub fn get_by_manifest_url(&self, manifest_url: &Url) -> Result<AppsObject, AppsServiceError> {
         match self.registry.get_by_manifest_url(manifest_url) {
             Some(app) => Ok(AppsObject::from(&app)),
             None => Err(AppsServiceError::AppNotFound),

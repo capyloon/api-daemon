@@ -11,6 +11,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+use url::Url;
 
 #[derive(Debug)]
 pub enum DownloaderInfo {
@@ -73,13 +74,13 @@ impl Downloader {
     // The etag, if exists, is returned when success.
     pub fn download<P: AsRef<Path>>(
         mut self,
-        url: &str,
+        url: &Url,
         path: P,
         extra_headers: Option<HeaderMap>,
     ) -> (Receiver<Result<DownloaderInfo, DownloadError>>, Sender<()>) {
-        debug!("download: {}", url);
+        debug!("download: {}", url.as_str());
+        let url = url.clone();
         let (cancel_sender, canceled_recv) = channel();
-        let url_string = String::from(url);
         let file_path_buf = path.as_ref().to_path_buf();
         let (sender, receiver) = channel();
 
@@ -87,7 +88,7 @@ impl Downloader {
             .name("apps_download".into())
             .spawn(move || {
                 let result = self.single_download(
-                    &url_string,
+                    &url,
                     &file_path_buf,
                     canceled_recv,
                     sender.clone(),
@@ -103,7 +104,7 @@ impl Downloader {
 
     fn single_download<P: AsRef<Path>>(
         &mut self,
-        url: &str,
+        url: &Url,
         path: P,
         canceled_recv: Receiver<()>,
         progress_sender: Sender<Result<DownloaderInfo, DownloadError>>,
@@ -111,7 +112,7 @@ impl Downloader {
     ) -> Result<DownloaderInfo, DownloadError> {
         let mut response = self
             .client
-            .get(url)
+            .get(url.clone())
             .headers(extra_headers.unwrap_or_default())
             .send()
             .map_err(DownloadError::Reqwest)?;
@@ -142,7 +143,7 @@ impl Downloader {
         let mut file = io::BufWriter::new(tmp_file.inner());
         loop {
             if canceled_recv.try_recv().is_ok() {
-                info!("cancel received while downloading {}", url);
+                info!("cancel received while downloading {}", url.as_str());
                 return Err(DownloadError::Canceled);
             }
 
@@ -420,8 +421,10 @@ mod test {
         if !_test_dir.exists() {
             fs::create_dir(&_test_dir).unwrap();
         }
-        let url =
-            "http://localhost:3429/test-fixtures/test-server-apps/ciautotest/manifest.webmanifest";
+        let url = Url::parse(
+            "http://localhost:3429/test-fixtures/test-server-apps/ciautotest/manifest.webmanifest",
+        )
+        .ok();
         let mut hawk = Hawk::default();
         let token_info = AccessTokenInfo {
             kid: "FGFYvY+/4XwTYIX9nVi+sXj5tPA=".into(),
@@ -432,7 +435,9 @@ mod test {
         hawk.valid_until = Instant::now() + Duration::from_secs(expires_in);
         hawk.token_info = Some(token_info);
 
-        let hawk_str = hawk.get_hawk_header(Method::GET, url, None).unwrap();
+        let hawk_str = hawk
+            .get_hawk_header(Method::GET, url.clone(), None)
+            .unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,
@@ -442,10 +447,11 @@ mod test {
         let downloader = Downloader::new(user_agent, lang).unwrap();
 
         let _file_path = _test_dir.join("sample.webapp");
-        let (result_recv, _) =
-            downloader
-                .clone()
-                .download(url, &_file_path.to_str().unwrap(), Some(headers.clone()));
+        let (result_recv, _) = downloader.clone().download(
+            &url.clone().unwrap(),
+            &_file_path.to_str().unwrap(),
+            Some(headers.clone()),
+        );
 
         let mut etag = String::new();
         let mut progress = 0;
@@ -476,10 +482,11 @@ mod test {
             HeaderValue::from_str(&etag).unwrap(),
         );
 
-        let (result_recv, _) =
-            downloader
-                .clone()
-                .download(url, &_file_path.to_str().unwrap(), Some(headers));
+        let (result_recv, _) = downloader.clone().download(
+            &url.clone().unwrap(),
+            &_file_path.to_str().unwrap(),
+            Some(headers),
+        );
 
         if let Ok(result) = result_recv.recv_timeout(Duration::from_secs(120)) {
             if let Err(err) = result {
@@ -506,8 +513,10 @@ mod test {
             fs::create_dir(&_test_dir).unwrap();
         }
 
-        let url =
-            "http://localhost:3429/test-fixtures/test-server-apps/ciautotest/manifest.webmanifest";
+        let url = Url::parse(
+            "http://localhost:3429/test-fixtures/test-server-apps/ciautotest/manifest.webmanifest",
+        )
+        .ok();
         let mut hawk = Hawk::default();
         let token_info = AccessTokenInfo {
             kid: "FGFYvY+/4XwTYIX9nVi+sXj5tPA=".into(),
@@ -518,7 +527,9 @@ mod test {
         hawk.valid_until = Instant::now() + Duration::from_secs(expires_in);
         hawk.token_info = Some(token_info);
 
-        let hawk_str = hawk.get_hawk_header(Method::GET, url, None).unwrap();
+        let hawk_str = hawk
+            .get_hawk_header(Method::GET, url.clone(), None)
+            .unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,
@@ -530,10 +541,11 @@ mod test {
         assert!(hawk.has_valid_token());
 
         let _file_path = _test_dir.join("sample.webapp");
-        let (result_recv, cancel_sender) =
-            downloader
-                .clone()
-                .download(url, &_file_path.to_str().unwrap(), Some(headers.clone()));
+        let (result_recv, cancel_sender) = downloader.clone().download(
+            &url.clone().unwrap(),
+            &_file_path.to_str().unwrap(),
+            Some(headers.clone()),
+        );
 
         let _ = cancel_sender.send(());
 
@@ -544,8 +556,11 @@ mod test {
             };
         }
 
-        let (result_recv, _cancel_sender) =
-            downloader.download(url, &_file_path.to_str().unwrap(), Some(headers));
+        let (result_recv, _cancel_sender) = downloader.download(
+            &url.clone().unwrap(),
+            &_file_path.to_str().unwrap(),
+            Some(headers),
+        );
         if let Ok(res) = result_recv.recv_timeout(Duration::from_secs(120)) {
             assert!(res.is_ok());
         }

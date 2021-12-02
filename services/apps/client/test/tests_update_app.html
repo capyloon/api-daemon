@@ -38,44 +38,38 @@
         console.log("Step 1");
 
         await tester.assert_rej_eq(
-          "update invalid app",
-          service => service.update("invalid-app", {}),
-          AppsServiceError.APP_NOT_FOUND
-        );
-
-        await tester.assert_rej_eq(
           "Can not update app before check for update",
-          service => service.update("http://ciautotest.localhost:8081/manifest.webmanifest", {}),
+          service => service.update(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), {}),
           AppsServiceError.UPDATE_ERROR
         );
 
         await tester.assert_eq(
           "set disable before update",
-          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.DISABLED),
+          service => service.setEnabled(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), lib_apps.AppsStatus.DISABLED),
           status_expected(1)
         );
 
         await tester.assert_rej_eq(
           "check update for disabled app, expect APP_NOT_FOUND",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"), {}),
           AppsServiceError.APP_NOT_FOUND
         );
 
         await tester.assert_rej_eq(
           "Can not update for disabled app, expect APP_NOT_FOUND",
-          service => service.update("http://ciautotest.localhost:8081/manifest.webmanifest", {}),
+          service => service.update(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), {}),
           AppsServiceError.APP_NOT_FOUND
         );
 
         await tester.assert_eq(
           "set enable before update",
-          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.ENABLED),
+          service => service.setEnabled(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), lib_apps.AppsStatus.ENABLED),
           status_expected(0)
         );
 
         await tester.assert_eq(
           "check for update, expect true",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {autoInstall: true}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"), {autoInstall: true}),
           true
         );
         console.log("Step 2");
@@ -104,7 +98,7 @@
         let on_updating_handler = tester.setup_event(tester.service.APP_UPDATING_EVENT);
         await tester.assert_eq(
           "update app",
-          service => service.update("http://ciautotest.localhost:8081/manifest.webmanifest", {autoInstall: true}),
+          service => service.update(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), {autoInstall: true}),
           update_expected(0, true)
         );
         await tester.assert_event_eq("on updating event", on_updating_handler, update_expected(lib_apps.AppsUpdateState.UPDATING));
@@ -134,7 +128,7 @@
 
         await tester.assert_eq(
           "check for pre-installed update",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/calculator/manifest.webmanifest", {}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/calculator/manifest.webmanifest"), {}),
           true
         );
 
@@ -151,7 +145,7 @@
         await tester.assert_eq(
           "get cached pre-load app update manifest",
           service => {
-            return service.getApp(pre_installed_manifest_url).then(app => {
+            return service.getApp(new URL(pre_installed_manifest_url)).then(app => {
               if (!app.updateManifestUrl) {
                 return Promise.reject("failed to get update manifest");
               }
@@ -167,7 +161,7 @@
         console.log("Step 9");
         await tester.assert_eq(
           "update pre-installed app",
-          service => service.update(pre_installed_manifest_url, {autoInstall: true}),
+          service => service.update(new URL(pre_installed_manifest_url), {autoInstall: true}),
           update_expected_pre_installed(0, true)
         );
         await tester.assert_event_eq("on updating pre-installed event", on_updating_pre_installed_handler, update_expected_pre_installed(lib_apps.AppsUpdateState.UPDATING));
@@ -192,7 +186,7 @@
         let on_update_available_pwa_handler = tester.setup_event(tester.service.APP_UPDATE_AVAILABLE_EVENT);
         await tester.assert_eq(
           "check for update PWA app",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest", {autoInstall: true}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"), {autoInstall: true}),
           true
         );
         console.log("Step 12");
@@ -219,7 +213,7 @@
         let update_pwa_manifest_url = "http://cached.localhost:8081/hellopwa/manifest.webmanifest";
         await tester.assert_eq(
           "update PWA app",
-          service => service.update(update_pwa_manifest_url, {autoInstall: true}),
+          service => service.update(new URL(update_pwa_manifest_url), {autoInstall: true}),
           update_pwa_expected(0, true)
         );
         await tester.assert_event_eq("on updating pwa app event", on_updating_pwa_handler, update_pwa_expected(lib_apps.AppsUpdateState.UPDATING));

@@ -96,7 +96,7 @@ impl AppsStorage {
         //   PWA app: https://cached.localhost/[app-name]/manifest.webmanifest
         // Extract the preload PWA app assets to the related dir.
         if app.is_pwa() {
-            app.set_manifest_url(&AppsItem::new_pwa_url(&app_name, vhost_port));
+            app.set_manifest_url(AppsItem::new_pwa_url(&app_name, vhost_port));
             let dest = data_path.join("cached").join(&app_name);
             let zip = source.join("application.zip");
             let file = match File::open(&zip) {
@@ -118,7 +118,7 @@ impl AppsStorage {
                 return Err(err.into());
             }
         } else {
-            app.set_manifest_url(&AppsItem::new_manifest_url(&app_name, vhost_port));
+            app.set_manifest_url(AppsItem::new_manifest_url(&app_name, vhost_port));
             let dest = data_path.join("vroot").join(&app_name);
             let _ = Self::safe_symlink(&source, &dest)?;
         }

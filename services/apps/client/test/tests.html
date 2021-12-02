@@ -49,32 +49,32 @@
         await tester.assert_eq(
           "get app 1",
           service =>
-            service.getApp("http://calculator.localhost:8081/manifest.webmanifest"),
+            service.getApp(new URL("http://calculator.localhost:8081/manifest.webmanifest")),
           calculator_expected
         );
 
         await tester.assert_eq(
           "get app 2",
-          service => service.getApp("http://gallery.localhost:8081/manifest.webmanifest"),
+          service => service.getApp(new URL("http://gallery.localhost:8081/manifest.webmanifest")),
           gallery_expected
         );
 
         await tester.assert_eq(
           "get app 3",
-          service => service.getApp("http://launcher.localhost:8081/manifest.webmanifest"),
+          service => service.getApp(new URL("http://launcher.localhost:8081/manifest.webmanifest")),
           launcher_expected
         );
 
         await tester.assert_eq(
           "get app 4",
-          service => service.getApp("http://system.localhost:8081/manifest.webmanifest"),
+          service => service.getApp(new URL("http://system.localhost:8081/manifest.webmanifest")),
           system_expected
         );
 
         //Install without the token error case
         await tester.assert_rej_eq(
           "assert install before setup token provider",
-          service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest")),
           AppsServiceError.DOWNLOAD_MANIFEST_FAILED
         );
 
@@ -94,7 +94,7 @@
         // Do not await here and cancel the installation
         tester.assert_rej_eq(
           "assert install cancelled",
-          service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest")),
           AppsServiceError.CANCELED
         );
         // Wait here, let installing received first
@@ -103,7 +103,7 @@
         // Cancel the installation
         await tester.assert_eq(
           "cancel install app",
-          service => service.cancelDownload("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          service => service.cancelDownload(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest")),
           install_expected(lib_apps.AppsInstallState.INSTALLING)
         );
         // We can receive download failed event
@@ -126,7 +126,7 @@
 
         await tester.assert_eq(
           "install app",
-          service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest")),
           install_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_handler, install_expected(1));
@@ -161,7 +161,7 @@
 
         await tester.assert_eq(
           "check for update",
-          service => service.checkForUpdate("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest", {autoInstall: false}),
+          service => service.checkForUpdate(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"), {autoInstall: false}),
           false
         );
 
@@ -169,7 +169,7 @@
         let on_download_failed = tester.setup_event(tester.service.APP_DOWNLOAD_FAILED_EVENT);
         await tester.assert_rej_eq(
           "reinstall forbidden",
-          service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest")),
           AppsServiceError.REINSTALL_FORBIDDEN
         );
         tester.assert_event_eq("download failed event", on_download_failed, download_failed_response_expected);
@@ -197,7 +197,7 @@
         let on_installed_pwa_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
         await tester.assert_eq(
           "install pwa app relative start url case 1",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"),
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest")),
           install_pwa_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_pwa_handler, install_pwa_expected(1));
@@ -210,7 +210,7 @@
             return fetch(req)
               .then(response => response.json())
               .then(manifest =>
-                manifest.start_url == "http://127.0.0.1:8596/apps/pwa/index.html" &&
+                manifest.start_url == new URL("http://127.0.0.1:8596/apps/pwa/index.html") &&
                 manifest.display == "browser" &&
                 manifest.short_name == "hipwa" &&
                 manifest.scope == "http://127.0.0.1:8596/apps/pwa/" &&
@@ -229,7 +229,7 @@
 // Install PWA with relative start URL case 2.
         await tester.assert_eq(
           "install pwa app relative start url case 2",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/relative/manifest.webmanifest"),
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/relative/manifest.webmanifest")),
           relative_pwa_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_pwa_handler, relative_pwa_expected(1));
@@ -242,7 +242,7 @@
             return fetch(req)
               .then(response => response.json())
               .then(manifest =>
-                manifest.start_url == "http://127.0.0.1:8596/apps/pwa/relative/index.html" &&
+                manifest.start_url == new URL("http://127.0.0.1:8596/apps/pwa/relative/index.html") &&
                 manifest.display == "browser" &&
                 manifest.short_name == "relative pwa" &&
                 manifest.dir == "rtl" &&
@@ -260,7 +260,7 @@
 // Install PWA with same origin start URL.
         await tester.assert_eq(
           "install same origin start url pwa app",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/same-origin/manifest.webmanifest"),
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/same-origin/manifest.webmanifest")),
           same_origin_pwa_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_pwa_handler, same_origin_pwa_expected(1));
@@ -273,7 +273,7 @@
             return fetch(req)
               .then(response => response.json())
               .then(manifest =>
-                manifest.start_url == "http://127.0.0.1:8596/apps/pwa/same-origin/index.html" &&
+                manifest.start_url == new URL("http://127.0.0.1:8596/apps/pwa/same-origin/index.html") &&
                 manifest.display == "browser" &&
                 manifest.short_name == "same origin pwa" &&
                 manifest.dir == "rtl" &&
@@ -291,7 +291,7 @@
 // Install PWA with different origin start URL.
         await tester.assert_rej_eq(
           "install different origin start url pwa app",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/different-origin/manifest.webmanifest"),
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/different-origin/manifest.webmanifest")),
           AppsServiceError.INVALID_MANIFEST
         );
 
@@ -301,7 +301,7 @@
 
         await tester.assert_eq(
             "pwa set enable false",
-            service => service.setEnabled("http://cached.localhost:8081/hellopwa/manifest.webmanifest", lib_apps.AppsStatus.DISABLED),
+            service => service.setEnabled(new URL("http://cached.localhost:8081/hellopwa/manifest.webmanifest"), lib_apps.AppsStatus.DISABLED),
             install_pwa_expected(0,lib_apps.AppsStatus.DISABLED)
         );
 
@@ -319,7 +319,7 @@
 
         await tester.assert_eq(
             "pwa set enable true",
-            service => service.setEnabled("http://cached.localhost:8081/hellopwa/manifest.webmanifest", lib_apps.AppsStatus.ENABLED),
+            service => service.setEnabled(new URL("http://cached.localhost:8081/hellopwa/manifest.webmanifest"), lib_apps.AppsStatus.ENABLED),
             install_pwa_expected(0,lib_apps.AppsStatus.ENABLED)
         );
 
@@ -338,41 +338,35 @@
 // Install PWA with a duplicate scope.
         await tester.assert_rej_eq(
           "install pwa app with dupilcate scope",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/duplicate-scope.webmanifest"),
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/duplicate-scope.webmanifest")),
           AppsServiceError.INVALID_SCOPE
         );
 
 // Install PWA with an invalid scope.
         await tester.assert_rej_eq(
           "install pwa app with invalid scope",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/invalid-scope.webmanifest"),
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/invalid-scope.webmanifest")),
           AppsServiceError.INVALID_SCOPE
         );
 
 // Install PWA - start url with a different scope.
         await tester.assert_rej_eq(
           "install pwa app with a different sope",
-          service => service.installPwa("http://127.0.0.1:8596/apps/pwa/different-scope.webmanifest"),
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/different-scope.webmanifest")),
           AppsServiceError.INVALID_SCOPE
-        );
-
-        await tester.assert_rej_eq(
-          "uninstall invalid app",
-          service => service.uninstall("invalid-app"),
-          AppsServiceError.APP_NOT_FOUND
         );
 
         let on_status_chaged_handler = tester.setup_event(tester.service.APPSTATUS_CHANGED_EVENT);
         await tester.assert_eq(
           "set disable",
-          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.DISABLED),
+          service => service.setEnabled(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), lib_apps.AppsStatus.DISABLED),
           status_expected(1)
         );
         await tester.assert_event_eq("on status changed event", on_status_chaged_handler, status_expected(1));
 
         await tester.assert_eq(
           "set enabled",
-          service => service.setEnabled("http://ciautotest.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.ENABLED),
+          service => service.setEnabled(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), lib_apps.AppsStatus.ENABLED),
           status_expected(0)
         );
         await tester.assert_event_eq("on status changed event", on_status_chaged_handler, status_expected(0));
@@ -380,7 +374,7 @@
 
         await tester.assert_eq(
           "set disable launcher",
-          service => service.setEnabled("http://launcher.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.DISABLED),
+          service => service.setEnabled(new URL("http://launcher.localhost:8081/manifest.webmanifest"), lib_apps.AppsStatus.DISABLED),
           launcher_status_expected(1)
         );
 
@@ -398,7 +392,7 @@
 
         await tester.assert_eq(
           "set enabled launcher",
-          service => service.setEnabled("http://launcher.localhost:8081/manifest.webmanifest", lib_apps.AppsStatus.ENABLED),
+          service => service.setEnabled(new URL("http://launcher.localhost:8081/manifest.webmanifest"), lib_apps.AppsStatus.ENABLED),
           launcher_status_expected(0)
         );
 
@@ -416,14 +410,14 @@
 
         await tester.assert_eq(
           "verify ciautotest",
-          service => service.verify("http://ciautotest.localhost:8081/manifest.webmanifest", "test", "inf"),
+          service => service.verify(new URL("http://ciautotest.localhost:8081/manifest.webmanifest"), "test", "inf"),
           expected_sha1
         )
 
         // Test uninstall is forbidden
         await tester.assert_rej_eq(
           "Uninstall Forbidden",
-          service => service.uninstall("http://launcher.localhost:8081/manifest.webmanifest"),
+          service => service.uninstall(new URL("http://launcher.localhost:8081/manifest.webmanifest")),
           AppsServiceError.UNINSTALL_FORBIDDEN
         );
 

@@ -19,6 +19,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use thiserror::Error;
 use threadpool::ThreadPool;
+use url::Url;
 
 #[derive(Clone, Error, Debug)]
 pub enum DelegateError {
@@ -313,13 +314,13 @@ impl GeckoBridgeState {
 
     pub fn apps_service_on_clear(
         &mut self,
-        manifest_url: String,
+        manifest_url: &Url,
         data_type: String,
         value: JsonValue,
     ) -> Result<(), DelegateError> {
-        debug!("apps_service_on_clear: {}", &manifest_url);
+        debug!("apps_service_on_clear: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let rx = service.on_clear(manifest_url, data_type, value);
+            let rx = service.on_clear(manifest_url.as_str().to_string(), data_type, value);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(_) => Ok(()),
@@ -335,10 +336,10 @@ impl GeckoBridgeState {
         }
     }
 
-    pub fn apps_service_on_boot(&mut self, manifest_url: String, value: JsonValue) {
-        debug!("apps_service_on_boot: {} - {:?}", &manifest_url, value);
+    pub fn apps_service_on_boot(&mut self, manifest_url: &Url, value: JsonValue) {
+        debug!("apps_service_on_boot: {} - {:?}", manifest_url.as_str(), value);
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_boot(manifest_url, value);
+            let _ = service.on_boot(manifest_url.as_str().to_string(), value);
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -353,28 +354,28 @@ impl GeckoBridgeState {
         }
     }
 
-    pub fn apps_service_on_install(&mut self, manifest_url: String, value: JsonValue) {
-        debug!("apps_service_on_install: {} - {:?}", &manifest_url, value);
+    pub fn apps_service_on_install(&mut self, manifest_url: &Url, value: JsonValue) {
+        debug!("apps_service_on_install: {} - {:?}", manifest_url.as_str(), value);
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_install(manifest_url, value);
+            let _ = service.on_install(manifest_url.as_str().to_string(), value);
         } else {
             error!("The apps service delegate is not set!");
         }
     }
 
-    pub fn apps_service_on_update(&mut self, manifest_url: String, value: JsonValue) {
-        debug!("apps_service_on_update: {} - {:?}", &manifest_url, value);
+    pub fn apps_service_on_update(&mut self, manifest_url: &Url, value: JsonValue) {
+        debug!("apps_service_on_update: {} - {:?}", manifest_url.as_str(), value);
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_update(manifest_url, value);
+            let _ = service.on_update(manifest_url.as_str().to_string(), value);
         } else {
             error!("The apps service delegate is not set!");
         }
     }
 
-    pub fn apps_service_on_uninstall(&mut self, manifest_url: String) {
-        debug!("apps_service_on_uninstall: {}", &manifest_url);
+    pub fn apps_service_on_uninstall(&mut self, manifest_url: &Url) {
+        debug!("apps_service_on_uninstall: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_uninstall(manifest_url);
+            let _ = service.on_uninstall(manifest_url.as_str().to_string());
         } else {
             error!("The apps service delegate is not set!");
         }

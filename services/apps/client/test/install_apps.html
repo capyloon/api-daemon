@@ -48,7 +48,7 @@
 
         await tester.assert_eq(
           "install app",
-          service => service.installPackage("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest")),
           install_expected(0)
         );
         await tester.assert_event_eq("on installing event", on_installing_handler, install_expected(1));
