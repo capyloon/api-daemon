@@ -27,8 +27,6 @@ pub struct UpdateManifest {
     r#type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     b2g_features: Option<B2GFeatures>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    origin: Option<String>,
 }
 
 impl UpdateManifest {
@@ -82,7 +80,10 @@ impl UpdateManifest {
     }
 
     pub fn get_origin(&self) -> Option<String> {
-        self.origin.clone()
+        if let Some(b2g_features) = &self.b2g_features {
+            return b2g_features.get_origin();
+        }
+        None
     }
 }
 

@@ -26,7 +26,9 @@
 			"description": "自動測試"
 		}
 	},
-	"origin": "-test-origin",
+	"b2g_features": {
+		"origin": "-test-origin"
+	},
 	"default_locale": "en-US",
 	"bgs": {},
 	"screenshots": {},
