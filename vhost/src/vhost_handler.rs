@@ -279,7 +279,8 @@ pub async fn vhost(
                 data.zips.insert(host.into(), archive);
             } else {
                 // No application.zip found, try a direct path mapping.
-                let filename = req.match_info().query("filename");
+                // Use the full url except the leading / as the filename, to keep the url parameters if any.
+                let filename = &req.uri().to_string()[1..];
 
                 return match check_lang_files(&languages, filename, &mut |lang_file| {
                     let path = format!("{}/{}/{}", root_path, host, lang_file);

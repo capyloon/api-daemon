@@ -194,6 +194,12 @@ mod test {
             "text/html",
         );
 
+        let _ = request(
+            "http://missing-zip.localhost:7443/with_param?v=1234",
+            StatusCode::OK,
+            "application/octet-stream",
+        );
+
         let _ = lang_request(
             "http://valid.localhost:7443/index.html",
             StatusCode::OK,
