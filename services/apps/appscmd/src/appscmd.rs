@@ -45,7 +45,7 @@ pub struct AppsObject {
     pub manifest_url: String,
     pub status: String,
     pub update_state: String,
-    pub update_url: String,
+    pub update_url: Option<String>,
 }
 
 struct CmdOptions {
@@ -123,7 +123,7 @@ fn handle_success(opts: &CmdOptions, response: Response) -> Result<(), CmdLineEr
                     app.install_state,
                     app.manifest_url,
                     app.update_state,
-                    app.update_url
+                    app.update_url.unwrap_or_default()
                 ]);
             }
             table.printstd();
@@ -297,7 +297,7 @@ fn run() -> Result<(), CmdLineError> {
     if matches.subcommand_matches("wait").is_some() {
         let request = Request {
             cmd: "ready".into(),
-            param: None
+            param: None,
         };
         loop {
             let response = send(&opts, &request);
