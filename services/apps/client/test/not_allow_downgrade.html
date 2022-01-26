@@ -35,7 +35,7 @@
         // Check if app version that is updated via the preload app in webapps2.
         let manifest_url = "http://calculator.localhost:8081/manifest.webmanifest"
         await tester.assert_eq(
-          "get new app updadte from preload",
+          "get new app update from preload",
           service => {
             let req = new Request(manifest_url);
             req.responseType = "json";

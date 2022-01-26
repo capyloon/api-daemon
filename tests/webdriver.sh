@@ -37,9 +37,11 @@ then
     echo "{ \"name\": \"dummy\", \"manifest_url\": \"http://example.com\" }]" >> ${WEBAPPS_JSON}
 fi
 
+DAEMON_CONFIG=${DAEMON_CONFIG:-config-webdriver.toml}
+
 export FIREFOX_BIN="${CI_PROJECT_DIR}/tests/b2g/b2g"
 pushd ${CI_PROJECT_DIR}/daemon > /dev/null
-RUST_LOG=debug ${CI_PROJECT_DIR}/target/release/api-daemon ${CI_PROJECT_DIR}/daemon/config-webdriver.toml &
+RUST_LOG=debug ${CI_PROJECT_DIR}/target/release/api-daemon ${CI_PROJECT_DIR}/daemon/${DAEMON_CONFIG} &
 rm -rf ./tmp-profile
 mkdir -p ./tmp-profile/webapps
 export TEST_FIREFOX_PROFILE=${CI_PROJECT_DIR}/daemon/tmp-profile

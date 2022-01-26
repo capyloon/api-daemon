@@ -302,7 +302,7 @@ fn run() -> Result<(), CmdLineError> {
         loop {
             let response = send(&opts, &request);
             if response.is_ok() {
-                error!("api-daemon is ready!!");
+                debug!("api-daemon is ready!!");
                 break;
             }
             debug!("Failed to connect to the api-daemon, will retry after 1 second.");

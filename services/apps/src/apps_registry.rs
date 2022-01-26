@@ -368,10 +368,9 @@ impl AppsRegistry {
             if let Ok(apps) = db.get_all() {
                 let mut count = 1;
                 loop {
-                    if !apps
-                        .iter()
-                        .any(|app| app.is_found(&unique_name, update_url.clone()))
-                    {
+                    if !apps.iter().any(|app| {
+                        app.is_found(&unique_name, &update_url, self.allow_remove_preloaded)
+                    }) {
                         break;
                     }
                     if count > 999 {

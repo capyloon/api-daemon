@@ -22,6 +22,9 @@ fi
 # Kill child processes on exit.
 trap 'jobs -p | xargs kill' EXIT
 
+# Choose the correct configuration file.
+export DAEMON_CONFIG=config-appscmd.toml
+
 # Reset apps
 rm -rf $CI_PROJECT_DIR/prebuilts/http_root/webapps/
 

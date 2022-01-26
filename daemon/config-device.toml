@@ -21,7 +21,7 @@ data_path = "/data/local/webapps"
 uds_path = "/data/local/tmp/apps-uds.sock"
 cert_type = "production"
 updater_socket = "/dev/socket/updater_socket"
-user_agent = "Mozilla/5.0 (Mobile; rv:95.0) Gecko/95.0 Firefox/95.0 B2GOS/3.5"
+user_agent = "Mozilla/5.0 (Mobile; rv:98.0) Gecko/98.0 Firefox/98.0 B2GOS/2022.1"
 allow_remove_preloaded = true
 
 [procmanager_service]

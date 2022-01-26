@@ -235,12 +235,22 @@ impl AppsItem {
         self.preloaded
     }
 
-    pub fn is_found(&self, unique_name: &str, update_url: Option<Url>) -> bool {
+    pub fn is_found(
+        &self,
+        unique_name: &str,
+        update_url: &Option<Url>,
+        allow_remove_preloaded: bool,
+    ) -> bool {
         let found = self.name == unique_name;
         if self.update_url.is_none() && update_url.is_none() {
-            // If the update_url is empty and the removable is true,
+            // If the update_url is empty and the removable is true or we
+            // explicitely allow to remove preloaded apps,
             // allow the sideload one to override the preload one.
-            found && !self.removable
+            if allow_remove_preloaded {
+                found
+            } else {
+                found && !self.removable
+            }
         } else {
             found
         }
