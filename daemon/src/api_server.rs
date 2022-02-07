@@ -250,9 +250,10 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
         .get(::actix_web::http::header::ACCEPT_ENCODING)
     {
         Some(header_value) => match header_value.to_str() {
-            Ok(value) => {
-                value.split(',').map(|e| e.trim()).any(|encoding| encoding == "gzip")
-            }
+            Ok(value) => value
+                .split(',')
+                .map(|e| e.trim())
+                .any(|encoding| encoding == "gzip"),
             Err(_) => false,
         },
         None => false,
@@ -373,9 +374,9 @@ pub fn start(
             )
             .service(
                 web::scope("/cmgr")
-                .data(contentmanager_service::service::ContentManagerService::get_http_state())
-                .route("*", web::post().to(HttpResponse::MethodNotAllowed))
-                .route(RESOURCE_PATTERN, web::get().to(resource_handler)),
+                    .data(contentmanager_service::service::ContentManagerService::get_http_state())
+                    .route("*", web::post().to(HttpResponse::MethodNotAllowed))
+                    .route(RESOURCE_PATTERN, web::get().to(resource_handler)),
             )
             .service(
                 web::scope("/")

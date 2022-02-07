@@ -26,7 +26,9 @@ use crate::session_counter::SessionKind;
 use crate::shared_state::enabled_services;
 use common::remote_services_registrar::RemoteServicesRegistrar;
 use common::traits::SharedServiceState;
+use common::JsonValue;
 use log::{debug, error, info};
+use settings_service::db::{DbObserver, ObserverType};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
 use std::thread;
@@ -137,6 +139,28 @@ fn start_wspty() {
         });
 }
 
+#[derive(Clone, Copy)]
+struct VhostSettingObserver {}
+
+impl DbObserver for VhostSettingObserver {
+    fn callback(&self, name: &str, value: &JsonValue) {
+        let host = match name {
+            "nutria.theme" => "theme",
+            "nutria.branding" => "branding",
+            _ => {
+                error!("Unexpected setting change observed: {}", name);
+                return;
+            }
+        };
+
+        let shared = apps_service::service::AppsService::shared_state();
+
+        if let serde_json::Value::String(new_value) = &*(*value) {
+            shared.lock().vhost_api.set_host_mapping(host, &new_value);
+        }
+    }
+}
+
 fn main() {
     #[cfg(feature = "daemon")]
     {
@@ -201,6 +225,33 @@ fn main() {
             #[cfg(feature = "virtual-host")]
             {
                 shared.lock().vhost_api = VhostApi::new(vhost_data.clone());
+
+                let settings = settings_service::service::SettingsService::shared_state();
+                {
+                    let db = &mut settings.lock().db;
+                    for setting in ["branding", "theme"] {
+                        let setting_name = format!("nutria.{}", setting);
+
+                        // Get the initial value.
+                        if let Ok(value) = db.get(&setting_name) {
+                            let json = &*value;
+                            if let serde_json::Value::String(setting_value) = json {
+                                shared
+                                    .lock()
+                                    .vhost_api
+                                    .set_host_mapping(setting, &setting_value);
+                            }
+                        } else {
+                            error!("No initial value for setting '{}'", setting_name);
+                        }
+
+                        // Setup a setting listener.
+                        let _id = db.add_observer(
+                            &setting_name,
+                            ObserverType::FuncPtr(Box::new(VhostSettingObserver {})),
+                        );
+                    }
+                }
             }
             apps_service::start_registry(shared, config.general.port);
         }
