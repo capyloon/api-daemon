@@ -26,8 +26,18 @@ impl VhostApi {
         }
     }
 
+    // Sets a mapping of http://from.localhost to http://to.localhost
+    // For instance, http://branding.localhost -> http://b2gos-branding.localhost
+    // This is different from a redirection since this lets the "from" origin to
+    // be used in CSPs.
+    pub fn set_host_mapping(&mut self, from: &str, to: &str) {
+        let mappings = &mut self.private.lock().mappings;
+        let _ = mappings.remove(from);
+        let _ = mappings.insert(from.into(), to.into());
+    }
+
     // name is the app specific part of the url.
-    // Eg. for https://contacts.local/index.html name is "contacts".
+    // Eg. for http://contacts.localhost/index.html name is "contacts".
     // For now we just remove the entry from the cache, but some
     // improvements are possible, like preloading the zip in the cache
     // at installation and update.

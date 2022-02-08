@@ -19,6 +19,8 @@ pub struct AppData {
     pub csp: String,
     // Map a host name to the zip.
     pub zips: HashMap<String, ZipArchive<File>>,
+    // from -> to subdomain mapping
+    pub mappings: HashMap<String, String>,
 }
 
 #[inline]
@@ -212,6 +214,7 @@ pub async fn vhost(
         let host = parts
             .next()
             .ok_or_else(|| HttpResponse::BadRequest().finish())?;
+        let maybe_port = parts.next();
         debug!("Host is {:?}", host);
 
         if host == "localhost" {
@@ -238,13 +241,25 @@ pub async fn vhost(
             .next()
             .ok_or_else(|| HttpResponse::BadRequest().finish())?;
 
-        let (root_path, csp, has_zip) = {
+        let (root_path, csp, has_zip, mapped_host) = {
             let data = data.lock();
             (
                 data.root_path.clone(),
                 data.csp.clone(),
                 data.zips.contains_key(host),
+                data.mappings.get(host).map(|s| s.to_owned()),
             )
+        };
+
+        // Update host and full_host to take mapping into account.
+        let (host, full_host) = if let Some(mapped_host) = mapped_host {
+            let mapped_full_host = match maybe_port {
+                Some(port) => format!("{}.localhost:{}", mapped_host, port),
+                None => mapped_host.clone()
+            };
+            (mapped_host, mapped_full_host)
+        } else {
+            (host.to_owned(), full_host.to_owned())
         };
 
         // Replace instances of 'self' in the CSP by the current origin.
@@ -276,7 +291,7 @@ pub async fn vhost(
                 // Now add it to the map.
                 let archive = ZipArchive::new(file).map_err(|_| ())?;
                 let mut data = data.lock();
-                data.zips.insert(host.into(), archive);
+                data.zips.insert(host.clone(), archive);
             } else {
                 // No application.zip found, try a direct path mapping.
                 // Use the full url except the leading / as the filename, to keep the url parameters if any.
@@ -311,7 +326,7 @@ pub async fn vhost(
         // We still need a write lock because ZipFile.by_name_maybe_raw()takes a `&mut self` parameter :(
         let mut readlock = data.lock();
 
-        match readlock.zips.get_mut(host) {
+        match readlock.zips.get_mut(&host) {
             Some(archive) => {
                 let filename = req.match_info().query("filename");
 

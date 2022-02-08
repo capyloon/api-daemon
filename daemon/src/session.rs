@@ -585,9 +585,12 @@ mod test {
         let mut buffer2 = encode_message(&message).expect("Failed to encode");
         session.on_message(&buffer2);
         receiver.recv().unwrap();
-        assert!(
-            is_event_in_map(&session.session_helper.event_map(), 1, 1, 1)
-        );
+        assert!(is_event_in_map(
+            &session.session_helper.event_map(),
+            1,
+            1,
+            1
+        ));
 
         // Disable a unexist event listener
         content = CoreRequest::DisableEvent(DisableEventListenerRequest {
@@ -606,9 +609,12 @@ mod test {
         buffer2 = encode_message(&message).expect("Failed to encode");
         session.on_message(&buffer2);
         receiver.recv().unwrap();
-        assert!(
-            is_event_in_map(&session.session_helper.event_map(), 1, 1, 1)
-        );
+        assert!(is_event_in_map(
+            &session.session_helper.event_map(),
+            1,
+            1,
+            1
+        ));
         assert_eq!(session.session_helper.event_map().lock().len(), 1);
 
         // Disable an existed event listener
@@ -628,9 +634,12 @@ mod test {
         buffer2 = encode_message(&message).expect("Failed to encode");
         session.on_message(&buffer2);
         receiver.recv().unwrap();
-        assert!(
-            !is_event_in_map(&session.session_helper.event_map(), 1, 1, 1)
-        );
+        assert!(!is_event_in_map(
+            &session.session_helper.event_map(),
+            1,
+            1,
+            1
+        ));
         assert_eq!(session.session_helper.event_map().lock().len(), 0);
     }
 }

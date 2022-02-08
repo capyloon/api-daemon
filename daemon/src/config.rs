@@ -124,7 +124,7 @@ impl From<&Config> for EmptyConfig {
 }
 
 #[cfg(feature = "apps-service")]
-impl From <&Config> for AppsConfig {
+impl From<&Config> for AppsConfig {
     fn from(c: &Config) -> AppsConfig {
         c.apps_service.clone()
     }

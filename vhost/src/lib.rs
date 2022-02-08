@@ -16,6 +16,7 @@ pub fn vhost_data(config: &Config) -> Shared<AppData> {
         root_path: config.root_path.clone(),
         csp: config.csp,
         zips: HashMap::new(),
+        mappings: HashMap::new(),
     })
 }
 
@@ -42,10 +43,15 @@ mod test {
     // Starts the server in its own thread.
     pub fn launch_server(config: &Config, port: u16) {
         let config = config.clone();
+
+        let mut mappings = HashMap::new();
+        let _ = mappings.insert("mapped".to_owned(), "valid".to_owned());
+
         let app_data = Shared::adopt(AppData {
             root_path: config.root_path.clone(),
             csp: config.csp.clone(),
             zips: HashMap::new(),
+            mappings,
         });
 
         thread::Builder::new()
@@ -378,6 +384,12 @@ mod test {
         let _url = redirect_request(
             "http://localhost:7443/valid/file.html?state=Authenticator&code=ftAFIdZ5Gaxg-pRbq3iDcV_mQwU2VIUDgJ09GT",
             StatusCode::BAD_REQUEST,
+        );
+
+        let _ = request(
+            "http://mapped.localhost:7443/index.html",
+            StatusCode::OK,
+            "text/html",
         );
     }
 }
