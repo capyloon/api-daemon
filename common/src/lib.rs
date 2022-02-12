@@ -6,8 +6,8 @@ use serde_json::Value as SerdeValue;
 use std::fmt;
 use std::ops::Deref;
 use std::time::UNIX_EPOCH;
-use traits::{EventMapKey, SharedEventMap};
 use threadpool::ThreadPool;
+use traits::{EventMapKey, SharedEventMap};
 
 pub mod build_helper;
 pub mod core;

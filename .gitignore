@@ -15,3 +15,4 @@ daemon/contacts.sqlite*
 !third-party/test-server/.vscode
 third-party/breakpad_sys/breakpad/
 daemon/env.txt
+*.tar.xz

@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "gloo-timers"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Rust and WebAssembly Working Group"]
 description = "Convenience crate for working with JavaScript timers"
 homepage = "https://github.com/rustwasm/gloo"
@@ -35,10 +35,6 @@ version = "0.3.31"
 
 [dependencies.wasm-bindgen]
 version = "0.2.54"
-
-[dependencies.web-sys]
-version = "0.3.19"
-features = ["Window", "WorkerGlobalScope"]
 [dev-dependencies.futures-util]
 version = "0.3"
 

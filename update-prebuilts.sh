@@ -11,7 +11,6 @@ contacts-service,\
 contentmanager-service,\
 devicecapability-service,\
 geckobridge-service,\
-libsignal-service,\
 powermanager-service,\
 procmanager-service,\
 settings-service,\
@@ -34,14 +33,20 @@ fi
 # Build sqlx-macros and its dependencies as a workspace level host crate.
 PATH=${PATH}:/usr/bin cargo build --release -p sqlx-macros
 
-cd daemon
+pushd daemon > /dev/null
 FEATURES=${BUILD_FEATURES} ./xcompile.sh ${OPT}
-cd ..
+popd > /dev/null
+
+pushd services/apps/appscmd > /dev/null
+./xcompile.sh ${OPT}
+popd > /dev/null
+
 
 TARGET_ARCH=${TARGET_ARCH:-armv7-linux-androideabi}
 
 mkdir -p prebuilts/${TARGET_ARCH}
 cp ./target/${TARGET_ARCH}/${BUILD_TYPE}/api-daemon prebuilts/${TARGET_ARCH}/api-daemon
+cp ./target/${TARGET_ARCH}/${BUILD_TYPE}/appscmd prebuilts/${TARGET_ARCH}/appscmd
 # We don't build symbols for all targets
 if [[ -d ./target/${TARGET_ARCH}/${BUILD_TYPE}/symbols ]]; then
     cp -rf ./target/${TARGET_ARCH}/${BUILD_TYPE}/symbols prebuilts/${TARGET_ARCH}/

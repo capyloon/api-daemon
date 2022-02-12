@@ -19,7 +19,7 @@ mod mock_android_prop {
             match CALL_COUNT.load(Ordering::SeqCst) {
                 1 => Ok("invalid build".into()),
                 2 => Ok("QC_8905_3_10_49_SEC_1".into()),
-                _ => Err(())
+                _ => Err(()),
             }
         }
     }
@@ -28,8 +28,7 @@ mod mock_android_prop {
 use mock_android_prop::AndroidProperties;
 
 // Return true if the device runs a known-good build and has expected SELinux enforcement status.
-pub fn check_system_state(needs_selinux: bool,
-                          white_list: Option<&str>) -> Result<bool, Error> {
+pub fn check_system_state(needs_selinux: bool, white_list: Option<&str>) -> Result<bool, Error> {
     // First check if the ro.build.cver is part of the whitelist.
     if let Ok(build_prop) = AndroidProperties::get("ro.build.cver", "") {
         if build_prop.is_empty() {
@@ -37,8 +36,10 @@ pub fn check_system_state(needs_selinux: bool,
         }
 
         if let Some(lists) = white_list {
-            if !lists.split('\n')
-                .map(|item| item.trim()).any(|item| build_prop == item)
+            if !lists
+                .split('\n')
+                .map(|item| item.trim())
+                .any(|item| build_prop == item)
             {
                 return Ok(false);
             }

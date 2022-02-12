@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "security-framework"
-version = "2.5.0"
+version = "2.6.1"
 authors = ["Steven Fackler <sfackler@gmail.com>", "Kornel <kornel@geekhood.net>"]
 exclude = ["test/*"]
 description = "Security.framework bindings for macOS and iOS"
@@ -55,7 +55,7 @@ version = "0.4.3"
 optional = true
 
 [dependencies.security-framework-sys]
-version = "2.5"
+version = "2.6.0"
 default-features = false
 [dev-dependencies.env_logger]
 version = "0.9.0"

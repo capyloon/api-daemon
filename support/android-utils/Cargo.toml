@@ -8,5 +8,7 @@ license = "Apache-2.0"
 [dependencies]
 libc = "0.2"
 log = "0.4"
-procfs = "0.10"
 thiserror = "1.0"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+procfs = "0.10"
