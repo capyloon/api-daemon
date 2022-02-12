@@ -63,17 +63,31 @@ function setup_xcompile_envs() {
         ;;
     x86_64-linux-android)
         TARGET_TRIPLE=x86_64-linux-android
-	TARGET_INCLUDE=${TARGET_TRIPLE}
+        TARGET_INCLUDE=${TARGET_TRIPLE}
         TOOLCHAIN_PREFIX=${TARGET_TRIPLE}${ANDROID_API}
         LIB_SUFFIX=64
         ;;
+    aarch64-apple-darwin)
+        TARGET_TRIPLE=aarch64-apple-darwin
+        TARGET_INCLUDE=${TARGET_TRIPLE}
+        LIB_SUFFIX=64
     esac
 
     HOST_OS=$(uname -s)
 
+    if [ "$TARGET_ARCH" = "aarch64-apple-darwin" ]; then
+        echo "Building for aarch64-apple-darwin"
+        export SYSROOT=${OSX_CROSS}/MacOSX11.0.sdk/
+        export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
+        export TOOLCHAIN_CC=clang
+        export TOOLCHAIN_CXX=clang++
+        export PATH=${OSX_CROSS}/cctools/bin:${OSX_CROSS}/clang/bin:${PATH}
+        export LINKER=aarch64-apple-darwin-ld
+        export LD=aarch64-apple-darwin-ld
+
     # Check that the BUILD_WITH_NDK_DIR environment variable is set
     # and build the .cargo/config file from it.
-    if [ -n "${BUILD_WITH_NDK_DIR}" ]; then
+    elif [ -n "${BUILD_WITH_NDK_DIR}" ]; then
 	if [ ! -d "${BUILD_WITH_NDK_DIR}" ]; then
             echo "${BUILD_WITH_NDK_DIR} doesn't exixt."
 	    exit 1
@@ -86,6 +100,7 @@ function setup_xcompile_envs() {
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
         export ANDROID_NDK=${BUILD_WITH_NDK_DIR}
         export PATH=${ANDROID_NDK}${NDK_TOOLS_PATH}/bin:${PATH}
+        export LINKER=${TOOLCHAIN_CC}
 
         echo "Building for ${TARGET_TRIPLE} using NDK '${BUILD_WITH_NDK_DIR}'"
     else
@@ -108,21 +123,30 @@ function xcompile() {
     echo "Creating '$CARGO_CONFIG'"
     mkdir -p $(pwd)/.cargo
     cat <<EOF >$CARGO_CONFIG
-[build]
-target = "${TARGET_TRIPLE}"
-
 [target.${TARGET_TRIPLE}]
-linker = "${TOOLCHAIN_CC}"
+linker = "${LINKER}"
 rustflags = [
+  "-C", "opt-level=z",
+EOF
+
+    if [ "$TARGET_TRIPLE" = "aarch64-apple-darwin" ]; then
+        cat <<EOF >>$CARGO_CONFIG
+  "-C", "link-arg=-L${OSX_CROSS}/MacOSX11.0.sdk/usr/lib",
+  "-C", "link-arg=-Z",
+  "-C", "link-arg=-F${OSX_CROSS}/MacOSX11.0.sdk/System/Library/Frameworks/",
+]
+EOF
+    else
+        cat <<EOF >>$CARGO_CONFIG
   "-C", "link-arg=--sysroot=${SYSROOT}",
   "-C", "link-arg=-L",
   "-C", "link-arg=${BUILD_WITH_NDK_DIR}/lib/gcc/${TARGET_TRIPLE}/4.9.x",
   "-C", "link-arg=-L",
   "-C", "link-arg=${BUILD_WITH_NDK_DIR}/sysroot/usr/lib/${TARGET_TRIPLE}/${ANDROID_API}",
   "-C", "link-arg=-Wl,-rpath,${GONK_DIR}/out/target/product/${GONK_PRODUCT}/system/lib${LIB_SUFFIX}",
-  "-C", "opt-level=z",
 ]
 EOF
+    fi
 
     # unset the sysroot for the `backtrace` build deps so they don't pick up the wrong sysroot.
     unset CFLAGS
@@ -140,7 +164,7 @@ EOF
 
     export CC=${TOOLCHAIN_CC}
     export CXX=${TOOLCHAIN_CXX}
-    export LD=${TOOLCHAIN_CC}
+    export LD=${LINKER}
 
     # And set CFLAGS again for the remaining crates.
     export CFLAGS=${XCFLAGS}

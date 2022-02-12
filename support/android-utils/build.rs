@@ -6,7 +6,10 @@ fn main() {
         let path = env::var("CARGO_MANIFEST_DIR").unwrap();
         println!(
             "cargo:rustc-link-search=native={}",
-            Path::new(&path).join("libnative").join(env::var("TARGET").unwrap()).display()
+            Path::new(&path)
+                .join("libnative")
+                .join(env::var("TARGET").unwrap())
+                .display()
         );
     }
 }

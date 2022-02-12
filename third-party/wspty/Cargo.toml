@@ -1,14 +1,14 @@
 [package]
-authors = ["Jason NI (nixin) <jason.ni.py@gmail.com>"]
+authors = ["Jason NI (nixin) <jason.ni.py@gmail.com>", "Fabrice Desré <fabrice@desre.org>"]
 categories = ["asynchronous", "os::unix-apis"]
 description = "xterm.js example with Rust Tokio and pty backend server"
 edition = "2018"
-homepage = "https://github.com/jason-ni/wspty/tree/master/"
+homepage = "https://github.com/capyloon/wspty/tree/master/"
 license = "MIT"
 name = "wspty"
 readme = "README.md"
-repository = "https://github.com/jason-ni/wspty"
-version = "0.1.1"
+repository = "https://github.com/capyloon/wspty"
+version = "0.1.2"
 
 [[bin]]
 name = "wsptyd"

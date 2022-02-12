@@ -1,11 +1,15 @@
 /// A simple selinux wrapper.
-use std::os::raw::c_int;
 
-#[link(name = "selinux")]
-extern "C" {
-    #[cfg(target_os = "android")]
-    pub fn setcon(context: *const libc::c_char) -> c_int;
-    pub fn security_getenforce() -> c_int;
+#[cfg(not(target_os = "macos"))]
+mod ffi {
+    use std::os::raw::c_int;
+
+    #[link(name = "selinux")]
+    extern "C" {
+        #[cfg(target_os = "android")]
+        pub fn setcon(context: *const libc::c_char) -> c_int;
+        pub fn security_getenforce() -> c_int;
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -23,12 +27,13 @@ impl SeLinux {
         use std::ffi::CString;
 
         let context = CString::new(context).expect("CString::new failed");
-        let res = unsafe { setcon(context.as_ptr()) };
+        let res = unsafe { ffi::setcon(context.as_ptr()) };
         res == 0
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub fn getenforce() -> Result<SeLinuxEnforceState, String> {
-        let res = unsafe { security_getenforce() };
+        let res = unsafe { ffi::security_getenforce() };
 
         match res {
             0 => Ok(SeLinuxEnforceState::Permissive),
@@ -39,5 +44,10 @@ impl SeLinux {
                 res
             )),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn getenforce() -> Result<SeLinuxEnforceState, String> {
+        Ok(SeLinuxEnforceState::Enforcing)
     }
 }

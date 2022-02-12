@@ -1,14 +1,20 @@
 #[cfg(all(target_os = "android"))]
 mod ffi;
 
+#[cfg(not(target_os = "macos"))]
 mod system;
 
-pub use system::{
-    adjust_process_oom_score, kill_process, set_ext_screen_brightness, total_memory,
-    SystemState,
-};
+#[cfg(not(target_os = "macos"))]
+pub use system::{adjust_process_oom_score, kill_process, set_ext_screen_brightness, SystemState};
 
 use thiserror::Error;
+
+// Returns the amount of memory in MB
+pub fn total_memory() -> libc::c_long {
+    unsafe {
+        libc::sysconf(libc::_SC_PHYS_PAGES) * libc::sysconf(libc::_SC_PAGE_SIZE) / (1024 * 1024)
+    }
+}
 
 // Dummy implementation used when running tests.
 #[cfg(any(not(target_os = "android"), ndk_build))]

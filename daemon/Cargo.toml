@@ -17,7 +17,7 @@ default = [
   "contentmanager-service",
   "devicecapability-service",
   "geckobridge-service",
-  "libsignal-service",
+  # "libsignal-service",
   "powermanager-service",
   "procmanager-service",
   "tcpsocket-service",

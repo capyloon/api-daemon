@@ -1,7 +1,6 @@
 use crate::core::BaseMessage;
 use crate::remote_service::SharedRemoteServiceManager;
 use actix::Message;
-use android_utils::SystemState;
 use bincode::Options;
 use dyn_clone::DynClone;
 use log::{debug, error};
@@ -368,14 +367,12 @@ impl OriginAttributes {
 #[derive(Debug)]
 pub struct SessionContext {
     high_priority_services_count: i32, // Count the number of services that qualify to toggle high priority mode.
-    system: SystemState,
 }
 
 impl Default for SessionContext {
     fn default() -> Self {
         Self {
             high_priority_services_count: 0,
-            system: SystemState::default(),
         }
     }
 }
@@ -383,15 +380,11 @@ impl Default for SessionContext {
 impl SessionContext {
     pub fn enter_high_priority_service(&mut self) {
         self.high_priority_services_count += 1;
-        if self.high_priority_services_count == 1 {
-            self.system.enter_high_priority();
-        }
     }
 
     pub fn leave_high_priority_service(&mut self) {
         self.high_priority_services_count -= 1;
         match self.high_priority_services_count.cmp(&0) {
-            std::cmp::Ordering::Equal => self.system.leave_high_priority(),
             std::cmp::Ordering::Less => error!(
                 "High priority services count is now {} !!",
                 self.high_priority_services_count

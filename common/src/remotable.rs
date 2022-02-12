@@ -216,7 +216,7 @@ impl Session {
         if !$crate_name::generated::service::check_service_permission(origin_attributes) {
             error!("Could not create service {}: required permission not present.", stringify!(service));
             GetServiceResponse::MissingPermission
-        } else { 
+        } else {
             match $service_name::create(
             &origin_attributes.clone(),
             self.context.clone(),

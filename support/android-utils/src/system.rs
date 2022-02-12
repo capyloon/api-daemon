@@ -1,6 +1,6 @@
 //! Various system level utilities.
 
-use crate::{AndroidProperties, PropertyGetter};
+use crate::{total_memory, AndroidProperties, PropertyGetter};
 use libc::{pid_t, sysconf};
 use log::{debug, error};
 use procfs::process::Process;
@@ -63,11 +63,6 @@ pub fn kill_process(process_prefix: &str) -> bool {
     false
 }
 
-// Returns the amount of memory in MB
-pub fn total_memory() -> libc::c_long {
-    unsafe { sysconf(libc::_SC_PHYS_PAGES) * sysconf(libc::_SC_PAGE_SIZE) / (1024 * 1024) }
-}
-
 // Opaque struct used to save and restore changes to the system state.
 
 #[cfg(target_os = "android")]
@@ -80,7 +75,7 @@ pub struct SystemState {
 
 impl Default for SystemState {
     fn default() -> Self {
-        debug!("Total usable memory is {}M", total_memory());
+        debug!("Total usable memory is {}M", crate::total_memory());
         SystemState { minfree: None }
     }
 }

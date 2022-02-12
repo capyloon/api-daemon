@@ -19,6 +19,9 @@ then
 else
        source ../../utils.sh
        setup_xcompile_envs
+       
+       echo "Linker is `which aarch64-apple-darwin-ld`"
+       EXTRA_FLAGS="-fuse-ld=${OSX_CROSS}/cctools/bin/aarch64-apple-darwin-ld -L${OSX_CROSS}/MacOSX11.0.sdk/usr/lib"
 fi
 
 # Download and enter C library directory
@@ -53,7 +56,8 @@ else
 fi
 
 cmd ${cmake_prog} -DCMAKE_BUILD_TYPE="${cmake_build_type}" \
+          -DCMAKE_OSX_SYSROOT=/media/external/dev/osx-cross/MacOSX11.0.sdk \
           -DCMAKE_C_COMPILER="${CC}" \
-          -DCMAKE_C_FLAGS="-fPIC -O${OPT_LEVEL} ${XCFLAGS}" "${cmake_library_dir}"
+          -DCMAKE_C_FLAGS="-fPIC ${EXTRA_FLAGS} -O${OPT_LEVEL} ${XCFLAGS}" "${cmake_library_dir}"
 cmd make -j"${NUM_JOBS}"
 

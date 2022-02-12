@@ -1,3 +1,4 @@
+use crate::{PtyCommand, PtyMaster};
 use bytes::BytesMut;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -12,7 +13,6 @@ use tokio::process::Command;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio_tungstenite::{accept_async, WebSocketStream};
 use tungstenite::Message;
-use crate::{PtyCommand, PtyMaster};
 
 #[derive(Deserialize, Debug)]
 struct WindowSize {
