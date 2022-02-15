@@ -48,7 +48,6 @@ pub struct GeneralConfig {
     pub log_path: String,
     pub remote_services_config: String,
     pub remote_services_path: String,
-    pub socket_path: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -89,7 +88,6 @@ impl Config {
                 log_path: "/tmp".into(),
                 remote_services_config: "./remote_services.toml".into(),
                 remote_services_path: "./remote".into(),
-                socket_path: Some("/tmp/api-daemon-uds".into()),
             },
             http: HttpConfig {
                 root_path: "./tests/data".into(),

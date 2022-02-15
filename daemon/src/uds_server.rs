@@ -5,7 +5,7 @@ use crate::global_context::GlobalContext;
 use crate::session::Session;
 use common::frame::Frame;
 use common::traits::{IdFactory, MessageKind, MessageSender, StdSender};
-use log::{error, info};
+use log::{error, info, warn};
 use nix::sys::stat::{fchmodat, FchmodatFlags, Mode};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -81,9 +81,9 @@ fn handle_client(
             }
         }
         // We are done, let's close the socket.
-        stream_closer
-            .shutdown(Shutdown::Both)
-            .expect("Failed to close uds stream");
+        if let Err(err) = stream_closer.shutdown(Shutdown::Both) {
+            warn!("Failed to close uds stream: {}", err);
+        }
     });
 
     // Receive messages and forward them to the session.
@@ -99,7 +99,7 @@ fn handle_client(
             Err(err) => {
                 // This is not really an error since it will happen when the
                 // stream is shutdown from the client side.
-                info!("Failed to read frame: {}, closing uds session.", err);
+                warn!("Failed to read frame: {}, closing uds session.", err);
                 break;
             }
         }
@@ -110,12 +110,13 @@ fn handle_client(
 }
 
 pub fn start(run_context: &GlobalContext, telemetry: TelemetrySender) {
-    if run_context.config.general.socket_path.is_none() {
-        info!("No socket path configured.");
-        return;
-    }
-
-    let path = run_context.config.general.socket_path.as_ref().unwrap();
+    #[cfg(target_os = "android")]
+    let path = "/dev/socket/api-daemon".to_owned();
+    #[cfg(not(target_os = "android"))]
+    let path = format!(
+        "{}",
+        std::env::temp_dir().join("api-daemon-socket").display()
+    );
 
     // Make sure the listener doesn't already exist.
     let _ = ::std::fs::remove_file(&path);
