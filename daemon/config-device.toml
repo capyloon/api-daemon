@@ -6,7 +6,6 @@ verbose_log = false
 log_path = "/data/local"
 remote_services_config = "/data/local/service/api-daemon/remote_services.toml"
 remote_services_path = "/system/api-daemon/remote"
-socket_path = "/dev/socket/api-daemon"
 
 [http]
 root_path = "/system/api-daemon/http_root"

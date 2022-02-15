@@ -27,7 +27,7 @@ use crate::shared_state::enabled_services;
 use common::remote_services_registrar::RemoteServicesRegistrar;
 use common::traits::SharedServiceState;
 use common::JsonValue;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use settings_service::db::{DbObserver, ObserverType};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
@@ -148,7 +148,7 @@ impl DbObserver for VhostSettingObserver {
             "nutria.theme" => "theme",
             "nutria.branding" => "branding",
             _ => {
-                error!("Unexpected setting change observed: {}", name);
+                warn!("Unexpected setting change observed: {}", name);
                 return;
             }
         };
@@ -242,7 +242,7 @@ fn main() {
                                     .set_host_mapping(setting, &setting_value);
                             }
                         } else {
-                            error!("No initial value for setting '{}'", setting_name);
+                            warn!("No initial value for setting '{}'", setting_name);
                         }
 
                         // Setup a setting listener.
