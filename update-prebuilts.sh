@@ -19,7 +19,7 @@ time-service,\
 virtual-host"}
 BUILD_TYPE=${BUILD_TYPE:-"release"}
 JS_BUILD_TYPE="prod"
-OPT="--release --strip --no-default-features"
+OPT="--release --no-default-features"
 
 if [[ "${BUILD_TYPE}" == "debug" ]]; then
     JS_BUILD_TYPE="build"
