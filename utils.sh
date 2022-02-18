@@ -71,6 +71,12 @@ function setup_xcompile_envs() {
         TARGET_TRIPLE=aarch64-apple-darwin
         TARGET_INCLUDE=${TARGET_TRIPLE}
         LIB_SUFFIX=64
+        ;;
+    aarch64-unknown-linux-gnu)
+        # Non-android targets will use the toolchain installed in $HOME/.mozbuild
+        # since it's the same as the gecko one.
+        TARGET_TRIPLE=aarch64-unknown-linux-gnu
+        TARGET_INCLUDE=aarch64-linux-gnu
     esac
 
     HOST_OS=$(uname -s)
@@ -103,8 +109,17 @@ function setup_xcompile_envs() {
         export LINKER=${TOOLCHAIN_CC}
 
         echo "Building for ${TARGET_TRIPLE} using NDK '${BUILD_WITH_NDK_DIR}'"
+    elif [ -n "${MOZBUILD}" ]; then
+        export TOOLCHAIN_CC=clang
+        export TOOLCHAIN_CXX=clang++
+        export SYSROOT=${MOZBUILD}/sysroot-${TARGET_INCLUDE}
+        export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
+        export PATH=${MOZBUILD}/clang/bin:${PATH}
+        export LINKER=clang
+
+        echo "Building for ${TARGET_TRIPLE} using MOZBUILD '${MOZBUILD}'"
     else
-        echo "Set BUILD_WITH_NDK_DIR to your ndk directory to build"
+        echo "Set BUILD_WITH_NDK_DIR to your ndk directory to build, or MOZBUILD for non-Android targets."
         exit 2
     fi
 
@@ -134,6 +149,17 @@ EOF
   "-C", "link-arg=-L${OSX_CROSS}/MacOSX11.0.sdk/usr/lib",
   "-C", "link-arg=-Z",
   "-C", "link-arg=-F${OSX_CROSS}/MacOSX11.0.sdk/System/Library/Frameworks/",
+]
+EOF
+    elif [ "$TARGET_TRIPLE" = "aarch64-unknown-linux-gnu" ]; then
+        cat <<EOF >>$CARGO_CONFIG
+  "-C", "link-arg=-fuse-ld=lld",
+  "-C", "link-arg=--target=${TARGET_TRIPLE}",
+  "-C", "link-arg=--sysroot=${SYSROOT}",
+  "-C", "link-arg=-L",
+  "-C", "link-arg=${SYSROOT}/usr/lib",
+  "-C", "link-arg=-L",
+  "-C", "link-arg=${SYSROOT}/usr/lib/${TARGET_INCLUDE}",
 ]
 EOF
     else
