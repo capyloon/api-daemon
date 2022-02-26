@@ -260,7 +260,7 @@ pub fn validate_package<P: AsRef<Path>>(path: P) -> Result<Manifest, PackageErro
         Err(_) => validate_package_with_name(&path, "manifest.webapp")?,
     };
 
-    if let Err(err) = manifest.is_valid() {
+    if let Err(err) = manifest.check_validity() {
         error!("validate_package WrongManifest error: {:?}", err);
         return Err(PackageError::WrongManifest(err));
     }

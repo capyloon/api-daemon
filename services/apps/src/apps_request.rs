@@ -507,7 +507,7 @@ impl AppsRequest {
             validate_package(&available_zip).map_err(|_| AppsServiceError::InvalidPackage)?;
 
         manifest
-            .is_valid()
+            .check_validity()
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         apps_utils::compare_manifests(&update_manifest, &manifest)?;
@@ -607,7 +607,7 @@ impl AppsRequest {
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
         }
         manifest
-            .is_valid()
+            .check_validity()
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         self.process_deeplinks(&mut apps_item, &download_dir, &mut manifest, update_url)?;
