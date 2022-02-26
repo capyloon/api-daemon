@@ -202,7 +202,7 @@ impl Manifest {
         }
     }
 
-    pub fn is_valid(&self) -> Result<(), ManifestError> {
+    pub fn check_validity(&self) -> Result<(), ManifestError> {
         if self.name.is_empty() {
             return Err(ManifestError::NameMissing);
         }
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_valid_href_ok() {
+    fn test_check_validity_href_ok() {
         use std::env;
 
         let _ = env_logger::try_init();
@@ -431,11 +431,11 @@ mod tests {
         );
         let manifest = Manifest::read_from(&manifest_path).unwrap();
 
-        assert!(manifest.is_valid().is_ok());
+        assert!(manifest.check_validity().is_ok());
     }
 
     #[test]
-    fn test_is_valid_href_nok() {
+    fn test_check_validity_href_nok() {
         use std::env;
 
         let _ = env_logger::try_init();
@@ -448,7 +448,7 @@ mod tests {
         );
         let manifest = Manifest::read_from(&manifest_path).unwrap();
 
-        assert!(manifest.is_valid().is_err());
+        assert!(manifest.check_validity().is_err());
     }
 }
 
