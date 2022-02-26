@@ -17,6 +17,10 @@ function install_expected(installState, progress=0) {
   return {"name":"ciautotest","installState":installState,"manifestUrl":new URL("http://ciautotest.localhost:8081/manifest.webmanifest"),"removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/ciautotest/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://ciautotest.localhost:8081"};
 }
 
+function deeplinks_expected(installState, progress=0) {
+  return {"name":"atestapp","installState":installState,"manifestUrl":new URL("http://atestapp.localhost:8081/manifest.webmanifest"),"removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/atestapp/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/deeplinks/kzLiaFQOTlGk8DJePIQA"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://atestapp.localhost:8081"};
+}
+
 function power_off_installing_expected(installState, progress=0) {
   return {"name":"testpowerlost","installState":installState,"manifestUrl":new URL("http://testpowerlost.localhost:8081/manifest.webmanifest"),"removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/testpowerlost/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://testpowerlost.localhost:8081"};
 }
@@ -82,9 +86,9 @@ var get_all_expected2 = [ apps_expected, calculator_expected, new_pwa_expected, 
 
 var get_all_expected3 = [ apps_expected, calculator_expected, new_gallery_expected, system_expected, launcher_expected, install_pwa_expected(0), relative_pwa_expected(0), same_origin_pwa_expected(0), update_prelaod_pwa_expected ];
 
-var get_all_expected4 = [ apps_expected, calculator_expected, new_gallery_expected, system_expected, launcher_expected, install_expected(0), install_pwa_expected(0), relative_pwa_expected(0), same_origin_pwa_expected(0), update_prelaod_pwa_expected ];
+var get_all_expected4 = [ apps_expected, calculator_expected, new_gallery_expected, system_expected, launcher_expected, install_expected(0), deeplinks_expected(0), install_pwa_expected(0), relative_pwa_expected(0), same_origin_pwa_expected(0), update_prelaod_pwa_expected ];
 
-var get_all_expected5 = [ apps_expected, calculator_expected, new_gallery_expected, system_expected, launcher_expected, install_expected(0), install_pwa_expected(0), relative_pwa_expected(0), same_origin_pwa_expected(0), origin_good_expected , update_prelaod_pwa_expected ];
+var get_all_expected5 = [ apps_expected, calculator_expected, new_gallery_expected, system_expected, launcher_expected, install_expected(0), deeplinks_expected(0), install_pwa_expected(0), relative_pwa_expected(0), same_origin_pwa_expected(0), origin_good_expected , update_prelaod_pwa_expected ];
 
 var expected_sha1 = "B2 95 1A FD 74 7F 40 B7 E9 D2 E6 37 A3 5D 12 F3 B8 5B 0E 4A";
 

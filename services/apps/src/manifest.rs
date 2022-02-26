@@ -1,7 +1,9 @@
 // Representation of a manifest, as used for install and sideloading.
 
+use crate::apps_item::AppsItem;
 use crate::apps_registry::AppsMgmtError;
 use crate::apps_utils;
+use crate::deeplinks::DeepLinks;
 use crate::generated::common::*;
 
 use common::JsonValue;
@@ -33,6 +35,8 @@ pub enum ManifestError {
 pub struct B2GFeatures {
     #[serde(default = "String::new")]
     role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deeplinks: Option<DeepLinks>,
     #[serde(skip_serializing_if = "Option::is_none")]
     developer: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,6 +109,10 @@ impl B2GFeatures {
         self.developer.clone()
     }
 
+    pub fn get_deeplinks(&self) -> Option<DeepLinks> {
+        self.deeplinks.clone()
+    }
+
     pub fn get_activities(&self) -> Option<Value> {
         self.activities.clone()
     }
@@ -119,6 +127,10 @@ impl B2GFeatures {
 
     pub fn get_origin(&self) -> Option<String> {
         self.origin.clone()
+    }
+
+    pub fn set_deeplinks(&mut self, deeplinks: Option<DeepLinks>) {
+        self.deeplinks = deeplinks;
     }
 }
 
@@ -231,6 +243,20 @@ impl Manifest {
         }
 
         Ok(())
+    }
+
+    pub fn update_deeplinks(&mut self, apps_item: &AppsItem) {
+        if let Some(mut b2g_features) = self.get_b2g_features() {
+            if let Some(mut deeplinks) = b2g_features.get_deeplinks() {
+                deeplinks.set_paths(apps_item.get_deeplink_paths());
+                b2g_features.set_deeplinks(Some(deeplinks));
+                self.set_b2g_features(Some(b2g_features));
+            }
+        }
+    }
+
+    pub fn set_b2g_features(&mut self, b2g_features: Option<B2GFeatures>) {
+        self.b2g_features = b2g_features;
     }
 
     pub fn set_icons(&mut self, icons: Value) {

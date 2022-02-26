@@ -35,6 +35,9 @@
         "name": "Seinlin",
         "url": "http://testpwa.github.io"
       },
+      "deeplinks": {
+        "config": "http://127.0.0.1:8596/app-links-config"
+      },
       "default_locale": "",
       "core": false,
       "cursor": true,

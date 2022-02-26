@@ -23,7 +23,7 @@
         let AppsServiceState = lib_apps.AppsServiceState;
         let AppsServiceError = lib_apps.AppsServiceError;
 
-	wait_service_state(tester.service, AppsServiceState);
+        wait_service_state(tester.service, AppsServiceState);
 
         function sort_result(a, b) {
           return a.name > b.name;
@@ -36,7 +36,7 @@
         let on_installing_handler = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
         let on_installed_handler = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
 
-	let progress_received_times = 0;
+        let progress_received_times = 0;
         let last_progress = 0;
         function progress(result) {
             if (result.name == 'ciautotest' && result.progress > 0) {
@@ -46,6 +46,7 @@
         }
         tester.service.addEventListener(tester.service.APP_INSTALLING_EVENT,  progress);
 
+        // 1. Install a test app.
         await tester.assert_eq(
           "install app",
           service => service.installPackage(new URL("http://127.0.0.1:8596/apps/ciautotest/manifest.webmanifest")),
@@ -77,6 +78,20 @@
           },
           "CIAutoTest",
         );
+
+        // 2. Install app that defines deeplinks.
+        let on_installing_handler2 = tester.setup_event(tester.service.APP_INSTALLING_EVENT);
+        let on_installed_handler2 = tester.setup_event(tester.service.APP_INSTALLED_EVENT);
+        await tester.assert_eq(
+          "install app 2",
+          service => service.installPackage(new URL("http://127.0.0.1:8596/apps/deeplinks/kzLiaFQOTlGk8DJePIQA")),
+          deeplinks_expected(0)
+        );
+        await tester.assert_event_eq("on installing event 2", on_installing_handler2, deeplinks_expected(1));
+        await tester.assert_event_eq("on installed event 2", on_installed_handler2, deeplinks_expected(0));
+
+        on_installing_handler2.stop();
+        on_installed_handler2.stop();
 
         await tester.assert_eq(
           "get all 4",

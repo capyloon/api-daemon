@@ -4,6 +4,7 @@ use crate::generated::common::*;
 use log::{debug, error};
 use rusqlite::types::*;
 use rusqlite::{named_params, Row, Transaction};
+use serde_json::Value;
 use sqlite_utils::{DatabaseUpgrader, SqliteDb, SqliteDbError};
 use std::path::Path;
 use thiserror::Error;
@@ -160,10 +161,13 @@ static UPGRADE_0_1_SQL: [&str; 1] = [r#"CREATE TABLE IF NOT EXISTS apps (
 static UPGRADE_1_2_SQL: [&str; 1] = [r#"ALTER TABLE apps
                                         ADD COLUMN manifest_etag TEXT"#];
 
+static UPGRADE_2_3_SQL: [&str; 1] = [r#"ALTER TABLE apps
+                                        ADD COLUMN deeplinks TEXT"#];
+
 impl DatabaseUpgrader for AppsSchemaManager {
     fn upgrade(&mut self, from: u32, to: u32, connection: &Transaction) -> bool {
         // Support version 2 only.
-        if to != 2 {
+        if to != 3 {
             return false;
         }
 
@@ -196,6 +200,9 @@ impl DatabaseUpgrader for AppsSchemaManager {
             }
         }
 
+        // Upgrade from version 2.
+        execute_commands!(2, &UPGRADE_2_3_SQL);
+
         // At the end, the current version should match the expected one.
         current == to
     }
@@ -215,6 +222,7 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     let manifest_hash: String = row.get("manifest_hash")?;
     let package_hash: String = row.get("package_hash")?;
     let manifest_etag: Option<String> = row.get("manifest_etag").ok();
+    let deeplinks: Option<Value> = row.get("deeplinks").ok();
 
     let mut item = AppsItem::new(&name, manifest_url);
     item.set_version(&version);
@@ -230,13 +238,14 @@ fn row_to_apps_item(row: &Row) -> Result<AppsItem, rusqlite::Error> {
     item.set_manifest_hash(&manifest_hash);
     item.set_package_hash(&package_hash);
     item.set_manifest_etag(manifest_etag);
+    item.set_deeplink_paths(deeplinks);
     Ok(item)
 }
 
 impl RegistryDb {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        // Open db with version 2.
-        let db = SqliteDb::open(path, &mut AppsSchemaManager {}, 2)?;
+        // Open db with version 3.
+        let db = SqliteDb::open(path, &mut AppsSchemaManager {}, 3)?;
 
         if let Err(err) = db.enable_wal() {
             error!("Failed to enable WAL mode on settings db: {}", err);
@@ -287,7 +296,8 @@ impl RegistryDb {
                                      update_time,
                                      manifest_hash,
                                      package_hash,
-                                     manifest_etag)
+                                     manifest_etag,
+                                     deeplinks)
                              VALUES(:name,
                                     :version,
                                     :removable,
@@ -302,7 +312,8 @@ impl RegistryDb {
                                     :update_time,
                                     :manifest_hash,
                                     :package_hash,
-                                    :manifest_etag)"#,
+                                    :manifest_etag,
+                                    :deeplinks)"#,
             )?;
 
             let status: String = app.get_status().into();
@@ -324,6 +335,7 @@ impl RegistryDb {
                 ":manifest_hash": &app.get_manifest_hash(),
                 ":package_hash": &app.get_package_hash(),
                 ":manifest_etag": &app.get_manifest_etag().unwrap_or_else(|| "".into()),
+                ":deeplinks": &app.get_deeplink_paths(),
             })?;
         }
         tx.commit()?;

@@ -43,9 +43,9 @@ fn maybe_not_modified(
     None
 }
 
-fn response_from_file(req: HttpRequest, app: &str, name: &str) -> HttpResponse {
-    let name_string = format!("apps/{}/{}", app, name);
-    let path = Path::new(&name_string);
+fn response_from_file(req: HttpRequest, file: &str) -> HttpResponse {
+    debug!("response_from_file: {}", file);
+    let path = Path::new(file);
     if let Ok(mut file) = File::open(path) {
         // Check if we can return NotModified without reading the file content.
         let if_none_match = req.headers().get(header::IF_NONE_MATCH);
@@ -143,6 +143,13 @@ fn validate(req: &HttpRequest) -> bool {
     }
 }
 
+async fn file_responses(
+    req: HttpRequest,
+    web::Path(file): web::Path<String>,
+) -> HttpResponse {
+    response_from_file(req, &format!("{}", file))
+}
+
 async fn apps_responses(
     req: HttpRequest,
     web::Path((app, name)): web::Path<(String, String)>,
@@ -163,7 +170,7 @@ async fn apps_responses(
     if app != "pwa" && app != "updatepwa" && !validate(&req) {
         return HttpResponse::Unauthorized().finish();
     }
-    response_from_file(req, &app, &name)
+    response_from_file(req, &format!("apps/{}/{}", app, name))
 }
 
 #[actix_web::main]
@@ -176,6 +183,9 @@ async fn main() -> io::Result<()> {
             .wrap(middleware::Logger::default())
             .service(
                 web::resource("/apps/{app}/{name:[^{}]+}").route(web::get().to(apps_responses)),
+            )
+            .service(
+                web::resource("/{file:[^{}]+}").route(web::get().to(file_responses)),
             )
             .service(web::scope("/").route("*", web::post().to(HttpResponse::MethodNotAllowed)))
     })

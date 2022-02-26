@@ -1,0 +1,9 @@
+{
+    "deeplinks": "A description.",
+    "apps": [
+        {
+            "manifest_url": "https://store-domain.com/apps/path/kzLiaFQOTlGk8DJePIQA",
+            "paths": []
+        }
+    ]
+}
