@@ -237,6 +237,8 @@ impl AppsRegistry {
                             AppsStorage::add_system_dir_app(app, &root_path, &data_path, vhost_port)
                         {
                             let _ = db.add(&app)?;
+                        } else {
+                            error!("Failed to add: {}", app.get_name());
                         }
                     }
                 }
@@ -641,14 +643,6 @@ impl AppsRegistry {
         Ok(())
     }
 
-    pub fn validate(manifest: &Manifest) -> Result<(), RegistrationError> {
-        if let Err(err) = manifest.is_valid() {
-            return Err(RegistrationError::WrongManifest(err));
-        }
-
-        Ok(())
-    }
-
     // Validate if the app scope is already used by an installed app.
     // In:
     //    manifest - the manifest of the installed app.
@@ -742,13 +736,15 @@ impl AppsRegistry {
             let bridge = GeckoBridgeService::shared_state();
             for app in &apps {
                 let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
-                let manifest = &AppsStorage::load_manifest(&app_dir).unwrap_or_default();
+                let mut manifest = AppsStorage::load_manifest(&app_dir).unwrap_or_default();
+                // The processed deeplinks paths are saved in app item db.
+                manifest.update_deeplinks(app);
                 if let Some(runtime_url) = app.runtime_url() {
                     // Relay the request to Gecko using the bridge.
                     debug!("Register on boot manifest_url: {}", runtime_url.as_str());
                     bridge
                         .lock()
-                        .apps_service_on_boot(&runtime_url, manifest.into());
+                        .apps_service_on_boot(&runtime_url, (&manifest).into());
                 } else {
                     error!(
                         "Failed to register on boot manifest_url: {}",
@@ -1067,6 +1063,11 @@ fn test_init_apps_from_system() {
             "https://preloadpwa.domain.url/index.html"
         );
 
+        assert_eq!(
+            app.get_deeplink_paths().unwrap(),
+            serde_json::json!(["https://server.url/test1/", "https://server.url/test2/"])
+        );
+
         // icon url should be relative path of local cached address
         if let Some(icons_value) = manifest.get_icons() {
             let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
@@ -1101,6 +1102,18 @@ fn test_init_apps_from_system() {
         }
     } else {
         panic!("Wrong apps config in data.");
+    }
+
+    // Verify the preload app with deeplink.
+    let url = Url::parse("http://system.localhost/manifest.webmanifest").unwrap();
+    if let Some(app) = registry.get_by_manifest_url(&url) {
+        assert_eq!(app.get_name(), "system");
+        assert_eq!(
+            app.get_deeplink_paths().unwrap(),
+            serde_json::json!(["https://server.url/test1/", "https://server.url/test2/"])
+        );
+    } else {
+        panic!();
     }
 }
 

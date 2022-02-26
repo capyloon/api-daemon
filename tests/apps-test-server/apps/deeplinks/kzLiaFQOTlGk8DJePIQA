@@ -1,0 +1,40 @@
+{
+    "description": "A Test App",
+    "start_url": "/index.html",
+    "icons": {
+        "64": "https://storage.kaiostech.com/v3.0/files/app/D/ETQTdeCNMa5wvMmQqYrJ-pyNfdjqNAf8cDesOH/ICON_IMAGE.png"
+    },
+    "name": "ATestApp",
+    "package_path": "http://127.0.0.1:8596/apps/deeplinks/application.zip",
+    "size": 25865,
+    "packaged_size": 8617,
+    "type": "privileged",
+    "b2g_features": {
+        "developer": {
+            "name": "Developer Name",
+            "url": "https://example.com"
+        },
+        "deeplinks": {
+            "config": "http://127.0.0.1:8596/app-links-config"
+        }
+    },
+    "locales": {
+        "en-US": {
+            "name": "ATestApp",
+            "subtitle": "",
+            "description": "A Test App"
+        },
+        "zh-TW": {
+            "name": "自動測試",
+            "subtitle": "",
+            "description": "自動測試"
+        }
+    },
+    "default_locale": "en-US",
+    "bgs": {},
+    "screenshots": {},
+    "theme": "#57a5ea",
+    "version": "0.1",
+    "category_list": [90, 400],
+    "paid": false
+}

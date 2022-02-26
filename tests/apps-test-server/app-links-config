@@ -1,0 +1,13 @@
+{
+    "deeplinks": "",
+    "apps": [
+        {
+            "manifest_url": "http://127.0.0.1:8596/apps/deeplinks/kzLiaFQOTlGk8DJePIQA",
+            "paths": [ "/news/", "/headlines/"]
+        },
+        {
+            "manifest_url": "http://127.0.0.1:8596/apps/pwa/manifest.webmanifest",
+            "paths": [ "/pwa/" ]
+        }
+    ]
+}

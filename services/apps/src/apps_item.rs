@@ -3,6 +3,7 @@
 use crate::apps_registry::AppsError;
 use crate::generated::common::*;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use url::Host::Domain;
@@ -36,6 +37,8 @@ pub struct AppsItem {
     preloaded: bool,
     #[serde(default = "AppsItem::default_option")]
     manifest_etag: Option<String>,
+    #[serde(default = "AppsItem::default_paths")]
+    deeplink_paths: Option<Value>,
 }
 
 impl AppsItem {
@@ -56,6 +59,7 @@ impl AppsItem {
             removable: true,
             preloaded: false,
             manifest_etag: None,
+            deeplink_paths: None,
         }
     }
 
@@ -191,6 +195,10 @@ impl AppsItem {
         self.package_hash.clone()
     }
 
+    pub fn set_deeplink_paths(&mut self, value: Option<Value>) {
+        self.deeplink_paths = value;
+    }
+
     pub fn set_status(&mut self, status: AppsStatus) {
         self.status = status;
     }
@@ -217,6 +225,10 @@ impl AppsItem {
 
     pub fn set_manifest_etag(&mut self, etag: Option<String>) {
         self.manifest_etag = etag;
+    }
+
+    pub fn get_deeplink_paths(&self) -> Option<Value> {
+        self.deeplink_paths.clone()
     }
 
     pub fn get_manifest_etag(&self) -> Option<String> {
@@ -257,6 +269,10 @@ impl AppsItem {
     }
 
     fn default_option() -> Option<String> {
+        None
+    }
+
+    fn default_paths() -> Option<Value> {
         None
     }
 

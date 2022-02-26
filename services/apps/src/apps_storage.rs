@@ -10,6 +10,7 @@ use std::io::BufReader;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use url::Url;
 use zip::result::ZipError;
 use zip::ZipArchive;
 
@@ -128,6 +129,19 @@ impl AppsStorage {
         if let Ok(manifest) = AppsStorage::load_manifest(&app_dir) {
             if !manifest.get_version().is_empty() {
                 app.set_version(&manifest.get_version());
+            }
+            if let Some(b2g_features) = manifest.get_b2g_features() {
+                if let Some(deeplinks) = b2g_features.get_deeplinks() {
+                    let config_url =
+                        Url::parse(&deeplinks.config()).map_err(|_| AppsError::AppsConfigError)?;
+                    let config_path = source.join("deeplinks_config");
+                    match deeplinks.process(&config_url, &config_path, None) {
+                        Ok(paths) => {
+                            app.set_deeplink_paths(Some(paths));
+                        }
+                        Err(_) => return Err(AppsError::AppsConfigError),
+                    }
+                }
             }
         }
         // Return the app to be added to the database.

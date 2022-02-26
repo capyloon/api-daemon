@@ -7,6 +7,7 @@ pub mod apps_request;
 pub mod apps_storage;
 pub mod apps_utils;
 pub mod config;
+pub mod deeplinks;
 pub mod downloader;
 pub mod generated;
 pub mod manifest;

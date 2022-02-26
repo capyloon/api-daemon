@@ -1,0 +1,9 @@
+{
+    "deeplinks": "",
+    "apps": [
+        {
+            "manifest_url": "https://store.server/system/manifest.webmanifest",
+            "paths": [ "/test1/", "/test2/"]
+        }
+    ]
+}

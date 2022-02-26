@@ -1,5 +1,5 @@
 use crate::apps_item::AppsItem;
-use crate::apps_registry::{hash, AppsError, AppsMgmtError, AppsRegistry};
+use crate::apps_registry::{hash, AppsError, AppsMgmtError};
 use crate::apps_storage::{validate_package, AppsStorage};
 use crate::apps_utils;
 use crate::downloader::{DownloadError, Downloader, DownloaderInfo};
@@ -375,6 +375,38 @@ impl AppsRequest {
         Ok(Some(app_obj))
     }
 
+    pub fn process_deeplinks(
+        &mut self,
+        apps_item: &mut AppsItem,
+        available_dir: &Path,
+        manifest: &mut Manifest,
+        update_url: &Url,
+    ) -> Result<(), AppsServiceError> {
+        let b2g_features = match manifest.get_b2g_features() {
+            Some(value) => value,
+            None => return Ok(()),
+        };
+
+        if let Some(deeplinks) = b2g_features.get_deeplinks() {
+            let config_url = update_url
+                .join(&deeplinks.config())
+                .map_err(|_| AppsServiceError::InvalidDeeplinks)?;
+            let config_path = available_dir.join("deeplinks_config");
+
+            self.download(&config_url, &config_path)
+                .map_err(|_| AppsServiceError::InvalidDeeplinks)?;
+
+            match deeplinks.process(&config_url, &config_path, Some(update_url)) {
+                Ok(paths) => {
+                    apps_item.set_deeplink_paths(Some(paths));
+                    manifest.update_deeplinks(apps_item);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(())
+    }
+
     pub fn download_and_apply(
         &mut self,
         webapp_path: &Path,
@@ -470,6 +502,18 @@ impl AppsRequest {
             };
 
         info!("available_zip: {}", available_zip.display());
+
+        let mut manifest =
+            validate_package(&available_zip).map_err(|_| AppsServiceError::InvalidPackage)?;
+
+        manifest
+            .is_valid()
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
+
+        apps_utils::compare_manifests(&update_manifest, &manifest)?;
+
+        self.process_deeplinks(&mut apps_item, &available_dir, &mut manifest, update_url)?;
+
         // We can lock registry now, since no waiting job.
         let shared = &mut self.shared_data.lock();
         let config = shared.config.clone();
@@ -477,24 +521,6 @@ impl AppsRequest {
         if let Err(err) = verify_zip(&available_zip, &config.cert_type, "inf") {
             error!("Verify zip error: {:?}", err);
             return Err(AppsServiceError::InvalidSignature);
-        }
-
-        let manifest =
-            validate_package(&available_zip).map_err(|_| AppsServiceError::InvalidPackage)?;
-
-        if update_manifest.get_origin() != manifest.get_origin() {
-            error!("AppsRegistry::validate origin do not match");
-            return Err(AppsServiceError::InvalidOrigin);
-        }
-
-        if let Err(err) = AppsRegistry::validate(&manifest) {
-            error!("AppsRegistry::validate error: {:?}", err);
-            return Err(AppsServiceError::InvalidManifest);
-        }
-
-        if !apps_utils::compare_manifests(&update_manifest, &manifest) {
-            error!("Manifest and UpdateManifest mismatch");
-            return Err(AppsServiceError::InvalidManifest);
         }
 
         // Here we can emit ready to apply download if we have sparate steps
@@ -580,11 +606,11 @@ impl AppsRequest {
             let _ = registry.save_app(false, &apps_item);
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
         }
+        manifest
+            .is_valid()
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
 
-        if let Err(err) = AppsRegistry::validate(&manifest) {
-            error!("AppsRegistry::validate error: {:?}", err);
-            return Err(AppsServiceError::InvalidManifest);
-        }
+        self.process_deeplinks(&mut apps_item, &download_dir, &mut manifest, update_url)?;
 
         // 2-1. download icons to cached dir.
         let manifest_url_base = apps_item.get_manifest_url();
@@ -797,6 +823,7 @@ fn remove_canceller(shared_data: Shared<AppsSharedData>, url: &Url) {
 
 #[cfg(test)]
 fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
+    use crate::apps_registry::AppsRegistry;
     use crate::config;
     use config::Config;
     use std::env;

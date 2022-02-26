@@ -1,6 +1,7 @@
 use crate::apps_item::AppsItem;
 use crate::apps_request::AppsRequest;
 use crate::apps_storage::{validate_package, PackageError};
+use crate::downloader::{Downloader, DownloaderInfo};
 use crate::generated::common::*;
 use crate::manifest::{Manifest, ManifestError};
 use crate::shared_state::AppsSharedData;
@@ -12,6 +13,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::time::Duration;
 use thiserror::Error;
 use url::Url;
 
@@ -45,6 +47,8 @@ pub enum AppsActorError {
     Internal,
     #[error("Dependencies Error")]
     DependenciesError,
+    #[error("DeepLink Error")]
+    DeepLinkError,
 }
 
 #[derive(Error, Debug)]
@@ -339,6 +343,7 @@ pub fn install_package(
     manifest: &Manifest,
 ) -> Result<(AppsItem, bool), AppsActorError> {
     let path = shared_data.lock().config.data_path();
+    let mut manifest = manifest.clone();
 
     if !from_path.is_file() {
         return Err(AppsActorError::PackageMissing);
@@ -346,8 +351,8 @@ pub fn install_package(
     if !path.is_dir() {
         return Err(AppsActorError::InstallationDirNotFound);
     }
-    let mut shared = shared_data.lock();
-    let app_name = shared
+    let app_name = shared_data
+        .lock()
         .registry
         .get_unique_name(&manifest.get_name(), manifest.get_origin(), None)
         .map_err(|_| AppsActorError::InvalidAppName)?;
@@ -358,21 +363,72 @@ pub fn install_package(
     fs::create_dir_all(&download_dir)?;
     fs::copy(from_path, download_app)?;
 
-    let is_update = shared.registry.get_first_by_name(&app_name).is_some();
+    let is_update = shared_data
+        .lock()
+        .registry
+        .get_first_by_name(&app_name)
+        .is_some();
     // Need create appsItem object and add to db to reflect status
-    let mut apps_item = AppsItem::default(&app_name, shared.registry.get_vhost_port());
+    let mut apps_item = AppsItem::default(&app_name, shared_data.lock().registry.get_vhost_port());
     if !manifest.get_version().is_empty() {
         apps_item.set_version(&manifest.get_version());
     }
     apps_item.set_install_state(AppsInstallState::Installing);
-    shared
+    shared_data
+        .lock()
         .registry
         .event_broadcaster
         .broadcast_app_installing(AppsObject::from(&apps_item));
 
+    // This will allow install via appscmd to trigger the dependencies update.
+    if let Some(b2g_features) = manifest.get_b2g_features() {
+        if let Some(deeplinks) = b2g_features.get_deeplinks() {
+            let config_url =
+                Url::parse(&deeplinks.config()).map_err(|_| AppsActorError::DeepLinkError)?;
+            let config_path = download_dir.join("deeplinks_config");
+            let (user_agent, lang) = {
+                let lock = shared_data.lock();
+                (lock.config.user_agent.clone(), lock.registry.get_lang())
+            };
+            let downloader =
+                Downloader::new(&user_agent, &lang).map_err(|_| AppsActorError::DeepLinkError)?;
+            let (result_recv, _) = downloader.download(&config_url, &config_path, None);
+            loop {
+                if let Ok(result) = result_recv.recv_timeout(Duration::from_secs(10)) {
+                    match result {
+                        Ok(info) => match info {
+                            DownloaderInfo::Done => {
+                                break;
+                            }
+                            _ => {
+                                debug!("Download result: {:?}", info);
+                            }
+                        },
+                        Err(err) => {
+                            error!("Download deeplink config error: {:?}", err);
+                            return Err(AppsActorError::DeepLinkError);
+                        }
+                    }
+                } else {
+                    error!("Download error");
+                    return Err(AppsActorError::DeepLinkError);
+                }
+            }
+
+            match deeplinks.process(&config_url, &config_path, None) {
+                Ok(paths) => {
+                    apps_item.set_deeplink_paths(Some(paths));
+                    manifest.update_deeplinks(&apps_item);
+                }
+                Err(_) => return Err(AppsActorError::DeepLinkError),
+            }
+        }
+    }
+
+    let mut shared = shared_data.lock();
     let _ = shared
         .registry
-        .apply_download(&mut apps_item, &download_dir, manifest, is_update)
+        .apply_download(&mut apps_item, &download_dir, &manifest, is_update)
         .map_err(|_| AppsActorError::WrongRegistration)?;
 
     if is_update {

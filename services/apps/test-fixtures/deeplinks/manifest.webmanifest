@@ -1,11 +1,8 @@
 {
-    "name": "hellopwa",
+    "name": "testapp",
     "launch_path": "",
     "start_url": "index.html",
     "version": "",
-    "theme_color": "#008eff",
-    "background_color": "#008eff",
-    "display": "browser",
     "orientation": "portrait",
     "lang":"en-US",
     "extra":"extra field",
@@ -31,11 +28,11 @@
     "b2g_features": {
       "role": "",
       "developer": {
-        "name": "Seinlin",
-        "url": "http://testpwa.github.io"
+        "name": "Developer Name",
+        "url": "http://example.com"
       },
       "deeplinks": {
-        "config": "http://127.0.0.1:8596/app-links-config"
+        "config": "http://service-domain.com/apps/app-links-config"
       },
       "default_locale": "",
       "core": false,

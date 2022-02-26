@@ -1,33 +1,46 @@
+use crate::generated::common::*;
 use crate::manifest::Manifest;
 use crate::update_manifest::UpdateManifest;
+use log::{debug, error};
 
 use http::Uri;
 
-pub fn compare_manifests(update_manifest: &UpdateManifest, manifest: &Manifest) -> bool {
+pub fn compare_manifests(
+    update_manifest: &UpdateManifest,
+    manifest: &Manifest,
+) -> Result<(), AppsServiceError> {
+    debug!("compare_manifests for {}", manifest.get_name());
     if update_manifest.get_name() != manifest.get_name() {
-        return false;
+        error!("App name do not match");
+        return Err(AppsServiceError::InvalidAppName);
     }
-    let maybe_update_manifest_features = update_manifest.get_b2g_features();
-    let maybe_manifest_features = manifest.get_b2g_features();
-    if let (Some(update_manifest_features), Some(manifest_features)) =
-        (maybe_update_manifest_features, maybe_manifest_features)
-    {
-        let maybe_dev1 = update_manifest_features.get_developer();
-        let maybe_dev2 = manifest_features.get_developer();
 
-        match (maybe_dev1, maybe_dev2) {
+    if update_manifest.get_origin() != manifest.get_origin() {
+        error!("App origin do not match");
+        return Err(AppsServiceError::InvalidOrigin);
+    }
+
+    if let (Some(update_manifest_features), Some(manifest_features)) = (
+        update_manifest.get_b2g_features(),
+        manifest.get_b2g_features(),
+    ) {
+        match (
+            update_manifest_features.get_developer(),
+            manifest_features.get_developer(),
+        ) {
             (Some(developer1), Some(developer2)) => {
                 if assert_json_diff::assert_json_eq_no_panic(&developer1, &developer2).is_err() {
-                    return false;
+                    error!("Developer do not match");
+                    return Err(AppsServiceError::InvalidManifest);
                 }
             }
-            (None, Some(_)) | (Some(_), None) => return false,
+            (None, Some(_)) | (Some(_), None) => return Err(AppsServiceError::InvalidManifest),
             (None, None) => { // Don't early return in case we add more checks
             }
         }
     }
 
-    true
+    Ok(())
 }
 
 pub fn is_absolute_uri(uri_str: &str) -> bool {
@@ -58,7 +71,7 @@ fn test_compare_manifest_ok() {
     );
     let manifest = Manifest::read_from(&manifest_path2).unwrap();
 
-    assert!(compare_manifests(&update_manifest, &manifest));
+    assert!(compare_manifests(&update_manifest, &manifest).is_ok());
 }
 
 #[test]
@@ -80,5 +93,5 @@ fn test_compare_manifest_name_mismatch() {
     );
     let manifest2 = Manifest::read_from(&manifest_path2).unwrap();
     assert_ne!(update_manifest.get_name(), manifest2.get_name());
-    assert!(!compare_manifests(&update_manifest, &manifest2));
+    assert!(compare_manifests(&update_manifest, &manifest2).is_err());
 }
