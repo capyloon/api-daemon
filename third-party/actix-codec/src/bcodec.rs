@@ -1,11 +1,10 @@
-use bytes::{Buf, Bytes, BytesMut};
 use std::io;
+
+use bytes::{Buf, Bytes, BytesMut};
 
 use super::{Decoder, Encoder};
 
-/// Bytes codec.
-///
-/// Reads/Writes chunks of bytes from a stream.
+/// Bytes codec. Reads/writes chunks of bytes from a stream.
 #[derive(Debug, Copy, Clone)]
 pub struct BytesCodec;
 
@@ -14,7 +13,7 @@ impl Encoder<Bytes> for BytesCodec {
 
     #[inline]
     fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        dst.extend_from_slice(item.bytes());
+        dst.extend_from_slice(item.chunk());
         Ok(())
     }
 }

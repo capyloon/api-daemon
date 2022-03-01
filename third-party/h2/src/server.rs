@@ -126,7 +126,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use std::{convert, fmt, io, mem};
+use std::{fmt, io};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::instrument::{Instrument, Instrumented};
 
@@ -245,6 +245,9 @@ pub struct Builder {
 
     /// Initial target window size for new connections.
     initial_target_connection_window_size: Option<u32>,
+
+    /// Maximum amount of bytes to "buffer" for writing per stream.
+    max_send_buffer_size: usize,
 }
 
 /// Send a response back to the client
@@ -298,8 +301,8 @@ enum Handshaking<T, B: Buf> {
     Flushing(Instrumented<Flush<T, Prioritized<B>>>),
     /// State 2. Connection is waiting for the client preface.
     ReadingPreface(Instrumented<ReadPreface<T, Prioritized<B>>>),
-    /// Dummy state for `mem::replace`.
-    Empty,
+    /// State 3. Handshake is done, polling again would panic.
+    Done,
 }
 
 /// Flush a Sink
@@ -384,7 +387,8 @@ where
             .expect("invalid SETTINGS frame");
 
         // Create the handshake future.
-        let state = Handshaking::from(codec);
+        let state =
+            Handshaking::Flushing(Flush::new(codec).instrument(tracing::trace_span!("flush")));
 
         drop(entered);
 
@@ -467,6 +471,19 @@ where
     pub fn set_initial_window_size(&mut self, size: u32) -> Result<(), crate::Error> {
         assert!(size <= proto::MAX_WINDOW_SIZE);
         self.connection.set_initial_window_size(size)?;
+        Ok(())
+    }
+
+    /// Enables the [extended CONNECT protocol].
+    ///
+    /// [extended CONNECT protocol]: https://datatracker.ietf.org/doc/html/rfc8441#section-4
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a previous call is still pending acknowledgement
+    /// from the remote endpoint.
+    pub fn enable_connect_protocol(&mut self) -> Result<(), crate::Error> {
+        self.connection.set_enable_connect_protocol()?;
         Ok(())
     }
 
@@ -620,6 +637,7 @@ impl Builder {
             reset_stream_max: proto::DEFAULT_RESET_STREAM_MAX,
             settings: Settings::default(),
             initial_target_connection_window_size: None,
+            max_send_buffer_size: proto::DEFAULT_MAX_SEND_BUFFER_SIZE,
         }
     }
 
@@ -857,6 +875,24 @@ impl Builder {
         self
     }
 
+    /// Sets the maximum send buffer size per stream.
+    ///
+    /// Once a stream has buffered up to (or over) the maximum, the stream's
+    /// flow control will not "poll" additional capacity. Once bytes for the
+    /// stream have been written to the connection, the send buffer capacity
+    /// will be freed up again.
+    ///
+    /// The default is currently ~400MB, but may change.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `max` is larger than `u32::MAX`.
+    pub fn max_send_buffer_size(&mut self, max: usize) -> &mut Self {
+        assert!(max <= std::u32::MAX as usize);
+        self.max_send_buffer_size = max;
+        self
+    }
+
     /// Sets the maximum number of concurrent locally reset streams.
     ///
     /// When a stream is explicitly reset by either calling
@@ -901,6 +937,14 @@ impl Builder {
     /// ```
     pub fn reset_stream_duration(&mut self, dur: Duration) -> &mut Self {
         self.reset_stream_duration = dur;
+        self
+    }
+
+    /// Enables the [extended CONNECT protocol].
+    ///
+    /// [extended CONNECT protocol]: https://datatracker.ietf.org/doc/html/rfc8441#section-4
+    pub fn enable_connect_protocol(&mut self) -> &mut Self {
+        self.settings.set_enable_connect_protocol(Some(1));
         self
     }
 
@@ -1226,62 +1270,58 @@ where
         let span = self.span.clone(); // XXX(eliza): T_T
         let _e = span.enter();
         tracing::trace!(state = ?self.state);
-        use crate::server::Handshaking::*;
 
-        self.state = if let Flushing(ref mut flush) = self.state {
-            // We're currently flushing a pending SETTINGS frame. Poll the
-            // flush future, and, if it's completed, advance our state to wait
-            // for the client preface.
-            let codec = match Pin::new(flush).poll(cx)? {
-                Poll::Pending => {
-                    tracing::trace!(flush.poll = %"Pending");
-                    return Poll::Pending;
+        loop {
+            match &mut self.state {
+                Handshaking::Flushing(flush) => {
+                    // We're currently flushing a pending SETTINGS frame. Poll the
+                    // flush future, and, if it's completed, advance our state to wait
+                    // for the client preface.
+                    let codec = match Pin::new(flush).poll(cx)? {
+                        Poll::Pending => {
+                            tracing::trace!(flush.poll = %"Pending");
+                            return Poll::Pending;
+                        }
+                        Poll::Ready(flushed) => {
+                            tracing::trace!(flush.poll = %"Ready");
+                            flushed
+                        }
+                    };
+                    self.state = Handshaking::ReadingPreface(
+                        ReadPreface::new(codec).instrument(tracing::trace_span!("read_preface")),
+                    );
                 }
-                Poll::Ready(flushed) => {
-                    tracing::trace!(flush.poll = %"Ready");
-                    flushed
-                }
-            };
-            Handshaking::from(ReadPreface::new(codec))
-        } else {
-            // Otherwise, we haven't actually advanced the state, but we have
-            // to replace it with itself, because we have to return a value.
-            // (note that the assignment to `self.state` has to be outside of
-            // the `if let` block above in order to placate the borrow checker).
-            mem::replace(&mut self.state, Handshaking::Empty)
-        };
-        let poll = if let ReadingPreface(ref mut read) = self.state {
-            // We're now waiting for the client preface. Poll the `ReadPreface`
-            // future. If it has completed, we will create a `Connection` handle
-            // for the connection.
-            Pin::new(read).poll(cx)
-        // Actually creating the `Connection` has to occur outside of this
-        // `if let` block, because we've borrowed `self` mutably in order
-        // to poll the state and won't be able to borrow the SETTINGS frame
-        // as well until we release the borrow for `poll()`.
-        } else {
-            unreachable!("Handshake::poll() state was not advanced completely!")
-        };
-        poll?.map(|codec| {
-            let connection = proto::Connection::new(
-                codec,
-                Config {
-                    next_stream_id: 2.into(),
-                    // Server does not need to locally initiate any streams
-                    initial_max_send_streams: 0,
-                    reset_stream_duration: self.builder.reset_stream_duration,
-                    reset_stream_max: self.builder.reset_stream_max,
-                    settings: self.builder.settings.clone(),
-                },
-            );
+                Handshaking::ReadingPreface(read) => {
+                    let codec = ready!(Pin::new(read).poll(cx)?);
 
-            tracing::trace!("connection established!");
-            let mut c = Connection { connection };
-            if let Some(sz) = self.builder.initial_target_connection_window_size {
-                c.set_target_window_size(sz);
+                    self.state = Handshaking::Done;
+
+                    let connection = proto::Connection::new(
+                        codec,
+                        Config {
+                            next_stream_id: 2.into(),
+                            // Server does not need to locally initiate any streams
+                            initial_max_send_streams: 0,
+                            max_send_buffer_size: self.builder.max_send_buffer_size,
+                            reset_stream_duration: self.builder.reset_stream_duration,
+                            reset_stream_max: self.builder.reset_stream_max,
+                            settings: self.builder.settings.clone(),
+                        },
+                    );
+
+                    tracing::trace!("connection established!");
+                    let mut c = Connection { connection };
+                    if let Some(sz) = self.builder.initial_target_connection_window_size {
+                        c.set_target_window_size(sz);
+                    }
+
+                    return Poll::Ready(Ok(c));
+                }
+                Handshaking::Done => {
+                    panic!("Handshaking::poll() called again after handshaking was complete")
+                }
             }
-            Ok(c)
-        })
+        }
     }
 }
 
@@ -1360,7 +1400,7 @@ impl Peer {
             _,
         ) = request.into_parts();
 
-        let pseudo = Pseudo::request(method, uri);
+        let pseudo = Pseudo::request(method, uri, None);
 
         Ok(frame::PushPromise::new(
             stream_id,
@@ -1410,6 +1450,11 @@ impl proto::Peer for Peer {
             malformed!("malformed headers: missing method");
         }
 
+        let has_protocol = pseudo.protocol.is_some();
+        if !is_connect && has_protocol {
+            malformed!("malformed headers: :protocol on non-CONNECT request");
+        }
+
         if pseudo.status.is_some() {
             malformed!("malformed headers: :status field on request");
         }
@@ -1432,7 +1477,7 @@ impl proto::Peer for Peer {
 
         // A :scheme is required, except CONNECT.
         if let Some(scheme) = pseudo.scheme {
-            if is_connect {
+            if is_connect && !has_protocol {
                 malformed!(":scheme in CONNECT");
             }
             let maybe_scheme = scheme.parse();
@@ -1450,12 +1495,12 @@ impl proto::Peer for Peer {
             if parts.authority.is_some() {
                 parts.scheme = Some(scheme);
             }
-        } else if !is_connect {
+        } else if !is_connect || has_protocol {
             malformed!("malformed headers: missing scheme");
         }
 
         if let Some(path) = pseudo.path {
-            if is_connect {
+            if is_connect && !has_protocol {
                 malformed!(":path in CONNECT");
             }
 
@@ -1468,6 +1513,8 @@ impl proto::Peer for Peer {
             parts.path_and_query = Some(maybe_path.or_else(|why| {
                 malformed!("malformed headers: malformed path ({:?}): {}", path, why,)
             })?);
+        } else if is_connect && has_protocol {
+            malformed!("malformed headers: missing path in extended CONNECT");
         }
 
         b = b.uri(parts);
@@ -1497,42 +1544,9 @@ where
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
-            Handshaking::Flushing(_) => write!(f, "Handshaking::Flushing(_)"),
-            Handshaking::ReadingPreface(_) => write!(f, "Handshaking::ReadingPreface(_)"),
-            Handshaking::Empty => write!(f, "Handshaking::Empty"),
+            Handshaking::Flushing(_) => f.write_str("Flushing(_)"),
+            Handshaking::ReadingPreface(_) => f.write_str("ReadingPreface(_)"),
+            Handshaking::Done => f.write_str("Done"),
         }
-    }
-}
-
-impl<T, B> convert::From<Flush<T, Prioritized<B>>> for Handshaking<T, B>
-where
-    T: AsyncRead + AsyncWrite,
-    B: Buf,
-{
-    #[inline]
-    fn from(flush: Flush<T, Prioritized<B>>) -> Self {
-        Handshaking::Flushing(flush.instrument(tracing::trace_span!("flush")))
-    }
-}
-
-impl<T, B> convert::From<ReadPreface<T, Prioritized<B>>> for Handshaking<T, B>
-where
-    T: AsyncRead + AsyncWrite,
-    B: Buf,
-{
-    #[inline]
-    fn from(read: ReadPreface<T, Prioritized<B>>) -> Self {
-        Handshaking::ReadingPreface(read.instrument(tracing::trace_span!("read_preface")))
-    }
-}
-
-impl<T, B> convert::From<Codec<T, Prioritized<B>>> for Handshaking<T, B>
-where
-    T: AsyncRead + AsyncWrite,
-    B: Buf,
-{
-    #[inline]
-    fn from(codec: Codec<T, Prioritized<B>>) -> Self {
-        Handshaking::from(Flush::new(codec))
     }
 }

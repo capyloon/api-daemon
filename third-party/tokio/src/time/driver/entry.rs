@@ -5,9 +5,9 @@
 //!
 //! # Ground rules
 //!
-//! The heart of the timer implementation here is the `TimerShared` structure,
-//! shared between the `TimerEntry` and the driver. Generally, we permit access
-//! to `TimerShared` ONLY via either 1) a mutable reference to `TimerEntry` or
+//! The heart of the timer implementation here is the [`TimerShared`] structure,
+//! shared between the [`TimerEntry`] and the driver. Generally, we permit access
+//! to [`TimerShared`] ONLY via either 1) a mutable reference to [`TimerEntry`] or
 //! 2) a held driver lock.
 //!
 //! It follows from this that any changes made while holding BOTH 1 and 2 will
@@ -49,8 +49,10 @@
 //! There is of course a race condition between timer reset and timer
 //! expiration. If the driver fails to observe the updated expiration time, it
 //! could trigger expiration of the timer too early. However, because
-//! `mark_pending` performs a compare-and-swap, it will identify this race and
+//! [`mark_pending`][mark_pending] performs a compare-and-swap, it will identify this race and
 //! refuse to mark the timer as pending.
+//!
+//! [mark_pending]: TimerHandle::mark_pending
 
 use crate::loom::cell::UnsafeCell;
 use crate::loom::sync::atomic::AtomicU64;
@@ -324,14 +326,15 @@ pub(super) type EntryList = crate::util::linked_list::LinkedList<TimerShared, Ti
 ///
 /// Note that this structure is located inside the `TimerEntry` structure.
 #[derive(Debug)]
+#[repr(C)] // required by `link_list::Link` impl
 pub(crate) struct TimerShared {
+    /// Data manipulated by the driver thread itself, only.
+    driver_state: CachePadded<TimerSharedPadded>,
+
     /// Current state. This records whether the timer entry is currently under
     /// the ownership of the driver, and if not, its current state (not
     /// complete, fired, error, etc).
     state: StateCell,
-
-    /// Data manipulated by the driver thread itself, only.
-    driver_state: CachePadded<TimerSharedPadded>,
 
     _p: PhantomPinned,
 }
@@ -418,7 +421,14 @@ impl TimerShared {
 /// padded. This contains the information that the driver thread accesses most
 /// frequently to minimize contention. In particular, we move it away from the
 /// waker, as the waker is updated on every poll.
+#[repr(C)] // required by `link_list::Link` impl
 struct TimerSharedPadded {
+    /// A link within the doubly-linked list of timers on a particular level and
+    /// slot. Valid only if state is equal to Registered.
+    ///
+    /// Only accessed under the entry lock.
+    pointers: linked_list::Pointers<TimerShared>,
+
     /// The expiration time for which this entry is currently registered.
     /// Generally owned by the driver, but is accessed by the entry when not
     /// registered.
@@ -426,12 +436,6 @@ struct TimerSharedPadded {
 
     /// The true expiration time. Set by the timer future, read by the driver.
     true_when: AtomicU64,
-
-    /// A link within the doubly-linked list of timers on a particular level and
-    /// slot. Valid only if state is equal to Registered.
-    ///
-    /// Only accessed under the entry lock.
-    pointers: StdUnsafeCell<linked_list::Pointers<TimerShared>>,
 }
 
 impl std::fmt::Debug for TimerSharedPadded {
@@ -448,7 +452,7 @@ impl TimerSharedPadded {
         Self {
             cached_when: AtomicU64::new(0),
             true_when: AtomicU64::new(0),
-            pointers: StdUnsafeCell::new(linked_list::Pointers::new()),
+            pointers: linked_list::Pointers::new(),
         }
     }
 }
@@ -472,7 +476,7 @@ unsafe impl linked_list::Link for TimerShared {
     unsafe fn pointers(
         target: NonNull<Self::Target>,
     ) -> NonNull<linked_list::Pointers<Self::Target>> {
-        unsafe { NonNull::new(target.as_ref().driver_state.0.pointers.get()).unwrap() }
+        target.cast()
     }
 }
 

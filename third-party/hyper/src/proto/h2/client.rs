@@ -14,6 +14,7 @@ use tracing::{debug, trace, warn};
 use super::{ping, H2Upgraded, PipeToSendStream, SendBuf};
 use crate::body::HttpBody;
 use crate::common::{exec::Exec, task, Future, Never, Pin, Poll};
+use crate::ext::Protocol;
 use crate::headers;
 use crate::proto::h2::UpgradedSendStream;
 use crate::proto::Dispatched;
@@ -36,6 +37,7 @@ type ConnEof = oneshot::Receiver<Never>;
 const DEFAULT_CONN_WINDOW: u32 = 1024 * 1024 * 5; // 5mb
 const DEFAULT_STREAM_WINDOW: u32 = 1024 * 1024 * 2; // 2mb
 const DEFAULT_MAX_FRAME_SIZE: u32 = 1024 * 16; // 16kb
+const DEFAULT_MAX_SEND_BUF_SIZE: usize = 1024 * 1024; // 1mb
 
 #[derive(Clone, Debug)]
 pub(crate) struct Config {
@@ -50,6 +52,7 @@ pub(crate) struct Config {
     #[cfg(feature = "runtime")]
     pub(crate) keep_alive_while_idle: bool,
     pub(crate) max_concurrent_reset_streams: Option<usize>,
+    pub(crate) max_send_buffer_size: usize,
 }
 
 impl Default for Config {
@@ -66,6 +69,7 @@ impl Default for Config {
             #[cfg(feature = "runtime")]
             keep_alive_while_idle: false,
             max_concurrent_reset_streams: None,
+            max_send_buffer_size: DEFAULT_MAX_SEND_BUF_SIZE,
         }
     }
 }
@@ -76,6 +80,7 @@ fn new_builder(config: &Config) -> Builder {
         .initial_window_size(config.initial_stream_window_size)
         .initial_connection_window_size(config.initial_conn_window_size)
         .max_frame_size(config.max_frame_size)
+        .max_send_buffer_size(config.max_send_buffer_size)
         .enable_push(false);
     if let Some(max) = config.max_concurrent_reset_streams {
         builder.max_concurrent_reset_streams(max);
@@ -200,6 +205,15 @@ where
     req_rx: ClientRx<B>,
 }
 
+impl<B> ClientTask<B>
+where
+    B: HttpBody + 'static,
+{
+    pub(crate) fn is_extended_connect_protocol_enabled(&self) -> bool {
+        self.h2_tx.is_extended_connect_protocol_enabled()
+    }
+}
+
 impl<B> Future for ClientTask<B>
 where
     B: HttpBody + Send + 'static,
@@ -254,6 +268,10 @@ where
                             )));
                             continue;
                         }
+                    }
+
+                    if let Some(protocol) = req.extensions_mut().remove::<Protocol>() {
+                        req.extensions_mut().insert(protocol.into_inner());
                     }
 
                     let (fut, body_tx) = match self.h2_tx.send_request(req, !is_connect && eos) {

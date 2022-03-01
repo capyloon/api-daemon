@@ -190,7 +190,10 @@ impl<'reg: 'rc, 'rc> RenderContext<'reg, 'rc> {
     }
 
     pub(crate) fn dec_partial_block_depth(&mut self) {
-        self.inner_mut().partial_block_depth -= 1;
+        let depth = &mut self.inner_mut().partial_block_depth;
+        if *depth > 0 {
+            *depth -= 1;
+        }
     }
 
     /// Remove a registered partial
@@ -275,9 +278,10 @@ impl<'reg, 'rc> fmt::Debug for RenderContextInner<'reg, 'rc> {
         f.debug_struct("RenderContextInner")
             .field("partials", &self.partials)
             .field("partial_block_stack", &self.partial_block_stack)
+            .field("partial_block_depth", &self.partial_block_depth)
             .field("root_template", &self.root_template)
             .field("current_template", &self.current_template)
-            .field("disable_eacape", &self.disable_escape)
+            .field("disable_escape", &self.disable_escape)
             .finish()
     }
 }
@@ -1116,4 +1120,38 @@ fn test_zero_args_heler() {
         r.render("t1", &json!({"name": "Alex"})).unwrap(),
         "Output name: first_name not resolved"
     );
+}
+
+#[test]
+fn test_identifiers_starting_with_numbers() {
+    let mut r = Registry::new();
+
+    assert!(r
+        .register_template_string("r1", "{{#if 0a}}true{{/if}}")
+        .is_ok());
+    let r1 = r.render("r1", &json!({"0a": true})).unwrap();
+    assert_eq!(r1, "true");
+
+    assert!(r.register_template_string("r2", "{{eq 1a 1}}").is_ok());
+    let r2 = r.render("r2", &json!({"1a": 2, "a": 1})).unwrap();
+    assert_eq!(r2, "false");
+
+    assert!(r
+        .register_template_string("r3", "0: {{0}} {{#if (eq 0 true)}}resolved from context{{/if}}\n1a: {{1a}} {{#if (eq 1a true)}}resolved from context{{/if}}\n2_2: {{2_2}} {{#if (eq 2_2 true)}}resolved from context{{/if}}") // YUP it is just eq that barfs! is if handled specially? maybe this test should go nearer to specific helpers that fail?
+        .is_ok());
+    let r3 = r
+        .render("r3", &json!({"0": true, "1a": true, "2_2": true}))
+        .unwrap();
+    assert_eq!(
+        r3,
+        "0: true \n1a: true resolved from context\n2_2: true resolved from context"
+    );
+
+    // these should all be errors:
+    assert!(r.register_template_string("r4", "{{eq 1}}").is_ok());
+    assert!(r.register_template_string("r5", "{{eq a1}}").is_ok());
+    assert!(r.register_template_string("r6", "{{eq 1a}}").is_ok());
+    assert!(r.render("r4", &()).is_err());
+    assert!(r.render("r5", &()).is_err());
+    assert!(r.render("r6", &()).is_err());
 }

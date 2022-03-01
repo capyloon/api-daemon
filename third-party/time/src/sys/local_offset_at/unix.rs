@@ -1,19 +1,9 @@
 //! Get the system's UTC offset on Unix.
 
-#[cfg(any(target_os = "linux", unsound_local_offset))]
 use core::convert::TryInto;
-#[cfg(any(target_os = "linux", unsound_local_offset))]
 use core::mem::MaybeUninit;
 
 use crate::{OffsetDateTime, UtcOffset};
-
-/// Obtain the system's UTC offset.
-// See #293 for details.
-#[cfg(not(any(target_os = "linux", unsound_local_offset)))]
-#[allow(clippy::missing_const_for_fn)]
-pub(super) fn local_offset_at(_datetime: OffsetDateTime) -> Option<UtcOffset> {
-    None
-}
 
 /// Convert the given Unix timestamp to a `libc::tm`. Returns `None` on any error.
 ///
@@ -24,7 +14,6 @@ pub(super) fn local_offset_at(_datetime: OffsetDateTime) -> Option<UtcOffset> {
 /// This method will remain `unsafe` until `std::env::set_var` is deprecated or has its behavior
 /// altered. This method is, on its own, safe. It is the presence of a safe, unsound way to set
 /// environment variables that makes it unsafe.
-#[cfg(any(target_os = "linux", unsound_local_offset))]
 unsafe fn timestamp_to_tm(timestamp: i64) -> Option<libc::tm> {
     extern "C" {
         #[cfg_attr(target_os = "netbsd", link_name = "__tzset50")]
@@ -40,23 +29,22 @@ unsafe fn timestamp_to_tm(timestamp: i64) -> Option<libc::tm> {
     // Update timezone information from system. `localtime_r` does not do this for us.
     //
     // Safety: tzset is thread-safe.
-    tzset();
+    unsafe { tzset() };
 
     // Safety: We are calling a system API, which mutates the `tm` variable. If a null
     // pointer is returned, an error occurred.
-    let tm_ptr = libc::localtime_r(&timestamp, tm.as_mut_ptr());
+    let tm_ptr = unsafe { libc::localtime_r(&timestamp, tm.as_mut_ptr()) };
 
     if tm_ptr.is_null() {
         None
     } else {
         // Safety: The value was initialized, as we no longer have a null pointer.
-        Some(tm.assume_init())
+        Some(unsafe { tm.assume_init() })
     }
 }
 
 /// Convert a `libc::tm` to a `UtcOffset`. Returns `None` on any error.
 // `tm_gmtoff` extension
-#[cfg(any(target_os = "linux", unsound_local_offset))]
 #[cfg(not(any(target_os = "solaris", target_os = "illumos")))]
 fn tm_to_offset(tm: libc::tm) -> Option<UtcOffset> {
     let seconds: i32 = tm.tm_gmtoff.try_into().ok()?;
@@ -69,8 +57,21 @@ fn tm_to_offset(tm: libc::tm) -> Option<UtcOffset> {
 }
 
 /// Convert a `libc::tm` to a `UtcOffset`. Returns `None` on any error.
-#[cfg(unsound_local_offset)]
-#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+// Solaris/Illumos is unsound and requires opting into.
+#[cfg(all(
+    not(unsound_local_offset),
+    any(target_os = "solaris", target_os = "illumos")
+))]
+#[allow(unused_variables, clippy::missing_const_for_fn)]
+fn tm_to_offset(tm: libc::tm) -> Option<UtcOffset> {
+    None
+}
+
+/// Convert a `libc::tm` to a `UtcOffset`. Returns `None` on any error.
+#[cfg(all(
+    unsound_local_offset,
+    any(target_os = "solaris", target_os = "illumos")
+))]
 fn tm_to_offset(tm: libc::tm) -> Option<UtcOffset> {
     use core::convert::TryFrom;
 
@@ -106,32 +107,20 @@ fn tm_to_offset(tm: libc::tm) -> Option<UtcOffset> {
     .ok()
 }
 
-/// Determine if the current process is single-threaded. Returns `None` if this cannot be
-/// determined.
-#[cfg(target_os = "linux")]
-fn process_is_single_threaded() -> Option<bool> {
-    std::fs::read_dir("/proc/self/task")
-        // If we can't read the directory, return `None`.
-        .ok()
-        // Check for the presence of multiple files in the directory. If there is exactly one then
-        // the process is single-threaded. This is indicated by the second element of the iterator
-        // (index 1) being `None`.
-        .map(|mut tasks| tasks.nth(1).is_none())
-}
-
 /// Obtain the system's UTC offset.
-#[cfg(any(target_os = "linux", unsound_local_offset))]
 pub(super) fn local_offset_at(datetime: OffsetDateTime) -> Option<UtcOffset> {
     // Ensure that the process is single-threaded unless the user has explicitly opted out of this
     // check. This is to prevent issues with the environment being mutated by a different thread in
     // the process while execution of this function is taking place, which can cause a segmentation
     // fault by dereferencing a dangling pointer.
-    if !cfg!(unsound_local_offset) && !matches!(process_is_single_threaded(), Some(true)) {
+    // If the `num_threads` crate is incapable of determining the number of running threads, then
+    // we conservatively return `None` to avoid a soundness bug.
+    if !cfg!(unsound_local_offset) && num_threads::is_single_threaded() != Some(true) {
         return None;
     }
 
     // Safety: We have just confirmed that the process is single-threaded or the user has explicitly
     // opted out of soundness.
-    let tm = unsafe { timestamp_to_tm(datetime.unix_timestamp())? };
+    let tm = unsafe { timestamp_to_tm(datetime.unix_timestamp()) }?;
     tm_to_offset(tm)
 }

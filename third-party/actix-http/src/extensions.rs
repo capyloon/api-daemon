@@ -1,62 +1,118 @@
-use std::any::{Any, TypeId};
-use std::{fmt, mem};
+use std::{
+    any::{Any, TypeId},
+    fmt,
+};
 
-use fxhash::FxHashMap;
+use ahash::AHashMap;
 
+/// A type map for request extensions.
+///
+/// All entries into this map must be owned types (or static references).
 #[derive(Default)]
-/// A type map of request extensions.
 pub struct Extensions {
-    /// Use FxHasher with a std HashMap with for faster
-    /// lookups on the small `TypeId` (u64 equivalent) keys.
-    map: FxHashMap<TypeId, Box<dyn Any>>,
+    /// Use AHasher with a std HashMap with for faster lookups on the small `TypeId` keys.
+    map: AHashMap<TypeId, Box<dyn Any>>,
 }
 
 impl Extensions {
-    /// Create an empty `Extensions`.
+    /// Creates an empty `Extensions`.
     #[inline]
     pub fn new() -> Extensions {
         Extensions {
-            map: FxHashMap::default(),
+            map: AHashMap::new(),
         }
     }
 
-    /// Insert a type into this `Extensions`.
+    /// Insert an item into the map.
     ///
-    /// If a extension of this type already existed, it will
-    /// be returned.
-    pub fn insert<T: 'static>(&mut self, val: T) {
-        self.map.insert(TypeId::of::<T>(), Box::new(val));
+    /// If an item of this type was already stored, it will be replaced and returned.
+    ///
+    /// ```
+    /// # use actix_http::Extensions;
+    /// let mut map = Extensions::new();
+    /// assert_eq!(map.insert(""), None);
+    /// assert_eq!(map.insert(1u32), None);
+    /// assert_eq!(map.insert(2u32), Some(1u32));
+    /// assert_eq!(*map.get::<u32>().unwrap(), 2u32);
+    /// ```
+    pub fn insert<T: 'static>(&mut self, val: T) -> Option<T> {
+        self.map
+            .insert(TypeId::of::<T>(), Box::new(val))
+            .and_then(downcast_owned)
     }
 
-    /// Check if container contains entry
+    /// Check if map contains an item of a given type.
+    ///
+    /// ```
+    /// # use actix_http::Extensions;
+    /// let mut map = Extensions::new();
+    /// assert!(!map.contains::<u32>());
+    ///
+    /// assert_eq!(map.insert(1u32), None);
+    /// assert!(map.contains::<u32>());
+    /// ```
     pub fn contains<T: 'static>(&self) -> bool {
         self.map.contains_key(&TypeId::of::<T>())
     }
 
-    /// Get a reference to a type previously inserted on this `Extensions`.
+    /// Get a reference to an item of a given type.
+    ///
+    /// ```
+    /// # use actix_http::Extensions;
+    /// let mut map = Extensions::new();
+    /// map.insert(1u32);
+    /// assert_eq!(map.get::<u32>(), Some(&1u32));
+    /// ```
     pub fn get<T: 'static>(&self) -> Option<&T> {
         self.map
             .get(&TypeId::of::<T>())
             .and_then(|boxed| boxed.downcast_ref())
     }
 
-    /// Get a mutable reference to a type previously inserted on this `Extensions`.
+    /// Get a mutable reference to an item of a given type.
+    ///
+    /// ```
+    /// # use actix_http::Extensions;
+    /// let mut map = Extensions::new();
+    /// map.insert(1u32);
+    /// assert_eq!(map.get_mut::<u32>(), Some(&mut 1u32));
+    /// ```
     pub fn get_mut<T: 'static>(&mut self) -> Option<&mut T> {
         self.map
             .get_mut(&TypeId::of::<T>())
             .and_then(|boxed| boxed.downcast_mut())
     }
 
-    /// Remove a type from this `Extensions`.
+    /// Remove an item from the map of a given type.
     ///
-    /// If a extension of this type existed, it will be returned.
+    /// If an item of this type was already stored, it will be returned.
+    ///
+    /// ```
+    /// # use actix_http::Extensions;
+    /// let mut map = Extensions::new();
+    ///
+    /// map.insert(1u32);
+    /// assert_eq!(map.get::<u32>(), Some(&1u32));
+    ///
+    /// assert_eq!(map.remove::<u32>(), Some(1u32));
+    /// assert!(!map.contains::<u32>());
+    /// ```
     pub fn remove<T: 'static>(&mut self) -> Option<T> {
-        self.map
-            .remove(&TypeId::of::<T>())
-            .and_then(|boxed| boxed.downcast().ok().map(|boxed| *boxed))
+        self.map.remove(&TypeId::of::<T>()).and_then(downcast_owned)
     }
 
     /// Clear the `Extensions` of all inserted extensions.
+    ///
+    /// ```
+    /// # use actix_http::Extensions;
+    /// let mut map = Extensions::new();
+    ///
+    /// map.insert(1u32);
+    /// assert!(map.contains::<u32>());
+    ///
+    /// map.clear();
+    /// assert!(!map.contains::<u32>());
+    /// ```
     #[inline]
     pub fn clear(&mut self) {
         self.map.clear();
@@ -66,17 +122,16 @@ impl Extensions {
     pub fn extend(&mut self, other: Extensions) {
         self.map.extend(other.map);
     }
-
-    /// Sets (or overrides) items from `other` into this map.
-    pub(crate) fn drain_from(&mut self, other: &mut Self) {
-        self.map.extend(mem::take(&mut other.map));
-    }
 }
 
 impl fmt::Debug for Extensions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Extensions").finish()
     }
+}
+
+fn downcast_owned<T: 'static>(boxed: Box<dyn Any>) -> Option<T> {
+    boxed.downcast().ok().map(|boxed| *boxed)
 }
 
 #[cfg(test)]
@@ -118,6 +173,8 @@ mod tests {
 
     #[test]
     fn test_integers() {
+        static A: u32 = 8;
+
         let mut map = Extensions::new();
 
         map.insert::<i8>(8);
@@ -130,6 +187,7 @@ mod tests {
         map.insert::<u32>(32);
         map.insert::<u64>(64);
         map.insert::<u128>(128);
+        map.insert::<&'static u32>(&A);
         assert!(map.get::<i8>().is_some());
         assert!(map.get::<i16>().is_some());
         assert!(map.get::<i32>().is_some());
@@ -140,6 +198,7 @@ mod tests {
         assert!(map.get::<u32>().is_some());
         assert!(map.get::<u64>().is_some());
         assert!(map.get::<u128>().is_some());
+        assert!(map.get::<&'static u32>().is_some());
     }
 
     #[test]
@@ -217,28 +276,5 @@ mod tests {
 
         assert_eq!(extensions.get(), Some(&20u8));
         assert_eq!(extensions.get_mut(), Some(&mut 20u8));
-    }
-
-    #[test]
-    fn test_drain_from() {
-        let mut ext = Extensions::new();
-        ext.insert(2isize);
-
-        let mut more_ext = Extensions::new();
-
-        more_ext.insert(5isize);
-        more_ext.insert(5usize);
-
-        assert_eq!(ext.get::<isize>(), Some(&2isize));
-        assert_eq!(ext.get::<usize>(), None);
-        assert_eq!(more_ext.get::<isize>(), Some(&5isize));
-        assert_eq!(more_ext.get::<usize>(), Some(&5usize));
-
-        ext.drain_from(&mut more_ext);
-
-        assert_eq!(ext.get::<isize>(), Some(&5isize));
-        assert_eq!(ext.get::<usize>(), Some(&5usize));
-        assert_eq!(more_ext.get::<isize>(), None);
-        assert_eq!(more_ext.get::<usize>(), None);
     }
 }

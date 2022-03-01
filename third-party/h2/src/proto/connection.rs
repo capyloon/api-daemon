@@ -77,6 +77,7 @@ struct DynConnection<'a, B: Buf = Bytes> {
 pub(crate) struct Config {
     pub next_stream_id: StreamId,
     pub initial_max_send_streams: usize,
+    pub max_send_buffer_size: usize,
     pub reset_stream_duration: Duration,
     pub reset_stream_max: usize,
     pub settings: frame::Settings,
@@ -108,8 +109,13 @@ where
                     .initial_window_size()
                     .unwrap_or(DEFAULT_INITIAL_WINDOW_SIZE),
                 initial_max_send_streams: config.initial_max_send_streams,
+                local_max_buffer_size: config.max_send_buffer_size,
                 local_next_stream_id: config.next_stream_id,
                 local_push_enabled: config.settings.is_push_enabled().unwrap_or(true),
+                extended_connect_protocol_enabled: config
+                    .settings
+                    .is_extended_connect_protocol_enabled()
+                    .unwrap_or(false),
                 local_reset_duration: config.reset_stream_duration,
                 local_reset_max: config.reset_stream_max,
                 remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
@@ -144,6 +150,13 @@ where
     pub(crate) fn set_initial_window_size(&mut self, size: WindowSize) -> Result<(), UserError> {
         let mut settings = frame::Settings::default();
         settings.set_initial_window_size(Some(size));
+        self.inner.settings.send_settings(settings)
+    }
+
+    /// Send a new SETTINGS frame with extended CONNECT protocol enabled.
+    pub(crate) fn set_enable_connect_protocol(&mut self) -> Result<(), UserError> {
+        let mut settings = frame::Settings::default();
+        settings.set_enable_connect_protocol(Some(1));
         self.inner.settings.send_settings(settings)
     }
 

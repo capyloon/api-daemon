@@ -8,7 +8,7 @@ use actix_http::ws::Codec;
 use actix_web::http::header;
 use actix_web::middleware::{Compress, Logger};
 use actix_web::web::{Bytes, Data};
-use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{guard, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws::{self, WebsocketContext};
 use async_std::fs::File;
 use common::traits::{
@@ -219,7 +219,7 @@ impl ChunkedFile {
 
 use std::pin::Pin;
 impl Stream for ChunkedFile {
-    type Item = Result<Bytes, ()>;
+    type Item = Result<Bytes, std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let mut buffer: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
@@ -227,8 +227,7 @@ impl Stream for ChunkedFile {
         let read = ready!(Future::poll(
             Pin::new(&mut self.reader.read(&mut buffer)),
             cx
-        ))
-        .map_err(|_| ())?;
+        ))?;
 
         if read == 0 {
             // We reached EOF
@@ -250,9 +249,10 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
         .get(::actix_web::http::header::ACCEPT_ENCODING)
     {
         Some(header_value) => match header_value.to_str() {
-            Ok(value) => {
-                value.split(',').map(|e| e.trim()).any(|encoding| encoding == "gzip")
-            }
+            Ok(value) => value
+                .split(',')
+                .map(|e| e.trim())
+                .any(|encoding| encoding == "gzip"),
             Err(_) => false,
         },
         None => false,
@@ -272,12 +272,12 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
 
             let mut ok = HttpResponse::Ok();
             let builder = ok
-                .header(header::ETAG, etag)
-                .header(header::CONTENT_LENGTH, content_length)
-                .header(header::CONTENT_TYPE, content_type);
+                .append_header((header::ETAG, etag))
+                .append_header((header::CONTENT_LENGTH, content_length))
+                .append_header((header::CONTENT_TYPE, content_type));
 
             if gzipped {
-                builder.header(header::CONTENT_ENCODING, "gzip");
+                builder.append_header((header::CONTENT_ENCODING, "gzip"));
             }
 
             let response = if content_length <= CHUNK_SIZE as _ {
@@ -322,12 +322,13 @@ impl VhostChecker {
     }
 }
 
-impl actix_web::guard::Guard for VhostChecker {
-    fn check(&self, request: &actix_web::dev::RequestHead) -> bool {
-        if let Some(host) = request.headers().get("Host") {
+impl guard::Guard for VhostChecker {
+    fn check(&self, request: &guard::GuardContext) -> bool {
+        let head = request.head();
+        if let Some(host) = head.headers().get("Host") {
             let parts: Vec<&str> = host.to_str().unwrap_or("").split('.').collect();
             if parts.len() == 1 && parts[0] == self.check {
-                let path = request.uri.path();
+                let path = head.uri.path();
                 let paths: Vec<&str> = path.split('/').collect();
                 if paths.len() > 2 && paths[1] == self.redirect {
                     return true;
@@ -349,41 +350,44 @@ pub fn start(
     let port = config.general.port;
     let addr = format!("{}:{}", config.general.host, port);
 
-    let sys = actix_rt::System::new("ws-server");
     let shared_data = Data::new(SharedWsData {
         global_context: global_context.clone(),
         session_id_factory: Mutex::new(IdFactory::new(0)),
         telemetry,
     });
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         App::new()
             .wrap(Logger::new("\"%r\" %{Host}i %s %b %D")) // Custom log to display the vhost
             .wrap(Cors::default().allow_any_origin().send_wildcard())
             .wrap(Compress::default())
             .wrap(NoCacheForErrors::default())
             .service(
-                web::scope("/")
+                web::scope("")
                     .guard(VhostChecker::new(port))
-                    .data(vhost_data.clone())
-                    .route("*", web::post().to(HttpResponse::MethodNotAllowed))
+                    .app_data(Data::new(vhost_data.clone()))
+                    .route("{tail}*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route("/{filename:.*}", web::get().to(vhost)),
             )
             .service(
-                web::scope("/")
+                web::scope("")
                     .app_data(shared_data.clone())
-                    .route("*", web::post().to(HttpResponse::MethodNotAllowed))
+                    .route("{tail}*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route("/ws", web::get().to(ws_index))
-                    .route("/*", web::get().to(http_index)),
+                    .route("/{tail}*", web::get().to(http_index)),
             )
     })
-    .keep_alive(60) // To prevent slow request timeout 408 errors when under load
+    .keep_alive(actix_http::KeepAlive::Timeout(std::time::Duration::from_secs(60))) // To prevent slow request timeout 408 errors when under load
     .bind(addr)
     .expect("Failed to bind to actix http")
     .disable_signals() // For now, since that's causing issues with Ctrl-C
     .run();
 
-    let _ = sys.run();
+    let _ = actix_rt::Runtime::new().unwrap().block_on(async {
+        let _ = server
+            .await
+            .map_err(|e| error!("api server exit with error: {:?}", e));
+    });
 }
 
 #[cfg(test)]

@@ -49,7 +49,7 @@ where
     #[inline]
     fn spawn<F>(&mut self, fut: F) -> SpawnHandle
     where
-        F: ActorFuture<Output = (), Actor = A> + 'static,
+        F: ActorFuture<A, Output = ()> + 'static,
     {
         self.parts.spawn(fut)
     }
@@ -57,7 +57,7 @@ where
     #[inline]
     fn wait<F>(&mut self, fut: F)
     where
-        F: ActorFuture<Output = (), Actor = A> + 'static,
+        F: ActorFuture<A, Output = ()> + 'static,
     {
         self.parts.wait(fut)
     }
@@ -82,8 +82,47 @@ impl<A> Context<A>
 where
     A: Actor<Context = Self>,
 {
+    /// Create a context without spawning it.
+    ///
+    /// The context can be spawned into an actor using its [`run`](`Context::run`) method.
+    ///
+    /// ```
+    /// # use actix::prelude::*;
+    /// struct Actor1 {
+    ///     actor2_addr: Addr<Actor2>,
+    /// }
+    /// # impl Actor for Actor1 {
+    /// #     type Context = Context<Self>;
+    /// # }
+    ///
+    /// struct Actor2 {
+    ///     actor1_addr: Addr<Actor1>,
+    /// }
+    /// # impl Actor for Actor2 {
+    /// #     type Context = Context<Self>;
+    /// #
+    /// #     fn started(&mut self, _: &mut Self::Context) {
+    /// #         System::current().stop();
+    /// #     }        
+    /// # }
+    ///
+    /// # fn main() {
+    /// # let sys = System::new();
+    /// # sys.block_on(async {
+    /// let ctx1 = Context::<Actor1>::new();
+    /// let ctx2 = Context::<Actor2>::new();
+    ///
+    /// let actor1 = Actor1 { actor2_addr: ctx2.address() };
+    /// let actor2 = Actor2 { actor1_addr: ctx1.address() };
+    ///
+    /// ctx1.run(actor1);
+    /// ctx2.run(actor2);
+    /// # });
+    /// # sys.run().unwrap();
+    /// # }
+    /// ```
     #[inline]
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let mb = Mailbox::default();
         Self {
             parts: ContextParts::new(mb.sender_producer()),
@@ -133,12 +172,14 @@ where
     ///
     ///     fn started(&mut self, ctx: &mut Self::Context) {
     ///         ctx.set_mailbox_capacity(1);
+    ///         System::current().stop();
     ///     }
     /// }
     ///
     /// # fn main() {
-    /// # System::new("test");
-    /// let addr = MyActor.start();
+    /// # let mut sys = System::new();
+    /// let addr = sys.block_on(async { MyActor.start() });
+    /// sys.run();
     /// # }
     /// ```
     pub fn set_mailbox_capacity(&mut self, cap: usize) {
@@ -181,7 +222,7 @@ impl<A, T> ContextFutureSpawner<A> for T
 where
     A: Actor,
     A::Context: AsyncContext<A>,
-    T: ActorFuture<Output = (), Actor = A> + 'static,
+    T: ActorFuture<A, Output = ()> + 'static,
 {
     #[inline]
     fn spawn(self, ctx: &mut A::Context) {

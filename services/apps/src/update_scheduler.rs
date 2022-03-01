@@ -236,10 +236,10 @@ pub fn network_connected() -> bool {
 }
 
 fn get_local_time_sec() -> i64 {
-    let today_local = OffsetDateTime::try_now_local()
+    let today_local = OffsetDateTime::now_local()
         .or_else::<(), _>(|_| Ok(OffsetDateTime::now_utc()))
         .unwrap();
-    let offset_seconds = today_local.offset().as_seconds();
+    let offset_seconds = today_local.offset().whole_seconds();
     let mut today_sec = today_local.unix_timestamp() + i64::from(offset_seconds);
     if today_sec < 0 {
         today_sec = 0;

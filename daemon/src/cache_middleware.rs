@@ -8,12 +8,11 @@ use std::task::{Context, Poll};
 #[derive(Clone, Default)]
 pub(crate) struct NoCacheForErrors {}
 
-impl<S, B> Transform<S> for NoCacheForErrors
+impl<S, B> Transform<S, ServiceRequest> for NoCacheForErrors
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     S::Future: 'static,
 {
-    type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
     type InitError = ();
@@ -29,22 +28,21 @@ pub(crate) struct NoCacheMiddleware<S> {
     service: S,
 }
 
-impl<S, B> Service for NoCacheMiddleware<S>
+impl<S, B> Service<ServiceRequest> for NoCacheMiddleware<S>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     S::Future: 'static,
 {
-    type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
     #[allow(clippy::borrow_interior_mutable_const)]
-    fn call(&mut self, req: ServiceRequest) -> Self::Future {
+    fn call(&self, req: ServiceRequest) -> Self::Future {
         let fut = self.service.call(req);
 
         async move {

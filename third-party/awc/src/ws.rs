@@ -1,12 +1,12 @@
 //! Websockets client
 //!
-//! Type definitions required to use [`awc::Client`](../struct.Client.html) as a WebSocket client.
+//! Type definitions required to use [`awc::Client`](super::Client) as a WebSocket client.
 //!
-//! # Example
+//! # Examples
 //!
-//! ```
+//! ```no_run
 //! use awc::{Client, ws};
-//! use futures_util::{sink::SinkExt, stream::StreamExt};
+//! use futures_util::{sink::SinkExt as _, stream::StreamExt as _};
 //!
 //! #[actix_rt::main]
 //! async fn main() {
@@ -17,7 +17,7 @@
 //!         .unwrap();
 //!
 //!     connection
-//!         .send(ws::Message::Text("Echo".to_string()))
+//!         .send(ws::Message::Text("Echo".into()))
 //!         .await
 //!         .unwrap();
 //!     let response = connection.next().await.unwrap().unwrap();
@@ -26,30 +26,30 @@
 //! }
 //! ```
 
-use std::convert::TryFrom;
-use std::net::SocketAddr;
-use std::rc::Rc;
-use std::{fmt, str};
+use std::{convert::TryFrom, fmt, net::SocketAddr, str};
 
 use actix_codec::Framed;
-use actix_http::cookie::{Cookie, CookieJar};
 use actix_http::{ws, Payload, RequestHead};
 use actix_rt::time::timeout;
+use actix_service::Service as _;
 
 pub use actix_http::ws::{CloseCode, CloseReason, Codec, Frame, Message};
 
-use crate::connect::BoxedSocket;
-use crate::error::{InvalidUrl, SendRequestError, WsClientError};
-use crate::http::header::{
-    self, HeaderName, HeaderValue, IntoHeaderValue, AUTHORIZATION,
+use crate::{
+    client::ClientConfig,
+    connect::{BoxedSocket, ConnectRequest},
+    error::{HttpError, InvalidUrl, SendRequestError, WsClientError},
+    http::{
+        header::{self, HeaderName, HeaderValue, TryIntoHeaderValue, AUTHORIZATION},
+        ConnectionType, Method, StatusCode, Uri, Version,
+    },
+    ClientResponse,
 };
-use crate::http::{
-    ConnectionType, Error as HttpError, Method, StatusCode, Uri, Version,
-};
-use crate::response::ClientResponse;
-use crate::ClientConfig;
 
-/// `WebSocket` connection
+#[cfg(feature = "cookies")]
+use crate::cookie::{Cookie, CookieJar};
+
+/// WebSocket connection.
 pub struct WebsocketsRequest {
     pub(crate) head: RequestHead,
     err: Option<HttpError>,
@@ -58,21 +58,28 @@ pub struct WebsocketsRequest {
     addr: Option<SocketAddr>,
     max_size: usize,
     server_mode: bool,
+    config: ClientConfig,
+
+    #[cfg(feature = "cookies")]
     cookies: Option<CookieJar>,
-    config: Rc<ClientConfig>,
 }
 
 impl WebsocketsRequest {
-    /// Create new websocket connection
-    pub(crate) fn new<U>(uri: U, config: Rc<ClientConfig>) -> Self
+    /// Create new WebSocket connection
+    pub(crate) fn new<U>(uri: U, config: ClientConfig) -> Self
     where
         Uri: TryFrom<U>,
         <Uri as TryFrom<U>>::Error: Into<HttpError>,
     {
         let mut err = None;
-        let mut head = RequestHead::default();
-        head.method = Method::GET;
-        head.version = Version::HTTP_11;
+
+        #[allow(clippy::field_reassign_with_default)]
+        let mut head = {
+            let mut head = RequestHead::default();
+            head.method = Method::GET;
+            head.version = Version::HTTP_11;
+            head
+        };
 
         match Uri::try_from(uri) {
             Ok(uri) => head.uri = uri,
@@ -88,6 +95,7 @@ impl WebsocketsRequest {
             protocols: None,
             max_size: 65_536,
             server_mode: false,
+            #[cfg(feature = "cookies")]
             cookies: None,
         }
     }
@@ -101,7 +109,7 @@ impl WebsocketsRequest {
         self
     }
 
-    /// Set supported websocket protocols
+    /// Set supported WebSocket protocols
     pub fn protocols<U, V>(mut self, protos: U) -> Self
     where
         U: IntoIterator<Item = V>,
@@ -116,6 +124,7 @@ impl WebsocketsRequest {
     }
 
     /// Set a cookie
+    #[cfg(feature = "cookies")]
     pub fn cookie(mut self, cookie: Cookie<'_>) -> Self {
         if self.cookies.is_none() {
             let mut jar = CookieJar::new();
@@ -142,7 +151,7 @@ impl WebsocketsRequest {
 
     /// Set max frame size
     ///
-    /// By default max size is set to 64kb
+    /// By default max size is set to 64kB
     pub fn max_frame_size(mut self, size: usize) -> Self {
         self.max_size = size;
         self
@@ -162,10 +171,10 @@ impl WebsocketsRequest {
     where
         HeaderName: TryFrom<K>,
         <HeaderName as TryFrom<K>>::Error: Into<HttpError>,
-        V: IntoHeaderValue,
+        V: TryIntoHeaderValue,
     {
         match HeaderName::try_from(key) {
-            Ok(key) => match value.try_into() {
+            Ok(key) => match value.try_into_value() {
                 Ok(value) => {
                     self.head.headers.append(key, value);
                 }
@@ -181,10 +190,10 @@ impl WebsocketsRequest {
     where
         HeaderName: TryFrom<K>,
         <HeaderName as TryFrom<K>>::Error: Into<HttpError>,
-        V: IntoHeaderValue,
+        V: TryIntoHeaderValue,
     {
         match HeaderName::try_from(key) {
-            Ok(key) => match value.try_into() {
+            Ok(key) => match value.try_into_value() {
                 Ok(value) => {
                     self.head.headers.insert(key, value);
                 }
@@ -200,12 +209,12 @@ impl WebsocketsRequest {
     where
         HeaderName: TryFrom<K>,
         <HeaderName as TryFrom<K>>::Error: Into<HttpError>,
-        V: IntoHeaderValue,
+        V: TryIntoHeaderValue,
     {
         match HeaderName::try_from(key) {
             Ok(key) => {
                 if !self.head.headers.contains_key(&key) {
-                    match value.try_into() {
+                    match value.try_into_value() {
                         Ok(value) => {
                             self.head.headers.insert(key, value);
                         }
@@ -238,7 +247,7 @@ impl WebsocketsRequest {
         self.header(AUTHORIZATION, format!("Bearer {}", token))
     }
 
-    /// Complete request construction and connect to a websockets server.
+    /// Complete request construction and connect to a WebSocket server.
     pub async fn connect(
         mut self,
     ) -> Result<(ClientResponse, Framed<BoxedSocket, Codec>), WsClientError> {
@@ -254,7 +263,7 @@ impl WebsocketsRequest {
             return Err(InvalidUrl::MissingScheme.into());
         } else if let Some(scheme) = uri.scheme() {
             match scheme.as_str() {
-                "http" | "ws" | "https" | "wss" => (),
+                "http" | "ws" | "https" | "wss" => {}
                 _ => return Err(InvalidUrl::UnknownScheme.into()),
             }
         } else {
@@ -269,11 +278,12 @@ impl WebsocketsRequest {
         }
 
         // set cookies
+        #[cfg(feature = "cookies")]
         if let Some(ref mut jar) = self.cookies {
             let cookie: String = jar
                 .delta()
                 // ensure only name=value is written to cookie header
-                .map(|c| Cookie::new(c.name(), c.value()).encoded().to_string())
+                .map(|c| c.stripped().encoded().to_string())
                 .collect::<Vec<_>>()
                 .join("; ");
 
@@ -290,13 +300,16 @@ impl WebsocketsRequest {
         }
 
         self.head.set_connection_type(ConnectionType::Upgrade);
+
+        #[allow(clippy::declare_interior_mutable_const)]
+        const HV_WEBSOCKET: HeaderValue = HeaderValue::from_static("websocket");
+        self.head.headers.insert(header::UPGRADE, HV_WEBSOCKET);
+
+        #[allow(clippy::declare_interior_mutable_const)]
+        const HV_THIRTEEN: HeaderValue = HeaderValue::from_static("13");
         self.head
             .headers
-            .insert(header::UPGRADE, HeaderValue::from_static("websocket"));
-        self.head.headers.insert(
-            header::SEC_WEBSOCKET_VERSION,
-            HeaderValue::from_static("13"),
-        );
+            .insert(header::SEC_WEBSOCKET_VERSION, HV_THIRTEEN);
 
         if let Some(protocols) = self.protocols.take() {
             self.head.headers.insert(
@@ -305,9 +318,8 @@ impl WebsocketsRequest {
             );
         }
 
-        // Generate a random key for the `Sec-WebSocket-Key` header.
-        // a base64-encoded (see Section 4 of [RFC4648]) value that,
-        // when decoded, is 16 bytes in length (RFC 6455)
+        // Generate a random key for the `Sec-WebSocket-Key` header which is a base64-encoded
+        // (see RFC 4648 §4) value that, when decoded, is 16 bytes in length (RFC 6455 §1.3).
         let sec_key: [u8; 16] = rand::random();
         let key = base64::encode(&sec_key);
 
@@ -320,28 +332,27 @@ impl WebsocketsRequest {
         let max_size = self.max_size;
         let server_mode = self.server_mode;
 
-        let fut = self
-            .config
-            .connector
-            .borrow_mut()
-            .open_tunnel(head, self.addr);
+        let req = ConnectRequest::Tunnel(head, self.addr);
+
+        let fut = self.config.connector.call(req);
 
         // set request timeout
-        let (head, framed) = if let Some(to) = self.config.timeout {
+        let res = if let Some(to) = self.config.timeout {
             timeout(to, fut)
                 .await
-                .map_err(|_| SendRequestError::Timeout)
-                .and_then(|res| res)?
+                .map_err(|_| SendRequestError::Timeout)??
         } else {
             fut.await?
         };
+
+        let (head, framed) = res.into_tunnel_response();
 
         // verify response
         if head.status != StatusCode::SWITCHING_PROTOCOLS {
             return Err(WsClientError::InvalidResponseStatus(head.status));
         }
 
-        // Check for "UPGRADE" to websocket header
+        // check for "UPGRADE" to WebSocket header
         let has_hdr = if let Some(hdr) = head.headers.get(&header::UPGRADE) {
             if let Ok(s) = hdr.to_str() {
                 s.to_ascii_lowercase().contains("websocket")
@@ -374,12 +385,14 @@ impl WebsocketsRequest {
 
         if let Some(hdr_key) = head.headers.get(&header::SEC_WEBSOCKET_ACCEPT) {
             let encoded = ws::hash_key(key.as_ref());
-            if hdr_key.as_bytes() != encoded.as_bytes() {
+
+            if hdr_key.as_bytes() != encoded {
                 log::trace!(
-                    "Invalid challenge response: expected: {} received: {:?}",
-                    encoded,
+                    "Invalid challenge response: expected: {:?} received: {:?}",
+                    &encoded,
                     key
                 );
+
                 return Err(WsClientError::InvalidChallengeResponse(
                     encoded,
                     hdr_key.clone(),
@@ -435,7 +448,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_header_override() {
         let req = Client::builder()
-            .header(header::CONTENT_TYPE, "111")
+            .add_default_header((header::CONTENT_TYPE, "111"))
             .finish()
             .ws("/")
             .set_header(header::CONTENT_TYPE, "222");
@@ -509,7 +522,7 @@ mod tests {
             "test-origin"
         );
         assert_eq!(req.max_size, 100);
-        assert_eq!(req.server_mode, true);
+        assert!(req.server_mode);
         assert_eq!(req.protocols, Some("v1,v2".to_string()));
         assert_eq!(
             req.head.headers.get(header::CONTENT_TYPE).unwrap(),

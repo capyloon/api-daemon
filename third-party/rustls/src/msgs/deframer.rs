@@ -2,14 +2,14 @@ use std::collections::VecDeque;
 use std::io;
 
 use crate::msgs::codec;
-use crate::msgs::message::{Message, MessageError};
+use crate::msgs::message::{MessageError, OpaqueMessage};
 
 /// This deframer works to reconstruct TLS messages
 /// from arbitrary-sized reads, buffering as necessary.
 /// The input is `read()`, the output is the `frames` deque.
 pub struct MessageDeframer {
     /// Completed frames for output.
-    pub frames: VecDeque<Message>,
+    pub frames: VecDeque<OpaqueMessage>,
 
     /// Set to true if the peer is not talking TLS, but some other
     /// protocol.  The caller should abort the connection, because
@@ -18,7 +18,7 @@ pub struct MessageDeframer {
 
     /// A fixed-size buffer containing the currently-accumulating
     /// TLS message.
-    buf: Box<[u8; Message::MAX_WIRE_SIZE]>,
+    buf: Box<[u8; OpaqueMessage::MAX_WIRE_SIZE]>,
 
     /// What size prefix of `buf` is used.
     used: usize,
@@ -43,11 +43,11 @@ impl Default for MessageDeframer {
 }
 
 impl MessageDeframer {
-    pub fn new() -> MessageDeframer {
-        MessageDeframer {
+    pub fn new() -> Self {
+        Self {
             frames: VecDeque::new(),
             desynced: false,
-            buf: Box::new([0u8; Message::MAX_WIRE_SIZE]),
+            buf: Box::new([0u8; OpaqueMessage::MAX_WIRE_SIZE]),
             used: 0,
         }
     }
@@ -60,7 +60,7 @@ impl MessageDeframer {
         // we get a message with a length field out of range here,
         // we do a zero length read.  That looks like an EOF to
         // the next layer up, which is fine.
-        debug_assert!(self.used <= Message::MAX_WIRE_SIZE);
+        debug_assert!(self.used <= OpaqueMessage::MAX_WIRE_SIZE);
         let new_bytes = rd.read(&mut self.buf[self.used..])?;
 
         self.used += new_bytes;
@@ -93,7 +93,7 @@ impl MessageDeframer {
         // Try to decode a message off the front of buf.
         let mut rd = codec::Reader::init(&self.buf[..self.used]);
 
-        match Message::read_with_detailed_error(&mut rd) {
+        match OpaqueMessage::read(&mut rd) {
             Ok(m) => {
                 let used = rd.used();
                 self.frames.push_back(m);
@@ -107,6 +107,7 @@ impl MessageDeframer {
         }
     }
 
+    #[allow(clippy::comparison_chain)]
     fn buf_consume(&mut self, taken: usize) {
         if taken < self.used {
             /* Before:
@@ -124,7 +125,7 @@ impl MessageDeframer {
 
             self.buf
                 .copy_within(taken..self.used, 0);
-            self.used = self.used - taken;
+            self.used -= taken;
         } else if taken == self.used {
             self.used = 0;
         }
@@ -135,10 +136,22 @@ impl MessageDeframer {
 mod tests {
     use super::MessageDeframer;
     use crate::msgs;
+    use crate::msgs::message::Message;
+    use std::convert::TryFrom;
     use std::io;
 
-    const FIRST_MESSAGE: &'static [u8] = include_bytes!("../testdata/deframer-test.1.bin");
-    const SECOND_MESSAGE: &'static [u8] = include_bytes!("../testdata/deframer-test.2.bin");
+    const FIRST_MESSAGE: &[u8] = include_bytes!("../testdata/deframer-test.1.bin");
+    const SECOND_MESSAGE: &[u8] = include_bytes!("../testdata/deframer-test.2.bin");
+
+    const EMPTY_APPLICATIONDATA_MESSAGE: &[u8] =
+        include_bytes!("../testdata/deframer-empty-applicationdata.bin");
+
+    const INVALID_EMPTY_MESSAGE: &[u8] = include_bytes!("../testdata/deframer-invalid-empty.bin");
+    const INVALID_CONTENTTYPE_MESSAGE: &[u8] =
+        include_bytes!("../testdata/deframer-invalid-contenttype.bin");
+    const INVALID_VERSION_MESSAGE: &[u8] =
+        include_bytes!("../testdata/deframer-invalid-version.bin");
+    const INVALID_LENGTH_MESSAGE: &[u8] = include_bytes!("../testdata/deframer-invalid-length.bin");
 
     struct ByteRead<'a> {
         buf: &'a [u8],
@@ -146,7 +159,7 @@ mod tests {
     }
 
     impl<'a> ByteRead<'a> {
-        fn new(bytes: &'a [u8]) -> ByteRead {
+        fn new(bytes: &'a [u8]) -> Self {
             ByteRead {
                 buf: bytes,
                 offs: 0,
@@ -191,8 +204,8 @@ mod tests {
     }
 
     impl ErrorRead {
-        fn new(error: io::Error) -> ErrorRead {
-            ErrorRead { error: Some(error) }
+        fn new(error: io::Error) -> Self {
+            Self { error: Some(error) }
         }
     }
 
@@ -219,7 +232,7 @@ mod tests {
 
         for i in 0..bytes.len() {
             assert_len(1, input_bytes(d, &bytes[i..i + 1]));
-            assert_eq!(d.has_pending(), true);
+            assert!(d.has_pending());
 
             if i < bytes.len() - 1 {
                 assert_eq!(frames_before, d.frames.len());
@@ -233,75 +246,79 @@ mod tests {
         if let Ok(gotval) = got {
             assert_eq!(gotval, want);
         } else {
-            assert!(false, "read failed, expected {:?} bytes", want);
+            panic!("read failed, expected {:?} bytes", want);
         }
     }
 
     fn pop_first(d: &mut MessageDeframer) {
-        let mut m = d.frames.pop_front().unwrap();
-        m.decode_payload();
+        let m = d.frames.pop_front().unwrap();
         assert_eq!(m.typ, msgs::enums::ContentType::Handshake);
+        Message::try_from(m.into_plain_message()).unwrap();
     }
 
     fn pop_second(d: &mut MessageDeframer) {
-        let mut m = d.frames.pop_front().unwrap();
-        m.decode_payload();
+        let m = d.frames.pop_front().unwrap();
         assert_eq!(m.typ, msgs::enums::ContentType::Alert);
+        Message::try_from(m.into_plain_message()).unwrap();
     }
 
     #[test]
     fn check_incremental() {
         let mut d = MessageDeframer::new();
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
         input_whole_incremental(&mut d, FIRST_MESSAGE);
-        assert_eq!(d.has_pending(), true);
+        assert!(d.has_pending());
         assert_eq!(1, d.frames.len());
         pop_first(&mut d);
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
     }
 
     #[test]
     fn check_incremental_2() {
         let mut d = MessageDeframer::new();
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
         input_whole_incremental(&mut d, FIRST_MESSAGE);
-        assert_eq!(d.has_pending(), true);
+        assert!(d.has_pending());
         input_whole_incremental(&mut d, SECOND_MESSAGE);
-        assert_eq!(d.has_pending(), true);
+        assert!(d.has_pending());
         assert_eq!(2, d.frames.len());
         pop_first(&mut d);
-        assert_eq!(d.has_pending(), true);
+        assert!(d.has_pending());
         pop_second(&mut d);
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
     }
 
     #[test]
     fn check_whole() {
         let mut d = MessageDeframer::new();
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
         assert_len(FIRST_MESSAGE.len(), input_bytes(&mut d, FIRST_MESSAGE));
-        assert_eq!(d.has_pending(), true);
+        assert!(d.has_pending());
         assert_eq!(d.frames.len(), 1);
         pop_first(&mut d);
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
     }
 
     #[test]
     fn check_whole_2() {
         let mut d = MessageDeframer::new();
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
         assert_len(FIRST_MESSAGE.len(), input_bytes(&mut d, FIRST_MESSAGE));
         assert_len(SECOND_MESSAGE.len(), input_bytes(&mut d, SECOND_MESSAGE));
         assert_eq!(d.frames.len(), 2);
         pop_first(&mut d);
         pop_second(&mut d);
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
     }
 
     #[test]
     fn test_two_in_one_read() {
         let mut d = MessageDeframer::new();
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
         assert_len(
             FIRST_MESSAGE.len() + SECOND_MESSAGE.len(),
             input_bytes_concat(&mut d, FIRST_MESSAGE, SECOND_MESSAGE),
@@ -309,13 +326,14 @@ mod tests {
         assert_eq!(d.frames.len(), 2);
         pop_first(&mut d);
         pop_second(&mut d);
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
     }
 
     #[test]
     fn test_two_in_one_read_shortest_first() {
         let mut d = MessageDeframer::new();
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
         assert_len(
             FIRST_MESSAGE.len() + SECOND_MESSAGE.len(),
             input_bytes_concat(&mut d, SECOND_MESSAGE, FIRST_MESSAGE),
@@ -323,7 +341,8 @@ mod tests {
         assert_eq!(d.frames.len(), 2);
         pop_second(&mut d);
         pop_first(&mut d);
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
     }
 
     #[test]
@@ -337,6 +356,61 @@ mod tests {
         );
         assert_eq!(d.frames.len(), 1);
         pop_first(&mut d);
-        assert_eq!(d.has_pending(), false);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
+    }
+
+    #[test]
+    fn test_invalid_contenttype_errors() {
+        let mut d = MessageDeframer::new();
+        assert_len(
+            INVALID_CONTENTTYPE_MESSAGE.len(),
+            input_bytes(&mut d, INVALID_CONTENTTYPE_MESSAGE),
+        );
+        assert!(d.desynced);
+    }
+
+    #[test]
+    fn test_invalid_version_errors() {
+        let mut d = MessageDeframer::new();
+        assert_len(
+            INVALID_VERSION_MESSAGE.len(),
+            input_bytes(&mut d, INVALID_VERSION_MESSAGE),
+        );
+        assert!(d.desynced);
+    }
+
+    #[test]
+    fn test_invalid_length_errors() {
+        let mut d = MessageDeframer::new();
+        assert_len(
+            INVALID_LENGTH_MESSAGE.len(),
+            input_bytes(&mut d, INVALID_LENGTH_MESSAGE),
+        );
+        assert!(d.desynced);
+    }
+
+    #[test]
+    fn test_empty_applicationdata() {
+        let mut d = MessageDeframer::new();
+        assert_len(
+            EMPTY_APPLICATIONDATA_MESSAGE.len(),
+            input_bytes(&mut d, EMPTY_APPLICATIONDATA_MESSAGE),
+        );
+        let m = d.frames.pop_front().unwrap();
+        assert_eq!(m.typ, msgs::enums::ContentType::ApplicationData);
+        assert_eq!(m.payload.0.len(), 0);
+        assert!(!d.has_pending());
+        assert!(!d.desynced);
+    }
+
+    #[test]
+    fn test_invalid_empty_errors() {
+        let mut d = MessageDeframer::new();
+        assert_len(
+            INVALID_EMPTY_MESSAGE.len(),
+            input_bytes(&mut d, INVALID_EMPTY_MESSAGE),
+        );
+        assert!(d.desynced);
     }
 }

@@ -1,14 +1,19 @@
-//! HTTP/1 implementation
+//! HTTP/1 protocol implementation.
+
 use bytes::{Bytes, BytesMut};
 
+mod chunked;
 mod client;
 mod codec;
 mod decoder;
 mod dispatcher;
+#[cfg(test)]
+mod dispatcher_tests;
 mod encoder;
 mod expect;
 mod payload;
 mod service;
+mod timer;
 mod upgrade;
 mod utils;
 
@@ -17,16 +22,17 @@ pub use self::codec::Codec;
 pub use self::dispatcher::Dispatcher;
 pub use self::expect::ExpectHandler;
 pub use self::payload::Payload;
-pub use self::service::{H1Service, H1ServiceHandler, OneRequest};
+pub use self::service::{H1Service, H1ServiceHandler};
 pub use self::upgrade::UpgradeHandler;
 pub use self::utils::SendResponse;
 
 #[derive(Debug)]
 /// Codec message
 pub enum Message<T> {
-    /// Http message
+    /// HTTP message.
     Item(T),
-    /// Payload chunk
+
+    /// Payload chunk.
     Chunk(Option<Bytes>),
 }
 
@@ -57,7 +63,7 @@ pub(crate) fn reserve_readbuf(src: &mut BytesMut) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::request::Request;
+    use crate::Request;
 
     impl Message<Request> {
         pub fn message(self) -> Request {

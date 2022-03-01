@@ -305,8 +305,7 @@ impl<S> MidHandshakeClientBuilder<S> {
                 };
                 trust.set_anchor_certificates(&certs)?;
                 trust.set_trust_anchor_certificates_only(self.trust_certs_only)?;
-                let policy =
-                    SecPolicy::create_ssl(SslProtocolSide::SERVER, domain.as_deref());
+                let policy = SecPolicy::create_ssl(SslProtocolSide::SERVER, domain.as_deref());
                 trust.set_policy(&policy)?;
                 trust.evaluate_with_error().map_err(|error| {
                     #[cfg(feature = "log")]
@@ -373,7 +372,8 @@ impl SslClientCertificateState {
     pub const SENT: Self = Self(kSSLClientCertSent);
 
     /// A client certificate has been received but has failed to validate.
-    pub const REJECTED: Self = Self(kSSLClientCertRejected); }
+    pub const REJECTED: Self = Self(kSSLClientCertRejected);
+}
 
 /// Specifies protocol versions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1188,7 +1188,9 @@ pub struct ClientBuilder {
     danger_accept_invalid_hostnames: bool,
     whitelisted_ciphers: Vec<CipherSuite>,
     blacklisted_ciphers: Vec<CipherSuite>,
+    #[cfg(feature = "alpn")]
     alpn: Option<Vec<String>>,
+    #[cfg(feature = "session-tickets")]
     enable_session_tickets: bool,
 }
 
@@ -1215,7 +1217,9 @@ impl ClientBuilder {
             danger_accept_invalid_hostnames: false,
             whitelisted_ciphers: Vec::new(),
             blacklisted_ciphers: Vec::new(),
+            #[cfg(feature = "alpn")]
             alpn: None,
+            #[cfg(feature = "session-tickets")]
             enable_session_tickets: false,
         }
     }

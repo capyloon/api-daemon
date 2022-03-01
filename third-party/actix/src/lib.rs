@@ -9,43 +9,30 @@
 //! messages.
 //!
 //! ## Other Documentation
-//!
 //! - [User Guide](https://actix.rs/book/actix/)
 //! - [Community Chat on Gitter](https://gitter.im/actix/actix)
 //!
 //! ## Features
-//!
 //! - Async/Sync actors
 //! - Actor communication in a local/thread context
 //! - Using Futures for asynchronous message handling
 //! - Actor supervision
-//! - Typed messages (No `Any` type). Generic messages are allowed
+//! - Typed messages (No [`Any`](std::any::Any) type). Generic messages are allowed
 //! - Runs on stable Rust 1.40+
 //!
 //! ## Package feature
-//!
 //! * `resolver` - enables DNS resolver actor; see [resolver](./actors/resolver/index.html) module
-//!
-//! ## Tokio runtime
-//!
-//! At the moment actix uses
-//! [`current_thread`](https://docs.rs/tokio/0.1.13/tokio/runtime/current_thread/index.html) runtime.
-//!
-//! While it provides minimum overhead, it has its own limits:
-//!
-//! - You cannot use Tokio's async file I/O, as it relies on blocking calls that are not available
-//! in `current_thread`
-//! - `Stdin`, `Stderr` and `Stdout` from `tokio::io` are the same as file I/O in that regard and
-//! cannot be used in asynchronous manner in actix.
-// It's pain for this crate and has false positives.
 
 #![allow(clippy::needless_doctest_main)]
 #![deny(nonstandard_style, rust_2018_idioms)]
-#![warn(deprecated_in_future, trivial_casts, trivial_numeric_casts)]
-
-#[doc(hidden)]
-#[cfg(feature = "derive")]
-pub use actix_derive::*;
+#![warn(
+    deprecated_in_future,
+    trivial_casts,
+    trivial_numeric_casts,
+    clippy::doc_markdown
+)]
+// TODO: temporary allow deprecated until resolver actor is removed.
+#![allow(deprecated)]
 
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md");
@@ -69,15 +56,19 @@ pub mod registry;
 pub mod sync;
 pub mod utils;
 
-pub use actix_rt::{Arbiter, System, SystemRunner};
+#[cfg(feature = "macros")]
+pub use actix_derive::{main, test, Message, MessageResponse};
+pub use actix_rt::{spawn, Arbiter, ArbiterHandle, System, SystemRunner};
 
 pub use crate::actor::{
     Actor, ActorContext, ActorState, AsyncContext, Running, SpawnHandle, Supervised,
 };
 pub use crate::address::{Addr, MailboxError, Recipient, WeakAddr, WeakRecipient};
-// pub use crate::arbiter::{Arbiter, ArbiterBuilder};
 pub use crate::context::Context;
-pub use crate::fut::{ActorFuture, ActorStream, FinishStream, WrapFuture, WrapStream};
+pub use crate::fut::{
+    ActorFuture, ActorFutureExt, ActorStream, ActorStreamExt, ActorTryFuture,
+    ActorTryFutureExt, WrapFuture, WrapStream,
+};
 pub use crate::handler::{
     ActorResponse, AtomicResponse, Handler, Message, MessageResult, Response,
     ResponseActFuture, ResponseFuture,
@@ -102,10 +93,10 @@ pub mod prelude {
     //! ```
 
     #[doc(hidden)]
-    #[cfg(feature = "derive")]
-    pub use actix_derive::*;
+    #[cfg(feature = "macros")]
+    pub use actix_derive::{Message, MessageResponse};
 
-    pub use actix_rt::{Arbiter, System, SystemRunner};
+    pub use actix_rt::{Arbiter, ArbiterHandle, System, SystemRunner};
 
     pub use crate::actor::{
         Actor, ActorContext, ActorState, AsyncContext, Running, SpawnHandle, Supervised,
@@ -114,7 +105,10 @@ pub mod prelude {
         Addr, MailboxError, Recipient, RecipientRequest, Request, SendError,
     };
     pub use crate::context::{Context, ContextFutureSpawner};
-    pub use crate::fut::{ActorFuture, ActorStream, WrapFuture, WrapStream};
+    pub use crate::fut::{
+        ActorFuture, ActorFutureExt, ActorStream, ActorStreamExt, ActorTryFuture,
+        ActorTryFutureExt, WrapFuture, WrapStream,
+    };
     pub use crate::handler::{
         ActorResponse, AtomicResponse, Handler, Message, MessageResult, Response,
         ResponseActFuture, ResponseFuture,
@@ -130,7 +124,8 @@ pub mod prelude {
     pub use crate::io;
     pub use crate::utils::{Condition, IntervalFunc, TimerFunc};
 
-    pub use futures_util::{future::Future, stream::Stream};
+    // TODO: remove Stream re-export when it reaches std
+    pub use futures_core::stream::Stream;
 }
 
 pub mod dev {
@@ -146,14 +141,12 @@ pub mod dev {
 
     pub use crate::prelude::*;
 
-    pub use crate::address::{
-        Envelope, EnvelopeProxy, RecipientRequest, Request, ToEnvelope,
-    };
+    pub use crate::address::{Envelope, EnvelopeProxy, RecipientRequest, Request, ToEnvelope};
     pub mod channel {
         pub use crate::address::channel::{channel, AddressReceiver, AddressSender};
     }
     pub use crate::contextimpl::{AsyncContextParts, ContextFut, ContextParts};
-    pub use crate::handler::{MessageResponse, ResponseChannel};
+    pub use crate::handler::{MessageResponse, OneshotSender};
     pub use crate::mailbox::Mailbox;
     pub use crate::registry::{Registry, SystemRegistry};
 }
@@ -173,11 +166,11 @@ pub mod dev {
 ///
 /// ```
 /// use std::time::{Duration, Instant};
-/// use tokio::time::delay_for;
+/// use actix_rt::time::sleep;
 ///
 /// fn main() {
 ///   actix::run(async move {
-///       delay_for(Duration::from_millis(100)).await;
+///       sleep(Duration::from_millis(100)).await;
 ///       actix::System::current().stop();
 ///   });
 /// }
@@ -189,19 +182,7 @@ pub mod dev {
 #[allow(clippy::unit_arg)]
 pub fn run<R>(f: R) -> std::io::Result<()>
 where
-    R: futures_util::future::Future<Output = ()> + 'static,
+    R: std::future::Future<Output = ()> + 'static,
 {
-    Ok(actix_rt::System::new("Default").block_on(f))
-}
-
-/// Spawns a future on the current arbiter.
-///
-/// # Panics
-///
-/// This function panics if the actix system is not running.
-pub fn spawn<F>(f: F)
-where
-    F: futures_util::future::Future<Output = ()> + 'static,
-{
-    actix_rt::spawn(f);
+    Ok(actix_rt::System::new().block_on(f))
 }

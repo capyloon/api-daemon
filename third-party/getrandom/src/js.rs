@@ -10,8 +10,8 @@ use crate::Error;
 extern crate std;
 use std::thread_local;
 
-use js_sys::Uint8Array;
-use wasm_bindgen::{prelude::*, JsCast};
+use js_sys::{global, Uint8Array};
+use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 
 // Maximum is 65536 bytes see https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues
 const BROWSER_CRYPTO_BUFFER_SIZE: usize = 256;
@@ -57,9 +57,11 @@ pub(crate) fn getrandom_inner(dest: &mut [u8]) -> Result<(), Error> {
 }
 
 fn getrandom_init() -> Result<RngSource, Error> {
-    let global: Global = js_sys::global().unchecked_into();
+    let global: Global = global().unchecked_into();
     if is_node(&global) {
-        let crypto = require("crypto").map_err(|_| Error::NODE_CRYPTO)?;
+        let crypto = NODE_MODULE
+            .require("crypto")
+            .map_err(|_| Error::NODE_CRYPTO)?;
         return Ok(RngSource::Node(crypto));
     }
 
@@ -102,9 +104,15 @@ extern "C" {
     #[wasm_bindgen(method, js_name = getRandomValues, catch)]
     fn get_random_values(this: &BrowserCrypto, buf: &Uint8Array) -> Result<(), JsValue>;
 
+    // We use a "module" object here instead of just annotating require() with
+    // js_name = "module.require", so that Webpack doesn't give a warning. See:
+    //   https://github.com/rust-random/getrandom/issues/224
+    type NodeModule;
+    #[wasm_bindgen(js_name = module)]
+    static NODE_MODULE: NodeModule;
     // Node JS crypto module (https://nodejs.org/api/crypto.html)
-    #[wasm_bindgen(catch, js_name = "module.require")]
-    fn require(s: &str) -> Result<NodeCrypto, JsValue>;
+    #[wasm_bindgen(method, catch)]
+    fn require(this: &NodeModule, s: &str) -> Result<NodeCrypto, JsValue>;
     type NodeCrypto;
     #[wasm_bindgen(method, js_name = randomFillSync, catch)]
     fn random_fill_sync(this: &NodeCrypto, buf: &mut [u8]) -> Result<(), JsValue>;

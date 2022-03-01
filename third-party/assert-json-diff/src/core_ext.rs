@@ -1,14 +1,15 @@
-use extend::ext;
+pub trait Indent {
+    fn indent(&self, level: u32) -> String;
+}
 
-#[ext(pub, name = Indent)]
-impl<T> T
+impl<T> Indent for T
 where
     T: ToString,
 {
     fn indent(&self, level: u32) -> String {
         let mut indent = String::new();
         for _ in 0..level {
-            indent.push_str(" ");
+            indent.push(' ');
         }
 
         self.to_string()
@@ -19,8 +20,11 @@ where
     }
 }
 
-#[ext(pub, name = Indexes)]
-impl<T> Vec<T> {
+pub trait Indexes {
+    fn indexes(&self) -> Vec<usize>;
+}
+
+impl<T> Indexes for Vec<T> {
     fn indexes(&self) -> Vec<usize> {
         if self.is_empty() {
             vec![]

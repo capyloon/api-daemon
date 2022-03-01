@@ -12,7 +12,7 @@ use flate2::Compression;
 use log::{debug, error};
 use reqwest::header::CONTENT_TYPE;
 use rusty_s3::credentials::Credentials;
-use rusty_s3::{Bucket, S3Action};
+use rusty_s3::{Bucket, S3Action, UrlStyle};
 use serde::Serialize;
 use std::fs::{read_dir, remove_file, File};
 use std::io::{BufReader, Error, ErrorKind, Read, Write};
@@ -41,9 +41,9 @@ impl S3Helper {
     fn new() -> Self {
         let bucket = Bucket::new(
             reqwest::Url::parse(S3_ENDPOINT).unwrap(),
-            true,
-            S3_BUCKET.into(),
-            S3_REGION.into(),
+            UrlStyle::Path,
+            S3_BUCKET,
+            S3_REGION,
         )
         .expect("Failed to create S3 bucket. Check parameters!");
         let credentials = Credentials::new(

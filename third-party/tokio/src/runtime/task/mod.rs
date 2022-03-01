@@ -25,7 +25,7 @@
 //!
 //! The task uses a reference count to keep track of how many active references
 //! exist. The Unowned reference type takes up two ref-counts. All other
-//! reference types take pu a single ref-count.
+//! reference types take up a single ref-count.
 //!
 //! Besides the waker type, each task has at most one of each reference type.
 //!
@@ -134,6 +134,10 @@
 //! the inner call is a `shutdown` call, then the CANCELLED bit is set, and the
 //! poll call will notice it when the poll finishes, and the task is cancelled
 //! at that point.
+
+// Some task infrastructure is here to support `JoinSet`, which is currently
+// unstable. This should be removed once `JoinSet` is stabilized.
+#![cfg_attr(not(tokio_unstable), allow(dead_code))]
 
 mod core;
 use self::core::Cell;
@@ -313,7 +317,7 @@ cfg_rt_multi_thread! {
 
     impl<S: 'static> Task<S> {
         fn into_raw(self) -> NonNull<Header> {
-            let ret = self.header().into();
+            let ret = self.raw.header_ptr();
             mem::forget(self);
             ret
         }
@@ -347,6 +351,7 @@ impl<S: Schedule> LocalNotified<S> {
 impl<S: Schedule> UnownedTask<S> {
     // Used in test of the inject queue.
     #[cfg(test)]
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(super) fn into_notified(self) -> Notified<S> {
         Notified(self.into_task())
     }
@@ -426,7 +431,7 @@ unsafe impl<S> linked_list::Link for Task<S> {
     type Target = Header;
 
     fn as_raw(handle: &Task<S>) -> NonNull<Header> {
-        handle.header().into()
+        handle.raw.header_ptr()
     }
 
     unsafe fn from_raw(ptr: NonNull<Header>) -> Task<S> {

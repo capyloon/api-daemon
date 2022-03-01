@@ -10,7 +10,7 @@ use buf_redux::policy::MinBuffered;
 use buf_redux::BufReader;
 use cipher::generic_array::{ArrayLength, GenericArray};
 use core::slice;
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use log::error;
 use ring::digest;
 use sha2::Sha256;
@@ -117,7 +117,7 @@ where
     }
 
     // Prepare the HMAC, initializing it with the IV.
-    let mut hmac_ctxt = Hmac::<Sha256>::new_varkey(hmac_key).map_err(|_| "hmac_error")?;
+    let mut hmac_ctxt = Hmac::<Sha256>::new_from_slice(hmac_key).map_err(|_| "hmac_error")?;
     hmac_ctxt.update(iv);
 
     // Prepare the SHA256 hasher.
@@ -219,30 +219,43 @@ where
 mod tests {
     use super::download_decrypt;
     use crate::generated::common::DownloadDecryptResult;
+    use actix_files::Files;
+    use actix_web::middleware;
+    use actix_web::{App, HttpServer};
+    use log::error;
     use std::fs;
-    use std::io::{Read, Write};
-    use test_server::{HttpRequest, HttpResponse, TestServer};
+    use std::io::Write;
+    use std::thread;
 
-    /// Reads file content into a binary result.
-    pub fn read_file(file: &str) -> Result<Vec<u8>, ::std::io::Error> {
-        let mut file = fs::File::open(file)?;
-        let mut content = Vec::new();
-        let _ = file.read_to_end(&mut content);
-        Ok(content)
+    fn launch_server(port: u16) {
+        std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=info");
+
+        let server = HttpServer::new(|| {
+            App::new()
+                .wrap(middleware::Logger::default())
+                .service(Files::new("/", "./test-fixtures"))
+        })
+        .disable_signals()
+        .bind(format!("localhost:{}", port))
+        .unwrap()
+        .run();
+
+        let _ = actix_rt::Runtime::new().unwrap().block_on(async {
+            let _ = server
+                .await
+                .map_err(|e| error!("apps test server exit with error: {:?}", e));
+        });
     }
 
-    // Setup a test environment, and starts a web server on a
-    // different port to avoid collisions.
-    fn setup_test() -> TestServer {
-        let server = test_server::new("localhost:0", |req: HttpRequest| {
-            match read_file(&format!("./test-fixtures/{}", req.path())) {
-                Ok(content) => HttpResponse::Ok().body(content),
-                Err(_) => HttpResponse::NotFound().body(format!("Not found: {}", req.path())),
-            }
-        });
+    fn start_server(port: u16) {
+        thread::Builder::new()
+            .name(format!("download test server on port {}", port))
+            .spawn(move || {
+                launch_server(port);
+            })
+            .expect("Failed to start server");
 
-        // Sending back the server so it's not dropped and shutdown.
-        server.unwrap()
+        thread::sleep(std::time::Duration::from_secs(3));
     }
 
     struct Params {
@@ -274,9 +287,9 @@ mod tests {
 
     #[test]
     fn invalid_parameters() {
-        let server = setup_test();
+        start_server(11110);
         let mut req = Params {
-            url: "http://example:9000/data".into(),
+            url: "http://example:11110/data".into(),
             num_ciphertext_bytes: -10,
             iv: vec![],
             cipher_key: vec![],
@@ -287,7 +300,7 @@ mod tests {
         let res = download_decrypt_params(&req, |_| {}).err().unwrap();
         assert_eq!(res, "bad_url".to_owned());
 
-        req.url = "https://example:9000/data".into();
+        req.url = "https://example:11110/data".into();
         let res = download_decrypt_params(&req, |_| {}).err().unwrap();
         assert_eq!(res, "bad_ciphertext_size".to_owned());
 
@@ -312,7 +325,7 @@ mod tests {
         assert_eq!(res, "bad_tail_size".to_owned());
 
         req.num_tail_bytes = 12;
-        req.url = format!("{}/_not_here", server.url());
+        req.url = format!("http://localhost:11110/_not_here");
         let res = download_decrypt_params(&req, |_| {}).err().unwrap();
         assert_eq!(res, "http_error=404");
 
@@ -328,15 +341,15 @@ mod tests {
         assert_eq!(res, "connection_error");
 
         // https request on an http endpoint.
-        req.url = "https://localhost:9000/data".into();
+        req.url = "https://localhost:11110/data".into();
         let res = download_decrypt_params(&req, |_| {}).err().unwrap();
         assert_eq!(res, "connection_error");
     }
 
     #[test]
     fn example1() {
-        let server = setup_test();
-        let url = format!("{}/example1", server.url());
+        start_server(11111);
+        let url = "http://localhost:11111/example1".to_owned();
 
         let _ = fs::remove_file("./test-fixtures/result1");
 
@@ -376,8 +389,8 @@ mod tests {
 
     #[test]
     fn example2() {
-        let server = setup_test();
-        let url = format!("{}/example2", server.url());
+        start_server(11112);
+        let url = "http://localhost:11112/example2".to_owned();
 
         let req = Params {
             url,
@@ -415,8 +428,8 @@ mod tests {
 
     #[test]
     fn example3() {
-        let server = setup_test();
-        let url = format!("{}/example3", server.url());
+        start_server(11113);
+        let url = "http://localhost:11113/example3".to_owned();
 
         let req = Params {
             url,

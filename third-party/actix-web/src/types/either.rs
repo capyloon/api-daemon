@@ -1,185 +1,282 @@
+//! For either helper, see [`Either`].
+
 use std::{
     future::Future,
+    mem,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use actix_http::{Error, Response};
 use bytes::Bytes;
-use futures_util::{future::LocalBoxFuture, ready, FutureExt, TryFutureExt};
-use pin_project::pin_project;
+use futures_core::ready;
+use pin_project_lite::pin_project;
 
-use crate::{dev, request::HttpRequest, FromRequest, Responder};
+use crate::{
+    body::EitherBody,
+    dev,
+    web::{Form, Json},
+    Error, FromRequest, HttpRequest, HttpResponse, Responder,
+};
 
-/// Combines two different responder types into a single type
+/// Combines two extractor or responder types into a single type.
 ///
-/// ```rust
-/// use actix_web::{Either, Error, HttpResponse};
+/// # Extractor
+/// Provides a mechanism for trying two extractors, a primary and a fallback. Useful for
+/// "polymorphic payloads" where, for example, a form might be JSON or URL encoded.
 ///
-/// type RegisterResult = Either<HttpResponse, Result<HttpResponse, Error>>;
+/// It is important to note that this extractor, by necessity, buffers the entire request payload
+/// as part of its implementation. Though, it does respect any `PayloadConfig` maximum size limits.
 ///
-/// fn index() -> RegisterResult {
-///     if is_a_variant() {
-///         // <- choose left variant
-///         Either::A(HttpResponse::BadRequest().body("Bad data"))
+/// ```
+/// use actix_web::{post, web, Either};
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Info {
+///     name: String,
+/// }
+///
+/// // handler that accepts form as JSON or form-urlencoded.
+/// #[post("/")]
+/// async fn index(form: Either<web::Json<Info>, web::Form<Info>>) -> String {
+///     let name: String = match form {
+///         Either::Left(json) => json.name.to_owned(),
+///         Either::Right(form) => form.name.to_owned(),
+///     };
+///
+///     format!("Welcome {}!", name)
+/// }
+/// ```
+///
+/// # Responder
+/// It may be desireable to use a concrete type for a response with multiple branches. As long as
+/// both types implement `Responder`, so will the `Either` type, enabling it to be used as a
+/// handler's return type.
+///
+/// All properties of a response are determined by the Responder branch returned.
+///
+/// ```
+/// use actix_web::{get, Either, Error, HttpResponse};
+///
+/// #[get("/")]
+/// async fn index() -> Either<&'static str, Result<HttpResponse, Error>> {
+///     if 1 == 2 {
+///         // respond with Left variant
+///         Either::Left("Bad data")
 ///     } else {
-///         Either::B(
-///             // <- Right variant
+///         // respond with Right variant
+///         Either::Right(
 ///             Ok(HttpResponse::Ok()
-///                 .content_type("text/html")
-///                 .body("Hello!"))
+///                 .content_type(mime::TEXT_HTML)
+///                 .body("<p>Hello!</p>"))
 ///         )
 ///     }
 /// }
-/// # fn is_a_variant() -> bool { true }
-/// # fn main() {}
 /// ```
 #[derive(Debug, PartialEq)]
-pub enum Either<A, B> {
-    /// First branch of the type
-    A(A),
-    /// Second branch of the type
-    B(B),
+pub enum Either<L, R> {
+    /// A value of type `L`.
+    Left(L),
+
+    /// A value of type `R`.
+    Right(R),
+}
+
+impl<T> Either<Form<T>, Json<T>> {
+    pub fn into_inner(self) -> T {
+        match self {
+            Either::Left(form) => form.into_inner(),
+            Either::Right(form) => form.into_inner(),
+        }
+    }
+}
+
+impl<T> Either<Json<T>, Form<T>> {
+    pub fn into_inner(self) -> T {
+        match self {
+            Either::Left(form) => form.into_inner(),
+            Either::Right(form) => form.into_inner(),
+        }
+    }
 }
 
 #[cfg(test)]
-impl<A, B> Either<A, B> {
-    pub(self) fn unwrap_left(self) -> A {
+impl<L, R> Either<L, R> {
+    pub(self) fn unwrap_left(self) -> L {
         match self {
-            Either::A(data) => data,
-            Either::B(_) => {
-                panic!("Cannot unwrap left branch. Either contains a right branch.")
+            Either::Left(data) => data,
+            Either::Right(_) => {
+                panic!("Cannot unwrap Left branch. Either contains an `R` type.")
             }
         }
     }
 
-    pub(self) fn unwrap_right(self) -> B {
+    pub(self) fn unwrap_right(self) -> R {
         match self {
-            Either::A(_) => {
-                panic!("Cannot unwrap right branch. Either contains a left branch.")
+            Either::Left(_) => {
+                panic!("Cannot unwrap Right branch. Either contains an `L` type.")
             }
-            Either::B(data) => data,
+            Either::Right(data) => data,
         }
     }
 }
 
-impl<A, B> Responder for Either<A, B>
+/// See [here](#responder) for example of usage as a handler return type.
+impl<L, R> Responder for Either<L, R>
 where
-    A: Responder,
-    B: Responder,
+    L: Responder,
+    R: Responder,
 {
-    type Error = Error;
-    type Future = EitherResponder<A, B>;
+    type Body = EitherBody<L::Body, R::Body>;
 
-    fn respond_to(self, req: &HttpRequest) -> Self::Future {
+    fn respond_to(self, req: &HttpRequest) -> HttpResponse<Self::Body> {
         match self {
-            Either::A(a) => EitherResponder::A(a.respond_to(req)),
-            Either::B(b) => EitherResponder::B(b.respond_to(req)),
+            Either::Left(a) => a.respond_to(req).map_into_left_body(),
+            Either::Right(b) => b.respond_to(req).map_into_right_body(),
         }
     }
 }
 
-#[pin_project(project = EitherResponderProj)]
-pub enum EitherResponder<A, B>
-where
-    A: Responder,
-    B: Responder,
-{
-    A(#[pin] A::Future),
-    B(#[pin] B::Future),
-}
-
-impl<A, B> Future for EitherResponder<A, B>
-where
-    A: Responder,
-    B: Responder,
-{
-    type Output = Result<Response, Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project() {
-            EitherResponderProj::A(fut) => {
-                Poll::Ready(ready!(fut.poll(cx)).map_err(|e| e.into()))
-            }
-            EitherResponderProj::B(fut) => {
-                Poll::Ready(ready!(fut.poll(cx).map_err(|e| e.into())))
-            }
-        }
-    }
-}
-
-/// A composite error resulting from failure to extract an `Either<A, B>`.
+/// A composite error resulting from failure to extract an `Either<L, R>`.
 ///
 /// The implementation of `Into<actix_web::Error>` will return the payload buffering error or the
 /// error from the primary extractor. To access the fallback error, use a match clause.
 #[derive(Debug)]
-pub enum EitherExtractError<A, B> {
+pub enum EitherExtractError<L, R> {
     /// Error from payload buffering, such as exceeding payload max size limit.
     Bytes(Error),
 
-    /// Error from primary extractor.
-    Extract(A, B),
+    /// Error from primary and fallback extractors.
+    Extract(L, R),
 }
 
-impl<A, B> Into<Error> for EitherExtractError<A, B>
+impl<L, R> From<EitherExtractError<L, R>> for Error
 where
-    A: Into<Error>,
-    B: Into<Error>,
+    L: Into<Error>,
+    R: Into<Error>,
 {
-    fn into(self) -> Error {
-        match self {
+    fn from(err: EitherExtractError<L, R>) -> Error {
+        match err {
             EitherExtractError::Bytes(err) => err,
             EitherExtractError::Extract(a_err, _b_err) => a_err.into(),
         }
     }
 }
 
-/// Provides a mechanism for trying two extractors, a primary and a fallback. Useful for
-/// "polymorphic payloads" where, for example, a form might be JSON or URL encoded.
-///
-/// It is important to note that this extractor, by necessity, buffers the entire request payload
-/// as part of its implementation. Though, it does respect a `PayloadConfig`'s maximum size limit.
-impl<A, B> FromRequest for Either<A, B>
+/// See [here](#extractor) for example of usage as an extractor.
+impl<L, R> FromRequest for Either<L, R>
 where
-    A: FromRequest + 'static,
-    B: FromRequest + 'static,
+    L: FromRequest + 'static,
+    R: FromRequest + 'static,
 {
-    type Error = EitherExtractError<A::Error, B::Error>;
-    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
-    type Config = ();
+    type Error = EitherExtractError<L::Error, R::Error>;
+    type Future = EitherExtractFut<L, R>;
 
     fn from_request(req: &HttpRequest, payload: &mut dev::Payload) -> Self::Future {
-        let req2 = req.clone();
-
-        Bytes::from_request(req, payload)
-            .map_err(EitherExtractError::Bytes)
-            .and_then(|bytes| bytes_to_a_or_b(req2, bytes))
-            .boxed_local()
+        EitherExtractFut {
+            req: req.clone(),
+            state: EitherExtractState::Bytes {
+                bytes: Bytes::from_request(req, payload),
+            },
+        }
     }
 }
 
-async fn bytes_to_a_or_b<A, B>(
-    req: HttpRequest,
-    bytes: Bytes,
-) -> Result<Either<A, B>, EitherExtractError<A::Error, B::Error>>
+pin_project! {
+    pub struct EitherExtractFut<L, R>
+    where
+        R: FromRequest,
+        L: FromRequest,
+    {
+        req: HttpRequest,
+        #[pin]
+        state: EitherExtractState<L, R>,
+    }
+}
+
+pin_project! {
+    #[project = EitherExtractProj]
+    pub enum EitherExtractState<L, R>
+    where
+        L: FromRequest,
+        R: FromRequest,
+    {
+        Bytes {
+            #[pin]
+            bytes: <Bytes as FromRequest>::Future,
+        },
+        Left {
+            #[pin]
+            left: L::Future,
+            fallback: Bytes,
+        },
+        Right {
+            #[pin]
+            right: R::Future,
+            left_err: Option<L::Error>,
+        },
+    }
+}
+
+impl<R, RF, RE, L, LF, LE> Future for EitherExtractFut<L, R>
 where
-    A: FromRequest + 'static,
-    B: FromRequest + 'static,
+    L: FromRequest<Future = LF, Error = LE>,
+    R: FromRequest<Future = RF, Error = RE>,
+    LF: Future<Output = Result<L, LE>> + 'static,
+    RF: Future<Output = Result<R, RE>> + 'static,
+    LE: Into<Error>,
+    RE: Into<Error>,
 {
-    let fallback = bytes.clone();
-    let a_err;
+    type Output = Result<Either<L, R>, EitherExtractError<LE, RE>>;
 
-    let mut pl = payload_from_bytes(bytes);
-    match A::from_request(&req, &mut pl).await {
-        Ok(a_data) => return Ok(Either::A(a_data)),
-        // store A's error for returning if B also fails
-        Err(err) => a_err = err,
-    };
-
-    let mut pl = payload_from_bytes(fallback);
-    match B::from_request(&req, &mut pl).await {
-        Ok(b_data) => return Ok(Either::B(b_data)),
-        Err(b_err) => Err(EitherExtractError::Extract(a_err, b_err)),
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
+        let ready = loop {
+            let next = match this.state.as_mut().project() {
+                EitherExtractProj::Bytes { bytes } => {
+                    let res = ready!(bytes.poll(cx));
+                    match res {
+                        Ok(bytes) => {
+                            let fallback = bytes.clone();
+                            let left =
+                                L::from_request(this.req, &mut payload_from_bytes(bytes));
+                            EitherExtractState::Left { left, fallback }
+                        }
+                        Err(err) => break Err(EitherExtractError::Bytes(err)),
+                    }
+                }
+                EitherExtractProj::Left { left, fallback } => {
+                    let res = ready!(left.poll(cx));
+                    match res {
+                        Ok(extracted) => break Ok(Either::Left(extracted)),
+                        Err(left_err) => {
+                            let right = R::from_request(
+                                this.req,
+                                &mut payload_from_bytes(mem::take(fallback)),
+                            );
+                            EitherExtractState::Right {
+                                left_err: Some(left_err),
+                                right,
+                            }
+                        }
+                    }
+                }
+                EitherExtractProj::Right { right, left_err } => {
+                    let res = ready!(right.poll(cx));
+                    match res {
+                        Ok(data) => break Ok(Either::Right(data)),
+                        Err(err) => {
+                            break Err(EitherExtractError::Extract(
+                                left_err.take().unwrap(),
+                                err,
+                            ));
+                        }
+                    }
+                }
+            };
+            this.state.set(next);
+        };
+        Poll::Ready(ready)
     }
 }
 
@@ -242,13 +339,12 @@ mod tests {
             .set_payload(Bytes::from_static(b"!@$%^&*()"))
             .to_http_parts();
 
-        let payload =
-            Either::<Either<Form<TestForm>, Json<TestForm>>, Bytes>::from_request(
-                &req, &mut pl,
-            )
-            .await
-            .unwrap()
-            .unwrap_right();
+        let payload = Either::<Either<Form<TestForm>, Json<TestForm>>, Bytes>::from_request(
+            &req, &mut pl,
+        )
+        .await
+        .unwrap()
+        .unwrap_right();
         assert_eq!(&payload.as_ref(), &b"!@$%^&*()");
     }
 
@@ -260,15 +356,14 @@ mod tests {
             })
             .to_http_parts();
 
-        let form =
-            Either::<Either<Form<TestForm>, Json<TestForm>>, Bytes>::from_request(
-                &req, &mut pl,
-            )
-            .await
-            .unwrap()
-            .unwrap_left()
-            .unwrap_right()
-            .into_inner();
+        let form = Either::<Either<Form<TestForm>, Json<TestForm>>, Bytes>::from_request(
+            &req, &mut pl,
+        )
+        .await
+        .unwrap()
+        .unwrap_left()
+        .unwrap_right()
+        .into_inner();
         assert_eq!(&form.hello, "world");
     }
 }

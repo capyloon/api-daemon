@@ -1,37 +1,35 @@
-//! General purpose tcp server
-#![deny(rust_2018_idioms, warnings)]
-#![allow(clippy::type_complexity)]
+//! General purpose TCP server.
+
+#![deny(rust_2018_idioms, nonstandard_style)]
+#![warn(future_incompatible)]
+#![doc(html_logo_url = "https://actix.rs/img/logo.png")]
+#![doc(html_favicon_url = "https://actix.rs/favicon.ico")]
 
 mod accept;
+mod availability;
 mod builder;
-mod config;
+mod handle;
+mod join_all;
 mod server;
 mod service;
 mod signals;
 mod socket;
+mod test_server;
+mod waker_queue;
 mod worker;
 
 pub use self::builder::ServerBuilder;
-pub use self::config::{ServiceConfig, ServiceRuntime};
+pub use self::handle::ServerHandle;
 pub use self::server::Server;
-pub use self::service::ServiceFactory;
+pub use self::service::ServerServiceFactory;
+pub use self::test_server::TestServer;
 
 #[doc(hidden)]
 pub use self::socket::FromStream;
 
-/// Socket id token
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct Token(usize);
-
-impl Token {
-    pub(crate) fn next(&mut self) -> Token {
-        let token = Token(self.0);
-        self.0 += 1;
-        token
-    }
-}
-
 /// Start server building process
+#[doc(hidden)]
+#[deprecated(since = "2.0.0", note = "Use `Server::build()`.")]
 pub fn new() -> ServerBuilder {
     ServerBuilder::default()
 }

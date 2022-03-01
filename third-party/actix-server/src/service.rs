@@ -1,116 +1,106 @@
-use std::marker::PhantomData;
-use std::net::SocketAddr;
-use std::task::{Context, Poll};
-use std::time::Duration;
+use std::{
+    marker::PhantomData,
+    net::SocketAddr,
+    task::{Context, Poll},
+};
 
-use actix_rt::spawn;
-use actix_service::{self as actix, Service, ServiceFactory as ActixServiceFactory};
-use actix_utils::counter::CounterGuard;
-use futures_util::future::{err, ok, LocalBoxFuture, Ready};
-use futures_util::{FutureExt, TryFutureExt};
+use actix_service::{Service, ServiceFactory as BaseServiceFactory};
+use actix_utils::future::{ready, Ready};
+use futures_core::future::LocalBoxFuture;
 use log::error;
 
-use super::Token;
-use crate::socket::{FromStream, StdStream};
+use crate::{
+    socket::{FromStream, MioStream},
+    worker::WorkerCounterGuard,
+};
 
-/// Server message
-pub(crate) enum ServerMessage {
-    /// New stream
-    Connect(StdStream),
-    /// Gracefull shutdown
-    Shutdown(Duration),
-    /// Force shutdown
-    ForceShutdown,
-}
-
-pub trait ServiceFactory<Stream: FromStream>: Send + Clone + 'static {
-    type Factory: actix::ServiceFactory<Config = (), Request = Stream>;
+#[doc(hidden)]
+pub trait ServerServiceFactory<Stream: FromStream>: Send + Clone + 'static {
+    type Factory: BaseServiceFactory<Stream, Config = ()>;
 
     fn create(&self) -> Self::Factory;
 }
 
 pub(crate) trait InternalServiceFactory: Send {
-    fn name(&self, token: Token) -> &str;
+    fn name(&self, token: usize) -> &str;
 
     fn clone_factory(&self) -> Box<dyn InternalServiceFactory>;
 
-    fn create(&self) -> LocalBoxFuture<'static, Result<Vec<(Token, BoxedServerService)>, ()>>;
+    fn create(&self) -> LocalBoxFuture<'static, Result<(usize, BoxedServerService), ()>>;
 }
 
 pub(crate) type BoxedServerService = Box<
     dyn Service<
-        Request = (Option<CounterGuard>, ServerMessage),
+        (WorkerCounterGuard, MioStream),
         Response = (),
         Error = (),
         Future = Ready<Result<(), ()>>,
     >,
 >;
 
-pub(crate) struct StreamService<T> {
-    service: T,
+pub(crate) struct StreamService<S, I> {
+    service: S,
+    _phantom: PhantomData<I>,
 }
 
-impl<T> StreamService<T> {
-    pub(crate) fn new(service: T) -> Self {
-        StreamService { service }
-    }
-}
-
-impl<T, I> Service for StreamService<T>
-where
-    T: Service<Request = I>,
-    T::Future: 'static,
-    T::Error: 'static,
-    I: FromStream,
-{
-    type Request = (Option<CounterGuard>, ServerMessage);
-    type Response = ();
-    type Error = ();
-    type Future = Ready<Result<(), ()>>;
-
-    fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(ctx).map_err(|_| ())
-    }
-
-    fn call(&mut self, (guard, req): (Option<CounterGuard>, ServerMessage)) -> Self::Future {
-        match req {
-            ServerMessage::Connect(stream) => {
-                let stream = FromStream::from_stdstream(stream).map_err(|e| {
-                    error!("Can not convert to an async tcp stream: {}", e);
-                });
-
-                if let Ok(stream) = stream {
-                    let f = self.service.call(stream);
-                    spawn(async move {
-                        let _ = f.await;
-                        drop(guard);
-                    });
-                    ok(())
-                } else {
-                    err(())
-                }
-            }
-            _ => ok(()),
+impl<S, I> StreamService<S, I> {
+    pub(crate) fn new(service: S) -> Self {
+        StreamService {
+            service,
+            _phantom: PhantomData,
         }
     }
 }
 
-pub(crate) struct StreamNewService<F: ServiceFactory<Io>, Io: FromStream> {
+impl<S, I> Service<(WorkerCounterGuard, MioStream)> for StreamService<S, I>
+where
+    S: Service<I>,
+    S::Future: 'static,
+    S::Error: 'static,
+    I: FromStream,
+{
+    type Response = ();
+    type Error = ();
+    type Future = Ready<Result<(), ()>>;
+
+    fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(ctx).map_err(|_| ())
+    }
+
+    fn call(&self, (guard, req): (WorkerCounterGuard, MioStream)) -> Self::Future {
+        ready(match FromStream::from_mio(req) {
+            Ok(stream) => {
+                let f = self.service.call(stream);
+                actix_rt::spawn(async move {
+                    let _ = f.await;
+                    drop(guard);
+                });
+                Ok(())
+            }
+            Err(e) => {
+                error!("Can not convert to an async tcp stream: {}", e);
+                Err(())
+            }
+        })
+    }
+}
+
+pub(crate) struct StreamNewService<F: ServerServiceFactory<Io>, Io: FromStream> {
     name: String,
     inner: F,
-    token: Token,
+    token: usize,
     addr: SocketAddr,
     _t: PhantomData<Io>,
 }
 
 impl<F, Io> StreamNewService<F, Io>
 where
-    F: ServiceFactory<Io>,
+    F: ServerServiceFactory<Io>,
     Io: FromStream + Send + 'static,
 {
     pub(crate) fn create(
         name: String,
-        token: Token,
+        token: usize,
         inner: F,
         addr: SocketAddr,
     ) -> Box<dyn InternalServiceFactory> {
@@ -126,10 +116,10 @@ where
 
 impl<F, Io> InternalServiceFactory for StreamNewService<F, Io>
 where
-    F: ServiceFactory<Io>,
+    F: ServerServiceFactory<Io>,
     Io: FromStream + Send + 'static,
 {
-    fn name(&self, _: Token) -> &str {
+    fn name(&self, _: usize) -> &str {
         &self.name
     }
 
@@ -143,38 +133,25 @@ where
         })
     }
 
-    fn create(&self) -> LocalBoxFuture<'static, Result<Vec<(Token, BoxedServerService)>, ()>> {
+    fn create(&self) -> LocalBoxFuture<'static, Result<(usize, BoxedServerService), ()>> {
         let token = self.token;
-        self.inner
-            .create()
-            .new_service(())
-            .map_err(|_| ())
-            .map_ok(move |inner| {
-                let service: BoxedServerService = Box::new(StreamService::new(inner));
-                vec![(token, service)]
-            })
-            .boxed_local()
+        let fut = self.inner.create().new_service(());
+        Box::pin(async move {
+            match fut.await {
+                Ok(inner) => {
+                    let service = Box::new(StreamService::new(inner)) as _;
+                    Ok((token, service))
+                }
+                Err(_) => Err(()),
+            }
+        })
     }
 }
 
-impl InternalServiceFactory for Box<dyn InternalServiceFactory> {
-    fn name(&self, token: Token) -> &str {
-        self.as_ref().name(token)
-    }
-
-    fn clone_factory(&self) -> Box<dyn InternalServiceFactory> {
-        self.as_ref().clone_factory()
-    }
-
-    fn create(&self) -> LocalBoxFuture<'static, Result<Vec<(Token, BoxedServerService)>, ()>> {
-        self.as_ref().create()
-    }
-}
-
-impl<F, T, I> ServiceFactory<I> for F
+impl<F, T, I> ServerServiceFactory<I> for F
 where
     F: Fn() -> T + Send + Clone + 'static,
-    T: actix::ServiceFactory<Config = (), Request = I>,
+    T: BaseServiceFactory<I, Config = ()>,
     I: FromStream,
 {
     type Factory = T;

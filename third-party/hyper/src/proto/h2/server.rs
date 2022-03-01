@@ -15,6 +15,7 @@ use super::{ping, PipeToSendStream, SendBuf};
 use crate::body::HttpBody;
 use crate::common::exec::ConnStreamExec;
 use crate::common::{date, task, Future, Pin, Poll};
+use crate::ext::Protocol;
 use crate::headers;
 use crate::proto::h2::ping::Recorder;
 use crate::proto::h2::{H2Upgraded, UpgradedSendStream};
@@ -33,6 +34,7 @@ use crate::{Body, Response};
 const DEFAULT_CONN_WINDOW: u32 = 1024 * 1024; // 1mb
 const DEFAULT_STREAM_WINDOW: u32 = 1024 * 1024; // 1mb
 const DEFAULT_MAX_FRAME_SIZE: u32 = 1024 * 16; // 16kb
+const DEFAULT_MAX_SEND_BUF_SIZE: usize = 1024 * 400; // 400kb
 
 #[derive(Clone, Debug)]
 pub(crate) struct Config {
@@ -40,11 +42,13 @@ pub(crate) struct Config {
     pub(crate) initial_conn_window_size: u32,
     pub(crate) initial_stream_window_size: u32,
     pub(crate) max_frame_size: u32,
+    pub(crate) enable_connect_protocol: bool,
     pub(crate) max_concurrent_streams: Option<u32>,
     #[cfg(feature = "runtime")]
     pub(crate) keep_alive_interval: Option<Duration>,
     #[cfg(feature = "runtime")]
     pub(crate) keep_alive_timeout: Duration,
+    pub(crate) max_send_buffer_size: usize,
 }
 
 impl Default for Config {
@@ -54,11 +58,13 @@ impl Default for Config {
             initial_conn_window_size: DEFAULT_CONN_WINDOW,
             initial_stream_window_size: DEFAULT_STREAM_WINDOW,
             max_frame_size: DEFAULT_MAX_FRAME_SIZE,
+            enable_connect_protocol: false,
             max_concurrent_streams: None,
             #[cfg(feature = "runtime")]
             keep_alive_interval: None,
             #[cfg(feature = "runtime")]
             keep_alive_timeout: Duration::from_secs(20),
+            max_send_buffer_size: DEFAULT_MAX_SEND_BUF_SIZE,
         }
     }
 }
@@ -109,9 +115,13 @@ where
         builder
             .initial_window_size(config.initial_stream_window_size)
             .initial_connection_window_size(config.initial_conn_window_size)
-            .max_frame_size(config.max_frame_size);
+            .max_frame_size(config.max_frame_size)
+            .max_send_buffer_size(config.max_send_buffer_size);
         if let Some(max) = config.max_concurrent_streams {
             builder.max_concurrent_streams(max);
+        }
+        if config.enable_connect_protocol {
+            builder.enable_connect_protocol();
         }
         let handshake = builder.handshake(io);
 
@@ -276,7 +286,7 @@ where
 
                         let is_connect = req.method() == Method::CONNECT;
                         let (mut parts, stream) = req.into_parts();
-                        let (req, connect_parts) = if !is_connect {
+                        let (mut req, connect_parts) = if !is_connect {
                             (
                                 Request::from_parts(
                                     parts,
@@ -302,6 +312,10 @@ where
                                 }),
                             )
                         };
+
+                        if let Some(protocol) = req.extensions_mut().remove::<h2::ext::Protocol>() {
+                            req.extensions_mut().insert(Protocol::from_inner(protocol));
+                        }
 
                         let fut = H2Stream::new(service.call(req), connect_parts, respond);
                         exec.execute_h2stream(fut);
@@ -484,12 +498,13 @@ where
                         }
                     }
 
-                    // automatically set Content-Length from body...
-                    if let Some(len) = body.size_hint().exact() {
-                        headers::set_content_length_if_missing(res.headers_mut(), len);
-                    }
 
                     if !body.is_end_stream() {
+                        // automatically set Content-Length from body...
+                        if let Some(len) = body.size_hint().exact() {
+                            headers::set_content_length_if_missing(res.headers_mut(), len);
+                        }
+
                         let body_tx = reply!(me, res, false);
                         H2StreamState::Body {
                             pipe: PipeToSendStream::new(body, body_tx),

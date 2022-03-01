@@ -1,23 +1,17 @@
 [source.crates-io]
 replace-with = "vendored-sources"
 
-[source."https://github.com/ChriFo/test-server-rs"]
-git = "https://github.com/ChriFo/test-server-rs"
-tag = "0.9.1"
-replace-with = "vendored-sources"
-
 [source."https://github.com/acw/simple_asn1"]
 git = "https://github.com/acw/simple_asn1"
 replace-with = "vendored-sources"
 
-[source."https://github.com/budziq/rust-skeptic.git"]
-git = "https://github.com/budziq/rust-skeptic.git"
-branch = "tempfile"
-replace-with = "vendored-sources"
-
 [source."https://github.com/fabricedesre/actix.git"]
 git = "https://github.com/fabricedesre/actix.git"
-branch = "0.10-bump-crossbeam"
+branch = "parking-lot-0.12"
+replace-with = "vendored-sources"
+
+[source."https://github.com/fabricedesre/h2.git"]
+git = "https://github.com/fabricedesre/h2.git"
 replace-with = "vendored-sources"
 
 [source."https://github.com/fabricedesre/pest.git"]

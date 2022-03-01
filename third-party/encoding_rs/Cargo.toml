@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "encoding_rs"
-version = "0.8.29"
+version = "0.8.30"
 authors = ["Henri Sivonen <hsivonen@hsivonen.fi>"]
 description = "A Gecko-oriented implementation of the Encoding Standard"
 homepage = "https://docs.rs/encoding_rs/"
@@ -20,7 +20,7 @@ documentation = "https://docs.rs/encoding_rs/"
 readme = "README.md"
 keywords = ["encoding", "web", "unicode", "charset"]
 categories = ["text-processing", "encoding", "web-programming", "internationalization"]
-license = "Apache-2.0 OR MIT"
+license-file = "COPYRIGHT"
 repository = "https://github.com/hsivonen/encoding_rs"
 [profile.release]
 lto = true

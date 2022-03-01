@@ -69,10 +69,10 @@ fn get_attribute_type_multiple(
             .map(|m| meta_item_to_ty(m).ok())
             .collect())
     } else {
-        return Err(syn::Error::new_spanned(
+        Err(syn::Error::new_spanned(
             attr,
             format!("The correct syntax is #[{}(type, type, ...)]", name),
-        ));
+        ))
     }
 }
 
@@ -97,10 +97,8 @@ fn meta_item_to_ty(meta_item: &syn::NestedMeta) -> syn::Result<syn::Type> {
                 r#"Expect `result = "TYPE"`"#,
             )),
         },
-        syn::NestedMeta::Lit(syn::Lit::Str(ref s)) => {
-            syn::parse_str::<syn::Type>(&s.value())
-                .map_err(|_| syn::Error::new_spanned(s, "Expect type"))
-        }
+        syn::NestedMeta::Lit(syn::Lit::Str(ref s)) => syn::parse_str::<syn::Type>(&s.value())
+            .map_err(|_| syn::Error::new_spanned(s, "Expect type")),
 
         meta => Err(syn::Error::new_spanned(meta, "Expect type")),
     }

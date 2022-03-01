@@ -1,11 +1,11 @@
-# Serde JSON &emsp; [![Build Status]][travis] [![Latest Version]][crates.io] [![Rustc Version 1.31+]][rustc]
+# Serde JSON &emsp; [![Build Status]][travis] [![Latest Version]][crates.io] [![Rustc Version 1.36+]][rustc]
 
 [Build Status]: https://img.shields.io/github/workflow/status/serde-rs/json/CI/master
 [travis]: https://github.com/serde-rs/json/actions?query=branch%3Amaster
 [Latest Version]: https://img.shields.io/crates/v/serde_json.svg
 [crates.io]: https://crates.io/crates/serde\_json
-[Rustc Version 1.31+]: https://img.shields.io/badge/rustc-1.31+-lightgray.svg
-[rustc]: https://blog.rust-lang.org/2018/12/06/Rust-1.31-and-rust-2018.html
+[Rustc Version 1.36+]: https://img.shields.io/badge/rustc-1.36+-lightgray.svg
+[rustc]: https://blog.rust-lang.org/2019/07/04/Rust-1.36.0.html
 
 **Serde is a framework for *ser*ializing and *de*serializing Rust data structures efficiently and generically.**
 
@@ -330,17 +330,20 @@ Benchmarks live in the [serde-rs/json-benchmark] repo.
 
 Serde is one of the most widely used Rust libraries so any place that Rustaceans
 congregate will be able to help you out. For chat, consider trying the
-[#general] or [#beginners] channels of the unofficial community Discord, the
-[#rust-usage] channel of the official Rust Project Discord, or the
-[#general][zulip] stream in Zulip. For asynchronous, consider the [\[rust\] tag
-on StackOverflow][stackoverflow], the [/r/rust] subreddit which has a pinned
-weekly easy questions post, or the Rust [Discourse forum][discourse]. It's
-acceptable to file a support issue in this repo but they tend not to get as many
-eyes as any of the above and may get closed without a response after some time.
+[#rust-questions] or [#rust-beginners] channels of the unofficial community
+Discord (invite: <https://discord.gg/rust-lang-community>), the [#rust-usage] or
+[#beginners] channels of the official Rust Project Discord (invite:
+<https://discord.gg/rust-lang>), or the [#general][zulip] stream in Zulip. For
+asynchronous, consider the [\[rust\] tag on StackOverflow][stackoverflow], the
+[/r/rust] subreddit which has a pinned weekly easy questions post, or the Rust
+[Discourse forum][discourse]. It's acceptable to file a support issue in this
+repo but they tend not to get as many eyes as any of the above and may get
+closed without a response after some time.
 
-[#general]: https://discord.com/channels/273534239310479360/274215136414400513
-[#beginners]: https://discord.com/channels/273534239310479360/273541522815713281
+[#rust-questions]: https://discord.com/channels/273534239310479360/274215136414400513
+[#rust-beginners]: https://discord.com/channels/273534239310479360/273541522815713281
 [#rust-usage]: https://discord.com/channels/442252698964721669/443150878111694848
+[#beginners]: https://discord.com/channels/442252698964721669/448238009733742612
 [zulip]: https://rust-lang.zulipchat.com/#narrow/stream/122651-general
 [stackoverflow]: https://stackoverflow.com/questions/tagged/rust
 [/r/rust]: https://www.reddit.com/r/rust

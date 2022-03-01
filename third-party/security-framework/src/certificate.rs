@@ -6,6 +6,8 @@ use core_foundation::data::CFData;
 use core_foundation::string::CFString;
 use core_foundation_sys::base::kCFAllocatorDefault;
 use security_framework_sys::base::{errSecParam, SecCertificateRef};
+#[cfg(target_os = "ios")]
+use security_framework_sys::base::{errSecSuccess, errSecNotTrusted};
 use security_framework_sys::certificate::*;
 use std::fmt;
 use std::ptr;
@@ -20,21 +22,10 @@ use core_foundation::base::FromVoid;
 use core_foundation::error::{CFError, CFErrorRef};
 #[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
 use core_foundation::number::CFNumber;
-#[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
-use core_foundation_sys::base::CFRelease;
 #[cfg(feature = "serial-number-bigint")]
 use num_bigint::BigUint;
 #[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
-use security_framework_sys::base::SecPolicyRef;
-#[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
 use security_framework_sys::item::*;
-#[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
-use security_framework_sys::policy::SecPolicyCreateBasicX509;
-#[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
-use security_framework_sys::trust::{
-    SecTrustCopyPublicKey, SecTrustCreateWithCertificates, SecTrustEvaluate, SecTrustRef,
-    SecTrustResultType,
-};
 #[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
 use std::ops::Deref;
 
@@ -173,13 +164,19 @@ impl SecCertificate {
     #[cfg(any(feature = "OSX_10_12", target_os = "ios"))]
     /// Get public key from certificate
     pub fn public_key(&self) -> Result<key::SecKey> {
-        use crate::trust::SecTrust;
         use crate::policy::SecPolicy;
+        use crate::trust::SecTrust;
         use std::slice::from_ref;
 
         let policy = SecPolicy::create_x509();
         let mut trust = SecTrust::create_with_certificates(from_ref(self), from_ref(&policy))?;
+        #[cfg(not(target_os = "ios"))]
         trust.evaluate()?;
+        #[cfg(target_os = "ios")]
+        cvt(match trust.evaluate_with_error() {
+            Ok(_) => errSecSuccess,
+            Err(_) => errSecNotTrusted,
+        })?;
         trust.copy_public_key()
     }
 }
@@ -277,6 +274,7 @@ mod test {
 
     #[test]
     #[cfg(feature = "serial-number-bigint")]
+    #[allow(deprecated)]
     fn serial_number() {
         let cert = certificate();
         let serial_number = cert.serial_number().unwrap();

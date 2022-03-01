@@ -1,80 +1,71 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use alloc::{rc::Rc, sync::Arc};
+use core::{
+    future::Future,
+    marker::PhantomData,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-use crate::transform_err::TransformMapInitErr;
+use futures_core::ready;
+use pin_project_lite::pin_project;
+
 use crate::{IntoServiceFactory, Service, ServiceFactory};
 
-/// Apply transform to a service.
-pub fn apply<T, S, U>(t: T, factory: U) -> ApplyTransform<T, S>
+/// Apply a [`Transform`] to a [`Service`].
+pub fn apply<T, S, I, Req>(t: T, factory: I) -> ApplyTransform<T, S, Req>
 where
-    S: ServiceFactory,
-    T: Transform<S::Service, InitError = S::InitError>,
-    U: IntoServiceFactory<S>,
+    I: IntoServiceFactory<S, Req>,
+    S: ServiceFactory<Req>,
+    T: Transform<S::Service, Req, InitError = S::InitError>,
 {
     ApplyTransform::new(t, factory.into_factory())
 }
 
-/// The `Transform` trait defines the interface of a service factory that wraps inner service
-/// during construction.
+/// Defines the interface of a service factory that wraps inner service during construction.
 ///
-/// Transform(middleware) wraps inner service and runs during
-/// inbound and/or outbound processing in the request/response lifecycle.
-/// It may modify request and/or response.
+/// Transformers wrap an inner service and runs during inbound and/or outbound processing in the
+/// service lifecycle. It may modify request and/or response.
 ///
-/// For example, timeout transform:
+/// For example, a timeout service wrapper:
 ///
-/// ```rust,ignore
+/// ```ignore
 /// pub struct Timeout<S> {
 ///     service: S,
 ///     timeout: Duration,
 /// }
 ///
-/// impl<S> Service for Timeout<S>
-/// where
-///     S: Service,
-/// {
-///     type Request = S::Request;
+/// impl<S: Service<Req>, Req> Service<Req> for Timeout<S> {
 ///     type Response = S::Response;
 ///     type Error = TimeoutError<S::Error>;
 ///     type Future = TimeoutServiceResponse<S>;
 ///
-///     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-///         ready!(self.service.poll_ready(cx)).map_err(TimeoutError::Service)
-///     }
+///     actix_service::forward_ready!(service);
 ///
-///     fn call(&mut self, req: S::Request) -> Self::Future {
+///     fn call(&self, req: Req) -> Self::Future {
 ///         TimeoutServiceResponse {
 ///             fut: self.service.call(req),
-///             sleep: Delay::new(clock::now() + self.timeout),
+///             sleep: Sleep::new(clock::now() + self.timeout),
 ///         }
 ///     }
 /// }
 /// ```
 ///
-/// Timeout service in above example is decoupled from underlying service implementation
-/// and could be applied to any service.
+/// This wrapper service is decoupled from the underlying service implementation and could be
+/// applied to any service.
 ///
-/// The `Transform` trait defines the interface of a Service factory. `Transform`
-/// is often implemented for middleware, defining how to construct a
-/// middleware Service. A Service that is constructed by the factory takes
-/// the Service that follows it during execution as a parameter, assuming
-/// ownership of the next Service.
+/// The `Transform` trait defines the interface of a service wrapper. `Transform` is often
+/// implemented for middleware, defining how to construct a middleware Service. A Service that is
+/// constructed by the factory takes the Service that follows it during execution as a parameter,
+/// assuming ownership of the next Service.
 ///
-/// Factory for `Timeout` middleware from the above example could look like this:
+/// A transform for the `Timeout` middleware could look like this:
 ///
-/// ```rust,,ignore
+/// ```ignore
 /// pub struct TimeoutTransform {
 ///     timeout: Duration,
 /// }
 ///
-/// impl<S> Transform<S> for TimeoutTransform<E>
-/// where
-///     S: Service,
-/// {
-///     type Request = S::Request;
+/// impl<S: Service<Req>, Req> Transform<S, Req> for TimeoutTransform {
 ///     type Response = S::Response;
 ///     type Error = TimeoutError<S::Error>;
 ///     type InitError = S::Error;
@@ -82,29 +73,22 @@ where
 ///     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 ///
 ///     fn new_transform(&self, service: S) -> Self::Future {
-///         ok(TimeoutService {
+///         ready(Ok(Timeout {
 ///             service,
 ///             timeout: self.timeout,
-///         })
+///         }))
 ///     }
 /// }
 /// ```
-pub trait Transform<S> {
-    /// Requests handled by the service.
-    type Request;
-
-    /// Responses given by the service.
+pub trait Transform<S, Req> {
+    /// Responses produced by the service.
     type Response;
 
     /// Errors produced by the service.
     type Error;
 
     /// The `TransformService` value created by this factory
-    type Transform: Service<
-        Request = Self::Request,
-        Response = Self::Response,
-        Error = Self::Error,
-    >;
+    type Transform: Service<Req, Response = Self::Response, Error = Self::Error>;
 
     /// Errors produced while building a transform service.
     type InitError;
@@ -114,27 +98,16 @@ pub trait Transform<S> {
 
     /// Creates and returns a new Transform component, asynchronously
     fn new_transform(&self, service: S) -> Self::Future;
-
-    /// Map this transforms's factory error to a different error,
-    /// returning a new transform service factory.
-    fn map_init_err<F, E>(self, f: F) -> TransformMapInitErr<Self, S, F, E>
-    where
-        Self: Sized,
-        F: Fn(Self::InitError) -> E + Clone,
-    {
-        TransformMapInitErr::new(self, f)
-    }
 }
 
-impl<T, S> Transform<S> for Rc<T>
+impl<T, S, Req> Transform<S, Req> for Rc<T>
 where
-    T: Transform<S>,
+    T: Transform<S, Req>,
 {
-    type Request = T::Request;
     type Response = T::Response;
     type Error = T::Error;
-    type InitError = T::InitError;
     type Transform = T::Transform;
+    type InitError = T::InitError;
     type Future = T::Future;
 
     fn new_transform(&self, service: S) -> T::Future {
@@ -142,15 +115,14 @@ where
     }
 }
 
-impl<T, S> Transform<S> for Arc<T>
+impl<T, S, Req> Transform<S, Req> for Arc<T>
 where
-    T: Transform<S>,
+    T: Transform<S, Req>,
 {
-    type Request = T::Request;
     type Response = T::Response;
     type Error = T::Error;
-    type InitError = T::InitError;
     type Transform = T::Transform;
+    type InitError = T::InitError;
     type Future = T::Future;
 
     fn new_transform(&self, service: S) -> T::Future {
@@ -158,73 +130,77 @@ where
     }
 }
 
-/// `Apply` transform to new service
-pub struct ApplyTransform<T, S>(Rc<(T, S)>);
+/// Apply a [`Transform`] to a [`Service`].
+pub struct ApplyTransform<T, S, Req>(Rc<(T, S)>, PhantomData<Req>);
 
-impl<T, S> ApplyTransform<T, S>
+impl<T, S, Req> ApplyTransform<T, S, Req>
 where
-    S: ServiceFactory,
-    T: Transform<S::Service, InitError = S::InitError>,
+    S: ServiceFactory<Req>,
+    T: Transform<S::Service, Req, InitError = S::InitError>,
 {
     /// Create new `ApplyTransform` new service instance
     fn new(t: T, service: S) -> Self {
-        Self(Rc::new((t, service)))
+        Self(Rc::new((t, service)), PhantomData)
     }
 }
 
-impl<T, S> Clone for ApplyTransform<T, S> {
+impl<T, S, Req> Clone for ApplyTransform<T, S, Req> {
     fn clone(&self) -> Self {
-        ApplyTransform(self.0.clone())
+        ApplyTransform(self.0.clone(), PhantomData)
     }
 }
 
-impl<T, S> ServiceFactory for ApplyTransform<T, S>
+impl<T, S, Req> ServiceFactory<Req> for ApplyTransform<T, S, Req>
 where
-    S: ServiceFactory,
-    T: Transform<S::Service, InitError = S::InitError>,
+    S: ServiceFactory<Req>,
+    T: Transform<S::Service, Req, InitError = S::InitError>,
 {
-    type Request = T::Request;
     type Response = T::Response;
     type Error = T::Error;
 
     type Config = S::Config;
     type Service = T::Transform;
     type InitError = T::InitError;
-    type Future = ApplyTransformFuture<T, S>;
+    type Future = ApplyTransformFuture<T, S, Req>;
 
     fn new_service(&self, cfg: S::Config) -> Self::Future {
         ApplyTransformFuture {
             store: self.0.clone(),
-            state: ApplyTransformFutureState::A(self.0.as_ref().1.new_service(cfg)),
+            state: ApplyTransformFutureState::A {
+                fut: self.0.as_ref().1.new_service(cfg),
+            },
         }
     }
 }
 
-#[pin_project::pin_project]
-pub struct ApplyTransformFuture<T, S>
-where
-    S: ServiceFactory,
-    T: Transform<S::Service, InitError = S::InitError>,
-{
-    store: Rc<(T, S)>,
-    #[pin]
-    state: ApplyTransformFutureState<T, S>,
+pin_project! {
+    pub struct ApplyTransformFuture<T, S, Req>
+    where
+        S: ServiceFactory<Req>,
+        T: Transform<S::Service, Req, InitError = S::InitError>,
+    {
+        store: Rc<(T, S)>,
+        #[pin]
+        state: ApplyTransformFutureState<T, S, Req>,
+    }
 }
 
-#[pin_project::pin_project(project = ApplyTransformFutureStateProj)]
-pub enum ApplyTransformFutureState<T, S>
-where
-    S: ServiceFactory,
-    T: Transform<S::Service, InitError = S::InitError>,
-{
-    A(#[pin] S::Future),
-    B(#[pin] T::Future),
+pin_project! {
+    #[project = ApplyTransformFutureStateProj]
+    pub enum ApplyTransformFutureState<T, S, Req>
+    where
+        S: ServiceFactory<Req>,
+        T: Transform<S::Service, Req, InitError = S::InitError>,
+    {
+        A { #[pin] fut: S::Future },
+        B { #[pin] fut: T::Future },
+    }
 }
 
-impl<T, S> Future for ApplyTransformFuture<T, S>
+impl<T, S, Req> Future for ApplyTransformFuture<T, S, Req>
 where
-    S: ServiceFactory,
-    T: Transform<S::Service, InitError = S::InitError>,
+    S: ServiceFactory<Req>,
+    T: Transform<S::Service, Req, InitError = S::InitError>,
 {
     type Output = Result<T::Transform, T::InitError>;
 
@@ -232,15 +208,63 @@ where
         let mut this = self.as_mut().project();
 
         match this.state.as_mut().project() {
-            ApplyTransformFutureStateProj::A(fut) => match fut.poll(cx)? {
-                Poll::Ready(srv) => {
-                    let fut = this.store.0.new_transform(srv);
-                    this.state.set(ApplyTransformFutureState::B(fut));
-                    self.poll(cx)
-                }
-                Poll::Pending => Poll::Pending,
-            },
-            ApplyTransformFutureStateProj::B(fut) => fut.poll(cx),
+            ApplyTransformFutureStateProj::A { fut } => {
+                let srv = ready!(fut.poll(cx))?;
+                let fut = this.store.0.new_transform(srv);
+                this.state.set(ApplyTransformFutureState::B { fut });
+                self.poll(cx)
+            }
+            ApplyTransformFutureStateProj::B { fut } => fut.poll(cx),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::time::Duration;
+
+    use actix_utils::future::{ready, Ready};
+
+    use super::*;
+    use crate::Service;
+
+    // pseudo-doctest for Transform trait
+    pub struct TimeoutTransform {
+        timeout: Duration,
+    }
+
+    // pseudo-doctest for Transform trait
+    impl<S: Service<Req>, Req> Transform<S, Req> for TimeoutTransform {
+        type Response = S::Response;
+        type Error = S::Error;
+        type InitError = S::Error;
+        type Transform = Timeout<S>;
+        type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+        fn new_transform(&self, service: S) -> Self::Future {
+            ready(Ok(Timeout {
+                service,
+                _timeout: self.timeout,
+            }))
+        }
+    }
+
+    // pseudo-doctest for Transform trait
+    pub struct Timeout<S> {
+        service: S,
+        _timeout: Duration,
+    }
+
+    // pseudo-doctest for Transform trait
+    impl<S: Service<Req>, Req> Service<Req> for Timeout<S> {
+        type Response = S::Response;
+        type Error = S::Error;
+        type Future = S::Future;
+
+        crate::forward_ready!(service);
+
+        fn call(&self, req: Req) -> Self::Future {
+            self.service.call(req)
         }
     }
 }

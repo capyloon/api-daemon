@@ -13,7 +13,9 @@ enum_builder! {
         TLSv1_0 => 0x0301,
         TLSv1_1 => 0x0302,
         TLSv1_2 => 0x0303,
-        TLSv1_3 => 0x0304
+        TLSv1_3 => 0x0304,
+        DTLSv1_0 => 0xFEFF,
+        DTLSv1_2 => 0xFEFD
     }
 }
 
@@ -108,6 +110,7 @@ enum_builder! {
         HelloRequest => 0x00,
         ClientHello => 0x01,
         ServerHello => 0x02,
+        HelloVerifyRequest => 0x03,
         NewSessionTicket => 0x04,
         EndOfEarlyData => 0x05,
         HelloRetryRequest => 0x06,
@@ -233,10 +236,11 @@ enum_builder! {
         PostHandshakeAuth => 0x0031,
         SignatureAlgorithmsCert => 0x0032,
         KeyShare => 0x0033,
+        TransportParameters => 0x0039,
         NextProtocolNegotiation => 0x3374,
         ChannelId => 0x754f,
         RenegotiationInfo => 0xff01,
-        TransportParameters => 0xffa5
+        TransportParametersDraft => 0xffa5
     }
 }
 
@@ -683,6 +687,10 @@ enum_builder! {
         TLS_PSK_WITH_AES_256_CCM_8 => 0xc0a9,
         TLS_PSK_DHE_WITH_AES_128_CCM_8 => 0xc0aa,
         TLS_PSK_DHE_WITH_AES_256_CCM_8 => 0xc0ab,
+        TLS_ECDHE_ECDSA_WITH_AES_128_CCM => 0xc0ac,
+        TLS_ECDHE_ECDSA_WITH_AES_256_CCM => 0xc0ad,
+        TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 => 0xc0ae,
+        TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8 => 0xc0af,
         TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 => 0xcca8,
         TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 => 0xcca9,
         TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 => 0xccaa,

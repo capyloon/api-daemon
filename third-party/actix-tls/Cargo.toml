@@ -3,80 +3,90 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
 name = "actix-tls"
-version = "2.0.0"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
-description = "TLS acceptor services for Actix ecosystem."
-homepage = "https://actix.rs"
-documentation = "https://docs.rs/actix-tls/"
-keywords = ["network", "framework", "async", "tls", "ssl"]
-categories = ["network-programming", "asynchronous"]
+version = "3.0.3"
+authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rob Ede <robjtede@icloud.com>"]
+description = "TLS acceptor and connector services for Actix ecosystem"
+keywords = ["network", "tls", "ssl", "async", "transport"]
+categories = ["network-programming", "asynchronous", "cryptography"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-net.git"
 [package.metadata.docs.rs]
-features = ["openssl", "rustls", "nativetls"]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "actix_tls"
 path = "src/lib.rs"
+
+[[example]]
+name = "accept-rustls"
+required-features = ["accept", "rustls"]
 [dependencies.actix-codec]
-version = "0.3.0"
+version = "0.5.0"
 
-[dependencies.actix-service]
-version = "1.0.0"
-
-[dependencies.actix-utils]
-version = "2.0.0"
-
-[dependencies.futures-util]
-version = "0.3.4"
+[dependencies.actix-rt]
+version = "2.2.0"
 default-features = false
 
-[dependencies.native-tls]
-version = "0.2"
+[dependencies.actix-service]
+version = "2.0.0"
+
+[dependencies.actix-utils]
+version = "3.0.0"
+
+[dependencies.futures-core]
+version = "0.3.7"
+features = ["alloc"]
+default-features = false
+
+[dependencies.http]
+version = "0.2.3"
 optional = true
 
-[dependencies.open-ssl]
-version = "0.10"
+[dependencies.log]
+version = "0.4"
+
+[dependencies.pin-project-lite]
+version = "0.2.7"
+
+[dependencies.tls-openssl]
+version = "0.10.9"
 optional = true
 package = "openssl"
 
-[dependencies.rust-tls]
-version = "0.18.0"
-optional = true
-package = "rustls"
-
-[dependencies.tokio-openssl]
-version = "0.4.0"
-optional = true
-
-[dependencies.tokio-rustls]
-version = "0.14.0"
-optional = true
-
-[dependencies.tokio-tls]
+[dependencies.tokio-native-tls]
 version = "0.3"
 optional = true
 
-[dependencies.webpki]
-version = "0.21"
+[dependencies.tokio-openssl]
+version = "0.6"
 optional = true
 
+[dependencies.tokio-rustls]
+version = "0.23"
+optional = true
+
+[dependencies.tokio-util]
+version = "0.7"
+
 [dependencies.webpki-roots]
-version = "0.20"
+version = "0.22"
 optional = true
 
 [features]
-default = []
-nativetls = ["native-tls", "tokio-tls"]
-openssl = ["open-ssl", "tokio-openssl"]
-rustls = ["rust-tls", "webpki", "webpki-roots", "tokio-rustls"]
+accept = []
+connect = []
+default = ["accept", "connect"]
+native-tls = ["tokio-native-tls"]
+openssl = ["tls-openssl", "tokio-openssl"]
+rustls = ["tokio-rustls", "webpki-roots"]
+uri = ["http"]

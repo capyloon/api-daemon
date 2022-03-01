@@ -1,22 +1,21 @@
-use actix_web::http::header::{self, HeaderValue};
 /// This simple server is for apps-service client test.
 /// The server hosts applications including manifest.webmanifest and zip package
 /// Under /apps. Hawk authentication is required and only GET method is supported.
 /// For test purpose, client uses fixed mock id and key to generate Hawk header.
 /// kid: "FGFYvY+/4XwTYIX9nVi+sXj5tPA=", mac_key: "p7cI80SwX+gmX0G+T938agWAV1eR9wrpCR9JgsoIIlk="
+use actix_web::http::header::{self, HeaderValue};
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer};
 use hawk::mac::Mac;
 use hawk::{Header, Key, RequestBuilder, SHA256};
-use mime_guess::{Mime, MimeGuess};
-use std::time::{Duration, UNIX_EPOCH};
-use std::{env, io};
-use vhost_server::etag::*;
-
 use log::{debug, error};
+use mime_guess::{Mime, MimeGuess};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::time::{Duration, UNIX_EPOCH};
+use std::{env, io};
+use vhost_server::etag::*;
 
 fn mime_type_for(file_name: &str) -> Mime {
     MimeGuess::from_path(file_name).first_or_octet_stream()
@@ -34,7 +33,7 @@ fn maybe_not_modified(
                 let mut resp304 = HttpResponse::NotModified();
                 let builder = resp304
                     .content_type(mime.as_ref())
-                    .set_header("ETag", etag.to_string());
+                    .insert_header(("ETag", etag.to_string()));
 
                 return Some(builder.finish());
             }
@@ -66,7 +65,7 @@ fn response_from_file(req: HttpRequest, file: &str) -> HttpResponse {
         }
 
         HttpResponse::Ok()
-            .set_header("ETag", etag.to_string())
+            .insert_header(("ETag", etag.to_string()))
             .content_type(mime.as_ref())
             .body(buf)
     } else {
@@ -143,21 +142,16 @@ fn validate(req: &HttpRequest) -> bool {
     }
 }
 
-async fn file_responses(
-    req: HttpRequest,
-    web::Path(file): web::Path<String>,
-) -> HttpResponse {
+async fn file_responses(req: HttpRequest, file: web::Path<String>) -> HttpResponse {
     response_from_file(req, &format!("{}", file))
 }
 
-async fn apps_responses(
-    req: HttpRequest,
-    web::Path((app, name)): web::Path<(String, String)>,
-) -> HttpResponse {
+async fn apps_responses(req: HttpRequest, params: web::Path<(String, String)>) -> HttpResponse {
+    let (app, name) = params.as_ref();
     // For cancel API test
     std::thread::sleep(std::time::Duration::from_millis(200));
     // For power off during installation
-    if &app == "testpowerlost" {
+    if app == "testpowerlost" {
         std::thread::sleep(std::time::Duration::from_millis(2000));
     }
     if !check_header(&req, header::USER_AGENT, EXPECTED_UA) {
@@ -184,9 +178,7 @@ async fn main() -> io::Result<()> {
             .service(
                 web::resource("/apps/{app}/{name:[^{}]+}").route(web::get().to(apps_responses)),
             )
-            .service(
-                web::resource("/{file:[^{}]+}").route(web::get().to(file_responses)),
-            )
+            .service(web::resource("/{file:[^{}]+}").route(web::get().to(file_responses)))
             .service(web::scope("/").route("*", web::post().to(HttpResponse::MethodNotAllowed)))
     })
     .bind(addr)?

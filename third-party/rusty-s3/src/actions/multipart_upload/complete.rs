@@ -8,7 +8,8 @@ use url::Url;
 use crate::actions::Method;
 use crate::actions::S3Action;
 use crate::signing::sign;
-use crate::{Bucket, Credentials};
+use crate::sorting_iter::SortingIterator;
+use crate::{Bucket, Credentials, Map};
 
 /// Complete a multipart upload.
 ///
@@ -23,6 +24,9 @@ pub struct CompleteMultipartUpload<'a, I> {
     upload_id: &'a str,
 
     etags: I,
+
+    query: Map<'a>,
+    headers: Map<'a>,
 }
 
 impl<'a, I> CompleteMultipartUpload<'a, I> {
@@ -41,6 +45,9 @@ impl<'a, I> CompleteMultipartUpload<'a, I> {
 
             upload_id,
             etags,
+
+            query: Map::new(),
+            headers: Map::new(),
         }
     }
 }
@@ -49,27 +56,6 @@ impl<'a, I> CompleteMultipartUpload<'a, I>
 where
     I: Iterator<Item = &'a str>,
 {
-    fn sign_with_time(&self, expires_in: Duration, time: &OffsetDateTime) -> Url {
-        let url = self.bucket.object_url(self.object).unwrap();
-        let query = iter::once(("uploadId", self.upload_id));
-
-        match self.credentials {
-            Some(credentials) => sign(
-                time,
-                Method::Post,
-                url,
-                credentials.key(),
-                credentials.secret(),
-                credentials.token(),
-                self.bucket.region(),
-                expires_in.as_secs(),
-                query,
-                iter::empty(),
-            ),
-            None => crate::signing::util::add_query_params(url, query),
-        }
-    }
-
     pub fn body(self) -> String {
         #[derive(Serialize)]
         #[serde(rename = "CompleteMultipartUpload")]
@@ -104,43 +90,68 @@ where
     }
 }
 
-impl<'a, I> S3Action for CompleteMultipartUpload<'a, I>
+impl<'a, I> S3Action<'a> for CompleteMultipartUpload<'a, I>
 where
     I: Iterator<Item = &'a str>,
 {
     const METHOD: Method = Method::Post;
 
-    fn sign(&self, expires_in: Duration) -> Url {
-        let now = OffsetDateTime::now_utc();
-        self.sign_with_time(expires_in, &now)
+    fn query_mut(&mut self) -> &mut Map<'a> {
+        &mut self.query
+    }
+
+    fn headers_mut(&mut self) -> &mut Map<'a> {
+        &mut self.headers
+    }
+
+    fn sign_with_time(&self, expires_in: Duration, time: &OffsetDateTime) -> Url {
+        let url = self.bucket.object_url(self.object).unwrap();
+        let query = iter::once(("uploadId", self.upload_id));
+
+        match self.credentials {
+            Some(credentials) => sign(
+                time,
+                Method::Post,
+                url,
+                credentials.key(),
+                credentials.secret(),
+                credentials.token(),
+                self.bucket.region(),
+                expires_in.as_secs(),
+                SortingIterator::new(query, self.query.iter()),
+                self.headers.iter(),
+            ),
+            None => crate::signing::util::add_query_params(url, query),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use time::PrimitiveDateTime;
+    use time::OffsetDateTime;
 
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{Bucket, Credentials};
+    use crate::{Bucket, Credentials, UrlStyle};
 
     #[test]
     fn aws_example() {
-        let date = PrimitiveDateTime::parse(
-            "Fri, 24 May 2013 00:00:00 GMT",
-            "%a, %d %b %Y %-H:%M:%S GMT",
-        )
-        .unwrap()
-        .assume_utc();
+        // Fri, 24 May 2013 00:00:00 GMT
+        let date = OffsetDateTime::from_unix_timestamp(1369353600).unwrap();
         let expires_in = Duration::from_secs(86400);
 
         let endpoint = "https://s3.amazonaws.com".parse().unwrap();
-        let bucket =
-            Bucket::new(endpoint, false, "examplebucket".into(), "us-east-1".into()).unwrap();
+        let bucket = Bucket::new(
+            endpoint,
+            UrlStyle::VirtualHost,
+            "examplebucket",
+            "us-east-1",
+        )
+        .unwrap();
         let credentials = Credentials::new(
-            "AKIAIOSFODNN7EXAMPLE".into(),
-            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into(),
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         );
 
         let etags = ["123456789", "abcdef"];
@@ -166,8 +177,13 @@ mod tests {
         let expires_in = Duration::from_secs(86400);
 
         let endpoint = "https://s3.amazonaws.com".parse().unwrap();
-        let bucket =
-            Bucket::new(endpoint, false, "examplebucket".into(), "us-east-1".into()).unwrap();
+        let bucket = Bucket::new(
+            endpoint,
+            UrlStyle::VirtualHost,
+            "examplebucket",
+            "us-east-1",
+        )
+        .unwrap();
 
         let etags = ["123456789", "abcdef"];
         let action =

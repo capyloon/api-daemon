@@ -1,8 +1,7 @@
 /// A actix-web vhost handler
 use crate::etag::*;
-use actix_web::dev::{BodyEncoding, HttpResponseBuilder};
 use actix_web::http::header::{self, Header, HeaderValue};
-use actix_web::{http, web, Error, HttpRequest, HttpResponse};
+use actix_web::{http, web, HttpRequest, HttpResponse, HttpResponseBuilder, Responder};
 use common::traits::Shared;
 use log::{debug, error};
 use mime_guess::{Mime, MimeGuess};
@@ -50,9 +49,9 @@ pub fn maybe_not_modified(
                 let mut resp304 = HttpResponse::NotModified();
                 let mut builder = resp304
                     .content_type(mime.as_ref())
-                    .set_header("ETag", etag.to_string());
+                    .insert_header(("ETag", etag.to_string()));
                 if let Some(csp) = csp {
-                    builder = builder.set_header("Content-Security-Policy", csp);
+                    builder = builder.insert_header(("Content-Security-Policy", csp));
                 }
                 return Some(builder.finish());
             }
@@ -70,7 +69,7 @@ fn update_response_encoding(mime: &Mime, builder: &mut HttpResponseBuilder) {
             || mime_str.starts_with("audio/")
             || mime_str.starts_with("video/"))
     {
-        builder.encoding(http::ContentEncoding::Identity);
+        builder.insert_header(header::ContentEncoding::Identity);
     }
 }
 
@@ -93,15 +92,15 @@ fn response_from_zip<'a>(
 
     let mut ok = HttpResponse::Ok();
     let mut builder = ok
-        .set_header("Content-Security-Policy", csp)
-        .set_header("ETag", etag)
+        .insert_header(("Content-Security-Policy", csp))
+        .insert_header(("ETag", etag))
         .content_type(mime.as_ref());
 
     // If the zip entry was compressed, set the content type accordingly.
     // if not, the actix middleware will do its own compression based
     // on the supported content-encoding supplied by the client.
     if zip.compression() == CompressionMethod::Deflated {
-        builder.set_header("Content-Encoding", "deflate");
+        builder.insert_header(("Content-Encoding", "deflate"));
     } else {
         update_response_encoding(&mime, &mut builder);
     }
@@ -131,9 +130,9 @@ fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue
 
         let mut builder = HttpResponse::Ok();
         builder
-            .set_header("Content-Security-Policy", csp)
+            .insert_header(("Content-Security-Policy", csp))
             .content_type(mime.as_ref())
-            .set_header("ETag", etag);
+            .insert_header(("ETag", etag));
 
         update_response_encoding(&mime, &mut builder);
 
@@ -195,23 +194,23 @@ where
 // http://host:port/path/to/file.ext -> $root_path/host/application.zip!path/to/file.ext
 // When using a Gaia debug profile, applications are not packaged so if application.zip doesn't
 // exist we try to map to $root_path/host/path/to/file.ext instead.
-pub async fn vhost(
-    data: web::Data<Shared<AppData>>,
-    req: HttpRequest,
-) -> Result<HttpResponse, Error> {
+pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl Responder {
+    debug!("vhost {}", req.uri());
     let if_none_match = req.headers().get(header::IF_NONE_MATCH);
 
     if let Some(host) = req.headers().get(header::HOST) {
-        let full_host = host
-            .to_str()
-            .map_err(|_| HttpResponse::BadRequest().finish())?;
+        let full_host = match host.to_str() {
+            Ok(full_host) => full_host,
+            Err(_) => return HttpResponse::BadRequest().finish(),
+        };
         debug!("Full Host is {:?}", full_host);
         // Remove the port if there is one.
         let mut parts = full_host.split(':');
         // TODO: make more robust for cases where the host part can include ':' like ipv6 addresses.
-        let host = parts
-            .next()
-            .ok_or_else(|| HttpResponse::BadRequest().finish())?;
+        let host = match parts.next() {
+            Some(host) => host,
+            None => return HttpResponse::BadRequest().finish(),
+        };
         debug!("Host is {:?}", host);
 
         if host == "localhost" {
@@ -221,22 +220,23 @@ pub async fn vhost(
             let path = req.path();
             let parts: Vec<&str> = path.split('/').collect();
             if parts.len() < 2 || parts[1] != "redirect" {
-                return Ok(HttpResponse::BadRequest().finish());
+                return HttpResponse::BadRequest().finish();
             }
             let replace_path = format!("{}/{}/", parts[1], parts[2]);
             let path = path.replace(&replace_path, "");
             let params = req.query_string();
             let redirect_url = format!("http://{}.{}{}?{}", parts[2], full_host, path, params);
-            return Ok(HttpResponse::MovedPermanently()
-                .header(http::header::LOCATION, redirect_url)
-                .finish());
+            return HttpResponse::MovedPermanently()
+                .insert_header((http::header::LOCATION, redirect_url))
+                .finish();
         }
 
         // Now extract our vhost, which is the leftmost part of the domain name.
         let mut parts = host.split('.');
-        let host = parts
-            .next()
-            .ok_or_else(|| HttpResponse::BadRequest().finish())?;
+        let host = match parts.next() {
+            Some(host) => host,
+            None => return HttpResponse::BadRequest().finish(),
+        };
 
         let (root_path, csp, has_zip) = {
             let data = data.lock();
@@ -253,8 +253,10 @@ pub async fn vhost(
         let csp = csp.replace("'self'", &csp_self);
 
         // Get a sorted list of languages to get the localized version of the resource.
-        let mut languages =
-            header::AcceptLanguage::parse(&req).map_err(|_| HttpResponse::BadRequest().finish())?;
+        let mut languages = match header::AcceptLanguage::parse(&req) {
+            Ok(languages) => languages,
+            Err(_) => return HttpResponse::BadRequest().finish(),
+        };
 
         // Sort in descending order of quality.
         languages.sort_by(|item1, item2| {
@@ -274,7 +276,10 @@ pub async fn vhost(
             // Check for application.zip existence.
             if let Ok(file) = File::open(path) {
                 // Now add it to the map.
-                let archive = ZipArchive::new(file).map_err(|_| ())?;
+                let archive = match ZipArchive::new(file) {
+                    Ok(archive) => archive,
+                    Err(_) => return HttpResponse::BadRequest().finish(),
+                };
                 let mut data = data.lock();
                 data.zips.insert(host.into(), archive);
             } else {
@@ -291,16 +296,16 @@ pub async fn vhost(
                     }
                     None
                 }) {
-                    Ok(response) => Ok(response),
+                    Ok(response) => response,
                     Err(_) => {
                         // Default fallback
                         let path = format!("{}/{}/{}", root_path, host, filename);
                         let full_path = Path::new(&path);
                         if full_path.exists() {
                             debug!("Direct Opening of {}", filename);
-                            Ok(response_from_file(full_path, &csp, if_none_match))
+                            response_from_file(full_path, &csp, if_none_match)
                         } else {
-                            Ok(HttpResponse::NotFound().finish())
+                            HttpResponse::NotFound().finish()
                         }
                     }
                 };
@@ -324,20 +329,20 @@ pub async fn vhost(
                     }
                     None
                 }) {
-                    Ok(response) => Ok(response),
+                    Ok(response) => response,
                     Err(_) => {
                         // Default fallback
                         match archive.by_name_maybe_raw(filename, CompressionMethod::Deflated) {
-                            Ok(mut zip) => Ok(response_from_zip(&mut zip, &csp, if_none_match)),
-                            Err(_) => Ok(HttpResponse::NotFound().finish()),
+                            Ok(mut zip) => response_from_zip(&mut zip, &csp, if_none_match),
+                            Err(_) => HttpResponse::NotFound().finish(),
                         }
                     }
                 }
             }
-            None => Ok(internal_server_error()),
+            None => internal_server_error(),
         }
     } else {
         // No host in the http request -> client error.
-        Ok(HttpResponse::BadRequest().finish())
+        HttpResponse::BadRequest().finish()
     }
 }

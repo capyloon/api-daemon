@@ -10,7 +10,7 @@ common = { path = "../../common" }
 geckobridge = { path = "../geckobridge" }
 libc = "0.2"
 log = "0.4"
-parking_lot = "0.11"
+parking_lot = "0.12"
 serde = "1.0"
 
 [target.'cfg(target_os = "android")'.dependencies]

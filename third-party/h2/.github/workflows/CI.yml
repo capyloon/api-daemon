@@ -1,0 +1,114 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  style:
+    name: Check Style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt
+
+      - name: cargo fmt --check
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+  test:
+    name: Test
+    needs: [style]
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Dwarnings
+    strategy:
+      matrix:
+        rust:
+          - nightly
+          - beta
+          - stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust (${{ matrix.rust }})
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - name: Install libssl-dev
+        run: sudo apt-get update && sudo apt-get install libssl-dev
+      - name: Build without unstable flag
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+
+      - name: Check with unstable flag
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --features unstable
+
+      - name: Run lib tests and doc tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+      - name: Run integration tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p h2-tests
+
+      - name: Run h2spec
+        run: ./ci/h2spec.sh
+        if: matrix.rust == 'stable'
+
+      - name: Check minimal versions
+        run: cargo clean; cargo update -Zminimal-versions; cargo check
+        if: matrix.rust == 'nightly'
+
+  msrv:
+    name: Check MSRV (${{ matrix.rust }})
+    needs: [style]
+    strategy:
+      matrix:
+        rust:
+          - 1.49 # never go past Hyper's own MSRV
+
+        os:
+          - ubuntu-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust (${{ matrix.rust }})
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - name: Check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check

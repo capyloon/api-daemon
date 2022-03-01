@@ -4,9 +4,9 @@
 //! This is useful for CPU bound, or concurrent workloads. There can only be
 //! a single Sync Actor type on a `SyncArbiter`. This means you can't have
 //! Actor type A and B, sharing the same thread pool. You need to create two
-//! SyncArbiters and have A and B spawn on unique `SyncArbiter`s respectively.
+//! [`SyncArbiter`]s and have A and B spawn on unique `SyncArbiter`s respectively.
 //! For more information and examples, see `SyncArbiter`
-use std::marker::PhantomData;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
@@ -14,10 +14,9 @@ use std::{task, thread};
 
 use actix_rt::System;
 use crossbeam_channel as cb_channel;
-use futures_channel::oneshot::Sender as SyncSender;
-use futures_util::{future::Future, stream::StreamExt};
+use futures_core::stream::Stream;
 use log::warn;
-use pin_project::pin_project;
+use tokio::sync::oneshot::Sender as SyncSender;
 
 use crate::actor::{Actor, ActorContext, ActorState, Running};
 use crate::address::channel;
@@ -27,18 +26,18 @@ use crate::address::{
 use crate::context::Context;
 use crate::handler::{Handler, Message, MessageResponse};
 
-/// SyncArbiter provides the resources for a single Sync Actor to run on a dedicated
+/// [`SyncArbiter`] provides the resources for a single Sync Actor to run on a dedicated
 /// thread or threads. This is generally used for CPU bound concurrent workloads. It's
-/// important to note, that the SyncArbiter generates a single address for the pool
+/// important to note, that the [`SyncArbiter`] generates a single address for the pool
 /// of hosted Sync Actors. Any message sent to this Address, will be operated on by
 /// a single Sync Actor from the pool.
 ///
 /// Sync Actors have a different lifecycle compared to Actors on the System
 /// Arbiter. For more, see `SyncContext`.
 ///
-/// ## Example
+/// # Examples
 ///
-/// ```rust
+/// ```
 /// use actix::prelude::*;
 ///
 /// struct Fibonacci(pub u32);
@@ -79,7 +78,7 @@ use crate::handler::{Handler, Message, MessageResponse};
 /// }
 ///
 /// fn main() {
-///     System::run(|| {
+///     System::new().block_on(async {
 ///         // Start the SyncArbiter with 2 threads, and receive the address of the Actor pool.
 ///         let addr = SyncArbiter::start(2, || SyncActor);
 ///
@@ -94,7 +93,6 @@ use crate::handler::{Handler, Message, MessageResponse};
 ///     });
 /// }
 /// ```
-#[pin_project]
 pub struct SyncArbiter<A>
 where
     A: Actor<Context = SyncContext<A>>,
@@ -131,10 +129,10 @@ where
             });
         }
 
-        System::current().arbiter().send(Box::pin(Self {
+        System::current().arbiter().spawn(Self {
             queue: Some(sender),
             msgs: rx,
-        }));
+        });
 
         Addr::new(tx)
     }
@@ -155,9 +153,9 @@ where
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
+        let this = self.get_mut();
         loop {
-            match this.msgs.poll_next_unpin(cx) {
+            match Pin::new(&mut this.msgs).poll_next(cx) {
                 Poll::Ready(Some(msg)) => {
                     if let Some(ref queue) = this.queue {
                         assert!(queue.send(msg).is_ok());
@@ -173,7 +171,7 @@ where
             Poll::Pending
         } else {
             // stop sync arbiters
-            *this.queue = None;
+            this.queue = None;
             Poll::Ready(())
         }
     }
@@ -191,16 +189,16 @@ where
 }
 
 /// Sync actor execution context. This is used instead of impl Actor for your Actor
-/// instead of Context, if you intend this actor to run in a SyncArbiter.
+/// instead of Context, if you intend this actor to run in a [`SyncArbiter`].
 ///
-/// Unlike Context, an Actor that uses a SyncContext can not be stopped
+/// Unlike Context, an Actor that uses a [`SyncContext`] can not be stopped
 /// by calling `stop` or `terminate`: Instead, these trigger a restart of
 /// the Actor. Similar, returning `false` from `fn stopping` can not prevent
 /// the restart or termination of the Actor.
 ///
-/// ## Example
+/// # Examples
 ///
-/// ```rust
+/// ```
 /// use actix::prelude::*;
 ///
 /// # struct Fibonacci(pub u32);
@@ -300,14 +298,14 @@ impl<A> ActorContext for SyncContext<A>
 where
     A: Actor<Context = Self>,
 {
-    /// Stop the current Actor. SyncContext will stop the existing Actor, and restart
+    /// Stop the current Actor. [`SyncContext`] will stop the existing Actor, and restart
     /// a new Actor of the same type to replace it.
     fn stop(&mut self) {
         self.stopping = true;
         self.state = ActorState::Stopping;
     }
 
-    /// Terminate the current Actor. SyncContext will terminate the existing Actor, and restart
+    /// Terminate the current Actor. [`SyncContext`] will terminate the existing Actor, and restart
     /// a new Actor of the same type to replace it.
     fn terminate(&mut self) {
         self.stopping = true;
@@ -320,49 +318,33 @@ where
     }
 }
 
-pub(crate) struct SyncContextEnvelope<A, M>
+pub(crate) struct SyncContextEnvelope<M>
 where
-    A: Actor<Context = SyncContext<A>> + Handler<M>,
     M: Message + Send,
 {
     msg: Option<M>,
     tx: Option<SyncSender<M::Result>>,
-    actor: PhantomData<A>,
 }
 
-unsafe impl<A, M> Send for SyncContextEnvelope<A, M>
+impl<M> SyncContextEnvelope<M>
 where
-    A: Actor<Context = SyncContext<A>> + Handler<M>,
-    M: Message + Send,
-{
-}
-
-impl<A, M> SyncContextEnvelope<A, M>
-where
-    A: Actor<Context = SyncContext<A>> + Handler<M>,
     M: Message + Send,
     M::Result: Send,
 {
     pub fn new(msg: M, tx: Option<SyncSender<M::Result>>) -> Self {
-        Self {
-            tx,
-            msg: Some(msg),
-            actor: PhantomData,
-        }
+        Self { tx, msg: Some(msg) }
     }
 }
 
-impl<A, M> EnvelopeProxy for SyncContextEnvelope<A, M>
+impl<A, M> EnvelopeProxy<A> for SyncContextEnvelope<M>
 where
     M: Message + Send + 'static,
     M::Result: Send,
     A: Actor<Context = SyncContext<A>> + Handler<M>,
 {
-    type Actor = A;
-
     fn handle(&mut self, act: &mut A, ctx: &mut A::Context) {
         let tx = self.tx.take();
-        if tx.is_some() && tx.as_ref().unwrap().is_canceled() {
+        if tx.is_some() && tx.as_ref().unwrap().is_closed() {
             return;
         }
 
@@ -374,7 +356,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use futures_channel::oneshot;
+    use tokio::sync::oneshot;
 
     use crate::prelude::*;
 
@@ -418,12 +400,14 @@ mod tests {
         }
     }
 
-    #[actix_rt::test]
-    async fn nested_sync_arbiters() {
-        let addr = SyncArbiter::start(1, SyncActor1::run);
-        let (tx, rx) = oneshot::channel();
-        addr.send(Msg(tx)).await.unwrap();
-        assert_eq!(233u8, rx.await.unwrap());
-        System::current().stop();
+    #[test]
+    fn nested_sync_arbiters() {
+        System::new().block_on(async {
+            let addr = SyncArbiter::start(1, SyncActor1::run);
+            let (tx, rx) = oneshot::channel();
+            addr.send(Msg(tx)).await.unwrap();
+            assert_eq!(233u8, rx.await.unwrap());
+            System::current().stop();
+        })
     }
 }

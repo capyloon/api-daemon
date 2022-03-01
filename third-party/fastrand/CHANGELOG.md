@@ -1,3 +1,11 @@
+# Version 1.7.0
+
+- Add `char()` and `Rng::char()` (#25)
+
+# Version 1.6.0
+
+- Implement `PartialEq` and `Eq` for `Rng` (#23)
+
 # Version 1.5.0
 
 - Switch to Wyrand (#14)

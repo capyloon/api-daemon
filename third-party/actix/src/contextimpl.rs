@@ -1,9 +1,10 @@
 use std::fmt;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bitflags::bitflags;
-use futures_util::future::Future;
+use futures_core::ready;
 use smallvec::SmallVec;
 
 use crate::actor::{
@@ -25,10 +26,7 @@ bitflags! {
     }
 }
 
-type Item<A> = (
-    SpawnHandle,
-    Pin<Box<dyn ActorFuture<Output = (), Actor = A>>>,
-);
+type Item<A> = (SpawnHandle, Pin<Box<dyn ActorFuture<A, Output = ()>>>);
 
 pub trait AsyncContextParts<A>: ActorContext + AsyncContext<A>
 where
@@ -67,17 +65,14 @@ where
     A::Context: AsyncContext<A>,
 {
     #[inline]
-    /// Create new ContextParts instance
+    /// Create new [`ContextParts`] instance
     pub fn new(addr: AddressSenderProducer<A>) -> Self {
         ContextParts {
             addr,
             flags: ContextFlags::RUNNING,
             wait: SmallVec::new(),
             items: SmallVec::new(),
-            handles: SmallVec::from_slice(&[
-                SpawnHandle::default(),
-                SpawnHandle::default(),
-            ]),
+            handles: SmallVec::from_slice(&[SpawnHandle::default(), SpawnHandle::default()]),
         }
     }
 
@@ -132,11 +127,11 @@ where
     /// Spawn new future to this context.
     pub fn spawn<F>(&mut self, fut: F) -> SpawnHandle
     where
-        F: ActorFuture<Output = (), Actor = A> + 'static,
+        F: ActorFuture<A, Output = ()> + 'static,
     {
         let handle = self.handles[0].next();
         self.handles[0] = handle;
-        let fut: Box<dyn ActorFuture<Output = (), Actor = A>> = Box::new(fut);
+        let fut: Box<dyn ActorFuture<A, Output = ()>> = Box::new(fut);
         self.items.push((handle, Pin::from(fut)));
         handle
     }
@@ -147,7 +142,7 @@ where
     /// During wait period actor does not receive any messages.
     pub fn wait<F>(&mut self, f: F)
     where
-        F: ActorFuture<Output = (), Actor = A> + 'static,
+        F: ActorFuture<A, Output = ()> + 'static,
     {
         self.wait.push(ActorWaitItem::new(f));
     }
@@ -224,10 +219,10 @@ where
     A: Actor<Context = C>,
 {
     fn drop(&mut self) {
-        if self.alive() && actix_rt::Arbiter::is_running() {
+        if self.alive() {
             self.ctx.parts().stop();
-            let waker = futures_util::task::noop_waker();
-            let mut cx = futures_util::task::Context::from_waker(&waker);
+            let waker = futures_task::noop_waker();
+            let mut cx = std::task::Context::from_waker(&waker);
             let _ = Pin::new(self).poll(&mut cx);
         }
     }
@@ -320,15 +315,30 @@ where
     }
 
     fn clean_canceled_handle(&mut self) {
-        while self.ctx.parts().handles.len() > 2 {
-            let handle = self.ctx.parts().handles.pop().unwrap();
+        fn remove_item_by_handle<C>(
+            items: &mut SmallVec<[Item<C>; 3]>,
+            handle: &SpawnHandle,
+        ) -> bool {
             let mut idx = 0;
-            while idx < self.items.len() {
-                if self.items[idx].0 == handle {
-                    self.items.swap_remove(idx);
+            let mut removed = false;
+            while idx < items.len() {
+                if &items[idx].0 == handle {
+                    items.swap_remove(idx);
+                    removed = true;
                 } else {
                     idx += 1;
                 }
+            }
+            removed
+        }
+
+        while self.ctx.parts().handles.len() > 2 {
+            let handle = self.ctx.parts().handles.pop().unwrap();
+            // remove item from ContextFut.items in case associated item is already merged
+            if !remove_item_by_handle(&mut self.items, &handle) {
+                // item is not merged into ContextFut.items yet,
+                // so it should be in ContextParts.items
+                remove_item_by_handle(&mut self.ctx.parts().items, &handle);
             }
         }
     }
@@ -361,12 +371,8 @@ where
             // and we always have to check most recent future
             while !this.wait.is_empty() && !this.stopping() {
                 let idx = this.wait.len() - 1;
-                if let Some(item) = this.wait.last_mut() {
-                    match Pin::new(item).poll(&mut this.act, &mut this.ctx, cx) {
-                        Poll::Ready(_) => (),
-                        Poll::Pending => return Poll::Pending,
-                    }
-                }
+                let item = this.wait.last_mut().unwrap();
+                ready!(Pin::new(item).poll(&mut this.act, &mut this.ctx, cx));
                 this.wait.remove(idx);
                 this.merge();
             }
@@ -381,12 +387,13 @@ where
             let mut idx = 0;
             while idx < this.items.len() && !this.stopping() {
                 this.ctx.parts().handles[1] = this.items[idx].0;
-                match Pin::new(&mut this.items[idx].1).poll(
-                    &mut this.act,
-                    &mut this.ctx,
-                    cx,
-                ) {
+                match Pin::new(&mut this.items[idx].1).poll(&mut this.act, &mut this.ctx, cx) {
                     Poll::Pending => {
+                        // got new waiting item. merge
+                        if this.ctx.waiting() {
+                            this.merge();
+                        }
+
                         // check cancelled handles
                         if this.ctx.parts().handles.len() > 2 {
                             // this code is not very efficient, relaying on fact that
@@ -414,6 +421,12 @@ where
                     }
                     Poll::Ready(()) => {
                         this.items.swap_remove(idx);
+
+                        // got new waiting item. merge
+                        if this.ctx.waiting() {
+                            this.merge();
+                        }
+
                         // one of the items scheduled wait future
                         if !this.wait.is_empty() && !this.stopping() {
                             continue 'outer;
@@ -441,15 +454,13 @@ where
                 if !this.alive()
                     && Actor::stopping(&mut this.act, &mut this.ctx) == Running::Stop
                 {
-                    this.ctx.parts().flags =
-                        ContextFlags::STOPPED | ContextFlags::STARTED;
+                    this.ctx.parts().flags = ContextFlags::STOPPED | ContextFlags::STARTED;
                     Actor::stopped(&mut this.act, &mut this.ctx);
                     return Poll::Ready(());
                 }
             } else if this.ctx.parts().flags.contains(ContextFlags::STOPPING) {
                 if Actor::stopping(&mut this.act, &mut this.ctx) == Running::Stop {
-                    this.ctx.parts().flags =
-                        ContextFlags::STOPPED | ContextFlags::STARTED;
+                    this.ctx.parts().flags = ContextFlags::STOPPED | ContextFlags::STARTED;
                     Actor::stopped(&mut this.act, &mut this.ctx);
                     return Poll::Ready(());
                 } else {

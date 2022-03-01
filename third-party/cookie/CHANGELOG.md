@@ -1,10 +1,57 @@
-# Version 0.14
+# Version 0.16
 
-## Version 0.14.4 (Feb 1, 2021)
+## Version 0.16.0 (Dec 28, 2021)
+
+### Breaking Changes
+
+  * The MSRV is now `1.53`, up from `1.41` in `0.15`.
+  * `time` has been updated to `0.3` and is reexported from the crate root.
+
+### General Changes
+
+  * `rust-crypto` dependencies were updated to their latest versions.
+
+# Version 0.15
+
+## Version 0.15.1 (Jul 14, 2021)
 
 ### Changes and Fixes
 
-  * `rand` and `base64` dependencies were updated to their latest versions.
+  * A panic that could result from non-char boundary indexing was fixed.
+  * Stale doc references to version `0.14` were updated.
+
+## Version 0.15.0 (Feb 25, 2021)
+
+### Breaking Changes
+
+  * `Cookie::force_remove()` takes `&Cookie` instead of `Cookie`.
+  * Child jar methods split into immutable and mutable versions
+    (`Cookie::{private{_mut}, signed{_mut}}`).
+  * `Cookie::encoded()` returns a new `Display` struct.
+  * Dates with year `<= 99` are handled like Chrome: range `0..=68` maps to
+    `2000..=2068`, `69..=99` to `1969..=1999`.
+  * `Cookie::{set_}expires()` operates on a new `Expiration` enum.
+
+### New Features
+
+  * Added `Cookie::make_removal()` to manually create expired cookies.
+  * Added `Cookie::stripped()` display variant to print only the `name` and
+    `value` of a cookie.
+  * `Key` implements a constant-time `PartialEq`.
+  * Added `Key::master()` to retrieve the full 512-bit master key.
+  * Added `PrivateJar::decrypt()` to manually decrypt an encrypted `Cookie`.
+  * Added `SignedJar::verify()` to manually verify a signed `Cookie`.
+  * `Cookie::expires()` returns an `Option<Expiration>` to allow distinguishing
+    between unset and `None` expirations.
+  * Added `Cookie::expires_datetime()` to retrieve the expiration as an
+    `OffsetDateTime`.
+  * Added `Cookie::unset_expires()` to unset expirations.
+
+### General Changes and Fixes
+
+  * MSRV is 1.41.
+
+# Version 0.14
 
 ## Version 0.14.3 (Nov 5, 2020)
 

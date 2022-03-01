@@ -1,9 +1,15 @@
-use std::sync;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+#![cfg(feature = "macros")]
+
+use std::{
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc, Arc,
+    },
+    time::Duration,
+};
 
 use actix::prelude::*;
-use tokio::time::{delay_for, Duration, Instant};
+use actix_rt::time::{sleep, Instant};
 
 #[derive(Clone, Debug)]
 struct Num(usize);
@@ -33,7 +39,7 @@ impl StreamHandler<Num> for MyActor {
     }
 }
 
-#[actix_rt::test]
+#[actix::test]
 async fn test_stream() {
     let count = Arc::new(AtomicUsize::new(0));
     let err = Arc::new(AtomicBool::new(false));
@@ -47,7 +53,7 @@ async fn test_stream() {
         MyActor(act_count, act_err, Running::Stop)
     });
 
-    delay_for(Duration::new(0, 1_000_000)).await;
+    sleep(Duration::new(0, 1_000_000)).await;
 
     assert_eq!(count.load(Ordering::Relaxed), 7);
     assert!(err.load(Ordering::Relaxed));
@@ -82,7 +88,7 @@ impl actix::Handler<Stop> for StopOnRequest {
     }
 }
 
-#[actix_rt::test]
+#[actix::test]
 async fn test_infinite_stream() {
     let count = Arc::new(AtomicUsize::new(0));
     let stopped = Arc::new(AtomicBool::new(false));
@@ -97,7 +103,7 @@ async fn test_infinite_stream() {
         StopOnRequest(act_count, act_stopped, act_finished)
     });
 
-    delay_for(Duration::new(0, 1_000_000)).await;
+    sleep(Duration::new(0, 1_000_000)).await;
 
     addr.send(Stop).await.unwrap();
 
@@ -164,7 +170,9 @@ fn test_restart_sync_actor() {
     let stopped1 = Arc::clone(&stopped);
     let msgs1 = Arc::clone(&msgs);
 
-    System::run(move || {
+    let sys = System::new();
+
+    sys.block_on(async move {
         let addr = SyncArbiter::start(1, move || MySyncActor {
             started: Arc::clone(&started1),
             stopping: Arc::clone(&stopping1),
@@ -178,8 +186,9 @@ fn test_restart_sync_actor() {
         actix_rt::spawn(async move {
             let _ = addr.send(Num(4)).await;
         });
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
 
     assert_eq!(started.load(Ordering::Relaxed), 2);
     assert_eq!(stopping.load(Ordering::Relaxed), 2);
@@ -189,12 +198,12 @@ fn test_restart_sync_actor() {
 
 struct IntervalActor {
     elapses_left: usize,
-    sender: sync::mpsc::Sender<Instant>,
+    sender: mpsc::Sender<Instant>,
     instant: Option<Instant>,
 }
 
 impl IntervalActor {
-    pub fn new(elapses_left: usize, sender: sync::mpsc::Sender<Instant>) -> Self {
+    pub fn new(elapses_left: usize, sender: mpsc::Sender<Instant>) -> Self {
         Self {
             //We stop at 0, so add 1 to make number of intervals equal to elapses_left
             elapses_left: elapses_left + 1,
@@ -227,18 +236,19 @@ impl Actor for IntervalActor {
 fn test_run_interval() {
     const MAX_WAIT: Duration = Duration::from_millis(10_000);
 
-    let (sender, receiver) = sync::mpsc::channel();
+    let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
-        System::run(move || {
+        let sys = System::new();
+        sys.block_on(async move {
             let _addr = IntervalActor::new(10, sender).start();
-        })
-        .unwrap();
+        });
+        sys.run().unwrap();
     });
 
     let result = receiver
         .recv_timeout(MAX_WAIT)
         .expect("To receive response in time");
 
-    //We wait 10 intervals by ~100ms
+    // We wait 10 intervals by ~100ms
     assert_eq!(result.elapsed().as_secs(), 1);
 }

@@ -1,8 +1,6 @@
 use std::hash::{Hash, Hasher};
 use std::{error, fmt};
 
-use derive_more::Display;
-
 pub(crate) mod channel;
 mod envelope;
 mod message;
@@ -22,13 +20,26 @@ pub enum SendError<T> {
     Closed(T),
 }
 
-#[derive(Display, Clone, Copy)]
+#[derive(Clone, Copy)]
 /// The errors that can occur during the message delivery process.
 pub enum MailboxError {
-    #[display(fmt = "Mailbox has closed")]
     Closed,
-    #[display(fmt = "Message delivery timed out")]
     Timeout,
+}
+
+impl fmt::Debug for MailboxError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "MailboxError({})", self)
+    }
+}
+
+impl fmt::Display for MailboxError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MailboxError::Closed => write!(fmt, "Mailbox has closed"),
+            MailboxError::Timeout => write!(fmt, "Message delivery timed out"),
+        }
+    }
 }
 
 impl error::Error for MailboxError {}
@@ -61,14 +72,7 @@ impl<T> fmt::Display for SendError<T> {
     }
 }
 
-impl fmt::Debug for MailboxError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "MailboxError({})", self)
-    }
-}
-
 /// The address of an actor.
-#[derive(Debug)]
 pub struct Addr<A: Actor> {
     tx: AddressSender<A>,
 }
@@ -121,21 +125,19 @@ impl<A: Actor> Addr<A> {
     /// cancelled.
     pub fn send<M>(&self, msg: M) -> Request<A, M>
     where
-        M: Message + Send,
+        M: Message + Send + 'static,
         M::Result: Send,
         A: Handler<M>,
         A::Context: ToEnvelope<A, M>,
     {
         match self.tx.send(msg) {
             Ok(rx) => Request::new(Some(rx), None),
-            Err(SendError::Full(msg)) => {
-                Request::new(None, Some((self.tx.clone(), msg)))
-            }
+            Err(SendError::Full(msg)) => Request::new(None, Some((self.tx.clone(), msg))),
             Err(SendError::Closed(_)) => Request::new(None, None),
         }
     }
 
-    /// Returns the `Recipient` for a specific message type.
+    /// Returns the [`Recipient`] for a specific message type.
     pub fn recipient<M: 'static>(self) -> Recipient<M>
     where
         A: Handler<M>,
@@ -146,7 +148,7 @@ impl<A: Actor> Addr<A> {
         self.into()
     }
 
-    /// Returns a downgraded `WeakAddr`.
+    /// Returns a downgraded [`WeakAddr`].
     pub fn downgrade(&self) -> WeakAddr<A> {
         WeakAddr {
             wtx: self.tx.downgrade(),
@@ -176,14 +178,19 @@ impl<A: Actor> Hash for Addr<A> {
     }
 }
 
+impl<A: Actor> fmt::Debug for Addr<A> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("Addr").field("tx", &self.tx).finish()
+    }
+}
+
 /// A weakly referenced counterpart to `Addr<A>`.
-#[derive(Debug)]
 pub struct WeakAddr<A: Actor> {
     wtx: WeakAddressSender<A>,
 }
 
 impl<A: Actor> WeakAddr<A> {
-    /// Attempts to upgrade the `WeakAddr<A>` pointer to an `Addr<A>`.
+    /// Attempts to upgrade the [`WeakAddr<A>`] pointer to an [`Addr<A>`].
     ///
     /// Returns `None` if the actor has since been dropped or the
     /// underlying address is disconnected.
@@ -219,12 +226,18 @@ impl<A: Actor> Clone for WeakAddr<A> {
     }
 }
 
-/// The `Recipient` type allows to send one specific message to an
-/// actor.
+impl<A: Actor> fmt::Debug for WeakAddr<A> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("WeakAddr")
+            .field("wtx", &self.wtx)
+            .finish()
+    }
+}
+
+/// The [`Recipient`] type allows to send one specific message to an actor.
 ///
-/// You can get a recipient using the `Addr::recipient()` method. It
-/// is possible to use the `Clone::clone()` method to get a cloned
-/// recipient.
+/// You can get a recipient using the `Addr::recipient()` method. It is possible
+/// to use the `Clone::clone()` method to get a cloned recipient.
 pub struct Recipient<M: Message>
 where
     M: Message + Send,
@@ -277,16 +290,23 @@ where
     pub fn connected(&self) -> bool {
         self.tx.connected()
     }
+
+    /// Returns a downgraded `WeakRecipient`
+    pub fn downgrade(&self) -> WeakRecipient<M> {
+        WeakRecipient {
+            wtx: self.tx.downgrade(),
+        }
+    }
 }
 
-impl<A: Actor, M: Message + Send + 'static> Into<Recipient<M>> for Addr<A>
+impl<A: Actor, M: Message + Send + 'static> From<Addr<A>> for Recipient<M>
 where
     A: Handler<M>,
     M::Result: Send,
     A::Context: ToEnvelope<A, M>,
 {
-    fn into(self) -> Recipient<M> {
-        Recipient::new(Box::new(self.tx))
+    fn from(addr: Addr<A>) -> Self {
+        Recipient::new(Box::new(addr.tx))
     }
 }
 
@@ -358,6 +378,28 @@ where
     }
 }
 
+impl<M> Clone for WeakRecipient<M>
+where
+    M: Message + Send,
+    M::Result: Send,
+{
+    fn clone(&self) -> Self {
+        Self {
+            wtx: self.wtx.boxed(),
+        }
+    }
+}
+
+impl<M> From<Recipient<M>> for WeakRecipient<M>
+where
+    M: Message + Send,
+    M::Result: Send,
+{
+    fn from(recipient: Recipient<M>) -> Self {
+        recipient.downgrade()
+    }
+}
+
 impl<M> WeakRecipient<M>
 where
     M: Message + Send,
@@ -373,25 +415,25 @@ where
     }
 }
 
-impl<A: Actor, M: Message + Send + 'static> Into<WeakRecipient<M>> for Addr<A>
+impl<A: Actor, M: Message + Send + 'static> From<Addr<A>> for WeakRecipient<M>
 where
     A: Handler<M>,
     M::Result: Send,
     A::Context: ToEnvelope<A, M>,
 {
-    fn into(self) -> WeakRecipient<M> {
-        self.downgrade().recipient()
+    fn from(addr: Addr<A>) -> WeakRecipient<M> {
+        addr.downgrade().recipient()
     }
 }
 
-impl<A: Actor, M: Message + Send + 'static> Into<WeakRecipient<M>> for WeakAddr<A>
+impl<A: Actor, M: Message + Send + 'static> From<WeakAddr<A>> for WeakRecipient<M>
 where
     A: Handler<M>,
     M::Result: Send,
     A::Context: ToEnvelope<A, M>,
 {
-    fn into(self) -> WeakRecipient<M> {
-        WeakRecipient::new(Box::new(self.wtx))
+    fn from(addr: WeakAddr<A>) -> WeakRecipient<M> {
+        WeakRecipient::new(Box::new(addr.wtx))
     }
 }
 
@@ -430,7 +472,9 @@ mod tests {
         let count = Arc::new(AtomicUsize::new(0));
         let count2 = Arc::clone(&count);
 
-        System::run(move || {
+        let sys = System::new();
+
+        sys.block_on(async move {
             //Actor::started gets called after we relinquish
             //control to event loop so we just set it ourself.
             let addr = ActorWithSmallMailBox::create(|ctx| {
@@ -453,9 +497,11 @@ mod tests {
 
                 System::current().stop();
             };
-            Arbiter::spawn(fut);
-        })
-        .unwrap();
+            actix_rt::spawn(fut);
+        });
+
+        // run til system stop
+        sys.run().unwrap();
 
         assert_eq!(count.load(Ordering::Relaxed), 3);
     }

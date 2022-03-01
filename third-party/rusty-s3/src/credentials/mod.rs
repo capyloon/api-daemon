@@ -13,33 +13,46 @@ use std::env;
 use std::fmt::{self, Debug, Formatter};
 
 pub use self::rotating::RotatingCredentials;
+#[cfg(feature = "full")]
 pub use self::serde::Ec2SecurityCredentialsMetadataResponse;
+use zeroize::Zeroizing;
 
 mod rotating;
+#[cfg(feature = "full")]
 mod serde;
 
 /// S3 credentials
 #[derive(Clone, PartialEq, Eq)]
 pub struct Credentials {
     key: String,
-    secret: String,
+    secret: Zeroizing<String>,
     token: Option<String>,
 }
 
 impl Credentials {
     /// Construct a new `Credentials` using the provided key and secret
     #[inline]
-    pub fn new(key: String, secret: String) -> Self {
-        Self::new_(key, secret, None)
+    pub fn new(key: impl Into<String>, secret: impl Into<String>) -> Self {
+        Self::new_with_maybe_token(key.into(), secret.into(), None)
     }
 
     /// Construct a new `Credentials` using the provided key, secret and token
-    ///
-    /// For backwards compatibility this method was named `new_`, and will replace
-    /// the current `new` implementation in the 0.2.0 release.
     #[inline]
-    pub fn new_(key: String, secret: String, token: Option<String>) -> Self {
-        Self { key, secret, token }
+    pub fn new_with_token(
+        key: impl Into<String>,
+        secret: impl Into<String>,
+        token: impl Into<String>,
+    ) -> Self {
+        Self::new_with_maybe_token(key.into(), secret.into(), Some(token.into()))
+    }
+
+    #[inline]
+    pub(super) fn new_with_maybe_token(key: String, secret: String, token: Option<String>) -> Self {
+        Self {
+            key,
+            secret: Zeroizing::new(secret),
+            token,
+        }
     }
 
     /// Construct a new `Credentials` using AWS's default environment variables
@@ -52,7 +65,7 @@ impl Credentials {
         let key = env::var("AWS_ACCESS_KEY_ID").ok()?;
         let secret = env::var("AWS_SECRET_ACCESS_KEY").ok()?;
         let token = env::var("AWS_SESSION_TOKEN").ok();
-        Some(Self::new_(key, secret, token))
+        Some(Self::new_with_maybe_token(key, secret, token))
     }
 
     /// Get the key of this `Credentials`
@@ -90,7 +103,7 @@ mod tests {
 
     #[test]
     fn key_secret() {
-        let credentials = Credentials::new("abcd".into(), "1234".into());
+        let credentials = Credentials::new("abcd", "1234");
         assert_eq!(credentials.key(), "abcd");
         assert_eq!(credentials.secret(), "1234");
         assert!(credentials.token().is_none());
@@ -98,7 +111,7 @@ mod tests {
 
     #[test]
     fn key_secret_token() {
-        let credentials = Credentials::new_("abcd".into(), "1234".into(), Some("xyz".into()));
+        let credentials = Credentials::new_with_token("abcd", "1234", "xyz");
         assert_eq!(credentials.key(), "abcd");
         assert_eq!(credentials.secret(), "1234");
         assert_eq!(credentials.token(), Some("xyz"));
@@ -106,14 +119,14 @@ mod tests {
 
     #[test]
     fn debug() {
-        let credentials = Credentials::new("abcd".into(), "1234".into());
+        let credentials = Credentials::new("abcd", "1234");
         let debug_output = format!("{:?}", credentials);
         assert_eq!(debug_output, "Credentials { key: \"abcd\" }");
     }
 
     #[test]
     fn debug_token() {
-        let credentials = Credentials::new_("abcd".into(), "1234".into(), Some("xyz".into()));
+        let credentials = Credentials::new_with_token("abcd", "1234", "xyz");
         let debug_output = format!("{:?}", credentials);
         assert_eq!(debug_output, "Credentials { key: \"abcd\" }");
     }

@@ -3,59 +3,93 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
 name = "awc"
-version = "2.0.3"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
+version = "3.0.0-beta.21"
+authors = ["Nikolay Kim <fafhrd91@gmail.com>", "fakeshadow <24548779@qq.com>"]
 description = "Async HTTP and WebSocket client library built on the Actix ecosystem"
 homepage = "https://actix.rs"
-documentation = "https://docs.rs/awc/"
-readme = "README.md"
 keywords = ["actix", "http", "framework", "async", "web"]
 categories = ["network-programming", "asynchronous", "web-programming::http-client", "web-programming::websocket"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web.git"
+resolver = "2"
 [package.metadata.docs.rs]
-features = ["openssl", "rustls", "compress"]
+features = ["openssl", "rustls", "compress-brotli", "compress-gzip", "compress-zstd", "cookies"]
 
 [lib]
 name = "awc"
 path = "src/lib.rs"
+
+[[example]]
+name = "client"
+required-features = ["rustls"]
 [dependencies.actix-codec]
-version = "0.3.0"
+version = "0.5"
 
 [dependencies.actix-http]
-version = "2.2.0"
+version = "3.0.0-rc.3"
+features = ["http2", "ws"]
 
 [dependencies.actix-rt]
-version = "1.0.0"
+version = "2.1"
+default-features = false
 
 [dependencies.actix-service]
-version = "1.0.6"
+version = "2.0.0"
+
+[dependencies.actix-tls]
+version = "3"
+features = ["connect", "uri"]
+
+[dependencies.actix-utils]
+version = "3.0.0"
+
+[dependencies.ahash]
+version = "0.7"
 
 [dependencies.base64]
 version = "0.13"
 
 [dependencies.bytes]
-version = "0.5.3"
+version = "1"
 
 [dependencies.cfg-if]
-version = "1.0"
+version = "1"
+
+[dependencies.cookie]
+version = "0.16"
+features = ["percent-encode"]
+optional = true
 
 [dependencies.derive_more]
-version = "0.99.2"
+version = "0.99.5"
 
 [dependencies.futures-core]
-version = "0.3.5"
+version = "0.3.7"
+features = ["alloc"]
 default-features = false
+
+[dependencies.futures-util]
+version = "0.3.7"
+features = ["alloc", "sink"]
+default-features = false
+
+[dependencies.h2]
+version = "0.3.9"
+
+[dependencies.http]
+version = "0.2.5"
+
+[dependencies.itoa]
+version = "1"
 
 [dependencies.log]
 version = " 0.4"
@@ -63,22 +97,14 @@ version = " 0.4"
 [dependencies.mime]
 version = "0.3"
 
-[dependencies.open-ssl]
-version = "0.10"
-optional = true
-package = "openssl"
-
 [dependencies.percent-encoding]
 version = "2.1"
 
-[dependencies.rand]
-version = "0.7"
+[dependencies.pin-project-lite]
+version = "0.2"
 
-[dependencies.rust-tls]
-version = "0.18.0"
-features = ["dangerous_configuration"]
-optional = true
-package = "rustls"
+[dependencies.rand]
+version = "0.8"
 
 [dependencies.serde]
 version = "1.0"
@@ -89,8 +115,33 @@ version = "1.0"
 [dependencies.serde_urlencoded]
 version = "0.7"
 
+[dependencies.tls-openssl]
+version = "0.10.9"
+optional = true
+package = "openssl"
+
+[dependencies.tls-rustls]
+version = "0.20.0"
+features = ["dangerous_configuration"]
+optional = true
+package = "rustls"
+
+[dependencies.tokio]
+version = "1.8.4"
+features = ["sync"]
+
+[dependencies.trust-dns-resolver]
+version = "0.20.0"
+optional = true
+
 [features]
-compress = ["actix-http/compress"]
-default = ["compress"]
-openssl = ["open-ssl", "actix-http/openssl"]
-rustls = ["rust-tls", "actix-http/rustls"]
+__compress = []
+compress-brotli = ["actix-http/compress-brotli", "__compress"]
+compress-gzip = ["actix-http/compress-gzip", "__compress"]
+compress-zstd = ["actix-http/compress-zstd", "__compress"]
+cookies = ["cookie"]
+dangerous-h2c = []
+default = ["compress-brotli", "compress-gzip", "compress-zstd", "cookies"]
+openssl = ["tls-openssl", "actix-tls/openssl"]
+rustls = ["tls-rustls", "actix-tls/rustls"]
+trust-dns = ["trust-dns-resolver"]

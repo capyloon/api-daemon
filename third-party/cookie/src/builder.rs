@@ -1,8 +1,6 @@
 use std::borrow::Cow;
 
-use time::{Duration, OffsetDateTime};
-
-use crate::{Cookie, SameSite};
+use crate::{Cookie, SameSite, Expiration};
 
 /// Structure that follows the builder pattern for building `Cookie` structs.
 ///
@@ -16,10 +14,8 @@ use crate::{Cookie, SameSite};
 ///
 /// ```rust
 /// # extern crate cookie;
-/// extern crate time;
-///
 /// use cookie::Cookie;
-/// use time::Duration;
+/// use cookie::time::Duration;
 ///
 /// # fn main() {
 /// let cookie: Cookie = Cookie::build("name", "value")
@@ -63,21 +59,25 @@ impl<'c> CookieBuilder<'c> {
     ///
     /// ```rust
     /// # extern crate cookie;
-    /// extern crate time;
-    /// use time::OffsetDateTime;
-    ///
-    /// use cookie::Cookie;
+    /// use cookie::{Cookie, Expiration};
+    /// use cookie::time::OffsetDateTime;
     ///
     /// # fn main() {
     /// let c = Cookie::build("foo", "bar")
-    ///     .expires(OffsetDateTime::now())
+    ///     .expires(OffsetDateTime::now_utc())
     ///     .finish();
     ///
     /// assert!(c.expires().is_some());
+    ///
+    /// let c = Cookie::build("foo", "bar")
+    ///     .expires(None)
+    ///     .finish();
+    ///
+    /// assert_eq!(c.expires(), Some(Expiration::Session));
     /// # }
     /// ```
     #[inline]
-    pub fn expires(mut self, when: OffsetDateTime) -> Self {
+    pub fn expires<E: Into<Expiration>>(mut self, when: E) -> Self {
         self.cookie.set_expires(when);
         self
     }
@@ -88,10 +88,8 @@ impl<'c> CookieBuilder<'c> {
     ///
     /// ```rust
     /// # extern crate cookie;
-    /// extern crate time;
-    /// use time::Duration;
-    ///
     /// use cookie::Cookie;
+    /// use cookie::time::Duration;
     ///
     /// # fn main() {
     /// let c = Cookie::build("foo", "bar")
@@ -102,7 +100,7 @@ impl<'c> CookieBuilder<'c> {
     /// # }
     /// ```
     #[inline]
-    pub fn max_age(mut self, value: Duration) -> Self {
+    pub fn max_age(mut self, value: time::Duration) -> Self {
         self.cookie.set_max_age(value);
         self
     }
@@ -207,10 +205,8 @@ impl<'c> CookieBuilder<'c> {
     ///
     /// ```rust
     /// # extern crate cookie;
-    /// extern crate time;
-    ///
     /// use cookie::Cookie;
-    /// use time::Duration;
+    /// use cookie::time::Duration;
     ///
     /// # fn main() {
     /// let c = Cookie::build("foo", "bar")

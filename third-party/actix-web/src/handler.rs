@@ -1,291 +1,175 @@
-use std::convert::Infallible;
 use std::future::Future;
-use std::marker::PhantomData;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
-use actix_http::{Error, Response};
-use actix_service::{Service, ServiceFactory};
-use futures_util::future::{ok, Ready};
-use futures_util::ready;
-use pin_project::pin_project;
+use actix_service::{boxed, fn_service};
 
-use crate::extract::FromRequest;
-use crate::request::HttpRequest;
-use crate::responder::Responder;
-use crate::service::{ServiceRequest, ServiceResponse};
+use crate::{
+    service::{BoxedHttpServiceFactory, ServiceRequest, ServiceResponse},
+    FromRequest, HttpResponse, Responder,
+};
 
-/// Async handler converter factory
-pub trait Factory<T, R, O>: Clone + 'static
-where
-    R: Future<Output = O>,
-    O: Responder,
-{
-    fn call(&self, param: T) -> R;
+/// The interface for request handlers.
+///
+/// # What Is A Request Handler
+/// In short, a handler is just an async function that receives request-based arguments, in any
+/// order, and returns something that can be converted to a response.
+///
+/// In particular, a request handler has three requirements:
+/// 1. It is an async function (or a function/closure that returns an appropriate future);
+/// 1. The function parameters (up to 12) implement [`FromRequest`];
+/// 1. The async function (or future) resolves to a type that can be converted into an
+///   [`HttpResponse`] (i.e., it implements the [`Responder`] trait).
+///
+///
+/// # Compiler Errors
+/// If you get the error `the trait Handler<_> is not implemented`, then your handler does not
+/// fulfill the _first_ of the above requirements. Missing other requirements manifest as errors on
+/// implementing [`FromRequest`] and [`Responder`], respectively.
+///
+/// # How Do Handlers Receive Variable Numbers Of Arguments
+/// Rest assured there is no macro magic here; it's just traits.
+///
+/// The first thing to note is that [`FromRequest`] is implemented for tuples (up to 12 in length).
+///
+/// Secondly, the `Handler` trait is implemented for functions (up to an [arity] of 12) in a way
+/// that aligns their parameter positions with a corresponding tuple of types (becoming the `Args`
+/// type parameter for this trait).
+///
+/// Thanks to Rust's type system, Actix Web can infer the function parameter types. During the
+/// extraction step, the parameter types are described as a tuple type, [`from_request`] is run on
+/// that tuple, and the `Handler::call` implementation for that particular function arity
+/// destructures the tuple into it's component types and calls your handler function with them.
+///
+/// In pseudo-code the process looks something like this:
+/// ```ignore
+/// async fn my_handler(body: String, state: web::Data<MyState>) -> impl Responder {
+///     ...
+/// }
+///
+/// // the function params above described as a tuple, names do not matter, only position
+/// type InferredMyHandlerArgs = (String, web::Data<MyState>);
+///
+/// // create tuple of arguments to be passed to handler
+/// let args = InferredMyHandlerArgs::from_request(&request, &payload).await;
+///
+/// // call handler with argument tuple
+/// let response = Handler::call(&my_handler, args).await;
+///
+/// // which is effectively...
+///
+/// let (body, state) = args;
+/// let response = my_handler(body, state).await;
+/// ```
+///
+/// This is the source code for the 2-parameter implementation of `Handler` to help illustrate the
+/// bounds of the handler call after argument extraction:
+/// ```ignore
+/// impl<Func, Arg1, Arg2, Fut> Handler<(Arg1, Arg2)> for Func
+/// where
+///     Func: Fn(Arg1, Arg2) -> Fut + Clone + 'static,
+///     Fut: Future,
+/// {
+///     type Output = Fut::Output;
+///     type Future = Fut;
+///
+///     fn call(&self, (arg1, arg2): (Arg1, Arg2)) -> Self::Future {
+///         (self)(arg1, arg2)
+///     }
+/// }
+/// ```
+///
+/// [arity]: https://en.wikipedia.org/wiki/Arity
+/// [`from_request`]: FromRequest::from_request
+pub trait Handler<Args>: Clone + 'static {
+    type Output;
+    type Future: Future<Output = Self::Output>;
+
+    fn call(&self, args: Args) -> Self::Future;
 }
 
-impl<F, R, O> Factory<(), R, O> for F
+pub(crate) fn handler_service<F, Args>(handler: F) -> BoxedHttpServiceFactory
 where
-    F: Fn() -> R + Clone + 'static,
-    R: Future<Output = O>,
-    O: Responder,
+    F: Handler<Args>,
+    Args: FromRequest,
+    F::Output: Responder,
 {
-    fn call(&self, _: ()) -> R {
-        (self)()
-    }
-}
+    boxed::factory(fn_service(move |req: ServiceRequest| {
+        let handler = handler.clone();
 
-#[doc(hidden)]
-pub struct Handler<F, T, R, O>
-where
-    F: Factory<T, R, O>,
-    R: Future<Output = O>,
-    O: Responder,
-{
-    hnd: F,
-    _t: PhantomData<(T, R, O)>,
-}
+        async move {
+            let (req, mut payload) = req.into_parts();
 
-impl<F, T, R, O> Handler<F, T, R, O>
-where
-    F: Factory<T, R, O>,
-    R: Future<Output = O>,
-    O: Responder,
-{
-    pub fn new(hnd: F) -> Self {
-        Handler {
-            hnd,
-            _t: PhantomData,
-        }
-    }
-}
+            let res = match Args::from_request(&req, &mut payload).await {
+                Err(err) => HttpResponse::from_error(err),
 
-impl<F, T, R, O> Clone for Handler<F, T, R, O>
-where
-    F: Factory<T, R, O>,
-    R: Future<Output = O>,
-    O: Responder,
-{
-    fn clone(&self) -> Self {
-        Handler {
-            hnd: self.hnd.clone(),
-            _t: PhantomData,
-        }
-    }
-}
-
-impl<F, T, R, O> Service for Handler<F, T, R, O>
-where
-    F: Factory<T, R, O>,
-    R: Future<Output = O>,
-    O: Responder,
-{
-    type Request = (T, HttpRequest);
-    type Response = ServiceResponse;
-    type Error = Infallible;
-    type Future = HandlerServiceResponse<R, O>;
-
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, (param, req): (T, HttpRequest)) -> Self::Future {
-        HandlerServiceResponse {
-            fut: self.hnd.call(param),
-            fut2: None,
-            req: Some(req),
-        }
-    }
-}
-
-#[doc(hidden)]
-#[pin_project]
-pub struct HandlerServiceResponse<T, R>
-where
-    T: Future<Output = R>,
-    R: Responder,
-{
-    #[pin]
-    fut: T,
-    #[pin]
-    fut2: Option<R::Future>,
-    req: Option<HttpRequest>,
-}
-
-impl<T, R> Future for HandlerServiceResponse<T, R>
-where
-    T: Future<Output = R>,
-    R: Responder,
-{
-    type Output = Result<ServiceResponse, Infallible>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_mut().project();
-
-        if let Some(fut) = this.fut2.as_pin_mut() {
-            return match fut.poll(cx) {
-                Poll::Ready(Ok(res)) => {
-                    Poll::Ready(Ok(ServiceResponse::new(this.req.take().unwrap(), res)))
-                }
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(Err(e)) => {
-                    let res: Response = e.into().into();
-                    Poll::Ready(Ok(ServiceResponse::new(this.req.take().unwrap(), res)))
-                }
+                Ok(data) => handler
+                    .call(data)
+                    .await
+                    .respond_to(&req)
+                    .map_into_boxed_body(),
             };
+
+            Ok(ServiceResponse::new(req, res))
         }
-
-        match this.fut.poll(cx) {
-            Poll::Ready(res) => {
-                let fut = res.respond_to(this.req.as_ref().unwrap());
-                self.as_mut().project().fut2.set(Some(fut));
-                self.poll(cx)
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
+    }))
 }
 
-/// Extract arguments from request
-pub struct Extract<T: FromRequest, S> {
-    service: S,
-    _t: PhantomData<T>,
-}
-
-impl<T: FromRequest, S> Extract<T, S> {
-    pub fn new(service: S) -> Self {
-        Extract {
-            service,
-            _t: PhantomData,
-        }
-    }
-}
-
-impl<T: FromRequest, S> ServiceFactory for Extract<T, S>
-where
-    S: Service<
-            Request = (T, HttpRequest),
-            Response = ServiceResponse,
-            Error = Infallible,
-        > + Clone,
-{
-    type Config = ();
-    type Request = ServiceRequest;
-    type Response = ServiceResponse;
-    type Error = (Error, ServiceRequest);
-    type InitError = ();
-    type Service = ExtractService<T, S>;
-    type Future = Ready<Result<Self::Service, ()>>;
-
-    fn new_service(&self, _: ()) -> Self::Future {
-        ok(ExtractService {
-            _t: PhantomData,
-            service: self.service.clone(),
-        })
-    }
-}
-
-pub struct ExtractService<T: FromRequest, S> {
-    service: S,
-    _t: PhantomData<T>,
-}
-
-impl<T: FromRequest, S> Service for ExtractService<T, S>
-where
-    S: Service<
-            Request = (T, HttpRequest),
-            Response = ServiceResponse,
-            Error = Infallible,
-        > + Clone,
-{
-    type Request = ServiceRequest;
-    type Response = ServiceResponse;
-    type Error = (Error, ServiceRequest);
-    type Future = ExtractResponse<T, S>;
-
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, req: ServiceRequest) -> Self::Future {
-        let (req, mut payload) = req.into_parts();
-        let fut = T::from_request(&req, &mut payload);
-
-        ExtractResponse {
-            fut,
-            req,
-            fut_s: None,
-            service: self.service.clone(),
-        }
-    }
-}
-
-#[pin_project]
-pub struct ExtractResponse<T: FromRequest, S: Service> {
-    req: HttpRequest,
-    service: S,
-    #[pin]
-    fut: T::Future,
-    #[pin]
-    fut_s: Option<S::Future>,
-}
-
-impl<T: FromRequest, S> Future for ExtractResponse<T, S>
-where
-    S: Service<
-        Request = (T, HttpRequest),
-        Response = ServiceResponse,
-        Error = Infallible,
-    >,
-{
-    type Output = Result<ServiceResponse, (Error, ServiceRequest)>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_mut().project();
-
-        if let Some(fut) = this.fut_s.as_pin_mut() {
-            return fut.poll(cx).map_err(|_| panic!());
-        }
-
-        match ready!(this.fut.poll(cx)) {
-            Err(e) => {
-                let req = ServiceRequest::new(this.req.clone());
-                Poll::Ready(Err((e.into(), req)))
-            }
-            Ok(item) => {
-                let fut = Some(this.service.call((item, this.req.clone())));
-                self.as_mut().project().fut_s.set(fut);
-                self.poll(cx)
-            }
-        }
-    }
-}
-
-/// FromRequest trait impl for tuples
-macro_rules! factory_tuple ({ $(($n:tt, $T:ident)),+} => {
-    impl<Func, $($T,)+ Res, O> Factory<($($T,)+), Res, O> for Func
-    where Func: Fn($($T,)+) -> Res + Clone + 'static,
-          Res: Future<Output = O>,
-          O: Responder,
+/// Generates a [`Handler`] trait impl for N-ary functions where N is specified with a sequence of
+/// space separated type parameters.
+///
+/// # Examples
+/// ```ignore
+/// factory_tuple! {}         // implements Handler for types: fn() -> R
+/// factory_tuple! { A B C }  // implements Handler for types: fn(A, B, C) -> R
+/// ```
+macro_rules! factory_tuple ({ $($param:ident)* } => {
+    impl<Func, Fut, $($param,)*> Handler<($($param,)*)> for Func
+    where
+        Func: Fn($($param),*) -> Fut + Clone + 'static,
+        Fut: Future,
     {
-        fn call(&self, param: ($($T,)+)) -> Res {
-            (self)($(param.$n,)+)
+        type Output = Fut::Output;
+        type Future = Fut;
+
+        #[inline]
+        #[allow(non_snake_case)]
+        fn call(&self, ($($param,)*): ($($param,)*)) -> Self::Future {
+            (self)($($param,)*)
         }
     }
 });
 
-#[rustfmt::skip]
-mod m {
+factory_tuple! {}
+factory_tuple! { A }
+factory_tuple! { A B }
+factory_tuple! { A B C }
+factory_tuple! { A B C D }
+factory_tuple! { A B C D E }
+factory_tuple! { A B C D E F }
+factory_tuple! { A B C D E F G }
+factory_tuple! { A B C D E F G H }
+factory_tuple! { A B C D E F G H I }
+factory_tuple! { A B C D E F G H I J }
+factory_tuple! { A B C D E F G H I J K }
+factory_tuple! { A B C D E F G H I J K L }
+
+#[cfg(test)]
+mod tests {
     use super::*;
 
-factory_tuple!((0, A));
-factory_tuple!((0, A), (1, B));
-factory_tuple!((0, A), (1, B), (2, C));
-factory_tuple!((0, A), (1, B), (2, C), (3, D));
-factory_tuple!((0, A), (1, B), (2, C), (3, D), (4, E));
-factory_tuple!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F));
-factory_tuple!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G));
-factory_tuple!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H));
-factory_tuple!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I));
-factory_tuple!((0, A), (1, B), (2, C), (3, D), (4, E), (5, F), (6, G), (7, H), (8, I), (9, J));
+    fn assert_impl_handler<T: FromRequest>(_: impl Handler<T>) {}
+
+    #[test]
+    fn arg_number() {
+        async fn handler_min() {}
+
+        #[rustfmt::skip]
+        #[allow(clippy::too_many_arguments, clippy::just_underscores_and_digits)]
+        async fn handler_max(
+            _01: (), _02: (), _03: (), _04: (), _05: (), _06: (),
+            _07: (), _08: (), _09: (), _10: (), _11: (), _12: (),
+        ) {}
+
+        assert_impl_handler(handler_min);
+        assert_impl_handler(handler_max);
+    }
 }

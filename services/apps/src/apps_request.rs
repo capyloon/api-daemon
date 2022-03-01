@@ -8,7 +8,7 @@ use crate::manifest::{Icons, Manifest};
 use crate::shared_state::AppsSharedData;
 use crate::shared_state::DownloadingCanceller;
 use crate::update_manifest::UpdateManifest;
-use blake2::{Blake2s, Digest};
+use blake2::{Blake2s256, Digest};
 use common::traits::Shared;
 use log::{debug, error, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -767,7 +767,7 @@ fn compute_manifest_hash<P: AsRef<Path>>(p: P) -> Result<String, AppsError> {
     let mut buffer = Vec::new();
     let mut file = File::open(p)?;
     if file.read_to_end(&mut buffer).is_ok() {
-        let mut hasher = Blake2s::new();
+        let mut hasher = Blake2s256::new();
         hasher.update(&buffer);
         let res = hasher.finalize();
         Ok(format!("{:x}", res))

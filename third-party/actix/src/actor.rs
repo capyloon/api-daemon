@@ -1,21 +1,18 @@
 use std::time::Duration;
 
-use actix_rt::Arbiter;
-use futures_util::stream::Stream;
+use actix_rt::ArbiterHandle;
+use futures_core::stream::Stream;
 use log::error;
 
 use crate::address::{channel, Addr};
 use crate::context::Context;
-use crate::contextitems::{
-    ActorDelayedMessageItem, ActorMessageItem, ActorMessageStreamItem,
-};
-use crate::fut::{ActorFuture, ActorStream};
+use crate::contextitems::{ActorDelayedMessageItem, ActorMessageItem, ActorMessageStreamItem};
+use crate::fut::{ActorFuture, ActorStreamExt};
 use crate::handler::{Handler, Message};
 use crate::mailbox::DEFAULT_CAPACITY;
 use crate::stream::StreamHandler;
 use crate::utils::{IntervalFunc, TimerFunc};
 
-#[allow(unused_variables)]
 /// Actors are objects which encapsulate state and behavior.
 ///
 /// Actors run within a specific execution context
@@ -72,7 +69,7 @@ use crate::utils::{IntervalFunc, TimerFunc};
 /// If an actor does not modify execution context while in stopping
 /// state, the actor state changes to `Stopped`. This state is
 /// considered final and at this point the actor gets dropped.
-///
+#[allow(unused_variables)]
 pub trait Actor: Sized + Unpin + 'static {
     /// Actor execution context type
     type Context: ActorContext;
@@ -105,7 +102,7 @@ pub trait Actor: Sized + Unpin + 'static {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// use actix::*;
     ///
     /// struct MyActor;
@@ -115,7 +112,7 @@ pub trait Actor: Sized + Unpin + 'static {
     ///
     /// fn main() {
     ///     // initialize system
-    ///     System::run(|| {
+    ///     System::new().block_on(async {
     ///         let addr = MyActor.start(); // <- start actor and get its address
     /// #       System::current().stop();
     ///     });
@@ -141,7 +138,7 @@ pub trait Actor: Sized + Unpin + 'static {
     }
 
     /// Start new actor in arbiter's thread.
-    fn start_in_arbiter<F>(arb: &Arbiter, f: F) -> Addr<Self>
+    fn start_in_arbiter<F>(wrk: &ArbiterHandle, f: F) -> Addr<Self>
     where
         Self: Actor<Context = Context<Self>>,
         F: FnOnce(&mut Context<Self>) -> Self + Send + 'static,
@@ -149,7 +146,7 @@ pub trait Actor: Sized + Unpin + 'static {
         let (tx, rx) = channel::channel(DEFAULT_CAPACITY);
 
         // create actor
-        arb.exec_fn(move || {
+        wrk.spawn_fn(move || {
             let mut ctx = Context::with_receiver(rx);
             let act = f(&mut ctx);
             let fut = ctx.into_future(act);
@@ -167,7 +164,7 @@ pub trait Actor: Sized + Unpin + 'static {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// use actix::*;
     ///
     /// struct MyActor {
@@ -179,7 +176,7 @@ pub trait Actor: Sized + Unpin + 'static {
     ///
     /// fn main() {
     ///     // initialize system
-    ///     System::run(|| {
+    ///     System::new().block_on(async {
     ///         let addr = MyActor::create(|ctx: &mut Context<MyActor>| MyActor { val: 10 });
     /// #       System::current().stop();
     ///     });
@@ -285,7 +282,7 @@ where
     /// during the actor's stopping stage.
     fn spawn<F>(&mut self, fut: F) -> SpawnHandle
     where
-        F: ActorFuture<Output = (), Actor = A> + 'static;
+        F: ActorFuture<A, Output = ()> + 'static;
 
     /// Spawns a future into the context, waiting for it to resolve.
     ///
@@ -293,7 +290,7 @@ where
     /// resolves.
     fn wait<F>(&mut self, fut: F)
     where
-        F: ActorFuture<Output = (), Actor = A> + 'static;
+        F: ActorFuture<A, Output = ()> + 'static;
 
     /// Checks if the context is paused (waiting for future completion or stopping).
     fn waiting(&self) -> bool;
@@ -308,7 +305,7 @@ where
     /// This allows handling a `Stream` in a way similar to normal
     /// actor messages.
     ///
-    /// ```rust
+    /// ```
     /// # use std::io;
     /// use actix::prelude::*;
     /// use futures_util::stream::once;
@@ -341,8 +338,8 @@ where
     /// }
     ///
     /// fn main() {
-    ///     let sys = System::new("example");
-    ///     let addr = MyActor.start();
+    ///     let mut sys = System::new();
+    ///     let addr = sys.block_on(async { MyActor.start() });
     ///     sys.run();
     ///  }
     /// ```
@@ -359,7 +356,7 @@ where
     /// This method is similar to `add_stream` but it skips stream
     /// errors.
     ///
-    /// ```rust
+    /// ```
     /// use actix::prelude::*;
     /// use futures_util::stream::once;
     ///
@@ -388,7 +385,7 @@ where
     /// }
     ///
     /// fn main() {
-    ///    System::run(|| {
+    ///    System::new().block_on(async {
     ///        let addr = MyActor.start();
     ///    });
     /// }

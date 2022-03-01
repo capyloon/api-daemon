@@ -176,7 +176,7 @@ mod _original {
                 buf[5] = b'0';
                 buf[7] = b'9';
             }
-            _ => (),
+            _ => {}
         }
 
         let mut curr: isize = 12;
@@ -189,11 +189,7 @@ mod _original {
         n /= 100;
         curr -= 2;
         unsafe {
-            ptr::copy_nonoverlapping(
-                lut_ptr.offset(d1 as isize),
-                buf_ptr.offset(curr),
-                2,
-            );
+            ptr::copy_nonoverlapping(lut_ptr.offset(d1 as isize), buf_ptr.offset(curr), 2);
         }
 
         // decode last 1 or 2 chars
@@ -206,11 +202,7 @@ mod _original {
             let d1 = n << 1;
             curr -= 2;
             unsafe {
-                ptr::copy_nonoverlapping(
-                    lut_ptr.offset(d1 as isize),
-                    buf_ptr.offset(curr),
-                    2,
-                );
+                ptr::copy_nonoverlapping(lut_ptr.offset(d1 as isize), buf_ptr.offset(curr), 2);
             }
         }
 

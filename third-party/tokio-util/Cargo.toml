@@ -11,12 +11,12 @@
 
 [package]
 edition = "2018"
+rust-version = "1.49"
 name = "tokio-util"
-version = "0.6.9"
+version = "0.7.0"
 authors = ["Tokio Contributors <team@tokio.rs>"]
 description = "Additional utilities for working with Tokio.\n"
 homepage = "https://tokio.rs"
-documentation = "https://docs.rs/tokio-util/0.6.9/tokio_util"
 categories = ["asynchronous"]
 license = "MIT"
 repository = "https://github.com/tokio-rs/tokio"
@@ -47,7 +47,7 @@ version = "0.4"
 version = "0.2.0"
 
 [dependencies.slab]
-version = "0.4.1"
+version = "0.4.4"
 optional = true
 
 [dependencies.tokio]
@@ -81,5 +81,5 @@ full = ["codec", "compat", "io-util", "time", "net", "rt"]
 io = []
 io-util = ["io", "tokio/rt", "tokio/io-util"]
 net = ["tokio/net"]
-rt = ["tokio/rt"]
+rt = ["tokio/rt", "tokio/sync", "futures-util"]
 time = ["tokio/time", "slab"]

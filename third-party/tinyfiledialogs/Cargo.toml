@@ -3,16 +3,15 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 name = "tinyfiledialogs"
-version = "3.8.3"
+version = "3.9.0"
 authors = ["Guillaume Vareille <vareille@users.sourceforge.net>", "Josh Matthews <josh@joshmatthews.net>"]
 build = "build.rs"
 description = "High-level Rust binding for the tinyfiledialogs C library."
