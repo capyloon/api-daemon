@@ -230,7 +230,6 @@ impl From<Order> for String {
 
 #[derive(Debug)]
 struct MainRowData {
-    contact_id: String,
     name: String,
     family_name: String,
     given_name: String,
@@ -242,13 +241,11 @@ struct MainRowData {
     updated: i64,
     bday: i64,
     anniversary: i64,
-    category: String,
     category_json: String,
 }
 
 #[derive(Debug)]
 struct AdditionalRowData {
-    contact_id: String,
     data_type: String,
     value: String,
 }
@@ -441,27 +438,25 @@ impl ContactInfo {
     pub fn fill_main_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
         self.id = Some(id.into());
         let mut stmt = conn.prepare(
-            "SELECT contact_id, name, family_name, given_name, tel_json, email_json,
-        photo_type, photo_blob, published, updated, bday, anniversary, category, category_json FROM
+            "SELECT name, family_name, given_name, tel_json, email_json,
+        photo_type, photo_blob, published, updated, bday, anniversary, category_json FROM
         contact_main WHERE contact_id=:id",
         )?;
 
         let rows = stmt.query_map(&[(":id", &(self.id.clone().unwrap_or_default()))], |row| {
             Ok(MainRowData {
-                contact_id: row.get(0)?,
-                name: row.get(1)?,
-                family_name: row.get(2)?,
-                given_name: row.get(3)?,
-                tel_json: row.get(4)?,
-                email_json: row.get(5)?,
-                photo_type: row.get(6)?,
-                photo_blob: row.get(7)?,
-                published: row.get(8)?,
-                updated: row.get(9)?,
-                bday: row.get(10)?,
-                anniversary: row.get(11)?,
-                category: row.get(12)?,
-                category_json: row.get(13)?,
+                name: row.get(0)?,
+                family_name: row.get(1)?,
+                given_name: row.get(2)?,
+                tel_json: row.get(3)?,
+                email_json: row.get(4)?,
+                photo_type: row.get(5)?,
+                photo_blob: row.get(6)?,
+                published: row.get(7)?,
+                updated: row.get(8)?,
+                bday: row.get(9)?,
+                anniversary: row.get(10)?,
+                category_json: row.get(11)?,
             })
         })?;
 
@@ -527,13 +522,12 @@ impl ContactInfo {
     pub fn fill_additional_data(&mut self, id: &str, conn: &Connection) -> Result<(), Error> {
         self.id = Some(id.into());
         let mut stmt = conn.prepare(
-            "SELECT contact_id, data_type, value FROM contact_additional WHERE contact_id=:id",
+            "SELECT data_type, value FROM contact_additional WHERE contact_id=:id",
         )?;
         let rows = stmt.query_map(&[(":id", &id)], |row| {
             Ok(AdditionalRowData {
-                contact_id: row.get(0)?,
-                data_type: row.get(1)?,
-                value: row.get(2)?,
+                data_type: row.get(0)?,
+                value: row.get(1)?,
             })
         })?;
 
