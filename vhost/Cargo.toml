@@ -9,11 +9,14 @@ version = "0.1.0"
 actix-cors = "0.6"
 actix-rt = "2.6"
 actix-web = "4.0"
+async-trait = "0.1"
 blake2 = "0.10"
 common = {path = "../common"}
 log = "0.4"
 mime_guess = "2.0"
 serde = {version = "1.0", features = ["derive"]}
+tokio = {version = "1", features = ["fs"]}
+tokio-util = "0.7"
 zip = {path = "../support/zip"}
 
 [dev-dependencies]

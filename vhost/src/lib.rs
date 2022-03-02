@@ -39,6 +39,8 @@ mod test {
             root_path: "./test-fixtures/".into(),
             csp: "default-src * data: blob:; script-src 'self' http://127.0.0.1 http://shared.localhost; object-src 'none'; style-src 'self' 'unsafe-inline' http://shared.localhost".into(),
         };
+        let mut mappings = HashMap::new();
+        mappings.insert("mapped".into(), "valid".into());
 
         let app_data = Shared::adopt(AppData {
             root_path: config.root_path.clone(),

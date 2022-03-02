@@ -2,15 +2,21 @@
 use crate::etag::*;
 use actix_web::http::header::{self, Header, HeaderValue};
 use actix_web::{http, web, HttpRequest, HttpResponse, HttpResponseBuilder, Responder};
+use async_trait::async_trait;
 use common::traits::Shared;
-use log::{debug, error};
+use log::debug;
 use mime_guess::{Mime, MimeGuess};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use tokio::fs::File as AsyncFile;
+use tokio_util::io::ReaderStream;
 use zip::read::{ZipArchive, ZipFile};
 use zip::CompressionMethod;
+
+// Chunk size when streaming files.
+const CHUNK_SIZE: usize = 16 * 1024;
 
 #[derive(Default)]
 pub struct AppData {
@@ -110,11 +116,14 @@ fn response_from_zip<'a>(
 }
 
 // Returns a http response for a given file path.
-// TODO: streaming version.
-fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue>) -> HttpResponse {
-    if let Ok(mut file) = File::open(path) {
+async fn response_from_file(
+    path: &Path,
+    csp: &str,
+    if_none_match: Option<&HeaderValue>,
+) -> HttpResponse {
+    if let Ok(mut file) = AsyncFile::open(path).await {
         // Check if we can return NotModified without reading the file content.
-        let etag = Etag::for_file(&file);
+        let etag = Etag::for_file(&mut file).await;
         let file_name = path
             .file_name()
             .unwrap_or_else(|| std::ffi::OsStr::new(""))
@@ -122,12 +131,6 @@ fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue
         let mime = mime_type_for(&file_name);
         if let Some(response) = maybe_not_modified(if_none_match, &etag, &mime, Some(csp)) {
             return response;
-        }
-
-        let mut buf = vec![];
-        if let Err(err) = file.read_to_end(&mut buf) {
-            error!("Failed to read {} : {}", path.to_string_lossy(), err);
-            return internal_server_error();
         }
 
         let mut builder = HttpResponse::Ok();
@@ -138,22 +141,24 @@ fn response_from_file(path: &Path, csp: &str, if_none_match: Option<&HeaderValue
 
         update_response_encoding(&mime, &mut builder);
 
-        builder.body(buf)
+        builder.streaming(ReaderStream::with_capacity(file, CHUNK_SIZE))
     } else {
         HttpResponse::NotFound().finish()
     }
 }
 
+#[async_trait(?Send)]
+trait LangChecker {
+    async fn check(&mut self, lang_file: &str) -> Option<HttpResponse>;
+}
+
 // Helper to figure out if we can use a language specific version of
 // a given path.
-fn check_lang_files<F>(
+async fn check_lang_files<C: LangChecker>(
     languages: &header::AcceptLanguage,
     filename: &str,
-    closure: &mut F,
-) -> Result<HttpResponse, ()>
-where
-    F: FnMut(&str) -> Option<HttpResponse>,
-{
+    mut checker: C,
+) -> Result<HttpResponse, ()> {
     let path = Path::new(filename);
     let file_stem = path
         .file_stem()
@@ -184,12 +189,52 @@ where
             format!("{}{}.{}", parent, file_stem, lang)
         };
 
-        if let Some(response) = closure(&lang_file) {
+        if let Some(response) = checker.check(&lang_file).await {
             return Ok(response);
         }
     }
 
     Err(())
+}
+
+struct FileLangChecker<'a> {
+    root_path: String,
+    host: String,
+    csp: String,
+    if_none_match: Option<&'a HeaderValue>,
+}
+
+#[async_trait(?Send)]
+impl<'a> LangChecker for FileLangChecker<'a> {
+    async fn check(&mut self, lang_file: &str) -> Option<HttpResponse> {
+        let path = format!("{}/{}/{}", self.root_path, self.host, lang_file);
+        let full_path = Path::new(&path);
+        if full_path.exists() {
+            debug!("Direct Opening of {}", lang_file);
+            return Some(response_from_file(full_path, &self.csp, self.if_none_match).await);
+        }
+        None
+    }
+}
+
+use std::sync::Arc;
+struct ZipLangChecker<'a> {
+    archive: Arc<&'a mut ZipArchive<std::fs::File>>,
+    csp: String,
+    if_none_match: Option<&'a HeaderValue>,
+}
+
+#[async_trait(?Send)]
+impl<'a> LangChecker for ZipLangChecker<'a> {
+    async fn check(&mut self, lang_file: &str) -> Option<HttpResponse> {
+        if let Some(archive) = Arc::get_mut(&mut self.archive) {
+            if let Ok(mut zip) = archive.by_name_maybe_raw(lang_file, CompressionMethod::Deflated) {
+                debug!("Opening {}", lang_file);
+                return Some(response_from_zip(&mut zip, &self.csp, self.if_none_match));
+            }
+        }
+        None
+    }
 }
 
 // Maps requests to a static file based on host value:
@@ -301,15 +346,14 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                 // Use the full url except the leading / as the filename, to keep the url parameters if any.
                 let filename = &req.uri().to_string()[1..];
 
-                return match check_lang_files(&languages, filename, &mut |lang_file| {
-                    let path = format!("{}/{}/{}", root_path, host, lang_file);
-                    let full_path = Path::new(&path);
-                    if full_path.exists() {
-                        debug!("Direct Opening of {}", lang_file);
-                        return Some(response_from_file(full_path, &csp, if_none_match));
-                    }
-                    None
-                }) {
+                let lang_checker = FileLangChecker {
+                    root_path: root_path.clone(),
+                    host: host.clone(),
+                    csp: csp.clone(),
+                    if_none_match: if_none_match.clone(),
+                };
+
+                return match check_lang_files(&languages, filename, lang_checker).await {
                     Ok(response) => response,
                     Err(_) => {
                         // Default fallback
@@ -317,7 +361,7 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                         let full_path = Path::new(&path);
                         if full_path.exists() {
                             debug!("Direct Opening of {}", filename);
-                            response_from_file(full_path, &csp, if_none_match)
+                            response_from_file(full_path, &csp, if_none_match).await
                         } else {
                             HttpResponse::NotFound().finish()
                         }
@@ -334,15 +378,12 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
             Some(archive) => {
                 let filename = req.match_info().query("filename");
 
-                match check_lang_files(&languages, filename, &mut |lang_file| {
-                    if let Ok(mut zip) =
-                        archive.by_name_maybe_raw(lang_file, CompressionMethod::Deflated)
-                    {
-                        debug!("Opening {}", lang_file);
-                        return Some(response_from_zip(&mut zip, &csp, if_none_match));
-                    }
-                    None
-                }) {
+                let lang_checker = ZipLangChecker {
+                    archive: Arc::new(archive),
+                    csp: csp.clone(),
+                    if_none_match: if_none_match.clone(),
+                };
+                match check_lang_files(&languages, filename, lang_checker).await {
                     Ok(response) => response,
                     Err(_) => {
                         // Default fallback

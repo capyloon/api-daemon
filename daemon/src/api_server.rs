@@ -10,20 +10,17 @@ use actix_web::middleware::{Compress, Logger};
 use actix_web::web::{Bytes, Data};
 use actix_web::{guard, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws::{self, WebsocketContext};
-use async_std::fs::File;
 use common::traits::{
     IdFactory, MessageEmitter, MessageKind, MessageSender, SendMessageError, Shared,
 };
-use futures_core::{
-    future::Future,
-    ready,
-    stream::Stream,
-    task::{Context, Poll},
-};
-use futures_util::io::AsyncReadExt;
 use log::{debug, error};
 use parking_lot::Mutex;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 use vhost_server::vhost_handler::{maybe_not_modified, vhost, AppData};
+
+// Chunk size when streaming files.
+const CHUNK_SIZE: usize = 16 * 1024;
 
 // When telemetry is enabled, we need to get a handle to the
 // event sender, but the type is not available when the telemetry
@@ -203,43 +200,6 @@ async fn open_file(path: &str, gzip: bool) -> Result<(File, bool), ::std::io::Er
     File::open(path).await.map(|file| (file, false))
 }
 
-const CHUNK_SIZE: usize = 16 * 1024;
-
-struct ChunkedFile {
-    reader: File, //BufReader<File>,
-}
-
-impl ChunkedFile {
-    fn new(file: File) -> Self {
-        Self {
-            reader: file, //BufReader::with_capacity(CHUNK_SIZE, file),
-        }
-    }
-}
-
-use std::pin::Pin;
-impl Stream for ChunkedFile {
-    type Item = Result<Bytes, std::io::Error>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let mut buffer: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
-
-        let read = ready!(Future::poll(
-            Pin::new(&mut self.reader.read(&mut buffer)),
-            cx
-        ))?;
-
-        if read == 0 {
-            // We reached EOF
-            Poll::Ready(None)
-        } else {
-            Poll::Ready(Some(Self::Item::Ok(Bytes::copy_from_slice(
-                &buffer[0..read],
-            ))))
-        }
-    }
-}
-
 async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpResponse, Error> {
     let mut full_path = data.global_context.config.http.root_path.clone();
     full_path.push_str(req.path());
@@ -287,7 +247,9 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
                 builder.body(Bytes::from(content))
             } else {
                 // Otherwise wrap the file in a chunked stream.
-                builder.streaming(ChunkedFile::new(file))
+                builder.streaming(tokio_util::io::ReaderStream::with_capacity(
+                    file, CHUNK_SIZE,
+                ))
             };
 
             Ok(response)
@@ -387,7 +349,9 @@ pub fn start(
                     .route("/{tail}*", web::get().to(http_index)),
             )
     })
-    .keep_alive(actix_http::KeepAlive::Timeout(std::time::Duration::from_secs(60))) // To prevent slow request timeout 408 errors when under load
+    .keep_alive(actix_http::KeepAlive::Timeout(
+        std::time::Duration::from_secs(60),
+    )) // To prevent slow request timeout 408 errors when under load
     .bind(addr)
     .expect("Failed to bind to actix http")
     .disable_signals() // For now, since that's causing issues with Ctrl-C
