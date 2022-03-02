@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "rustls"
-version = "0.20.3"
+version = "0.20.4"
 authors = ["Joseph Birr-Pixton <jpixton@gmail.com>"]
 build = "build.rs"
 autobenches = false

@@ -206,8 +206,7 @@ fn format_phone_number(number: &str) -> String {
 }
 
 pub fn row_to_contact_id(row: &Row) -> Result<String, Error> {
-    let column = row.column_index("contact_id")?;
-    Ok(row.get(column)?)
+    Ok(row.get("contact_id")?)
 }
 
 impl From<SortOption> for String {

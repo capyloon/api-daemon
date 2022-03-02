@@ -1,22 +1,23 @@
 [package]
-name = "vhost_server"
-version = "0.1.0"
 authors = ["Fabrice Desré <fabrice@desre.org>"]
 edition = "2018"
 license = "Apache-2.0"
+name = "vhost_server"
+version = "0.1.0"
 
 [dependencies]
-actix-cors = "0.5"
-actix-web = { version = "3.0", features = ["rustls"] }
-actix-rt = "1.1"
+actix-cors = "0.6"
+actix-rt = "2.6"
+actix-web = "4.0"
 blake2 = "0.10"
-common = { path = "../common" }
+common = {path = "../common"}
 log = "0.4"
 mime_guess = "2.0"
-serde =  { version = "1.0", features = ["derive"] }
-zip = { path = "../support/zip" }
+serde = {version = "1.0", features = ["derive"]}
+zip = {path = "../support/zip"}
 
 [dev-dependencies]
+actix-http = "3.0"
+awc = "3.0.0-beta"
 env_logger = "0.8"
 futures = "0.3"
-webpki = "0.21"

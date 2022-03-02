@@ -1,15 +1,19 @@
 use std::{collections::HashSet, convert::TryInto, iter::FromIterator, rc::Rc};
 
+use actix_utils::future::{self, Ready};
 use actix_web::{
+    body::{EitherBody, MessageBody},
     dev::{RequestHead, Service, ServiceRequest, ServiceResponse, Transform},
-    error::{Error, Result},
-    http::{self, header::HeaderName, Error as HttpError, HeaderValue, Method, Uri},
-    Either,
+    error::HttpError,
+    http::{
+        header::{HeaderName, HeaderValue},
+        Method, Uri,
+    },
+    Either, Error, Result,
 };
-use futures_util::future::{self, Ready};
 use log::error;
 use once_cell::sync::Lazy;
-use tinyvec::tiny_vec;
+use smallvec::smallvec;
 
 use crate::{AllOrSome, CorsError, CorsMiddleware, Inner, OriginFn};
 
@@ -17,7 +21,7 @@ use crate::{AllOrSome, CorsError, CorsMiddleware, Inner, OriginFn};
 /// Additionally, always causes first error (if any) to be reported during initialization.
 fn cors<'a>(
     inner: &'a mut Rc<Inner>,
-    err: &Option<Either<http::Error, CorsError>>,
+    err: &Option<Either<HttpError, CorsError>>,
 ) -> Option<&'a mut Inner> {
     if err.is_some() {
         return None;
@@ -55,7 +59,7 @@ static ALL_METHODS_SET: Lazy<HashSet<Method>> = Lazy::new(|| {
 /// server will fail to start up or serve requests.
 ///
 /// # Example
-/// ```rust
+/// ```
 /// use actix_cors::Cors;
 /// use actix_web::http::header;
 ///
@@ -71,7 +75,7 @@ static ALL_METHODS_SET: Lazy<HashSet<Method>> = Lazy::new(|| {
 #[derive(Debug)]
 pub struct Cors {
     inner: Rc<Inner>,
-    error: Option<Either<http::Error, CorsError>>,
+    error: Option<Either<HttpError, CorsError>>,
 }
 
 impl Cors {
@@ -82,7 +86,7 @@ impl Cors {
     pub fn permissive() -> Self {
         let inner = Inner {
             allowed_origins: AllOrSome::All,
-            allowed_origins_fns: tiny_vec![],
+            allowed_origins_fns: smallvec![],
 
             allowed_methods: ALL_METHODS_SET.clone(),
             allowed_methods_baked: None,
@@ -92,6 +96,7 @@ impl Cors {
 
             expose_headers: AllOrSome::All,
             expose_headers_baked: None,
+
             max_age: Some(3600),
             preflight: true,
             send_wildcard: false,
@@ -145,13 +150,12 @@ impl Cors {
             match TryInto::<Uri>::try_into(origin) {
                 Ok(_) if origin == "*" => {
                     error!("Wildcard in `allowed_origin` is not allowed. Use `send_wildcard`.");
-                    self.error = Some(Either::B(CorsError::WildcardOrigin));
+                    self.error = Some(Either::Right(CorsError::WildcardOrigin));
                 }
 
                 Ok(_) => {
                     if cors.allowed_origins.is_all() {
-                        cors.allowed_origins =
-                            AllOrSome::Some(HashSet::with_capacity(8));
+                        cors.allowed_origins = AllOrSome::Some(HashSet::with_capacity(8));
                     }
 
                     if let Some(origins) = cors.allowed_origins.as_mut() {
@@ -162,7 +166,7 @@ impl Cors {
                 }
 
                 Err(err) => {
-                    self.error = Some(Either::A(err.into()));
+                    self.error = Some(Either::Left(err.into()));
                 }
             }
         }
@@ -173,8 +177,8 @@ impl Cors {
     /// Determinate allowed origins by processing requests which didn't match any origins specified
     /// in the `allowed_origin`.
     ///
-    /// The function will receive a `RequestHead` of each request, which can be used to determine
-    /// whether it should be allowed or not.
+    /// The function will receive two parameters, the Origin header value, and the `RequestHead` of
+    /// each request, which can be used to determine whether to allow the request or not.
     ///
     /// If the function returns `true`, the client's `Origin` request header will be echoed back
     /// into the `Access-Control-Allow-Origin` response header.
@@ -224,7 +228,7 @@ impl Cors {
                     }
 
                     Err(err) => {
-                        self.error = Some(Either::A(err.into()));
+                        self.error = Some(Either::Left(err.into()));
                         break;
                     }
                 }
@@ -257,8 +261,7 @@ impl Cors {
             match header.try_into() {
                 Ok(method) => {
                     if cors.allowed_headers.is_all() {
-                        cors.allowed_headers =
-                            AllOrSome::Some(HashSet::with_capacity(8));
+                        cors.allowed_headers = AllOrSome::Some(HashSet::with_capacity(8));
                     }
 
                     if let AllOrSome::Some(ref mut headers) = cors.allowed_headers {
@@ -266,7 +269,7 @@ impl Cors {
                     }
                 }
 
-                Err(err) => self.error = Some(Either::A(err.into())),
+                Err(err) => self.error = Some(Either::Left(err.into())),
             }
         }
 
@@ -294,8 +297,7 @@ impl Cors {
                 match h.try_into() {
                     Ok(method) => {
                         if cors.allowed_headers.is_all() {
-                            cors.allowed_headers =
-                                AllOrSome::Some(HashSet::with_capacity(8));
+                            cors.allowed_headers = AllOrSome::Some(HashSet::with_capacity(8));
                         }
 
                         if let AllOrSome::Some(ref mut headers) = cors.allowed_headers {
@@ -303,7 +305,7 @@ impl Cors {
                         }
                     }
                     Err(err) => {
-                        self.error = Some(Either::A(err.into()));
+                        self.error = Some(Either::Left(err.into()));
                         break;
                     }
                 }
@@ -342,8 +344,7 @@ impl Cors {
                 Ok(header) => {
                     if let Some(cors) = cors(&mut self.inner, &self.error) {
                         if cors.expose_headers.is_all() {
-                            cors.expose_headers =
-                                AllOrSome::Some(HashSet::with_capacity(8));
+                            cors.expose_headers = AllOrSome::Some(HashSet::with_capacity(8));
                         }
                         if let AllOrSome::Some(ref mut headers) = cors.expose_headers {
                             headers.insert(header);
@@ -351,7 +352,7 @@ impl Cors {
                     }
                 }
                 Err(err) => {
-                    self.error = Some(Either::A(err.into()));
+                    self.error = Some(Either::Left(err.into()));
                     break;
                 }
             }
@@ -458,7 +459,7 @@ impl Default for Cors {
     fn default() -> Cors {
         let inner = Inner {
             allowed_origins: AllOrSome::Some(HashSet::with_capacity(8)),
-            allowed_origins_fns: tiny_vec![],
+            allowed_origins_fns: smallvec![],
 
             allowed_methods: HashSet::with_capacity(8),
             allowed_methods_baked: None,
@@ -483,14 +484,14 @@ impl Default for Cors {
     }
 }
 
-impl<S, B> Transform<S> for Cors
+impl<S, B> Transform<S, ServiceRequest> for Cors
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     S::Future: 'static,
-    B: 'static,
+
+    B: MessageBody + 'static,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type InitError = ();
     type Transform = CorsMiddleware<S>;
@@ -499,8 +500,8 @@ where
     fn new_transform(&self, service: S) -> Self::Future {
         if let Some(ref err) = self.error {
             match err {
-                Either::A(err) => error!("{}", err),
-                Either::B(err) => error!("{}", err),
+                Either::Left(err) => error!("{}", err),
+                Either::Right(err) => error!("{}", err),
             }
 
             return future::err(());
@@ -508,12 +509,11 @@ where
 
         let mut inner = Rc::clone(&self.inner);
 
-        if inner.supports_credentials
-            && inner.send_wildcard
-            && inner.allowed_origins.is_all()
-        {
-            error!("Illegal combination of CORS options: credentials can not be supported when all \
-                    origins are allowed and `send_wildcard` is enabled.");
+        if inner.supports_credentials && inner.send_wildcard && inner.allowed_origins.is_all() {
+            error!(
+                "Illegal combination of CORS options: credentials can not be supported when all \
+                    origins are allowed and `send_wildcard` is enabled."
+            );
             return future::err(());
         }
 
@@ -521,8 +521,7 @@ where
         match inner.allowed_headers.as_ref() {
             Some(header_set) if !header_set.is_empty() => {
                 let allowed_headers_str = intersperse_header_values(header_set);
-                Rc::make_mut(&mut inner).allowed_headers_baked =
-                    Some(allowed_headers_str);
+                Rc::make_mut(&mut inner).allowed_headers_baked = Some(allowed_headers_str);
             }
             _ => {}
         }
@@ -547,13 +546,18 @@ where
 }
 
 /// Only call when values are guaranteed to be valid header values and set is not empty.
-fn intersperse_header_values<T>(val_set: &HashSet<T>) -> HeaderValue
+pub(crate) fn intersperse_header_values<T>(val_set: &HashSet<T>) -> HeaderValue
 where
     T: AsRef<str>,
 {
+    debug_assert!(
+        !val_set.is_empty(),
+        "only call `intersperse_header_values` when set is not empty"
+    );
+
     val_set
         .iter()
-        .fold(String::with_capacity(32), |mut acc, val| {
+        .fold(String::with_capacity(64), |mut acc, val| {
             acc.push_str(", ");
             acc.push_str(val.as_ref());
             acc
@@ -570,9 +574,11 @@ mod test {
     use std::convert::{Infallible, TryInto};
 
     use actix_web::{
-        dev::Transform,
-        http::{HeaderName, StatusCode},
+        body,
+        dev::{fn_service, Transform},
+        http::{header::HeaderName, StatusCode},
         test::{self, TestRequest},
+        HttpResponse,
     };
 
     use super::*;
@@ -590,26 +596,27 @@ mod test {
             .is_err());
     }
 
-    #[actix_rt::test]
+    #[actix_web::test]
     async fn restrictive_defaults() {
-        let mut cors = Cors::default()
+        let cors = Cors::default()
             .new_transform(test::ok_service())
             .await
             .unwrap();
 
-        let req = TestRequest::with_header("Origin", "https://www.example.com")
+        let req = TestRequest::default()
+            .insert_header(("Origin", "https://www.example.com"))
             .to_srv_request();
 
-        let resp = test::call_service(&mut cors, req).await;
+        let resp = test::call_service(&cors, req).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[actix_rt::test]
+    #[actix_web::test]
     async fn allowed_header_try_from() {
         let _cors = Cors::default().allowed_header("Content-Type");
     }
 
-    #[actix_rt::test]
+    #[actix_web::test]
     async fn allowed_header_try_into() {
         struct ContentType;
 
@@ -622,5 +629,14 @@ mod test {
         }
 
         let _cors = Cors::default().allowed_header(ContentType);
+    }
+
+    #[actix_web::test]
+    async fn middleware_generic_over_body_type() {
+        let srv = fn_service(|req: ServiceRequest| async move {
+            Ok(req.into_response(HttpResponse::with_body(StatusCode::OK, body::None::new())))
+        });
+
+        Cors::default().new_transform(srv).await.unwrap();
     }
 }

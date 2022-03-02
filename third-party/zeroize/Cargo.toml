@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "zeroize"
-version = "1.5.2"
+version = "1.5.3"
 authors = ["The RustCrypto Project Developers"]
 description = "Securely clear secrets from memory with a simple trait built on\nstable Rust primitives which guarantee memory is zeroed using an\noperation will not be 'optimized away' by the compiler.\nUses a portable pure Rust implementation that works everywhere,\neven WASM!\n"
 readme = "README.md"

@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "assert-json-diff"
-version = "1.1.0"
+version = "2.0.1"
 authors = ["David Pedersen <david.pdrsn@gmail.com>"]
 description = "Easily compare two JSON values and get great output"
 homepage = "https://github.com/davidpdrsn/assert-json-diff"
@@ -23,20 +23,16 @@ keywords = ["serde_json", "json", "testing"]
 categories = ["development-tools"]
 license = "MIT"
 repository = "https://github.com/davidpdrsn/assert-json-diff.git"
-[dependencies.extend]
-version = "0.1.0"
-
 [dependencies.serde]
-version = "1.0.80"
+version = "1"
 
 [dependencies.serde_json]
-version = "1.0.32"
+version = "1"
 [dev-dependencies.serde]
-version = "1.0.80"
+version = "1"
 features = ["derive"]
 
 [dev-dependencies.version-sync]
 version = "0.8"
-[badges.travis-ci]
-branch = "master"
-repository = "davidpdrsn/assert-json-diff"
+[badges.maintenance]
+status = "passively-maintained"

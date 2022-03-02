@@ -1,14 +1,24 @@
-//! Macros for use with Tokio
-extern crate proc_macro;
+//! Macros for Actix system and runtime.
+//!
+//! The [`actix-rt`](https://docs.rs/actix-rt) crate must be available for macro output to compile.
+//!
+//! # Entry-point
+//! See docs for the [`#[main]`](macro@main) macro.
+//!
+//! # Tests
+//! See docs for the [`#[test]`](macro@test) macro.
+
+#![deny(rust_2018_idioms, nonstandard_style)]
+#![doc(html_logo_url = "https://actix.rs/img/logo.png")]
+#![doc(html_favicon_url = "https://actix.rs/favicon.ico")]
 
 use proc_macro::TokenStream;
 use quote::quote;
 
-/// Marks async function to be executed by actix system.
+/// Marks async entry-point function to be executed by Actix system.
 ///
-/// ## Usage
-///
-/// ```rust
+/// # Examples
+/// ```
 /// #[actix_rt::main]
 /// async fn main() {
 ///     println!("Hello world");
@@ -17,56 +27,94 @@ use quote::quote;
 #[allow(clippy::needless_doctest_main)]
 #[proc_macro_attribute]
 #[cfg(not(test))] // Work around for rust-lang/rust#62127
-pub fn main(_: TokenStream, item: TokenStream) -> TokenStream {
-    let mut input = syn::parse_macro_input!(item as syn::ItemFn);
+pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
+    let mut input = match syn::parse::<syn::ItemFn>(item.clone()) {
+        Ok(input) => input,
+        // on parse err, make IDEs happy; see fn docs
+        Err(err) => return input_and_compile_error(item, err),
+    };
+
+    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+
     let attrs = &input.attrs;
     let vis = &input.vis;
     let sig = &mut input.sig;
     let body = &input.block;
-    let name = &sig.ident;
 
     if sig.asyncness.is_none() {
-        return syn::Error::new_spanned(sig.fn_token, "only async fn is supported")
-            .to_compile_error()
-            .into();
+        return syn::Error::new_spanned(
+            sig.fn_token,
+            "the async keyword is missing from the function declaration",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let mut system = syn::parse_str::<syn::Path>("::actix_rt::System").unwrap();
+
+    for arg in &args {
+        match arg {
+            syn::NestedMeta::Meta(syn::Meta::NameValue(syn::MetaNameValue {
+                lit: syn::Lit::Str(lit),
+                path,
+                ..
+            })) => match path
+                .get_ident()
+                .map(|i| i.to_string().to_lowercase())
+                .as_deref()
+            {
+                Some("system") => match lit.parse() {
+                    Ok(path) => system = path,
+                    Err(_) => {
+                        return syn::Error::new_spanned(lit, "Expected path")
+                            .to_compile_error()
+                            .into();
+                    }
+                },
+                _ => {
+                    return syn::Error::new_spanned(arg, "Unknown attribute specified")
+                        .to_compile_error()
+                        .into();
+                }
+            },
+            _ => {
+                return syn::Error::new_spanned(arg, "Unknown attribute specified")
+                    .to_compile_error()
+                    .into();
+            }
+        }
     }
 
     sig.asyncness = None;
 
-    if cfg!(feature = "actix-reexport") {
-        (quote! {
-            #(#attrs)*
-            #vis #sig {
-                actix::System::new(stringify!(#name))
-                    .block_on(async move { #body })
-            }
-        })
-        .into()
-    } else {
-        (quote! {
-            #(#attrs)*
-            #vis #sig {
-                actix_rt::System::new(stringify!(#name))
-                    .block_on(async move { #body })
-            }
-        })
-        .into()
-    }
+    (quote! {
+        #(#attrs)*
+        #vis #sig {
+            <#system>::new().block_on(async move { #body })
+        }
+    })
+    .into()
 }
 
-/// Marks async test function to be executed by actix runtime.
+/// Marks async test function to be executed in an Actix system.
 ///
-/// ## Usage
-///
-/// ```no_run
+/// # Examples
+/// ```
 /// #[actix_rt::test]
 /// async fn my_test() {
 ///     assert!(true);
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn test(_: TokenStream, item: TokenStream) -> TokenStream {
-    let mut input = syn::parse_macro_input!(item as syn::ItemFn);
+pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
+    let mut input = match syn::parse::<syn::ItemFn>(item.clone()) {
+        Ok(input) => input,
+        // on parse err, make IDEs happy; see fn docs
+        Err(err) => return input_and_compile_error(item, err),
+    };
+
+    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+
     let attrs = &input.attrs;
     let vis = &input.vis;
     let sig = &mut input.sig;
@@ -82,7 +130,7 @@ pub fn test(_: TokenStream, item: TokenStream) -> TokenStream {
     if sig.asyncness.is_none() {
         return syn::Error::new_spanned(
             input.sig.fn_token,
-            format!("only async fn is supported, {}", input.sig.ident),
+            "the async keyword is missing from the function declaration",
         )
         .to_compile_error()
         .into();
@@ -90,24 +138,65 @@ pub fn test(_: TokenStream, item: TokenStream) -> TokenStream {
 
     sig.asyncness = None;
 
-    let result = if has_test_attr {
-        quote! {
-            #(#attrs)*
-            #vis #sig {
-                actix_rt::System::new("test")
-                    .block_on(async { #body })
-            }
-        }
+    let missing_test_attr = if has_test_attr {
+        quote! {}
     } else {
-        quote! {
-            #[test]
-            #(#attrs)*
-            #vis #sig {
-                actix_rt::System::new("test")
-                    .block_on(async { #body })
-            }
-        }
+        quote! { #[::core::prelude::v1::test] }
     };
 
-    result.into()
+    let mut system = syn::parse_str::<syn::Path>("::actix_rt::System").unwrap();
+
+    for arg in &args {
+        match arg {
+            syn::NestedMeta::Meta(syn::Meta::NameValue(syn::MetaNameValue {
+                lit: syn::Lit::Str(lit),
+                path,
+                ..
+            })) => match path
+                .get_ident()
+                .map(|i| i.to_string().to_lowercase())
+                .as_deref()
+            {
+                Some("system") => match lit.parse() {
+                    Ok(path) => system = path,
+                    Err(_) => {
+                        return syn::Error::new_spanned(lit, "Expected path")
+                            .to_compile_error()
+                            .into();
+                    }
+                },
+                _ => {
+                    return syn::Error::new_spanned(arg, "Unknown attribute specified")
+                        .to_compile_error()
+                        .into();
+                }
+            },
+            _ => {
+                return syn::Error::new_spanned(arg, "Unknown attribute specified")
+                    .to_compile_error()
+                    .into();
+            }
+        }
+    }
+
+    (quote! {
+        #missing_test_attr
+        #(#attrs)*
+        #vis #sig {
+            <#system>::new().block_on(async { #body })
+        }
+    })
+    .into()
+}
+
+/// Converts the error to a token stream and appends it to the original input.
+///
+/// Returning the original input in addition to the error is good for IDEs which can gracefully
+/// recover and show more precise errors within the macro body.
+///
+/// See <https://github.com/rust-analyzer/rust-analyzer/issues/10468> for more info.
+fn input_and_compile_error(mut item: TokenStream, err: syn::Error) -> TokenStream {
+    let compile_err = TokenStream::from(err.to_compile_error());
+    item.extend(compile_err);
+    item
 }

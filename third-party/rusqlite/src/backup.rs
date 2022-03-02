@@ -1,4 +1,4 @@
-//! `feature = "backup"` Online SQLite backup API.
+//! Online SQLite backup API.
 //!
 //! To create a [`Backup`], you must have two distinct [`Connection`]s - one
 //! for the source (which can be used while the backup is running) and one for
@@ -40,11 +40,11 @@ use std::time::Duration;
 
 use crate::ffi;
 
-use crate::error::{error_from_handle, error_from_sqlite_code};
+use crate::error::error_from_handle;
 use crate::{Connection, DatabaseName, Result};
 
 impl Connection {
-    /// `feature = "backup"` Back up the `name` database to the given
+    /// Back up the `name` database to the given
     /// destination path.
     ///
     /// If `progress` is not `None`, it will be called periodically
@@ -84,7 +84,7 @@ impl Connection {
         }
     }
 
-    /// `feature = "backup"` Restore the given source path into the
+    /// Restore the given source path into the
     /// `name` database. If `progress` is not `None`, it will be
     /// called periodically until the restore completes.
     ///
@@ -107,7 +107,7 @@ impl Connection {
         let restore = Backup::new_with_names(&src, DatabaseName::Main, self, name)?;
 
         let mut r = More;
-        let mut busy_count = 0i32;
+        let mut busy_count = 0_i32;
         'restore_loop: while r == More || r == Busy {
             r = restore.step(100)?;
             if let Some(ref f) = progress {
@@ -131,7 +131,7 @@ impl Connection {
     }
 }
 
-/// `feature = "backup"` Possible successful results of calling
+/// Possible successful results of calling
 /// [`Backup::step`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -152,7 +152,7 @@ pub enum StepResult {
     Locked,
 }
 
-/// `feature = "backup"` Struct specifying the progress of a backup. The
+/// Struct specifying the progress of a backup. The
 /// percentage completion can be calculated as `(pagecount - remaining) /
 /// pagecount`. The progress of a backup is as of the last call to
 /// [`step`](Backup::step) - if the source database is modified after a call to
@@ -166,10 +166,10 @@ pub struct Progress {
     pub pagecount: c_int,
 }
 
-/// `feature = "backup"` A handle to an online backup.
+/// A handle to an online backup.
 pub struct Backup<'a, 'b> {
     phantom_from: PhantomData<&'a Connection>,
-    phantom_to: PhantomData<&'b Connection>,
+    to: &'b Connection,
     b: *mut ffi::sqlite3_backup,
 }
 
@@ -203,8 +203,8 @@ impl Backup<'_, '_> {
         to: &'b mut Connection,
         to_name: DatabaseName<'_>,
     ) -> Result<Backup<'a, 'b>> {
-        let to_name = to_name.to_cstring()?;
-        let from_name = from_name.to_cstring()?;
+        let to_name = to_name.as_cstring()?;
+        let from_name = from_name.as_cstring()?;
 
         let to_db = to.db.borrow_mut().db;
 
@@ -223,7 +223,7 @@ impl Backup<'_, '_> {
 
         Ok(Backup {
             phantom_from: PhantomData,
-            phantom_to: PhantomData,
+            to,
             b,
         })
     }
@@ -231,6 +231,7 @@ impl Backup<'_, '_> {
     /// Gets the progress of the backup as of the last call to
     /// [`step`](Backup::step).
     #[inline]
+    #[must_use]
     pub fn progress(&self) -> Progress {
         unsafe {
             Progress {
@@ -263,7 +264,7 @@ impl Backup<'_, '_> {
             ffi::SQLITE_OK => Ok(More),
             ffi::SQLITE_BUSY => Ok(Busy),
             ffi::SQLITE_LOCKED => Ok(Locked),
-            _ => Err(error_from_sqlite_code(rc, None)),
+            _ => self.to.decode_result(rc).map(|_| More),
         }
     }
 
@@ -296,7 +297,7 @@ impl Backup<'_, '_> {
         loop {
             let r = self.step(pages_per_step)?;
             if let Some(progress) = progress {
-                progress(self.progress())
+                progress(self.progress());
             }
             match r {
                 More | Busy | Locked => thread::sleep(pause_between_pages),

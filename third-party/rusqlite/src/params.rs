@@ -99,7 +99,7 @@ use sealed::Sealed;
 ///
 /// - As a slice of `&[(&str, &dyn ToSql)]`. This is what essentially all of
 ///   these boil down to in the end, conceptually at least. In theory you can
-///   pass this as `stmt.
+///   pass this as `stmt`.
 ///
 /// - As array references, similar to the positional params. This looks like
 ///   `thing.query(&[(":foo", &1i32), (":bar", &2i32)])` or
@@ -116,7 +116,7 @@ use sealed::Sealed;
 /// fn insert(conn: &Connection) -> Result<()> {
 ///     let mut stmt = conn.prepare("INSERT INTO test (key, value) VALUES (:key, :value)")?;
 ///     // Using `rusqlite::params!`:
-///     stmt.execute(named_params!{ ":key": "one", ":val": 2 })?;
+///     stmt.execute(named_params! { ":key": "one", ":val": 2 })?;
 ///     // Alternatively:
 ///     stmt.execute(&[(":key", "three"), (":val", "four")])?;
 ///     // Or:
@@ -169,8 +169,8 @@ pub trait Params: Sealed {
 // Explicitly impl for empty array. Critically, for `conn.execute([])` to be
 // unambiguous, this must be the *only* implementation for an empty array. This
 // avoids `NO_PARAMS` being a necessary part of the API.
-impl Sealed for [&dyn ToSql; 0] {}
-impl Params for [&dyn ToSql; 0] {
+impl Sealed for [&(dyn ToSql + Send + Sync); 0] {}
+impl Params for [&(dyn ToSql + Send + Sync); 0] {
     #[inline]
     fn __bind_in(self, stmt: &mut Statement<'_>) -> Result<()> {
         // Note: Can't just return `Ok(())` — `Statement::bind_parameters`
@@ -251,7 +251,7 @@ impl_for_array_ref!(
 /// ## Basic usage
 ///
 /// ```rust,no_run
-/// use rusqlite::{Connection, Result, params_from_iter};
+/// use rusqlite::{params_from_iter, Connection, Result};
 /// use std::collections::BTreeSet;
 ///
 /// fn query(conn: &Connection, ids: &BTreeSet<String>) -> Result<()> {

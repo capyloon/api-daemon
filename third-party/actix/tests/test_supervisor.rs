@@ -1,8 +1,11 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use actix::prelude::*;
-use tokio::time::{delay_for, Duration};
+use actix_rt::time::sleep;
 
 struct Die;
 
@@ -46,19 +49,20 @@ fn test_supervisor_restart() {
     let addr = Arc::new(Mutex::new(None));
     let addr2 = Arc::clone(&addr);
 
-    System::run(move || {
-        let addr =
-            actix::Supervisor::start(move |_| MyActor(starts2, restarts2, messages2));
+    let sys = System::new();
+    sys.block_on(async move {
+        let addr = actix::Supervisor::start(move |_| MyActor(starts2, restarts2, messages2));
         addr.do_send(Die);
         addr.do_send(Die);
         *addr2.lock().unwrap() = Some(addr);
 
         actix::spawn(async move {
-            delay_for(Duration::new(0, 100_000)).await;
+            sleep(Duration::new(0, 100_000)).await;
             System::current().stop();
         });
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
 
     assert_eq!(starts.load(Ordering::Relaxed), 3);
     assert_eq!(restarts.load(Ordering::Relaxed), 2);

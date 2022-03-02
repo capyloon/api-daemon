@@ -12,12 +12,13 @@ path = "src/main.rs"
 [features]
 default = [
   "apps-service",
-  "audiovolumemanager-service", #    "breakpad",
+  "audiovolumemanager-service",
+#   "breakpad",
   "contacts-service",
   "contentmanager-service",
   "devicecapability-service",
   "geckobridge-service",
-  # "libsignal-service",
+#   "libsignal-service",
   "powermanager-service",
   "procmanager-service",
   "tcpsocket-service",
@@ -57,12 +58,12 @@ time-service = ["time_service"]
 virtual-host = ["vhost_server"]
 
 [dependencies]
-actix = "0.10"
-actix-cors = "0.5"
-actix-http = "2.2"
-actix-rt = "1.1"
-actix-web = {version = "3.0", features = ["rust-tls"]}
-actix-web-actors = "3.0"
+actix = "0.12"
+actix-cors = "0.6"
+actix-http = "3.0"
+actix-rt = "2.6"
+actix-web = "4.0"
+actix-web-actors = "4.0"
 apps_service = {path = "../services/apps", optional = true}
 async-std = "1.6"
 audiovolume_service = {path = "../services/audiovolumemanager", optional = true}
@@ -81,7 +82,7 @@ libsignal_service = {path = "../services/libsignal", optional = true}
 log = "0.4"
 mime_guess = "2.0"
 nix = "0.23"
-parking_lot = "0.11"
+parking_lot = "0.12"
 powermanager_service = {path = "../services/powermanager", optional = true}
 procmanager_service = {path = "../services/procmanager", optional = true}
 reqwest = {version = "0.11", default-features = false, features = ["blocking", "rustls-tls"]}
@@ -107,7 +108,7 @@ android_logger = "0.5"
 android_utils = {path = "../support/android-utils"}
 
 [dev-dependencies]
-actix-web-actors = "3.0"
+actix-web-actors = "4.0"
 futures-util = "0.3"
 rand = "*"
 reqwest = {version = "0.11", default-features = false, features = ["blocking", "rustls-tls"]}

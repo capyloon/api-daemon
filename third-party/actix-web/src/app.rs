@@ -1,113 +1,134 @@
-use std::cell::RefCell;
-use std::fmt;
-use std::future::Future;
-use std::marker::PhantomData;
-use std::rc::Rc;
+use std::{cell::RefCell, fmt, future::Future, rc::Rc};
 
-use actix_http::body::{Body, MessageBody};
-use actix_http::Extensions;
-use actix_service::boxed::{self, BoxServiceFactory};
+use actix_http::{body::MessageBody, Extensions, Request};
 use actix_service::{
-    apply, apply_fn_factory, IntoServiceFactory, ServiceFactory, Transform,
+    apply, apply_fn_factory, boxed, IntoServiceFactory, ServiceFactory, ServiceFactoryExt,
+    Transform,
 };
-use futures_util::future::FutureExt;
+use futures_util::future::FutureExt as _;
 
-use crate::app_service::{AppEntry, AppInit, AppRoutingFactory};
-use crate::config::ServiceConfig;
-use crate::data::{Data, DataFactory, FnDataFactory};
-use crate::dev::ResourceDef;
-use crate::error::Error;
-use crate::resource::Resource;
-use crate::route::Route;
-use crate::service::{
-    AppServiceFactory, HttpServiceFactory, ServiceFactoryWrapper, ServiceRequest,
-    ServiceResponse,
+use crate::{
+    app_service::{AppEntry, AppInit, AppRoutingFactory},
+    config::ServiceConfig,
+    data::{Data, DataFactory, FnDataFactory},
+    dev::ResourceDef,
+    error::Error,
+    resource::Resource,
+    route::Route,
+    service::{
+        AppServiceFactory, BoxedHttpServiceFactory, HttpServiceFactory, ServiceFactoryWrapper,
+        ServiceRequest, ServiceResponse,
+    },
 };
 
-type HttpNewService = BoxServiceFactory<(), ServiceRequest, ServiceResponse, Error, ()>;
-
-/// Application builder - structure that follows the builder pattern
-/// for building application instances.
-pub struct App<T, B> {
+/// The top-level builder for an Actix Web application.
+pub struct App<T> {
     endpoint: T,
     services: Vec<Box<dyn AppServiceFactory>>,
-    default: Option<Rc<HttpNewService>>,
+    default: Option<Rc<BoxedHttpServiceFactory>>,
     factory_ref: Rc<RefCell<Option<AppRoutingFactory>>>,
-    data: Vec<Box<dyn DataFactory>>,
     data_factories: Vec<FnDataFactory>,
     external: Vec<ResourceDef>,
     extensions: Extensions,
-    _t: PhantomData<B>,
 }
 
-impl App<AppEntry, Body> {
+impl App<AppEntry> {
     /// Create application builder. Application can be configured with a builder-like pattern.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let fref = Rc::new(RefCell::new(None));
+        let factory_ref = Rc::new(RefCell::new(None));
+
         App {
-            endpoint: AppEntry::new(fref.clone()),
-            data: Vec::new(),
+            endpoint: AppEntry::new(factory_ref.clone()),
             data_factories: Vec::new(),
             services: Vec::new(),
             default: None,
-            factory_ref: fref,
+            factory_ref,
             external: Vec::new(),
             extensions: Extensions::new(),
-            _t: PhantomData,
         }
     }
 }
 
-impl<T, B> App<T, B>
+impl<T> App<T>
 where
-    B: MessageBody,
-    T: ServiceFactory<
-        Config = (),
-        Request = ServiceRequest,
-        Response = ServiceResponse<B>,
-        Error = Error,
-        InitError = (),
-    >,
+    T: ServiceFactory<ServiceRequest, Config = (), Error = Error, InitError = ()>,
 {
-    /// Set application data. Application data could be accessed
-    /// by using `Data<T>` extractor where `T` is data type.
+    /// Set application (root level) data.
     ///
-    /// **Note**: http server accepts an application factory rather than
-    /// an application instance. Http server constructs an application
-    /// instance for each thread, thus application data must be constructed
-    /// multiple times. If you want to share data between different
-    /// threads, a shared object should be used, e.g. `Arc`. Internally `Data` type
-    /// uses `Arc` so data could be created outside of app factory and clones could
-    /// be stored via `App::app_data()` method.
+    /// Application data stored with `App::app_data()` method is available through the
+    /// [`HttpRequest::app_data`](crate::HttpRequest::app_data) method at runtime.
     ///
-    /// ```rust
+    /// # [`Data<T>`]
+    /// Any [`Data<T>`] type added here can utilize it's extractor implementation in handlers.
+    /// Types not wrapped in `Data<T>` cannot use this extractor. See [its docs](Data<T>) for more
+    /// about its usage and patterns.
+    ///
+    /// ```
     /// use std::cell::Cell;
-    /// use actix_web::{web, App, HttpResponse, Responder};
+    /// use actix_web::{web, App, HttpRequest, HttpResponse, Responder};
     ///
     /// struct MyData {
-    ///     counter: Cell<usize>,
+    ///     count: std::cell::Cell<usize>,
     /// }
     ///
-    /// async fn index(data: web::Data<MyData>) -> impl Responder {
-    ///     data.counter.set(data.counter.get() + 1);
-    ///     HttpResponse::Ok()
+    /// async fn handler(req: HttpRequest, counter: web::Data<MyData>) -> impl Responder {
+    ///     // note this cannot use the Data<T> extractor because it was not added with it
+    ///     let incr = *req.app_data::<usize>().unwrap();
+    ///     assert_eq!(incr, 3);
+    ///
+    ///     // update counter using other value from app data
+    ///     counter.count.set(counter.count.get() + incr);
+    ///
+    ///     HttpResponse::Ok().body(counter.count.get().to_string())
     /// }
     ///
-    /// let app = App::new()
-    ///     .data(MyData{ counter: Cell::new(0) })
-    ///     .service(
-    ///         web::resource("/index.html").route(
-    ///             web::get().to(index)));
+    /// let app = App::new().service(
+    ///     web::resource("/")
+    ///         .app_data(3usize)
+    ///         .app_data(web::Data::new(MyData { count: Default::default() }))
+    ///         .route(web::get().to(handler))
+    /// );
     /// ```
-    pub fn data<U: 'static>(mut self, data: U) -> Self {
-        self.data.push(Box::new(Data::new(data)));
+    ///
+    /// # Shared Mutable State
+    /// [`HttpServer::new`](crate::HttpServer::new) accepts an application factory rather than an
+    /// application instance; the factory closure is called on each worker thread independently.
+    /// Therefore, if you want to share a data object between different workers, a shareable object
+    /// needs to be created first, outside the `HttpServer::new` closure and cloned into it.
+    /// [`Data<T>`] is an example of such a sharable object.
+    ///
+    /// ```ignore
+    /// let counter = web::Data::new(AppStateWithCounter {
+    ///     counter: Mutex::new(0),
+    /// });
+    ///
+    /// HttpServer::new(move || {
+    ///     // move counter object into the closure and clone for each worker
+    ///
+    ///     App::new()
+    ///         .app_data(counter.clone())
+    ///         .route("/", web::get().to(handler))
+    /// })
+    /// ```
+    #[doc(alias = "manage")]
+    pub fn app_data<U: 'static>(mut self, ext: U) -> Self {
+        self.extensions.insert(ext);
         self
     }
 
-    /// Set application data factory. This function is
-    /// similar to `.data()` but it accepts data factory. Data object get
-    /// constructed asynchronously during application initialization.
+    /// Add application (root) data after wrapping in `Data<T>`.
+    ///
+    /// Deprecated in favor of [`app_data`](Self::app_data).
+    #[deprecated(since = "4.0.0", note = "Use `.app_data(Data::new(val))` instead.")]
+    pub fn data<U: 'static>(self, data: U) -> Self {
+        self.app_data(Data::new(data))
+    }
+
+    /// Add application data factory that resolves asynchronously.
+    ///
+    /// Data items are constructed during application initialization, before the server starts
+    /// accepting requests.
     pub fn data_factory<F, Out, D, E>(mut self, data: F) -> Self
     where
         F: Fn() -> Out + 'static,
@@ -133,18 +154,7 @@ where
             }
             .boxed_local()
         }));
-        self
-    }
 
-    /// Set application level arbitrary data item.
-    ///
-    /// Application data stored with `App::app_data()` method is available
-    /// via `HttpRequest::app_data()` method at runtime.
-    ///
-    /// This method could be used for storing `Data<T>` as well, in that case
-    /// data could be accessed by using `Data<T>` extractor.
-    pub fn app_data<U: 'static>(mut self, ext: U) -> Self {
-        self.extensions.insert(ext);
         self
     }
 
@@ -155,9 +165,8 @@ where
     /// different module or even library. For example,
     /// some of the resource's configuration could be moved to different module.
     ///
-    /// ```rust
-    /// # extern crate actix_web;
-    /// use actix_web::{web, middleware, App, HttpResponse};
+    /// ```
+    /// use actix_web::{web, App, HttpResponse};
     ///
     /// // this function could be located in different module
     /// fn config(cfg: &mut web::ServiceConfig) {
@@ -167,12 +176,9 @@ where
     ///     );
     /// }
     ///
-    /// fn main() {
-    ///     let app = App::new()
-    ///         .wrap(middleware::Logger::default())
-    ///         .configure(config)  // <- register resources
-    ///         .route("/index.html", web::get().to(|| HttpResponse::Ok()));
-    /// }
+    /// App::new()
+    ///     .configure(config)  // <- register resources
+    ///     .route("/index.html", web::get().to(|| HttpResponse::Ok()));
     /// ```
     pub fn configure<F>(mut self, f: F) -> Self
     where
@@ -180,10 +186,9 @@ where
     {
         let mut cfg = ServiceConfig::new();
         f(&mut cfg);
-        self.data.extend(cfg.data);
         self.services.extend(cfg.services);
         self.external.extend(cfg.external);
-        self.extensions.extend(cfg.extensions);
+        self.extensions.extend(cfg.app_data);
         self
     }
 
@@ -193,18 +198,16 @@ where
     /// This method can be used multiple times with same path, in that case
     /// multiple resources with one route would be registered for same resource path.
     ///
-    /// ```rust
+    /// ```
     /// use actix_web::{web, App, HttpResponse};
     ///
     /// async fn index(data: web::Path<(String, String)>) -> &'static str {
     ///     "Welcome!"
     /// }
     ///
-    /// fn main() {
-    ///     let app = App::new()
-    ///         .route("/test1", web::get().to(index))
-    ///         .route("/test2", web::post().to(|| HttpResponse::MethodNotAllowed()));
-    /// }
+    /// let app = App::new()
+    ///     .route("/test1", web::get().to(index))
+    ///     .route("/test2", web::post().to(|| HttpResponse::MethodNotAllowed()));
     /// ```
     pub fn route(self, path: &str, mut route: Route) -> Self {
         self.service(
@@ -214,11 +217,11 @@ where
         )
     }
 
-    /// Register http service.
+    /// Register HTTP service.
     ///
     /// Http service is any type that implements `HttpServiceFactory` trait.
     ///
-    /// Actix web provides several services implementations:
+    /// Actix Web provides several services implementations:
     ///
     /// * *Resource* is an entry in resource table which corresponds to requested URL.
     /// * *Scope* is a set of resources with common root path.
@@ -232,55 +235,42 @@ where
         self
     }
 
-    /// Default service to be used if no matching resource could be found.
+    /// Default service that is invoked when no matching resource could be found.
     ///
-    /// It is possible to use services like `Resource`, `Route`.
+    /// You can use a [`Route`] as default service.
     ///
-    /// ```rust
+    /// If a default service is not registered, an empty `404 Not Found` response will be sent to
+    /// the client instead.
+    ///
+    /// # Examples
+    /// ```
     /// use actix_web::{web, App, HttpResponse};
     ///
     /// async fn index() -> &'static str {
     ///     "Welcome!"
     /// }
     ///
-    /// fn main() {
-    ///     let app = App::new()
-    ///         .service(
-    ///             web::resource("/index.html").route(web::get().to(index)))
-    ///         .default_service(
-    ///             web::route().to(|| HttpResponse::NotFound()));
-    /// }
+    /// let app = App::new()
+    ///     .service(web::resource("/index.html").route(web::get().to(index)))
+    ///     .default_service(web::to(|| HttpResponse::NotFound()));
     /// ```
-    ///
-    /// It is also possible to use static files as default service.
-    ///
-    /// ```rust
-    /// use actix_web::{web, App, HttpResponse};
-    ///
-    /// fn main() {
-    ///     let app = App::new()
-    ///         .service(
-    ///             web::resource("/index.html").to(|| HttpResponse::Ok()))
-    ///         .default_service(
-    ///             web::to(|| HttpResponse::NotFound())
-    ///         );
-    /// }
-    /// ```
-    pub fn default_service<F, U>(mut self, f: F) -> Self
+    pub fn default_service<F, U>(mut self, svc: F) -> Self
     where
-        F: IntoServiceFactory<U>,
+        F: IntoServiceFactory<U, ServiceRequest>,
         U: ServiceFactory<
+                ServiceRequest,
                 Config = (),
-                Request = ServiceRequest,
                 Response = ServiceResponse,
                 Error = Error,
             > + 'static,
         U::InitError: fmt::Debug,
     {
-        // create and configure default resource
-        self.default = Some(Rc::new(boxed::factory(f.into_factory().map_init_err(
-            |e| log::error!("Can not construct default service: {:?}", e),
-        ))));
+        let svc = svc
+            .into_factory()
+            .map(|res| res.map_into_boxed_body())
+            .map_init_err(|e| log::error!("Can not construct default service: {:?}", e));
+
+        self.default = Some(Rc::new(boxed::factory(svc)));
 
         self
     }
@@ -291,7 +281,7 @@ where
     /// and are never considered for matching at request time. Calls to
     /// `HttpRequest::url_for()` will work as expected.
     ///
-    /// ```rust
+    /// ```
     /// use actix_web::{web, App, HttpRequest, HttpResponse, Result};
     ///
     /// async fn index(req: HttpRequest) -> Result<HttpResponse> {
@@ -300,12 +290,10 @@ where
     ///     Ok(HttpResponse::Ok().into())
     /// }
     ///
-    /// fn main() {
-    ///     let app = App::new()
-    ///         .service(web::resource("/index.html").route(
-    ///             web::get().to(index)))
-    ///         .external_resource("youtube", "https://youtube.com/watch/{video_id}");
-    /// }
+    /// let app = App::new()
+    ///     .service(web::resource("/index.html").route(
+    ///         web::get().to(index)))
+    ///     .external_resource("youtube", "https://youtube.com/watch/{video_id}");
     /// ```
     pub fn external_resource<N, U>(mut self, name: N, url: U) -> Self
     where
@@ -313,155 +301,158 @@ where
         U: AsRef<str>,
     {
         let mut rdef = ResourceDef::new(url.as_ref());
-        *rdef.name_mut() = name.as_ref().to_string();
+        rdef.set_name(name.as_ref());
         self.external.push(rdef);
         self
     }
 
-    /// Registers middleware, in the form of a middleware component (type),
-    /// that runs during inbound and/or outbound processing in the request
-    /// life-cycle (request -> response), modifying request/response as
-    /// necessary, across all requests managed by the *Application*.
+    /// Registers an app-wide middleware.
     ///
-    /// Use middleware when you need to read or modify *every* request or
-    /// response in some way.
+    /// Registers middleware, in the form of a middleware compo nen t (type), that runs during
+    /// inbound and/or outbound processing in the request life-cycle (request -> response),
+    /// modifying request/response as necessary, across all requests managed by the `App`.
     ///
-    /// Notice that the keyword for registering middleware is `wrap`. As you
-    /// register middleware using `wrap` in the App builder,  imagine wrapping
-    /// layers around an inner App.  The first middleware layer exposed to a
-    /// Request is the outermost layer-- the *last* registered in
-    /// the builder chain.  Consequently, the *first* middleware registered
-    /// in the builder chain is the *last* to execute during request processing.
+    /// Use middleware when you need to read or modify *every* request or response in some way.
     ///
-    /// ```rust
-    /// use actix_service::Service;
+    /// Middleware can be applied similarly to individual `Scope`s and `Resource`s.
+    /// See [`Scope::wrap`](crate::Scope::wrap) and [`Resource::wrap`].
+    ///
+    /// # Middleware Order
+    /// Notice that the keyword for registering middleware is `wrap`. As you register middleware
+    /// using `wrap` in the App builder, imagine wrapping layers around an inner App. The first
+    /// middleware layer exposed to a Request is the outermost layer (i.e., the *last* registered in
+    /// the builder chain). Consequently, the *first* middleware registered in the builder chain is
+    /// the *last* to start executing during request processing.
+    ///
+    /// Ordering is less obvious when wrapped services also have middleware applied. In this case,
+    /// middlewares are run in reverse order for `App` _and then_ in reverse order for the
+    /// wrapped service.
+    ///
+    /// # Examples
+    /// ```
     /// use actix_web::{middleware, web, App};
-    /// use actix_web::http::{header::CONTENT_TYPE, HeaderValue};
     ///
     /// async fn index() -> &'static str {
     ///     "Welcome!"
     /// }
     ///
-    /// fn main() {
-    ///     let app = App::new()
-    ///         .wrap(middleware::Logger::default())
-    ///         .route("/index.html", web::get().to(index));
-    /// }
+    /// let app = App::new()
+    ///     .wrap(middleware::Logger::default())
+    ///     .route("/index.html", web::get().to(index));
     /// ```
-    pub fn wrap<M, B1>(
+    #[doc(alias = "middleware")]
+    #[doc(alias = "use")] // nodejs terminology
+    pub fn wrap<M, B>(
         self,
         mw: M,
     ) -> App<
         impl ServiceFactory<
+            ServiceRequest,
             Config = (),
-            Request = ServiceRequest,
-            Response = ServiceResponse<B1>,
+            Response = ServiceResponse<B>,
             Error = Error,
             InitError = (),
         >,
-        B1,
     >
     where
         M: Transform<
-            T::Service,
-            Request = ServiceRequest,
-            Response = ServiceResponse<B1>,
-            Error = Error,
-            InitError = (),
-        >,
-        B1: MessageBody,
+                T::Service,
+                ServiceRequest,
+                Response = ServiceResponse<B>,
+                Error = Error,
+                InitError = (),
+            > + 'static,
+        B: MessageBody,
     {
         App {
             endpoint: apply(mw, self.endpoint),
-            data: self.data,
             data_factories: self.data_factories,
             services: self.services,
             default: self.default,
             factory_ref: self.factory_ref,
             external: self.external,
             extensions: self.extensions,
-            _t: PhantomData,
         }
     }
 
-    /// Registers middleware, in the form of a closure, that runs during inbound
-    /// and/or outbound processing in the request life-cycle (request -> response),
-    /// modifying request/response as necessary, across all requests managed by
-    /// the *Application*.
+    /// Registers an app-wide function middleware.
+    ///
+    /// `mw` is a closure that runs during inbound and/or outbound processing in the request
+    /// life-cycle (request -> response), modifying request/response as necessary, across all
+    /// requests handled by the `App`.
     ///
     /// Use middleware when you need to read or modify *every* request or response in some way.
     ///
-    /// ```rust
-    /// use actix_service::Service;
-    /// use actix_web::{web, App};
-    /// use actix_web::http::{header::CONTENT_TYPE, HeaderValue};
+    /// Middleware can also be applied to individual `Scope`s and `Resource`s.
+    ///
+    /// See [`App::wrap`] for details on how middlewares compose with each other.
+    ///
+    /// # Examples
+    /// ```
+    /// use actix_web::{dev::Service as _, middleware, web, App};
+    /// use actix_web::http::header::{CONTENT_TYPE, HeaderValue};
     ///
     /// async fn index() -> &'static str {
     ///     "Welcome!"
     /// }
     ///
-    /// fn main() {
-    ///     let app = App::new()
-    ///         .wrap_fn(|req, srv| {
-    ///             let fut = srv.call(req);
-    ///             async {
-    ///                 let mut res = fut.await?;
-    ///                 res.headers_mut().insert(
-    ///                    CONTENT_TYPE, HeaderValue::from_static("text/plain"),
-    ///                 );
-    ///                 Ok(res)
-    ///             }
-    ///         })
-    ///         .route("/index.html", web::get().to(index));
-    /// }
+    /// let app = App::new()
+    ///     .wrap_fn(|req, srv| {
+    ///         let fut = srv.call(req);
+    ///         async {
+    ///             let mut res = fut.await?;
+    ///             res.headers_mut()
+    ///                 .insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+    ///             Ok(res)
+    ///         }
+    ///     })
+    ///     .route("/index.html", web::get().to(index));
     /// ```
-    pub fn wrap_fn<B1, F, R>(
+    #[doc(alias = "middleware")]
+    #[doc(alias = "use")] // nodejs terminology
+    pub fn wrap_fn<F, R, B>(
         self,
         mw: F,
     ) -> App<
         impl ServiceFactory<
+            ServiceRequest,
             Config = (),
-            Request = ServiceRequest,
-            Response = ServiceResponse<B1>,
+            Response = ServiceResponse<B>,
             Error = Error,
             InitError = (),
         >,
-        B1,
     >
     where
-        B1: MessageBody,
-        F: FnMut(ServiceRequest, &mut T::Service) -> R + Clone,
-        R: Future<Output = Result<ServiceResponse<B1>, Error>>,
+        F: Fn(ServiceRequest, &T::Service) -> R + Clone + 'static,
+        R: Future<Output = Result<ServiceResponse<B>, Error>>,
+        B: MessageBody,
     {
         App {
             endpoint: apply_fn_factory(self.endpoint, mw),
-            data: self.data,
             data_factories: self.data_factories,
             services: self.services,
             default: self.default,
             factory_ref: self.factory_ref,
             external: self.external,
             extensions: self.extensions,
-            _t: PhantomData,
         }
     }
 }
 
-impl<T, B> IntoServiceFactory<AppInit<T, B>> for App<T, B>
+impl<T, B> IntoServiceFactory<AppInit<T, B>, Request> for App<T>
 where
-    B: MessageBody,
     T: ServiceFactory<
-        Config = (),
-        Request = ServiceRequest,
-        Response = ServiceResponse<B>,
-        Error = Error,
-        InitError = (),
-    >,
+            ServiceRequest,
+            Config = (),
+            Response = ServiceResponse<B>,
+            Error = Error,
+            InitError = (),
+        > + 'static,
+    B: MessageBody,
 {
     fn into_factory(self) -> AppInit<T, B> {
         AppInit {
-            data: self.data.into_boxed_slice().into(),
-            data_factories: self.data_factories.into_boxed_slice().into(),
+            async_data_factories: self.data_factories.into_boxed_slice().into(),
             endpoint: self.endpoint,
             services: Rc::new(RefCell::new(self.services)),
             external: RefCell::new(self.external),
@@ -474,25 +465,26 @@ where
 
 #[cfg(test)]
 mod tests {
-    use actix_service::Service;
+    use actix_service::Service as _;
+    use actix_utils::future::{err, ok};
     use bytes::Bytes;
-    use futures_util::future::{err, ok};
 
     use super::*;
-    use crate::http::{header, HeaderValue, Method, StatusCode};
-    use crate::middleware::DefaultHeaders;
-    use crate::service::ServiceRequest;
-    use crate::test::{
-        call_service, init_service, read_body, try_init_service, TestRequest,
+    use crate::{
+        http::{
+            header::{self, HeaderValue},
+            Method, StatusCode,
+        },
+        middleware::DefaultHeaders,
+        service::ServiceRequest,
+        test::{call_service, init_service, read_body, try_init_service, TestRequest},
+        web, HttpRequest, HttpResponse,
     };
-    use crate::{web, HttpRequest, HttpResponse};
 
     #[actix_rt::test]
     async fn test_default_resource() {
-        let mut srv = init_service(
-            App::new().service(web::resource("/test").to(HttpResponse::Ok)),
-        )
-        .await;
+        let srv =
+            init_service(App::new().service(web::resource("/test").to(HttpResponse::Ok))).await;
         let req = TestRequest::with_uri("/test").to_request();
         let resp = srv.call(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -501,7 +493,7 @@ mod tests {
         let resp = srv.call(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
-        let mut srv = init_service(
+        let srv = init_service(
             App::new()
                 .service(web::resource("/test").to(HttpResponse::Ok))
                 .service(
@@ -532,46 +524,53 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::CREATED);
     }
 
+    // allow deprecated App::data
+    #[allow(deprecated)]
     #[actix_rt::test]
     async fn test_data_factory() {
-        let mut srv =
-            init_service(App::new().data_factory(|| ok::<_, ()>(10usize)).service(
-                web::resource("/").to(|_: web::Data<usize>| HttpResponse::Ok()),
-            ))
-            .await;
+        let srv = init_service(
+            App::new()
+                .data_factory(|| ok::<_, ()>(10usize))
+                .service(web::resource("/").to(|_: web::Data<usize>| HttpResponse::Ok())),
+        )
+        .await;
         let req = TestRequest::default().to_request();
         let resp = srv.call(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let mut srv =
-            init_service(App::new().data_factory(|| ok::<_, ()>(10u32)).service(
-                web::resource("/").to(|_: web::Data<usize>| HttpResponse::Ok()),
-            ))
-            .await;
+        let srv = init_service(
+            App::new()
+                .data_factory(|| ok::<_, ()>(10u32))
+                .service(web::resource("/").to(|_: web::Data<usize>| HttpResponse::Ok())),
+        )
+        .await;
         let req = TestRequest::default().to_request();
         let resp = srv.call(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
+    // allow deprecated App::data
+    #[allow(deprecated)]
     #[actix_rt::test]
     async fn test_data_factory_errors() {
-        let srv =
-            try_init_service(App::new().data_factory(|| err::<u32, _>(())).service(
-                web::resource("/").to(|_: web::Data<usize>| HttpResponse::Ok()),
-            ))
-            .await;
+        let srv = try_init_service(
+            App::new()
+                .data_factory(|| err::<u32, _>(()))
+                .service(web::resource("/").to(|_: web::Data<usize>| HttpResponse::Ok())),
+        )
+        .await;
 
         assert!(srv.is_err());
     }
 
     #[actix_rt::test]
     async fn test_extension() {
-        let mut srv = init_service(App::new().app_data(10usize).service(
-            web::resource("/").to(|req: HttpRequest| {
+        let srv = init_service(App::new().app_data(10usize).service(web::resource("/").to(
+            |req: HttpRequest| {
                 assert_eq!(*req.app_data::<usize>().unwrap(), 10);
                 HttpResponse::Ok()
-            }),
-        ))
+            },
+        )))
         .await;
         let req = TestRequest::default().to_request();
         let resp = srv.call(req).await.unwrap();
@@ -580,17 +579,17 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_wrap() {
-        let mut srv = init_service(
+        let srv = init_service(
             App::new()
                 .wrap(
                     DefaultHeaders::new()
-                        .header(header::CONTENT_TYPE, HeaderValue::from_static("0001")),
+                        .add((header::CONTENT_TYPE, HeaderValue::from_static("0001"))),
                 )
                 .route("/test", web::get().to(HttpResponse::Ok)),
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
-        let resp = call_service(&mut srv, req).await;
+        let resp = call_service(&srv, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -600,17 +599,17 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_router_wrap() {
-        let mut srv = init_service(
+        let srv = init_service(
             App::new()
                 .route("/test", web::get().to(HttpResponse::Ok))
                 .wrap(
                     DefaultHeaders::new()
-                        .header(header::CONTENT_TYPE, HeaderValue::from_static("0001")),
+                        .add((header::CONTENT_TYPE, HeaderValue::from_static("0001"))),
                 ),
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
-        let resp = call_service(&mut srv, req).await;
+        let resp = call_service(&srv, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -620,16 +619,14 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_wrap_fn() {
-        let mut srv = init_service(
+        let srv = init_service(
             App::new()
                 .wrap_fn(|req, srv| {
                     let fut = srv.call(req);
                     async move {
                         let mut res = fut.await?;
-                        res.headers_mut().insert(
-                            header::CONTENT_TYPE,
-                            HeaderValue::from_static("0001"),
-                        );
+                        res.headers_mut()
+                            .insert(header::CONTENT_TYPE, HeaderValue::from_static("0001"));
                         Ok(res)
                     }
                 })
@@ -637,7 +634,7 @@ mod tests {
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
-        let resp = call_service(&mut srv, req).await;
+        let resp = call_service(&srv, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -647,24 +644,22 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_router_wrap_fn() {
-        let mut srv = init_service(
+        let srv = init_service(
             App::new()
                 .route("/test", web::get().to(HttpResponse::Ok))
                 .wrap_fn(|req, srv| {
                     let fut = srv.call(req);
                     async {
                         let mut res = fut.await?;
-                        res.headers_mut().insert(
-                            header::CONTENT_TYPE,
-                            HeaderValue::from_static("0001"),
-                        );
+                        res.headers_mut()
+                            .insert(header::CONTENT_TYPE, HeaderValue::from_static("0001"));
                         Ok(res)
                     }
                 }),
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
-        let resp = call_service(&mut srv, req).await;
+        let resp = call_service(&srv, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -674,23 +669,43 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_external_resource() {
-        let mut srv = init_service(
+        let srv = init_service(
             App::new()
                 .external_resource("youtube", "https://youtube.com/watch/{video_id}")
                 .route(
                     "/test",
                     web::get().to(|req: HttpRequest| {
-                        HttpResponse::Ok().body(
-                            req.url_for("youtube", &["12345"]).unwrap().to_string(),
-                        )
+                        HttpResponse::Ok()
+                            .body(req.url_for("youtube", &["12345"]).unwrap().to_string())
                     }),
                 ),
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
-        let resp = call_service(&mut srv, req).await;
+        let resp = call_service(&srv, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body(resp).await;
         assert_eq!(body, Bytes::from_static(b"https://youtube.com/watch/12345"));
+    }
+
+    #[test]
+    fn can_be_returned_from_fn() {
+        /// compile-only test for returning app type from function
+        pub fn my_app() -> App<
+            impl ServiceFactory<
+                ServiceRequest,
+                Response = ServiceResponse<impl MessageBody>,
+                Config = (),
+                InitError = (),
+                Error = Error,
+            >,
+        > {
+            App::new()
+                // logger can be removed without affecting the return type
+                .wrap(crate::middleware::Logger::default())
+                .route("/", web::to(|| async { "hello" }))
+        }
+
+        let _ = init_service(my_app());
     }
 }

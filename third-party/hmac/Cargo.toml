@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "hmac"
-version = "0.12.0"
+version = "0.12.1"
 authors = ["RustCrypto Developers"]
 description = "Generic implementation of Hash-based Message Authentication Code (HMAC)"
 documentation = "https://docs.rs/hmac"
@@ -21,15 +21,18 @@ keywords = ["crypto", "mac", "hmac", "digest"]
 categories = ["cryptography", "no-std"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/RustCrypto/MACs"
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 [dependencies.digest]
-version = "0.10"
+version = "0.10.3"
 features = ["mac"]
 [dev-dependencies.digest]
 version = "0.10"
 features = ["dev"]
 
 [dev-dependencies.hex-literal]
-version = "0.2"
+version = "0.2.2"
 
 [dev-dependencies.md-5]
 version = "0.10"

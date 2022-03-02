@@ -1,13 +1,7 @@
 use actix::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-#[derive(Debug)]
-struct Panic();
-
-impl Message for Panic {
-    type Result = ();
-}
+use tokio::sync::oneshot;
 
 #[derive(Debug)]
 struct Ping(usize);
@@ -32,28 +26,29 @@ impl Handler<Ping> for MyActor {
     }
 }
 
-impl Handler<Panic> for MyActor {
-    type Result = ();
-
-    fn handle(&mut self, _: Panic, _: &mut actix::Context<MyActor>) {
-        panic!("Whoops!");
-    }
-}
-
 #[test]
 fn test_start_actor_message() {
     let count = Arc::new(AtomicUsize::new(0));
     let act_count = Arc::clone(&count);
 
-    System::run(move || {
+    let sys = System::new();
+
+    sys.block_on(async move {
         let arbiter = Arbiter::new();
 
         actix_rt::spawn(async move {
-            let res = arbiter.exec(|| MyActor(act_count).start()).await;
-            res.unwrap().do_send(Ping(1));
+            let (tx, rx) = oneshot::channel();
+
+            arbiter.spawn_fn(move || {
+                let addr = MyActor(act_count).start();
+                tx.send(addr).ok().unwrap();
+            });
+
+            rx.await.unwrap().do_send(Ping(1));
         });
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
 
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }

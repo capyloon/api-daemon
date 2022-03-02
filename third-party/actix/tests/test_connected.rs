@@ -1,6 +1,9 @@
-use actix::prelude::*;
+#![cfg(feature = "macros")]
+
 use std::time::Duration;
-use tokio::time::delay_for;
+
+use actix::prelude::*;
+use actix_rt::time::sleep;
 
 struct MyActor;
 
@@ -20,11 +23,11 @@ impl Actor for MyActor {
     }
 }
 
-#[actix_rt::test]
+#[actix::test]
 async fn test_connected() {
-    Arbiter::spawn(async move {
+    actix_rt::spawn(async move {
         let addr = MyActor::start(MyActor);
-        delay_for(Duration::from_millis(350)).await;
+        sleep(Duration::from_millis(350)).await;
         drop(addr);
     });
 }

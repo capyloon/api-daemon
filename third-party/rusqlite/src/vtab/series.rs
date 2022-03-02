@@ -1,4 +1,4 @@
-//! `feature = "series"` Generate series virtual table.
+//! Generate series virtual table.
 //!
 //! Port of C [generate series
 //! "function"](http://www.sqlite.org/cgi/src/finfo?name=ext/misc/series.c):
@@ -15,7 +15,7 @@ use crate::vtab::{
 };
 use crate::{Connection, Error, Result};
 
-/// `feature = "series"` Register the "generate_series" module.
+/// Register the "generate_series" module.
 pub fn load_module(conn: &Connection) -> Result<()> {
     let aux: Option<()> = None;
     conn.create_module("generate_series", eponymous_only_module::<SeriesTab>(), aux)
@@ -38,7 +38,7 @@ bitflags::bitflags! {
         const STEP  = 4;
         // output in descending order
         const DESC  = 8;
-        // output in descending order
+        // output in ascending order
         const ASC  = 16;
         // Both start and stop
         const BOTH  = QueryPlanFlags::START.bits | QueryPlanFlags::STOP.bits;
@@ -123,12 +123,16 @@ unsafe impl<'vtab> VTab<'vtab> for SeriesTab {
             let order_by_consumed = {
                 let mut order_bys = info.order_bys();
                 if let Some(order_by) = order_bys.next() {
-                    if order_by.is_order_by_desc() {
-                        idx_num |= QueryPlanFlags::DESC;
+                    if order_by.column() == 0 {
+                        if order_by.is_order_by_desc() {
+                            idx_num |= QueryPlanFlags::DESC;
+                        } else {
+                            idx_num |= QueryPlanFlags::ASC;
+                        }
+                        true
                     } else {
-                        idx_num |= QueryPlanFlags::ASC;
+                        false
                     }
-                    true
                 } else {
                     false
                 }

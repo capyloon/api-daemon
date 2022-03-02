@@ -250,7 +250,7 @@ mod test {
                     let mut resp304 = HttpResponse::NotModified();
                     let builder = resp304
                         .content_type(mime.as_ref())
-                        .set_header("ETag", etag.to_string());
+                        .insert_header(("ETag", etag.to_string()));
 
                     return Some(builder.finish());
                 }
@@ -282,7 +282,7 @@ mod test {
             }
 
             HttpResponse::Ok()
-                .set_header("ETag", etag.to_string())
+                .insert_header(("ETag", etag.to_string()))
                 .content_type(mime.as_ref())
                 .body(buf)
         } else {
@@ -343,8 +343,16 @@ mod test {
                     )
                     .unwrap();
 
+                    let port = req
+                        .headers()
+                        .get("X-Port")
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap();
                     let request =
-                        RequestBuilder::new("GET", "localhost", 3429, req.path()).request();
+                        RequestBuilder::new("GET", "localhost", port, req.path()).request();
 
                     let key = Key::new(base64::decode(MAC_KEY).unwrap(), SHA256).unwrap();
                     let one_week_in_secs = 7 * 24 * 60 * 60;
@@ -357,10 +365,8 @@ mod test {
         }
     }
 
-    async fn apps_responses(
-        req: HttpRequest,
-        web::Path((app, name)): web::Path<(String, String)>,
-    ) -> HttpResponse {
+    async fn apps_responses(req: HttpRequest, params: web::Path<(String, String)>) -> HttpResponse {
+        let (app, name) = params.as_ref();
         // For cancel API test
         std::thread::sleep(std::time::Duration::from_millis(200));
         if !check_ua(&req) {
@@ -376,9 +382,7 @@ mod test {
     fn launch_server(port: u16) {
         env::set_var("RUST_LOG", "actix_web=debug,actix_server=info");
 
-        let sys = actix_rt::System::new("download-test-server");
-
-        HttpServer::new(|| {
+        let server = HttpServer::new(|| {
             App::new()
                 .wrap(middleware::Logger::default())
                 .service(
@@ -392,7 +396,11 @@ mod test {
         .unwrap()
         .run();
 
-        let _ = sys.run();
+        let _ = actix_rt::Runtime::new().unwrap().block_on(async {
+            let _ = server
+                .await
+                .map_err(|e| error!("apps test server exit with error: {:?}", e));
+        });
     }
 
     fn start_server(port: u16) {
@@ -443,6 +451,7 @@ mod test {
             AUTHORIZATION,
             HeaderValue::from_str(&format!("Hawk {}", hawk_str)).unwrap(),
         );
+        headers.insert("X-Port", HeaderValue::from_str("3429").unwrap());
 
         let downloader = Downloader::new(user_agent, lang).unwrap();
 
@@ -500,10 +509,12 @@ mod test {
     }
 
     #[test]
-    fn download_file_valid_key() {
+    fn cancel_download_file_valid_key() {
         use std::env;
         let _ = env_logger::try_init();
         let current = env::current_dir().unwrap();
+
+        start_server(3430);
 
         let user_agent = "Mozilla/5.0 (Mobile; rv:84.0) Gecko/84.0 Firefox/84.0 KAIOS/3.0";
         let lang = "en-US";
@@ -514,7 +525,7 @@ mod test {
         }
 
         let url = Url::parse(
-            "http://localhost:3429/test-fixtures/test-server-apps/ciautotest/manifest.webmanifest",
+            "http://localhost:3430/test-fixtures/test-server-apps/ciautotest/manifest.webmanifest",
         )
         .ok();
         let mut hawk = Hawk::default();
@@ -535,6 +546,7 @@ mod test {
             AUTHORIZATION,
             HeaderValue::from_str(&format!("Hawk {}", hawk_str)).unwrap(),
         );
+        headers.insert("X-Port", HeaderValue::from_str("3430").unwrap());
 
         let downloader = Downloader::new(user_agent, lang).unwrap();
 

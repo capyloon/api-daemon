@@ -54,7 +54,7 @@ function setup_xcompile_envs() {
     elif [ -n "${MOZBUILD}" ]; then
         export TOOLCHAIN_CC=clang
         export TOOLCHAIN_CXX=clang++
-        export SYSROOT=${MOZBUILD}/sysroot
+        export SYSROOT=${MOZBUILD}/sysroot-${TARGET_INCLUDE}
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
         export PATH=${MOZBUILD}/clang/bin:${PATH}
 
@@ -78,9 +78,7 @@ function xcompile() {
 
     echo "Creating '$CARGO_CONFIG'"
     mkdir -p $(pwd)/.cargo
-    cat <<EOF >$CARGO_CONFIG
-[build]
-target = "${TARGET_TRIPLE}"
+    cat <<EOF >>$CARGO_CONFIG
 
 [target.${TARGET_TRIPLE}]
 linker = "${TOOLCHAIN_CC}"

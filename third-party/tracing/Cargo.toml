@@ -11,9 +11,9 @@
 
 [package]
 edition = "2018"
-rust-version = "1.42.0"
+rust-version = "1.49.0"
 name = "tracing"
-version = "0.1.30"
+version = "0.1.31"
 authors = ["Eliza Weisman <eliza@buoyant.io>", "Tokio Contributors <team@tokio.rs>"]
 description = "Application-level tracing for Rust.\n"
 homepage = "https://tokio.rs"

@@ -1,4 +1,4 @@
-//! `feature = "blob"` Incremental BLOB I/O.
+//! Incremental BLOB I/O.
 //!
 //! Note that SQLite does not provide API-level access to change the size of a
 //! BLOB; that must be performed through SQL statements.
@@ -196,7 +196,7 @@ use crate::{Connection, DatabaseName, Result};
 
 mod pos_io;
 
-/// `feature = "blob"` Handle to an open BLOB. See
+/// Handle to an open BLOB. See
 /// [`rusqlite::blob`](crate::blob) documentation for in-depth discussion.
 pub struct Blob<'conn> {
     conn: &'conn Connection,
@@ -206,7 +206,7 @@ pub struct Blob<'conn> {
 }
 
 impl Connection {
-    /// `feature = "blob"` Open a handle to the BLOB located in `row_id`,
+    /// Open a handle to the BLOB located in `row_id`,
     /// `column`, `table` in database `db`.
     ///
     /// # Failure
@@ -223,9 +223,9 @@ impl Connection {
         row_id: i64,
         read_only: bool,
     ) -> Result<Blob<'a>> {
-        let mut c = self.db.borrow_mut();
+        let c = self.db.borrow_mut();
         let mut blob = ptr::null_mut();
-        let db = db.to_cstring()?;
+        let db = db.as_cstring()?;
         let table = super::str_to_cstring(table)?;
         let column = super::str_to_cstring(column)?;
         let rc = unsafe {
@@ -265,12 +265,14 @@ impl Blob<'_> {
 
     /// Return the size in bytes of the BLOB.
     #[inline]
+    #[must_use]
     pub fn size(&self) -> i32 {
         unsafe { ffi::sqlite3_blob_bytes(self.blob) }
     }
 
     /// Return the current size in bytes of the BLOB.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         use std::convert::TryInto;
         self.size().try_into().unwrap()
@@ -278,6 +280,7 @@ impl Blob<'_> {
 
     /// Return true if the BLOB is empty.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.size() == 0
     }
@@ -318,8 +321,7 @@ impl io::Read for Blob<'_> {
         if n <= 0 {
             return Ok(0);
         }
-        let rc =
-            unsafe { ffi::sqlite3_blob_read(self.blob, buf.as_mut_ptr() as *mut _, n, self.pos) };
+        let rc = unsafe { ffi::sqlite3_blob_read(self.blob, buf.as_mut_ptr().cast(), n, self.pos) };
         self.conn
             .decode_result(rc)
             .map(|_| {
@@ -400,7 +402,7 @@ impl Drop for Blob<'_> {
     }
 }
 
-/// `feature = "blob"` BLOB of length N that is filled with zeroes.
+/// BLOB of length N that is filled with zeroes.
 ///
 /// Zeroblobs are intended to serve as placeholders for BLOBs whose content is
 /// later written using incremental BLOB I/O routines.

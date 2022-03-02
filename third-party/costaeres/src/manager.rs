@@ -90,20 +90,26 @@ impl<T> Manager<T> {
         // Register our custom function to evaluate frecency based on the scorer serialized representation.
         let pool_options = SqlitePoolOptions::new().after_connect(|conn| {
             Box::pin(async move {
-                let handle = conn.as_raw_handle();
-
-                let name = CString::new("frecency").unwrap();
-                unsafe {
-                    sqlite3_create_function(
-                        handle,
-                        name.as_ptr(),
-                        1, // Argument count.
-                        SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_INNOCUOUS | SQLITE_DIRECTONLY,
-                        std::ptr::null_mut(),
-                        Some(sqlite_frecency),
-                        None,
-                        None,
-                    );
+                match conn.lock_handle().await {
+                    Ok(mut handle) => {
+                        let name = CString::new("frecency").unwrap();
+                        unsafe {
+                            sqlite3_create_function(
+                                handle.as_raw_handle().as_ptr(),
+                                name.as_ptr(),
+                                1, // Argument count.
+                                SQLITE_UTF8
+                                    | SQLITE_DETERMINISTIC
+                                    | SQLITE_INNOCUOUS
+                                    | SQLITE_DIRECTONLY,
+                                std::ptr::null_mut(),
+                                Some(sqlite_frecency),
+                                None,
+                                None,
+                            );
+                        }
+                    }
+                    Err(err) => error!("Failed to acquire SQLite handle: {}", err),
                 }
                 Ok(())
             })

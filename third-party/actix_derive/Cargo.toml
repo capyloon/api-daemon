@@ -13,16 +13,14 @@
 [package]
 edition = "2018"
 name = "actix_derive"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Callym <hi@callym.com>", "Nikolay Kim <fafhrd91@gmail.com>"]
-exclude = [".gitignore", ".travis.yml", ".cargo/config", "appveyor.yml"]
-description = "Actor framework for Rust"
-homepage = "https://github.com/actix/actix-derive/"
-documentation = "https://docs.rs/actix-derive/"
+description = "Derive macros for `actix` actors"
+documentation = "https://docs.rs/actix-derive"
 readme = "README.md"
-keywords = ["actix"]
-license = "MIT/Apache-2.0"
-repository = "https://github.com/actix/actix-derive.git"
+keywords = ["actix", "actors", "derive", "macro"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/actix/actix"
 
 [lib]
 proc-macro = true
@@ -35,6 +33,3 @@ version = "1"
 [dependencies.syn]
 version = "1"
 features = ["full"]
-[dev-dependencies.actix]
-version = "0.8.3"
-default-features = false

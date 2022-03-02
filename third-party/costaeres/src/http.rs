@@ -8,8 +8,7 @@ use crate::common::{
     BoxedReader, ResourceId, ResourceKind, ResourceMetadata, ResourceStore, ResourceStoreError,
 };
 use crate::file_store::FileStore;
-use actix_web::dev::BodyEncoding;
-use actix_web::http::{header, ContentEncoding};
+use actix_web::http::header;
 use actix_web::web::{self, Bytes};
 use actix_web::{HttpResponse, Responder};
 use async_std::io::ReadExt;
@@ -41,7 +40,7 @@ impl ChunkedReader {
 }
 
 impl Stream for ChunkedReader {
-    type Item = Result<Bytes, ()>;
+    type Item = Result<Bytes, std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let mut buffer: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
@@ -49,8 +48,7 @@ impl Stream for ChunkedReader {
         let read = ready!(Future::poll(
             Pin::new(&mut self.reader.read(&mut buffer)),
             cx
-        ))
-        .map_err(|_| ())?;
+        ))?;
 
         if read == 0 {
             // We reached EOF
@@ -118,25 +116,25 @@ pub async fn resource_handler(data: web::Data<HttpData>, info: web::Path<Info>) 
                 if variant.name() == info.variant {
                     let mime_type = variant.mime_type();
 
-                    // Disable compression by setting ContentEncoding::Identity (see https://docs.rs/actix-web/3.3.2/actix_web/middleware/struct.Compress.html)
+                    // Disable compression by setting ContentEncoding::Identity (see https://docs.rs/actix-web/4.0.0-beta.19/actix_web/middleware/struct.Compress.html)
                     // for mime types that represent already compressed data.
                     if mime_type != "image/svg+xml"
                         && (mime_type.starts_with("image/")
                             || mime_type.starts_with("audio/")
                             || mime_type.starts_with("video/"))
                     {
-                        response.encoding(ContentEncoding::Identity);
+                        response.insert_header(header::ContentEncoding::Identity);
                     }
 
-                    response.set_header(header::CONTENT_TYPE, mime_type);
-                    response.set_header(header::CONTENT_LENGTH, variant.size().to_string());
+                    response.insert_header((header::CONTENT_TYPE, mime_type));
+                    response.insert_header((header::CONTENT_LENGTH, variant.size().to_string()));
 
                     break;
                 }
             }
 
             if meta.kind() == ResourceKind::Container {
-                response.set_header(header::CONTENT_TYPE, "application/json");
+                response.insert_header((header::CONTENT_TYPE, "application/json"));
 
                 let mut buffer = vec![];
                 reader.read_to_end(&mut buffer).await.unwrap_or(0);
@@ -163,7 +161,7 @@ mod test {
     use crate::http::*;
     use actix_web::http::header;
     use actix_web::http::StatusCode;
-    use actix_web::web::Bytes;
+    use actix_web::web::{Bytes, Data};
     use actix_web::{test, App};
     use async_std::fs;
     use speedy::Writable;
@@ -262,7 +260,7 @@ mod test {
             test::init_service(
                 App::new().service(
                     web::scope("/cmgr")
-                        .data($data)
+                        .app_data(Data::new($data))
                         .route("*", web::post().to(HttpResponse::MethodNotAllowed))
                         .route(RESOURCE_PATTERN, web::get().to(resource_handler)),
                 ),
@@ -320,7 +318,7 @@ mod test {
             .uri(&format!("/cmgr/somekey/{}/default", ROOT_ID_STR))
             .to_request();
 
-        let result = test::read_response(&mut app, req).await;
+        let result = test::call_and_read_body(&mut app, req).await;
         assert_eq!(result, Bytes::from_static(b"#!/bin/bash\n\nset -x -e\n\nrm build.sqlite\nsqlite3 build.sqlite < db/migrations/00001_main.sql\n\n"));
     }
 
@@ -428,7 +426,7 @@ mod test {
             .to_request();
 
         // Check json content.
-        let result = test::read_response(&mut app, req).await;
+        let result = test::call_and_read_body(&mut app, req).await;
 
         let metas: Vec<MetaSummary> = serde_json::from_slice(&result).unwrap();
 

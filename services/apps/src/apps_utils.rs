@@ -1,9 +1,9 @@
 use crate::generated::common::*;
 use crate::manifest::Manifest;
 use crate::update_manifest::UpdateManifest;
-use log::{debug, error};
-
+use assert_json_diff::{assert_json_matches_no_panic, CompareMode, Config};
 use http::Uri;
+use log::{debug, error};
 
 pub fn compare_manifests(
     update_manifest: &UpdateManifest,
@@ -29,7 +29,13 @@ pub fn compare_manifests(
             manifest_features.get_developer(),
         ) {
             (Some(developer1), Some(developer2)) => {
-                if assert_json_diff::assert_json_eq_no_panic(&developer1, &developer2).is_err() {
+                if assert_json_matches_no_panic(
+                    &developer1,
+                    &developer2,
+                    Config::new(CompareMode::Strict),
+                )
+                .is_err()
+                {
                     error!("Developer do not match");
                     return Err(AppsServiceError::InvalidManifest);
                 }

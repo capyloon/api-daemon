@@ -1,7 +1,5 @@
 #[cfg(target_os = "android")]
 extern crate android_utils;
-#[cfg(test)]
-extern crate test_server;
 
 pub mod crypto_utils;
 pub mod download_decrypt;

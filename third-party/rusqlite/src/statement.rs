@@ -55,7 +55,7 @@ impl Statement<'_> {
     ///     // The `rusqlite::named_params!` macro (like `params!`) is useful for heterogeneous
     ///     // sets of parameters (where all parameters are not the same type), or for queries
     ///     // with many (more than 32) statically known parameters.
-    ///     stmt.execute(named_params!{ ":key": "one", ":val": 2 })?;
+    ///     stmt.execute(named_params! { ":key": "one", ":val": 2 })?;
     ///     // However, named parameters can also be passed like:
     ///     stmt.execute(&[(":key", "three"), (":val", "four")])?;
     ///     // Or even: (note that a &T is required for the value type, currently)
@@ -135,8 +135,8 @@ impl Statement<'_> {
     /// Execute the prepared statement, returning a handle to the resulting
     /// rows.
     ///
-    /// Due to lifetime restricts, the rows handle returned by `query` does not
-    /// implement the `Iterator` trait. Consider using
+    /// Due to lifetime restrictions, the rows handle returned by `query` does
+    /// not implement the `Iterator` trait. Consider using
     /// [`query_map`](Statement::query_map) or
     /// [`query_and_then`](Statement::query_and_then) instead, which do.
     ///
@@ -208,7 +208,7 @@ impl Statement<'_> {
     /// # use rusqlite::{Connection, Result, named_params};
     /// fn query(conn: &Connection) -> Result<()> {
     ///     let mut stmt = conn.prepare("SELECT * FROM test where name = :name")?;
-    ///     let mut rows = stmt.query(named_params!{ ":name": "one" })?;
+    ///     let mut rows = stmt.query(named_params! { ":name": "one" })?;
     ///     while let Some(row) = rows.next()? {
     ///         // ...
     ///     }
@@ -346,13 +346,12 @@ impl Statement<'_> {
     ///
     /// fn name_to_person(name: String) -> Result<Person> {
     ///     // ... check for valid name
-    ///     Ok(Person { name: name })
+    ///     Ok(Person { name })
     /// }
     ///
     /// fn get_names(conn: &Connection) -> Result<Vec<Person>> {
     ///     let mut stmt = conn.prepare("SELECT name FROM people WHERE id = :id")?;
-    ///     let rows =
-    ///         stmt.query_and_then(&[(":id", "one")], |row| name_to_person(row.get(0)?))?;
+    ///     let rows = stmt.query_and_then(&[(":id", "one")], |row| name_to_person(row.get(0)?))?;
     ///
     ///     let mut persons = Vec::new();
     ///     for person_result in rows {
@@ -453,7 +452,7 @@ impl Statement<'_> {
     {
         let mut rows = self.query(params)?;
 
-        rows.get_expected_row().and_then(|r| f(&r))
+        rows.get_expected_row().and_then(f)
     }
 
     /// Convenience method to execute a query with named parameter(s) that is
@@ -718,7 +717,7 @@ impl Statement<'_> {
                     ffi::sqlite3_bind_blob(
                         ptr,
                         col as c_int,
-                        b.as_ptr() as *const c_void,
+                        b.as_ptr().cast::<c_void>(),
                         length,
                         ffi::SQLITE_TRANSIENT(),
                     )
@@ -776,6 +775,7 @@ impl Statement<'_> {
     /// Returns a string containing the SQL text of prepared statement with
     /// bound parameters expanded.
     #[cfg(feature = "modern_sqlite")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "modern_sqlite")))]
     pub fn expanded_sql(&self) -> Option<String> {
         self.stmt
             .expanded_sql()
@@ -875,7 +875,7 @@ impl Statement<'_> {
                         !text.is_null(),
                         "unexpected SQLITE_TEXT column type with NULL data"
                     );
-                    from_raw_parts(text as *const u8, len as usize)
+                    from_raw_parts(text.cast::<u8>(), len as usize)
                 };
 
                 ValueRef::Text(s)
@@ -897,7 +897,7 @@ impl Statement<'_> {
                         !blob.is_null(),
                         "unexpected SQLITE_BLOB column type with NULL data"
                     );
-                    ValueRef::Blob(unsafe { from_raw_parts(blob as *const u8, len as usize) })
+                    ValueRef::Blob(unsafe { from_raw_parts(blob.cast::<u8>(), len as usize) })
                 } else {
                     // The return value from sqlite3_column_blob() for a zero-length BLOB
                     // is a NULL pointer.
@@ -946,6 +946,10 @@ pub enum StatementStatus {
     RePrepare = 5,
     /// Equivalent to SQLITE_STMTSTATUS_RUN
     Run = 6,
+    /// Equivalent to SQLITE_STMTSTATUS_FILTER_MISS
+    FilterMiss = 7,
+    /// Equivalent to SQLITE_STMTSTATUS_FILTER_HIT
+    FilterHit = 8,
     /// Equivalent to SQLITE_STMTSTATUS_MEMUSED
     MemUsed = 99,
 }

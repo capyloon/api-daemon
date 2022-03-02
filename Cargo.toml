@@ -33,23 +33,25 @@ members = [
 ]
 
 [patch.crates-io]
-# Bump crossbeam to avoid duplicates
-actix = { git = "https://github.com/fabricedesre/actix.git", branch = "0.10-bump-crossbeam" }
+# Bump parking-lot and tokio-util
+actix = {git = "https://github.com/fabricedesre/actix.git", branch = "parking-lot-0.12"}
+# Bump tokio-util
+h2 = {git = "https://github.com/fabricedesre/h2.git"}
 # Bump base64 and cookie to avoid duplicates.
-webdriver = { path = "support/webdriver" }
+webdriver = {path = "support/webdriver"}
 # Use our fork with the extra feature for vhost
-zip = { path = "support/zip" }
+zip = {path = "support/zip"}
 # For the sha-1 update
-pest = { git = "https://github.com/fabricedesre/pest.git" }
-pest_derive = { git = "https://github.com/fabricedesre/pest.git" }
-pest_generator = { git = "https://github.com/fabricedesre/pest.git" }
-pest_meta = { git = "https://github.com/fabricedesre/pest.git" }
+pest = {git = "https://github.com/fabricedesre/pest.git"}
+pest_derive = {git = "https://github.com/fabricedesre/pest.git"}
+pest_generator = {git = "https://github.com/fabricedesre/pest.git"}
+pest_meta = {git = "https://github.com/fabricedesre/pest.git"}
 
 [profile.release]
-opt-level = 3
-debug = false
-rpath = false
-lto = true
-debug-assertions = false
 codegen-units = 1
+debug = false
+debug-assertions = false
+lto = true
+opt-level = 3
 panic = "abort"
+rpath = false

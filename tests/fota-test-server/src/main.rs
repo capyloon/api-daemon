@@ -5,7 +5,7 @@ use actix_files::NamedFile;
 use actix_web::http::StatusCode;
 use actix_web::web::resource;
 use actix_web::{get, post, web::Data, App, HttpRequest, HttpResponse, HttpServer};
-use clap::{crate_authors, crate_description, crate_version, Clap};
+use clap::{ArgEnum, Parser};
 use log::debug;
 use parking_lot::RwLock;
 use response::{get_download_req_response, get_full_check_response};
@@ -16,22 +16,17 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 
-const ABOUT_MODE: &str = "server running mode";
-const ABOUT_PORT: &str = "server listen port";
-const ABOUT_SIZE: &str = "created file size in MB";
-
-#[derive(Clap, PartialEq, Debug, Clone)]
-#[clap(
-    version = crate_version!(),
-    author = crate_authors!(),
-    about = crate_description!()
-)]
+#[derive(Parser, PartialEq, Debug, Clone)]
+#[clap(version, author, about)]
 struct Opts {
-    #[clap(arg_enum, short, long, default_value = "full", about = ABOUT_MODE)]
+    /// Server running mode
+    #[clap(arg_enum, short, long, default_value = "full")]
     mode: Mode,
-    #[clap(short, long, default_value = "10095", about = ABOUT_PORT)]
+    /// Server listening port
+    #[clap(short, long, default_value = "10095")]
     port: u16,
-    #[clap(short, long, default_value = "3", about = ABOUT_SIZE)]
+    /// Created file size in MB
+    #[clap(short, long, default_value = "3")]
     size: u8,
 }
 
@@ -49,7 +44,7 @@ const V2: &str = "fota-debug-server-v2";
 // const VERSION: &str = "20180925M2";
 // const TARGET_VERSION: &str = "20180926N2";
 
-#[derive(Clap, Debug, Copy, Clone, PartialEq)]
+#[derive(ArgEnum, Debug, Copy, Clone, PartialEq)]
 pub enum Mode {
     CheckUpdate,
     Error,
@@ -224,7 +219,7 @@ async fn resource_file2(data: Data<SharedData>) -> Result<NamedFile> {
     }
 }
 
-#[actix_rt::main]
+#[actix_web::main]
 async fn main() -> Result<()> {
     env_logger::init();
 
@@ -239,7 +234,7 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(GENERATED_PATH)?;
 
     // Create shared file based on different mode
-    let shared_data = get_shared_data(&opts)?;
+    let shared_data = Data::new(get_shared_data(&opts)?);
     println!(
         "File sha1, file1={:?}, sha1={:?}, file2={:?}, sha1={:?}",
         &shared_data.file1, &shared_data.file1_sha1, &shared_data.file2, &shared_data.file2_sha1
@@ -262,7 +257,7 @@ async fn main() -> Result<()> {
                     .service(api_last_chk_query)
                     .service(resource(&route_file1).to(resource_file1))
                     .service(resource(&route_file2).to(resource_file2))
-                    .data(shared_data.clone())
+                    .app_data(shared_data.clone())
             })
             .bind(&bind_addr)?
             .run()
@@ -277,7 +272,7 @@ async fn main() -> Result<()> {
                     .service(download_request_php)
                     .service(api_last_chk_query)
                     .service(resource(&route_file1).to(resource_file1))
-                    .data(shared_data.clone())
+                    .app_data(shared_data.clone())
             })
             .bind(&bind_addr)?
             .run()
@@ -290,7 +285,7 @@ async fn main() -> Result<()> {
                     .service(check_php)
                     .service(download_request_php)
                     .service(api_last_chk_query)
-                    .data(shared_data.clone())
+                    .app_data(shared_data.clone())
             })
             .bind(&bind_addr)?
             .run()

@@ -1,10 +1,12 @@
-use std::collections::HashSet;
 use std::mem::drop;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::{collections::HashSet, time::Duration};
+
+use actix_rt::time::sleep;
 
 use actix::prelude::*;
-use tokio::time::{delay_for, Duration};
+use actix::WeakRecipient;
 
 #[derive(Debug)]
 struct Ping(usize);
@@ -42,12 +44,52 @@ impl actix::Handler<Ping> for MyActor3 {
     }
 }
 
+#[derive(Debug)]
+struct PingCounterActor {
+    ping_count: Arc<AtomicUsize>,
+}
+
+impl Default for PingCounterActor {
+    fn default() -> Self {
+        Self {
+            ping_count: Arc::new(AtomicUsize::from(0)),
+        }
+    }
+}
+
+impl Actor for PingCounterActor {
+    type Context = Context<Self>;
+}
+
+struct CountPings;
+
+impl Message for CountPings {
+    type Result = usize;
+}
+
+impl actix::Handler<Ping> for PingCounterActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: Ping, _ctx: &mut Self::Context) -> Self::Result {
+        self.ping_count.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl actix::Handler<CountPings> for PingCounterActor {
+    type Result = <CountPings as actix::Message>::Result;
+
+    fn handle(&mut self, _msg: CountPings, _ctx: &mut Self::Context) -> Self::Result {
+        self.ping_count.load(Ordering::SeqCst)
+    }
+}
+
 #[test]
 fn test_address() {
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = Arc::clone(&count);
 
-    System::run(move || {
+    let sys = System::new();
+    sys.block_on(async move {
         let arbiter = Arbiter::new();
 
         let addr = MyActor(count2).start();
@@ -55,17 +97,18 @@ fn test_address() {
         let addr3 = addr.clone();
         addr.do_send(Ping(1));
 
-        arbiter.exec_fn(move || {
+        arbiter.spawn_fn(move || {
             addr3.do_send(Ping(2));
 
-            Arbiter::spawn(async move {
+            actix_rt::spawn(async move {
                 let _ = addr2.send(Ping(3)).await;
                 let _ = addr2.send(Ping(4)).await;
                 System::current().stop();
             });
         });
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
 
     assert_eq!(count.load(Ordering::Relaxed), 4);
 }
@@ -100,10 +143,13 @@ impl Actor for WeakAddressRunner {
 
 #[test]
 fn test_weak_address() {
-    System::run(move || {
+    let sys = System::new();
+
+    sys.block_on(async move {
         WeakAddressRunner.start();
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
 }
 
 struct WeakRecipientRunner;
@@ -143,10 +189,74 @@ impl Actor for WeakRecipientRunner {
 
 #[test]
 fn test_weak_recipient() {
-    System::run(move || {
+    let sys = System::new();
+
+    sys.block_on(async move {
         WeakRecipientRunner.start();
+    });
+
+    sys.run().unwrap();
+}
+
+#[test]
+fn test_weak_recipient_can_be_cloned() {
+    let sys = System::new();
+
+    sys.block_on(async move {
+        let addr = PingCounterActor::start_default();
+        let weak_recipient = addr.downgrade().recipient();
+        let weak_recipient_clone = weak_recipient.clone();
+
+        weak_recipient
+            .upgrade()
+            .expect("must be able to upgrade the weak recipient here")
+            .send(Ping(0))
+            .await
+            .expect("send must not fail");
+        weak_recipient_clone
+            .upgrade()
+            .expect("must be able to upgrade the cloned weak recipient here")
+            .send(Ping(0))
+            .await
+            .expect("send must not fail");
+        let pings = addr.send(CountPings {}).await.expect("send must not fail");
+        assert_eq!(
+            pings, 2,
+            "both the weak recipient and its clone must have sent a ping"
+        );
     })
-    .unwrap();
+}
+
+#[test]
+fn test_recipient_can_be_downgraded() {
+    let sys = System::new();
+
+    sys.block_on(async move {
+        let addr = PingCounterActor::start_default();
+        let strong_recipient: Recipient<Ping> = addr.clone().recipient();
+        // test the downgrade method
+        let weak_recipient: WeakRecipient<Ping> = strong_recipient.downgrade();
+        // test the From trait
+        let converted_weak_recipient = WeakRecipient::from(strong_recipient);
+        weak_recipient
+            .upgrade()
+            .expect("upgrade of weak recipient must not fail here")
+            .send(Ping(0))
+            .await
+            .unwrap();
+
+        converted_weak_recipient
+            .upgrade()
+            .expect("upgrade of weak recipient must not fail here")
+            .send(Ping(0))
+            .await
+            .unwrap();
+        let ping_count = addr.send(CountPings {}).await.unwrap();
+        assert_eq!(
+            ping_count, 2,
+            "weak recipients must not fail to send a message"
+        );
+    })
 }
 
 #[test]
@@ -154,7 +264,8 @@ fn test_sync_recipient_call() {
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = Arc::clone(&count);
 
-    System::run(move || {
+    let sys = System::new();
+    sys.block_on(async move {
         let addr = MyActor(count2).start();
         let addr2 = addr.clone().recipient();
         addr.do_send(Ping(0));
@@ -164,15 +275,16 @@ fn test_sync_recipient_call() {
             let _ = addr2.send(Ping(2)).await;
             System::current().stop();
         });
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
 
     assert_eq!(count.load(Ordering::Relaxed), 3);
 }
 
 #[test]
 fn test_error_result() {
-    System::run(|| {
+    System::new().block_on(async {
         let addr = MyActor3.start();
 
         actix_rt::spawn(async move {
@@ -182,8 +294,7 @@ fn test_error_result() {
                 _ => panic!("Should not happen"),
             };
         });
-    })
-    .unwrap();
+    });
 }
 
 struct TimeoutActor;
@@ -196,9 +307,7 @@ impl Handler<Ping> for TimeoutActor {
     type Result = ();
 
     fn handle(&mut self, _: Ping, ctx: &mut Self::Context) {
-        delay_for(Duration::new(0, 5_000_000))
-            .into_actor(self)
-            .wait(ctx);
+        sleep(Duration::from_millis(20)).into_actor(self).wait(ctx);
     }
 }
 
@@ -207,12 +316,13 @@ fn test_message_timeout() {
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = Arc::clone(&count);
 
-    System::run(move || {
+    let sys = System::new();
+    sys.block_on(async move {
         let addr = TimeoutActor.start();
 
         addr.do_send(Ping(0));
         actix_rt::spawn(async move {
-            let res = addr.send(Ping(0)).timeout(Duration::new(0, 1_000)).await;
+            let res = addr.send(Ping(0)).timeout(Duration::from_millis(1)).await;
             match res {
                 Ok(_) => panic!("Should not happen"),
                 Err(MailboxError::Timeout) => {
@@ -222,8 +332,9 @@ fn test_message_timeout() {
             }
             System::current().stop();
         });
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
 
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
@@ -259,11 +370,14 @@ fn test_call_message_timeout() {
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = Arc::clone(&count);
 
-    System::run(move || {
+    let sys = System::new();
+    sys.block_on(async move {
         let addr = TimeoutActor.start();
         let _addr2 = TimeoutActor3(addr, count2).start();
-    })
-    .unwrap();
+    });
+
+    sys.run().unwrap();
+
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
 
@@ -272,7 +386,7 @@ fn test_address_eq() {
     let count0 = Arc::new(AtomicUsize::new(0));
     let count1 = Arc::clone(&count0);
 
-    System::run(move || {
+    System::new().block_on(async move {
         let addr0 = MyActor(count0).start();
         let addr01 = addr0.clone();
         let addr02 = addr01.clone();
@@ -285,8 +399,7 @@ fn test_address_eq() {
         assert!(addr0 != addr1);
 
         System::current().stop();
-    })
-    .unwrap();
+    });
 }
 
 #[test]
@@ -294,7 +407,7 @@ fn test_address_hash() {
     let count0 = Arc::new(AtomicUsize::new(0));
     let count1 = Arc::clone(&count0);
 
-    System::run(move || {
+    System::new().block_on(async move {
         let addr0 = MyActor(count0).start();
         let addr01 = addr0.clone();
 
@@ -319,8 +432,7 @@ fn test_address_hash() {
         assert!(addresses.contains(&addr1));
 
         System::current().stop();
-    })
-    .unwrap();
+    });
 }
 
 #[test]
@@ -328,7 +440,7 @@ fn test_recipient_eq() {
     let count0 = Arc::new(AtomicUsize::new(0));
     let count1 = Arc::clone(&count0);
 
-    System::run(move || {
+    System::new().block_on(async move {
         let addr0 = MyActor(count0).start();
         let recipient01 = addr0.clone().recipient::<Ping>();
         let recipient02 = addr0.recipient::<Ping>();
@@ -344,8 +456,7 @@ fn test_recipient_eq() {
         assert!(recipient01 != recipient11);
 
         System::current().stop();
-    })
-    .unwrap();
+    });
 }
 
 #[test]
@@ -353,7 +464,7 @@ fn test_recipient_hash() {
     let count0 = Arc::new(AtomicUsize::new(0));
     let count1 = Arc::clone(&count0);
 
-    System::run(move || {
+    System::new().block_on(async move {
         let addr0 = MyActor(count0).start();
         let recipient01 = addr0.clone().recipient::<Ping>();
         let recipient02 = addr0.recipient::<Ping>();
@@ -380,6 +491,5 @@ fn test_recipient_hash() {
         assert!(recipients.contains(&recipient11));
 
         System::current().stop();
-    })
-    .unwrap();
+    });
 }

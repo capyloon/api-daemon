@@ -3,7 +3,7 @@
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
     html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
-    html_root_url = "https://docs.rs/zeroize/1.5.2"
+    html_root_url = "https://docs.rs/zeroize/1.5.3"
 )]
 #![warn(missing_docs, rust_2018_idioms, unused_qualifications)]
 
@@ -271,7 +271,7 @@ pub mod __internal {
         fn zeroize_or_on_drop(self);
     }
 
-    impl<T: ZeroizeOnDrop> AssertZeroizeOnDrop for &&mut T {
+    impl<T: ZeroizeOnDrop + ?Sized> AssertZeroizeOnDrop for &&mut T {
         fn zeroize_or_on_drop(self) {}
     }
 
@@ -280,7 +280,7 @@ pub mod __internal {
         fn zeroize_or_on_drop(&mut self);
     }
 
-    impl<T: Zeroize> AssertZeroize for T {
+    impl<T: Zeroize + ?Sized> AssertZeroize for T {
         fn zeroize_or_on_drop(&mut self) {
             self.zeroize()
         }
