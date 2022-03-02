@@ -72,6 +72,11 @@ function setup_xcompile_envs() {
         TARGET_INCLUDE=${TARGET_TRIPLE}
         LIB_SUFFIX=64
         ;;
+    x86_64-apple-darwin)
+        TARGET_TRIPLE=x86_64-apple-darwin
+        TARGET_INCLUDE=${TARGET_TRIPLE}
+        LIB_SUFFIX=64
+        ;;
     aarch64-unknown-linux-gnu)
         # Non-android targets will use the toolchain installed in $HOME/.mozbuild
         # since it's the same as the gecko one.
@@ -90,7 +95,15 @@ function setup_xcompile_envs() {
         export PATH=${OSX_CROSS}/cctools/bin:${OSX_CROSS}/clang/bin:${PATH}
         export LINKER=aarch64-apple-darwin-ld
         export LD=aarch64-apple-darwin-ld
-
+    elif [ "$TARGET_ARCH" = "x86_64-apple-darwin" ]; then
+        echo "Building for aarch64-apple-darwin"
+        export SYSROOT=${OSX_CROSS}/MacOSX11.0.sdk/
+        export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
+        export TOOLCHAIN_CC=clang
+        export TOOLCHAIN_CXX=clang++
+        export PATH=${OSX_CROSS}/cctools/bin:${OSX_CROSS}/clang/bin:${PATH}
+        export LINKER=x86_64-apple-darwin-ld
+        export LD=x86_64-apple-darwin-ld
     # Check that the BUILD_WITH_NDK_DIR environment variable is set
     # and build the .cargo/config file from it.
     elif [ -n "${BUILD_WITH_NDK_DIR}" ]; then
@@ -149,6 +162,14 @@ EOF
   "-C", "link-arg=-L${OSX_CROSS}/MacOSX11.0.sdk/usr/lib",
   "-C", "link-arg=-Z",
   "-C", "link-arg=-F${OSX_CROSS}/MacOSX11.0.sdk/System/Library/Frameworks/",
+]
+EOF
+    elif [ "$TARGET_TRIPLE" = "x86_64-apple-darwin" ]; then
+        cat <<EOF >>$CARGO_CONFIG
+  "-C", "link-arg=-L${OSX_CROSS}/MacOSX11.0.sdk/usr/lib",
+  "-C", "link-arg=-Z",
+  "-C", "link-arg=-F${OSX_CROSS}/MacOSX11.0.sdk/System/Library/Frameworks/",
+  "-C", "link-arg=${OSX_CROSS}/MacOSX11.0.sdk/usr/lib/crt1.o",
 ]
 EOF
     elif [ "$TARGET_TRIPLE" = "aarch64-unknown-linux-gnu" ]; then
