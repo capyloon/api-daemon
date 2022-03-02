@@ -12,103 +12,10 @@ use log::*;
 use url::Url;
 
 use crate::{
-    handshake::client::{Request, Response},
+    handshake::client::{generate_key, Request, Response},
     protocol::WebSocketConfig,
+    stream::MaybeTlsStream,
 };
-
-#[cfg(feature = "native-tls")]
-mod encryption {
-    pub use native_tls_crate::TlsStream;
-    use native_tls_crate::{HandshakeError as TlsHandshakeError, TlsConnector};
-    use std::net::TcpStream;
-
-    pub use crate::stream::Stream as StreamSwitcher;
-    /// TCP stream switcher (plain/TLS).
-    pub type AutoStream = StreamSwitcher<TcpStream, TlsStream<TcpStream>>;
-
-    use crate::{
-        error::{Result, TlsError},
-        stream::Mode,
-    };
-
-    pub fn wrap_stream(stream: TcpStream, domain: &str, mode: Mode) -> Result<AutoStream> {
-        match mode {
-            Mode::Plain => Ok(StreamSwitcher::Plain(stream)),
-            Mode::Tls => {
-                let connector = TlsConnector::builder().build().map_err(TlsError::Native)?;
-                connector
-                    .connect(domain, stream)
-                    .map_err(|e| match e {
-                        TlsHandshakeError::Failure(f) => TlsError::Native(f).into(),
-                        TlsHandshakeError::WouldBlock(_) => {
-                            panic!("Bug: TLS handshake not blocked")
-                        }
-                    })
-                    .map(StreamSwitcher::Tls)
-            }
-        }
-    }
-}
-
-#[cfg(all(feature = "rustls-tls", not(feature = "native-tls")))]
-mod encryption {
-    use rustls::ClientConfig;
-    pub use rustls::{ClientSession, StreamOwned};
-    use std::{net::TcpStream, sync::Arc};
-    use webpki::DNSNameRef;
-
-    pub use crate::stream::Stream as StreamSwitcher;
-    /// TCP stream switcher (plain/TLS).
-    pub type AutoStream = StreamSwitcher<TcpStream, StreamOwned<ClientSession, TcpStream>>;
-
-    use crate::{
-        error::{Result, TlsError},
-        stream::Mode,
-    };
-
-    pub fn wrap_stream(stream: TcpStream, domain: &str, mode: Mode) -> Result<AutoStream> {
-        match mode {
-            Mode::Plain => Ok(StreamSwitcher::Plain(stream)),
-            Mode::Tls => {
-                let config = {
-                    let mut config = ClientConfig::new();
-                    config.root_store =
-                        rustls_native_certs::load_native_certs().map_err(|(_, err)| err)?;
-
-                    Arc::new(config)
-                };
-                let domain = DNSNameRef::try_from_ascii_str(domain).map_err(TlsError::Dns)?;
-                let client = ClientSession::new(&config, domain);
-                let stream = StreamOwned::new(client, stream);
-
-                Ok(StreamSwitcher::Tls(stream))
-            }
-        }
-    }
-}
-
-#[cfg(not(any(feature = "native-tls", feature = "rustls-tls")))]
-mod encryption {
-    use std::net::TcpStream;
-
-    use crate::{
-        error::{Error, Result, UrlError},
-        stream::Mode,
-    };
-
-    /// TLS support is not compiled in, this is just standard `TcpStream`.
-    pub type AutoStream = TcpStream;
-
-    pub fn wrap_stream(stream: TcpStream, _domain: &str, mode: Mode) -> Result<AutoStream> {
-        match mode {
-            Mode::Plain => Ok(stream),
-            Mode::Tls => Err(Error::Url(UrlError::TlsFeatureNotEnabled)),
-        }
-    }
-}
-
-use self::encryption::wrap_stream;
-pub use self::encryption::AutoStream;
 
 use crate::{
     error::{Error, Result, UrlError},
@@ -136,11 +43,11 @@ pub fn connect_with_config<Req: IntoClientRequest>(
     request: Req,
     config: Option<WebSocketConfig>,
     max_redirects: u8,
-) -> Result<(WebSocket<AutoStream>, Response)> {
+) -> Result<(WebSocket<MaybeTlsStream<TcpStream>>, Response)> {
     fn try_client_handshake(
         request: Request,
         config: Option<WebSocketConfig>,
-    ) -> Result<(WebSocket<AutoStream>, Response)> {
+    ) -> Result<(WebSocket<MaybeTlsStream<TcpStream>>, Response)> {
         let uri = request.uri();
         let mode = uri_mode(uri)?;
         let host = request.uri().host().ok_or(Error::Url(UrlError::NoHostName))?;
@@ -149,9 +56,15 @@ pub fn connect_with_config<Req: IntoClientRequest>(
             Mode::Tls => 443,
         });
         let addrs = (host, port).to_socket_addrs()?;
-        let mut stream = connect_to_some(addrs.as_slice(), &request.uri(), mode)?;
+        let mut stream = connect_to_some(addrs.as_slice(), request.uri())?;
         NoDelay::set_nodelay(&mut stream, true)?;
-        client_with_config(request, stream, config).map_err(|e| match e {
+
+        #[cfg(not(any(feature = "native-tls", feature = "__rustls-tls")))]
+        let client = client_with_config(request, MaybeTlsStream::Plain(stream), config);
+        #[cfg(any(feature = "native-tls", feature = "__rustls-tls"))]
+        let client = crate::tls::client_tls_with_config(request, stream, config, None);
+
+        client.map_err(|e| match e {
             HandshakeError::Failure(f) => f,
             HandshakeError::Interrupted(_) => panic!("Bug: blocking handshake not blocked"),
         })
@@ -200,18 +113,17 @@ pub fn connect_with_config<Req: IntoClientRequest>(
 /// This function uses `native_tls` or `rustls` to do TLS depending on the feature flags enabled. If
 /// you want to use other TLS libraries, use `client` instead. There is no need to enable any of
 /// the `*-tls` features if you don't call `connect` since it's the only function that uses them.
-pub fn connect<Req: IntoClientRequest>(request: Req) -> Result<(WebSocket<AutoStream>, Response)> {
+pub fn connect<Req: IntoClientRequest>(
+    request: Req,
+) -> Result<(WebSocket<MaybeTlsStream<TcpStream>>, Response)> {
     connect_with_config(request, None, 3)
 }
 
-fn connect_to_some(addrs: &[SocketAddr], uri: &Uri, mode: Mode) -> Result<AutoStream> {
-    let domain = uri.host().ok_or(Error::Url(UrlError::NoHostName))?;
+fn connect_to_some(addrs: &[SocketAddr], uri: &Uri) -> Result<TcpStream> {
     for addr in addrs {
         debug!("Trying to contact {} at {}...", uri, addr);
-        if let Ok(raw_stream) = TcpStream::connect(addr) {
-            if let Ok(stream) = wrap_stream(raw_stream, domain, mode) {
-                return Ok(stream);
-            }
+        if let Ok(stream) = TcpStream::connect(addr) {
+            return Ok(stream);
         }
     }
     Err(Error::Url(UrlError::UnableToConnect(uri.to_string())))
@@ -266,7 +178,11 @@ where
 /// Trait for converting various types into HTTP requests used for a client connection.
 ///
 /// This trait is implemented by default for string slices, strings, `url::Url`, `http::Uri` and
-/// `http::Request<()>`.
+/// `http::Request<()>`. Note that the implementation for `http::Request<()>` is trivial and will
+/// simply take your request and pass it as is further without altering any headers or URLs, so
+/// be aware of this. If you just want to connect to the endpoint with a certain URL, better pass
+/// a regular string containing the URL in which case `tungstenite-rs` will take care for generating
+/// the proper `http::Request<()>` for you.
 pub trait IntoClientRequest {
     /// Convert into a `Request` that can be used for a client connection.
     fn into_client_request(self) -> Result<Request>;
@@ -298,7 +214,26 @@ impl<'a> IntoClientRequest for &'a Uri {
 
 impl IntoClientRequest for Uri {
     fn into_client_request(self) -> Result<Request> {
-        Ok(Request::get(self).body(())?)
+        let authority = self.authority().ok_or(Error::Url(UrlError::NoHostName))?.as_str();
+        let host = authority
+            .find('@')
+            .map(|idx| authority.split_at(idx + 1).1)
+            .unwrap_or_else(|| authority);
+
+        if host.is_empty() {
+            return Err(Error::Url(UrlError::EmptyHostName));
+        }
+
+        let req = Request::builder()
+            .method("GET")
+            .header("Host", host)
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", generate_key())
+            .uri(self)
+            .body(())?;
+        Ok(req)
     }
 }
 

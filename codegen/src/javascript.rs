@@ -1,6 +1,6 @@
 /// Javascript code generator.
 use crate::ast_utils::*;
-use heck::CamelCase;
+use heck::ToUpperCamelCase;
 use sidl_parser::ast::{
     Arity, Ast, Callback, ConcreteType, Enumeration, FullConcreteType, Interface, Method, Service,
 };
@@ -93,7 +93,7 @@ impl<'m> MethodWriter<'m> {
 
     // Returns Request, Response as TypedMessage
     fn get_types(&self) -> (TypedMessage, TypedMessage) {
-        let camel_name = self.method.name.to_camel_case();
+        let camel_name = self.method.name.to_upper_camel_case();
 
         // Request with all the parameters
         let mut typed_req = TypedRequest::new(&camel_name);
@@ -418,14 +418,14 @@ impl Codegen {
                         sink,
                         "{}.push(new {}Session(decoder.u32(), service_id, session));",
                         var_name,
-                        name.to_camel_case()
+                        name.to_upper_camel_case()
                     )?;
                 } else {
                     write!(
                         sink,
                         "{} = new {}Session(decoder.u32(), service_id, session);",
                         var_name,
-                        name.to_camel_case()
+                        name.to_upper_camel_case()
                     )?;
                 }
             }
@@ -663,7 +663,7 @@ impl Codegen {
             write!(
                 sink,
                 "return this.call_method(\"{}\", {{",
-                method.name.to_camel_case()
+                method.name.to_upper_camel_case()
             )?;
             let mut first = true;
             for param in &method.params {
@@ -690,7 +690,7 @@ impl Codegen {
         // Members
         for member in &interface.members {
             let member = member.1;
-            let camel_name = member.name.to_camel_case();
+            let camel_name = member.name.to_upper_camel_case();
 
             // Getter: get xxx()
             // These are infallible.

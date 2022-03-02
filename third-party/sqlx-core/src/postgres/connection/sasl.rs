@@ -4,7 +4,7 @@ use crate::postgres::message::{
     Authentication, AuthenticationSasl, MessageFormat, SaslInitialResponse, SaslResponse,
 };
 use crate::postgres::PgConnectOptions;
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use rand::Rng;
 use sha2::digest::Digest;
 use sha2::Sha256;
@@ -163,7 +163,7 @@ pub(crate) async fn authenticate(
     };
 
     // authentication is only considered valid if this verification passes
-    mac.verify(&data.verifier).map_err(Error::protocol)?;
+    mac.verify_slice(&data.verifier).map_err(Error::protocol)?;
 
     Ok(())
 }

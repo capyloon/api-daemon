@@ -3,11 +3,11 @@
 use std::{io, result, str, string};
 
 use crate::protocol::{frame::coding::Data, Message};
-use http::Response;
+use http::{header::HeaderName, Response};
 use thiserror::Error;
 
 /// Result type of all Tungstenite library calls.
-pub type Result<T> = result::Result<T, Error>;
+pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// Possible WebSocket errors.
 #[derive(Error, Debug)]
@@ -138,7 +138,7 @@ pub enum CapacityError {
 }
 
 /// Indicates the specific type/cause of a protocol error.
-#[derive(Error, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum ProtocolError {
     /// Use of the wrong HTTP method (the WebSocket protocol requires the GET method be used).
     #[error("Unsupported HTTP method used - only GET is allowed")]
@@ -167,6 +167,9 @@ pub enum ProtocolError {
     /// Custom responses must be unsuccessful.
     #[error("Custom response must not be successful")]
     CustomResponseSuccessful,
+    /// Invalid header is passed. Or the header is missing in the request. Or not present at all. Check the request that you pass.
+    #[error("Missing, duplicated or incorrect header {0}")]
+    InvalidHeader(HeaderName),
     /// No more data while still performing handshake.
     #[error("Handshake not finished")]
     HandshakeIncomplete,
@@ -253,11 +256,15 @@ pub enum TlsError {
     #[error("native-tls error: {0}")]
     Native(#[from] native_tls_crate::Error),
     /// Rustls error.
-    #[cfg(feature = "rustls-tls")]
+    #[cfg(feature = "__rustls-tls")]
     #[error("rustls error: {0}")]
-    Rustls(#[from] rustls::TLSError),
+    Rustls(#[from] rustls::Error),
+    /// Webpki error.
+    #[cfg(feature = "__rustls-tls")]
+    #[error("webpki error: {0}")]
+    Webpki(#[from] webpki::Error),
     /// DNS name resolution error.
-    #[cfg(feature = "rustls-tls")]
-    #[error("Invalid DNS name: {0}")]
-    Dns(#[from] webpki::InvalidDNSNameError),
+    #[cfg(feature = "__rustls-tls")]
+    #[error("Invalid DNS name")]
+    InvalidDnsName,
 }

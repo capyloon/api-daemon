@@ -1,3 +1,23 @@
+# 0.17.1
+
+- Update the `tungstenite` dependency (fixes a panic in `tungstenite` and MSRV), see [`tungstenite`'s changelog for more details](https://github.com/snapview/tungstenite-rs/blob/master/CHANGELOG.md#0172).
+
+# 0.17.0
+
+- Update the dependencies, please refer to the [`tungstenite` changelog](https://github.com/snapview/tungstenite-rs/blob/master/CHANGELOG.md#0170) for the actual changes.
+
+# 0.16.1
+
+- Fix feature selection problem when using TLS.
+
+# 0.16.0
+
+- Add a function to allow to specify the TLS connector when using `connect()` like logic.
+- Add support for choosing the right root certificates for the TLS.
+- Change the behavior of the `connect()` so that it fails when using TLS without TLS feature.
+- Do not project with Unpin.
+- Update the dependencies with important [implications / improvements](https://github.com/snapview/tungstenite-rs/blob/master/CHANGELOG.md#0160).
+
 # 0.15.0
 
 - Update the `tungstenite-rs` version to `0.14.0`,

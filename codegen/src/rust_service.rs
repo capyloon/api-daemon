@@ -1,6 +1,6 @@
 /// Rust service code generator.
 use crate::ast_utils::*;
-use heck::CamelCase;
+use heck::ToUpperCamelCase;
 use sidl_parser::ast::{Ast, ConcreteType, Service};
 use std::collections::HashSet;
 use std::io::Write;
@@ -269,7 +269,7 @@ impl Codegen {
         let interface = self.ast.interfaces.get(&service.interface).unwrap();
         for method in &interface.methods {
             let method = method.1;
-            let mut req_name = format!("{}{}", interface.name, method.name.to_camel_case());
+            let mut req_name = format!("{}{}", interface.name, method.name.to_upper_camel_case());
             let mut params = String::new();
             let mut variant_params = String::new();
             let mut bootstrap = String::new();
@@ -302,7 +302,7 @@ impl Codegen {
                 bootstrap,
                 method.name,
                 interface.name,
-                method.name.to_camel_case(),
+                method.name.to_upper_camel_case(),
                 params
             )?;
         }
@@ -313,17 +313,17 @@ impl Codegen {
                 sink,
                 "Req::{}Set{}(val) => self.set_{}(val),",
                 interface.name,
-                name.to_camel_case(),
+                name.to_upper_camel_case(),
                 name
             )?;
 
             writeln!(sink,
                 "Req::{}Get{} => {{ self.get_{}({}Get{}Responder::new(transport, base_message)); }}",
                 interface.name,
-                name.to_camel_case(),
+                name.to_upper_camel_case(),
                 name,
                 interface.name,
-                name.to_camel_case(),
+                name.to_upper_camel_case(),
             )?;
         }
 
@@ -333,7 +333,7 @@ impl Codegen {
             // Methods on tracked objects.
             for method in &interface.methods {
                 let method = method.1;
-                let mut req_name = format!("{}{}", interface.name, method.name.to_camel_case());
+                let mut req_name = format!("{}{}", interface.name, method.name.to_upper_camel_case());
                 let mut params = String::new();
                 let mut variant_params = String::new();
                 let mut bootstrap = String::new();
@@ -381,7 +381,7 @@ impl Codegen {
                     "mut_ctxt.{}({}{}Responder::new(transport, base_message), {});",
                     method.name,
                     interface.name,
-                    method.name.to_camel_case(),
+                    method.name.to_upper_camel_case(),
                     params
                 )?;
                 writeln!(sink, "}}")?;
@@ -392,7 +392,7 @@ impl Codegen {
             // Members on tracked objects.
             for member in &interface.members {
                 let name = member.0;
-                let camel_name = name.to_camel_case();
+                let camel_name = name.to_upper_camel_case();
 
                 // Setter
                 writeln!(sink, "Req::{}Set{}(val) => {{", interface.name, camel_name,)?;
@@ -458,7 +458,7 @@ impl Codegen {
 
                 // Success return value.
                 let mut req_name =
-                    format!("{}{}Success", callback.name, method.name.to_camel_case());
+                    format!("{}{}Success", callback.name, method.name.to_upper_camel_case());
                 if returned.success.typ != ConcreteType::Void {
                     req_name.push_str("(value)");
                 }
@@ -540,7 +540,7 @@ impl Codegen {
 
                 // Error return value.
                 // TODO: refactor to share code with the success case
-                let mut req_name = format!("{}{}Error", callback.name, method.name.to_camel_case());
+                let mut req_name = format!("{}{}Error", callback.name, method.name.to_upper_camel_case());
                 if returned.error.typ != ConcreteType::Void {
                     req_name.push_str("(value)");
                 }

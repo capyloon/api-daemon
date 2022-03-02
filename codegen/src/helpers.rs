@@ -1,6 +1,6 @@
 // Shared helpers for the Rust codegen.
 
-use heck::CamelCase;
+use heck::ToUpperCamelCase;
 use sidl_parser::ast::{Arity, Ast, ConcreteType, FullConcreteType, Method};
 use std::io::Write;
 
@@ -144,7 +144,7 @@ impl MethodWriter {
             etype = format!("({})", etype);
         }
 
-        let camel_name = method.name.to_camel_case();
+        let camel_name = method.name.to_upper_camel_case();
         (
             format!("{}{}", camel_name, req_tuple),
             format!("{}Success{}", camel_name, stype),
@@ -162,7 +162,7 @@ impl MethodWriter {
             "    fn {}(&mut self, responder: {}{}Responder, ",
             method.name,
             interface_name,
-            method.name.to_camel_case()
+            method.name.to_upper_camel_case()
         )?;
         // Write parameters list
         for param in &method.params {
@@ -207,7 +207,7 @@ pub fn get_all_reqs_resps(ast: &Ast) -> (Vec<String>, Vec<String>) {
 
             // Getter: get_xxx -> mtype
             // These are infallible.
-            let member_name = member.0.to_camel_case();
+            let member_name = member.0.to_upper_camel_case();
             add_to_reqs_resps(true, format!("{}Get{}", interface.name, member_name));
             add_to_reqs_resps(
                 false,
@@ -225,7 +225,7 @@ pub fn get_all_reqs_resps(ast: &Ast) -> (Vec<String>, Vec<String>) {
         for event in interface.events.values() {
             let ctype = &event.returns;
             let (_rtype, itype) = rust_type_with_reqresp(ctype);
-            let event_name = event.name.to_camel_case();
+            let event_name = event.name.to_upper_camel_case();
             if ctype.typ != ConcreteType::Void {
                 add_to_reqs_resps(
                     false,

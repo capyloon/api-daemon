@@ -164,19 +164,19 @@ pub struct RustCaseNormalizer;
 // snake_case for method names, member names, parameter names and event names
 impl CaseNormalizer for RustCaseNormalizer {
     fn service_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn interface_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn enumeration_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn enumeration_member(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn dictionary_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn method_name(&self, from: &str) -> String {
         from.to_snake_case()
@@ -196,29 +196,29 @@ pub struct JavascriptCaseNormalizer;
 // Javascript normalization rules, following https://www.w3.org/TR/api-design/#casing
 impl CaseNormalizer for JavascriptCaseNormalizer {
     fn service_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn interface_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn enumeration_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn enumeration_member(&self, from: &str) -> String {
         // These are like constants.
         from.to_shouty_snake_case()
     }
     fn dictionary_name(&self, from: &str) -> String {
-        from.to_camel_case()
+        from.to_upper_camel_case()
     }
     fn method_name(&self, from: &str) -> String {
-        from.to_mixed_case()
+        from.to_lower_camel_case()
     }
     fn member_name(&self, from: &str) -> String {
-        from.to_mixed_case()
+        from.to_lower_camel_case()
     }
     fn parameter_name(&self, from: &str) -> String {
-        from.to_mixed_case()
+        from.to_lower_camel_case()
     }
     fn event_name(&self, from: &str) -> String {
         from.to_shouty_snake_case()
@@ -227,7 +227,7 @@ impl CaseNormalizer for JavascriptCaseNormalizer {
 
 // Normalizes the names of various structures according to the conventions
 // that will be used in the Rust generated code.
-// This reduces the use of .to_snake_case() and .to_camel_case() in the
+// This reduces the use of .to_snake_case() and .to_upper_camel_case() in the
 // code generator.
 // Also renames methods when findind a #[rust:rename=...] annotation.
 pub fn normalize_rust_case<N: CaseNormalizer>(ast: &Ast, normalizer: &N) -> Ast {

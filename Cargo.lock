@@ -114,7 +114,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "rand",
- "sha-1 0.10.0",
+ "sha-1",
  "smallvec",
  "zstd",
 ]
@@ -793,7 +793,7 @@ version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9cf849ee05b2ee5fba5e36f97ff8ec2533916700fc0758d40d92136a42f3388"
 dependencies = [
- "digest 0.10.3",
+ "digest",
 ]
 
 [[package]]
@@ -805,15 +805,6 @@ dependencies = [
  "arrayref",
  "arrayvec",
  "constant_time_eq",
-]
-
-[[package]]
-name = "block-buffer"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4152116fd6e9dadb291ae18fc1ec3575ed6d84c29642d97890f4b4a3417297e4"
-dependencies = [
- "generic-array",
 ]
 
 [[package]]
@@ -1425,20 +1416,11 @@ dependencies = [
 
 [[package]]
 name = "digest"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
-dependencies = [
- "generic-array",
-]
-
-[[package]]
-name = "digest"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
 dependencies = [
- "block-buffer 0.10.2",
+ "block-buffer",
  "crypto-common",
  "subtle",
 ]
@@ -1968,7 +1950,7 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
- "digest 0.10.3",
+ "digest",
 ]
 
 [[package]]
@@ -2228,7 +2210,7 @@ dependencies = [
  "prost-build",
  "prost-derive",
  "ring",
- "sha2 0.10.2",
+ "sha2",
 ]
 
 [[package]]
@@ -2251,7 +2233,7 @@ dependencies = [
  "reqwest",
  "ring",
  "serde",
- "sha2 0.10.2",
+ "sha2",
  "threadpool",
 ]
 
@@ -2372,7 +2354,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "658646b21e0b72f7866c7038ab086d3d5e1cd6271f060fd37defb241949d0582"
 dependencies = [
- "digest 0.10.3",
+ "digest",
 ]
 
 [[package]]
@@ -2791,7 +2773,7 @@ source = "git+https://github.com/fabricedesre/pest.git#130bc5531cdf9cc12df02a747
 dependencies = [
  "maplit",
  "pest",
- "sha-1 0.10.0",
+ "sha-1",
 ]
 
 [[package]]
@@ -3322,7 +3304,7 @@ dependencies = [
  "quick-xml",
  "serde",
  "serde_json",
- "sha2 0.10.2",
+ "sha2",
  "time 0.3.7",
  "url",
  "zeroize",
@@ -3503,26 +3485,13 @@ dependencies = [
 
 [[package]]
 name = "sha-1"
-version = "0.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99cd6713db3cf16b6c84e06321e049a9b9f699826e16096d23bbcc44d15d51a6"
-dependencies = [
- "block-buffer 0.9.0",
- "cfg-if 1.0.0",
- "cpufeatures",
- "digest 0.9.0",
- "opaque-debug",
-]
-
-[[package]]
-name = "sha-1"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "028f48d513f9678cda28f6e4064755b3fbb2af6acd672f2c209b62323f7aea0f"
 dependencies = [
  "cfg-if 1.0.0",
  "cpufeatures",
- "digest 0.10.3",
+ "digest",
 ]
 
 [[package]]
@@ -3542,26 +3511,13 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 
 [[package]]
 name = "sha2"
-version = "0.9.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d58a1e1bf39749807d89cf2d98ac2dfa0ff1cb3faa38fbb64dd88ac8013d800"
-dependencies = [
- "block-buffer 0.9.0",
- "cfg-if 1.0.0",
- "cpufeatures",
- "digest 0.9.0",
- "opaque-debug",
-]
-
-[[package]]
-name = "sha2"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55deaec60f81eefe3cce0dc50bda92d6d8e88f2a27df7c5033b42afeb1ed2676"
 dependencies = [
  "cfg-if 1.0.0",
  "cpufeatures",
- "digest 0.10.3",
+ "digest",
 ]
 
 [[package]]
@@ -3577,10 +3533,10 @@ dependencies = [
  "clap",
  "env_logger",
  "handlebars",
- "heck 0.3.3",
+ "heck 0.4.0",
  "log",
  "serde_json",
- "sha2 0.10.2",
+ "sha2",
  "sidl_parser",
  "thiserror",
 ]
@@ -3716,7 +3672,7 @@ dependencies = [
 [[package]]
 name = "sqlx"
 version = "0.5.11"
-source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#7c9b4f28937523ee77c9e88dbf3932244f7756e2"
+source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#f8dc9508be0384c93927610256cd253f3d4b4773"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -3725,7 +3681,7 @@ dependencies = [
 [[package]]
 name = "sqlx-core"
 version = "0.5.11"
-source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#7c9b4f28937523ee77c9e88dbf3932244f7756e2"
+source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#f8dc9508be0384c93927610256cd253f3d4b4773"
 dependencies = [
  "ahash",
  "atoi",
@@ -3754,7 +3710,7 @@ dependencies = [
  "paste",
  "percent-encoding",
  "rustls 0.19.1",
- "sha2 0.9.9",
+ "sha2",
  "smallvec",
  "sqlformat",
  "sqlx-rt",
@@ -3768,7 +3724,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros"
 version = "0.5.11"
-source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#7c9b4f28937523ee77c9e88dbf3932244f7756e2"
+source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#f8dc9508be0384c93927610256cd253f3d4b4773"
 dependencies = [
  "dotenv",
  "either",
@@ -3776,7 +3732,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "sha2 0.9.9",
+ "sha2",
  "sqlx-core",
  "sqlx-rt",
  "syn",
@@ -3786,7 +3742,7 @@ dependencies = [
 [[package]]
 name = "sqlx-rt"
 version = "0.5.11"
-source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#7c9b4f28937523ee77c9e88dbf3932244f7756e2"
+source = "git+https://github.com/fabricedesre/sqlx.git?branch=update-libsqlite3-sys#f8dc9508be0384c93927610256cd253f3d4b4773"
 dependencies = [
  "async-rustls",
  "async-std",
@@ -4143,13 +4099,12 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.15.0"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "511de3f85caf1c98983545490c3d09685fa8eb634e57eec22bb4db271f46cbd8"
+checksum = "06cda1232a49558c46f8a504d5b93101d42c0bf7f911f12a105ba48168f821ae"
 dependencies = [
  "futures-util",
  "log",
- "pin-project",
  "tokio",
  "tungstenite",
 ]
@@ -4211,9 +4166,9 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "tungstenite"
-version = "0.14.0"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0b2d8558abd2e276b0a8df5c05a2ec762609344191e5fd23e292c910e9165b5"
+checksum = "d96a2dea40e7570482f28eb57afbe42d97551905da6a9400acc5c328d24004f5"
 dependencies = [
  "base64",
  "byteorder",
@@ -4222,7 +4177,7 @@ dependencies = [
  "httparse",
  "log",
  "rand",
- "sha-1 0.9.8",
+ "sha-1",
  "thiserror",
  "url",
  "utf-8",
@@ -4694,7 +4649,7 @@ dependencies = [
 [[package]]
 name = "wspty"
 version = "0.1.2"
-source = "git+https://github.com/capyloon/wspty.git#836797654dd776e76160cda42c877b57f81cbbc4"
+source = "git+https://github.com/capyloon/wspty.git#a91aadf0a8ee21e22e55170aaab161b38f76456c"
 dependencies = [
  "anyhow",
  "bytes",

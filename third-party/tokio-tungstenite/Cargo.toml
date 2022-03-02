@@ -3,27 +3,27 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
 name = "tokio-tungstenite"
-version = "0.15.0"
+version = "0.17.1"
 authors = ["Daniel Abramov <dabramov@snapview.de>", "Alexey Galakhov <agalakhov@snapview.de>"]
+include = ["examples/**/*", "src/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
 description = "Tokio binding for Tungstenite, the Lightweight stream-based WebSocket implementation"
 homepage = "https://github.com/snapview/tokio-tungstenite"
-documentation = "https://docs.rs/tokio-tungstenite/0.15.0"
+documentation = "https://docs.rs/tokio-tungstenite/0.17.1"
 keywords = ["websocket", "io", "web"]
 categories = ["web-programming::websocket", "network-programming", "asynchronous", "concurrency"]
 license = "MIT"
 repository = "https://github.com/snapview/tokio-tungstenite"
 [package.metadata.docs.rs]
-features = ["native-tls", "rustls-tls"]
+features = ["native-tls", "__rustls-tls"]
 
 [[example]]
 name = "autobahn-client"
@@ -34,7 +34,7 @@ name = "client"
 required-features = ["connect"]
 [dependencies.futures-util]
 version = "0.3"
-features = ["async-await", "sink", "std"]
+features = ["sink", "std"]
 default-features = false
 
 [dependencies.log]
@@ -45,11 +45,12 @@ version = "0.2.7"
 optional = true
 package = "native-tls"
 
-[dependencies.pin-project]
-version = "1.0"
-
 [dependencies.rustls]
-version = "0.19.0"
+version = "0.20.0"
+optional = true
+
+[dependencies.rustls-native-certs]
+version = "0.6.1"
 optional = true
 
 [dependencies.tokio]
@@ -62,22 +63,22 @@ version = "0.3.0"
 optional = true
 
 [dependencies.tokio-rustls]
-version = "0.22.0"
+version = "0.23.0"
 optional = true
 
 [dependencies.tungstenite]
-version = "0.14.0"
+version = "0.17.2"
 default-features = false
 
 [dependencies.webpki]
-version = "0.21.4"
+version = "0.22.0"
 optional = true
 
 [dependencies.webpki-roots]
-version = "0.21.0"
+version = "0.22.1"
 optional = true
 [dev-dependencies.env_logger]
-version = "0.7"
+version = "0.9"
 
 [dev-dependencies.futures-channel]
 version = "0.3"
@@ -91,9 +92,11 @@ default-features = false
 version = "2.0.0"
 
 [features]
+__rustls-tls = ["rustls", "tokio-rustls", "stream", "tungstenite/__rustls-tls", "webpki"]
 connect = ["stream", "tokio/net"]
 default = ["connect"]
 native-tls = ["native-tls-crate", "tokio-native-tls", "stream", "tungstenite/native-tls"]
 native-tls-vendored = ["native-tls", "native-tls-crate/vendored", "tungstenite/native-tls-vendored"]
-rustls-tls = ["rustls", "tokio-rustls", "stream", "tungstenite/rustls-tls", "webpki", "webpki-roots"]
+rustls-tls-native-roots = ["__rustls-tls", "rustls-native-certs"]
+rustls-tls-webpki-roots = ["__rustls-tls", "webpki-roots"]
 stream = []

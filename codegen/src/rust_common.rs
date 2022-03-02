@@ -1,6 +1,6 @@
 use crate::ast_utils::*;
 use crate::helpers::*;
-use heck::CamelCase;
+use heck::ToUpperCamelCase;
 use log::error;
 use sidl_parser::ast::{
     Ast, Callback, ConcreteType, Dictionary, Enumeration, FullConcreteType, Interface, Service,
@@ -173,7 +173,7 @@ impl Codegen {
                 "fn get_{}(&mut self, responder: {}Get{}Responder);",
                 member.0,
                 interface.name,
-                member.0.to_camel_case()
+                member.0.to_upper_camel_case()
             )?;
 
             // Setter: set_xxx(mtype)
@@ -236,7 +236,7 @@ impl Codegen {
                     index
                 )?;
 
-                let event_name = event.name.to_camel_case();
+                let event_name = event.name.to_upper_camel_case();
                 let enum_value = if ctype.typ != ConcreteType::Void {
                     format!(
                         "{}ToClient::{}{}Event(value)",
@@ -346,7 +346,7 @@ impl Codegen {
             // Method responders.
             for method in &interface.methods {
                 let method = method.1;
-                let camel_name = format!("{}{}", interface.name, method.name.to_camel_case());
+                let camel_name = format!("{}{}", interface.name, method.name.to_upper_camel_case());
 
                 writeln!(sink, "#[derive(Clone)]")?;
                 writeln!(sink, "pub struct {}Responder {{", camel_name)?;
@@ -448,7 +448,7 @@ impl Codegen {
             // Getter responder. They are simpler since getter are infallible.
             for member in &interface.members {
                 let name = member.0;
-                let camel_name = name.to_camel_case();
+                let camel_name = name.to_upper_camel_case();
 
                 writeln!(sink, "#[derive(Clone)]")?;
                 writeln!(
@@ -560,7 +560,7 @@ impl Codegen {
 
         // Generate methods.
         for method in callback.methods.values() {
-            let camel_name = method.name.to_camel_case();
+            let camel_name = method.name.to_upper_camel_case();
 
             write!(sink, "pub fn {}(&mut self, ", method.name)?;
 

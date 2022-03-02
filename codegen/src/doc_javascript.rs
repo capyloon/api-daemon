@@ -153,7 +153,7 @@ impl Codegen {
                  _rc: &mut RenderContext,
                  out: &mut dyn Output|
                  -> HelperResult {
-                    use heck::ShoutySnakeCase;
+                    use heck::ToShoutySnakeCase;
 
                     let text = h
                         .param(0)

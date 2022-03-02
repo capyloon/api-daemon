@@ -253,7 +253,7 @@ impl WebSocketContext {
             incomplete: None,
             send_queue: VecDeque::new(),
             pong: None,
-            config: config.unwrap_or_else(WebSocketConfig::default),
+            config: config.unwrap_or_default(),
         }
     }
 
@@ -356,6 +356,7 @@ impl WebSocketContext {
                 return self.write_pending(stream);
             }
             Message::Close(code) => return self.close(stream, code),
+            Message::Frame(f) => f,
         };
 
         self.send_queue.push_back(frame);
@@ -555,23 +556,20 @@ impl WebSocketContext {
         debug!("Received close frame: {:?}", close);
         match self.state {
             WebSocketState::Active => {
-                let close_code = close.as_ref().map(|f| f.code);
                 self.state = WebSocketState::ClosedByPeer;
-                let reply = if let Some(code) = close_code {
-                    if code.is_allowed() {
-                        Frame::close(Some(CloseFrame {
-                            code: CloseCode::Normal,
-                            reason: "".into(),
-                        }))
-                    } else {
-                        Frame::close(Some(CloseFrame {
+
+                let close = close.map(|frame| {
+                    if !frame.code.is_allowed() {
+                        CloseFrame {
                             code: CloseCode::Protocol,
                             reason: "Protocol violation".into(),
-                        }))
+                        }
+                    } else {
+                        frame
                     }
-                } else {
-                    Frame::close(None)
-                };
+                });
+
+                let reply = Frame::close(close.clone());
                 debug!("Replying to close with {:?}", reply);
                 self.send_queue.push_back(reply);
 

@@ -6,6 +6,7 @@ use std::{
     fmt,
     io::{Cursor, ErrorKind, Read, Write},
     result::Result as StdResult,
+    str::Utf8Error,
     string::{FromUtf8Error, String},
 };
 
@@ -39,7 +40,7 @@ impl<'t> fmt::Display for CloseFrame<'t> {
 
 /// A struct representing a WebSocket frame header.
 #[allow(missing_copy_implementations)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FrameHeader {
     /// Indicates that the frame is the last one of a possibly fragmented message.
     pub is_final: bool,
@@ -84,6 +85,7 @@ impl FrameHeader {
     }
 
     /// Get the size of the header formatted with given payload length.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self, length: u64) -> usize {
         2 + LengthFormat::for_length(length).extra_bytes() + if self.mask.is_some() { 4 } else { 0 }
     }
@@ -198,7 +200,7 @@ impl FrameHeader {
 }
 
 /// A struct representing a WebSocket frame.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Frame {
     header: FrameHeader,
     payload: Vec<u8>,
@@ -277,6 +279,12 @@ impl Frame {
     #[inline]
     pub fn into_string(self) -> StdResult<String, FromUtf8Error> {
         String::from_utf8(self.payload)
+    }
+
+    /// Get frame payload as `&str`.
+    #[inline]
+    pub fn to_text(&self) -> Result<&str, Utf8Error> {
+        std::str::from_utf8(&self.payload)
     }
 
     /// Consume the frame into a closing frame.
