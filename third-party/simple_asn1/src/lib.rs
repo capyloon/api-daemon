@@ -282,7 +282,12 @@ impl<'a> PartialEq<OID> for &'a OID {
 #[macro_export]
 macro_rules! oid {
     ( $( $e: expr ),* ) => {{
-        $crate::OID::new(vec![$($crate::BigUint::from($e as u64)),*])
+        let mut res = Vec::new();
+
+        $(
+            res.push($crate::BigUint::from($e as u64));
+        )*
+        $crate::OID::new(res)
     }};
 }
 

@@ -9,7 +9,7 @@ license = "Apache-2.0"
 base64 = "0.13"
 zip = "0.5"
 ring = "0.16"
-simple_asn1 = { git = "https://github.com/acw/simple_asn1", commit = "04ee38744f722caa18fa4e6e2a1374047c64925c" }
+simple_asn1 = "0.6.1"
 chrono = "0.4"
 x509-signature = "0.5"
 hex-slice = "0.1.4"

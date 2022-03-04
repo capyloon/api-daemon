@@ -83,9 +83,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.0.0"
+version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f3fdd63b9cfeaf92eeeece719dabbddddb420a57d3fd171ce1490ecfb7086b1"
+checksum = "5753ed977cb402da7f63445cfcca2f3e514189d516bd0b0d8cd1e24979bfcd3c"
 dependencies = [
  "actix-codec",
  "actix-rt",
@@ -255,9 +255,9 @@ dependencies = [
 
 [[package]]
 name = "actix-web-actors"
-version = "4.0.0"
+version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1afe39026e519503c1a3a4a9ebd22c9b4b6930e85842c6d1c8958aea7a87ed1"
+checksum = "31efe7896f3933ce03dd4710be560254272334bb321a18fd8ff62b1a557d9d19"
 dependencies = [
  "actix",
  "actix-codec",
@@ -519,9 +519,9 @@ dependencies = [
 
 [[package]]
 name = "async-global-executor"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9586ec52317f36de58453159d48351bc244bc24ced3effc1fce22f3d48664af6"
+checksum = "c026b7e44f1316b567ee750fea85103f87fcb80792b860e979f221259796ca0a"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -629,9 +629,9 @@ dependencies = [
 
 [[package]]
 name = "async-task"
-version = "4.1.0"
+version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677d306121baf53310a3fd342d88dc0824f6bbeace68347593658525565abee8"
+checksum = "30696a84d817107fc028e049980e09d5e140e8da8f1caeb17e8e950658a3cea9"
 
 [[package]]
 name = "async-trait"
@@ -1183,8 +1183,8 @@ checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
 
 [[package]]
 name = "costaeres"
-version = "0.1.1"
-source = "git+https://github.com/capyloon/costaeres.git#a6ee18f84390a424e2f4c62a98020e7f32196987"
+version = "0.1.2"
+source = "git+https://github.com/capyloon/costaeres.git#bf2fb803d7aeb8bfdd2e9728f62d7ef391c4a2f9"
 dependencies = [
  "actix-rt",
  "actix-web",
@@ -2615,9 +2615,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da32515d9f6e6e489d7bc9d84c71b060db7247dc035bbe44eac88cf87486d8d5"
+checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
 
 [[package]]
 name = "oncemutex"
@@ -3571,7 +3571,8 @@ dependencies = [
 [[package]]
 name = "simple_asn1"
 version = "0.6.1"
-source = "git+https://github.com/acw/simple_asn1#e1d5d27db6c34c6b604460ff947c99df4222d0d6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a762b1c38b9b990c694b9c2f8abe3372ce6a9ceaae6bca39cfc46e054f45745"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -3878,9 +3879,9 @@ dependencies = [
 
 [[package]]
 name = "termcolor"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dfed899f0eb03f32ee8c6a0aabdb8a7949659e3466561fc0adf54e26d88c5f4"
+checksum = "bab24d30b911b2376f3a13cc2cd443142f0c81dda04c118693e35b3835757755"
 dependencies = [
  "winapi-util",
 ]
@@ -4710,7 +4711,7 @@ dependencies = [
 [[package]]
 name = "zip_utils"
 version = "0.1.0"
-source = "git+ssh://git@git.kaiostech.com/KaiOS/zip_utils.git?branch=master#e500669b0b6c9e452ddf874786d3baefa2491669"
+source = "git+ssh://git@git.kaiostech.com/KaiOS/zip_utils.git?branch=master#8d3b23aed964d3231d55e52a7b3a0c605a089e16"
 dependencies = [
  "base64",
  "chrono",

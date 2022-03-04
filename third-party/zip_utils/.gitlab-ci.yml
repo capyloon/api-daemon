@@ -1,5 +1,5 @@
 # Start with a rustup image providing the stable release.
-image: "kaiostech/sidl-new:latest"
+image: ${CI_REGISTRY}/re/kaios-build/next/daily:1.53.0_6_1
 
 # Environment variables
 variables:
