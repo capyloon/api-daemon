@@ -6,8 +6,6 @@
  */
 
 #include "../../zbuild.h"
-#include "../../zutil.h"
-
 #include "../../adler32_p.h"
 
 #ifdef X86_SSSE3_ADLER32
@@ -103,16 +101,8 @@ Z_INTERNAL uint32_t adler32_ssse3(uint32_t adler, const unsigned char *buf, size
        s2[3] = sum2;
     }
 
-    while (len) {
-        len--;
-        adler += *buf++;
-        sum2 += adler;
-    }
-    adler %= BASE;
-    sum2 %= BASE;
-
-    /* return recombined sums */
-    return adler | (sum2 << 16);
+    /* Process tail (len < 16).  */
+    return adler32_len_16(adler, buf, len, sum2);
 }
 
 #endif

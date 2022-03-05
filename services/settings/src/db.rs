@@ -78,7 +78,7 @@ impl DatabaseUpgrader for SettingsSchemaManager {
 
 // The observers from other api-daemon services
 pub trait DbObserver {
-    fn callback(&self, name: &str, value: &JsonValue);
+    fn callback(&mut self, name: &str, value: &JsonValue);
 }
 
 pub enum ObserverType {

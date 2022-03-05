@@ -4,12 +4,7 @@
  */
 
 #include <stdio.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
 #include <assert.h>
-#include <stdlib.h>
-#include <inttypes.h>
 
 #include "zbuild.h"
 #ifdef ZLIB_COMPAT
@@ -67,6 +62,8 @@ void deflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
     c_stream.opaque = (void *)0;
     c_stream.total_in = 0;
     c_stream.total_out = 0;
+    c_stream.next_out = write_buf;
+    c_stream.avail_out = write_buf_size;
 
     err = PREFIX(deflateInit2)(&c_stream, level, Z_DEFLATED, window_bits, mem_level, strategy);
     CHECK_ERR(err, "deflateInit2");
@@ -79,11 +76,9 @@ void deflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
             break;
 
         c_stream.next_in  = (z_const uint8_t *)read_buf;
-        c_stream.next_out = write_buf;
         c_stream.avail_in = read;
 
         do {
-            c_stream.avail_out = write_buf_size;
             err = PREFIX(deflate)(&c_stream, flush);
             if (err == Z_STREAM_END) break;
             CHECK_ERR(err, "deflate");
@@ -91,6 +86,7 @@ void deflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
             if (c_stream.next_out == write_buf + write_buf_size) {
                 fwrite(write_buf, 1, write_buf_size, fout);
                 c_stream.next_out = write_buf;
+                c_stream.avail_out = write_buf_size;
             }
         } while (c_stream.next_in < read_buf + read);
     } while (err == Z_OK);
@@ -102,13 +98,13 @@ void deflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
             if (c_stream.next_out == write_buf + write_buf_size) {
                 fwrite(write_buf, 1, write_buf_size, fout);
                 c_stream.next_out = write_buf;
+                c_stream.avail_out = write_buf_size;
             }
 
-            c_stream.avail_out = write_buf_size;
             err = PREFIX(deflate)(&c_stream, Z_FINISH);
             if (err == Z_STREAM_END) break;
             CHECK_ERR(err, "deflate");
-        } while (err == Z_OK);
+        } while (1);
     }
 
     /* Output remaining data in write buffer */
@@ -152,6 +148,8 @@ void inflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
     d_stream.opaque = (void *)0;
     d_stream.total_in = 0;
     d_stream.total_out = 0;
+    d_stream.next_out = write_buf;
+    d_stream.avail_out = write_buf_size;
 
     err = PREFIX(inflateInit2)(&d_stream, window_bits);
     CHECK_ERR(err, "inflateInit2");
@@ -164,11 +162,9 @@ void inflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
             break;
 
         d_stream.next_in  = (z_const uint8_t *)read_buf;
-        d_stream.next_out = write_buf;
         d_stream.avail_in = read;
 
         do {
-            d_stream.avail_out = write_buf_size;
             err = PREFIX(inflate)(&d_stream, flush);
             if (err == Z_STREAM_END) break;
             CHECK_ERR(err, "deflate");
@@ -176,6 +172,7 @@ void inflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
             if (d_stream.next_out == write_buf + write_buf_size) {
                 fwrite(write_buf, 1, write_buf_size, fout);
                 d_stream.next_out = write_buf;
+                d_stream.avail_out = write_buf_size;
             }
         } while (d_stream.next_in < read_buf + read);
     } while (err == Z_OK);
@@ -187,13 +184,13 @@ void inflate_params(FILE *fin, FILE *fout, int32_t read_buf_size, int32_t write_
             if (d_stream.next_out == write_buf + write_buf_size) {
                 fwrite(write_buf, 1, write_buf_size, fout);
                 d_stream.next_out = write_buf;
+                d_stream.avail_out = write_buf_size;
             }
 
-            d_stream.avail_out = write_buf_size;
             err = PREFIX(inflate)(&d_stream, Z_FINISH);
             if (err == Z_STREAM_END) break;
             CHECK_ERR(err, "inflate");
-        } while (err == Z_OK);
+        } while (1);
     }
 
     /* Output remaining data in write buffer */
@@ -268,7 +265,7 @@ int main(int argc, char **argv) {
         } else if (argv[i][0] == '-') {
             show_help();
             return 64;   /* EX_USAGE */
-        } else 
+        } else
             break;
     }
 

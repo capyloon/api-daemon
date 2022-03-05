@@ -1,0 +1,30 @@
+[package]
+name = "tor-config"
+version = "0.1.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Low-level configuration for the Arti Tor implementation"
+keywords = ["tor", "arti"]
+categories = ["config"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+default = ["expand-paths"]
+expand-paths = ["shellexpand", "directories"]
+
+[dependencies]
+tor-error = { path="../tor-error", version = "0.1.0"}
+
+thiserror = "1"
+derive_builder = "0.10"
+once_cell = "1"
+serde = { version = "1.0.103", features = ["derive"] }
+shellexpand = { version = "2.1", package = "shellexpand-fork", optional = true }
+tracing = "0.1.18"
+directories = { version = "4", optional = true }
+
+[dev-dependencies]
+dirs = "4.0.0"
+tracing-test = "0.2"

@@ -7,7 +7,7 @@ use std::{
 use actix_service::{Service, ServiceFactory as BaseServiceFactory};
 use actix_utils::future::{ready, Ready};
 use futures_core::future::LocalBoxFuture;
-use log::error;
+use tracing::error;
 
 use crate::{
     socket::{FromStream, MioStream},
@@ -77,8 +77,8 @@ where
                 });
                 Ok(())
             }
-            Err(e) => {
-                error!("Can not convert to an async tcp stream: {}", e);
+            Err(err) => {
+                error!("Can not convert to an async tcp stream: {}", err);
                 Err(())
             }
         })

@@ -122,7 +122,7 @@ where
 struct SettingObserver {}
 
 impl DbObserver for SettingObserver {
-    fn callback(&self, name: &str, value: &JsonValue) {
+    fn callback(&mut self, name: &str, value: &JsonValue) {
         if name != "language.current" {
             error!(
                 "unexpected key {} / value {}",

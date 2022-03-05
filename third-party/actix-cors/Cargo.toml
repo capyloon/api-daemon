@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "actix-cors"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rob Ede <robjtede@icloud.com>"]
 description = "Cross-Origin Resource Sharing (CORS) controls for Actix Web"
 homepage = "https://actix.rs"
@@ -24,9 +24,6 @@ resolver = "2"
 [lib]
 name = "actix_cors"
 path = "src/lib.rs"
-[dependencies.actix-service]
-version = "2"
-
 [dependencies.actix-utils]
 version = "3"
 

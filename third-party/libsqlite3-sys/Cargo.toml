@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "libsqlite3-sys"
-version = "0.24.0"
+version = "0.24.1"
 authors = ["The rusqlite developers"]
 build = "build.rs"
 links = "sqlite3"

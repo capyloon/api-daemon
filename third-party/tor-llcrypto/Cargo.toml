@@ -1,0 +1,59 @@
+[package]
+name = "tor-llcrypto"
+version = "0.1.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Low level cryptography wrappers used by Tor"
+keywords = [ "tor", "arti", "cryptography" ]
+categories = [ "cryptography" ]
+repository="https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+default = []
+
+# Enable support for cryptography needed to be a Tor relay.
+relay = []
+
+# Enable support for cryptography needed to be an onion service v3 client.
+hsv3-client = []
+
+[dependencies]
+aes = { version = "0.7.0", features = ["ctr"] }
+arrayref = "0.3"
+base64 = "0.13.0"
+curve25519-dalek = "3.2"
+digest = "0.10.0"
+ed25519-dalek = { version = "1", features = ["batch"] }
+hex = "0.4"
+rand_core = "0.6.2"
+old_rand_core = { package = "rand_core", version = "0.5.1" }
+rsa = "0.5.0"
+sha-1 = "0.10.0"
+sha2 = "0.10.0"
+sha3 = "0.10.0"
+serde = "1.0.103"
+signature = "1"
+simple_asn1 = "0.6"
+subtle = "2"
+x25519-dalek = "1.2"
+zeroize = "1"
+thiserror = "1"
+
+[dev-dependencies]
+hex-literal = "0.3"
+rand = "0.8"
+cipher = "0.3.0"
+serde_test = "1.0.124"
+
+# This is a magic crate that runs the tests and checks the format
+# before it lets you commit or push.  It installs git hooks for this whenever
+# you say "cargo test".
+[dev-dependencies.cargo-husky]
+version = "1.5.0"
+default-features = false
+features = [ "user-hooks" ]
+
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = { version = "0.2.3", features = ["js"] }

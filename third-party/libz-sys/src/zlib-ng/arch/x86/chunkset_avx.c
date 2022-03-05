@@ -2,12 +2,13 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 #include "zbuild.h"
-#include "zutil.h"
 
 #ifdef X86_AVX_CHUNKSET
 #include <immintrin.h>
 
 typedef __m256i chunk_t;
+
+#define CHUNK_SIZE 32
 
 #define HAVE_CHUNKMEMSET_1
 #define HAVE_CHUNKMEMSET_2

@@ -1,0 +1,8 @@
+bounded-vec-deque is licensed under version 3.0 or later of the GNU GPL
+(<LICENSE-GPL> or <https://www.gnu.org/licenses/gpl-3.0-standalone.html>), or
+the BSD 3-Clause License (<LICENSE-BSD> or
+<https://opensource.org/licenses/BSD-3-Clause>), at your option.
+
+bounded-vec-deque is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See either of its licenses for more details.
