@@ -30,23 +30,25 @@ elif [[ "${BUILD_TYPE}" == "beta" ]]; then
     BUILD_FEATURES="${BUILD_FEATURES},daemon"
 fi
 
-# Build sqlx-macros and its dependencies as a workspace level host crate.
-PATH=${PATH}:/usr/bin cargo build --release -p sqlx-macros
-
 pushd daemon > /dev/null
 FEATURES=${BUILD_FEATURES} ./xcompile.sh ${OPT}
 popd > /dev/null
 
-pushd services/apps/appscmd > /dev/null
-./xcompile.sh ${OPT}
-popd > /dev/null
+if [[ "${BUILD_APPSCMD}x" != "x" ]]; then
+    pushd services/apps/appscmd > /dev/null
+    export IS_BUILDING_APPSCMD=yes
+    ./xcompile.sh ${OPT}
+    popd > /dev/null
+fi
 
 
 TARGET_ARCH=${TARGET_ARCH:-armv7-linux-androideabi}
 
 mkdir -p prebuilts/${TARGET_ARCH}
 cp ./target/${TARGET_ARCH}/${BUILD_TYPE}/api-daemon prebuilts/${TARGET_ARCH}/api-daemon
-cp ./target/${TARGET_ARCH}/${BUILD_TYPE}/appscmd prebuilts/${TARGET_ARCH}/appscmd
+if [[ -f ./target/${TARGET_ARCH}/${BUILD_TYPE}/appscmd ]]; then
+    cp ./target/${TARGET_ARCH}/${BUILD_TYPE}/appscmd prebuilts/${TARGET_ARCH}/appscmd
+fi
 # We don't build symbols for all targets
 if [[ -d ./target/${TARGET_ARCH}/${BUILD_TYPE}/symbols ]]; then
     cp -rf ./target/${TARGET_ARCH}/${BUILD_TYPE}/symbols prebuilts/${TARGET_ARCH}/

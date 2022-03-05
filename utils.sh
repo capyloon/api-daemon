@@ -203,6 +203,10 @@ EOF
     # TODO: find a proper fix.
     export PATH=${PATH}:/usr/bin
 
+if [[ "${IS_BUILDING_APPSCMD}x" == "x" ]]; then
+    cargo build --release -p sqlx-macros
+fi
+
     # Build native build-dependencies without overriding CC, CXX,... etc.
     if echo "$FEATURES" | grep "breakpad" > /dev/null 2>&1; then
         cargo build --verbose --target=${TARGET_TRIPLE} ${OPT} \
