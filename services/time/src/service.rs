@@ -104,7 +104,7 @@ impl From<&EmptyConfig> for SharedObj {
 struct SettingObserver {}
 
 impl DbObserver for SettingObserver {
-    fn callback(&self, name: &str, value: &JsonValue) {
+    fn callback(&mut self, name: &str, value: &JsonValue) {
         if name != "time.timezone" {
             error!(
                 "unexpected key {} / value {}",

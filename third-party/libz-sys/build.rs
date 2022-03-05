@@ -41,8 +41,11 @@ fn main() {
             .cargo_metadata(true)
             .print_system_libs(false)
             .probe("zlib");
-        if zlib.is_ok() {
-            return;
+        match zlib {
+            Ok(_) => return,
+            Err(e) => {
+                println!("cargo-warning={}", e.to_string())
+            }
         }
     }
 
@@ -65,12 +68,17 @@ fn main() {
     // Situations where we build unconditionally.
     //
     // MSVC basically never has it preinstalled, MinGW picks up a bunch of weird
-    // paths we don't like, `want_static` may force us, cross compiling almost
-    // never has a prebuilt version, and musl is almost always static.
+    // paths we don't like, `want_static` may force us, and cross compiling almost
+    // never has a prebuilt version.
+    //
+    // Apple platforms have libz.1.dylib, and it's usually available even when
+    // cross compiling (via fat binary or in the target's Xcode SDK)
+    let cross_compiling = target != host;
+    let apple_to_apple = host.contains("-apple-") && target.contains("-apple-");
     if target.contains("msvc")
         || target.contains("pc-windows-gnu")
         || want_static
-        || target != host
+        || (cross_compiling && !apple_to_apple)
     {
         return build_zlib(&mut cfg, &target);
     }
@@ -154,22 +162,35 @@ fn build_zlib_ng(_target: &str) {}
 
 #[cfg(feature = "zlib-ng")]
 fn build_zlib_ng(target: &str) {
-    let install_dir = cmake::Config::new("src/zlib-ng")
+    let mut cmake = cmake::Config::new("src/zlib-ng");
+    cmake
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("ZLIB_COMPAT", "ON")
-        .define("WITH_GZFILEOP", "ON")
-        .build();
+        .define("WITH_GZFILEOP", "ON");
+    if target.contains("s390x") {
+        // Enable hardware compression on s390x.
+        cmake
+            .define("WITH_DFLTCC_DEFLATE", "1")
+            .define("WITH_DFLTCC_INFLATE", "1")
+            .cflag("-DDFLTCC_LEVEL_MASK=0x7e");
+    }
+    if target.contains("apple") {
+        cmake.cflag("-D_DARWIN_C_SOURCE=1");
+    }
+
+    let install_dir = cmake.build();
+
     let includedir = install_dir.join("include");
     let libdir = install_dir.join("lib");
     println!(
         "cargo:rustc-link-search=native={}",
         libdir.to_str().unwrap()
     );
-    let libname = if target.contains("windows") {
-        if target.contains("msvc") && env::var("OPT_LEVEL").unwrap() == "0" {
-            "zlibd"
+    let libname = if target.contains("windows") && target.contains("msvc") {
+        if env::var("OPT_LEVEL").unwrap() == "0" {
+            "zlibstaticd"
         } else {
-            "zlib"
+            "zlibstatic"
         }
     } else {
         "z"

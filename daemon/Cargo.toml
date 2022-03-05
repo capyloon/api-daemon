@@ -12,13 +12,11 @@ path = "src/main.rs"
 [features]
 default = [
   "apps-service",
-  "audiovolumemanager-service",
-  # "breakpad",
+  "audiovolumemanager-service", # "breakpad",
   "contacts-service",
   "contentmanager-service",
   "devicecapability-service",
-  "geckobridge-service",
-  # "libsignal-service",
+  "geckobridge-service", # "libsignal-service",
   "powermanager-service",
   "procmanager-service",
   "tcpsocket-service",
@@ -65,6 +63,11 @@ actix-rt = "2.6"
 actix-web = "4.0"
 actix-web-actors = "4.0"
 apps_service = {path = "../services/apps", optional = true}
+arti = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}
+arti-client = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}
+arti-config = {git = "https://github.com/capyloon/arti.git"}
+tor-rtcompat = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}
+
 audiovolume_service = {path = "../services/audiovolumemanager", optional = true}
 bincode = "1.3"
 breakpad_sys = {git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git", branch = "update-bindgen", optional = true}
@@ -74,6 +77,7 @@ contentmanager_service = {path = "../services/contentmanager", optional = true}
 daemonize = {version = "0.4.1", optional = true}
 devicecapability_service = {path = "../services/devicecapability", optional = true}
 flate2 = "1.0"
+futures = "0.3"
 futures-util = "0.3"
 geckobridge = {path = "../services/geckobridge", optional = true}
 libsignal_service = {path = "../services/libsignal", optional = true}

@@ -11,17 +11,11 @@
 #undef NDEBUG
 #include <assert.h>
 #include <inttypes.h>
-#include <stdint.h>
 
 /* get definition of internal structure so we can mess with it (see pull()),
    and so we can call inflate_trees() (see cover5()) */
-#define ZLIB_INTERNAL
 #include "zbuild.h"
-#ifdef ZLIB_COMPAT
-#  include "zlib.h"
-#else
-#  include "zlib-ng.h"
-#endif
+#include "zutil.h"
 #include "inftrees.h"
 #include "inflate.h"
 
@@ -293,6 +287,10 @@ static void inf(char *hex, char *what, unsigned step, int win, unsigned len, int
     mem_setup(&strm);
     strm.avail_in = 0;
     strm.next_in = NULL;
+
+    mem_limit(&strm, 1);
+    ret = PREFIX(inflateInit2)(&strm, win);     assert(ret == Z_MEM_ERROR);
+    mem_limit(&strm, 0);
     ret = PREFIX(inflateInit2)(&strm, win);
     if (ret != Z_OK) {
         mem_done(&strm, what);
@@ -325,10 +323,6 @@ static void inf(char *hex, char *what, unsigned step, int win, unsigned len, int
         if (ret == Z_NEED_DICT) {
             ret = PREFIX(inflateSetDictionary)(&strm, in, 1);
                                                 assert(ret == Z_DATA_ERROR);
-            mem_limit(&strm, 1);
-            ret = PREFIX(inflateSetDictionary)(&strm, out, 0);
-                                                assert(ret == Z_MEM_ERROR);
-            mem_limit(&strm, 0);
             ((struct inflate_state *)strm.state)->mode = DICT;
             ret = PREFIX(inflateSetDictionary)(&strm, out, 0);
                                                 assert(ret == Z_OK);
@@ -348,7 +342,7 @@ static void inf(char *hex, char *what, unsigned step, int win, unsigned len, int
     ret = PREFIX(inflateReset2)(&strm, -8);     assert(ret == Z_OK);
     ret = PREFIX(inflateEnd)(&strm);            assert(ret == Z_OK);
     mem_done(&strm, what);
-    (void)err;
+    Z_UNUSED(err);
 }
 
 /* cover all of the lines in inflate.c up to inflate() */
@@ -386,7 +380,7 @@ static void cover_support(void) {
     ret = PREFIX(inflateInit)(&strm);           assert(ret == Z_OK);
     ret = PREFIX(inflateEnd)(&strm);            assert(ret == Z_OK);
     fputs("inflate built-in memory routines\n", stderr);
-    (void)ret;
+    Z_UNUSED(ret);
 }
 
 /* cover all inflate() header and trailer cases and code after inflate() */
@@ -422,10 +416,6 @@ static void cover_wrap(void) {
     strm.next_in = (void *)"\x63";
     strm.avail_out = 1;
     strm.next_out = (void *)&ret;
-    mem_limit(&strm, 1);
-    ret = PREFIX(inflate)(&strm, Z_NO_FLUSH);   assert(ret == Z_MEM_ERROR);
-    ret = PREFIX(inflate)(&strm, Z_NO_FLUSH);   assert(ret == Z_MEM_ERROR);
-    mem_limit(&strm, 0);
     memset(dict, 0, 257);
     ret = PREFIX(inflateSetDictionary)(&strm, dict, 257);
                                                 assert(ret == Z_OK);
@@ -470,7 +460,7 @@ static unsigned pull(void *desc, z_const unsigned char **buf) {
 
 static int push(void *desc, unsigned char *buf, unsigned len) {
     buf += len;
-    (void)buf;
+    Z_UNUSED(buf);
     return desc != NULL;        /* force error if desc not null */
 }
 
@@ -511,7 +501,7 @@ static void cover_back(void) {
                                                 assert(ret == Z_OK);
     ret = PREFIX(inflateBackEnd)(&strm);        assert(ret == Z_OK);
     fputs("inflateBack built-in memory routines\n", stderr);
-    (void)ret;
+    Z_UNUSED(ret);
 }
 
 /* do a raw inflate of data in hexadecimal with both inflate and inflateBack */
@@ -647,7 +637,7 @@ static void cover_trees(void) {
     ret = zng_inflate_table(DISTS, lens, 16, &next, &bits, work);
                                                 assert(ret == 1);
     fputs("inflate_table not enough errors\n", stderr);
-    (void)ret;
+    Z_UNUSED(ret);
 }
 
 /* cover remaining inffast.c decoding and window copying */

@@ -18,6 +18,7 @@ mod global_context;
 mod session;
 mod session_counter;
 mod shared_state;
+mod tor;
 mod uds_server;
 
 use crate::config::Config;
@@ -143,7 +144,7 @@ fn start_wspty() {
 struct VhostSettingObserver {}
 
 impl DbObserver for VhostSettingObserver {
-    fn callback(&self, name: &str, value: &JsonValue) {
+    fn callback(&mut self, name: &str, value: &JsonValue) {
         let host = match name {
             "nutria.theme" => "theme",
             "nutria.branding" => "branding",
@@ -290,6 +291,9 @@ fn main() {
 
         // Start the wspty server
         let _ = start_wspty();
+
+        // Start the Tor support.
+        tor::start();
 
         uds_handle.join().expect("Failed to join the uds thread.");
         actix_handle

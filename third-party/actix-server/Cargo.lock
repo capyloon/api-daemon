@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "actix-rt"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdf3f2183be1241ed4dd22611850b85d38de0b08a09f1f7bcccbd0809084b359"
+checksum = "7ea16c295198e958ef31930a6ef37d0fb64e9ca3b6116e6b93a8bdae96ee1000"
 dependencies = [
  "futures-core",
  "tokio",
@@ -15,19 +15,19 @@ dependencies = [
 
 [[package]]
 name = "actix-server"
-version = "2.0.0"
+version = "2.1.1"
 dependencies = [
  "actix-rt",
  "actix-service",
  "actix-utils",
  "futures-core",
  "futures-util",
- "log",
  "mio 0.8.0",
  "num_cpus",
  "socket2",
  "tokio",
  "tokio-uring",
+ "tracing",
 ]
 
 [[package]]
@@ -124,9 +124,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.108"
+version = "0.2.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8521a1b57e76b1ec69af7599e75e38e7b7fad6610f037db8c79b127201b5d119"
+checksum = "1bf2e165bb3457c8e098ea76f3e3bc9db55f87aa90d52d0e6be741470916aaa4"
 
 [[package]]
 name = "local-waker"
@@ -299,9 +299,9 @@ checksum = "1ecab6c735a6bb4139c0caafd0cc3635748bbb3acf4550e8138122099251f309"
 
 [[package]]
 name = "socket2"
-version = "0.4.2"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dc90fe6c7be1a323296982db1836d1ea9e47b6839496dde9a541bc496df3516"
+checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
 dependencies = [
  "libc",
  "winapi",
@@ -325,16 +325,35 @@ dependencies = [
 
 [[package]]
 name = "tokio-uring"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "062a33613d97344c5054d9635b35beb14492b66d9aa4bdbf21ecde1682d256df"
+checksum = "d3ad494f39874984d990ade7f6319dafbcd3301ff0b1841f8a55a1ebb3e742c8"
 dependencies = [
  "io-uring",
  "libc",
  "scoped-tls",
  "slab",
+ "socket2",
  "tokio",
 ]
+
+[[package]]
+name = "tracing"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6c650a8ef0cd2dd93736f033d21cbd1224c5a967aa0c258d00fcf7dafef9b9f"
+dependencies = [
+ "cfg-if",
+ "log",
+ "pin-project-lite",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa31669fa42c09c34d94d8165dd2012e8ff3c66aca50f3bb226b68f216f2706c"
 
 [[package]]
 name = "winapi"

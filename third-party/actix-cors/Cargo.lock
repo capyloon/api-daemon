@@ -21,9 +21,8 @@ dependencies = [
 
 [[package]]
 name = "actix-cors"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
- "actix-service",
  "actix-utils",
  "actix-web",
  "derive_more",
@@ -35,9 +34,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.0.0"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f3fdd63b9cfeaf92eeeece719dabbddddb420a57d3fd171ce1490ecfb7086b1"
+checksum = "bc14de609ea2ae2467f5a626d403082ce3c5ca248ba26c9ee6f617a5fd096517"
 dependencies = [
  "actix-codec",
  "actix-rt",
@@ -573,9 +572,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da32515d9f6e6e489d7bc9d84c71b060db7247dc035bbe44eac88cf87486d8d5"
+checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
 
 [[package]]
 name = "parking_lot"
@@ -680,9 +679,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8383f39639269cde97d255a32bdb68c047337295414940c68bdd30c2e13203ff"
+checksum = "8380fe0152551244f0747b1bf41737e0f8a74f97a14ccefd1148187271634f3c"
 dependencies = [
  "bitflags",
 ]

@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "actix-rt"
-version = "2.6.0"
+version = "2.7.0"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rob Ede <robjtede@icloud.com>", "fakeshadow <24548779@qq.com>"]
 description = "Tokio-based single-threaded async runtime for the Actix ecosystem"
 homepage = "https://actix.rs"
@@ -41,5 +41,5 @@ default = ["macros"]
 io-uring = ["tokio-uring"]
 macros = ["actix-macros"]
 [target."cfg(target_os = \"linux\")".dependencies.tokio-uring]
-version = "0.2"
+version = "0.3"
 optional = true

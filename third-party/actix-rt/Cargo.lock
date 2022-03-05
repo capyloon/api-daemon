@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "actix-rt"
-version = "2.6.0"
+version = "2.7.0"
 dependencies = [
  "actix-macros",
  "futures-core",
@@ -67,9 +67,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.108"
+version = "0.2.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8521a1b57e76b1ec69af7599e75e38e7b7fad6610f037db8c79b127201b5d119"
+checksum = "1bf2e165bb3457c8e098ea76f3e3bc9db55f87aa90d52d0e6be741470916aaa4"
 
 [[package]]
 name = "lock_api"
@@ -218,6 +218,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ecab6c735a6bb4139c0caafd0cc3635748bbb3acf4550e8138122099251f309"
 
 [[package]]
+name = "socket2"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "syn"
 version = "1.0.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -246,14 +256,15 @@ dependencies = [
 
 [[package]]
 name = "tokio-uring"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "062a33613d97344c5054d9635b35beb14492b66d9aa4bdbf21ecde1682d256df"
+checksum = "d3ad494f39874984d990ade7f6319dafbcd3301ff0b1841f8a55a1ebb3e742c8"
 dependencies = [
  "io-uring",
  "libc",
  "scoped-tls",
  "slab",
+ "socket2",
  "tokio",
 ]
 

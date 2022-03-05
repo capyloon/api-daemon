@@ -12,9 +12,9 @@
 [package]
 edition = "2018"
 name = "awc"
-version = "3.0.0-beta.21"
+version = "3.0.0"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>", "fakeshadow <24548779@qq.com>"]
-description = "Async HTTP and WebSocket client library built on the Actix ecosystem"
+description = "Async HTTP and WebSocket client library"
 homepage = "https://actix.rs"
 keywords = ["actix", "http", "framework", "async", "web"]
 categories = ["network-programming", "asynchronous", "web-programming::http-client", "web-programming::websocket"]
@@ -35,7 +35,7 @@ required-features = ["rustls"]
 version = "0.5"
 
 [dependencies.actix-http]
-version = "3.0.0-rc.3"
+version = "3"
 features = ["http2", "ws"]
 
 [dependencies.actix-rt]
@@ -43,14 +43,14 @@ version = "2.1"
 default-features = false
 
 [dependencies.actix-service]
-version = "2.0.0"
+version = "2"
 
 [dependencies.actix-tls]
 version = "3"
 features = ["connect", "uri"]
 
 [dependencies.actix-utils]
-version = "3.0.0"
+version = "3"
 
 [dependencies.ahash]
 version = "0.7"

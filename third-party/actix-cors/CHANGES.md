@@ -3,15 +3,17 @@
 ## Unreleased - 2021-xx-xx
 
 
+## 0.6.1 - 2022-03-07
+- Do not consider requests without a `Access-Control-Request-Method` as preflight. [#226]
+
+[#226]: https://github.com/actix/actix-extras/pull/226
+
+
 ## 0.6.0 - 2022-02-25
 - Update `actix-web` dependency to 4.0.
-- Ensure that preflight responses contain a `Vary` header. [#224]
-
-[#224]: https://github.com/actix/actix-extras/pull/224
-
 
 ## 0.6.0-beta.10 - 2022-02-07
-- Ensure that preflight responses contain a Vary header. [#224]
+- Ensure that preflight responses contain a `Vary` header. [#224]
 
 [#224]: https://github.com/actix/actix-extras/pull/224
 

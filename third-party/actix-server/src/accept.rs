@@ -1,8 +1,8 @@
 use std::{io, thread, time::Duration};
 
 use actix_rt::time::Instant;
-use log::{debug, error, info};
 use mio::{Interest, Poll, Token as MioToken};
+use tracing::{debug, error, info};
 
 use crate::{
     availability::Availability,
@@ -41,7 +41,7 @@ impl Accept {
     pub(crate) fn start(
         sockets: Vec<(usize, MioListener)>,
         builder: &ServerBuilder,
-    ) -> io::Result<(WakerQueue, Vec<WorkerHandleServer>)> {
+    ) -> io::Result<(WakerQueue, Vec<WorkerHandleServer>, thread::JoinHandle<()>)> {
         let handle_server = ServerHandle::new(builder.cmd_tx.clone());
 
         // construct poll instance and its waker
@@ -73,12 +73,12 @@ impl Accept {
             handle_server,
         )?;
 
-        thread::Builder::new()
+        let accept_handle = thread::Builder::new()
             .name("actix-server acceptor".to_owned())
             .spawn(move || accept.poll_with(&mut sockets))
             .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
 
-        Ok((waker_queue, handles_server))
+        Ok((waker_queue, handles_server, accept_handle))
     }
 
     fn new_with_sockets(
@@ -127,10 +127,10 @@ impl Accept {
         let mut events = mio::Events::with_capacity(256);
 
         loop {
-            if let Err(e) = self.poll.poll(&mut events, self.timeout) {
-                match e.kind() {
+            if let Err(err) = self.poll.poll(&mut events, self.timeout) {
+                match err.kind() {
                     io::ErrorKind::Interrupted => {}
-                    _ => panic!("Poll error: {}", e),
+                    _ => panic!("Poll error: {}", err),
                 }
             }
 
@@ -298,15 +298,15 @@ impl Accept {
     fn register_logged(&self, info: &mut ServerSocketInfo) {
         match self.register(info) {
             Ok(_) => debug!("Resume accepting connections on {}", info.lst.local_addr()),
-            Err(e) => error!("Can not register server socket {}", e),
+            Err(err) => error!("Can not register server socket {}", err),
         }
     }
 
     fn deregister_logged(&self, info: &mut ServerSocketInfo) {
         match self.poll.registry().deregister(&mut info.lst) {
             Ok(_) => debug!("Paused accepting connections on {}", info.lst.local_addr()),
-            Err(e) => {
-                error!("Can not deregister server socket {}", e)
+            Err(err) => {
+                error!("Can not deregister server socket {}", err)
             }
         }
     }
@@ -396,10 +396,10 @@ impl Accept {
                     let conn = Conn { io, token };
                     self.accept_one(conn);
                 }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return,
-                Err(ref e) if connection_error(e) => continue,
-                Err(e) => {
-                    error!("Error accepting connection: {}", e);
+                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return,
+                Err(ref err) if connection_error(err) => continue,
+                Err(err) => {
+                    error!("Error accepting connection: {}", err);
 
                     // deregister listener temporary
                     self.deregister_logged(info);
