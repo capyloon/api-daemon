@@ -63,10 +63,10 @@ actix-rt = "2.6"
 actix-web = "4.0"
 actix-web-actors = "4.0"
 apps_service = {path = "../services/apps", optional = true}
-arti = {git = "https://github.com/capyloon/arti.git", features = ["tokio", "rustls"]}
+arti = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}
 arti-client = {git = "https://github.com/capyloon/arti.git"}
 arti-config = {git = "https://github.com/capyloon/arti.git"}
-tor-rtcompat = {git = "https://github.com/capyloon/arti.git"}
+tor-rtcompat = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}
 
 audiovolume_service = {path = "../services/audiovolumemanager", optional = true}
 bincode = "1.3"
