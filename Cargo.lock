@@ -478,7 +478,7 @@ checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
 [[package]]
 name = "arti"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "anyhow",
  "arti-client",
@@ -504,7 +504,7 @@ dependencies = [
 [[package]]
 name = "arti-client"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "derive_builder",
  "derive_more",
@@ -528,7 +528,7 @@ dependencies = [
 [[package]]
 name = "arti-config"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "arti-client",
  "config",
@@ -660,18 +660,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "479db852db25d9dbf6204e6cb6253698f175c15726470f78af0d918e99d6156e"
 dependencies = [
  "event-listener",
-]
-
-[[package]]
-name = "async-native-tls"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d57d4cec3c647232e1094dc013546c0b33ce785d8aeb251e1f20dfaf8a9a13fe"
-dependencies = [
- "futures-util",
- "native-tls",
- "thiserror",
- "url",
 ]
 
 [[package]]
@@ -1160,7 +1148,7 @@ checksum = "c1db59621ec70f09c5e9b597b220c7a2b43611f4710dc03ceb8748637775692c"
 [[package]]
 name = "caret"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 
 [[package]]
 name = "cc"
@@ -3968,7 +3956,7 @@ checksum = "8c31b5c4033f8fdde8700e4657be2c497e7288f01515be52168c631e2e4d4086"
 [[package]]
 name = "retry-error"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 
 [[package]]
 name = "ring"
@@ -5059,7 +5047,7 @@ dependencies = [
 [[package]]
 name = "tor-bytes"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "arrayref",
  "bytes",
@@ -5075,7 +5063,7 @@ dependencies = [
 [[package]]
 name = "tor-cell"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "arrayref",
  "bitflags",
@@ -5093,7 +5081,7 @@ dependencies = [
 [[package]]
 name = "tor-cert"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "caret",
  "digest 0.10.3",
@@ -5106,7 +5094,7 @@ dependencies = [
 [[package]]
 name = "tor-chanmgr"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "async-trait",
  "derive_more",
@@ -5125,7 +5113,7 @@ dependencies = [
 [[package]]
 name = "tor-checkable"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "signature",
  "thiserror",
@@ -5135,7 +5123,7 @@ dependencies = [
 [[package]]
 name = "tor-circmgr"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "async-trait",
  "bounded-vec-deque",
@@ -5166,7 +5154,7 @@ dependencies = [
 [[package]]
 name = "tor-config"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "derive_builder",
  "directories",
@@ -5181,7 +5169,7 @@ dependencies = [
 [[package]]
 name = "tor-consdiff"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "digest 0.10.3",
  "hex",
@@ -5192,7 +5180,7 @@ dependencies = [
 [[package]]
 name = "tor-dirclient"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "async-compression",
  "base64",
@@ -5215,7 +5203,7 @@ dependencies = [
 [[package]]
 name = "tor-dirmgr"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "async-trait",
  "base64",
@@ -5254,7 +5242,7 @@ dependencies = [
 [[package]]
 name = "tor-error"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "backtrace",
  "derive_more",
@@ -5265,7 +5253,7 @@ dependencies = [
 [[package]]
 name = "tor-guardmgr"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "derive_builder",
  "futures",
@@ -5291,7 +5279,7 @@ dependencies = [
 [[package]]
 name = "tor-linkspec"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "tor-bytes",
  "tor-llcrypto",
@@ -5301,7 +5289,7 @@ dependencies = [
 [[package]]
 name = "tor-llcrypto"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "aes",
  "arrayref",
@@ -5329,7 +5317,7 @@ dependencies = [
 [[package]]
 name = "tor-netdir"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "bitflags",
  "derive_builder",
@@ -5351,7 +5339,7 @@ dependencies = [
 [[package]]
 name = "tor-netdoc"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "base64",
  "bitflags",
@@ -5376,7 +5364,7 @@ dependencies = [
 [[package]]
 name = "tor-persist"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "fslock",
  "sanitize-filename",
@@ -5389,7 +5377,7 @@ dependencies = [
 [[package]]
 name = "tor-proto"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "arrayref",
  "asynchronous-codec",
@@ -5423,7 +5411,7 @@ dependencies = [
 [[package]]
 name = "tor-protover"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "caret",
  "thiserror",
@@ -5432,14 +5420,12 @@ dependencies = [
 [[package]]
 name = "tor-rtcompat"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
- "async-native-tls",
  "async-rustls",
  "async-trait",
  "async_executors",
  "futures",
- "native-tls",
  "pin-project",
  "rustls 0.19.1",
  "tokio",
@@ -5450,7 +5436,7 @@ dependencies = [
 [[package]]
 name = "tor-socksproto"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "caret",
  "thiserror",
@@ -5461,7 +5447,7 @@ dependencies = [
 [[package]]
 name = "tor-units"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/arti.git#04c27f8b0cea89e73b89463628e27ee8625780dd"
+source = "git+https://github.com/capyloon/arti.git#c6188f3ae1753dc3a6917ec569a6f7474ade150d"
 dependencies = [
  "derive_more",
  "thiserror",

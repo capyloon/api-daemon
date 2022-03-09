@@ -11,7 +11,7 @@ categories = [ "command-line-utilities", "cryptography" ]
 repository="https://gitlab.torproject.org/tpo/core/arti.git/"
 
 [features]
-default = [ "tokio", "native-tls" ]
+default = [ "tokio", "rustls" ]
 async-std = [ "arti-client/async-std", "tor-rtcompat/async-std", "async-ctrlc", "once_cell" ]
 tokio = [ "tokio-crate", "arti-client/tokio", "tor-rtcompat/tokio" ]
 native-tls = [ "arti-client/native-tls", "tor-rtcompat/native-tls" ]
