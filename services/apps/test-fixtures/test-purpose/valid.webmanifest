@@ -1,0 +1,47 @@
+{
+  "name": "sample-pwa",
+  "description": "A test pwa app.",
+  "start_url": "/index.html",
+  "icons": [{
+      "src": "/icons/icon16x16.png",
+      "sizes": "16x16",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon48x48.png",
+      "sizes": "48x48",
+      "purpose": "monochrome"
+    },
+    {
+      "src": "/icons/icon60x60.png",
+      "sizes": "60x60",
+      "purpose": "monochrome fizzbuzz"
+    },
+    {
+      "src": "/icons/icon60x60.png",
+      "sizes": "60x60",
+      "purpose": "fizzbuzz maskable"
+    },
+    {
+      "src": "/icons/icon128x128.png",
+      "sizes": "128x128",
+      "purpose": "any maskable monochrome"
+    },
+    {
+      "src": "/icons/icon128x128.png",
+      "sizes": "128x128",
+      "purpose": ""
+    },
+    {
+      "src": "/icons/icon128x128.png",
+      "sizes": "128x128"
+  }],
+  "b2g_features": {
+    "version": "1.2.3",
+    "developer": {
+      "name": "Seinlin",
+      "url": "http://testpwa.github.io"
+    }
+  }
+}
+

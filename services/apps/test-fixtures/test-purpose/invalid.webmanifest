@@ -1,0 +1,33 @@
+{
+  "name": "sample-pwa",
+  "description": "A test pwa app.",
+  "start_url": "/index.html",
+  "icons": [{
+      "src": "/icons/icon16x16.png",
+      "sizes": "16x16",
+      "purpose": "unkown fizzbuzz"
+    },
+    {
+      "src": "/icons/icon48x48.png",
+      "sizes": "48x48",
+      "purpose": "fizzbuzz"
+    },
+    {
+      "src": "/icons/icon60x60.png",
+      "sizes": "60x60",
+      "purpose": "something fizzbuzz"
+    },
+    {
+      "src": "/icons/icon128x128.png",
+      "sizes": "128x128",
+      "purpose": "unkown"
+  }],
+  "b2g_features": {
+    "version": "1.2.3",
+    "developer": {
+      "name": "Seinlin",
+      "url": "http://testpwa.github.io"
+    }
+  }
+}
+
