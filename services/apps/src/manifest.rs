@@ -139,6 +139,8 @@ pub struct Icons {
     src: String,
     sizes: String,
     r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    purpose: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -183,6 +185,33 @@ impl Icons {
 
     pub fn get_type(&self) -> Option<String> {
         self.r#type.clone()
+    }
+
+    // https://www.w3.org/TR/appmanifest/#purpose-member
+    // Icon purpose list: "monochrome", "maskable", "any"
+    // If purpose doesn't exist, it will be used as any(default).
+    // If an icon contains multiple purpose, it could be used for any of those purpose.
+    // If none of the stated purpose are recognized, the icon is totally ignored.
+    pub fn process_purpose(&mut self) -> bool {
+        if let Some(purpose) = &self.purpose {
+            if purpose.is_empty() {
+                self.purpose = Some("any".into());
+                return true;
+            }
+            let mut processed_purpose = vec![];
+            for value in purpose.split_whitespace() {
+                if ["monochrome", "maskable", "any"].contains(&value) {
+                    processed_purpose.push(value);
+                }
+            }
+            if processed_purpose.is_empty() {
+                return false;
+            }
+            self.purpose = Some(processed_purpose.join(" "));
+        } else {
+            self.purpose = Some("any".into());
+        }
+        true
     }
 }
 
@@ -469,4 +498,42 @@ fn test_same_scope() {
     assert!(!base_url.same_scope(&Url::parse("https://domain.com/index.html").unwrap()));
     assert!(!base_url.same_scope(&Url::parse("https://domain.com/xyz/index.html").unwrap()));
     assert!(!base_url.same_scope(&Url::parse("https://domain.com/bar/foo/index.html").unwrap()));
+}
+
+#[test]
+fn test_icon_purpose() {
+    use std::env;
+
+    let current = env::current_dir().unwrap();
+    let manifest_path = format!(
+        "{}/test-fixtures/test-purpose/valid.webmanifest",
+        current.display()
+    );
+    let manifest = Manifest::read_from(&manifest_path).unwrap();
+    match manifest.get_icons() {
+        Some(icons_value) => {
+            let mut icons: Vec<Icons> =
+                serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
+            for icon in &mut icons {
+                assert!(icon.process_purpose());
+            }
+        },
+        None => panic!(),
+    }
+
+    let manifest_path = format!(
+        "{}/test-fixtures/test-purpose/invalid.webmanifest",
+        current.display()
+    );
+    let manifest = Manifest::read_from(&manifest_path).unwrap();
+    match manifest.get_icons() {
+        Some(icons_value) => {
+            let mut icons: Vec<Icons> =
+                serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
+            for icon in &mut icons {
+                assert!(!icon.process_purpose());
+            }
+        },
+        None => panic!(),
+    }
 }

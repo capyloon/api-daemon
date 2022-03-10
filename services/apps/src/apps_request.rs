@@ -618,6 +618,10 @@ impl AppsRequest {
             let mut icons: Vec<Icons> =
                 serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
             for icon in &mut icons {
+                // If none of the stated purpose are recognized, the icon is totally ignored.
+                if !icon.process_purpose() {
+                    continue;
+                }
                 let mut icon_src = icon.get_src();
                 // If the icon src is a complete url remove the leading protocol for the download path.
                 if let Ok(url) = Url::parse(&icon_src) {
