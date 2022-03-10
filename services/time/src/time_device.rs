@@ -1,7 +1,7 @@
 use libc::c_int;
-use log::info;
+use log::{error, info};
 use std::os::unix::io::AsRawFd;
-use std::{fs, path};
+use std::{fs, io, path};
 use time::*;
 
 mod ffi {
@@ -91,7 +91,9 @@ impl From<time::Tm> for RtcTime {
 pub trait TimeDevice {
     type TimeFormat;
 
-    fn open<P: AsRef<path::Path>>(path: P) -> Self;
+    fn open<P: AsRef<path::Path>>(path: P) -> Result<Self, io::Error>
+    where
+        Self: Sized;
 
     fn get_time(&mut self) -> Result<Self::TimeFormat, nix::Error>;
 
@@ -109,12 +111,16 @@ pub struct TimerFd {
 impl TimeDevice for TimerFd {
     type TimeFormat = RtcTime;
 
-    fn open<P>(path: P) -> Self
+    fn open<P>(path: P) -> Result<Self, io::Error>
     where
         P: AsRef<path::Path>,
     {
-        TimerFd {
-            dev: fs::File::open(path).unwrap(),
+        match fs::File::open(path) {
+            Ok(dev) => Ok(TimerFd { dev }),
+            Err(err) => {
+                error!("Failed to open error: {:?}", err);
+                Err(err)
+            }
         }
     }
 
@@ -144,12 +150,16 @@ pub struct AlarmDriver {
 impl TimeDevice for AlarmDriver {
     type TimeFormat = Timespec;
 
-    fn open<P>(path: P) -> Self
+    fn open<P>(path: P) -> Result<Self, io::Error>
     where
         P: AsRef<path::Path>,
     {
-        AlarmDriver {
-            dev: fs::File::open(path).unwrap(),
+        match fs::File::open(path) {
+            Ok(dev) => Ok(AlarmDriver { dev }),
+            Err(err) => {
+                error!("Failed to open error: {:?}", err);
+                Err(err)
+            }
         }
     }
 

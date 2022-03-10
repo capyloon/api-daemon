@@ -36,7 +36,7 @@ impl TimeManager {
         // set rtc time
         let mut timerfd;
         let rtc_time = RtcTime::from(time::at_utc(t));
-        timerfd = TimerFd::open(ffi::RTC_DEVICE_PATH);
+        timerfd = TimerFd::open(ffi::RTC_DEVICE_PATH)?;
         if let Err(err) = timerfd.set_time(&rtc_time) {
             error!("Failed to set_time(): {}", err);
         }
