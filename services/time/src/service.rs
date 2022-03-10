@@ -4,8 +4,8 @@ use crate::generated::service::*;
 use crate::time_manager::*;
 use android_utils::{AndroidProperties, PropertyGetter};
 use common::core::BaseMessage;
-use common::threadpool_status;
 use common::observers::{ObserverTracker, ServiceObserverTracker};
+use common::threadpool_status;
 use common::traits::{
     CommonResponder, DispatcherId, EmptyConfig, OriginAttributes, Service, SessionSupport, Shared,
     SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
@@ -109,12 +109,15 @@ impl DbObserver for SettingObserver {
             error!(
                 "unexpected key {} / value {}",
                 name,
-                value.as_str().unwrap().to_string()
+                value.as_str().unwrap_or("").to_string()
             );
             return;
         }
 
-        let timezone = value.as_str().unwrap().to_string();
+        let timezone = value.as_str().unwrap_or("").to_string();
+        if timezone.is_empty() {
+            return;
+        }
         match TimeManager::set_timezone(timezone.clone()) {
             Ok(_) => {
                 let shared = Time::shared_state();
