@@ -1,0 +1,47 @@
+{
+  "name": "sample-pwa",
+  "description": "A test pwa app.",
+  "start_url": "/index.html",
+  "icons": [{
+      "src": "/icons/icon16x16.png",
+      "sizes": "16x16"
+    },
+    {
+      "src": "/icons/icon48x48.png",
+      "sizes": "48x48"
+    },
+    {
+      "src": "/icons/icon60x60.png",
+      "sizes": "60x60"
+    },
+    {
+      "src": "/icons/icon128x128.png",
+      "sizes": "128x128"
+  }],
+  "shortcuts": [
+    {
+      "name": "Subscriptions",
+      "description": "View the list of podcasts you listen to",
+      "url": "/subscriptions?sort=desc"
+    },
+    {
+      "name": "Play Later",
+      "description": "View the list of podcasts you saved for later",
+      "url": "/play-later",
+      "icons": [
+        {
+          "src": "/icons/play-later.svg",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ],
+  "b2g_features": {
+    "version": "1.2.3",
+    "developer": {
+      "name": "Seinlin",
+      "url": "http://testpwa.github.io"
+    }
+  }
+}
+

@@ -4,7 +4,7 @@ use crate::apps_storage::{validate_package, AppsStorage};
 use crate::apps_utils;
 use crate::downloader::{DownloadError, Downloader, DownloaderInfo};
 use crate::generated::common::*;
-use crate::manifest::{Icons, Manifest};
+use crate::manifest::{Icon, Manifest};
 use crate::shared_state::AppsSharedData;
 use crate::shared_state::DownloadingCanceller;
 use crate::update_manifest::UpdateManifest;
@@ -375,6 +375,44 @@ impl AppsRequest {
         Ok(Some(app_obj))
     }
 
+    pub fn download_icon(
+        &self,
+        icon: &mut Icon,
+        update_url_base: &Url,
+        manifest_url_base: &Url,
+        download_dir: &Path,
+    ) -> Result<(), AppsServiceError> {
+        let mut icon_src = icon.get_src();
+        // If the icon src is a complete url remove the leading protocol for the download path.
+        if let Ok(url) = Url::parse(&icon_src) {
+            icon_src = format!("{}{}", url.host().unwrap_or(Domain("")), url.path());
+        }
+        // If the icon src is an absolute path remove the leading / for the download path.
+        // Then it won't end up trying to use a /some/invalid/path/icon.png.
+        if icon_src.starts_with('/') {
+            let _ = icon_src.remove(0);
+        }
+        let icon_path = download_dir.join(&icon_src);
+        let icon_dir = icon_path.parent().unwrap();
+        let icon_url = update_url_base
+            .join(&icon.get_src())
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        let _ = AppsStorage::ensure_dir(icon_dir);
+        if let Err(err) = self.download(&icon_url, &icon_path) {
+            error!(
+                "Failed to download icon {} -> {:?} : {:?}",
+                icon_url, icon_path, err
+            );
+            return Err(AppsServiceError::InvalidIcon);
+        }
+        let icon_cached_url = manifest_url_base
+            .join(&icon_src)
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        icon.set_src(icon_cached_url.as_str());
+
+        Ok(())
+    }
+
     pub fn process_deeplinks(
         &mut self,
         apps_item: &mut AppsItem,
@@ -615,40 +653,10 @@ impl AppsRequest {
         // 2-1. download icons to cached dir.
         let manifest_url_base = apps_item.get_manifest_url();
         if let Some(icons_value) = manifest.get_icons() {
-            let mut icons: Vec<Icons> =
+            let mut icons: Vec<Icon> =
                 serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
             for icon in &mut icons {
-                // If none of the stated purpose are recognized, the icon is totally ignored.
-                if !icon.process_purpose() {
-                    continue;
-                }
-                let mut icon_src = icon.get_src();
-                // If the icon src is a complete url remove the leading protocol for the download path.
-                if let Ok(url) = Url::parse(&icon_src) {
-                    icon_src = format!("{}{}", url.host().unwrap_or(Domain("")), url.path());
-                }
-                // If the icon src is an absolute path remove the leading / for the download path.
-                // Then it won't end up trying to use a /some/invalid/path/icon.png.
-                if icon_src.starts_with('/') {
-                    let _ = icon_src.remove(0);
-                }
-                let icon_path = download_dir.join(&icon_src);
-                let icon_dir = icon_path.parent().unwrap();
-                let icon_url = update_url_base
-                    .join(&icon.get_src())
-                    .map_err(|_| AppsServiceError::InvalidManifest)?;
-                let _ = AppsStorage::ensure_dir(icon_dir);
-                if let Err(err) = self.download(&icon_url, &icon_path) {
-                    error!(
-                        "Failed to download icon {} -> {:?} : {:?}",
-                        icon_url, icon_path, err
-                    );
-                    return Err(AppsServiceError::InvalidIcon);
-                }
-                let icon_cached_url = manifest_url_base
-                    .join(&icon_src)
-                    .map_err(|_| AppsServiceError::InvalidManifest)?;
-                icon.set_src(icon_cached_url.as_str());
+                icon.process(self, &update_url_base, &manifest_url_base, &download_dir)?;
             }
             manifest.set_icons(serde_json::to_value(icons).unwrap());
         }
@@ -661,6 +669,23 @@ impl AppsRequest {
         let cached_pwa_manifest = download_dir.join("manifest.webmanifest");
         Manifest::write_to(&cached_pwa_manifest, &manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
+
+        // 2-3: Process if shortcuts exist
+        // https://www.w3.org/TR/appmanifest/#dfn-process-the-shortcuts-member
+        if let Some(mut shortcuts) = manifest.get_shortcuts() {
+            for shortcut in &mut shortcuts {
+                if !shortcut.process(&update_url_base) {
+                    continue;
+                }
+                if let Some(mut icons) = shortcut.get_icons() {
+                    for icon in &mut icons {
+                        icon.process(self, &update_url_base, &manifest_url_base, &download_dir)?;
+                    }
+                    shortcut.set_icons(Some(icons));
+                }
+            }
+            manifest.set_shortcuts(Some(shortcuts));
+        }
 
         // 3. finish installation and register the pwa app.
         self.shared_data.lock().registry.apply_pwa(
@@ -896,7 +921,7 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
         )
         .unwrap();
     if let Some(icons_value) = manifest.get_icons() {
-        let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+        let icons: Vec<Icon> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
         assert_eq!(4, icons.len());
     } else {
         panic!();
@@ -955,7 +980,7 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
 
         // icon url should be relative path of local cached address
         if let Some(icons_value) = manifest.get_icons() {
-            let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+            let icons: Vec<Icon> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
             assert_eq!(4, icons.len());
             let manifest_url_base = app.get_manifest_url().join("/");
             for icon in icons {
