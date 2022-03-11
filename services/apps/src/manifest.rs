@@ -2,6 +2,7 @@
 
 use crate::apps_item::AppsItem;
 use crate::apps_registry::AppsMgmtError;
+use crate::apps_request::AppsRequest;
 use crate::apps_utils;
 use crate::deeplinks::DeepLinks;
 use crate::generated::common::*;
@@ -135,12 +136,26 @@ impl B2GFeatures {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Icons {
+pub struct Icon {
     src: String,
-    sizes: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sizes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     r#type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     purpose: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Shortcut {
+    #[serde(default = "String::new")]
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(default = "String::new")]
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icons: Option<Vec<Icon>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -164,13 +179,15 @@ pub struct Manifest {
     orientation: String,
     #[serde(default = "String::new")]
     theme_color: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shortcuts: Option<Vec<Shortcut>>,
 }
 
 fn default_as_start_url() -> String {
     "/".into()
 }
 
-impl Icons {
+impl Icon {
     pub fn set_src(&mut self, src: &str) {
         self.src = src.to_string();
     }
@@ -179,7 +196,7 @@ impl Icons {
         self.src.clone()
     }
 
-    pub fn get_sizes(&self) -> String {
+    pub fn get_sizes(&self) -> Option<String> {
         self.sizes.clone()
     }
 
@@ -210,6 +227,57 @@ impl Icons {
             self.purpose = Some(processed_purpose.join(" "));
         } else {
             self.purpose = Some("any".into());
+        }
+        true
+    }
+
+    pub fn process(
+        &mut self,
+        request: &AppsRequest,
+        update_url_base: &Url,
+        manifest_url_base: &Url,
+        download_dir: &Path,
+    ) -> Result<(), AppsServiceError> {
+        // If none of the stated purpose are recognized, the icon is totally ignored.
+        if !self.process_purpose() {
+            return Ok(());
+        }
+        request.download_icon(self, update_url_base, manifest_url_base, download_dir)
+    }
+}
+
+impl Shortcut {
+    pub fn set_url(&mut self, url: &str) {
+        self.url = url.to_string();
+    }
+
+    pub fn set_icons(&mut self, icons: Option<Vec<Icon>>) {
+        self.icons = icons;
+    }
+
+    pub fn get_url(&self) -> String {
+        self.url.clone()
+    }
+
+    pub fn get_icons(&self) -> Option<Vec<Icon>> {
+        self.icons.clone()
+    }
+
+    // https://www.w3.org/TR/appmanifest/#dfn-process-the-shortcuts-member
+    pub fn process(&mut self, manifest_url: &Url) -> bool {
+        if self.name.is_empty() {
+            return false;
+        }
+        if self.url.is_empty() {
+            return false;
+        }
+        if let Ok(url) = manifest_url.join(&self.url) {
+            if !url.same_scope(manifest_url) {
+                return false;
+            }
+            self.set_url(url.as_str());
+        } else {
+            return false;
         }
         true
     }
@@ -298,6 +366,14 @@ impl Manifest {
 
     pub fn set_scope(&mut self, scope: &str) {
         self.scope = scope.to_string();
+    }
+
+    pub fn set_shortcuts(&mut self, shortcuts: Option<Vec<Shortcut>>) {
+        self.shortcuts = shortcuts;
+    }
+
+    pub fn get_shortcuts(&self) -> Option<Vec<Shortcut>> {
+        self.shortcuts.clone()
     }
 
     pub fn get_origin(&self) -> Option<String> {
@@ -512,12 +588,12 @@ fn test_icon_purpose() {
     let manifest = Manifest::read_from(&manifest_path).unwrap();
     match manifest.get_icons() {
         Some(icons_value) => {
-            let mut icons: Vec<Icons> =
+            let mut icons: Vec<Icon> =
                 serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
             for icon in &mut icons {
                 assert!(icon.process_purpose());
             }
-        },
+        }
         None => panic!(),
     }
 
@@ -528,12 +604,52 @@ fn test_icon_purpose() {
     let manifest = Manifest::read_from(&manifest_path).unwrap();
     match manifest.get_icons() {
         Some(icons_value) => {
-            let mut icons: Vec<Icons> =
+            let mut icons: Vec<Icon> =
                 serde_json::from_value(icons_value).unwrap_or_else(|_| Vec::new());
             for icon in &mut icons {
                 assert!(!icon.process_purpose());
             }
-        },
+        }
+        None => panic!(),
+    }
+}
+
+#[test]
+fn test_manifest_shortcuts() {
+    use std::env;
+
+    let manifest_url = Url::parse("https://domain.com/manifest.webmanifest").unwrap();
+    let current = env::current_dir().unwrap();
+    let manifest_path = format!(
+        "{}/test-fixtures/test-shortcuts/valid.webmanifest",
+        current.display()
+    );
+    let manifest = Manifest::read_from(&manifest_path).unwrap();
+    match manifest.get_shortcuts() {
+        Some(mut shortcuts) => {
+            for shortcut in &mut shortcuts {
+                assert!(shortcut.process(&manifest_url));
+                assert!([
+                    "https://domain.com/subscriptions?sort=desc",
+                    "https://domain.com/play-later"
+                ]
+                .contains(&shortcut.get_url().as_str()));
+            }
+        }
+        None => panic!(),
+    }
+
+    let manifest_path = format!(
+        "{}/test-fixtures/test-shortcuts/invalid.webmanifest",
+        current.display()
+    );
+    let manifest = Manifest::read_from(&manifest_path).unwrap();
+    match manifest.get_shortcuts() {
+        Some(mut shortcuts) => {
+            for shortcut in &mut shortcuts {
+                assert!(!shortcut.process(&manifest_url));
+            }
+        }
         None => panic!(),
     }
 }

@@ -1007,7 +1007,7 @@ pub fn start(shared_data: Shared<AppsSharedData>, vhost_port: u16) {
 #[test]
 fn test_init_apps_from_system() {
     use crate::config;
-    use crate::manifest::Icons;
+    use crate::manifest::Icon;
     use config::Config;
     use url::Url;
 
@@ -1070,7 +1070,7 @@ fn test_init_apps_from_system() {
 
         // icon url should be relative path of local cached address
         if let Some(icons_value) = manifest.get_icons() {
-            let icons: Vec<Icons> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
+            let icons: Vec<Icon> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
             let manifest_url_base = app.get_manifest_url().join("/");
             for icon in icons {
                 let icon_src = icon.get_src();
