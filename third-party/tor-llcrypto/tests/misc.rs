@@ -38,6 +38,36 @@ fn test_ed25519_identity() {
 }
 
 #[test]
+fn test_rsa_formatting() {
+    use ll::pk::rsa::RsaIdentity;
+
+    let id = RsaIdentity::from_hex("5696ab38cb3852afa476a5c07b2d4788963d5567").unwrap();
+
+    assert_eq!(
+        format!("<<{}>>", id),
+        "<<$5696ab38cb3852afa476a5c07b2d4788963d5567>>"
+    );
+    assert_eq!(
+        format!("{:?}", id),
+        "RsaIdentity { $5696ab38cb3852afa476a5c07b2d4788963d5567 }"
+    );
+}
+
+#[test]
+fn test_wrong_hex_rsa_ids() {
+    use ll::pk::rsa::RsaIdentity;
+    assert!(RsaIdentity::from_hex("5696ab38cb3852afa476a5c07b2d4788963d5567").is_some());
+    assert!(RsaIdentity::from_hex("5696AB38CB3852AFA476A5C07b2d4788963d5567").is_some());
+    assert!(RsaIdentity::from_hex("5696ab38cb3852afa476a5c07b2d4788963d").is_none());
+    assert!(RsaIdentity::from_hex("5696ab38cb3852afa476a5c07b2d4788963d5567A").is_none());
+    assert!(RsaIdentity::from_hex("5696ab38cb3852afa476a5c07b2d4788963d5567AB").is_none());
+    assert!(RsaIdentity::from_hex("").is_none());
+    assert!(RsaIdentity::from_hex("listen carefully, spider of destiny  -FZ").is_none());
+}
+
+// TODO: Proper tests for RSA keys
+
+#[test]
 fn batch_verify() {
     use ll::pk::ed25519::*;
     use ll::util::rand_compat::RngCompatExt;

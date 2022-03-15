@@ -56,7 +56,7 @@
 
 pub mod authority;
 mod bootstrap;
-mod config;
+pub mod config;
 mod docid;
 mod docmeta;
 mod err;
@@ -67,7 +67,10 @@ mod state;
 mod storage;
 
 use crate::docid::{CacheUsage, ClientRequest, DocQuery};
+#[cfg(not(feature = "experimental-api"))]
 use crate::shared_ref::SharedMutArc;
+#[cfg(feature = "experimental-api")]
+pub use crate::shared_ref::SharedMutArc;
 use crate::storage::DynStore;
 use postage::watch;
 pub use retry::DownloadSchedule;
@@ -617,7 +620,7 @@ impl<R: Runtime> DirMgr<R> {
         let params_changed = new_config.override_net_params() != config.override_net_params();
 
         self.config
-            .map_and_replace(|cfg| cfg.update_config(new_config));
+            .map_and_replace(|cfg| cfg.update_from_config(new_config));
 
         if params_changed {
             let _ignore_err = self.netdir.mutate(|netdir| {

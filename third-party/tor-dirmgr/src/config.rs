@@ -28,6 +28,7 @@ use serde::Deserialize;
 #[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[builder(build_fn(validate = "Self::validate", error = "ConfigBuildError"))]
+#[builder(derive(Deserialize))]
 pub struct NetworkConfig {
     /// List of locations to look in when downloading directory information, if
     /// we don't actually have a directory yet.
@@ -59,16 +60,6 @@ impl Default for NetworkConfig {
             fallback_caches: fallbacks::default_fallbacks(),
             authorities: crate::authority::default_authorities(),
         }
-    }
-}
-
-impl From<NetworkConfig> for NetworkConfigBuilder {
-    fn from(cfg: NetworkConfig) -> NetworkConfigBuilder {
-        let mut builder = NetworkConfigBuilder::default();
-        builder
-            .fallback_caches(cfg.fallback_caches)
-            .authorities(cfg.authorities);
-        builder
     }
 }
 
@@ -110,6 +101,7 @@ impl NetworkConfigBuilder {
 #[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[builder(build_fn(error = "ConfigBuildError"))]
+#[builder(derive(Deserialize))]
 pub struct DownloadScheduleConfig {
     /// Top-level configuration for how to retry our initial bootstrap attempt.
     #[serde(default = "default_retry_bootstrap")]
@@ -157,18 +149,6 @@ impl DownloadScheduleConfig {
     }
 }
 
-impl From<DownloadScheduleConfig> for DownloadScheduleConfigBuilder {
-    fn from(cfg: DownloadScheduleConfig) -> DownloadScheduleConfigBuilder {
-        let mut builder = DownloadScheduleConfigBuilder::default();
-        builder
-            .retry_bootstrap(cfg.retry_bootstrap)
-            .retry_consensus(cfg.retry_consensus)
-            .retry_certs(cfg.retry_certs)
-            .retry_microdescs(cfg.retry_microdescs);
-        builder
-    }
-}
-
 /// Configuration type for network directory operations.
 ///
 /// This type is immutable once constructed.
@@ -181,6 +161,7 @@ impl From<DownloadScheduleConfig> for DownloadScheduleConfigBuilder {
 /// running Arti client. Those that cannot are documented.
 #[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
+#[builder(derive(Deserialize))]
 pub struct DirMgrConfig {
     /// Location to use for storing and reading current-format
     /// directory information.
@@ -257,28 +238,28 @@ impl DirMgrConfig {
     }
 
     /// Return the configured cache path.
-    pub(crate) fn cache_path(&self) -> &std::path::Path {
+    pub fn cache_path(&self) -> &std::path::Path {
         self.cache_path.as_ref()
     }
 
     /// Return a slice of the configured authorities
-    pub(crate) fn authorities(&self) -> &[Authority] {
+    pub fn authorities(&self) -> &[Authority] {
         self.network_config.authorities()
     }
 
     /// Return the configured set of fallback directories
-    pub(crate) fn fallbacks(&self) -> &[FallbackDir] {
+    pub fn fallbacks(&self) -> &[FallbackDir] {
         self.network_config.fallbacks()
     }
 
     /// Return set of configured networkstatus parameter overrides.
-    pub(crate) fn override_net_params(&self) -> &netstatus::NetParams<i32> {
+    pub fn override_net_params(&self) -> &netstatus::NetParams<i32> {
         &self.override_net_params
     }
 
     /// Return the schedule configuration we should use to decide when to
     /// attempt and retry downloads.
-    pub(crate) fn schedule(&self) -> &DownloadScheduleConfig {
+    pub fn schedule(&self) -> &DownloadScheduleConfig {
         &self.schedule_config
     }
 
@@ -286,7 +267,7 @@ impl DirMgrConfig {
     /// `self` are replaced with those from  `new_config`.
     ///
     /// Any fields which aren't allowed to change at runtime are copied from self.
-    pub(crate) fn update_config(&self, new_config: &DirMgrConfig) -> DirMgrConfig {
+    pub(crate) fn update_from_config(&self, new_config: &DirMgrConfig) -> DirMgrConfig {
         DirMgrConfig {
             cache_path: self.cache_path.clone(),
             network_config: NetworkConfig {
@@ -296,6 +277,15 @@ impl DirMgrConfig {
             schedule_config: new_config.schedule_config.clone(),
             override_net_params: new_config.override_net_params.clone(),
         }
+    }
+
+    /// Construct a new configuration object where all replaceable fields in
+    /// `self` are replaced with those from  `new_config`.
+    ///
+    /// Any fields which aren't allowed to change at runtime are copied from self.
+    #[cfg(feature = "experimental-api")]
+    pub fn update_config(&self, new_config: &DirMgrConfig) -> DirMgrConfig {
+        self.update_from_config(new_config)
     }
 }
 
@@ -331,9 +321,7 @@ mod fallbacks {
     pub(crate) fn default_fallbacks() -> Vec<super::FallbackDir> {
         /// Build a fallback directory; panic if input is bad.
         fn fallback(rsa: &str, ed: &str, ports: &[&str]) -> FallbackDir {
-            let rsa = hex::decode(rsa).expect("Bad hex in built-in fallback list");
-            let rsa =
-                RsaIdentity::from_bytes(&rsa).expect("Wrong length in built-in fallback list");
+            let rsa = RsaIdentity::from_hex(rsa).expect("Bad hex in built-in fallback list");
             let ed = base64::decode_config(ed, base64::STANDARD_NO_PAD)
                 .expect("Bad hex in built-in fallback list");
             let ed =

@@ -1,5 +1,10 @@
 # Change Log
 
+## [4.2.2](https://github.com/sunng87/handlebars-rust/compare/4.2.1...4.2.2) - 2022-03-09
+
+* [Fixed] Block param scope leaked into partials [#496]
+* [Changed] Use Rust 2021 edition and update MSRV to 1.56
+
 ## [4.2.1](https://github.com/sunng87/handlebars-rust/compare/4.2.0...4.2.1) - 2022-01-17
 
 * [Fixed] Nested partial `@partial-block` referencing issue [#488]

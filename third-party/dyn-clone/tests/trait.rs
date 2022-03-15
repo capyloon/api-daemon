@@ -27,7 +27,7 @@ impl Drop for Log {
         self.events
             .lock()
             .unwrap()
-            .push(format!("dropping {}", self))
+            .push(format!("dropping {}", self));
     }
 }
 

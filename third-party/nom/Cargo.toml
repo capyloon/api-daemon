@@ -11,10 +11,11 @@
 
 [package]
 edition = "2018"
+rust-version = "1.48"
 name = "nom"
-version = "7.1.0"
+version = "7.1.1"
 authors = ["contact@geoffroycouprie.com"]
-include = ["CHANGELOG.md", "LICENSE", "README.md", ".gitignore", "Cargo.toml", "src/*.rs", "src/*/*.rs", "tests/*.rs", "doc/nom_recipes.md", "build.rs"]
+include = ["CHANGELOG.md", "LICENSE", "README.md", ".gitignore", "Cargo.toml", "src/*.rs", "src/*/*.rs", "tests/*.rs", "doc/nom_recipes.md"]
 autoexamples = false
 description = "A byte-oriented, zero-copy, parser combinators library"
 documentation = "https://docs.rs/nom"
@@ -110,8 +111,6 @@ version = "0.3"
 
 [dev-dependencies.proptest]
 version = "1.0.0"
-[build-dependencies.version_check]
-version = "0.9"
 
 [features]
 alloc = []
@@ -119,7 +118,7 @@ default = ["std"]
 docsrs = []
 std = ["alloc", "memchr/std", "minimal-lexical/std"]
 [badges.coveralls]
-branch = "master"
+branch = "main"
 repository = "Geal/nom"
 service = "github"
 

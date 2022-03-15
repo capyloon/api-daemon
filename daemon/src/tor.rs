@@ -1,8 +1,9 @@
 /// Tor support:
 /// - creates a Tor socks proxy with Arti.
 /// - observes the tor.enabled setting.
-use arti::driver;
-use arti_client::status::BootstrapStatus;
+use anyhow::{Context, Result};
+use arti::{dns, socks};
+use arti_client::{status::BootstrapStatus, TorClient, TorClientConfig};
 use arti_config::ArtiConfig;
 use common::traits::SharedServiceState;
 use common::JsonValue;
@@ -10,7 +11,74 @@ use futures::future::{AbortHandle, Abortable};
 use log::{error, info, warn};
 use settings_service::db::{DbObserver, ObserverType};
 use settings_service::generated::common::SettingInfo;
-use tor_rtcompat::BlockOn;
+use tor_rtcompat::{BlockOn, Runtime};
+
+type PinnedFuture<T> = std::pin::Pin<Box<dyn futures::Future<Output = T>>>;
+
+/// Run the main loop of the proxy, letting the caller the possibility
+/// to stop it using an abortable.
+pub async fn run_abortable_proxy<F, R: Runtime, T: futures::Future<Output = ()>>(
+    runtime: R,
+    arti_config: arti_config::ArtiConfig,
+    client_config: TorClientConfig,
+    abortable: Abortable<T>,
+    status_fn: F,
+) -> Result<()>
+where
+    F: Fn(&arti_client::status::BootstrapStatus),
+{
+    use futures::stream::StreamExt;
+
+    // Using OnDemand arranges that, while we are bootstrapping, incoming connections wait
+    // for bootstrap to complete, rather than getting errors.
+    use arti_client::BootstrapBehavior::OnDemand;
+    use futures::FutureExt;
+    let client = TorClient::with_runtime(runtime.clone())
+        .config(client_config)
+        .bootstrap_behavior(OnDemand)
+        .create_unbootstrapped()?;
+    let socks_port = arti_config.proxy().socks_port().unwrap_or(9150);
+    let dns_port = arti_config.proxy().dns_port().unwrap_or(0);
+    let mut events = client.bootstrap_events();
+
+    let mut proxy: Vec<PinnedFuture<(Result<()>, &str)>> = Vec::new();
+    {
+        let runtime = runtime.clone();
+        let client = client.isolated_client();
+        proxy.push(Box::pin(async move {
+            let res = socks::run_socks_proxy(runtime, client, socks_port).await;
+            (res, "SOCKS")
+        }));
+    }
+
+    if dns_port != 0 {
+        let runtime = runtime.clone();
+        let client = client.isolated_client();
+        proxy.push(Box::pin(async move {
+            let res = dns::run_dns_resolver(runtime, client, dns_port).await;
+            (res, "DNS")
+        }));
+    }
+
+    let proxy = futures::future::select_all(proxy).map(|(finished, _index, _others)| finished);
+    futures::select!(
+        r = async {
+            while let Some(status) = events.next().await {
+                status_fn(&status);
+            }
+            futures::future::pending::<Result<()>>().await
+        }.fuse() => r.context("events"),
+        r = proxy.fuse()
+            => r.0.context(format!("{} proxy failure", r.1)),
+        r = async {
+            client.bootstrap().await?;
+            info!("Sufficiently bootstrapped; system SOCKS now functional.");
+            futures::future::pending::<Result<()>>().await
+        }.fuse()
+            => r.context("bootstrap"),
+        r = abortable.fuse() => r.context("Aborted"),
+    )
+}
 
 static TOR_ENABLED_SETTING: &str = "tor.enabled";
 static TOR_STATUS_SETTING: &str = "tor.status";
@@ -84,9 +152,9 @@ impl TorSettingObserver {
 
                 info!("Tor starting socks proxy on port {}", socks_port);
 
-                let runtime = driver::ChosenRuntime::create().unwrap();
+                let runtime = tor_rtcompat::tokio::TokioRustlsRuntime::create().unwrap();
                 let rt_clone = runtime.clone();
-                let _ = rt_clone.block_on(driver::run_abortable(
+                let _ = rt_clone.block_on(run_abortable_proxy(
                     runtime,
                     config,
                     client_config,

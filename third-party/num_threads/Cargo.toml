@@ -11,7 +11,7 @@
 
 [package]
 name = "num_threads"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Jacob Pratt <open-source@jhpratt.dev>"]
 include = ["src/**/*", "LICENSE-*"]
 description = "A minimal library that determines the number of running threads for the current process."

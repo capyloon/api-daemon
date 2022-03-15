@@ -2,6 +2,8 @@
 
 use std::sync::{Arc, RwLock};
 
+use educe::Educe;
+
 use crate::{Error, Result};
 
 /// A shareable mutable-ish optional reference to a an [`Arc`].
@@ -12,8 +14,10 @@ use crate::{Error, Result};
 ///
 // We give this construction its own type to simplify its users, and make
 // sure we don't hold the lock against any async suspend points.
-#[derive(Debug)]
-pub(crate) struct SharedMutArc<T> {
+#[derive(Debug, Educe)]
+#[educe(Default)]
+#[cfg_attr(not(feature = "experimental-api"), allow(unreachable_pub))]
+pub struct SharedMutArc<T> {
     /// Locked reference to the current value.
     ///
     /// (It's okay to use RwLock here, because we never suspend
@@ -21,22 +25,15 @@ pub(crate) struct SharedMutArc<T> {
     dir: RwLock<Option<Arc<T>>>,
 }
 
-impl<T> Default for SharedMutArc<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
+#[cfg_attr(not(feature = "experimental-api"), allow(unreachable_pub))]
 impl<T> SharedMutArc<T> {
     /// Construct a new empty SharedMutArc.
-    pub(crate) fn new() -> Self {
-        SharedMutArc {
-            dir: RwLock::new(None),
-        }
+    pub fn new() -> Self {
+        SharedMutArc::default()
     }
 
     /// Replace the current value with `new_val`.
-    pub(crate) fn replace(&self, new_val: T) {
+    pub fn replace(&self, new_val: T) {
         let mut w = self
             .dir
             .write()
@@ -55,7 +52,7 @@ impl<T> SharedMutArc<T> {
     }
 
     /// Return a new reference to the current value, if there is one.
-    pub(crate) fn get(&self) -> Option<Arc<T>> {
+    pub fn get(&self) -> Option<Arc<T>> {
         let r = self
             .dir
             .read()
@@ -77,7 +74,7 @@ impl<T> SharedMutArc<T> {
     /// and future attempts to use it will panic. (TODO: Fix this.)
     // Note: If we decide to make this type public, we'll probably
     // want to fiddle with how we handle the return type.
-    pub(crate) fn mutate<F, U>(&self, func: F) -> Result<U>
+    pub fn mutate<F, U>(&self, func: F) -> Result<U>
     where
         F: FnOnce(&mut T) -> Result<U>,
         T: Clone,

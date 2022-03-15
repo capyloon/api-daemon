@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "flume"
-version = "0.10.11"
+version = "0.10.12"
 authors = ["Joshua Barretto <joshua.s.barretto@gmail.com>"]
 exclude = ["/.github", "/misc"]
 description = "A blazingly fast multi-producer channel"
@@ -36,7 +36,7 @@ optional = true
 default_features = false
 
 [dependencies.nanorand]
-version = "0.6"
+version = "0.7"
 features = ["getrandom"]
 optional = true
 

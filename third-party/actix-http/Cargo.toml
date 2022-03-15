@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "actix-http"
-version = "3.0.3"
+version = "3.0.4"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rob Ede <robjtede@icloud.com>"]
 description = "HTTP primitives for the Actix ecosystem"
 homepage = "https://actix.rs"
@@ -22,7 +22,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web.git"
 resolver = "2"
 [package.metadata.docs.rs]
-features = ["http2", "openssl", "rustls", "compress-brotli", "compress-gzip", "compress-zstd"]
+features = ["http2", "ws", "openssl", "rustls", "compress-brotli", "compress-gzip", "compress-zstd"]
 
 [lib]
 name = "actix_http"

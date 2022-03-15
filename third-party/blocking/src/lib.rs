@@ -79,6 +79,7 @@
 
 use std::any::Any;
 use std::collections::VecDeque;
+use std::env;
 use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem;
@@ -90,13 +91,15 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
-use std::env;
 
 use async_channel::{bounded, Receiver};
-use async_task::{Runnable, Task};
+use async_task::Runnable;
 use atomic_waker::AtomicWaker;
 use futures_lite::{future, prelude::*, ready};
 use once_cell::sync::Lazy;
+
+#[doc(no_inline)]
+pub use async_task::Task;
 
 /// Default value for max threads that Executor can grow to
 const DEFAULT_MAX_THREADS: usize = 500;
@@ -150,12 +153,12 @@ struct Inner {
 }
 
 impl Executor {
-
     fn max_threads() -> usize {
         match env::var(MAX_THREADS_ENV) {
-            Ok(v) => v.parse::<usize>().map(|v| {
-                v.max(MIN_MAX_THREADS).min(MAX_MAX_THREADS)
-            }).unwrap_or_else(|_| DEFAULT_MAX_THREADS),
+            Ok(v) => v
+                .parse::<usize>()
+                .map(|v| v.max(MIN_MAX_THREADS).min(MAX_MAX_THREADS))
+                .unwrap_or(DEFAULT_MAX_THREADS),
             Err(_) => DEFAULT_MAX_THREADS,
         }
     }
@@ -220,7 +223,8 @@ impl Executor {
     fn grow_pool(&'static self, mut inner: MutexGuard<'static, Inner>) {
         // If runnable tasks greatly outnumber idle threads and there aren't too many threads
         // already, then be aggressive: wake all idle threads and spawn one more thread.
-        while inner.queue.len() > inner.idle_count * 5 && inner.thread_count < EXECUTOR.thread_limit {
+        while inner.queue.len() > inner.idle_count * 5 && inner.thread_count < EXECUTOR.thread_limit
+        {
             // The new thread starts in idle state.
             inner.idle_count += 1;
             inner.thread_count += 1;
@@ -266,12 +270,12 @@ impl Executor {
 /// let out = unblock(|| Command::new("dir").output()).await?;
 /// # std::io::Result::Ok(()) });
 /// ```
-pub async fn unblock<T, F>(f: F) -> T
+pub fn unblock<T, F>(f: F) -> Task<T>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    Executor::spawn(async move { f() }).await
+    Executor::spawn(async move { f() })
 }
 
 /// Runs blocking I/O on a thread pool.
