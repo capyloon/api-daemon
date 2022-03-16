@@ -132,14 +132,12 @@ impl AppsStorage {
             }
             if let Some(b2g_features) = manifest.get_b2g_features() {
                 if let Some(deeplinks) = b2g_features.get_deeplinks() {
-                    let config_url =
-                        Url::parse(&deeplinks.config()).map_err(|_| AppsError::AppsConfigError)?;
-                    let config_path = source.join("deeplinks_config");
-                    match deeplinks.process(&config_url, &config_path, None) {
-                        Ok(paths) => {
-                            app.set_deeplink_paths(Some(paths));
+                    if let Ok(config_url) = Url::parse(&deeplinks.config()) {
+                        let config_path = source.join("deeplinks_config");
+                        match deeplinks.process(&config_url, &config_path, None) {
+                            Ok(paths) => app.set_deeplink_paths(Some(paths)),
+                            Err(err) => error!("Failed to process deeplink: {:?}", err),
                         }
-                        Err(_) => return Err(AppsError::AppsConfigError),
                     }
                 }
             }
