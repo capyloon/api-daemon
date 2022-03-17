@@ -140,6 +140,14 @@ interface ContentStore {
 
     // Get the http key to use for http retrieval of resources.
     fn http_key() -> str
+
+    // Add a tag to a resource. Returns the updated metadata.
+    // This triggers a "Modified" observer notification.
+    fn add_tag(id: str, tag: str) -> Metadata
+
+    // Remove a tag from a resource. Returns the updated metadata.
+    // This triggers a "Modified" observer notification.
+    fn remove_tag(id: str, tag: str) -> Metadata
 }
 
 #[rust:shared-tracker,permission=content-manager]

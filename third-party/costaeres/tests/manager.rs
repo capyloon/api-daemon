@@ -953,3 +953,135 @@ async fn observers() {
         panic!("This observer should have been removed!");
     });
 }
+
+#[async_std::test]
+async fn add_remove_tags() {
+    let (config, store) = prepare_test(23).await;
+
+    let mut manager = Manager::new(config, Box::new(store)).await.unwrap();
+
+    manager.create_root().await.unwrap();
+
+    let observer_id = manager.add_observer(Box::new(Observer::default()));
+
+    let meta = manager.get_metadata(&ROOT_ID).await.unwrap();
+
+    // Start with no tags
+    assert_eq!(meta.tags().len(), 0);
+
+    // Add a tag.
+    let meta = manager.add_tag(&ROOT_ID, "tag1").await.unwrap();
+    assert_eq!(meta.tags().len(), 1);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.modified, 1);
+    });
+
+    // Add the same tag again. Not an error!
+    let meta = manager.add_tag(&ROOT_ID, "tag1").await.unwrap();
+    assert_eq!(meta.tags().len(), 1);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.modified, 1);
+    });
+
+    // Add a new tag.
+    let meta = manager.add_tag(&ROOT_ID, "tag2").await.unwrap();
+    assert_eq!(meta.tags().len(), 2);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.modified, 2);
+    });
+
+    // Remove an unknown tag. Not an error!
+    let meta = manager.remove_tag(&ROOT_ID, "tag3").await.unwrap();
+    assert_eq!(meta.tags().len(), 2);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.modified, 2);
+    });
+
+    // Remove an existing tag.
+    let meta = manager.remove_tag(&ROOT_ID, "tag1").await.unwrap();
+    assert_eq!(meta.tags().len(), 1);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.modified, 3);
+    });
+
+    // Only tag2 should remain.
+    let meta = manager.get_metadata(&ROOT_ID).await.unwrap();
+    assert_eq!(meta.tags(), &vec!["tag2".to_owned()]);
+
+    // Clears the local cache of the manager to force redhydratation,
+    // and check that tag2 is still present.
+    manager.clear().await.unwrap();
+    assert_eq!(manager.resource_count().await.unwrap(), 0);
+
+    let meta = manager.get_metadata(&ROOT_ID).await.unwrap();
+    assert_eq!(meta.tags(), &vec!["tag2".to_owned()]);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.modified, 3);
+    });
+
+    // Create a leaf resource.
+    let mut leaf_meta = ResourceMetadata::new(
+        &1.into(),
+        &ROOT_ID,
+        ResourceKind::Leaf,
+        "A leaf",
+        vec![],
+        vec![],
+    );
+    manager.create(&mut leaf_meta, None).await.unwrap();
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.modified, 4);
+    });
+
+    // Add a tag to the leaf, and check this triggers a modification in the root observer.
+    let meta = manager.add_tag(&1.into(), "left_tag").await.unwrap();
+    assert_eq!(meta.tags().len(), 1);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        // Increases by 2: one for the leaf, one for the parent.
+        assert_eq!(tracker.modified, 6);
+    });
+
+    // Remove a tag from the leaf, and check this triggers a modification in the root observer.
+    let meta = manager.remove_tag(&1.into(), "left_tag").await.unwrap();
+    assert_eq!(meta.tags().len(), 0);
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        // Increases by 2: one for the leaf, one for the parent.
+        assert_eq!(tracker.modified, 8);
+    });
+}

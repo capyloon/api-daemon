@@ -212,6 +212,52 @@ impl<T> Manager<T> {
         Ok(())
     }
 
+    /// Add a tag to a resource.
+    pub async fn add_tag(
+        &mut self,
+        id: &ResourceId,
+        tag: &str,
+    ) -> Result<ResourceMetadata, ResourceStoreError> {
+        let mut metadata = self.get_metadata(id).await?;
+
+        if metadata.add_tag(tag) {
+            self.store.update(&metadata, None).await?;
+            self.update_cache(&metadata);
+            self.notify_observers(id, ModificationKind::Modified);
+
+            // Common case: changing a tag on a leaf resource is notified to its parent.
+            let parent = metadata.parent();
+            if metadata.kind() == ResourceKind::Leaf && *id != parent {
+                self.notify_observers(&parent, ModificationKind::Modified);
+            }
+        }
+
+        Ok(metadata)
+    }
+
+    /// Remove a tag from a resource.
+    pub async fn remove_tag(
+        &mut self,
+        id: &ResourceId,
+        tag: &str,
+    ) -> Result<ResourceMetadata, ResourceStoreError> {
+        let mut metadata = self.get_metadata(id).await?;
+
+        if metadata.remove_tag(tag) {
+            self.store.update(&metadata, None).await?;
+            self.update_cache(&metadata);
+            self.notify_observers(id, ModificationKind::Modified);
+
+            // Common case: changing a tag on a leaf resource is notified to its parent.
+            let parent = metadata.parent();
+            if metadata.kind() == ResourceKind::Leaf && *id != parent {
+                self.notify_observers(&parent, ModificationKind::Modified);
+            }
+        }
+
+        Ok(metadata)
+    }
+
     /// Use a existing transation to run the sql commands needed to create a metadata record.
     async fn create_metadata<'c>(
         &mut self,
@@ -390,6 +436,7 @@ impl<T> Manager<T> {
         tx.commit().await?;
 
         self.notify_observers(&ROOT_ID, ModificationKind::Deleted);
+        self.cache.clear();
         Ok(())
     }
 

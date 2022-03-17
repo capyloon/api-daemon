@@ -828,6 +828,36 @@ impl ContentStoreMethods for ContentManagerService {
 
         responder.resolve(self.http_key.clone());
     }
+
+    fn add_tag(&mut self, responder: ContentStoreAddTagResponder, id: String, tag: String) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+            match manager.add_tag(&id.clone().into(), &tag.clone()).await {
+                Ok(metadata) => responder.resolve(metadata.into()),
+                Err(err) => {
+                    error!("Failed to get add tag {} to {} : {}", tag, id, err);
+                    responder.reject();
+                }
+            }
+        });
+    }
+
+    fn remove_tag(&mut self, responder: ContentStoreRemoveTagResponder, id: String, tag: String) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+            match manager.remove_tag(&id.clone().into(), &tag.clone()).await {
+                Ok(metadata) => responder.resolve(metadata.into()),
+                Err(err) => {
+                    error!("Failed to get add tag {} to {} : {}", tag, id, err);
+                    responder.reject();
+                }
+            }
+        });
+    }
 }
 
 common::impl_shared_state!(ContentManagerService, State, Config);

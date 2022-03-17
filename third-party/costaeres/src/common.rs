@@ -8,9 +8,7 @@ use sqlx::{sqlite::SqliteRow, FromRow, Row, Sqlite, Transaction};
 use std::fmt;
 use thiserror::Error;
 
-#[derive(
-    sqlx::Type, Clone, Debug, PartialEq, Eq, Hash, Readable, Writable,
-)]
+#[derive(sqlx::Type, Clone, Debug, PartialEq, Eq, Hash, Readable, Writable)]
 #[sqlx(transparent)]
 pub struct ResourceId(String);
 
@@ -236,6 +234,33 @@ impl ResourceMetadata {
 
     pub fn has_tag(&self, tag: &str) -> bool {
         self.tags.iter().any(|item| item == tag)
+    }
+
+    pub fn add_tag(&mut self, tag: &str) -> bool {
+        if self.has_tag(tag) {
+            return false;
+        }
+        self.tags.push(tag.into());
+        true
+    }
+
+    pub fn remove_tag(&mut self, tag: &str) -> bool {
+        if !self.has_tag(tag) {
+            return false;
+        }
+        self.tags = self
+            .tags
+            .iter()
+            .filter_map(|name| {
+                if name != tag {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        true
     }
 
     pub fn id(&self) -> ResourceId {
