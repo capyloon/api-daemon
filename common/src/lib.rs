@@ -6,8 +6,8 @@ use serde_json::Value as SerdeValue;
 use std::fmt;
 use std::ops::Deref;
 use std::time::UNIX_EPOCH;
-use traits::{EventMapKey, SharedEventMap};
 use threadpool::ThreadPool;
+use traits::{EventMapKey, SharedEventMap};
 
 pub mod build_helper;
 pub mod core;
@@ -222,3 +222,31 @@ impl Blob {
 
 // Re-export url::Url to make it available to generated code.
 pub use url::Url;
+
+// This allows writing log into a file with limited lines.
+// It will append the log to the end of the file.
+// When the number of lines reaches the limit,
+// it will rotate into a new file per the file limit.
+// log_file - the path of the log file.
+// file_limit - Maximum number of rotated files, 0 for a single file.
+// line_limit - Maximum number of lines per file.
+// log_line - one line of log.
+#[macro_export]
+macro_rules! log_warning {
+    ($log_file:expr, $file_limit:expr, $line_limit:expr, $log_line:path) => {
+        use file_rotate::{
+            compression::Compression, suffix::AppendCount, ContentLimit, FileRotate,
+        };
+        use std::io::Write;
+        use std::path::Path;
+        let log_path = Path::new($log_file);
+        let mut log = FileRotate::new(
+            log_path.clone(),
+            AppendCount::new($file_limit),
+            ContentLimit::Lines($line_limit),
+            Compression::None,
+        );
+        let _ = writeln!(log, "{}", $log_line);
+        warn!("{}", $log_line);
+    };
+}

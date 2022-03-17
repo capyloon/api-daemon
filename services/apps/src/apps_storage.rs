@@ -3,7 +3,8 @@
 use crate::apps_item::AppsItem;
 use crate::apps_registry::{AppsError, AppsMgmtError};
 use crate::manifest::{Manifest, ManifestError};
-use log::{debug, error};
+use common::log_warning;
+use log::{debug, error, warn};
 use nix::sys::statvfs;
 use std::fs::{self, remove_dir_all, File};
 use std::io::BufReader;
@@ -27,6 +28,11 @@ pub enum PackageError {
     #[error("Package Manifest Error, {0}")]
     WrongManifest(ManifestError),
 }
+
+#[cfg(target_os = "android")]
+static APP_LOG_FILE: &str = "/data/local/tmp/app-services.log";
+#[cfg(not(target_os = "android"))]
+static APP_LOG_FILE: &str = "/tmp/app-services.log";
 
 pub struct AppsStorage;
 
@@ -223,6 +229,15 @@ impl AppsStorage {
         let f = File::open(dest)?;
         f.sync_all()?;
         Ok(())
+    }
+
+    pub fn log_warn(msg: &str) {
+        log_warning!(APP_LOG_FILE, 0, 30, msg);
+    }
+
+    pub fn read_warnings() -> String {
+        let logfile = Path::new(APP_LOG_FILE);
+        fs::read_to_string(logfile).unwrap_or_else(|_| "".into())
     }
 }
 

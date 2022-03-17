@@ -17,7 +17,7 @@ use android_utils::{AndroidProperties, PropertyGetter};
 use common::threadpool_status;
 use common::traits::{DispatcherId, Shared, SharedServiceState};
 use common::JsonValue;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde_json::Value;
 use settings_service::db::{DbObserver, ObserverType};
 use settings_service::generated::common::SettingInfo;
@@ -240,7 +240,11 @@ impl AppsRegistry {
                                 let _ = db.add(&app)?;
                             }
                             Err(err) => {
-                                warn!("Failed to add: {}, error: {:?}", app.get_name(), err);
+                                AppsStorage::log_warn(&format!(
+                                    "Failed to add: {}, error: {:?}",
+                                    app.get_name(),
+                                    err
+                                ));
                             }
                         }
                     }

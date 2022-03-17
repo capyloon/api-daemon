@@ -11,6 +11,7 @@ android_utils = {path = "../support/android-utils"}
 bincode = "1.3"
 byteorder = "1.3"
 dyn-clone = "1.0"
+file-rotate = "0.6"
 libc = "0.2"
 log = "0.4"
 nix = "0.19"

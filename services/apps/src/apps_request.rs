@@ -10,7 +10,7 @@ use crate::shared_state::DownloadingCanceller;
 use crate::update_manifest::UpdateManifest;
 use blake2::{Blake2s256, Digest};
 use common::traits::Shared;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::convert::From;
 use std::fs::{self, remove_dir_all, File};
@@ -553,7 +553,11 @@ impl AppsRequest {
         if let Err(err) =
             self.process_deeplinks(&mut apps_item, &available_dir, &mut manifest, update_url)
         {
-            warn!("Process deeplink for {}, error: {:?}", apps_item.get_name(), err);
+            AppsStorage::log_warn(&format!(
+                "Process deeplink for {}, error: {:?}",
+                apps_item.get_name(),
+                err
+            ));
         }
 
         // We can lock registry now, since no waiting job.
@@ -655,7 +659,11 @@ impl AppsRequest {
         if let Err(err) =
             self.process_deeplinks(&mut apps_item, &download_dir, &mut manifest, update_url)
         {
-            warn!("Process deeplink for {}, error: {:?}", apps_item.get_name(), err);
+            AppsStorage::log_warn(&format!(
+                "Process deeplink for {}, error: {:?}",
+                apps_item.get_name(),
+                err
+            ));
         }
 
         // 2-1. download icons to cached dir.
@@ -667,7 +675,11 @@ impl AppsRequest {
                 if let Err(err) =
                     icon.process(self, &update_url_base, &manifest_url_base, &download_dir)
                 {
-                    warn!("Failed to process icon: {}, err: {:?}", icon.get_src(), err);
+                    AppsStorage::log_warn(&format!(
+                        "Failed to process icon: {}, err: {:?}",
+                        icon.get_src(),
+                        err
+                    ));
                 }
             }
             manifest.set_icons(serde_json::to_value(icons).unwrap());
@@ -694,7 +706,11 @@ impl AppsRequest {
                         if let Err(err) =
                             icon.process(self, &update_url_base, &manifest_url_base, &download_dir)
                         {
-                            warn!("Failed to process icon: {}, err: {:?}", icon.get_src(), err);
+                            AppsStorage::log_warn(&format!(
+                                "Failed to process icon: {}, err: {:?}",
+                                icon.get_src(),
+                                err
+                            ));
                         }
                     }
                     shortcut.set_icons(Some(icons));

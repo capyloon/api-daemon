@@ -12,6 +12,7 @@ assert-json-diff = "2.0"
 base64 = "0.13"
 blake2 = "0.10"
 common = {path = "../../common"}
+file-rotate = "0.6"
 geckobridge = {path = "../geckobridge"}
 http = "0.2.1"
 log = "0.4"

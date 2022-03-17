@@ -400,6 +400,7 @@ dependencies = [
  "blake2",
  "common",
  "env_logger",
+ "file-rotate",
  "geckobridge",
  "hawk",
  "http",
@@ -438,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "appscmd"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "dirs 3.0.2",
@@ -990,6 +991,7 @@ dependencies = [
  "bincode",
  "byteorder",
  "dyn-clone",
+ "file-rotate",
  "libc",
  "log",
  "nix",
@@ -1413,6 +1415,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3fcf0cee53519c866c09b5de1f6c56ff9d647101f81c1964fa632e148896cdf"
 dependencies = [
  "instant",
+]
+
+[[package]]
+name = "file-rotate"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8071df7315b1cd4006ce687043f393cca212761889b3626c1444ae06e8f72d0"
+dependencies = [
+ "chrono",
+ "flate2",
 ]
 
 [[package]]
