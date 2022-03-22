@@ -1,8 +1,8 @@
 /// Implementation of the time service.
 use crate::generated::common::*;
 use crate::generated::service::*;
-use crate::time_manager::*;
-use android_utils::{AndroidProperties, PropertyGetter};
+use crate::platform::TimeManager;
+use crate::TimeManagerSupport;
 use common::core::BaseMessage;
 use common::observers::{ObserverTracker, ServiceObserverTracker};
 use common::threadpool_status;
@@ -77,7 +77,7 @@ impl SharedObj {
 
         if info.timezone.is_empty() {
             // caller doesn't specify timezone, get local timezone setting
-            if let Ok(tz) = AndroidProperties::get("persist.sys.timezone", "") {
+            if let Ok(tz) = TimeManager::get_timezone() {
                 info.timezone = tz;
             }
         }
@@ -118,7 +118,7 @@ impl DbObserver for SettingObserver {
         if timezone.is_empty() {
             return;
         }
-        match TimeManager::set_timezone(timezone.clone()) {
+        match TimeManager::set_timezone(&timezone) {
             Ok(_) => {
                 let shared = Time::shared_state();
                 let mut shared_lock = shared.lock();
@@ -220,7 +220,7 @@ impl TimeMethods for Time {
         ) {
             return;
         }
-        match TimeManager::set_timezone(timezone.clone()) {
+        match TimeManager::set_timezone(&timezone) {
             Ok(_) => {
                 let mut shared_lock = self.shared_obj.lock();
                 info!("broadcast timezone changed event");
