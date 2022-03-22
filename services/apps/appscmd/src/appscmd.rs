@@ -128,6 +128,9 @@ fn handle_success(opts: &CmdOptions, response: Response) -> Result<(), CmdLineEr
             }
             table.printstd();
         }
+    } else if response.name == "show-warnings" {
+        let errors = response.success.unwrap_or_else(|| "".into());
+        println!("{}", &errors);
     } else if response.name == "ready" && response.error.is_some() {
         return Err(CmdLineError::NotReady);
     }
@@ -274,6 +277,7 @@ fn run() -> Result<(), CmdLineError> {
         )
         .subcommand(SubCommand::with_name("list").about("List installed applications"))
         .subcommand(SubCommand::with_name("wait").about("Wait for the api-daemon to be ready"))
+        .subcommand(SubCommand::with_name("show-warnings").about("Show warnings of non-fatal errors"))
         .get_matches();
 
     let opts = CmdOptions {
@@ -340,6 +344,11 @@ fn run() -> Result<(), CmdLineError> {
     } else if matches.subcommand_matches("list").is_some() {
         Request {
             cmd: "list".into(),
+            param: None,
+        }
+    } else if matches.subcommand_matches("show-warnings").is_some() {
+        Request {
+            cmd: "show-warnings".into(),
             param: None,
         }
     } else {

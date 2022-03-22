@@ -1,18 +1,37 @@
 use b2ghald::backlight::Backlight;
 use b2ghald::messages::*;
 use bincode::Options;
-use log::{error, info};
+use log::{debug, error, info};
 use nix::sys::reboot::{reboot, RebootMode};
 use nix::sys::stat::{umask, Mode};
 use std::io::{Error, ErrorKind};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
 
+fn flash_helper(path: &str, enabled: bool) -> Response {
+    match Backlight::from_path(path) {
+        Ok(flash) => {
+            if flash
+                .internal_set_brightness(0, if enabled { 100 } else { 0 })
+                .is_ok()
+            {
+                return Response::GenericSuccess;
+            } else {
+                return Response::GenericError;
+            }
+        }
+        Err(err) => {
+            error!("Failed to create device for {} : {:?}", path, err);
+        }
+    }
+    Response::GenericError
+}
+
 // Manages a session with a client.
 fn handle_client(stream: UnixStream) -> Result<(), Error> {
     let config = bincode::DefaultOptions::new().with_native_endian();
 
-    let backlight = Backlight::new();
+    let backlight = Backlight::find("/sys/class/backlight");
     if let Ok(ref device) = backlight {
         info!("Backlight available at {:?}", device);
     }
@@ -86,6 +105,13 @@ fn handle_client(stream: UnixStream) -> Result<(), Error> {
                             Err(_) => Response::GenericError,
                         };
                         send!(payload);
+                    }
+                    Request::EnableFlashlight(path) => {
+                        debug!("EnableFlashlight {}", path);
+                        send!(flash_helper(path, true));
+                    }
+                    Request::DisableFlashlight(path) => {
+                        send!(flash_helper(path, false));
                     }
                 }
             }

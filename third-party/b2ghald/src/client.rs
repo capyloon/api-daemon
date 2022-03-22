@@ -1,7 +1,7 @@
 /// Helper structs to build b2ghald clients.
 use crate::messages::*;
 use bincode::Options;
-use log::error;
+use log::{debug, error};
 use std::collections::HashMap;
 use std::io;
 use std::io::{Error, ErrorKind};
@@ -131,6 +131,27 @@ impl SimpleClient {
     pub fn poweroff(&mut self) {
         let (sender, receiver) = channel();
         let _ = self.client.send(Request::PowerOff, sender);
+        if self.client.get_next_message().is_ok() {
+            let _ = receiver.recv();
+        }
+    }
+
+    pub fn enable_flashlight(&mut self, path: &str) {
+        debug!("enable_flashlight {}", path);
+        let (sender, receiver) = channel();
+        let _ = self
+            .client
+            .send(Request::EnableFlashlight(path.to_owned()), sender);
+        if self.client.get_next_message().is_ok() {
+            let _ = receiver.recv();
+        }
+    }
+
+    pub fn disable_flashlight(&mut self, path: &str) {
+        let (sender, receiver) = channel();
+        let _ = self
+            .client
+            .send(Request::DisableFlashlight(path.to_owned()), sender);
         if self.client.get_next_message().is_ok() {
             let _ = receiver.recv();
         }
