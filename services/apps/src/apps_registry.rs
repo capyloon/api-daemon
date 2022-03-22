@@ -233,12 +233,19 @@ impl AppsRegistry {
             match AppsStorage::read_webapps(webapps_json) {
                 Ok(mut apps) => {
                     for app in &mut apps {
-                        if let Ok(app) =
-                            AppsStorage::add_system_dir_app(app, &root_path, &data_path, vhost_port)
-                        {
-                            let _ = db.add(&app)?;
-                        } else {
-                            error!("Failed to add: {}", app.get_name());
+                        match AppsStorage::add_system_dir_app(
+                            app, &root_path, &data_path, vhost_port,
+                        ) {
+                            Ok(app) => {
+                                let _ = db.add(&app)?;
+                            }
+                            Err(err) => {
+                                AppsStorage::log_warn(&format!(
+                                    "Failed to add: {}, error: {:?}",
+                                    app.get_name(),
+                                    err
+                                ));
+                            }
                         }
                     }
                 }

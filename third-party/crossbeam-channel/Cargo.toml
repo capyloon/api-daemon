@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.36"
 name = "crossbeam-channel"
-version = "0.5.3"
+version = "0.5.4"
 description = "Multi-producer multi-consumer channels for message passing"
 homepage = "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-channel"
 keywords = [

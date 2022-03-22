@@ -274,7 +274,7 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
             let params = req.query_string();
             let redirect_url = format!("http://{}.{}{}?{}", parts[2], full_host, path, params);
             return HttpResponse::MovedPermanently()
-                .append_header((http::header::LOCATION, redirect_url))
+                .insert_header((http::header::LOCATION, redirect_url))
                 .finish();
         }
 

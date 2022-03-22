@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "redox_users"
-version = "0.4.0"
+version = "0.4.2"
 authors = ["Jose Narvaez <goyox86@gmail.com>", "Wesley Hershberger <mggmugginsmc@gmail.com>"]
 description = "A Rust library to access Redox users and groups functionality"
 documentation = "https://docs.rs/redox_users"
@@ -26,12 +26,20 @@ version = "0.2"
 features = ["std"]
 
 [dependencies.redox_syscall]
-version = "0.2"
+version = "0.2.11"
 
 [dependencies.rust-argon2]
 version = "0.8"
 optional = true
 
+[dependencies.thiserror]
+version = "1.0"
+
+[dependencies.zeroize]
+version = "1.4"
+features = ["zeroize_derive"]
+optional = true
+
 [features]
-auth = ["rust-argon2"]
+auth = ["rust-argon2", "zeroize"]
 default = ["auth"]

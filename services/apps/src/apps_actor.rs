@@ -1,6 +1,6 @@
 use crate::apps_item::AppsItem;
 use crate::apps_request::AppsRequest;
-use crate::apps_storage::{validate_package, PackageError};
+use crate::apps_storage::{validate_package, AppsStorage, PackageError};
 use crate::downloader::{Downloader, DownloaderInfo};
 use crate::generated::common::*;
 use crate::manifest::{Manifest, ManifestError};
@@ -158,7 +158,7 @@ fn validate_request(request: &Request) -> bool {
     {
         true
     } else {
-        request.cmd == "list" || request.cmd == "ready"
+        request.cmd == "list" || request.cmd == "ready" || request.cmd == "show-warnings"
     }
 }
 
@@ -307,6 +307,10 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
                     write_response(&mut stream_write, &request.cmd, true, &app_list);
                 }
             },
+            "show-warnings" => {
+                let warnings = AppsStorage::read_warnings();
+                write_response(&mut stream_write, &request.cmd, true, &warnings);
+            }
             "ready" => {
                 let success = shared_data.lock().state == AppsServiceState::Running;
                 write_response(&mut stream_write, &request.cmd, success, "");

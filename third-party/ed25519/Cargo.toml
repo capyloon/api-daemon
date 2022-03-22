@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "ed25519"
-version = "1.4.0"
+version = "1.4.1"
 authors = ["RustCrypto Developers"]
 description = "Edwards Digital Signature Algorithm (EdDSA) over Curve25519 (as specified in RFC 8032)\nsupport library providing signature type definitions and PKCS#8 private key\ndecoding/encoding support\n"
 documentation = "https://docs.rs/ed25519"
@@ -60,9 +60,6 @@ version = "0.3"
 [dev-dependencies.rand_core]
 version = "0.5"
 features = ["std"]
-
-[dev-dependencies.ring-compat]
-version = "0.4"
 
 [features]
 alloc = ["pkcs8/alloc"]

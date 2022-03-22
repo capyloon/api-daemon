@@ -3,7 +3,8 @@
 use crate::apps_item::AppsItem;
 use crate::apps_registry::{AppsError, AppsMgmtError};
 use crate::manifest::{Manifest, ManifestError};
-use log::{debug, error};
+use common::log_warning;
+use log::{debug, error, warn};
 use nix::sys::statvfs;
 use std::fs::{self, remove_dir_all, File};
 use std::io::BufReader;
@@ -27,6 +28,11 @@ pub enum PackageError {
     #[error("Package Manifest Error, {0}")]
     WrongManifest(ManifestError),
 }
+
+#[cfg(target_os = "android")]
+static APP_LOG_FILE: &str = "/data/local/tmp/app-services.log";
+#[cfg(not(target_os = "android"))]
+static APP_LOG_FILE: &str = "/tmp/app-services.log";
 
 pub struct AppsStorage;
 
@@ -132,14 +138,12 @@ impl AppsStorage {
             }
             if let Some(b2g_features) = manifest.get_b2g_features() {
                 if let Some(deeplinks) = b2g_features.get_deeplinks() {
-                    let config_url =
-                        Url::parse(&deeplinks.config()).map_err(|_| AppsError::AppsConfigError)?;
-                    let config_path = source.join("deeplinks_config");
-                    match deeplinks.process(&config_url, &config_path, None) {
-                        Ok(paths) => {
-                            app.set_deeplink_paths(Some(paths));
+                    if let Ok(config_url) = Url::parse(&deeplinks.config()) {
+                        let config_path = source.join("deeplinks_config");
+                        match deeplinks.process(&config_url, &config_path, None) {
+                            Ok(paths) => app.set_deeplink_paths(Some(paths)),
+                            Err(err) => error!("Failed to process deeplink: {:?}", err),
                         }
-                        Err(_) => return Err(AppsError::AppsConfigError),
                     }
                 }
             }
@@ -225,6 +229,15 @@ impl AppsStorage {
         let f = File::open(dest)?;
         f.sync_all()?;
         Ok(())
+    }
+
+    pub fn log_warn(msg: &str) {
+        log_warning!(APP_LOG_FILE, 0, 30, msg);
+    }
+
+    pub fn read_warnings() -> String {
+        let logfile = Path::new(APP_LOG_FILE);
+        fs::read_to_string(logfile).unwrap_or_else(|_| "".into())
     }
 }
 

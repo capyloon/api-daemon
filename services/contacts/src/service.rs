@@ -70,9 +70,17 @@ impl ContactCursorMethods for ContactCursorImpl {
 
 impl From<&EmptyConfig> for ContactsSharedData {
     fn from(_config: &EmptyConfig) -> Self {
+        let pool = ThreadPool::with_name("ContactsService".into(), 5);
+        pool.execute(|| {
+            // Trigger the database initialization in the library phonenumber.
+            if let Ok(value) = phonenumber::parse(None, "") {
+                debug!("phonenumber::parse result: {:?}", value);
+            }
+        });
+
         Self {
             db: ContactsDb::new(ContactsFactoryEventBroadcaster::default()),
-            pool: ThreadPool::with_name("ContactsService".into(), 5),
+            pool,
         }
     }
 }
