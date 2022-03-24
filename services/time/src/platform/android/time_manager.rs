@@ -1,42 +1,28 @@
-use libc::{gettimeofday, timeval};
-use log::debug;
-use std::io::Read;
+use crate::platform::android::time_device::{RtcTime, TimeDevice, TimerFd};
+use android_utils::{AndroidProperties, PropertyGetter};
+use libc::{gettimeofday, settimeofday, suseconds_t, time_t, timeval};
+use log::{debug, error};
+use std::io::{self, Read};
 use std::num::ParseFloatError;
 use std::str::FromStr;
-use std::{fs, io, ptr};
-
-#[cfg(not(target_os = "android"))]
-use std::env;
-
-#[cfg(target_os = "android")]
-use {
-    crate::time_device::*,
-    android_utils::AndroidProperties,
-    libc::{settimeofday, suseconds_t, time_t},
-    log::error,
-    time::*,
-};
+use std::{fs, ptr};
+use time::*;
 
 #[derive(Clone, Debug)]
 pub struct TimeManager {}
 
-mod ffi {
-    #[cfg(target_os = "android")]
-    pub const RTC_DEVICE_PATH: &str = "/dev/rtc0";
+static RTC_DEVICE_PATH: &str = "/dev/rtc0";
+static SYSTEM_UPTIME_PATH: &str = "/proc/uptime";
 
-    pub const SYSTEM_UP_TIME_PATH: &str = "/proc/uptime";
-}
-
-impl TimeManager {
-    #[cfg(target_os = "android")]
-    pub fn set_system_clock(msec: i64) -> Result<bool, io::Error> {
+impl crate::TimeManagerSupport for TimeManager {
+    fn set_system_clock(msec: i64) -> Result<bool, io::Error> {
         let t = Self::msec_to_timespec(msec);
         debug!("get timespec: {:?}", t);
 
         // set rtc time
         let mut timerfd;
         let rtc_time = RtcTime::from(time::at_utc(t));
-        timerfd = TimerFd::open(ffi::RTC_DEVICE_PATH)?;
+        timerfd = TimerFd::open(RTC_DEVICE_PATH)?;
         if let Err(err) = timerfd.set_time(&rtc_time) {
             error!("Failed to set_time(): {}", err);
         }
@@ -53,14 +39,7 @@ impl TimeManager {
         Ok(true)
     }
 
-    // We only change the system time on android
-    #[cfg(not(target_os = "android"))]
-    pub fn set_system_clock(_msec: i64) -> Result<bool, io::Error> {
-        debug!("Running on {} do not change system time", env::consts::OS);
-        Ok(true)
-    }
-
-    pub fn get_system_clock() -> Result<i64, io::Error> {
+    fn get_system_clock() -> Result<i64, io::Error> {
         unsafe {
             let mut system_time = timeval {
                 tv_sec: 0,
@@ -72,7 +51,7 @@ impl TimeManager {
         }
     }
 
-    pub fn get_elapsed_real_time() -> Result<i64, io::Error> {
+    fn get_elapsed_real_time() -> Result<i64, io::Error> {
         let ret: Result<f64, io::Error> = TimeInfo::get_elapsed_real_time();
         match ret {
             Ok(t) => {
@@ -84,27 +63,26 @@ impl TimeManager {
         }
     }
 
-    #[cfg(target_os = "android")]
-    pub fn set_timezone(timezone: String) -> Result<bool, io::Error> {
-        error!("set timezone {} ", timezone);
-        if let Err(err) = AndroidProperties::set("persist.sys.timezone", &timezone) {
+    fn set_timezone(timezone: &str) -> Result<bool, io::Error> {
+        debug!("set timezone {} ", timezone);
+        if let Err(err) = AndroidProperties::set("persist.sys.timezone", timezone) {
             error!("AndroidProperties::set failed {:?}", err);
         }
 
         Ok(true)
     }
 
-    // We only change the system time on android
-    #[cfg(not(target_os = "android"))]
-    pub fn set_timezone(_timezone: String) -> Result<bool, io::Error> {
-        debug!(
-            "Running on {} do not change system timezone",
-            env::consts::OS
-        );
-        Ok(true)
+    fn get_timezone() -> Result<String, io::Error> {
+        if let Ok(tz) = AndroidProperties::get("persist.sys.timezone", "UTC-00:00") {
+            return Ok(tz);
+        } else {
+            error!("Failed to read persist.sys.timezone, falling back to UTC");
+        }
+        Ok("UTC-00:00".to_owned())
     }
+}
 
-    #[cfg(target_os = "android")]
+impl TimeManager {
     fn msec_to_timespec(msec: i64) -> time::Timespec {
         let time_interval: i64 = 1000;
         Timespec::new(
@@ -124,7 +102,7 @@ struct TimeInfo {
 impl TimeInfo {
     /// Read a typed value from a sys file.
     pub fn get_elapsed_real_time() -> Result<f64, io::Error> {
-        let mut file = fs::File::open(ffi::SYSTEM_UP_TIME_PATH).expect("file not found");
+        let mut file = fs::File::open(SYSTEM_UPTIME_PATH).expect("file not found");
 
         let mut buffer = String::new();
         file.read_to_string(&mut buffer)?;
