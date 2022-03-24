@@ -864,7 +864,7 @@ dependencies = [
 [[package]]
 name = "b2ghald"
 version = "0.1.0"
-source = "git+https://github.com/capyloon/b2ghald.git#3205bbb899e21db1d2b11545e7ca5df78d4da37c"
+source = "git+https://github.com/capyloon/b2ghald.git#49076171ab729392e449e3fc54c19b58c99ee306"
 dependencies = [
  "bincode",
  "clap 3.1.6",
@@ -5052,6 +5052,7 @@ name = "time_service"
 version = "0.1.0"
 dependencies = [
  "android_utils",
+ "b2ghald",
  "common",
  "libc",
  "log",
