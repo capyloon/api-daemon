@@ -113,6 +113,18 @@ fn handle_client(stream: UnixStream) -> Result<(), Error> {
                     Request::DisableFlashlight(path) => {
                         send!(flash_helper(path, false));
                     }
+                    Request::IsFlashlightSupported(path) => {
+                        let supported = Backlight::from_path(path).is_ok();
+                        send!(Response::FlashlightSupported(supported));
+                    }
+                    Request::FlashlightState(path) => {
+                        let payload = if let Ok(device) = Backlight::from_path(path) {
+                            Response::FlashlightState(device.get_brightness(0) != 0)
+                        } else {
+                            Response::GenericError
+                        };
+                        send!(payload);
+                    }
                 }
             }
             Err(err) => {

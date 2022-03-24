@@ -1,6 +1,5 @@
 use b2ghald::client::SimpleClient;
 use clap::{Parser, Subcommand};
-use log::info;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -36,6 +35,15 @@ enum Command {
     PowerOff {},
 }
 
+fn check_flashlight(client: &mut SimpleClient, path: &str) -> bool {
+    if client.is_flashlight_supported(path) {
+        true
+    } else {
+        println!("No flashlight detected at {}", path);
+        false
+    }
+}
+
 fn main() {
     env_logger::init();
 
@@ -48,7 +56,7 @@ fn main() {
             if let Some(value) = level {
                 client.set_screen_brightness(0, *value);
             } else {
-                info!(
+                println!(
                     "Current brightness of default screen: {}",
                     client.get_screen_brightness(0)
                 );
@@ -58,7 +66,15 @@ fn main() {
         Command::DisableScreen {} => client.disable_screen(0),
         Command::PowerOff {} => client.poweroff(),
         Command::Reboot {} => client.reboot(),
-        Command::EnableFlashlight { path } => client.enable_flashlight(path),
-        Command::DisableFlashlight { path } => client.disable_flashlight(path),
+        Command::EnableFlashlight { path } => {
+            if check_flashlight(&mut client, path) {
+                client.enable_flashlight(path);
+            }
+        }
+        Command::DisableFlashlight { path } => {
+            if check_flashlight(&mut client, path) {
+                client.disable_flashlight(path);
+            }
+        }
     }
 }

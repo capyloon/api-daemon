@@ -156,4 +156,34 @@ impl SimpleClient {
             let _ = receiver.recv();
         }
     }
+
+    pub fn is_flashlight_supported(&mut self, path: &str) -> bool {
+        let (sender, receiver) = channel();
+        let _ = self
+            .client
+            .send(Request::IsFlashlightSupported(path.to_owned()), sender);
+        if self.client.get_next_message().is_ok() {
+            match receiver.recv() {
+                Ok(Response::FlashlightSupported(value)) => value,
+                Ok(_) | Err(_) => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    pub fn flashlight_state(&mut self, path: &str) -> bool {
+        let (sender, receiver) = channel();
+        let _ = self
+            .client
+            .send(Request::FlashlightState(path.to_owned()), sender);
+        if self.client.get_next_message().is_ok() {
+            match receiver.recv() {
+                Ok(Response::FlashlightState(value)) => value,
+                Ok(_) | Err(_) => false,
+            }
+        } else {
+            false
+        }
+    }
 }

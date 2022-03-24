@@ -6,10 +6,12 @@ pub enum Request {
     GetBrightness(u8),       // screen id.
     PowerOff,
     Reboot,
-    EnableScreen(u8),          // screen id.
-    DisableScreen(u8),         // screen id.
-    EnableFlashlight(String),  // The path to the flashlight, eg. /sys/class/leds/white:torch
-    DisableFlashlight(String), // The path to the flashlight, eg. /sys/class/leds/white:torch
+    EnableScreen(u8),              // screen id.
+    DisableScreen(u8),             // screen id.
+    IsFlashlightSupported(String), // The path to the flashlight, eg. /sys/class/leds/white:torch
+    EnableFlashlight(String),      // The path to the flashlight
+    DisableFlashlight(String),     // The path to the flashlight
+    FlashlightState(String),       // The path to the flashlight
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -20,6 +22,8 @@ pub enum Response {
     GetBrightnessError,
     GenericSuccess,
     GenericError,
+    FlashlightSupported(bool),
+    FlashlightState(bool),
 }
 
 #[derive(Serialize, Deserialize)]
