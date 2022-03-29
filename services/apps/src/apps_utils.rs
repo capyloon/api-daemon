@@ -1,7 +1,6 @@
 use crate::generated::common::*;
 use crate::manifest::Manifest;
 use crate::update_manifest::UpdateManifest;
-use assert_json_diff::{assert_json_matches_no_panic, CompareMode, Config};
 use http::Uri;
 use log::{debug, error};
 
@@ -29,12 +28,8 @@ pub fn compare_manifests(
             manifest_features.get_developer(),
         ) {
             (Some(developer1), Some(developer2)) => {
-                if assert_json_matches_no_panic(
-                    &developer1,
-                    &developer2,
-                    Config::new(CompareMode::Strict),
-                )
-                .is_err()
+                if developer1.get("name") != developer2.get("name")
+                    || developer1.get("url") != developer2.get("url")
                 {
                     error!("Developer do not match");
                     return Err(AppsServiceError::InvalidManifest);
@@ -66,22 +61,22 @@ fn test_compare_manifest_ok() {
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
     let manifest_path = format!(
-        "{}/test-fixtures/test-appsutils/update_manifest_ok.webmanifest",
+        "{}/test-fixtures/test-appsutils/update_manifest.webmanifest",
         current.display()
     );
     let update_manifest = UpdateManifest::read_from(&manifest_path).unwrap();
 
-    let manifest_path2 = format!(
+    let manifest_path = format!(
         "{}/test-fixtures/test-appsutils/manifest_ok.webmanifest",
         current.display()
     );
-    let manifest = Manifest::read_from(&manifest_path2).unwrap();
+    let manifest = Manifest::read_from(&manifest_path).unwrap();
 
     assert!(compare_manifests(&update_manifest, &manifest).is_ok());
 }
 
 #[test]
-fn test_compare_manifest_name_mismatch() {
+fn test_compare_manifest_mismatch() {
     use std::env;
 
     let _ = env_logger::try_init();
@@ -89,15 +84,30 @@ fn test_compare_manifest_name_mismatch() {
     // Init apps from test-fixtures/webapps and verify in test-apps-dir.
     let current = env::current_dir().unwrap();
     let manifest_path1 = format!(
-        "{}/test-fixtures/test-appsutils/name_mismatch1.webmanifest",
+        "{}/test-fixtures/test-appsutils/update_manifest.webmanifest",
         current.display()
     );
     let update_manifest = UpdateManifest::read_from(&manifest_path1).unwrap();
-    let manifest_path2 = format!(
-        "{}/test-fixtures/test-appsutils/name_mismatch2.webmanifest",
+    // Test name mis-match
+    let manifest_path = format!(
+        "{}/test-fixtures/test-appsutils/name_mismatch.webmanifest",
         current.display()
     );
-    let manifest2 = Manifest::read_from(&manifest_path2).unwrap();
-    assert_ne!(update_manifest.get_name(), manifest2.get_name());
-    assert!(compare_manifests(&update_manifest, &manifest2).is_err());
+    let manifest = Manifest::read_from(&manifest_path).unwrap();
+    assert_ne!(update_manifest.get_name(), manifest.get_name());
+    assert_eq!(
+        compare_manifests(&update_manifest, &manifest),
+        Err(AppsServiceError::InvalidAppName)
+    );
+    // Test dev mis-match
+    let manifest_path = format!(
+        "{}/test-fixtures/test-appsutils/dev_mismatch.webmanifest",
+        current.display()
+    );
+    let manifest = Manifest::read_from(&manifest_path).unwrap();
+    assert_eq!(update_manifest.get_name(), manifest.get_name());
+    assert_eq!(
+        compare_manifests(&update_manifest, &manifest),
+        Err(AppsServiceError::InvalidManifest)
+    );
 }

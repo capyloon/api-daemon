@@ -26,7 +26,7 @@
   "b2g_features": {
     "developer": {
       "url": "http://sample.com",
-      "name": "Hello"
+      "name": "Diff"
     },
     "permissions": {
       "flashlight": {},

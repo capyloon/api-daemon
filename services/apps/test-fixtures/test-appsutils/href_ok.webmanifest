@@ -1,114 +1,121 @@
 {
-	"name": "Messages",
-	"description": "Gaia Messages",
-	"type": "certified",
-	"launch_path": "/index.html",
-	"theme_color": "#3dcbb3",
-	"orientation": "default",
-	"b2g_features": {
-		"permissions": {
-			"themeable": {},
-			"softkey": {},
-			"sms": {},
-			"geolocation-noprompt": {},
-			"storage": {},
-			"mobileconnection": {},
-			"alarms": {},
-			"contacts": {
-				"access": "readwrite"
-			},
-			"settings": {
-				"access": "readwrite"
-			},
-			"audio-channel-notification": {},
-			"desktop-notification": {},
-			"phonenumberservice": {},
-			"telephony": {},
-			"webapps-manage": {},
-			"device-storage:apps": {
-				"access": "readonly"
-			},
-			"device-storage:sdcard": {
-				"access": "readonly"
-			},
-			"feature-detection": {}
-		},
-		"locales": {
-			"ar": {
-				"name": "رسائل",
-				"description": "Gaia رسائل"
-			},
-			"en-US": {
-				"name": "Messages",
-				"description": "Gaia Messages"
-			},
-			"es-US": {
-				"name": "Mensaje",
-				"description": "Mensaje Gaia"
-			},
-			"fr": {
-				"name": "Message",
-				"description": "Message Gaia"
-			},
-			"zh-TW": {
-				"name": "訊息",
-				"description": "Gaia 訊息"
-			}
-		},
-		"default_locale": "en-US",
-		"icons": {
-			"56": "/style/icons/sms_56.png",
-			"112": "/style/icons/sms_112.png"
-		},
-		"activities": {
-			"new": {
-				"href": "/index.html#activity-new",
-				"filters": {
-					"type": "websms/sms",
-					"number": {
-						"pattern": "[\\w\\s+#*().-]{0,50}"
-					}
-				},
-				"disposition": "inline",
-				"returnValue": true
-			},
-			"share": {
-				"href": "/index.html#activity-share",
-				"filters": {
-					"type": ["image/*", "audio/*", "video/*", "url", "text/vcard"],
-					"number": {
-						"max": 5
-					}
-				},
-				"disposition": "inline",
-				"returnValue": true
-			},
-			"latest-message": {
-				"href": "/index.html#activity-latest-message",
-				"disposition": "inline",
-				"returnValue": true
-			}
-		},
-		"messages": [{
-				"alarm": "/index.html"
-			},
-			{
-				"sms-received": "/index.html"
-			},
-			{
-				"sms-delivery-success": "/index.html"
-			},
-			{
-				"notification": "/index.html"
-			}
-		],
-		"chrome": {
-			"statusbar": "overlap"
-		},
-		"datastores-access": {
-			"eventlogger_event": {
-				"readonly": false
-			}
-		}
-	}
+  "name": "Messages",
+  "description": "Gaia Messages",
+  "type": "certified",
+  "launch_path": "/index.html",
+  "theme_color": "#3dcbb3",
+  "orientation": "default",
+  "b2g_features": {
+    "permissions": {
+      "themeable": {},
+      "softkey": {},
+      "sms": {},
+      "geolocation-noprompt": {},
+      "storage": {},
+      "mobileconnection": {},
+      "alarms": {},
+      "contacts": {
+        "access": "readwrite"
+      },
+      "settings": {
+        "access": "readwrite"
+      },
+      "audio-channel-notification": {},
+      "desktop-notification": {},
+      "phonenumberservice": {},
+      "telephony": {},
+      "webapps-manage": {},
+      "device-storage:apps": {
+        "access": "readonly"
+      },
+      "device-storage:sdcard": {
+        "access": "readonly"
+      },
+      "feature-detection": {}
+    },
+    "locales": {
+      "ar": {
+        "name": "رسائل",
+        "description": "Gaia رسائل"
+      },
+      "en-US": {
+        "name": "Messages",
+        "description": "Gaia Messages"
+      },
+      "es-US": {
+        "name": "Mensaje",
+        "description": "Mensaje Gaia"
+      },
+      "fr": {
+        "name": "Message",
+        "description": "Message Gaia"
+      },
+      "zh-TW": {
+        "name": "訊息",
+        "description": "Gaia 訊息"
+      }
+    },
+    "default_locale": "en-US",
+    "icons": {
+      "56": "/style/icons/sms_56.png",
+      "112": "/style/icons/sms_112.png"
+    },
+    "activities": {
+      "new": {
+        "href": "/index.html#activity-new",
+        "filters": {
+          "type": "websms/sms",
+          "number": {
+            "pattern": "[\\w\\s+#*().-]{0,50}"
+          }
+        },
+        "disposition": "inline",
+        "returnValue": true
+      },
+      "share": {
+        "href": "/index.html#activity-share",
+        "filters": {
+          "type": [
+            "image/*",
+            "audio/*",
+            "video/*",
+            "url",
+            "text/vcard"
+          ],
+          "number": {
+            "max": 5
+          }
+        },
+        "disposition": "inline",
+        "returnValue": true
+      },
+      "latest-message": {
+        "href": "/index.html#activity-latest-message",
+        "disposition": "inline",
+        "returnValue": true
+      }
+    },
+    "messages": [
+      {
+        "alarm": "/index.html"
+      },
+      {
+        "sms-received": "/index.html"
+      },
+      {
+        "sms-delivery-success": "/index.html"
+      },
+      {
+        "notification": "/index.html"
+      }
+    ],
+    "chrome": {
+      "statusbar": "overlap"
+    },
+    "datastores-access": {
+      "eventlogger_event": {
+        "readonly": false
+      }
+    }
+  }
 }

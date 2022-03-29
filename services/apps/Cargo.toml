@@ -8,7 +8,6 @@ version = "0.1.0"
 [dependencies]
 actix-rt = "2.6"
 android_utils = {path = "../../support/android-utils"}
-assert-json-diff = "2.0"
 base64 = "0.13"
 blake2 = "0.10"
 common = {path = "../../common"}
