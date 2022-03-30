@@ -103,7 +103,7 @@ do
 	expect=`echo ${test}  | cut -d\  -f1`
 
 	# Uninstall an app and then get the applist.
-	${CMD} uninstall ${manifest_url}
+	${CMD} uninstall ${manifest_url} || true # ignore errors since we check the list to verify.
 	${CMD} --json list > apps_observed.json
 
 	# verify app list
