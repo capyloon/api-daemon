@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "time-macros"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Jacob Pratt <open-source@jhpratt.dev>", "Time contributors"]
 description = "Procedural macros for the time crate."
 readme = "../README.md"

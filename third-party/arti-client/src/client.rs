@@ -7,9 +7,9 @@
 use crate::address::IntoTorAddr;
 
 use crate::config::{ClientAddrConfig, StreamTimeoutConfig, TorClientConfig};
-use tor_circmgr::{DirInfo, IsolationToken, StreamIsolationBuilder, TargetPort};
+use tor_circmgr::isolation::Isolation;
+use tor_circmgr::{isolation::StreamIsolationBuilder, IsolationToken, TargetPort};
 use tor_config::MutCfg;
-use tor_dirmgr::DirEvent;
 use tor_persist::{FsStateMgr, StateMgr};
 use tor_proto::circuit::ClientCirc;
 use tor_proto::stream::{DataStream, IpVersionPreference, StreamParameters};
@@ -17,17 +17,17 @@ use tor_rtcompat::{PreferredRuntime, Runtime, SleepProviderExt};
 
 use educe::Educe;
 use futures::lock::Mutex as AsyncMutex;
-use futures::stream::StreamExt;
 use futures::task::SpawnExt;
 use std::convert::TryInto;
 use std::net::IpAddr;
 use std::result::Result as StdResult;
-use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::err::ErrorDetail;
 use crate::{status, util, TorClientBuilder};
-use tracing::{debug, error, info, warn};
+use tor_rtcompat::scheduler::TaskHandle;
+use tracing::{debug, info};
 
 /// An active client session on the Tor network.
 ///
@@ -47,7 +47,7 @@ pub struct TorClient<R: Runtime> {
     /// Default isolation token for streams through this client.
     ///
     /// This is eventually used for `owner_token` in `tor-circmgr/src/usage.rs`, and is orthogonal
-    /// to the `stream_token` which comes from `connect_prefs` (or a passed-in `StreamPrefs`).
+    /// to the `stream_isolation` which comes from `connect_prefs` (or a passed-in `StreamPrefs`).
     /// (ie, both must be the same to share a circuit).
     client_isolation: IsolationToken,
     /// Connection preferences.  Starts out as `Default`,  Inherited by our clones.
@@ -82,6 +82,12 @@ pub struct TorClient<R: Runtime> {
     /// bootstrapping. If this is `false`, we will just call `wait_for_bootstrap`
     /// instead.
     should_bootstrap: BootstrapBehavior,
+
+    /// Handles to periodic background tasks, useful for suspending them later.
+    periodic_task_handles: Vec<TaskHandle>,
+
+    /// Shared boolean for whether we're currently in "dormant mode" or not.
+    dormant: Arc<AtomicBool>,
 }
 
 /// Preferences for whether a [`TorClient`] should bootstrap on its own or not.
@@ -102,8 +108,19 @@ pub enum BootstrapBehavior {
     Manual,
 }
 
+/// What level of sleep to put a Tor client into.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DormantMode {
+    /// The client functions as normal, and background tasks run periodically.
+    Normal,
+    /// Background tasks are suspended, conserving CPU usage. Attempts to use the client will
+    /// wake it back up again.
+    Soft,
+}
+
 /// Preferences for how to route a stream over the Tor network.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct StreamPrefs {
     /// What kind of IPv6/IPv4 we'd prefer, and how strongly.
     ip_ver_pref: IpVersionPreference,
@@ -120,8 +137,8 @@ enum StreamIsolationPreference {
     /// No additional isolation
     #[educe(Default)]
     None,
-    /// Id of the isolation group the connection should be part of
-    Explicit(IsolationToken),
+    /// Isolation parameter to use for connections
+    Explicit(Box<dyn Isolation>),
     /// Isolate every connection!
     EveryStream,
 }
@@ -206,21 +223,6 @@ impl StreamPrefs {
         params
     }
 
-    /// Indicate which other connections might use the same circuit
-    /// as this one.
-    ///
-    /// By default all connections made on all clones of a `TorClient` may share connections.
-    /// Connections made with a particular `isolation_group` may share circuits with each other.
-    ///
-    /// This connection preference is orthogonal to isolation established by
-    /// [`TorClient::isolated_client`].  Connections made with an `isolated_client` (and its
-    /// clones) will not share circuits with the original client, even if the same
-    /// `isolation_group` is specified via the `ConnectionPrefs` in force.
-    pub fn set_isolation_group(&mut self, isolation_group: IsolationToken) -> &mut Self {
-        self.isolation = StreamIsolationPreference::Explicit(isolation_group);
-        self
-    }
-
     /// Indicate that connections with these preferences should have their own isolation group
     ///
     /// This is a convenience method which creates a fresh [`IsolationToken`]
@@ -229,9 +231,27 @@ impl StreamPrefs {
     /// This connection preference is orthogonal to isolation established by
     /// [`TorClient::isolated_client`].  Connections made with an `isolated_client` (and its
     /// clones) will not share circuits with the original client, even if the same
-    /// `isolation_group` is specified via the `ConnectionPrefs` in force.
+    /// `isolation` is specified via the `ConnectionPrefs` in force.
     pub fn new_isolation_group(&mut self) -> &mut Self {
-        self.isolation = StreamIsolationPreference::Explicit(IsolationToken::new());
+        self.isolation = StreamIsolationPreference::Explicit(Box::new(IsolationToken::new()));
+        self
+    }
+
+    /// Indicate which other connections might use the same circuit
+    /// as this one.
+    ///
+    /// By default all connections made on all clones of a `TorClient` may share connections.
+    /// Connections made with a particular `isolation` may share circuits with each other.
+    ///
+    /// This connection preference is orthogonal to isolation established by
+    /// [`TorClient::isolated_client`].  Connections made with an `isolated_client` (and its
+    /// clones) will not share circuits with the original client, even if the same
+    /// `isolation` is specified via the `ConnectionPrefs` in force.
+    pub fn set_isolation<T>(&mut self, isolation: T) -> &mut Self
+    where
+        T: Into<Box<dyn Isolation>>,
+    {
+        self.isolation = StreamIsolationPreference::Explicit(isolation.into());
         self
     }
 
@@ -246,21 +266,21 @@ impl StreamPrefs {
     /// circuits.  The only benefit is that these circuits will not be shared
     /// by multiple streams.)
     ///
-    /// This can be undone by calling `set_isolation_group` or `new_isolation_group` on these
+    /// This can be undone by calling `set_isolation` or `new_isolation_group` on these
     /// preferences.
     pub fn isolate_every_stream(&mut self) -> &mut Self {
         self.isolation = StreamIsolationPreference::EveryStream;
         self
     }
 
-    /// Return a token to describe which connections might use
+    /// Return an [`Isolation`] to describe which connections might use
     /// the same circuit as this one.
-    fn isolation_group(&self) -> Option<IsolationToken> {
+    fn isolation(&self) -> Option<Box<dyn Isolation>> {
         use StreamIsolationPreference as SIP;
         match self.isolation {
             SIP::None => None,
-            SIP::Explicit(ig) => Some(ig),
-            SIP::EveryStream => Some(IsolationToken::new()),
+            SIP::Explicit(ref ig) => Some(ig.clone()),
+            SIP::EveryStream => Some(Box::new(IsolationToken::new())),
         }
     }
 
@@ -331,12 +351,15 @@ impl<R: Runtime> TorClient<R> {
         config: TorClientConfig,
         autobootstrap: BootstrapBehavior,
         dirmgr_builder: &dyn crate::builder::DirProviderBuilder<R>,
+        dirmgr_extensions: tor_dirmgr::config::DirMgrExtensions,
     ) -> StdResult<Self, ErrorDetail> {
-        let circ_cfg = config.get_circmgr_config()?;
-        let dir_cfg = config.get_dirmgr_config()?;
+        let dir_cfg = {
+            let mut c: tor_dirmgr::DirMgrConfig = (&config).try_into()?;
+            c.extensions = dirmgr_extensions;
+            c
+        };
         let statemgr = FsStateMgr::from_path(config.storage.expand_state_dir()?)?;
         let addr_cfg = config.address_filter.clone();
-        let timeout_cfg = config.stream_timeouts;
 
         let (status_sender, status_receiver) = postage::watch::channel();
         let status_receiver = status::BootstrapEvents {
@@ -344,12 +367,24 @@ impl<R: Runtime> TorClient<R> {
         };
         let chanmgr = Arc::new(tor_chanmgr::ChanMgr::new(runtime.clone()));
         let circmgr =
-            tor_circmgr::CircMgr::new(circ_cfg, statemgr.clone(), &runtime, Arc::clone(&chanmgr))
+            tor_circmgr::CircMgr::new(&config, statemgr.clone(), &runtime, Arc::clone(&chanmgr))
                 .map_err(ErrorDetail::CircMgrSetup)?;
 
+        let timeout_cfg = config.stream_timeouts;
         let dirmgr = dirmgr_builder
             .build(runtime.clone(), Arc::clone(&circmgr), dir_cfg)
             .map_err(crate::Error::into_detail)?;
+
+        let mut periodic_task_handles = circmgr
+            .launch_background_tasks(&runtime, &dirmgr, statemgr.clone())
+            .map_err(ErrorDetail::CircMgrSetup)?;
+
+        periodic_task_handles.extend(
+            chanmgr
+                .launch_background_tasks(&runtime)
+                .map_err(ErrorDetail::ChanMgrSetup)?
+                .into_iter(),
+        );
 
         let conn_status = chanmgr.bootstrap_events();
         let dir_status = dirmgr.bootstrap_events();
@@ -360,47 +395,6 @@ impl<R: Runtime> TorClient<R> {
                 dir_status,
             ))
             .map_err(|e| ErrorDetail::from_spawn("top-level status reporter", e))?;
-
-        runtime
-            .spawn(continually_expire_channels(
-                runtime.clone(),
-                Arc::downgrade(&chanmgr),
-            ))
-            .map_err(|e| ErrorDetail::from_spawn("channel expiration task", e))?;
-
-        // Launch a daemon task to inform the circmgr about new
-        // network parameters.
-        runtime
-            .spawn(keep_circmgr_params_updated(
-                dirmgr.events(),
-                Arc::downgrade(&circmgr),
-                Arc::downgrade(&dirmgr),
-            ))
-            .map_err(|e| ErrorDetail::from_spawn("circmgr parameter updater", e))?;
-
-        runtime
-            .spawn(update_persistent_state(
-                runtime.clone(),
-                Arc::downgrade(&circmgr),
-                statemgr.clone(),
-            ))
-            .map_err(|e| ErrorDetail::from_spawn("persistent state updater", e))?;
-
-        runtime
-            .spawn(continually_launch_timeout_testing_circuits(
-                runtime.clone(),
-                Arc::downgrade(&circmgr),
-                Arc::downgrade(&dirmgr),
-            ))
-            .map_err(|e| ErrorDetail::from_spawn("timeout-probe circuit launcher", e))?;
-
-        runtime
-            .spawn(continually_preemptively_build_circuits(
-                runtime.clone(),
-                Arc::downgrade(&circmgr),
-                Arc::downgrade(&dirmgr),
-            ))
-            .map_err(|e| ErrorDetail::from_spawn("preemptive circuit launcher", e))?;
 
         let client_isolation = IsolationToken::new();
 
@@ -417,6 +411,8 @@ impl<R: Runtime> TorClient<R> {
             status_receiver,
             bootstrap_in_progress: Arc::new(AsyncMutex::new(())),
             should_bootstrap: autobootstrap,
+            periodic_task_handles,
+            dormant: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -496,6 +492,10 @@ impl<R: Runtime> TorClient<R> {
                 self.bootstrap_in_progress.lock().await;
             }
         }
+        // NOTE(eta): will need to be changed when hard dormant mode is introduced
+        if self.dormant.load(Ordering::SeqCst) {
+            self.set_dormant(DormantMode::Normal);
+        }
         Ok(())
     }
 
@@ -541,8 +541,7 @@ impl<R: Runtime> TorClient<R> {
             _ => {}
         }
 
-        let circ_cfg = new_config.get_circmgr_config().map_err(wrap_err)?;
-        let dir_cfg = new_config.get_dirmgr_config().map_err(wrap_err)?;
+        let dir_cfg = new_config.try_into().map_err(wrap_err)?;
         let state_cfg = new_config.storage.expand_state_dir().map_err(wrap_err)?;
         let addr_cfg = &new_config.address_filter;
         let timeout_cfg = &new_config.stream_timeouts;
@@ -551,7 +550,9 @@ impl<R: Runtime> TorClient<R> {
             how.cannot_change("storage.state_dir").map_err(wrap_err)?;
         }
 
-        self.circmgr.reconfigure(&circ_cfg, how).map_err(wrap_err)?;
+        self.circmgr
+            .reconfigure(new_config, how)
+            .map_err(wrap_err)?;
         self.dirmgr.reconfigure(&dir_cfg, how).map_err(wrap_err)?;
 
         if how == tor_config::Reconfigure::CheckAllOrNothing {
@@ -820,8 +821,8 @@ impl<R: Runtime> TorClient<R> {
             // Always consider our client_isolation.
             b.owner_token(self.client_isolation);
             // Consider stream isolation too, if it's set.
-            if let Some(tok) = prefs.isolation_group() {
-                b.stream_token(tok);
+            if let Some(tok) = prefs.isolation() {
+                b.stream_isolation(tok);
             }
             // Failure should be impossible with this builder.
             b.build().expect("Failed to construct StreamIsolation")
@@ -856,6 +857,32 @@ impl<R: Runtime> TorClient<R> {
     pub fn bootstrap_events(&self) -> status::BootstrapEvents {
         self.status_receiver.clone()
     }
+
+    /// Change the client's current dormant mode, putting background tasks to sleep
+    /// or waking them up as appropriate.
+    ///
+    /// This can be used to conserve CPU usage if you aren't planning on using the
+    /// client for a while, especially on mobile platforms.
+    ///
+    /// See the [`DormantMode`] documentation for more details.
+    pub fn set_dormant(&self, mode: DormantMode) {
+        let is_dormant = matches!(mode, DormantMode::Soft);
+
+        // Do an atomic compare-exchange. If it succeeds, we just flipped `self.dormant`.
+        if self
+            .dormant
+            .compare_exchange(!is_dormant, is_dormant, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            for task in self.periodic_task_handles.iter() {
+                if is_dormant {
+                    task.cancel();
+                } else {
+                    task.fire();
+                }
+            }
+        }
+    }
 }
 
 /// Alias for TorError::from(Error)
@@ -864,195 +891,6 @@ where
     ErrorDetail: From<T>,
 {
     ErrorDetail::from(err).into()
-}
-
-/// Whenever a [`DirEvent::NewConsensus`] arrives on `events`, update
-/// `circmgr` with the consensus parameters from `dirmgr`.
-///
-/// Exit when `events` is closed, or one of `circmgr` or `dirmgr` becomes
-/// dangling.
-///
-/// This is a daemon task: it runs indefinitely in the background.
-async fn keep_circmgr_params_updated<R: Runtime>(
-    mut events: impl futures::Stream<Item = DirEvent> + Unpin,
-    circmgr: Weak<tor_circmgr::CircMgr<R>>,
-    dirmgr: Weak<dyn tor_dirmgr::DirProvider + Send + Sync>,
-) {
-    use DirEvent::*;
-    while let Some(event) = events.next().await {
-        match event {
-            NewConsensus => {
-                if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
-                    let netdir = dm
-                        .latest_netdir()
-                        .expect("got new consensus event, without a netdir?");
-                    cm.update_network_parameters(netdir.params());
-                    cm.update_network(&netdir);
-                } else {
-                    debug!("Circmgr or dirmgr has disappeared; task exiting.");
-                    break;
-                }
-            }
-            NewDescriptors => {
-                if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
-                    let netdir = dm
-                        .latest_netdir()
-                        .expect("got new descriptors event, without a netdir?");
-                    cm.update_network(&netdir);
-                } else {
-                    debug!("Circmgr or dirmgr has disappeared; task exiting.");
-                    break;
-                }
-            }
-            _ => {
-                // Nothing we recognize.
-            }
-        }
-    }
-}
-
-/// Run forever, periodically telling `circmgr` to update its persistent
-/// state.
-///
-/// Exit when we notice that `circmgr` has been dropped.
-///
-/// This is a daemon task: it runs indefinitely in the background.
-async fn update_persistent_state<R: Runtime>(
-    runtime: R,
-    circmgr: Weak<tor_circmgr::CircMgr<R>>,
-    statemgr: FsStateMgr,
-) {
-    // TODO: Consider moving this function into tor-circmgr after we have more
-    // experience with the state system.
-
-    loop {
-        if let Some(circmgr) = Weak::upgrade(&circmgr) {
-            use tor_persist::LockStatus::*;
-
-            match statemgr.try_lock() {
-                Err(e) => {
-                    error!("Problem with state lock file: {}", e);
-                    break;
-                }
-                Ok(NewlyAcquired) => {
-                    info!("We now own the lock on our state files.");
-                    if let Err(e) = circmgr.upgrade_to_owned_persistent_state() {
-                        error!("Unable to upgrade to owned state files: {}", e);
-                        break;
-                    }
-                }
-                Ok(AlreadyHeld) => {
-                    if let Err(e) = circmgr.store_persistent_state() {
-                        error!("Unable to flush circmgr state: {}", e);
-                        break;
-                    }
-                }
-                Ok(NoLock) => {
-                    if let Err(e) = circmgr.reload_persistent_state() {
-                        error!("Unable to reload circmgr state: {}", e);
-                        break;
-                    }
-                }
-            }
-        } else {
-            debug!("Circmgr has disappeared; task exiting.");
-            return;
-        }
-        // TODO(nickm): This delay is probably too small.
-        //
-        // Also, we probably don't even want a fixed delay here.  Instead,
-        // we should be updating more frequently when the data is volatile
-        // or has important info to save, and not at all when there are no
-        // changes.
-        runtime.sleep(Duration::from_secs(60)).await;
-    }
-
-    error!("State update task is exiting prematurely.");
-}
-
-/// Run indefinitely, launching circuits as needed to get a good
-/// estimate for our circuit build timeouts.
-///
-/// Exit when we notice that `circmgr` or `dirmgr` has been dropped.
-///
-/// This is a daemon task: it runs indefinitely in the background.
-///
-/// # Note
-///
-/// I'd prefer this to be handled entirely within the tor-circmgr crate;
-/// see [`tor_circmgr::CircMgr::launch_timeout_testing_circuit_if_appropriate`]
-/// for more information.
-async fn continually_launch_timeout_testing_circuits<R: Runtime>(
-    rt: R,
-    circmgr: Weak<tor_circmgr::CircMgr<R>>,
-    dirmgr: Weak<dyn tor_dirmgr::DirProvider + Send + Sync>,
-) {
-    while let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
-        if let Some(netdir) = dm.latest_netdir() {
-            if let Err(e) = cm.launch_timeout_testing_circuit_if_appropriate(&netdir) {
-                warn!("Problem launching a timeout testing circuit: {}", e);
-            }
-            let delay = netdir
-                .params()
-                .cbt_testing_delay
-                .try_into()
-                .expect("Out-of-bounds value from BoundedInt32");
-
-            drop((cm, dm));
-            rt.sleep(delay).await;
-        } else {
-            // TODO(eta): ideally, this should wait until we successfully bootstrap using
-            //            the bootstrap status API
-            rt.sleep(Duration::from_secs(10)).await;
-        }
-    }
-}
-
-/// Run indefinitely, launching circuits where the preemptive circuit
-/// predictor thinks it'd be a good idea to have them.
-///
-/// Exit when we notice that `circmgr` or `dirmgr` has been dropped.
-///
-/// This is a daemon task: it runs indefinitely in the background.
-///
-/// # Note
-///
-/// This would be better handled entirely within `tor-circmgr`, like
-/// other daemon tasks.
-async fn continually_preemptively_build_circuits<R: Runtime>(
-    rt: R,
-    circmgr: Weak<tor_circmgr::CircMgr<R>>,
-    dirmgr: Weak<dyn tor_dirmgr::DirProvider + Send + Sync>,
-) {
-    while let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
-        if let Some(netdir) = dm.latest_netdir() {
-            cm.launch_circuits_preemptively(DirInfo::Directory(&netdir))
-                .await;
-            rt.sleep(Duration::from_secs(10)).await;
-        } else {
-            // TODO(eta): ideally, this should wait until we successfully bootstrap using
-            //            the bootstrap status API
-            rt.sleep(Duration::from_secs(10)).await;
-        }
-    }
-}
-/// Periodically expire any channels that have been unused beyond
-/// the maximum duration allowed.
-///
-/// Exist when we find that `chanmgr` is dropped
-///
-/// This is a daemon task that runs indefinitely in the background
-async fn continually_expire_channels<R: Runtime>(rt: R, chanmgr: Weak<tor_chanmgr::ChanMgr<R>>) {
-    loop {
-        let delay = if let Some(cm) = Weak::upgrade(&chanmgr) {
-            cm.expire_channels()
-        } else {
-            // channel manager is closed.
-            return;
-        };
-        // This will sometimes be an underestimate, but it's no big deal; we just sleep some more.
-        rt.sleep(Duration::from_secs(delay.as_secs())).await;
-    }
 }
 
 #[cfg(test)]

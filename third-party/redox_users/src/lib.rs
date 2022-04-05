@@ -128,14 +128,20 @@ impl From<syscall::Error> for Error {
     }
 }
 
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
 enum Lock {
     Shared,
     Exclusive,
 }
 
 impl Lock {
+    fn can_write(&self) -> bool {
+        match self {
+            Lock::Shared => false,
+            Lock::Exclusive => true,
+        }
+    }
+
     #[cfg(target_os = "redox")]
     fn as_olock(self) -> i32 {
         (match self {
@@ -155,7 +161,7 @@ impl Lock {
 
 /// Naive semi-cross platform file locking (need to support linux for tests).
 #[allow(dead_code)]
-fn locked_file(file: impl AsRef<Path>, _lock: Lock) -> Result<File, Error> {
+fn locked_file(file: impl AsRef<Path>, lock: Lock) -> Result<File, Error> {
     #[cfg(test)]
     println!("Open file: {}", file.as_ref().display());
 
@@ -163,8 +169,8 @@ fn locked_file(file: impl AsRef<Path>, _lock: Lock) -> Result<File, Error> {
     {
         Ok(OpenOptions::new()
             .read(true)
-            .write(true)
-            .custom_flags(_lock.as_olock())
+            .write(lock.can_write())
+            .custom_flags(lock.as_olock())
             .open(file)?)
     }
     #[cfg(not(target_os = "redox"))]
@@ -172,11 +178,11 @@ fn locked_file(file: impl AsRef<Path>, _lock: Lock) -> Result<File, Error> {
     {
         let file = OpenOptions::new()
             .read(true)
-            .write(true)
+            .write(lock.can_write())
             .open(file)?;
         let fd = file.as_raw_fd();
         eprintln!("Fd: {}", fd);
-        //flock(fd, _lock.as_flock())?;
+        //flock(fd, lock.as_flock())?;
         Ok(file)
     }
 }
@@ -795,6 +801,7 @@ pub struct Config {
     auth_delay: Duration,
     min_id: usize,
     max_id: usize,
+    lock: Lock,
 }
 
 impl Config {
@@ -825,6 +832,16 @@ impl Config {
         self
     }
 
+    /// Allow writes to group, passwd, and shadow files
+    pub fn writeable(mut self, writeable: bool) -> Config {
+        self.lock = if writeable {
+            Lock::Exclusive
+        } else {
+            Lock::Shared
+        };
+        self
+    }
+
     // Prepend a path with the scheme in this Config
     fn in_scheme(&self, path: impl AsRef<Path>) -> PathBuf {
         let mut canonical_path = PathBuf::from(&self.scheme);
@@ -851,6 +868,7 @@ impl Default for Config {
             auth_delay: Duration::new(DEFAULT_TIMEOUT, 0),
             min_id: MIN_ID,
             max_id: MAX_ID,
+            lock: Lock::Shared,
         }
     }
 }
@@ -1025,7 +1043,7 @@ pub struct AllUsers<A> {
 
 impl<A: Default> AllUsers<A> {
     pub fn new(config: Config) -> Result<AllUsers<A>, Error> {
-        let mut passwd_fd = locked_file(config.in_scheme(PASSWD_FILE), Lock::Exclusive)?;
+        let mut passwd_fd = locked_file(config.in_scheme(PASSWD_FILE), config.lock)?;
         let mut passwd_cntnt = String::new();
         passwd_fd.read_to_string(&mut passwd_cntnt)?;
 
@@ -1058,7 +1076,7 @@ impl AllUsers<auth::Full> {
     /// If access to password related methods for the [`User`]s yielded by this
     /// `AllUsers` is required, use this constructor.
     pub fn authenticator(config: Config) -> Result<AllUsers<auth::Full>, Error> {
-        let mut shadow_fd = locked_file(config.in_scheme(SHADOW_FILE), Lock::Exclusive)?;
+        let mut shadow_fd = locked_file(config.in_scheme(SHADOW_FILE), config.lock)?;
         let mut shadow_cntnt = String::new();
         shadow_fd.read_to_string(&mut shadow_cntnt)?;
         let shadow_entries: Vec<&str> = shadow_cntnt.lines().collect();
@@ -1226,7 +1244,7 @@ pub struct AllGroups {
 impl AllGroups {
     /// Create a new `AllGroups`.
     pub fn new(config: Config) -> Result<AllGroups, Error> {
-        let mut group_fd = locked_file(config.in_scheme(GROUP_FILE), Lock::Exclusive)?;
+        let mut group_fd = locked_file(config.in_scheme(GROUP_FILE), config.lock)?;
         let mut group_cntnt = String::new();
         group_fd.read_to_string(&mut group_cntnt)?;
 
@@ -1374,19 +1392,14 @@ mod test {
         Config::default()
             // Since all this really does is prepend `sheme` to the consts
             .scheme(TEST_PREFIX.to_string())
+            .writeable(true)
     }
 
     fn read_locked_file(file: impl AsRef<Path>) -> Result<String, Error> {
-        let mut fd = locked_file(file, Lock::Exclusive)?;
+        let mut fd = locked_file(file, Lock::Shared)?;
         let mut cntnt = String::new();
         fd.read_to_string(&mut cntnt)?;
         Ok(cntnt)
-    }
-
-    fn write_locked_file(file: impl AsRef<Path>, cntnt: impl AsRef<[u8]>) -> Result<(), Error> {
-        locked_file(file, Lock::Exclusive)?
-            .write_all(cntnt.as_ref())?;
-        Ok(())
     }
 
     // *** struct.User ***

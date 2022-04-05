@@ -21,6 +21,7 @@
     clippy::print_stdout,
     clippy::todo,
     clippy::unimplemented,
+    clippy::unnested_or_patterns,
     clippy::unwrap_used,
     clippy::use_debug,
     single_use_lifetimes,
@@ -38,10 +39,11 @@ mod error;
 mod format_description;
 mod helpers;
 mod offset;
+mod serde_format_description;
 mod time;
 mod to_tokens;
 
-use proc_macro::TokenStream;
+use proc_macro::{TokenStream, TokenTree};
 
 use self::error::Error;
 
@@ -49,13 +51,13 @@ macro_rules! impl_macros {
     ($($name:ident)*) => {$(
         #[proc_macro]
         pub fn $name(input: TokenStream) -> TokenStream {
-            use crate::to_tokens::ToTokens;
+            use crate::to_tokens::ToTokenTree;
 
             let mut iter = input.into_iter().peekable();
             match $name::parse(&mut iter) {
                 Ok(value) => match iter.peek() {
                     Some(tree) => Error::UnexpectedToken { tree: tree.clone() }.to_compile_error(),
-                    None => value.into_token_stream(),
+                    None => TokenStream::from(value.into_token_tree()),
                 },
                 Err(err) => err.to_compile_error(),
             }
@@ -69,23 +71,59 @@ impl_macros![date datetime offset time];
 // features land.
 #[proc_macro]
 pub fn format_description(input: TokenStream) -> TokenStream {
-    let (span, string) = match helpers::get_string_literal(input) {
-        Ok(val) => val,
-        Err(err) => return err.to_compile_error(),
-    };
+    (|| {
+        let (span, string) = helpers::get_string_literal(input)?;
+        let items = format_description::parse(&string, span)?;
 
-    let items = match format_description::parse(&string, span) {
-        Ok(items) => items,
-        Err(err) => return err.to_compile_error(),
-    };
+        Ok(quote! {{
+            const DESCRIPTION: &[::time::format_description::FormatItem<'_>] = &[#S(
+                items
+                    .into_iter()
+                    .map(|item| quote! { #S(item), })
+                    .collect::<TokenStream>()
+            )];
+            DESCRIPTION
+        }})
+    })()
+    .unwrap_or_else(|err: Error| err.to_compile_error())
+}
 
-    quote! {{
-        const DESCRIPTION: &[::time::format_description::FormatItem<'_>] = &[#(
-            items
-                .into_iter()
-                .map(|item| quote! { #(item), })
-                .collect::<TokenStream>()
-        )];
-        DESCRIPTION
-    }}
+#[proc_macro]
+pub fn serde_format_description(input: TokenStream) -> TokenStream {
+    (|| {
+        let mut tokens = input.into_iter().peekable();
+        // First, an identifier (the desired module name)
+        let mod_name = match tokens.next() {
+            Some(TokenTree::Ident(ident)) => Ok(ident),
+            Some(tree) => Err(Error::UnexpectedToken { tree }),
+            None => Err(Error::UnexpectedEndOfInput),
+        }?;
+
+        // Followed by a comma
+        helpers::consume_punct(',', &mut tokens)?;
+
+        // Then, the type to create serde serializers for (e.g., `OffsetDateTime`).
+        let formattable = match tokens.next() {
+            Some(tree @ TokenTree::Ident(_)) => Ok(tree),
+            Some(tree) => Err(Error::UnexpectedToken { tree }),
+            None => Err(Error::UnexpectedEndOfInput),
+        }?;
+
+        // Another comma
+        helpers::consume_punct(',', &mut tokens)?;
+
+        // Then, a string literal.
+        let (span, format_string) = helpers::get_string_literal(tokens.collect())?;
+
+        let items = format_description::parse(&format_string, span)?;
+        let items: TokenStream = items.into_iter().map(|item| quote! { #S(item), }).collect();
+
+        Ok(serde_format_description::build(
+            mod_name,
+            items,
+            formattable,
+            &String::from_utf8_lossy(&format_string),
+        ))
+    })()
+    .unwrap_or_else(|err: Error| err.to_compile_error_standalone())
 }

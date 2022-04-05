@@ -3,7 +3,9 @@
 
 use crate::filter::GuardFilter;
 use crate::guard::{Guard, NewlyConfirmed, Reachable};
-use crate::{GuardId, GuardParams, GuardUsage, GuardUsageKind};
+use crate::{
+    ids::GuardId, ExternalActivity, GuardParams, GuardUsage, GuardUsageKind, PickGuardError,
+};
 use tor_netdir::{NetDir, Relay};
 
 use itertools::Itertools;
@@ -89,12 +91,24 @@ pub(crate) enum ListKind {
     Confirmed,
     /// A non-primary, non-confirmed guard.
     Sample,
+    /// Not a guard at all, but a fallback directory.
+    Fallback,
 }
 
 impl ListKind {
     /// Return true if this is a primary guard.
     pub(crate) fn is_primary(&self) -> bool {
         self == &ListKind::Primary
+    }
+
+    /// Return true if this guard's origin indicates that you can use successful
+    /// circuits built through it immediately without waiting for any other
+    /// circuits to succeed or fail.
+    pub(crate) fn usable_immediately(&self) -> bool {
+        match self {
+            ListKind::Primary | ListKind::Fallback => true,
+            ListKind::Confirmed | ListKind::Sample => false,
+        }
     }
 }
 
@@ -235,8 +249,13 @@ impl GuardSet {
     fn contains_relay(&self, relay: &Relay<'_>) -> bool {
         // Note: Could implement Borrow instead, but I don't think it'll
         // matter.
-        let id = GuardId::from_relay(relay);
-        self.guards.contains_key(&id)
+        let id = GuardId::from_chan_target(relay);
+        self.contains(&id)
+    }
+
+    /// Return true if `id` is a member of this set.
+    pub(crate) fn contains(&self, id: &GuardId) -> bool {
+        self.guards.contains_key(id)
     }
 
     /// If there are not enough filter-permitted usable guards in this
@@ -368,7 +387,7 @@ impl GuardSet {
     ///
     /// Does nothing if it is already a guard.
     fn add_guard(&mut self, relay: &Relay<'_>, now: SystemTime, params: &GuardParams) {
-        let id = GuardId::from_relay(relay);
+        let id = GuardId::from_chan_target(relay);
         if self.guards.contains_key(&id) {
             return;
         }
@@ -524,6 +543,11 @@ impl GuardSet {
         }
     }
 
+    /// Return the earliest time at which any guard will be retriable.
+    pub(crate) fn next_retry(&self) -> Option<Instant> {
+        self.guards.values().filter_map(Guard::next_retry).min()
+    }
+
     /// Mark every `Unreachable` primary guard as `Unknown`.
     pub(crate) fn mark_primary_guards_retriable(&mut self) {
         for id in &self.primary {
@@ -582,9 +606,22 @@ impl GuardSet {
         self.assert_consistency();
     }
 
-    /// Record that an attempt to use the guard with `guard_id` has
-    /// just failed.
-    pub(crate) fn record_failure(&mut self, guard_id: &GuardId, now: Instant) {
+    /// Record that an attempt to use the guard with `guard_id` has just failed.
+    ///
+    /// If `how` is provided, it's a reason that the guard failed from outside
+    /// of the crate.
+    pub(crate) fn record_failure(
+        &mut self,
+        guard_id: &GuardId,
+        how: Option<ExternalActivity>,
+        now: Instant,
+    ) {
+        // TODO: For now, we treat failures of guards for circuit building the
+        // same as we treat failures for other reasons.  Eventually that should
+        // change, however.  We take this `ExternalFailure` information now in
+        // the expectation that it will be annoying to add it to the API later.
+        let _ = how;
+
         // TODO use instant uniformly for in-process, and systemtime for storage?
         let is_primary = self.guard_is_primary(guard_id);
         if let Some(guard) = self.guards.get_mut(guard_id) {
@@ -690,13 +727,16 @@ impl GuardSet {
             GuardUsageKind::Data => params.data_parallelism,
         };
 
+        // count the number of running options, distinct from the total options.
+        let mut n_running: usize = 0;
+
         let mut options: Vec<_> = self
             .preference_order()
+            .filter(|(_, g)| g.usable() && g.reachable() != Reachable::Unreachable)
+            .inspect(|_| n_running += 1)
             .filter(|(_, g)| {
-                g.usable()
+                !g.exploratory_circ_pending()
                     && self.active_filter.permits(*g)
-                    && g.reachable() != Reachable::Unreachable
-                    && !g.exploratory_circ_pending()
                     && g.conforms_to_usage(usage)
             })
             .take(n_options)
@@ -712,7 +752,14 @@ impl GuardSet {
 
         match options.choose(&mut rand::thread_rng()) {
             Some((src, g)) => Ok((*src, g.guard_id().clone())),
-            None => Err(PickGuardError::EveryoneIsDown),
+            None => {
+                if n_running == 0 {
+                    let retry_at = self.next_retry();
+                    Err(PickGuardError::AllGuardsDown { retry_at })
+                } else {
+                    Err(PickGuardError::NoGuardsUsable)
+                }
+            }
         }
     }
 }
@@ -753,26 +800,13 @@ impl<'a> From<GuardSample<'a>> for GuardSet {
     }
 }
 
-/// A error caused by a failure to pick a guard.
-#[derive(Clone, Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum PickGuardError {
-    /// All members of the current sample were down, or waiting for
-    /// other circuits to finish.
-    #[error("Everybody is either down or pending")]
-    EveryoneIsDown,
-
-    /// We had no members in the current sample.
-    #[error("The current sample is empty")]
-    SampleIsEmpty,
-}
-
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_used)]
     use tor_netdoc::doc::netstatus::{RelayFlags, RelayWeight};
 
     use super::*;
+    use crate::FirstHopId;
     use std::time::Duration;
 
     fn netdir() -> NetDir {
@@ -834,11 +868,14 @@ mod test {
 
             // make sure all the guards are okay.
             for (g, guard) in &guards.guards {
-                let relay = g.get_relay(&netdir).unwrap();
+                let id: FirstHopId = g.clone().into();
+                let relay = id.get_relay(&netdir).unwrap();
                 assert!(relay.is_flagged_guard());
                 assert!(relay.is_dir_cache());
                 assert!(guards.contains_relay(&relay));
-                assert!(!guard.is_expired(&params, SystemTime::now()));
+                {
+                    assert!(!guard.is_expired(&params, SystemTime::now()));
+                }
             }
 
             // Make sure that the sample doesn't expand any further.
@@ -861,8 +898,9 @@ mod test {
             min_filtered_sample_size: 5,
             ..GuardParams::default()
         };
+
         let t1 = SystemTime::now();
-        let t2 = SystemTime::now() + Duration::from_secs(20);
+        let t2 = t1 + Duration::from_secs(20);
 
         let mut guards = GuardSet::default();
         guards.extend_sample_as_needed(t1, &params, &netdir);
@@ -898,8 +936,8 @@ mod test {
             ..GuardParams::default()
         };
         let t1 = SystemTime::now();
-        let t2 = SystemTime::now() + Duration::from_secs(20);
-        let t3 = SystemTime::now() + Duration::from_secs(30);
+        let t2 = t1 + Duration::from_secs(20);
+        let t3 = t2 + Duration::from_secs(30);
 
         let mut guards = GuardSet::default();
         guards.extend_sample_as_needed(t1, &params, &netdir);
@@ -994,7 +1032,7 @@ mod test {
         assert_eq!(&id, &id1);
 
         guards.record_attempt(&id, i1);
-        guards.record_failure(&id, i1 + sec);
+        guards.record_failure(&id, None, i1 + sec);
 
         // Second guard: try it, and try it again, and have it fail.
         let (src, id) = guards.pick_guard(&usage, &params).unwrap();
@@ -1008,8 +1046,8 @@ mod test {
         assert_eq!(id_x, id);
         assert_eq!(src, ListKind::Primary);
         guards.record_attempt(&id_x, i1 + sec * 2);
-        guards.record_failure(&id_x, i1 + sec * 3);
-        guards.record_failure(&id, i1 + sec * 4);
+        guards.record_failure(&id_x, None, i1 + sec * 3);
+        guards.record_failure(&id, None, i1 + sec * 4);
 
         // Third guard: this one won't be primary.
         let (src, id3) = guards.pick_guard(&usage, &params).unwrap();
@@ -1114,14 +1152,14 @@ mod test {
         for _ in 0..5 {
             let (_, id) = guards.pick_guard(&usage, &params).unwrap();
             guards.record_attempt(&id, inst);
-            guards.record_failure(&id, inst + sec);
+            guards.record_failure(&id, None, inst + sec);
 
             inst += sec * 2;
             st += sec * 2;
         }
 
         let e = guards.pick_guard(&usage, &params);
-        assert!(matches!(e, Err(PickGuardError::EveryoneIsDown)));
+        assert!(matches!(e, Err(PickGuardError::AllGuardsDown { .. })));
 
         // Now in theory we should re-grow when we extend.
         guards.extend_sample_as_needed(st, &params, &netdir);
@@ -1151,13 +1189,13 @@ mod test {
         // Let one primary guard fail.
         let (kind, p_id1) = guards.pick_guard(&usage, &params).unwrap();
         assert_eq!(kind, ListKind::Primary);
-        guards.record_failure(&p_id1, Instant::now());
+        guards.record_failure(&p_id1, None, Instant::now());
         assert!(!guards.all_primary_guards_are_unreachable());
 
         // Now let the other one fail.
         let (kind, p_id2) = guards.pick_guard(&usage, &params).unwrap();
         assert_eq!(kind, ListKind::Primary);
-        guards.record_failure(&p_id2, Instant::now());
+        guards.record_failure(&p_id2, None, Instant::now());
         assert!(guards.all_primary_guards_are_unreachable());
 
         // Now mark the guards retriable.
@@ -1189,7 +1227,7 @@ mod test {
 
         use tor_netdir::testnet;
         let netdir2 = testnet::construct_custom_netdir(|idx, bld| {
-            if idx == p_id1.ed25519.as_bytes()[0] as usize {
+            if idx == p_id1.0.ed25519.as_bytes()[0] as usize {
                 bld.omit_md = true;
             }
         })

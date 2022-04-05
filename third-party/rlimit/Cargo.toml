@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "rlimit"
-version = "0.7.0"
+version = "0.8.1"
 authors = ["Nugine <nugine@foxmail.com>"]
 description = "Resource limits"
 documentation = "https://docs.rs/rlimit"

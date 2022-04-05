@@ -4,11 +4,15 @@ use crate::BuildMethod;
 
 use darling::util::{Flag, PathList};
 use darling::{self, FromMeta};
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
+use syn::parse::{ParseStream, Parser};
+use syn::Meta;
 use syn::{self, spanned::Spanned, Attribute, Generics, Ident, Path, Visibility};
 
-use crate::macro_options::DefaultExpression;
-use crate::{Builder, BuilderField, BuilderPattern, DeprecationNotes, Initializer, Setter};
+use crate::{
+    Builder, BuilderField, BuilderPattern, DefaultExpression, DeprecationNotes, Each, Initializer,
+    Setter,
+};
 
 /// `derive_builder` uses separate sibling keywords to represent
 /// mutually-exclusive visibility states. This trait requires implementers to
@@ -26,7 +30,7 @@ trait FlagVisibility {
     fn as_expressed_vis(&self) -> Option<Visibility> {
         match (self.public().is_some(), self.private().is_some()) {
             (true, true) => panic!("A field cannot be both public and private"),
-            (true, false) => Some(syn::parse_str("pub").unwrap()),
+            (true, false) => Some(syn::parse_quote!(pub)),
             (false, true) => Some(Visibility::Inherited),
             (false, false) => None,
         }
@@ -118,6 +122,27 @@ impl StructLevelSetter {
     }
 }
 
+/// Create `Each` from an attribute's `Meta`.
+///
+/// Two formats are supported:
+///
+/// * `each = "..."`, which provides the name of the `each` setter and otherwise uses default values
+/// * `each(name = "...")`, which allows setting additional options on the `each` setter
+fn parse_each(meta: &Meta) -> darling::Result<Option<Each>> {
+    if let Meta::NameValue(mnv) = meta {
+        if let syn::Lit::Str(v) = &mnv.lit {
+            v.parse::<Ident>()
+                .map(Each::from)
+                .map(Some)
+                .map_err(|_| darling::Error::unknown_value(&v.value()).with_span(v))
+        } else {
+            Err(darling::Error::unexpected_lit_type(&mnv.lit))
+        }
+    } else {
+        Each::from_meta(meta).map(Some)
+    }
+}
+
 /// The `setter` meta item on fields in the input type.
 /// Unlike the `setter` meta item at the struct level, this allows specific
 /// name overrides.
@@ -130,7 +155,8 @@ pub struct FieldLevelSetter {
     strip_option: Option<bool>,
     skip: Option<bool>,
     custom: Option<bool>,
-    each: Option<Ident>,
+    #[darling(with = "parse_each")]
+    each: Option<Each>,
 }
 
 impl FieldLevelSetter {
@@ -168,49 +194,30 @@ impl FieldLevelSetter {
 
 /// `derive_builder` allows the calling code to use `setter` as a word to enable
 /// setters when they've been disabled at the struct level.
-/// `darling` doesn't provide that out of the box, so we read the user input
-/// into this enum then convert it into the `FieldLevelSetter`.
-#[derive(Debug, Clone)]
-enum FieldSetterMeta {
-    /// The keyword in isolation.
-    /// This is equivalent to `setter(skip = false)`.
-    Shorthand,
-    Longhand(FieldLevelSetter),
-}
-
-impl From<FieldSetterMeta> for FieldLevelSetter {
-    fn from(v: FieldSetterMeta) -> Self {
-        match v {
-            FieldSetterMeta::Shorthand => FieldLevelSetter {
-                skip: Some(false),
-                ..Default::default()
-            },
-            FieldSetterMeta::Longhand(val) => val,
-        }
-    }
-}
-
-impl FromMeta for FieldSetterMeta {
-    fn from_word() -> darling::Result<Self> {
-        Ok(FieldSetterMeta::Shorthand)
-    }
-
-    fn from_meta(value: &syn::Meta) -> darling::Result<Self> {
-        if let syn::Meta::Path(_) = *value {
-            FieldSetterMeta::from_word()
-        } else {
-            FieldLevelSetter::from_meta(value).map(FieldSetterMeta::Longhand)
-        }
+fn field_setter(meta: &Meta) -> darling::Result<FieldLevelSetter> {
+    // it doesn't matter what the path is; the fact that this function
+    // has been called means that a valueless path is the shorthand case.
+    if let Meta::Path(_) = meta {
+        Ok(FieldLevelSetter {
+            skip: Some(false),
+            ..Default::default()
+        })
+    } else {
+        FieldLevelSetter::from_meta(meta)
     }
 }
 
 /// Data extracted from the fields of the input struct.
 #[derive(Debug, Clone, FromField)]
-#[darling(attributes(builder), forward_attrs(doc, cfg, allow))]
+#[darling(
+    attributes(builder),
+    forward_attrs(doc, cfg, allow, builder_field_attr, builder_setter_attr),
+    and_then = "Self::unnest_attrs"
+)]
 pub struct Field {
     ident: Option<Ident>,
-    attrs: Vec<Attribute>,
-    vis: syn::Visibility,
+    /// Raw input attributes, for consumption by Field::unnest_attrs.  Do not use elsewhere.
+    attrs: Vec<syn::Attribute>,
     ty: syn::Type,
     /// Field-level override for builder pattern.
     /// Note that setting this may force the builder to derive `Clone`.
@@ -222,7 +229,7 @@ pub struct Field {
     private: Flag,
     // See the documentation for `FieldSetterMeta` to understand how `darling`
     // is interpreting this field.
-    #[darling(default, map = "FieldSetterMeta::into")]
+    #[darling(default, with = "field_setter")]
     setter: FieldLevelSetter,
     /// The value for this field if the setter is never invoked.
     ///
@@ -240,6 +247,89 @@ pub struct Field {
     try_setter: Flag,
     #[darling(default)]
     field: FieldMeta,
+    #[darling(skip)]
+    field_attrs: Vec<Attribute>,
+    #[darling(skip)]
+    setter_attrs: Vec<Attribute>,
+}
+
+impl Field {
+    /// Remove the `builder_field_attr(...)` packaging around an attribute
+    fn unnest_attrs(mut self) -> darling::Result<Self> {
+        let mut errors = vec![];
+
+        for attr in self.attrs.drain(..) {
+            let unnest = {
+                if attr.path.is_ident("builder_field_attr") {
+                    Some(&mut self.field_attrs)
+                } else if attr.path.is_ident("builder_setter_attr") {
+                    Some(&mut self.setter_attrs)
+                } else {
+                    None
+                }
+            };
+            if let Some(unnest) = unnest {
+                match unnest_from_one_attribute(attr) {
+                    Ok(n) => unnest.push(n),
+                    Err(e) => errors.push(e),
+                }
+            } else {
+                self.field_attrs.push(attr.clone());
+                self.setter_attrs.push(attr);
+            }
+        }
+
+        if !errors.is_empty() {
+            return Err(darling::Error::multiple(errors));
+        }
+
+        Ok(self)
+    }
+}
+
+fn unnest_from_one_attribute(attr: syn::Attribute) -> darling::Result<Attribute> {
+    match &attr.style {
+        syn::AttrStyle::Outer => (),
+        syn::AttrStyle::Inner(bang) => {
+            return Err(darling::Error::unsupported_format(&format!(
+                "{} must be an outer attribute",
+                attr.path
+                    .get_ident()
+                    .map(Ident::to_string)
+                    .unwrap_or_else(|| "Attribute".to_string())
+            ))
+            .with_span(bang));
+        }
+    };
+
+    #[derive(Debug)]
+    struct ContainedAttribute(syn::Attribute);
+    impl syn::parse::Parse for ContainedAttribute {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            // Strip parentheses, and save the span of the parenthesis token
+            let content;
+            let paren_token = parenthesized!(content in input);
+            let wrap_span = paren_token.span;
+
+            // Wrap up in #[ ] instead.
+            let pound = Token![#](wrap_span); // We can't write a literal # inside quote
+            let content: TokenStream = content.parse()?;
+            let content = quote_spanned!(wrap_span=> #pound [ #content ]);
+
+            let parser = syn::Attribute::parse_outer;
+            let mut attrs = parser.parse2(content)?.into_iter();
+            // TryFrom for Array not available in Rust 1.40
+            // We think this error can never actually happen, since `#[...]` ought to make just one Attribute
+            let attr = match (attrs.next(), attrs.next()) {
+                (Some(attr), None) => attr,
+                _ => return Err(input.error("expected exactly one attribute")),
+            };
+            Ok(Self(attr))
+        }
+    }
+
+    let ContainedAttribute(attr) = syn::parse2(attr.tokens)?;
+    Ok(attr)
 }
 
 impl FlagVisibility for Field {
@@ -252,16 +342,32 @@ impl FlagVisibility for Field {
     }
 }
 
+fn default_create_empty() -> Ident {
+    Ident::new("create_empty", Span::call_site())
+}
+
 #[derive(Debug, Clone, FromDeriveInput)]
 #[darling(
     attributes(builder),
-    forward_attrs(doc, cfg, allow),
-    supports(struct_named)
+    forward_attrs(cfg, allow, builder_struct_attr, builder_impl_attr),
+    supports(struct_named),
+    and_then = "Self::unnest_attrs"
 )]
 pub struct Options {
     ident: Ident,
 
+    /// DO NOT USE.
+    ///
+    /// Initial receiver for forwarded attributes from the struct; these are split
+    /// into `Options::struct_attrs` and `Options::impl_attrs` before `FromDeriveInput`
+    /// returns.
     attrs: Vec<Attribute>,
+
+    #[darling(skip)]
+    struct_attrs: Vec<Attribute>,
+
+    #[darling(skip)]
+    impl_attrs: Vec<Attribute>,
 
     vis: Visibility,
 
@@ -280,6 +386,14 @@ pub struct Options {
     /// Additional traits to derive on the builder.
     #[darling(default)]
     derive: PathList,
+
+    #[darling(default)]
+    custom_constructor: Flag,
+
+    /// The ident of the inherent method which takes no arguments and returns
+    /// an instance of the builder with all fields empty.
+    #[darling(default = "default_create_empty")]
+    create_empty: Ident,
 
     /// Setter options applied to all field setters in the struct.
     #[darling(default)]
@@ -323,6 +437,40 @@ impl FlagVisibility for Options {
     }
 }
 
+impl Options {
+    /// Remove the `builder_struct_attr(...)` packaging around an attribute
+    fn unnest_attrs(mut self) -> darling::Result<Self> {
+        let mut errors = vec![];
+
+        for attr in self.attrs.drain(..) {
+            let unnest = {
+                if attr.path.is_ident("builder_struct_attr") {
+                    Some(&mut self.struct_attrs)
+                } else if attr.path.is_ident("builder_impl_attr") {
+                    Some(&mut self.impl_attrs)
+                } else {
+                    None
+                }
+            };
+            if let Some(unnest) = unnest {
+                match unnest_from_one_attribute(attr) {
+                    Ok(n) => unnest.push(n),
+                    Err(e) => errors.push(e),
+                }
+            } else {
+                self.struct_attrs.push(attr.clone());
+                self.impl_attrs.push(attr);
+            }
+        }
+
+        if !errors.is_empty() {
+            return Err(darling::Error::multiple(errors));
+        }
+
+        Ok(self)
+    }
+}
+
 /// Accessors for parsed properties.
 impl Options {
     pub fn builder_ident(&self) -> Ident {
@@ -330,8 +478,7 @@ impl Options {
             return custom.clone();
         }
 
-        syn::parse_str(&format!("{}Builder", self.ident))
-            .expect("Struct name with Builder suffix should be an ident")
+        format_ident!("{}Builder", self.ident)
     }
 
     pub fn builder_error_ident(&self) -> Path {
@@ -392,6 +539,13 @@ impl Options {
             ident: self.builder_ident(),
             pattern: self.pattern,
             derives: &self.derive,
+            struct_attrs: &self.struct_attrs,
+            impl_attrs: &self.impl_attrs,
+            impl_default: {
+                let custom_constructor: bool = self.custom_constructor.into();
+                !custom_constructor
+            },
+            create_empty: self.create_empty.clone(),
             generics: Some(&self.generics),
             visibility: self.builder_vis(),
             fields: Vec::with_capacity(self.field_count()),
@@ -420,10 +574,7 @@ impl Options {
             error_ty: self.builder_error_ident(),
             initializers: Vec::with_capacity(self.field_count()),
             doc_comment: None,
-            default_struct: self
-                .default
-                .as_ref()
-                .map(|x| x.parse_block(self.no_std.into())),
+            default_struct: self.default.as_ref(),
             validate_fn: self.build_fn.validate.as_ref(),
         }
     }
@@ -469,7 +620,7 @@ impl<'a> FieldWithDefaults<'a> {
             .setter
             .prefix
             .as_ref()
-            .or_else(|| self.parent.setter.prefix.as_ref())
+            .or(self.parent.setter.prefix.as_ref())
     }
 
     /// Get the ident of the emitted setter method
@@ -481,7 +632,7 @@ impl<'a> FieldWithDefaults<'a> {
         let ident = &self.field.ident;
 
         if let Some(ref prefix) = self.setter_prefix() {
-            return syn::parse_str(&format!("{}_{}", prefix, ident.as_ref().unwrap())).unwrap();
+            return format_ident!("{}_{}", prefix, ident.as_ref().unwrap());
         }
 
         ident.clone().unwrap()
@@ -512,7 +663,7 @@ impl<'a> FieldWithDefaults<'a> {
         self.field
             .as_expressed_vis()
             .or_else(|| self.parent.as_expressed_vis())
-            .unwrap_or_else(|| syn::parse_str("pub").unwrap())
+            .unwrap_or_else(|| syn::parse_quote!(pub))
     }
 
     /// Get the ident of the input field. This is also used as the ident of the
@@ -554,9 +705,9 @@ impl<'a> FieldWithDefaults<'a> {
             try_setter: self.try_setter(),
             visibility: self.setter_vis(),
             pattern: self.pattern(),
-            attrs: &self.field.attrs,
+            attrs: &self.field.setter_attrs,
             ident: self.setter_ident(),
-            field_ident: &self.field_ident(),
+            field_ident: self.field_ident(),
             field_type: &self.field.ty,
             generic_into: self.setter_into(),
             strip_option: self.setter_strip_option(),
@@ -575,11 +726,7 @@ impl<'a> FieldWithDefaults<'a> {
             field_enabled: self.field_enabled(),
             field_ident: self.field_ident(),
             builder_pattern: self.pattern(),
-            default_value: self
-                .field
-                .default
-                .as_ref()
-                .map(|x| x.parse_block(self.parent.no_std.into())),
+            default_value: self.field.default.as_ref(),
             use_default_struct: self.use_parent_default(),
             custom_error_type_span: self
                 .parent
@@ -596,7 +743,7 @@ impl<'a> FieldWithDefaults<'a> {
             field_type: &self.field.ty,
             field_enabled: self.field_enabled(),
             field_visibility: self.field_vis(),
-            attrs: &self.field.attrs,
+            attrs: &self.field.field_attrs,
         }
     }
 }

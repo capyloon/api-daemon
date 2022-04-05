@@ -79,6 +79,41 @@ impl<T> TimerangeBound<T> {
         let start = self.start.map(|t| t - d);
         Self { start, ..self }
     }
+
+    /// Consume this TimeRangeBound, and return its underlying time bounds and
+    /// object.
+    ///
+    /// The caller takes responsibility for making sure that the bounds are
+    /// actually checked.
+    ///
+    /// This is an experimental API. Using it voids your stability guarantees.
+    /// It is only available when this crate is compiled with the
+    /// `experimental-api` feature.
+    #[cfg(feature = "experimental-api")]
+    pub fn dangerously_into_parts(self) -> (T, (Bound<time::SystemTime>, Bound<time::SystemTime>)) {
+        (
+            self.obj,
+            (
+                self.start.map(Bound::Included).unwrap_or(Bound::Unbounded),
+                self.end.map(Bound::Included).unwrap_or(Bound::Unbounded),
+            ),
+        )
+    }
+
+    /// Return a reference to the inner object of this TimeRangeBound, without
+    /// checking the time interval.
+    ///
+    /// The caller takes responsibility for making sure that nothing is actually
+    /// done with the inner object that would rely on the bounds being correct, until
+    /// the bounds are (eventually) checked.
+    ///
+    /// This is an experimental API. Using it voids your stability guarantees.
+    /// It is only available when this crate is compiled with the
+    /// `experimental-api` feature.
+    #[cfg(feature = "experimental-api")]
+    pub fn dangerously_peek(&self) -> &T {
+        &self.obj
+    }
 }
 
 impl<T> crate::Timebound<T> for TimerangeBound<T> {
@@ -168,16 +203,44 @@ mod test {
         let eu = SystemTime::UNIX_EPOCH + one_day * 8705;
         let za = SystemTime::UNIX_EPOCH + one_day * 8882;
 
+        // check_valid_at
         let tr = TimerangeBound::new("Hello world", cz_sk..eu);
         assert!(tr.check_valid_at(&za).is_err());
 
         let tr = TimerangeBound::new("Hello world", cz_sk..za);
         assert_eq!(tr.check_valid_at(&eu), Ok("Hello world"));
 
+        // check_valid_now
         let tr = TimerangeBound::new("hello world", de..);
         assert_eq!(tr.check_valid_now(), Ok("hello world"));
 
         let tr = TimerangeBound::new("hello world", ..za);
         assert!(tr.check_valid_now().is_err());
+
+        // Now try check_valid_at_opt() api
+        let tr = TimerangeBound::new("hello world", de..);
+        assert_eq!(tr.check_valid_at_opt(None), Ok("hello world"));
+        let tr = TimerangeBound::new("hello world", de..);
+        assert_eq!(
+            tr.check_valid_at_opt(Some(SystemTime::now())),
+            Ok("hello world")
+        );
+        let tr = TimerangeBound::new("hello world", ..za);
+        assert!(tr.check_valid_at_opt(None).is_err());
+    }
+
+    #[cfg(feature = "experimental-api")]
+    #[test]
+    fn test_dangerous() {
+        let t1 = SystemTime::now();
+        let t2 = t1 + Duration::from_secs(60 * 525600);
+        let tr = TimerangeBound::new("cups of coffee", t1..=t2);
+
+        assert_eq!(tr.dangerously_peek(), &"cups of coffee");
+
+        let (a, b) = tr.dangerously_into_parts();
+        assert_eq!(a, "cups of coffee");
+        assert_eq!(b.0, Bound::Included(t1));
+        assert_eq!(b.1, Bound::Included(t2));
     }
 }

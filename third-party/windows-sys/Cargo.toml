@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "windows-sys"
-version = "0.32.0"
+version = "0.34.0"
 authors = ["Microsoft"]
 description = "Rust for Windows"
 readme = "../../../.github/readme.md"
@@ -21,6 +21,7 @@ repository = "https://github.com/microsoft/windows-rs"
 
 [package.metadata.docs.rs]
 default-target = "x86_64-pc-windows-msvc"
+targets = []
 all-features = true
 
 [features]
@@ -721,31 +722,31 @@ default = []
 deprecated = []
 
 [target.aarch64-pc-windows-msvc.dependencies.windows_aarch64_msvc]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.aarch64-uwp-windows-msvc.dependencies.windows_aarch64_msvc]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.i686-pc-windows-gnu.dependencies.windows_i686_gnu]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.i686-pc-windows-msvc.dependencies.windows_i686_msvc]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.i686-uwp-windows-gnu.dependencies.windows_i686_gnu]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.i686-uwp-windows-msvc.dependencies.windows_i686_msvc]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.x86_64-pc-windows-gnu.dependencies.windows_x86_64_gnu]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.x86_64-pc-windows-msvc.dependencies.windows_x86_64_msvc]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.x86_64-uwp-windows-gnu.dependencies.windows_x86_64_gnu]
-version = "0.32.0"
+version = "0.34.0"
 
 [target.x86_64-uwp-windows-msvc.dependencies.windows_x86_64_msvc]
-version = "0.32.0"
+version = "0.34.0"

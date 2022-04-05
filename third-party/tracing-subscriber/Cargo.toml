@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.49.0"
 name = "tracing-subscriber"
-version = "0.3.9"
+version = "0.3.10"
 authors = ["Eliza Weisman <eliza@buoyant.io>", "David Barsky <me@davidbarsky.com>", "Tokio Contributors <team@tokio.rs>"]
 description = "Utilities for implementing and composing `tracing` subscribers.\n"
 homepage = "https://tokio.rs"
@@ -140,7 +140,7 @@ version = "0.1.2"
 alloc = []
 ansi = ["fmt", "ansi_term"]
 default = ["smallvec", "fmt", "ansi", "tracing-log", "std"]
-env-filter = ["matchers", "regex", "lazy_static", "tracing", "std"]
+env-filter = ["matchers", "regex", "lazy_static", "tracing", "std", "thread_local"]
 fmt = ["registry", "std"]
 json = ["tracing-serde", "serde", "serde_json"]
 local-time = ["time/local-offset"]

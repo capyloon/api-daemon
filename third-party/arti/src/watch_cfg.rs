@@ -8,10 +8,11 @@ use std::time::Duration;
 
 use arti_client::config::Reconfigure;
 use arti_client::TorClient;
-use arti_config::ArtiConfig;
 use notify::Watcher;
 use tor_rtcompat::Runtime;
 use tracing::{debug, info, warn};
+
+use crate::ArtiConfig;
 
 /// How long (worst case) should we take to learn about configuration changes?
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
@@ -94,7 +95,7 @@ fn reconfigure<R: Runtime>(
     let client_config = config.tor_client_config()?;
     client.reconfigure(&client_config, Reconfigure::WarnOnFailures)?;
 
-    if !config.application().watch_configuration() {
+    if !config.application().watch_configuration {
         // Stop watching for configuration changes.
         return Ok(true);
     }

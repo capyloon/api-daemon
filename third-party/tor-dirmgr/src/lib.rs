@@ -66,6 +66,9 @@ mod shared_ref;
 mod state;
 mod storage;
 
+#[cfg(feature = "dirfilter")]
+pub mod filter;
+
 use crate::docid::{CacheUsage, ClientRequest, DocQuery};
 #[cfg(not(feature = "experimental-api"))]
 use crate::shared_ref::SharedMutArc;
@@ -75,7 +78,7 @@ use crate::storage::DynStore;
 use postage::watch;
 pub use retry::DownloadSchedule;
 use tor_circmgr::CircMgr;
-use tor_netdir::NetDir;
+use tor_netdir::{DirEvent, NetDir, NetDirProvider};
 use tor_netdoc::doc::netstatus::ConsensusFlavor;
 
 use async_trait::async_trait;
@@ -85,37 +88,27 @@ use tracing::{debug, info, trace, warn};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::{collections::HashMap, sync::Weak};
 use std::{fmt::Debug, time::SystemTime};
 
 pub use authority::{Authority, AuthorityBuilder};
 pub use config::{
-    DirMgrConfig, DirMgrConfigBuilder, DownloadScheduleConfig, DownloadScheduleConfigBuilder,
-    NetworkConfig, NetworkConfigBuilder,
+    DirMgrConfig, DownloadScheduleConfig, DownloadScheduleConfigBuilder, NetworkConfig,
+    NetworkConfigBuilder,
 };
 pub use docid::DocId;
 pub use err::Error;
-pub use event::{DirBootstrapEvents, DirBootstrapStatus, DirEvent, DirStatus};
+pub use event::{DirBootstrapEvents, DirBootstrapStatus, DirStatus};
 pub use storage::DocumentText;
-pub use tor_netdir::fallback::{FallbackDir, FallbackDirBuilder};
+pub use tor_guardmgr::fallback::{FallbackDir, FallbackDirBuilder};
 
 /// A Result as returned by this crate.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Trait for DirMgr implementations
 #[async_trait]
-pub trait DirProvider {
-    /// Return a handle to our latest directory, if we have one.
-    fn latest_netdir(&self) -> Option<Arc<NetDir>>;
-
-    /// Return a new asynchronous stream that will receive notification
-    /// whenever the consensus has changed.
-    ///
-    /// Multiple events may be batched up into a single item: each time
-    /// this stream yields an event, all you can assume is that the event has
-    /// occurred at least once.
-    fn events(&self) -> BoxStream<'static, DirEvent>;
-
+pub trait DirProvider: NetDirProvider {
     /// Try to change our configuration to `new_config`.
     ///
     /// Actual behavior will depend on the value of `how`.
@@ -136,8 +129,9 @@ pub trait DirProvider {
     fn bootstrap_events(&self) -> BoxStream<'static, DirBootstrapStatus>;
 }
 
-#[async_trait]
-impl<R: Runtime> DirProvider for Arc<DirMgr<R>> {
+// NOTE(eta): We can't implement this for Arc<DirMgr<R>> due to trait coherence rules, so instead
+//            there's a blanket impl for Arc<T> in tor-netdir.
+impl<R: Runtime> NetDirProvider for DirMgr<R> {
     fn latest_netdir(&self) -> Option<Arc<NetDir>> {
         self.opt_netdir()
     }
@@ -145,7 +139,10 @@ impl<R: Runtime> DirProvider for Arc<DirMgr<R>> {
     fn events(&self) -> BoxStream<'static, DirEvent> {
         Box::pin(self.events.subscribe())
     }
+}
 
+#[async_trait]
+impl<R: Runtime> DirProvider for Arc<DirMgr<R>> {
     fn reconfigure(
         &self,
         new_config: &DirMgrConfig,
@@ -221,6 +218,10 @@ pub struct DirMgr<R: Runtime> {
     ///
     /// (In offline mode, this does nothing.)
     bootstrap_started: AtomicBool,
+
+    /// A filter that gets applied to directory objects before we use them.
+    #[cfg(feature = "dirfilter")]
+    filter: crate::filter::FilterConfig,
 }
 
 /// RAII guard to reset an AtomicBool on drop.
@@ -701,6 +702,8 @@ impl<R: Runtime> DirMgr<R> {
         let receive_status = DirBootstrapEvents {
             inner: receive_status,
         };
+        #[cfg(feature = "dirfilter")]
+        let filter = config.extensions.filter.clone();
 
         Ok(DirMgr {
             config: config.into(),
@@ -713,6 +716,8 @@ impl<R: Runtime> DirMgr<R> {
             runtime,
             offline,
             bootstrap_started: AtomicBool::new(false),
+            #[cfg(feature = "dirfilter")]
+            filter,
         })
     }
 
@@ -852,7 +857,7 @@ impl<R: Runtime> DirMgr<R> {
         for q in q.split_for_download() {
             match q {
                 DocQuery::LatestConsensus { flavor, .. } => {
-                    res.push(self.make_consensus_request(flavor)?);
+                    res.push(self.make_consensus_request(self.runtime.wallclock(), flavor)?);
                 }
                 DocQuery::AuthCert(ids) => {
                     res.push(ClientRequest::AuthCert(ids.into_iter().collect()));
@@ -871,19 +876,30 @@ impl<R: Runtime> DirMgr<R> {
 
     /// Construct an appropriate ClientRequest to download a consensus
     /// of the given flavor.
-    fn make_consensus_request(&self, flavor: ConsensusFlavor) -> Result<ClientRequest> {
-        #![allow(clippy::unnecessary_wraps)]
+    fn make_consensus_request(
+        &self,
+        now: SystemTime,
+        flavor: ConsensusFlavor,
+    ) -> Result<ClientRequest> {
         let mut request = tor_dirclient::request::ConsensusRequest::new(flavor);
+
+        let default_cutoff = default_consensus_cutoff(now)?;
 
         let r = self.store.lock().expect("Directory storage lock poisoned");
         match r.latest_consensus_meta(flavor) {
             Ok(Some(meta)) => {
-                request.set_last_consensus_date(meta.lifetime().valid_after());
+                let valid_after = meta.lifetime().valid_after();
+                request.set_last_consensus_date(std::cmp::max(valid_after, default_cutoff));
                 request.push_old_consensus_digest(*meta.sha3_256_of_signed());
             }
-            Ok(None) => {}
-            Err(e) => {
-                warn!("Error loading directory metadata: {}", e);
+            latest => {
+                if let Err(e) = latest {
+                    warn!("Error loading directory metadata: {}", e);
+                }
+                // If we don't have a consensus, then request one that's
+                // "reasonably new".  That way, our clock is set far in the
+                // future, we won't download stuff we can't use.
+                request.set_last_consensus_date(default_cutoff);
             }
         }
 
@@ -922,6 +938,70 @@ impl<R: Runtime> DirMgr<R> {
             }
         }
         Ok(text)
+    }
+
+    /// If there were errors from a peer in `outcome`, record those errors by
+    /// marking the circuit (if any) as needing retirement, and noting the peer
+    /// (if any) as having failed.
+    fn note_request_outcome(&self, outcome: &tor_dirclient::Result<tor_dirclient::DirResponse>) {
+        use tor_dirclient::Error::RequestFailed;
+        // Extract an error and a source from this outcome, if there is one.
+        //
+        // This is complicated because DirResponse can encapsulate the notion of
+        // a response that failed part way through a download: in the case, it
+        // has some data, and also an error.
+        let (err, source) = match outcome {
+            Ok(req) => {
+                if let (Some(e), Some(source)) = (req.error(), req.source()) {
+                    (
+                        RequestFailed {
+                            error: e.clone(),
+                            source: Some(source.clone()),
+                        },
+                        source,
+                    )
+                } else {
+                    return;
+                }
+            }
+            Err(RequestFailed {
+                source: Some(source),
+                ..
+            }) => (
+                // TODO: Use an @ binding in the pattern once we are on MSRV >=
+                // 1.56.
+                outcome.as_ref().unwrap_err().clone(),
+                source,
+            ),
+            _ => return,
+        };
+
+        self.note_cache_error(source, &err.into());
+    }
+
+    /// Record that a problem has occurred because of a failure in an answer from `source`.
+    fn note_cache_error(&self, source: &tor_dirclient::SourceInfo, problem: &Error) {
+        use tor_circmgr::ExternalActivity;
+
+        if !problem.indicates_cache_failure() {
+            return;
+        }
+
+        if let Some(circmgr) = &self.circmgr {
+            info!("Marking {:?} as failed: {}", source, problem);
+            circmgr.note_external_failure(source.cache_id(), ExternalActivity::DirCache);
+            circmgr.retire_circ(source.unique_circ_id());
+        }
+    }
+
+    /// Record that `source` has successfully given us some directory info.
+    fn note_cache_success(&self, source: &tor_dirclient::SourceInfo) {
+        use tor_circmgr::ExternalActivity;
+
+        if let Some(circmgr) = &self.circmgr {
+            trace!("Marking {:?} as successful", source);
+            circmgr.note_external_success(source.cache_id(), ExternalActivity::DirCache);
+        }
     }
 }
 
@@ -1015,6 +1095,31 @@ fn upgrade_weak_ref<T>(weak: &Weak<T>) -> Result<Arc<T>> {
     Weak::upgrade(weak).ok_or(Error::ManagerDropped)
 }
 
+/// At most how much age can we tolerate in a consensus?
+///
+/// TODO: Make this public and/or use it elsewhere; see arti#412.
+const CONSENSUS_ALLOW_SKEW: Duration = Duration::from_secs(3600 * 48);
+
+/// Given a time `now`, return the age of the oldest consensus that we should
+/// request at that time.
+fn default_consensus_cutoff(now: SystemTime) -> Result<SystemTime> {
+    let cutoff = time::OffsetDateTime::from(now - CONSENSUS_ALLOW_SKEW);
+    // We now round cutoff to the next hour, so that we aren't leaking our exact
+    // time to the directory cache.
+    //
+    // With the time crate, it's easier to calculate the "next hour" by rounding
+    // _down_ then adding an hour; rounding up would sometimes require changing
+    // the date too.
+    let (h, _m, _s) = cutoff.to_hms();
+    let cutoff = cutoff.replace_time(
+        time::Time::from_hms(h, 0, 0)
+            .map_err(tor_error::into_internal!("Failed clock calculation"))?,
+    );
+    let cutoff = cutoff + Duration::from_secs(3600);
+
+    Ok(cutoff.into())
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_used)]
@@ -1023,13 +1128,14 @@ mod test {
     use std::time::Duration;
     use tempfile::TempDir;
     use tor_netdoc::doc::{authcert::AuthCertKeyIds, netstatus::Lifetime};
+    use tor_rtcompat::SleepProvider;
 
     pub(crate) fn new_mgr<R: Runtime>(runtime: R) -> (TempDir, DirMgr<R>) {
         let dir = TempDir::new().unwrap();
-        let config = DirMgrConfig::builder()
-            .cache_path(dir.path())
-            .build()
-            .unwrap();
+        let config = DirMgrConfig {
+            cache_path: dir.path().into(),
+            ..Default::default()
+        };
         let dirmgr = DirMgr::from_config(config, runtime, None, false).unwrap();
 
         (dir, dirmgr)
@@ -1048,11 +1154,11 @@ mod test {
     #[test]
     fn load_and_store_internals() {
         tor_rtcompat::test_with_one_runtime!(|rt| async {
-            let (_tempdir, mgr) = new_mgr(rt);
-
-            let now = SystemTime::now();
+            let now = rt.wallclock();
             let tomorrow = now + Duration::from_secs(86400);
             let later = tomorrow + Duration::from_secs(86400);
+
+            let (_tempdir, mgr) = new_mgr(rt);
 
             // Seed the storage with a bunch of junk.
             let d1 = [5_u8; 32];
@@ -1163,20 +1269,22 @@ mod test {
     #[test]
     fn make_consensus_request() {
         tor_rtcompat::test_with_one_runtime!(|rt| async {
-            let (_tempdir, mgr) = new_mgr(rt);
-
-            let now = SystemTime::now();
+            let now = rt.wallclock();
             let tomorrow = now + Duration::from_secs(86400);
             let later = tomorrow + Duration::from_secs(86400);
 
+            let (_tempdir, mgr) = new_mgr(rt);
+
             // Try with an empty store.
             let req = mgr
-                .make_consensus_request(ConsensusFlavor::Microdesc)
+                .make_consensus_request(now, ConsensusFlavor::Microdesc)
                 .unwrap();
             match req {
                 ClientRequest::Consensus(r) => {
                     assert_eq!(r.old_consensus_digests().count(), 0);
-                    assert_eq!(r.last_consensus_date(), None);
+                    let date = r.last_consensus_date().unwrap();
+                    assert!(date >= now - CONSENSUS_ALLOW_SKEW);
+                    assert!(date <= now - CONSENSUS_ALLOW_SKEW + Duration::from_secs(3600));
                 }
                 _ => panic!("Wrong request type"),
             }
@@ -1198,7 +1306,7 @@ mod test {
 
             // Now try again.
             let req = mgr
-                .make_consensus_request(ConsensusFlavor::Microdesc)
+                .make_consensus_request(now, ConsensusFlavor::Microdesc)
                 .unwrap();
             match req {
                 ClientRequest::Consensus(r) => {
@@ -1258,6 +1366,9 @@ mod test {
     #[test]
     fn expand_response() {
         tor_rtcompat::test_with_one_runtime!(|rt| async {
+            let now = rt.wallclock();
+            let day = Duration::from_secs(86400);
+
             let (_tempdir, mgr) = new_mgr(rt);
 
             // Try a simple request: nothing should happen.
@@ -1281,8 +1392,6 @@ mod test {
             // we can ask for a diff.
             {
                 let mut store = mgr.store.lock().unwrap();
-                let now = SystemTime::now();
-                let day = Duration::from_secs(86400);
                 let d_in = [0x99; 32]; // This one, we can fake.
                 let cmeta = ConsensusMeta::new(
                     Lifetime::new(now, now + day, now + 2 * day).unwrap(),

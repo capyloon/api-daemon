@@ -30,7 +30,7 @@
 //! ```
 //!
 //! ## Increase NOFILE limit
-//! See the example [nofile](https://github.com/Nugine/rlimit/tree/v0.7.0/examples/nofile.rs).
+//! See the example [nofile](https://github.com/Nugine/rlimit/tree/v0.8.1/examples/nofile.rs).
 //!
 //! You can also use the tool function showed below:
 //!
@@ -82,17 +82,9 @@
 
 #[allow(unused_macros)]
 macro_rules! group {
-    ($($tt:tt)*) => {
-        $($tt)*
+    ($($item:item)*) => {
+        $($item)*
     }
-}
-
-#[cfg(unix)]
-group! {
-    mod unix;
-
-    #[doc(inline)]
-    pub use self::unix::*;
 }
 
 #[cfg(any(doc, windows))]
@@ -103,7 +95,28 @@ group! {
     pub use self::windows::*;
 }
 
-mod tools;
+#[cfg(any(doc, unix))]
+group! {
+    mod bindings;
 
+    mod unix;
+    mod resource;
+
+    #[doc(inline)]
+    pub use self::unix::*;
+
+    #[doc(inline)]
+    pub use self::resource::Resource;
+}
+
+#[cfg(any(doc, target_os = "linux"))]
+group! {
+    mod proc_limits;
+
+    #[doc(inline)]
+    pub use self::proc_limits::*;
+}
+
+mod tools;
 #[doc(inline)]
 pub use self::tools::*;

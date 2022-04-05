@@ -4,7 +4,6 @@
 use anyhow::{Context, Result};
 use arti::{dns, socks};
 use arti_client::{status::BootstrapStatus, TorClient, TorClientConfig};
-use arti_config::ArtiConfig;
 use common::traits::SharedServiceState;
 use common::JsonValue;
 use futures::future::{AbortHandle, Abortable};
@@ -13,13 +12,16 @@ use settings_service::db::{DbObserver, ObserverType};
 use settings_service::generated::common::SettingInfo;
 use tor_rtcompat::{BlockOn, Runtime};
 
+static DEFAULT_SOCKS_PORT: u16 = 9150;
+
 type PinnedFuture<T> = std::pin::Pin<Box<dyn futures::Future<Output = T>>>;
 
 /// Run the main loop of the proxy, letting the caller the possibility
 /// to stop it using an abortable.
 pub async fn run_abortable_proxy<F, R: Runtime, T: futures::Future<Output = ()>>(
     runtime: R,
-    arti_config: arti_config::ArtiConfig,
+    socks_port: u16,
+    dns_port: u16,
     client_config: TorClientConfig,
     abortable: Abortable<T>,
     status_fn: F,
@@ -37,8 +39,6 @@ where
         .config(client_config)
         .bootstrap_behavior(OnDemand)
         .create_unbootstrapped()?;
-    let socks_port = arti_config.proxy().socks_port().unwrap_or(9150);
-    let dns_port = arti_config.proxy().dns_port().unwrap_or(0);
     let mut events = client.bootstrap_events();
 
     let mut proxy: Vec<PinnedFuture<(Result<()>, &str)>> = Vec::new();
@@ -146,18 +146,15 @@ impl TorSettingObserver {
         let _ = std::thread::Builder::new()
             .name("tor proxy".into())
             .spawn(move || {
-                let config = ArtiConfig::default();
-                let client_config = config.tor_client_config().unwrap();
-                let socks_port = config.proxy().socks_port().unwrap_or(9150);
-
-                info!("Tor starting socks proxy on port {}", socks_port);
+                info!("Tor starting socks proxy on port {}", DEFAULT_SOCKS_PORT);
 
                 let runtime = tor_rtcompat::tokio::TokioRustlsRuntime::create().unwrap();
                 let rt_clone = runtime.clone();
                 let _ = rt_clone.block_on(run_abortable_proxy(
                     runtime,
-                    config,
-                    client_config,
+                    DEFAULT_SOCKS_PORT,
+                    0, // dns port
+                    TorClientConfig::default(),
                     future,
                     notify_tor_status,
                 ));

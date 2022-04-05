@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "libsqlite3-sys"
-version = "0.24.1"
+version = "0.24.2"
 authors = ["The rusqlite developers"]
 build = "build.rs"
 links = "sqlite3"
@@ -94,5 +94,8 @@ session = [
 sqlcipher = []
 unlock_notify = []
 wasm32-wasi-vfs = []
-winsqlite3 = ["min_sqlite_version_3_7_16"]
+winsqlite3 = [
+    "min_sqlite_version_3_7_16",
+    "buildtime_bindgen",
+]
 with-asan = []

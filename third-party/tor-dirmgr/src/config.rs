@@ -12,19 +12,20 @@ use crate::retry::DownloadSchedule;
 use crate::storage::DynStore;
 use crate::{Authority, Result};
 use tor_config::ConfigBuildError;
-use tor_netdir::fallback::FallbackDir;
 use tor_netdoc::doc::netstatus;
 
 use derive_builder::Builder;
-use std::path::PathBuf;
-
 use serde::Deserialize;
+use std::path::PathBuf;
 
 /// Configuration information about the Tor network itself; used as
 /// part of Arti's configuration.
 ///
 /// This type is immutable once constructed. To make one, use
 /// [`NetworkConfigBuilder`], or deserialize it from a string.
+//
+// TODO: We should move this type around, since the fallbacks part will no longer be used in
+// dirmgr, but only in guardmgr.  Probably this type belongs in `arti-client`.
 #[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[builder(build_fn(validate = "Self::validate", error = "ConfigBuildError"))]
@@ -40,7 +41,10 @@ pub struct NetworkConfig {
     /// affect future download attempts only.
     #[serde(default = "fallbacks::default_fallbacks")]
     #[builder(default = "fallbacks::default_fallbacks()")]
-    fallback_caches: Vec<FallbackDir>,
+    #[serde(rename = "fallback_caches")]
+    #[builder_field_attr(serde(rename = "fallback_caches"))]
+    #[builder(setter(into, name = "fallback_caches"))]
+    pub(crate) fallbacks: tor_guardmgr::fallback::FallbackList,
 
     /// List of directory authorities which we expect to sign consensus
     /// documents.
@@ -51,13 +55,13 @@ pub struct NetworkConfig {
     /// This section cannot be changed in a running Arti client.
     #[serde(default = "crate::authority::default_authorities")]
     #[builder(default = "crate::authority::default_authorities()")]
-    authorities: Vec<Authority>,
+    pub(crate) authorities: Vec<Authority>,
 }
 
 impl Default for NetworkConfig {
     fn default() -> Self {
         NetworkConfig {
-            fallback_caches: fallbacks::default_fallbacks(),
+            fallbacks: fallbacks::default_fallbacks(),
             authorities: crate::authority::default_authorities(),
         }
     }
@@ -68,20 +72,17 @@ impl NetworkConfig {
     pub fn builder() -> NetworkConfigBuilder {
         NetworkConfigBuilder::default()
     }
-    /// Return the configured directory authorities
-    pub(crate) fn authorities(&self) -> &[Authority] {
-        &self.authorities[..]
-    }
-    /// Return the configured fallback directories
-    pub(crate) fn fallbacks(&self) -> &[FallbackDir] {
-        &self.fallback_caches[..]
+
+    /// Return the list of fallback directory caches from this configuration.
+    pub fn fallback_caches(&self) -> &tor_guardmgr::fallback::FallbackList {
+        &self.fallbacks
     }
 }
 
 impl NetworkConfigBuilder {
     /// Check that this builder will give a reasonable network.
     fn validate(&self) -> std::result::Result<(), ConfigBuildError> {
-        if self.authorities.is_some() && self.fallback_caches.is_none() {
+        if self.authorities.is_some() && self.fallbacks.is_none() {
             return Err(ConfigBuildError::Inconsistent {
                 fields: vec!["authorities".to_owned(), "fallbacks".to_owned()],
                 problem: "Non-default authorities are use, but the fallback list is not overridden"
@@ -151,28 +152,36 @@ impl DownloadScheduleConfig {
 
 /// Configuration type for network directory operations.
 ///
-/// This type is immutable once constructed.
+/// If the directory manager gains new configurabilities, this structure will gain additional
+/// supertraits, as an API break.
 ///
-/// To create an object of this type, use [`DirMgrConfigBuilder`], or
-/// deserialize it from a string. (Arti generally uses Toml for configuration,
-/// but you can use other formats if you prefer.)
-///
-/// Many members of this type can be replaced with a new configuration on a
-/// running Arti client. Those that cannot are documented.
-#[derive(Debug, Clone, Builder, Eq, PartialEq)]
-#[builder(build_fn(error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
+/// Prefer to use `TorClientConfig`, which will always be convertible to this struct
+/// via `TryInto`.
+//
+// We do not use a builder here.  Instead, additions or changes here are API breaks.
+//
+// Rationale:
+//
+// The purpose of using a builder is to allow the code to continue to
+// compile when new fields are added to the built struct.
+//
+// However, here, the DirMgrConfig is just a subset of the fields of a
+// TorClientConfig, and it is important that all its fields are
+// initialised by arti-client.
+//
+// If it grows a field, arti-client ought not to compile any more.
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Default))]
+#[allow(clippy::exhaustive_structs)]
 pub struct DirMgrConfig {
     /// Location to use for storing and reading current-format
     /// directory information.
     ///
     /// Cannot be changed on a running Arti client.
-    #[builder(setter(into))]
-    cache_path: PathBuf,
+    pub cache_path: PathBuf,
 
     /// Configuration information about the network.
-    #[builder(default)]
-    network_config: NetworkConfig,
+    pub network_config: NetworkConfig,
 
     /// Configuration information about when we download things.
     ///
@@ -184,8 +193,7 @@ pub struct DirMgrConfig {
     /// on in-progress attempts as well, at least at the top level.  Users
     /// should _not_ assume that the effect of changing this option will always
     /// be delayed.)
-    #[builder(default)]
-    schedule_config: DownloadScheduleConfig,
+    pub schedule_config: DownloadScheduleConfig,
 
     /// A map of network parameters that we're overriding from their settings in
     /// the consensus.
@@ -196,36 +204,16 @@ pub struct DirMgrConfig {
     /// (The above is a limitation: we would like it to someday take effect
     /// immediately. Users should _not_ assume that the effect of changing this
     /// option will always be delayed.)
-    #[builder(default)]
-    override_net_params: netstatus::NetParams<i32>,
-}
+    pub override_net_params: netstatus::NetParams<i32>,
 
-impl DirMgrConfigBuilder {
-    /// Overrides the network consensus parameter named `param` with a
-    /// new value.
+    /// Extra fields for extension purposes.
     ///
-    /// If the new value is out of range, it will be clamped to the
-    /// acceptable range.
-    ///
-    /// If the parameter is not recognized by Arti, it will be
-    /// ignored, and a warning will be produced when we try to apply
-    /// it to the consensus.
-    ///
-    /// By default no parameters will be overridden.
-    pub fn override_net_param(&mut self, param: String, value: i32) -> &mut Self {
-        self.override_net_params
-            .get_or_insert_with(netstatus::NetParams::default)
-            .set(param, value);
-        self
-    }
+    /// These are kept in a separate type so that the type can be marked as
+    /// `non_exhaustive` and used for optional features.
+    pub extensions: DirMgrExtensions,
 }
 
 impl DirMgrConfig {
-    /// Return a new builder to construct a DirMgrConfig.
-    pub fn builder() -> DirMgrConfigBuilder {
-        DirMgrConfigBuilder::default()
-    }
-
     /// Create a store from this configuration.
     ///
     /// Note that each time this is called, a new store object will be
@@ -244,12 +232,12 @@ impl DirMgrConfig {
 
     /// Return a slice of the configured authorities
     pub fn authorities(&self) -> &[Authority] {
-        self.network_config.authorities()
+        &self.network_config.authorities
     }
 
     /// Return the configured set of fallback directories
-    pub fn fallbacks(&self) -> &[FallbackDir] {
-        self.network_config.fallbacks()
+    pub fn fallbacks(&self) -> &tor_guardmgr::fallback::FallbackList {
+        &self.network_config.fallbacks
     }
 
     /// Return set of configured networkstatus parameter overrides.
@@ -271,11 +259,12 @@ impl DirMgrConfig {
         DirMgrConfig {
             cache_path: self.cache_path.clone(),
             network_config: NetworkConfig {
-                fallback_caches: new_config.network_config.fallback_caches.clone(),
+                fallbacks: new_config.network_config.fallbacks.clone(),
                 authorities: self.network_config.authorities.clone(),
             },
             schedule_config: new_config.schedule_config.clone(),
             override_net_params: new_config.override_net_params.clone(),
+            extensions: new_config.extensions.clone(),
         }
     }
 
@@ -287,6 +276,15 @@ impl DirMgrConfig {
     pub fn update_config(&self, new_config: &DirMgrConfig) -> DirMgrConfig {
         self.update_from_config(new_config)
     }
+}
+
+/// Optional extensions for configuring
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct DirMgrExtensions {
+    /// A filter to be used when installing new directory objects.
+    #[cfg(feature = "dirfilter")]
+    pub filter: crate::filter::FilterConfig,
 }
 
 impl DownloadScheduleConfig {
@@ -314,11 +312,11 @@ impl DownloadScheduleConfig {
 
 /// Helpers for initializing the fallback list.
 mod fallbacks {
+    use tor_guardmgr::fallback::{FallbackDir, FallbackList};
     use tor_llcrypto::pk::{ed25519::Ed25519Identity, rsa::RsaIdentity};
-    use tor_netdir::fallback::FallbackDir;
     /// Return a list of the default fallback directories shipped with
     /// arti.
-    pub(crate) fn default_fallbacks() -> Vec<super::FallbackDir> {
+    pub(crate) fn default_fallbacks() -> FallbackList {
         /// Build a fallback directory; panic if input is bad.
         fn fallback(rsa: &str, ed: &str, ports: &[&str]) -> FallbackDir {
             let rsa = RsaIdentity::from_hex(rsa).expect("Bad hex in built-in fallback list");
@@ -339,7 +337,7 @@ mod fallbacks {
             bld.build()
                 .expect("Unable to build default fallback directory!?")
         }
-        include!("fallback_dirs.inc")
+        include!("fallback_dirs.inc").into()
     }
 }
 
@@ -354,10 +352,10 @@ mod test {
     fn simplest_config() -> Result<()> {
         let tmp = tempdir().unwrap();
 
-        let dir = DirMgrConfigBuilder::default()
-            .cache_path(tmp.path().to_path_buf())
-            .build()
-            .unwrap();
+        let dir = DirMgrConfig {
+            cache_path: tmp.path().into(),
+            ..Default::default()
+        };
 
         assert!(dir.authorities().len() >= 3);
         assert!(dir.fallbacks().len() >= 3);
@@ -369,13 +367,15 @@ mod test {
 
     #[test]
     fn build_network() -> Result<()> {
+        use tor_guardmgr::fallback::FallbackDir;
+
         let dflt = NetworkConfig::default();
 
         // with nothing set, we get the default.
         let mut bld = NetworkConfig::builder();
         let cfg = bld.build().unwrap();
-        assert_eq!(cfg.authorities().len(), dflt.authorities.len());
-        assert_eq!(cfg.fallbacks().len(), dflt.fallback_caches.len());
+        assert_eq!(cfg.authorities.len(), dflt.authorities.len());
+        assert_eq!(cfg.fallbacks.len(), dflt.fallbacks.len());
 
         // with any authorities set, the fallback list _must_ be set
         // or the build fails.
@@ -401,8 +401,8 @@ mod test {
             .build()
             .unwrap()]);
         let cfg = bld.build().unwrap();
-        assert_eq!(cfg.authorities().len(), 2);
-        assert_eq!(cfg.fallbacks().len(), 1);
+        assert_eq!(cfg.authorities.len(), 2);
+        assert_eq!(cfg.fallbacks.len(), 1);
 
         Ok(())
     }
@@ -434,18 +434,13 @@ mod test {
 
     #[test]
     fn build_dirmgrcfg() -> Result<()> {
-        let mut bld = DirMgrConfig::builder();
+        let mut bld = DirMgrConfig::default();
         let tmp = tempdir().unwrap();
 
-        let cfg = bld
-            .override_net_param("circwindow".into(), 999)
-            .cache_path(tmp.path())
-            .network_config(NetworkConfig::default())
-            .schedule_config(DownloadScheduleConfig::default())
-            .build()
-            .unwrap();
+        bld.override_net_params.set("circwindow".into(), 999);
+        bld.cache_path = tmp.path().into();
 
-        assert_eq!(cfg.override_net_params().get("circwindow").unwrap(), &999);
+        assert_eq!(bld.override_net_params().get("circwindow").unwrap(), &999);
 
         Ok(())
     }

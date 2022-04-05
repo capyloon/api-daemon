@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "time"
-version = "0.3.7"
+version = "0.3.9"
 authors = ["Jacob Pratt <open-source@jhpratt.dev>", "Time contributors"]
 include = ["src/**/*", "LICENSE-*", "README.md", "!src/tests.rs"]
 description = "Date and time library. Fully interoperable with the standard library. Mostly compatible with #![no_std]."
@@ -58,8 +58,11 @@ optional = true
 default-features = false
 
 [dependencies.time-macros]
-version = "=0.2.3"
+version = "=0.2.4"
 optional = true
+[dev-dependencies.quickcheck_macros]
+version = "1.0.0"
+
 [dev-dependencies.rand]
 version = "0.8.4"
 default-features = false
@@ -68,6 +71,9 @@ default-features = false
 version = "1.0.126"
 features = ["derive"]
 default-features = false
+
+[dev-dependencies.serde_json]
+version = "1.0.68"
 
 [dev-dependencies.serde_test]
 version = "1.0.126"

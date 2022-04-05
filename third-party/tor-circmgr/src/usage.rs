@@ -3,8 +3,8 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::SystemTime;
 use tor_error::bad_api_usage;
 use tracing::debug;
 
@@ -14,6 +14,7 @@ use tor_netdir::Relay;
 use tor_netdoc::types::policy::PortPolicy;
 use tor_rtcompat::Runtime;
 
+use crate::isolation::{IsolationHelper, StreamIsolation};
 use crate::mgr::{abstract_spec_find_supported, AbstractCirc, OpenEntry};
 use crate::Result;
 
@@ -100,130 +101,6 @@ impl Display for TargetPorts {
     }
 }
 
-/// A token used to isolate unrelated streams on different circuits.
-///
-/// When two streams are associated with different isolation tokens, they
-/// can never share the same circuit.
-///
-/// Tokens created with [`IsolationToken::new`] are all different from
-/// one another, and different from tokens created with
-/// [`IsolationToken::no_isolation`]. However, tokens created with
-/// [`IsolationToken::no_isolation`] are all equal to one another.
-///
-/// # Examples
-///
-/// Creating distinct isolation tokens:
-///
-/// ```rust
-/// # use tor_circmgr::IsolationToken;
-/// let token_1 = IsolationToken::new();
-/// let token_2 = IsolationToken::new();
-///
-/// assert_ne!(token_1, token_2);
-///
-/// // Demonstrating the behaviour of no_isolation() tokens:
-/// assert_ne!(token_1, IsolationToken::no_isolation());
-/// assert_eq!(IsolationToken::no_isolation(), IsolationToken::no_isolation());
-/// ```
-///
-/// Using an isolation token to route streams differently over the Tor network:
-///
-/// ```ignore
-/// use arti_client::StreamPrefs;
-///
-/// let token_1 = IsolationToken::new();
-/// let token_2 = IsolationToken::new();
-///
-/// let mut prefs_1 = StreamPrefs::new();
-/// prefs_1.set_isolation_group(token_1);
-///
-/// let mut prefs_2 = StreamPrefs::new();
-/// prefs_2.set_isolation_group(token_2);
-///
-/// // These two connections will come from different source IP addresses.
-/// tor_client.connect(("example.com", 80), Some(prefs_1)).await?;
-/// tor_client.connect(("example.com", 80), Some(prefs_2)).await?;
-/// ```
-// # Semver note
-//
-// This type is re-exported by `arti-client`: any changes to it must be
-// reflected in `arti-client`'s version.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct IsolationToken(u64);
-
-#[allow(clippy::new_without_default)]
-impl IsolationToken {
-    /// Create a new IsolationToken, unequal to any other token this function
-    /// has created.
-    ///
-    /// # Panics
-    ///
-    /// Panics if we have already allocated 2^64 isolation tokens: in that
-    /// case, we have exhausted the space of possible tokens, and it is
-    /// no longer possible to ensure isolation.
-    pub fn new() -> Self {
-        /// Internal counter used to generate different tokens each time
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        // Ordering::Relaxed is fine because we don't care about causality, we just want a
-        // different number each time
-        let token = COUNTER.fetch_add(1, Ordering::Relaxed);
-        assert!(token < u64::MAX);
-        IsolationToken(token)
-    }
-
-    /// Create a new IsolationToken equal to every other token created
-    /// with this function, but different from all tokens created with
-    /// `new`.
-    ///
-    /// This can be used when no isolation is wanted for some streams.
-    pub fn no_isolation() -> Self {
-        IsolationToken(0)
-    }
-}
-
-/// A set of information about how a stream should be isolated.
-///
-/// If two streams are isolated from one another, they may not share
-/// a circuit.
-#[derive(Copy, Clone, Eq, Debug, PartialEq, PartialOrd, Ord, derive_builder::Builder)]
-pub struct StreamIsolation {
-    /// Any isolation token set on the stream.
-    #[builder(default = "IsolationToken::no_isolation()")]
-    stream_token: IsolationToken,
-    /// Any additional isolation token set on an object that "owns" this
-    /// stream.  This is typically owned by a `TorClient`.
-    #[builder(default = "IsolationToken::no_isolation()")]
-    owner_token: IsolationToken,
-}
-
-impl StreamIsolation {
-    /// Construct a new StreamIsolation with no isolation enabled.
-    pub fn no_isolation() -> Self {
-        StreamIsolationBuilder::new()
-            .build()
-            .expect("Bug constructing StreamIsolation")
-    }
-
-    /// Return a new StreamIsolationBuilder for constructing
-    /// StreamIsolation objects.
-    pub fn builder() -> StreamIsolationBuilder {
-        StreamIsolationBuilder::new()
-    }
-
-    /// Return true if this StreamIsolation can share a circuit with
-    /// `other`.
-    fn may_share_circuit(&self, other: &StreamIsolation) -> bool {
-        self == other
-    }
-}
-
-impl StreamIsolationBuilder {
-    /// Construct a builder with no items set.
-    pub fn new() -> Self {
-        StreamIsolationBuilder::default()
-    }
-}
-
 impl ExitPolicy {
     /// Make a new exit policy from a given Relay.
     pub(crate) fn from_relay(relay: &Relay<'_>) -> Self {
@@ -249,7 +126,7 @@ impl ExitPolicy {
 ///
 /// This type should stay internal to the circmgr crate for now: we'll probably
 /// want to refactor it a lot.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug)]
 pub(crate) enum TargetCircUsage {
     /// Use for BEGINDIR-based non-anonymous directory connections
     Dir,
@@ -286,7 +163,7 @@ pub(crate) enum TargetCircUsage {
 ///
 /// This type should stay internal to the circmgr crate for now: we'll probably
 /// want to refactor it a lot.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) enum SupportedCircUsage {
     /// Usable for BEGINDIR-based non-anonymous directory connections
     Dir,
@@ -311,6 +188,7 @@ impl TargetCircUsage {
         netdir: crate::DirInfo<'a>,
         guards: Option<&GuardMgr<RT>>,
         config: &crate::PathConfig,
+        now: SystemTime,
     ) -> Result<(
         TorPath<'a>,
         SupportedCircUsage,
@@ -325,7 +203,7 @@ impl TargetCircUsage {
             TargetCircUsage::Preemptive { port, .. } => {
                 // FIXME(eta): this is copypasta from `TargetCircUsage::Exit`.
                 let (path, mon, usable) = ExitPathBuilder::from_target_ports(port.iter().copied())
-                    .pick_path(rng, netdir, guards, config)?;
+                    .pick_path(rng, netdir, guards, config, now)?;
                 let policy = path
                     .exit_policy()
                     .expect("ExitPathBuilder gave us a one-hop circuit?");
@@ -344,7 +222,7 @@ impl TargetCircUsage {
                 isolation,
             } => {
                 let (path, mon, usable) = ExitPathBuilder::from_target_ports(p.clone())
-                    .pick_path(rng, netdir, guards, config)?;
+                    .pick_path(rng, netdir, guards, config, now)?;
                 let policy = path
                     .exit_policy()
                     .expect("ExitPathBuilder gave us a one-hop circuit?");
@@ -352,7 +230,7 @@ impl TargetCircUsage {
                     path,
                     SupportedCircUsage::Exit {
                         policy,
-                        isolation: Some(*isolation),
+                        isolation: Some(isolation.clone()),
                     },
                     mon,
                     usable,
@@ -360,7 +238,7 @@ impl TargetCircUsage {
             }
             TargetCircUsage::TimeoutTesting => {
                 let (path, mon, usable) = ExitPathBuilder::for_timeout_testing()
-                    .pick_path(rng, netdir, guards, config)?;
+                    .pick_path(rng, netdir, guards, config, now)?;
                 let policy = path.exit_policy();
                 let usage = match policy {
                     Some(policy) if policy.allows_some_port() => SupportedCircUsage::Exit {
@@ -393,12 +271,14 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
                     isolation: i2,
                 },
             ) => {
-                i1.map(|i1| i1.may_share_circuit(i2)).unwrap_or(true)
+                i1.as_ref()
+                    .map(|i1| i1.compatible_same_type(i2))
+                    .unwrap_or(true)
                     && p2.iter().all(|port| p1.allows_port(*port))
             }
             (Exit { policy, isolation }, TargetCircUsage::Preemptive { port, .. }) => {
                 if isolation.is_some() {
-                    // If the circuit has a stream isolation token, we might not be able to use it
+                    // If the circuit has a stream isolation, we might not be able to use it
                     // for new streams that don't share it.
                     return false;
                 }
@@ -424,18 +304,25 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
             (Exit { .. }, TargetCircUsage::Preemptive { .. }) => Ok(()),
             (
                 Exit {
-                    isolation: ref mut i1,
+                    isolation: ref mut isol1,
                     ..
                 },
                 TargetCircUsage::Exit { isolation: i2, .. },
-            ) if i1.map(|i1| i1.may_share_circuit(i2)).unwrap_or(true) => {
-                // Once we have more complex isolation, this assignment
-                // won't be correct.
-                *i1 = Some(*i2);
-                Ok(())
-            }
-            (Exit { .. }, TargetCircUsage::Exit { .. }) => {
-                Err(bad_api_usage!("Isolation not compatible").into())
+            ) => {
+                if let Some(i1) = isol1 {
+                    if let Some(new_isolation) = i1.join_same_type(i2) {
+                        // there was some isolation, and the requested usage is compatible, saving
+                        // the new isolation into self
+                        *isol1 = Some(new_isolation);
+                        Ok(())
+                    } else {
+                        Err(bad_api_usage!("Isolation not compatible").into())
+                    }
+                } else {
+                    // there was no isolation yet on self, applying the restriction from usage
+                    *isol1 = Some(i2.clone());
+                    Ok(())
+                }
             }
             (Exit { .. } | NoUsage, TargetCircUsage::TimeoutTesting) => Ok(()),
             (_, _) => Err(bad_api_usage!("Mismatched usage types").into()),
@@ -469,14 +356,68 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    use crate::isolation::test::{assert_isoleq, IsolationTokenEq};
+    use crate::isolation::{IsolationToken, StreamIsolationBuilder};
     use crate::path::OwnedPath;
     use crate::test::OptDummyGuardMgr;
     use std::convert::TryFrom;
     use tor_linkspec::ChanTarget;
     use tor_netdir::testnet;
+
+    impl IsolationTokenEq for TargetCircUsage {
+        fn isol_eq(&self, other: &Self) -> bool {
+            use TargetCircUsage::*;
+            match (self, other) {
+                (Dir, Dir) => true,
+                (
+                    Exit {
+                        ports: p1,
+                        isolation: is1,
+                    },
+                    Exit {
+                        ports: p2,
+                        isolation: is2,
+                    },
+                ) => p1 == p2 && is1.isol_eq(is2),
+                (TimeoutTesting, TimeoutTesting) => true,
+                (
+                    Preemptive {
+                        port: p1,
+                        circs: c1,
+                    },
+                    Preemptive {
+                        port: p2,
+                        circs: c2,
+                    },
+                ) => p1 == p2 && c1 == c2,
+                _ => false,
+            }
+        }
+    }
+
+    impl IsolationTokenEq for SupportedCircUsage {
+        fn isol_eq(&self, other: &Self) -> bool {
+            use SupportedCircUsage::*;
+            match (self, other) {
+                (Dir, Dir) => true,
+                (
+                    Exit {
+                        policy: p1,
+                        isolation: is1,
+                    },
+                    Exit {
+                        policy: p2,
+                        isolation: is2,
+                    },
+                ) => p1 == p2 && is1.isol_eq(is2),
+                (NoUsage, NoUsage) => true,
+                _ => false,
+            }
+        }
+    }
 
     #[test]
     fn exit_policy() {
@@ -560,11 +501,11 @@ mod test {
         let targ_dir = TargetCircUsage::Dir;
         let supp_exit = SupportedCircUsage::Exit {
             policy: policy.clone(),
-            isolation: Some(isolation),
+            isolation: Some(isolation.clone()),
         };
         let supp_exit_iso2 = SupportedCircUsage::Exit {
             policy: policy.clone(),
-            isolation: Some(isolation2),
+            isolation: Some(isolation2.clone()),
         };
         let supp_exit_no_iso = SupportedCircUsage::Exit {
             policy,
@@ -574,7 +515,7 @@ mod test {
 
         let targ_80_v4 = TargetCircUsage::Exit {
             ports: vec![TargetPort::ipv4(80)],
-            isolation,
+            isolation: isolation.clone(),
         };
         let targ_80_v4_iso2 = TargetCircUsage::Exit {
             ports: vec![TargetPort::ipv4(80)],
@@ -582,11 +523,11 @@ mod test {
         };
         let targ_80_23_v4 = TargetCircUsage::Exit {
             ports: vec![TargetPort::ipv4(80), TargetPort::ipv4(23)],
-            isolation,
+            isolation: isolation.clone(),
         };
         let targ_80_23_mixed = TargetCircUsage::Exit {
             ports: vec![TargetPort::ipv4(80), TargetPort::ipv6(23)],
-            isolation,
+            isolation: isolation.clone(),
         };
         let targ_999_v6 = TargetCircUsage::Exit {
             ports: vec![TargetPort::ipv6(999)],
@@ -641,11 +582,11 @@ mod test {
         let targ_dir = TargetCircUsage::Dir;
         let supp_exit = SupportedCircUsage::Exit {
             policy: policy.clone(),
-            isolation: Some(isolation),
+            isolation: Some(isolation.clone()),
         };
         let supp_exit_iso2 = SupportedCircUsage::Exit {
             policy: policy.clone(),
-            isolation: Some(isolation2),
+            isolation: Some(isolation2.clone()),
         };
         let supp_exit_no_iso = SupportedCircUsage::Exit {
             policy,
@@ -666,42 +607,42 @@ mod test {
         let mut supp_dir_c = supp_dir.clone();
         assert!(supp_dir_c.restrict_mut(&targ_exit).is_err());
         assert!(supp_dir_c.restrict_mut(&targ_testing).is_err());
-        assert_eq!(supp_dir, supp_dir_c);
+        assert_isoleq!(supp_dir, supp_dir_c);
 
         let mut supp_exit_c = supp_exit.clone();
         assert!(supp_exit_c.restrict_mut(&targ_dir).is_err());
-        assert_eq!(supp_exit, supp_exit_c);
+        assert_isoleq!(supp_exit, supp_exit_c);
 
         let mut supp_exit_c = supp_exit.clone();
         assert!(supp_exit_c.restrict_mut(&targ_exit_iso2).is_err());
-        assert_eq!(supp_exit, supp_exit_c);
+        assert_isoleq!(supp_exit, supp_exit_c);
 
         let mut supp_exit_iso2_c = supp_exit_iso2.clone();
         assert!(supp_exit_iso2_c.restrict_mut(&targ_exit).is_err());
-        assert_eq!(supp_exit_iso2, supp_exit_iso2_c);
+        assert_isoleq!(supp_exit_iso2, supp_exit_iso2_c);
 
         let mut supp_none_c = supp_none.clone();
         assert!(supp_none_c.restrict_mut(&targ_exit).is_err());
         assert!(supp_none_c.restrict_mut(&targ_dir).is_err());
-        assert_eq!(supp_none_c, supp_none);
+        assert_isoleq!(supp_none_c, supp_none);
 
         // allowed but nothing to do
         let mut supp_dir_c = supp_dir.clone();
         supp_dir_c.restrict_mut(&targ_dir).unwrap();
-        assert_eq!(supp_dir, supp_dir_c);
+        assert_isoleq!(supp_dir, supp_dir_c);
 
         let mut supp_exit_c = supp_exit.clone();
         supp_exit_c.restrict_mut(&targ_exit).unwrap();
-        assert_eq!(supp_exit, supp_exit_c);
+        assert_isoleq!(supp_exit, supp_exit_c);
 
         let mut supp_exit_iso2_c = supp_exit_iso2.clone();
         supp_exit_iso2_c.restrict_mut(&targ_exit_iso2).unwrap();
         supp_none_c.restrict_mut(&targ_testing).unwrap();
-        assert_eq!(supp_exit_iso2, supp_exit_iso2_c);
+        assert_isoleq!(supp_exit_iso2, supp_exit_iso2_c);
 
         let mut supp_none_c = supp_none.clone();
         supp_none_c.restrict_mut(&targ_testing).unwrap();
-        assert_eq!(supp_none_c, supp_none);
+        assert_isoleq!(supp_none_c, supp_none);
 
         // allowed, do something
         let mut supp_exit_no_iso_c = supp_exit_no_iso.clone();
@@ -726,6 +667,7 @@ mod test {
         let di = (&netdir).into();
         let config = crate::PathConfig::default();
         let guards: OptDummyGuardMgr<'_> = None;
+        let now = SystemTime::now();
 
         // Only doing basic tests for now.  We'll test the path
         // building code a lot more closely in the tests for TorPath
@@ -733,7 +675,7 @@ mod test {
 
         // First, a one-hop directory circuit
         let (p_dir, u_dir, _, _) = TargetCircUsage::Dir
-            .build_path(&mut rng, di, guards, &config)
+            .build_path(&mut rng, di, guards, &config, now)
             .unwrap();
         assert!(matches!(u_dir, SupportedCircUsage::Dir));
         assert_eq!(p_dir.len(), 1);
@@ -747,24 +689,24 @@ mod test {
 
         let exit_usage = TargetCircUsage::Exit {
             ports: vec![TargetPort::ipv4(995)],
-            isolation,
+            isolation: isolation.clone(),
         };
         let (p_exit, u_exit, _, _) = exit_usage
-            .build_path(&mut rng, di, guards, &config)
+            .build_path(&mut rng, di, guards, &config, now)
             .unwrap();
         assert!(matches!(
             u_exit,
             SupportedCircUsage::Exit {
-                isolation: iso,
+                isolation: ref iso,
                 ..
-            } if iso == Some(isolation)
+            } if iso.isol_eq(&Some(isolation))
         ));
         assert!(u_exit.supports(&exit_usage));
         assert_eq!(p_exit.len(), 3);
 
         // Now try testing circuits.
         let (path, usage, _, _) = TargetCircUsage::TimeoutTesting
-            .build_path(&mut rng, di, guards, &config)
+            .build_path(&mut rng, di, guards, &config, now)
             .unwrap();
         let path = match OwnedPath::try_from(&path).unwrap() {
             OwnedPath::ChannelOnly(_) => panic!("Impossible path type."),
@@ -779,7 +721,7 @@ mod test {
         // paths with an exit if there are any exits.
         assert!(policy.allows_some_port());
         assert!(last_relay.policies_allow_some_port());
-        assert_eq!(
+        assert_isoleq!(
             usage,
             SupportedCircUsage::Exit {
                 policy,
@@ -802,35 +744,13 @@ mod test {
         let di = (&netdir).into();
         let config = crate::PathConfig::default();
         let guards: OptDummyGuardMgr<'_> = None;
+        let now = SystemTime::now();
 
         let (path, usage, _, _) = TargetCircUsage::TimeoutTesting
-            .build_path(&mut rng, di, guards, &config)
+            .build_path(&mut rng, di, guards, &config, now)
             .unwrap();
         assert_eq!(path.len(), 3);
-        assert_eq!(usage, SupportedCircUsage::NoUsage);
-    }
-
-    #[test]
-    fn build_isolation() {
-        let no_isolation = StreamIsolation::no_isolation();
-        let no_isolation2 = StreamIsolation::builder()
-            .owner_token(IsolationToken::no_isolation())
-            .stream_token(IsolationToken::no_isolation())
-            .build()
-            .unwrap();
-        assert_eq!(no_isolation, no_isolation2);
-        assert!(no_isolation.may_share_circuit(&no_isolation2));
-
-        let tok = IsolationToken::new();
-        let some_isolation = StreamIsolation::builder().owner_token(tok).build().unwrap();
-        let some_isolation2 = StreamIsolation::builder()
-            .stream_token(tok)
-            .build()
-            .unwrap();
-        assert!(!no_isolation.may_share_circuit(&some_isolation));
-        assert!(!no_isolation.may_share_circuit(&some_isolation2));
-        assert!(!some_isolation.may_share_circuit(&some_isolation2));
-        assert!(some_isolation.may_share_circuit(&some_isolation));
+        assert_isoleq!(usage, SupportedCircUsage::NoUsage);
     }
 
     #[test]

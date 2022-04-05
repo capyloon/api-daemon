@@ -12,7 +12,12 @@
 [package]
 edition = "2018"
 name = "windows_x86_64_gnu"
-version = "0.32.0"
+version = "0.34.0"
 authors = ["Microsoft"]
 description = "Code gen support for the windows crate"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/microsoft/windows-rs"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = []
