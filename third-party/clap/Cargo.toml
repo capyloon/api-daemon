@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "clap"
-version = "3.1.6"
+version = "3.1.8"
 include = ["build.rs", "src/**/*", "Cargo.toml", "LICENSE*", "README.md", "benches/**/*", "examples/**/*"]
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 documentation = "https://docs.rs/clap/"
@@ -118,7 +118,7 @@ name = "git-derive"
 required-features = ["derive"]
 
 [[example]]
-name = "keyvalue-derive"
+name = "typed-derive"
 required-features = ["derive"]
 
 [[example]]
@@ -307,6 +307,26 @@ name = "custom-bool"
 path = "examples/derive_ref/custom-bool.rs"
 required-features = ["derive"]
 
+[[example]]
+name = "interop_augment_args"
+path = "examples/derive_ref/augment_args.rs"
+required-features = ["derive"]
+
+[[example]]
+name = "interop_augment_subcommands"
+path = "examples/derive_ref/augment_subcommands.rs"
+required-features = ["derive"]
+
+[[example]]
+name = "interop_hand_subcommand"
+path = "examples/derive_ref/hand_subcommand.rs"
+required-features = ["derive"]
+
+[[example]]
+name = "interop_flatten_hand_args"
+path = "examples/derive_ref/flatten_hand_args.rs"
+required-features = ["derive"]
+
 [[bench]]
 name = "01_default"
 path = "benches/01_default.rs"
@@ -348,7 +368,7 @@ optional = true
 version = "1.2"
 
 [dependencies.clap_derive]
-version = "3.1.4"
+version = "3.1.7"
 optional = true
 
 [dependencies.indexmap]
@@ -392,6 +412,9 @@ optional = true
 [dev-dependencies.criterion]
 version = "0.3.2"
 
+[dev-dependencies.humantime]
+version = "2"
+
 [dev-dependencies.lazy_static]
 version = "1"
 
@@ -405,7 +428,7 @@ version = "1"
 version = "1.0.18"
 
 [dev-dependencies.trycmd]
-version = "0.12"
+version = "0.13"
 features = ["color-auto", "diff", "examples"]
 default-features = false
 

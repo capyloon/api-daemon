@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
 use core::fmt;
 use core::iter::Sum;
-use core::ops::{Add, Div, Mul, Neg, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 use core::time::Duration as StdDuration;
 
 use crate::error;
@@ -740,6 +740,44 @@ impl Duration {
 }
 
 // region: trait impls
+/// The format returned by this implementation is not stable and must not be relied upon.
+///
+/// For the purposes of this implementation, a day is exactly 24 hours and a minute is exactly 60
+/// seconds.
+impl fmt::Display for Duration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        /// Format a single item.
+        macro_rules! item {
+            ($name:literal, $value:expr) => {
+                match $value {
+                    0 => Ok(()),
+                    value => value.fmt(f).and(f.write_str($name)),
+                }
+            };
+        }
+
+        if self.is_zero() {
+            return f.write_str("0s");
+        }
+
+        let seconds = self.seconds.unsigned_abs();
+        let nanoseconds = self.nanoseconds.unsigned_abs();
+
+        if self.is_negative() {
+            f.write_str("-")?;
+        }
+
+        item!("d", seconds / 86_400)?;
+        item!("h", seconds / 3_600 % 24)?;
+        item!("m", seconds / 60 % 60)?;
+        item!("s", seconds % 60)?;
+        item!("ms", nanoseconds / 1_000_000)?;
+        item!("µs", nanoseconds / 1_000 % 1_000)?;
+        item!("ns", nanoseconds % 1_000)?;
+        Ok(())
+    }
+}
+
 impl TryFrom<StdDuration> for Duration {
     type Error = error::ConversionRange;
 
@@ -797,7 +835,16 @@ impl Add<Duration> for StdDuration {
     }
 }
 
-impl_add_assign!(Duration: Duration, StdDuration);
+impl_add_assign!(Duration: Self, StdDuration);
+
+impl AddAssign<Duration> for StdDuration {
+    fn add_assign(&mut self, rhs: Duration) {
+        *self = (*self + rhs).try_into().expect(
+            "Cannot represent a resulting duration in std. Try `let x = x + rhs;`, which will \
+             change the type.",
+        );
+    }
+}
 
 impl Neg for Duration {
     type Output = Self;
@@ -835,7 +882,7 @@ impl Sub<Duration> for StdDuration {
     }
 }
 
-impl_sub_assign!(Duration: Duration, StdDuration);
+impl_sub_assign!(Duration: Self, StdDuration);
 
 impl SubAssign<Duration> for StdDuration {
     fn sub_assign(&mut self, rhs: Duration) {

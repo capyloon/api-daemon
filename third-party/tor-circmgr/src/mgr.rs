@@ -742,14 +742,34 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         usage: &<B::Spec as AbstractSpec>::Usage,
         dir: DirInfo<'_>,
     ) -> Result<B::Circ> {
+        /// Return CEIL(a/b).
+        ///
+        /// Requires that a+b is less than usize::MAX.
+        ///
+        /// This can be removed once usize::div_ceil is stable.
+        ///
+        /// # Panics
+        ///
+        /// Panics if b is 0.
+        fn div_ceil(a: usize, b: usize) -> usize {
+            (a + b - 1) / b
+        }
+
         let circuit_timing = self.circuit_timing();
         let wait_for_circ = circuit_timing.request_timeout;
         let timeout_at = self.runtime.now() + wait_for_circ;
         let max_tries = circuit_timing.request_max_retries;
+        // We compute the maximum number of times through this loop by dividing
+        // the maximum number of circuits to attempt by the number that will be
+        // launched in parallel for each iteration.
+        let max_iterations = div_ceil(
+            max_tries as usize,
+            std::cmp::max(1, self.builder.launch_parallelism(usage)),
+        );
 
         let mut retry_err = RetryError::<Box<Error>>::in_attempt_to("find or build a circuit");
 
-        for n in 1..(max_tries + 1) {
+        for n in 1..(max_iterations + 1) {
             // How much time is remaining?
             let remaining = match timeout_at.checked_duration_since(self.runtime.now()) {
                 None => {
@@ -780,11 +800,27 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                     }
                 }
                 Err(e) => {
-                    // We couldn't pick the action! This is unusual; wait
-                    // a little while before we try again.
+                    // We couldn't pick the action!
                     info!("Couldn't pick action for circuit attempt {}: {}", n, &e);
+                    let small_delay = Duration::from_millis(50);
+                    let wait_for_action = match &e {
+                        Error::Guard(tor_guardmgr::PickGuardError::AllGuardsDown {
+                            retry_at: Some(instant),
+                        }) => {
+                            // If we failed because all guards are down, that's fine: we just wait until
+                            // the next guard is retriable.
+                            instant.saturating_duration_since(self.runtime.now()) + small_delay
+                        }
+                        _ => {
+                            // Any other errors are pretty unusual; wait a little while, then try again.
+                            small_delay
+                        }
+                    };
                     retry_err.push(e);
-                    let wait_for_action = Duration::from_millis(50);
+                    if remaining < wait_for_action {
+                        // We can't wait long enough.  Call this failed now.
+                        break;
+                    }
                     self.runtime
                         .sleep(std::cmp::min(remaining, wait_for_action))
                         .await;
@@ -869,12 +905,27 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         // Okay, we need to launch circuits here.
         let parallelism = std::cmp::max(1, self.builder.launch_parallelism(usage));
         let mut plans = Vec::new();
+        let mut last_err = None;
         for _ in 0..parallelism {
-            let (pending, plan) = self.plan_by_usage(dir, usage)?;
-            list.add_pending_circ(pending);
-            plans.push(plan);
+            match self.plan_by_usage(dir, usage) {
+                Ok((pending, plan)) => {
+                    list.add_pending_circ(pending);
+                    plans.push(plan);
+                }
+                Err(e) => {
+                    debug!("Unable to make a plan for {:?}: {}", usage, e);
+                    last_err = Some(e);
+                }
+            }
         }
-        Ok(Action::Build(plans))
+        if !plans.is_empty() {
+            Ok(Action::Build(plans))
+        } else if let Some(last_err) = last_err {
+            Err(last_err)
+        } else {
+            // we didn't even try to plan anything!
+            Err(internal!("no plans were built, but no errors were found").into())
+        }
     }
 
     /// Execute an action returned by pick-action, and return the
@@ -1301,11 +1352,14 @@ fn spawn_expiration_task<B, R>(
 mod test {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    use crate::isolation::test::{assert_isoleq, IsolationTokenEq};
     use crate::usage::{ExitPolicy, SupportedCircUsage};
     use crate::{Error, StreamIsolation, TargetCircUsage, TargetPort};
+    use once_cell::sync::Lazy;
     use std::collections::BTreeSet;
     use std::sync::atomic::{self, AtomicUsize};
     use tor_error::bad_api_usage;
+    use tor_guardmgr::fallback::FallbackList;
     use tor_netdir::testnet;
     use tor_rtcompat::SleepProvider;
     use tor_rtmock::MockSleepRuntime;
@@ -1348,14 +1402,14 @@ mod test {
     #[derive(Clone, Debug, Eq, PartialEq, Hash)]
     struct FakeSpec {
         ports: BTreeSet<u16>,
-        isolation_group: Option<u8>,
+        isolation: Option<u8>,
     }
 
     impl AbstractSpec for FakeSpec {
         type Usage = FakeSpec;
         fn supports(&self, other: &FakeSpec) -> bool {
             let ports_ok = self.ports.is_superset(&other.ports);
-            let iso_ok = match (self.isolation_group, other.isolation_group) {
+            let iso_ok = match (self.isolation, other.isolation) {
                 (None, _) => true,
                 (_, None) => true,
                 (Some(a), Some(b)) => a == b,
@@ -1366,14 +1420,14 @@ mod test {
             if !self.ports.is_superset(&other.ports) {
                 return Err(bad_api_usage!("not supported").into());
             }
-            let new_iso = match (self.isolation_group, other.isolation_group) {
+            let new_iso = match (self.isolation, other.isolation) {
                 (None, x) => x,
                 (x, None) => x,
                 (Some(a), Some(b)) if a == b => Some(a),
                 (_, _) => return Err(bad_api_usage!("not supported").into()),
             };
 
-            self.isolation_group = new_iso;
+            self.isolation = new_iso;
             Ok(())
         }
     }
@@ -1387,13 +1441,13 @@ mod test {
             let ports = ports.into_iter().map(Into::into).collect();
             FakeSpec {
                 ports,
-                isolation_group: None,
+                isolation: None,
             }
         }
         fn isolated(self, group: u8) -> Self {
             FakeSpec {
                 ports: self.ports,
-                isolation_group: Some(group),
+                isolation: Some(group),
             }
         }
     }
@@ -1431,10 +1485,10 @@ mod test {
 
     const FAKE_CIRC_DELAY: Duration = Duration::from_millis(30);
 
-    static DI_EMPTY: [tor_netdir::fallback::FallbackDir; 0] = [];
+    static FALLBACKS_EMPTY: Lazy<FallbackList> = Lazy::new(|| [].into());
 
     fn di() -> DirInfo<'static> {
-        DI_EMPTY[..].into()
+        (&*FALLBACKS_EMPTY).into()
     }
 
     #[async_trait]
@@ -1512,6 +1566,22 @@ mod test {
                 None => FakeOp::Succeed,
                 Some(ref mut lst) => lst.pop().unwrap_or(FakeOp::Succeed),
             }
+        }
+    }
+
+    impl<T: IsolationTokenEq, U: PartialEq> IsolationTokenEq for OpenEntry<T, U> {
+        fn isol_eq(&self, other: &Self) -> bool {
+            self.spec.isol_eq(&other.spec)
+                && self.circ == other.circ
+                && self.expiration == other.expiration
+        }
+    }
+
+    impl<T: IsolationTokenEq, U: PartialEq> IsolationTokenEq for &mut OpenEntry<T, U> {
+        fn isol_eq(&self, other: &Self) -> bool {
+            self.spec.isol_eq(&other.spec)
+                && self.circ == other.circ
+                && self.expiration == other.expiration
         }
     }
 
@@ -2016,9 +2086,9 @@ mod test {
             ports: vec![TargetPort::ipv4(80)],
             isolation: StreamIsolation::no_isolation(),
         };
-        let empty: Vec<&OpenEntry<SupportedCircUsage, FakeCirc>> = vec![];
+        let empty: Vec<&mut OpenEntry<SupportedCircUsage, FakeCirc>> = vec![];
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(vec![&mut entry_none].into_iter(), &usage_web),
             empty
         );
@@ -2027,7 +2097,7 @@ mod test {
         //            `abstract_spec_find_supported` has a silly signature that involves `&mut`
         //            refs, which we can't have more than one of.
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(
                 vec![&mut entry_none, &mut entry_web].into_iter(),
                 &usage_web,
@@ -2035,7 +2105,7 @@ mod test {
             vec![&mut entry_web_c]
         );
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(
                 vec![&mut entry_none, &mut entry_web, &mut entry_full].into_iter(),
                 &usage_web,
@@ -2056,7 +2126,7 @@ mod test {
 
         // shouldn't return anything unless there are >=2 circuits
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(
                 vec![&mut entry_none].into_iter(),
                 &usage_preemptive_web
@@ -2064,7 +2134,7 @@ mod test {
             empty
         );
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(
                 vec![&mut entry_none].into_iter(),
                 &usage_preemptive_dns
@@ -2072,7 +2142,7 @@ mod test {
             empty
         );
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(
                 vec![&mut entry_none, &mut entry_web].into_iter(),
                 &usage_preemptive_web
@@ -2080,7 +2150,7 @@ mod test {
             empty
         );
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(
                 vec![&mut entry_none, &mut entry_web].into_iter(),
                 &usage_preemptive_dns
@@ -2088,7 +2158,7 @@ mod test {
             vec![&mut entry_none_c, &mut entry_web_c]
         );
 
-        assert_eq!(
+        assert_isoleq!(
             SupportedCircUsage::find_supported(
                 vec![&mut entry_none, &mut entry_web, &mut entry_full].into_iter(),
                 &usage_preemptive_web

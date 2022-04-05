@@ -19,7 +19,7 @@
 //! [`Subscriber`] behavior; it can _observe_ events and spans, but does not
 //! assign IDs.
 //!
-//! ## Composing Layers
+//! # Composing Layers
 //!
 //! Since a [`Layer`] does not implement a complete strategy for collecting
 //! traces, it must be composed with a `Subscriber` in order to be used. The
@@ -135,9 +135,244 @@
 //! [`Layer::with_subscriber`] as an implementation detail, as `with_subscriber`
 //! calls must be nested, leading to less clear code for the reader.
 //!
+//! ## Runtime Configuration With `Layer`s
+//!
+//! In some cases, a particular [`Layer`] may be enabled or disabled based on
+//! runtime configuration. This can introduce challenges, because the type of a
+//! layered [`Subscriber`] depends on which layers are added to it: if an `if`
+//! or `match` expression adds some [`Layer`] implementation in one branch,
+//! and other layers in another, the [`Subscriber`] values returned by those
+//! branches will have different types. For example, the following _will not_
+//! work:
+//!
+//! ```compile_fail
+//! # fn docs() -> Result<(), Box<dyn std::error::Error + 'static>> {
+//! # struct Config {
+//! #    is_prod: bool,
+//! #    path: &'static str,
+//! # }
+//! # let cfg = Config { is_prod: false, path: "debug.log" };
+//! use std::fs::File;
+//! use tracing_subscriber::{Registry, prelude::*};
+//!
+//! let stdout_log = tracing_subscriber::fmt::layer().pretty();
+//! let subscriber = Registry::default().with(stdout_log);
+//!
+//! // The compile error will occur here because the if and else
+//! // branches have different (and therefore incompatible) types.
+//! let subscriber = if cfg.is_prod {
+//!     let file = File::create(cfg.path)?;
+//!     let layer = tracing_subscriber::fmt::layer()
+//!         .json()
+//!         .with_writer(Arc::new(file));
+//!     layer.with(subscriber)
+//! } else {
+//!     layer
+//! };
+//!
+//! tracing::subscriber::set_global_default(subscriber)
+//!     .expect("Unable to set global subscriber");
+//! # Ok(()) }
+//! ```
+//!
+//! However, a [`Layer`] wrapped in an [`Option`] [also implements the `Layer`
+//! trait][option-impl]. This allows individual layers to be enabled or disabled at
+//! runtime while always producing a [`Subscriber`] of the same type. For
+//! example:
+//!
+//! ```
+//! # fn docs() -> Result<(), Box<dyn std::error::Error + 'static>> {
+//! # struct Config {
+//! #    is_prod: bool,
+//! #    path: &'static str,
+//! # }
+//! # let cfg = Config { is_prod: false, path: "debug.log" };
+//! use std::fs::File;
+//! use tracing_subscriber::{Registry, prelude::*};
+//!
+//! let stdout_log = tracing_subscriber::fmt::layer().pretty();
+//! let subscriber = Registry::default().with(stdout_log);
+//!
+//! // if `cfg.is_prod` is true, also log JSON-formatted logs to a file.
+//! let json_log = if cfg.is_prod {
+//!     let file = File::create(cfg.path)?;
+//!     let json_log = tracing_subscriber::fmt::layer()
+//!         .json()
+//!         .with_writer(file);
+//!     Some(json_log)
+//! } else {
+//!     None
+//! };
+//!
+//! // If `cfg.is_prod` is false, then `json` will be `None`, and this layer
+//! // will do nothing. However, the subscriber will still have the same type
+//! // regardless of whether the `Option`'s value is `None` or `Some`.
+//! let subscriber = subscriber.with(json_log);
+//!
+//! tracing::subscriber::set_global_default(subscriber)
+//!    .expect("Unable to set global subscriber");
+//! # Ok(()) }
+//! ```
+//!
+//! If a [`Layer`] may be one of several different types, note that [`Box<dyn
+//! Layer<S> + Send + Sync>` implements `Layer`][box-impl].
+//! This may be used to erase the type of a [`Layer`].
+//!
+//! For example, a function that configures a [`Layer`] to log to one of
+//! several outputs might return a `Box<dyn Layer<S> + Send + Sync + 'static>`:
+//! ```
+//! use tracing_subscriber::{
+//!     Layer,
+//!     registry::LookupSpan,
+//!     prelude::*,
+//! };
+//! use std::{path::PathBuf, fs::File, io};
+//!
+//! /// Configures whether logs are emitted to a file, to stdout, or to stderr.
+//! pub enum LogConfig {
+//!     File(PathBuf),
+//!     Stdout,
+//!     Stderr,
+//! }
+//!
+//! impl LogConfig {
+//!     pub fn layer<S>(self) -> Box<dyn Layer<S> + Send + Sync + 'static>
+//!     where
+//!         S: tracing_core::Subscriber,
+//!         for<'a> S: LookupSpan<'a>,
+//!     {
+//!         // Shared configuration regardless of where logs are output to.
+//!         let fmt = tracing_subscriber::fmt::layer()
+//!             .with_target(true)
+//!             .with_thread_names(true);
+//!
+//!         // Configure the writer based on the desired log target:
+//!         match self {
+//!             LogConfig::File(path) => {
+//!                 let file = File::create(path).expect("failed to create log file");
+//!                 Box::new(fmt.with_writer(file))
+//!             },
+//!             LogConfig::Stdout => Box::new(fmt.with_writer(io::stdout)),
+//!             LogConfig::Stderr => Box::new(fmt.with_writer(io::stderr)),
+//!         }
+//!     }
+//! }
+//!
+//! let config = LogConfig::Stdout;
+//! tracing_subscriber::registry()
+//!     .with(config.layer())
+//!     .init();
+//! ```
+//!
+//! The [`Layer::boxed`] method is provided to make boxing a `Layer`
+//! more convenient, but [`Box::new`] may be used as well.
+//!
+//! When the number of `Layer`s varies at runtime, note that a
+//! [`Vec<L> where L: `Layer`` also implements `Layer`][vec-impl]. This
+//! can be used to add a variable number of `Layer`s to a `Subscriber`:
+//!
+//! ```
+//! use tracing_subscriber::{Layer, prelude::*};
+//! struct MyLayer {
+//!     // ...
+//! }
+//! # impl MyLayer { fn new() -> Self { Self {} }}
+//!
+//! impl<S: tracing_core::Subscriber> Layer<S> for MyLayer {
+//!     // ...
+//! }
+//!
+//! /// Returns how many layers we need
+//! fn how_many_layers() -> usize {
+//!     // ...
+//!     # 3
+//! }
+//!
+//! // Create a variable-length `Vec` of layers
+//! let mut layers = Vec::new();
+//! for _ in 0..how_many_layers() {
+//!     layers.push(MyLayer::new());
+//! }
+//!
+//! tracing_subscriber::registry()
+//!     .with(layers)
+//!     .init();
+//! ```
+//!
+//! If a variable number of `Layer` is needed and those `Layer`s have
+//! different types, a `Vec` of [boxed `Layer` trait objects][box-impl] may
+//! be used. For example:
+//!
+//! ```
+//! use tracing_subscriber::{filter::LevelFilter, Layer, prelude::*};
+//! use std::fs::File;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! struct Config {
+//!     enable_log_file: bool,
+//!     enable_stdout: bool,
+//!     enable_stderr: bool,
+//!     // ...
+//! }
+//! # impl Config {
+//! #    fn from_config_file()-> Result<Self, Box<dyn std::error::Error>> {
+//! #         // don't enable the log file so that the example doesn't actually create it
+//! #         Ok(Self { enable_log_file: false, enable_stdout: true, enable_stderr: true })
+//! #    }
+//! # }
+//!
+//! let cfg = Config::from_config_file()?;
+//!
+//! // Based on our dynamically loaded config file, create any number of layers:
+//! let mut layers = Vec::new();
+//!
+//! if cfg.enable_log_file {
+//!     let file = File::create("myapp.log")?;
+//!     let layer = tracing_subscriber::fmt::layer()
+//!         .with_thread_names(true)
+//!         .with_target(true)
+//!         .json()
+//!         .with_writer(file)
+//!         // Box the layer as a type-erased trait object, so that it can
+//!         // be pushed to the `Vec`.
+//!         .boxed();
+//!     layers.push(layer);
+//! }
+//!
+//! if cfg.enable_stdout {
+//!     let layer = tracing_subscriber::fmt::layer()
+//!         .pretty()
+//!         .with_filter(LevelFilter::INFO)
+//!         // Box the layer as a type-erased trait object, so that it can
+//!         // be pushed to the `Vec`.
+//!         .boxed();
+//!     layers.push(layer);
+//! }
+//!
+//! if cfg.enable_stdout {
+//!     let layer = tracing_subscriber::fmt::layer()
+//!         .with_target(false)
+//!         .with_filter(LevelFilter::WARN)
+//!         // Box the layer as a type-erased trait object, so that it can
+//!         // be pushed to the `Vec`.
+//!         .boxed();
+//!     layers.push(layer);
+//! }
+//!
+//! tracing_subscriber::registry()
+//!     .with(layers)
+//!     .init();
+//!# Ok(()) }
+//! ```
+//!
+//! Finally, if the number of layers _changes_ at runtime, a `Vec` of
+//! subscribers can be used alongside the [`reload`](crate::reload) module to
+//! add or remove subscribers dynamically at runtime.
+//!
+//! [option-impl]: Layer#impl-Layer<S>-for-Option<L>
+//! [box-impl]: Layer#impl-Layer%3CS%3E-for-Box%3Cdyn%20Layer%3CS%3E%20+%20Send%20+%20Sync%3E
 //! [prelude]: crate::prelude
 //!
-//! ## Recording Traces
+//! # Recording Traces
 //!
 //! The [`Layer`] trait defines a set of methods for consuming notifications from
 //! tracing instrumentation, which are generally equivalent to the similarly
@@ -146,7 +381,7 @@
 //! information provided by the wrapped subscriber (such as [the current span])
 //! to the layer.
 //!
-//! ## Filtering with `Layer`s
+//! # Filtering with `Layer`s
 //!
 //! As well as strategies for handling trace events, the `Layer` trait may also
 //! be used to represent composable _filters_. This allows the determination of
@@ -158,7 +393,7 @@
 //! combined with _per-layer filters_ that control what spans and events are
 //! recorded by those layers.
 //!
-//! ### Global Filtering
+//! ## Global Filtering
 //!
 //! A `Layer` that implements a filtering strategy should override the
 //! [`register_callsite`] and/or [`enabled`] methods. It may also choose to implement
@@ -179,7 +414,7 @@
 //! [`Interest::never()`] from its [`register_callsite`] method, filter
 //! evaluation will short-circuit and the span or event will be disabled.
 //!
-//! ### Per-Layer Filtering
+//! ## Per-Layer Filtering
 //!
 //! **Note**: per-layer filtering APIs currently require the [`"registry"` crate
 //! feature flag][feat] to be enabled.
@@ -393,84 +628,6 @@
 //! # Ok(()) }
 //! ```
 //!
-//! ## Runtime Configuration With Layers
-//!
-//! In some cases, a particular [`Layer`] may be enabled or disabled based on
-//! runtime configuration. This can introduce challenges, because the type of a
-//! layered [`Subscriber`] depends on which layers are added to it: if an `if`
-//! or `match` expression adds some [`Layer`]s in one branch and other layers
-//! in another, the [`Subscriber`] values returned by those branches will have
-//! different types. For example, the following _will not_ work:
-//!
-//! ```compile_fail
-//! # fn docs() -> Result<(), Box<dyn std::error::Error + 'static>> {
-//! # struct Config {
-//! #    is_prod: bool,
-//! #    path: &'static str,
-//! # }
-//! # let cfg = Config { is_prod: false, path: "debug.log" };
-//! use std::{fs::File, sync::Arc};
-//! use tracing_subscriber::{Registry, prelude::*};
-//!
-//! let stdout_log = tracing_subscriber::fmt::layer().pretty();
-//! let subscriber = Registry::default().with(stdout_log);
-//!
-//! // The compile error will occur here because the if and else
-//! // branches have different (and therefore incompatible) types.
-//! let subscriber = if cfg.is_prod {
-//!     let file = File::create(cfg.path)?;
-//!     let layer = tracing_subscriber::fmt::layer()
-//!         .json()
-//!         .with_writer(Arc::new(file));
-//!     subscriber.with(layer)
-//! } else {
-//!     subscriber
-//! };
-//!
-//! tracing::subscriber::set_global_default(subscriber)
-//!     .expect("Unable to set global subscriber");
-//! # Ok(()) }
-//! ```
-//!
-//! However, a [`Layer`] wrapped in an [`Option`] [also implements the `Layer`
-//! trait][option-impl]. This allows individual layers to be enabled or disabled at
-//! runtime while always producing a [`Subscriber`] of the same type. For
-//! example:
-//!
-//! ```
-//! # fn docs() -> Result<(), Box<dyn std::error::Error + 'static>> {
-//! # struct Config {
-//! #    is_prod: bool,
-//! #    path: &'static str,
-//! # }
-//! # let cfg = Config { is_prod: false, path: "debug.log" };
-//! use std::{fs::File, sync::Arc};
-//! use tracing_subscriber::{Registry, prelude::*};
-//!
-//! let stdout_log = tracing_subscriber::fmt::layer().pretty();
-//! let subscriber = Registry::default().with(stdout_log);
-//!
-//! // if `cfg.is_prod` is true, also log JSON-formatted logs to a file.
-//! let json_log = if cfg.is_prod {
-//!     let file = File::create(cfg.path)?;
-//!     let json_log = tracing_subscriber::fmt::layer()
-//!         .json()
-//!         .with_writer(Arc::new(file));
-//!     Some(json_log)
-//! } else {   
-//!     None
-//! };
-//!
-//! // If `cfg.is_prod` is false, then `json` will be `None`, and this layer
-//! // will do nothing. However, the subscriber will still have the same type
-//! // regardless of whether the `Option`'s value is `None` or `Some`.
-//! let subscriber = subscriber.with(json_log);
-//!
-//! tracing::subscriber::set_global_default(subscriber)
-//!    .expect("Unable to set global subscriber");
-//! # Ok(()) }
-//! ```
-//!
 //! [`Subscriber`]: https://docs.rs/tracing-core/latest/tracing_core/subscriber/trait.Subscriber.html
 //! [span IDs]: https://docs.rs/tracing-core/latest/tracing_core/span/struct.Id.html
 //! [the current span]: Context::current_span
@@ -480,7 +637,6 @@
 //! [`Layer::register_callsite`]: Layer::register_callsite
 //! [`Layer::enabled`]: Layer::enabled
 //! [`Interest::never()`]: https://docs.rs/tracing-core/latest/tracing_core/subscriber/struct.Interest.html#method.never
-//! [option-impl]: crate::layer::Layer#impl-Layer<S>-for-Option<L>
 //! [`Filtered`]: crate::filter::Filtered
 //! [`filter`]: crate::filter
 //! [`Targets`]: crate::filter::Targets
@@ -868,6 +1024,131 @@ where
         filter::Filtered::new(self, filter)
     }
 
+    /// Erases the type of this [`Layer`], returning a [`Box`]ed `dyn
+    /// Layer` trait object.
+    ///
+    /// This can be used when a function returns a `Layer` which may be of
+    /// one of several types, or when a `Layer` subscriber has a very long type
+    /// signature.
+    ///
+    /// # Examples
+    ///
+    /// The following example will *not* compile, because the value assigned to
+    /// `log_layer` may have one of several different types:
+    ///
+    /// ```compile_fail
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use tracing_subscriber::{Layer, filter::LevelFilter, prelude::*};
+    /// use std::{path::PathBuf, fs::File, io};
+    ///
+    /// /// Configures whether logs are emitted to a file, to stdout, or to stderr.
+    /// pub enum LogConfig {
+    ///     File(PathBuf),
+    ///     Stdout,
+    ///     Stderr,
+    /// }
+    ///
+    /// let config = // ...
+    ///     # LogConfig::Stdout;
+    ///
+    /// // Depending on the config, construct a layer of one of several types.
+    /// let log_layer = match config {
+    ///     // If logging to a file, use a maximally-verbose configuration.
+    ///     LogConfig::File(path) => {
+    ///         let file = File::create(path)?;
+    ///         tracing_subscriber::fmt::layer()
+    ///             .with_thread_ids(true)
+    ///             .with_thread_names(true)
+    ///             // Selecting the JSON logging format changes the layer's
+    ///             // type.
+    ///             .json()
+    ///             .with_span_list(true)
+    ///             // Setting the writer to use our log file changes the
+    ///             // layer's type again.
+    ///             .with_writer(file)
+    ///     },
+    ///
+    ///     // If logging to stdout, use a pretty, human-readable configuration.
+    ///     LogConfig::Stdout => tracing_subscriber::fmt::layer()
+    ///         // Selecting the "pretty" logging format changes the
+    ///         // layer's type!
+    ///         .pretty()
+    ///         .with_writer(io::stdout)
+    ///         // Add a filter based on the RUST_LOG environment variable;
+    ///         // this changes the type too!
+    ///         .and_then(tracing_subscriber::EnvFilter::from_default_env()),
+    ///
+    ///     // If logging to stdout, only log errors and warnings.
+    ///     LogConfig::Stderr => tracing_subscriber::fmt::layer()
+    ///         // Changing the writer changes the layer's type
+    ///         .with_writer(io::stderr)
+    ///         // Only log the `WARN` and `ERROR` levels. Adding a filter
+    ///         // changes the layer's type to `Filtered<LevelFilter, ...>`.
+    ///         .with_filter(LevelFilter::WARN),
+    /// };
+    ///
+    /// tracing_subscriber::registry()
+    ///     .with(log_layer)
+    ///     .init();
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// However, adding a call to `.boxed()` after each match arm erases the
+    /// layer's type, so this code *does* compile:
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use tracing_subscriber::{Layer, filter::LevelFilter, prelude::*};
+    /// # use std::{path::PathBuf, fs::File, io};
+    /// # pub enum LogConfig {
+    /// #    File(PathBuf),
+    /// #    Stdout,
+    /// #    Stderr,
+    /// # }
+    /// # let config = LogConfig::Stdout;
+    /// let log_layer = match config {
+    ///     LogConfig::File(path) => {
+    ///         let file = File::create(path)?;
+    ///         tracing_subscriber::fmt::layer()
+    ///             .with_thread_ids(true)
+    ///             .with_thread_names(true)
+    ///             .json()
+    ///             .with_span_list(true)
+    ///             .with_writer(file)
+    ///             // Erase the type by boxing the layer
+    ///             .boxed()
+    ///     },
+    ///
+    ///     LogConfig::Stdout => tracing_subscriber::fmt::layer()
+    ///         .pretty()
+    ///         .with_writer(io::stdout)
+    ///         .and_then(tracing_subscriber::EnvFilter::from_default_env())
+    ///         // Erase the type by boxing the layer
+    ///         .boxed(),
+    ///
+    ///     LogConfig::Stderr => tracing_subscriber::fmt::layer()
+    ///         .with_writer(io::stderr)
+    ///         .with_filter(LevelFilter::WARN)
+    ///         // Erase the type by boxing the layer
+    ///         .boxed(),
+    /// };
+    ///
+    /// tracing_subscriber::registry()
+    ///     .with(log_layer)
+    ///     .init();
+    /// # Ok(()) }
+    /// ```
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
+    fn boxed(self) -> Box<dyn Layer<S> + Send + Sync + 'static>
+    where
+        Self: Sized,
+        Self: Layer<S> + Send + Sync + 'static,
+        S: Subscriber,
+    {
+        Box::new(self)
+    }
+
     #[doc(hidden)]
     unsafe fn downcast_raw(&self, id: TypeId) -> Option<*const ()> {
         if id == TypeId::of::<Self>() {
@@ -880,6 +1161,7 @@ where
 
 feature! {
     #![all(feature = "registry", feature = "std")]
+
     /// A per-[`Layer`] filter that determines whether a span or event is enabled
     /// for an individual layer.
     ///
@@ -1054,6 +1336,51 @@ feature! {
         fn max_level_hint(&self) -> Option<LevelFilter> {
             None
         }
+
+        /// Notifies this filter that a new span was constructed with the given
+        /// `Attributes` and `Id`.
+        ///
+        /// By default, this method does nothing. `Filter` implementations that
+        /// need to be notified when new spans are created can override this
+        /// method.
+        fn on_new_span(&self, attrs: &span::Attributes<'_>, id: &span::Id, ctx: Context<'_, S>) {
+            let _ = (attrs, id, ctx);
+        }
+
+
+        /// Notifies this filter that a span with the given `Id` recorded the given
+        /// `values`.
+        ///
+        /// By default, this method does nothing. `Filter` implementations that
+        /// need to be notified when new spans are created can override this
+        /// method.
+        fn on_record(&self, id: &span::Id, values: &span::Record<'_>, ctx: Context<'_, S>) {
+            let _ = (id, values, ctx);
+        }
+
+        /// Notifies this filter that a span with the given ID was entered.
+        ///
+        /// By default, this method does nothing. `Filter` implementations that
+        /// need to be notified when a span is entered can override this method.
+        fn on_enter(&self, id: &span::Id, ctx: Context<'_, S>) {
+            let _ = (id, ctx);
+        }
+
+        /// Notifies this filter that a span with the given ID was exited.
+        ///
+        /// By default, this method does nothing. `Filter` implementations that
+        /// need to be notified when a span is exited can override this method.
+        fn on_exit(&self, id: &span::Id, ctx: Context<'_, S>) {
+            let _ = (id, ctx);
+        }
+
+        /// Notifies this filter that a span with the given ID has been closed.
+        ///
+        /// By default, this method does nothing. `Filter` implementations that
+        /// need to be notified when a span is closed can override this method.
+        fn on_close(&self, id: span::Id, ctx: Context<'_, S>) {
+            let _ = (id, ctx);
+        }
     }
 }
 
@@ -1181,6 +1508,8 @@ where
 
 feature! {
     #![any(feature = "std", feature = "alloc")]
+    #[cfg(not(feature = "std"))]
+    use alloc::vec::Vec;
 
     macro_rules! layer_impl_body {
         () => {
@@ -1265,6 +1594,120 @@ feature! {
         S: Subscriber,
     {
         layer_impl_body! {}
+    }
+
+
+
+    impl<S, L> Layer<S> for Vec<L>
+    where
+        L: Layer<S>,
+        S: Subscriber,
+    {
+
+        fn on_layer(&mut self, subscriber: &mut S) {
+            for l in self {
+                l.on_layer(subscriber);
+            }
+        }
+
+        fn register_callsite(&self, metadata: &'static Metadata<'static>) -> Interest {
+            // Return highest level of interest.
+            let mut interest = Interest::never();
+            for l in self {
+                let new_interest = l.register_callsite(metadata);
+                if (interest.is_sometimes() && new_interest.is_always())
+                    || (interest.is_never() && !new_interest.is_never())
+                {
+                    interest = new_interest;
+                }
+            }
+
+            interest
+        }
+
+        fn enabled(&self, metadata: &Metadata<'_>, ctx: Context<'_, S>) -> bool {
+            self.iter().all(|l| l.enabled(metadata, ctx.clone()))
+        }
+
+        fn on_new_span(&self, attrs: &span::Attributes<'_>, id: &span::Id, ctx: Context<'_, S>) {
+            for l in self {
+                l.on_new_span(attrs, id, ctx.clone());
+            }
+        }
+
+        fn max_level_hint(&self) -> Option<LevelFilter> {
+            let mut max_level = LevelFilter::ERROR;
+            for l in self {
+                // NOTE(eliza): this is slightly subtle: if *any* layer
+                // returns `None`, we have to return `None`, assuming there is
+                // no max level hint, since that particular layer cannot
+                // provide a hint.
+                let hint = l.max_level_hint()?;
+                max_level = core::cmp::max(hint, max_level);
+            }
+            Some(max_level)
+        }
+
+        fn on_record(&self, span: &span::Id, values: &span::Record<'_>, ctx: Context<'_, S>) {
+            for l in self {
+                l.on_record(span, values, ctx.clone())
+            }
+        }
+
+        fn on_follows_from(&self, span: &span::Id, follows: &span::Id, ctx: Context<'_, S>) {
+            for l in self {
+                l.on_follows_from(span, follows, ctx.clone());
+            }
+        }
+
+        fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
+            for l in self {
+                l.on_event(event, ctx.clone());
+            }
+        }
+
+        fn on_enter(&self, id: &span::Id, ctx: Context<'_, S>) {
+            for l in self {
+                l.on_enter(id, ctx.clone());
+            }
+        }
+
+        fn on_exit(&self, id: &span::Id, ctx: Context<'_, S>) {
+            for l in self {
+                l.on_exit(id, ctx.clone());
+            }
+        }
+
+        fn on_close(&self, id: span::Id, ctx: Context<'_, S>) {
+            for l in self {
+                l.on_close(id.clone(), ctx.clone());
+            }
+        }
+
+        #[doc(hidden)]
+        unsafe fn downcast_raw(&self, id: TypeId) -> Option<*const ()> {
+            // If downcasting to `Self`, return a pointer to `self`.
+            if id == TypeId::of::<Self>() {
+                return Some(self as *const _ as *const ());
+            }
+
+            // Someone is looking for per-layer filters. But, this `Vec`
+            // might contain layers with per-layer filters *and*
+            // layers without filters. It should only be treated as a
+            // per-layer-filtered layer if *all* its layers have
+            // per-layer filters.
+            // XXX(eliza): it's a bummer we have to do this linear search every
+            // time. It would be nice if this could be cached, but that would
+            // require replacing the `Vec` impl with an impl for a newtype...
+            if filter::is_plf_downcast_marker(id) && self.iter().any(|s| s.downcast_raw(id).is_none()) {
+                return None;
+            }
+
+            // Otherwise, return the first child of `self` that downcaasts to
+            // the selected type, if any.
+            // XXX(eliza): hope this is reasonable lol
+            self.iter().find_map(|l| l.downcast_raw(id))
+        }
     }
 }
 

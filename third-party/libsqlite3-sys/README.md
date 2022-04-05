@@ -8,11 +8,32 @@
 [![Dependency Status](https://deps.rs/repo/github/rusqlite/rusqlite/status.svg)](https://deps.rs/repo/github/rusqlite/rusqlite)
 [![Discord Chat](https://img.shields.io/discord/927966344266256434.svg?logo=discord)](https://discord.gg/nFYfGPB8g4)
 
-Rusqlite is an ergonomic wrapper for using SQLite from Rust. It attempts to expose
-an interface similar to [rust-postgres](https://github.com/sfackler/rust-postgres).
+Rusqlite is an ergonomic wrapper for using SQLite from Rust.
+
+Historically, the API was based on the one from [`rust-postgres`](https://github.com/sfackler/rust-postgres). However, the two have diverged in many ways, and no compatibility between the two is intended.
+
+## Usage
+
+In your Cargo.toml:
+
+```toml
+[dependencies]
+# `bundled` causes us to automatically compile and link in an up to date
+# version of SQLite for you. This avoids many common build issues, and
+# avoids depending on the version of SQLite on the users system (or your
+# system), which may be old or missing. It's the right choice for most
+# programs that control their own SQLite databases.
+#
+# That said, it's not ideal for all scenarios and in particular, generic
+# libraries built around `rusqlite` should probably not enable it, which
+# is why it is not a default feature -- it could become hard to disable.
+rusqlite = { version = "0.27.0", features = ["bundled"] }
+```
+
+Simple example usage:
 
 ```rust
-use rusqlite::{params, Connection, Result};
+use rusqlite::{Connection, Result};
 
 #[derive(Debug)]
 struct Person {
@@ -26,11 +47,11 @@ fn main() -> Result<()> {
 
     conn.execute(
         "CREATE TABLE person (
-                  id              INTEGER PRIMARY KEY,
-                  name            TEXT NOT NULL,
-                  data            BLOB
-                  )",
-        [],
+            id    INTEGER PRIMARY KEY,
+            name  TEXT NOT NULL,
+            data  BLOB
+        )",
+        (), // empty list of parameters.
     )?;
     let me = Person {
         id: 0,
@@ -39,7 +60,7 @@ fn main() -> Result<()> {
     };
     conn.execute(
         "INSERT INTO person (name, data) VALUES (?1, ?2)",
-        params![me.name, me.data],
+        (&me.name, &me.data),
     )?;
 
     let mut stmt = conn.prepare("SELECT id, name, data FROM person")?;

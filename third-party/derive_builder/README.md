@@ -120,7 +120,7 @@ It's as simple as three steps:
 - **Setter visibility**: You can opt into private setter by preceding your struct with `#[builder(private)]`.
 - **Setter type conversions**: With `#[builder(setter(into))]`, setter methods will be generic over the input types – you can then supply every argument that implements the [`Into`][into] trait for the field type.
 - **Setter strip option**: With `#[builder(setter(strip_option))]`, setter methods will take `T` as parameter'type for field of type `Option<T>`.
-- **Collection setters**: Adding `#[builder(setter(each = "method_name"))]` to fields whose types implement `Default` and `Extend` will generate a setter which adds items to the builder collection for that field.
+- **Collection setters**: Adding `#[builder(setter(each(name = "method_name")))]` to fields whose types implement `Default` and `Extend` will generate a setter which adds items to the builder collection for that field. It's possible for these setters to be generic over the `Into<T>` trait too, like so: `#[builder(setter(each(name = "foo", into)))]`.
 - **Builder field visibility**: You can use `#[builder(field(private))]` or `..(public)`, to set field visibility of your builder.
 - **Generic structs**: Are also supported, but you **must not** use a type parameter named `VALUE`, if you also activate setter type conversions.
 - **Default values**: You can use `#[builder(default)]` to delegate to the `Default` implementation or any explicit value via ` = ".."`. This works both on the struct and field level.
@@ -128,6 +128,7 @@ It's as simple as three steps:
 - **Build method suppression**: You can use `#[builder(build_fn(skip))]` to disable auto-implementation of the build method and provide your own.
 - **Custom build method error types**: You can use `#[builder(build_fn(error = "path::to::Error"))]` to have your builder return an error type of your choosing. By default, the macro will emit an error type alongside the builder.
 - **Builder derivations**: You can use `#[builder(derive(Trait1, Trait2, ...))]` to have the builder derive additonal traits. All builders derive `Default` and `Clone`, so you should not declare those in this attribute.
+- **Pass-through attributes**: Use `#[builder_struct_attr(...)]`, `#[builder_impl_attr(...)]`, `#[builder_field_attr(...)]`, and `#[builder_setter_attr(...)]` to declare attributes that will be added to the relevant part of the generated builder.
 - **no_std support**: Just add `#[builder(no_std)]` to your struct and add `extern crate alloc` to your crate.
 
 For more information and examples please take a look at our [documentation][doc].

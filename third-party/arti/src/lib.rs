@@ -114,15 +114,22 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 
+pub mod cfg;
 pub mod dns;
 pub mod exit;
+pub mod logging;
 pub mod process;
 pub mod socks;
-pub mod trace;
 pub mod watch_cfg;
 
+pub use cfg::{
+    ApplicationConfig, ApplicationConfigBuilder, ArtiConfig, ArtiConfigBuilder, ProxyConfig,
+    ProxyConfigBuilder, SystemConfig, SystemConfigBuilder,
+};
+pub use logging::{LoggingConfig, LoggingConfigBuilder};
+
 use arti_client::{TorClient, TorClientConfig};
-use arti_config::{default_config_file, ArtiConfig};
+use arti_config::default_config_file;
 use tor_rtcompat::{BlockOn, Runtime};
 
 use anyhow::{Context, Result};
@@ -144,7 +151,7 @@ pub async fn run<R: Runtime>(
     socks_port: u16,
     dns_port: u16,
     config_sources: arti_config::ConfigurationSources,
-    arti_config: arti_config::ArtiConfig,
+    arti_config: ArtiConfig,
     client_config: TorClientConfig,
 ) -> Result<()> {
     // Using OnDemand arranges that, while we are bootstrapping, incoming connections wait
@@ -155,7 +162,7 @@ pub async fn run<R: Runtime>(
         .config(client_config)
         .bootstrap_behavior(OnDemand)
         .create_unbootstrapped()?;
-    if arti_config.application().watch_configuration() {
+    if arti_config.application().watch_configuration {
         watch_cfg::watch_for_config_changes(config_sources, arti_config, client.clone())?;
     }
 
@@ -300,22 +307,19 @@ pub fn main_main() -> Result<()> {
 
     let config: ArtiConfig = cfg.try_into().context("read configuration")?;
 
-    let _log_guards = trace::setup_logging(config.logging(), matches.value_of("loglevel"))?;
+    let _log_guards = logging::setup_logging(config.logging(), matches.value_of("loglevel"))?;
 
     if let Some(proxy_matches) = matches.subcommand_matches("proxy") {
         let socks_port = match (
             proxy_matches.value_of("socks-port"),
-            config.proxy().socks_port(),
+            config.proxy().socks_port,
         ) {
             (Some(p), _) => p.parse().expect("Invalid port specified"),
             (None, Some(s)) => s,
             (None, None) => 0,
         };
 
-        let dns_port = match (
-            proxy_matches.value_of("dns-port"),
-            config.proxy().dns_port(),
-        ) {
+        let dns_port = match (proxy_matches.value_of("dns-port"), config.proxy().dns_port) {
             (Some(p), _) => p.parse().expect("Invalid port specified"),
             (None, Some(s)) => s,
             (None, None) => 0,
@@ -329,7 +333,7 @@ pub fn main_main() -> Result<()> {
             socks_port
         );
 
-        process::use_max_file_limit(&client_config);
+        process::use_max_file_limit(&config);
 
         cfg_if::cfg_if! {
             if #[cfg(all(feature="tokio", feature="native-tls"))] {
@@ -337,9 +341,9 @@ pub fn main_main() -> Result<()> {
             } else if #[cfg(all(feature="tokio", feature="rustls"))] {
                 use tor_rtcompat::tokio::TokioRustlsRuntime as ChosenRuntime;
             } else if #[cfg(all(feature="async-std", feature="native-tls"))] {
-                use tor_rtcompat::tokio::TokioRustlsRuntime as ChosenRuntime;
+                use tor_rtcompat::async_std::AsyncStdNativeTlsRuntime as ChosenRuntime;
             } else if #[cfg(all(feature="async-std", feature="rustls"))] {
-                use tor_rtcompat::tokio::TokioRustlsRuntime as ChosenRuntime;
+                use tor_rtcompat::async_std::AsyncStdRustlsRuntime as ChosenRuntime;
             }
         }
 

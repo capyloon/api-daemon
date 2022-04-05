@@ -149,7 +149,7 @@ unsafe impl<R: RawMutex + Sync, T: ?Sized + Send> Sync for Mutex<R, T> {}
 
 impl<R: RawMutex, T> Mutex<R, T> {
     /// Creates a new mutex in an unlocked state ready for use.
-    #[cfg(feature = "nightly")]
+    #[cfg(has_const_fn_trait_bound)]
     #[inline]
     pub const fn new(val: T) -> Mutex<R, T> {
         Mutex {
@@ -159,7 +159,7 @@ impl<R: RawMutex, T> Mutex<R, T> {
     }
 
     /// Creates a new mutex in an unlocked state ready for use.
-    #[cfg(not(feature = "nightly"))]
+    #[cfg(not(has_const_fn_trait_bound))]
     #[inline]
     pub fn new(val: T) -> Mutex<R, T> {
         Mutex {
@@ -564,6 +564,17 @@ impl<'a, R: RawMutex + 'a, T: ?Sized + 'a> MutexGuard<'a, R, T> {
         }
         defer!(s.mutex.raw.lock());
         f()
+    }
+
+    /// Leaks the mutex guard and returns a mutable reference to the data
+    /// protected by the mutex.
+    ///
+    /// This will leave the `Mutex` in a locked state.
+    #[inline]
+    pub fn leak(s: Self) -> &'a mut T {
+        let r = unsafe { &mut *s.mutex.data.get() };
+        mem::forget(s);
+        r
     }
 }
 

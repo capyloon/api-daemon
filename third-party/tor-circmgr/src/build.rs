@@ -80,7 +80,10 @@ async fn create_common<RT: Runtime, CT: ChanTarget>(
             peer: OwnedChanTarget::from_chan_target(target),
             cause,
         })?;
-    let (pending_circ, reactor) = chan.new_circ().await?;
+    let (pending_circ, reactor) = chan.new_circ().await.map_err(|error| Error::Protocol {
+        error,
+        peer: None, // we don't blame the peer, because new_circ() does no networking.
+    })?;
 
     rt.spawn(async {
         let _ = reactor.run().await;
@@ -99,7 +102,12 @@ impl Buildable for ClientCirc {
         params: &CircParameters,
     ) -> Result<Self> {
         let circ = create_common(chanmgr, rt, ct).await?;
-        Ok(circ.create_firsthop_fast(params).await?)
+        circ.create_firsthop_fast(params)
+            .await
+            .map_err(|error| Error::Protocol {
+                peer: Some(ct.clone()),
+                error,
+            })
     }
     async fn create<RT: Runtime>(
         chanmgr: &ChanMgr<RT>,
@@ -108,7 +116,12 @@ impl Buildable for ClientCirc {
         params: &CircParameters,
     ) -> Result<Self> {
         let circ = create_common(chanmgr, rt, ct).await?;
-        Ok(circ.create_firsthop_ntor(ct, params.clone()).await?)
+        circ.create_firsthop_ntor(ct, params.clone())
+            .await
+            .map_err(|error| Error::Protocol {
+                peer: Some(OwnedChanTarget::from_chan_target(ct)),
+                error,
+            })
     }
     async fn extend<RT: Runtime>(
         &self,
@@ -116,8 +129,15 @@ impl Buildable for ClientCirc {
         ct: &OwnedCircTarget,
         params: &CircParameters,
     ) -> Result<()> {
-        self.extend_ntor(ct, params).await?;
-        Ok(())
+        self.extend_ntor(ct, params)
+            .await
+            .map_err(|error| Error::Protocol {
+                error,
+                // We can't know who caused the error, since it may have been
+                // the hop we were extending from, or the hop we were extending
+                // to.
+                peer: None,
+            })
     }
 }
 
@@ -244,6 +264,11 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
             Err(e) => Err(e),
         }
     }
+
+    /// Return a reference to this Builder runtime.
+    pub(crate) fn runtime(&self) -> &R {
+        &self.runtime
+    }
 }
 
 /// A factory object to build circuits.
@@ -366,6 +391,11 @@ impl<R: Runtime> CircuitBuilder<R> {
     /// Return a reference to this builder's `GuardMgr`.
     pub(crate) fn guardmgr(&self) -> &tor_guardmgr::GuardMgr<R> {
         &self.guardmgr
+    }
+
+    /// Return a reference to this builder's runtime
+    pub(crate) fn runtime(&self) -> &R {
+        self.builder.runtime()
     }
 }
 

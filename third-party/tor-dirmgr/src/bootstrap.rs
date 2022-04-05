@@ -9,6 +9,7 @@ use std::{
 
 use crate::{
     docid::{self, ClientRequest},
+    state::WriteNetDir,
     upgrade_weak_ref, DirMgr, DirState, DocId, DocumentText, Error, Readiness, Result,
 };
 
@@ -17,7 +18,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use tor_dirclient::DirResponse;
 use tor_rtcompat::{Runtime, SleepProviderExt};
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 #[cfg(test)]
 use once_cell::sync::Lazy;
@@ -58,15 +59,17 @@ async fn fetch_single<R: Runtime>(
     }
     let circmgr = dirmgr.circmgr()?;
     let cur_netdir = dirmgr.opt_netdir();
-    let config = dirmgr.config.get();
     let dirinfo = match cur_netdir {
         Some(ref netdir) => netdir.as_ref().into(),
-        None => config.fallbacks().into(),
+        None => tor_circmgr::DirInfo::Nothing,
     };
-    let resource =
+    let outcome =
         tor_dirclient::get_resource(request.as_requestable(), dirinfo, &dirmgr.runtime, circmgr)
-            .await?;
+            .await;
 
+    dirmgr.note_request_outcome(&outcome);
+
+    let resource = outcome?;
     Ok((request, resource))
 }
 
@@ -186,20 +189,41 @@ async fn download_attempt<R: Runtime>(
     let missing = state.missing_docs();
     let fetched = fetch_multiple(Arc::clone(dirmgr), missing, parallelism).await?;
     for (client_req, dir_response) in fetched {
-        let text =
-            String::from_utf8(dir_response.into_output()).map_err(Error::BadUtf8FromDirectory)?;
+        let source = dir_response.source().map(Clone::clone);
+        let text = match String::from_utf8(dir_response.into_output())
+            .map_err(Error::BadUtf8FromDirectory)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                if let Some(source) = source {
+                    dirmgr.note_cache_error(&source, &e);
+                }
+                continue;
+            }
+        };
         match dirmgr.expand_response_text(&client_req, text) {
             Ok(text) => {
                 let outcome = state.add_from_download(&text, &client_req, Some(&dirmgr.store));
                 match outcome {
-                    Ok(b) => changed |= b,
-                    // TODO: in this case we might want to stop using this source.
-                    Err(e) => warn!("error while adding directory info: {}", e),
+                    Ok(b) => {
+                        changed |= b;
+                        if let Some(source) = source {
+                            dirmgr.note_cache_success(&source);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("error while adding directory info: {}", e);
+                        if let Some(source) = source {
+                            dirmgr.note_cache_error(&source, &e);
+                        }
+                    }
                 }
             }
             Err(e) => {
-                // TODO: in this case we might want to stop using this source.
                 warn!("Error when expanding directory text: {}", e);
+                if let Some(source) = source {
+                    dirmgr.note_cache_error(&source, &e);
+                }
             }
         }
     }
@@ -239,10 +263,11 @@ pub(crate) async fn download<R: Runtime>(
         // In theory this could be inside the loop below maybe?  If we
         // want to drop the restriction that the missing() members of a
         // state must never grow, then we'll need to move it inside.
-        {
+        let mut now = {
             let dirmgr = upgrade_weak_ref(&dirmgr)?;
             load_once(&dirmgr, &mut state).await?;
-        }
+            dirmgr.now()
+        };
 
         // Skip the downloads if we can...
         if state.can_advance() {
@@ -253,16 +278,36 @@ pub(crate) async fn download<R: Runtime>(
             return Ok((state, None));
         }
 
+        let reset_time = no_more_than_a_week_from(runtime.wallclock(), state.reset_time());
+        let mut reset_timeout_future = runtime.sleep_until_wallclock(reset_time).fuse();
+
         let mut retry = retry_config.schedule();
+        let mut delay = None;
 
         // Make several attempts to fetch whatever we're missing,
         // until either we can advance, or we've got a complete
         // document, or we run out of tries, or we run out of time.
         'next_attempt: for attempt in retry_config.attempts() {
-            info!("{}: {}", attempt + 1, state.describe());
-            let reset_time = no_more_than_a_week_from(SystemTime::now(), state.reset_time());
+            // We wait at the start of this loop, on all attempts but the first.
+            // This ensures that we always wait between attempts, but not after
+            // the final attempt.
+            let next_delay = retry.next_delay(&mut rand::thread_rng());
+            if let Some(delay) = delay.replace(next_delay) {
+                debug!("Waiting {:?} for next download attempt...", delay);
+                futures::select_biased! {
+                    _ = reset_timeout_future => {
+                        info!("Download attempt timed out completely; resetting download state.");
+                        state = state.reset()?;
+                        continue 'next_state;
+                    }
+                    _ = FutureExt::fuse(runtime.sleep(delay)) => {}
+                };
+            }
 
-            {
+            info!("{}: {}", attempt + 1, state.describe());
+            let reset_time = no_more_than_a_week_from(now, state.reset_time());
+
+            now = {
                 let dirmgr = upgrade_weak_ref(&dirmgr)?;
                 futures::select_biased! {
                     outcome = download_attempt(&dirmgr, &mut state, parallelism.into()).fuse() => {
@@ -285,7 +330,8 @@ pub(crate) async fn download<R: Runtime>(
                         continue 'next_state;
                     },
                 };
-            }
+                dirmgr.now()
+            };
 
             // Exit if there is nothing more to download.
             if state.is_ready(Readiness::Complete) {
@@ -303,18 +349,6 @@ pub(crate) async fn download<R: Runtime>(
                 // We have enough info to advance to another state.
                 state = state.advance()?;
                 continue 'next_state;
-            } else {
-                // We should wait a bit, and then retry.
-                // TODO: we shouldn't wait on the final attempt.
-                let reset_time = no_more_than_a_week_from(SystemTime::now(), state.reset_time());
-                let delay = retry.next_delay(&mut rand::thread_rng());
-                futures::select_biased! {
-                    _ = runtime.sleep_until_wallclock(reset_time).fuse() => {
-                        state = state.reset()?;
-                        continue 'next_state;
-                    }
-                    _ = FutureExt::fuse(runtime.sleep(delay)) => {}
-                };
             }
         }
 
@@ -350,6 +384,7 @@ mod test {
     use std::convert::TryInto;
     use std::sync::Mutex;
     use tor_netdoc::doc::microdesc::MdDigest;
+    use tor_rtcompat::SleepProvider;
 
     #[test]
     fn week() {
@@ -497,14 +532,13 @@ mod test {
     fn all_in_cache() {
         // Let's try bootstrapping when everything is in the cache.
         tor_rtcompat::test_with_one_runtime!(|rt| async {
+            let now = rt.wallclock();
             let (_tempdir, mgr) = new_mgr(rt);
 
             {
                 let mut store = mgr.store_if_rw().unwrap().lock().unwrap();
                 for h in [H1, H2, H3, H4, H5] {
-                    store
-                        .store_microdescs(&[("ignore", &h)], SystemTime::now())
-                        .unwrap();
+                    store.store_microdescs(&[("ignore", &h)], now).unwrap();
                 }
             }
             let mgr = Arc::new(mgr);
@@ -530,14 +564,13 @@ mod test {
         // Let's try bootstrapping with all of phase1 and part of
         // phase 2 in cache.
         tor_rtcompat::test_with_one_runtime!(|rt| async {
+            let now = rt.wallclock();
             let (_tempdir, mgr) = new_mgr(rt);
 
             {
                 let mut store = mgr.store_if_rw().unwrap().lock().unwrap();
                 for h in [H1, H2, H3] {
-                    store
-                        .store_microdescs(&[("ignore", &h)], SystemTime::now())
-                        .unwrap();
+                    store.store_microdescs(&[("ignore", &h)], now).unwrap();
                 }
             }
             {

@@ -243,4 +243,15 @@ impl SimpleClient {
             0
         }
     }
+
+    pub fn control_service(&mut self, command: &str, service: &str) {
+        let (sender, receiver) = channel();
+        let _ = self.client.send(
+            Request::ControlService(command.to_owned(), service.to_owned()),
+            sender,
+        );
+        if self.client.get_next_message().is_ok() {
+            let _ = receiver.recv();
+        }
+    }
 }

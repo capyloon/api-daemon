@@ -5,6 +5,7 @@ use syn;
 
 use BuilderPattern;
 use DeprecationNotes;
+use Each;
 
 /// Setter for the struct fields in the build method, implementing
 /// `quote::ToTokens`.
@@ -63,7 +64,7 @@ pub struct Setter<'a> {
     /// Emit deprecation notes to the user.
     pub deprecation_notes: &'a DeprecationNotes,
     /// Emit extend method.
-    pub each: Option<&'a syn::Ident>,
+    pub each: Option<&'a Each>,
 }
 
 impl<'a> ToTokens for Setter<'a> {
@@ -158,19 +159,49 @@ impl<'a> ToTokens for Setter<'a> {
                 ));
             }
 
-            if let Some(ref ident_each) = self.each {
+            if let Some(each) = self.each {
+                let ident_each = &each.name;
+
+                // Access the collection to extend, initialising with default value if necessary.
+                let get_initialized_collection = if stripped_option {
+                    // Outer (builder) Option -> Inner (field) Option -> collection.
+                    quote!(get_or_insert_with(|| Some(
+                        ::derive_builder::export::core::default::Default::default()
+                    ))
+                    .get_or_insert_with(::derive_builder::export::core::default::Default::default))
+                } else {
+                    // Outer (builder) Option -> collection.
+                    quote!(get_or_insert_with(
+                        ::derive_builder::export::core::default::Default::default
+                    ))
+                };
+
+                let ty_params: TokenStream;
+                let param_ty: TokenStream;
+                let into_item: TokenStream;
+
+                if each.into {
+                    ty_params = quote!(<VALUE, FROM_VALUE: ::derive_builder::export::core::convert::Into<VALUE>>);
+                    param_ty = quote!(FROM_VALUE);
+                    into_item = quote!(::derive_builder::export::core::convert::Into::into(item));
+                } else {
+                    ty_params = quote!(<VALUE>);
+                    param_ty = quote!(VALUE);
+                    into_item = quote!(item);
+                }
+
                 tokens.append_all(quote!(
                     #(#attrs)*
                     #[allow(unused_mut)]
-                    #vis fn #ident_each <VALUE>(#self_param, item: VALUE) -> #return_ty
+                    #vis fn #ident_each #ty_params(#self_param, item: #param_ty) -> #return_ty
                     where
                         #ty: ::derive_builder::export::core::default::Default + ::derive_builder::export::core::iter::Extend<VALUE>,
                     {
                         #deprecation_notes
                         let mut new = #self_into_return_ty;
                         new.#field_ident
-                            .get_or_insert_with(::derive_builder::export::core::default::Default::default)
-                            .extend(::derive_builder::export::core::option::Option::Some(item));
+                            .#get_initialized_collection
+                            .extend(::derive_builder::export::core::option::Option::Some(#into_item));
                         new
                     }
                 ));
@@ -211,7 +242,7 @@ fn extract_type_from_option(ty: &syn::Type) -> Option<&syn::Type> {
     }
 
     extract_type_path(ty)
-        .and_then(|path| extract_option_segment(path))
+        .and_then(extract_option_segment)
         .and_then(|pair_path_segment| {
             let type_params = &pair_path_segment.into_value().arguments;
             // It should have only on angle-bracketed param ("<String>"):
@@ -235,17 +266,17 @@ macro_rules! default_setter {
         Setter {
             setter_enabled: true,
             try_setter: false,
-            visibility: syn::parse_str("pub").unwrap(),
+            visibility: parse_quote!(pub),
             pattern: BuilderPattern::Mutable,
             attrs: &vec![],
             ident: syn::Ident::new("foo", ::proc_macro2::Span::call_site()),
             field_ident: &syn::Ident::new("foo", ::proc_macro2::Span::call_site()),
-            field_type: &syn::parse_str("Foo").unwrap(),
+            field_type: &parse_quote!(Foo),
             generic_into: false,
             strip_option: false,
             deprecation_notes: &Default::default(),
             each: None,
-        };
+        }
     };
 }
 
@@ -357,7 +388,7 @@ mod tests {
 
     #[test]
     fn strip_option() {
-        let ty = syn::parse_str("Option<Foo>").unwrap();
+        let ty = parse_quote!(Option<Foo>);
         let mut setter = default_setter!();
         setter.strip_option = true;
         setter.field_type = &ty;
@@ -381,7 +412,7 @@ mod tests {
 
     #[test]
     fn strip_option_into() {
-        let ty = syn::parse_str("Option<Foo>").unwrap();
+        let ty = parse_quote!(Option<Foo>);
         let mut setter = default_setter!();
         setter.strip_option = true;
         setter.generic_into = true;
@@ -530,18 +561,17 @@ mod tests {
 
     #[test]
     fn extract_type_from_option_on_simple_type() {
-        let ty_foo = syn::parse_str("Foo").unwrap();
+        let ty_foo = parse_quote!(Foo);
         assert_eq!(extract_type_from_option(&ty_foo), None);
 
         for s in vec![
-            "Option<Foo>",
-            "std::option::Option<Foo>",
-            "::std::option::Option<Foo>",
-            "core::option::Option<Foo>",
-            "::core::option::Option<Foo>",
+            parse_quote!(Option<Foo>),
+            parse_quote!(std::option::Option<Foo>),
+            parse_quote!(::std::option::Option<Foo>),
+            parse_quote!(core::option::Option<Foo>),
+            parse_quote!(::core::option::Option<Foo>),
         ] {
-            let ty_foo_opt = syn::parse_str(s).unwrap();
-            assert_eq!(extract_type_from_option(&ty_foo_opt), Some(&ty_foo));
+            assert_eq!(extract_type_from_option(&s), Some(&ty_foo));
         }
     }
 }
