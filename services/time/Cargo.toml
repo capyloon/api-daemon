@@ -16,5 +16,8 @@ settings_service = { path = "../settings" }
 threadpool = "1.8"
 time = "0.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+b2ghald = { git = "https://github.com/capyloon/b2ghald.git" }
+
 [build-dependencies]
 common = { path = "../../common" }

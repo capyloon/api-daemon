@@ -5064,6 +5064,7 @@ name = "time_service"
 version = "0.1.0"
 dependencies = [
  "android_utils",
+ "b2ghald",
  "common",
  "libc",
  "log",
