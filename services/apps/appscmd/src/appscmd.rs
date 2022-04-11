@@ -222,6 +222,7 @@ fn send(opts: &CmdOptions, request: &Request) -> Result<(), CmdLineError> {
 fn main() {
     if let Err(err) = run() {
         error!("{}", err);
+        std::process::exit(-1);
     }
 }
 

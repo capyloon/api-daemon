@@ -22,11 +22,14 @@
     "wavoip-daemon": "0.9.6",
     "ads-sdk": "1.1.0"
   },
+  "package_path": "https://store.domain/path/to/application.zip",
+  "packaged_size": 12345,
   "type": "web",
   "b2g_features": {
     "developer": {
       "url": "http://sample.com",
-      "name": "Hello"
+      "name": "Hello",
+      "other": {}
     },
     "permissions": {
       "flashlight": {},

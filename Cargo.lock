@@ -404,7 +404,6 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "android_utils",
- "assert-json-diff",
  "base64",
  "blake2",
  "common",
