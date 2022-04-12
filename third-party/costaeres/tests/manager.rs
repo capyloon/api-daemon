@@ -1085,3 +1085,105 @@ async fn add_remove_tags() {
         assert_eq!(tracker.modified, 8);
     });
 }
+
+#[async_std::test]
+async fn copy_resource() {
+    use async_std::io::ReadExt;
+
+    let (config, store) = prepare_test(24).await;
+
+    let mut manager = Manager::new(config, Box::new(store)).await.unwrap();
+
+    manager.create_root().await.unwrap();
+
+    let mut source_meta = ResourceMetadata::new(
+        &1.into(),
+        &ROOT_ID,
+        ResourceKind::Leaf,
+        "Source",
+        vec![],
+        vec![],
+    );
+    manager
+        .create(&mut source_meta, Some(default_content().await))
+        .await
+        .unwrap();
+
+    // meta1: container with a resource of the same name.
+    let mut target_meta1 = ResourceMetadata::new(
+        &2.into(),
+        &ROOT_ID,
+        ResourceKind::Container,
+        "Target 1 Container",
+        vec![],
+        vec![],
+    );
+    manager.create(&mut target_meta1, None).await.unwrap();
+
+    let mut leaf = ResourceMetadata::new(
+        &3.into(),
+        &target_meta1.id(),
+        ResourceKind::Leaf,
+        "Source",
+        vec![],
+        vec![],
+    );
+    manager
+        .create(&mut leaf, Some(default_content().await))
+        .await
+        .unwrap();
+
+    // meta2: empty container.
+    let mut target_meta2 = ResourceMetadata::new(
+        &4.into(),
+        &ROOT_ID,
+        ResourceKind::Container,
+        "Target 2 Container",
+        vec![],
+        vec![],
+    );
+    manager.create(&mut target_meta2, None).await.unwrap();
+
+    // Copying containers is not supported yet.
+    assert_eq!(
+        manager.copy_resource(&target_meta1.id(), &10.into()).await,
+        Err(ResourceStoreError::Custom(
+            "Copying containers is not supported yet.".into(),
+        ))
+    );
+
+    // Copying to an unknown container will fail.
+    assert_eq!(
+        manager.copy_resource(&source_meta.id(), &10.into()).await,
+        Err(ResourceStoreError::InvalidContainerId)
+    );
+
+    // Copying to a container where a similarly named resource exists will fail.
+    assert_eq!(
+        manager
+            .copy_resource(&source_meta.id(), &target_meta1.id())
+            .await,
+        Err(ResourceStoreError::ResourceAlreadyExists)
+    );
+
+    let observer_id = manager.add_observer(Box::new(Observer::default()));
+
+    let new_meta = manager
+        .copy_resource(&source_meta.id(), &target_meta2.id())
+        .await
+        .unwrap();
+
+    // Read the content of the default variant.
+    let mut variant = manager.get_leaf(&new_meta.id(), "default").await.unwrap();
+    let mut content = String::new();
+    let _ = variant.1.read_to_string(&mut content).await.unwrap();
+    assert_eq!(content.len(), 93);
+    assert_eq!(&content[0..32], "#!/bin/bash\n\nset -x -e\n\nrm build");
+
+    manager.with_observer(observer_id, &mut |observer: &mut Box<
+        dyn ModificationObserver<Inner = Rc<Tracker>>,
+    >| {
+        let tracker = observer.get_inner();
+        assert_eq!(tracker.created, 1);
+    });
+}

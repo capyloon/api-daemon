@@ -10,7 +10,7 @@ checksum = "efaa7b300f3b5fe8eb6bf21ce3895e1751d9665086af2d64b42f19701015ff4f"
 
 [[package]]
 name = "rlimit"
-version = "0.8.1"
+version = "0.8.3"
 dependencies = [
  "libc",
 ]

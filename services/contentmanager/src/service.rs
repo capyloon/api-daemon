@@ -858,6 +858,29 @@ impl ContentStoreMethods for ContentManagerService {
             }
         });
     }
+
+    fn copy_resource(
+        &mut self,
+        responder: ContentStoreCopyResourceResponder,
+        source: String,
+        target: String,
+    ) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+            match manager
+                .copy_resource(&source.clone().into(), &target.clone().into())
+                .await
+            {
+                Ok(metadata) => responder.resolve(metadata.into()),
+                Err(err) => {
+                    error!("Failed to copy resource {} to {} : {}", source, target, err);
+                    responder.reject();
+                }
+            }
+        });
+    }
 }
 
 common::impl_shared_state!(ContentManagerService, State, Config);
