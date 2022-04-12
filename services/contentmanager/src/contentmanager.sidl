@@ -148,6 +148,10 @@ interface ContentStore {
     // Remove a tag from a resource. Returns the updated metadata.
     // This triggers a "Modified" observer notification.
     fn remove_tag(id: str, tag: str) -> Metadata
+
+    // Copy a resource to another container.
+    // Returns the metadata of the copy.
+    fn copy_resource(source: str, target: str) -> Metadata
 }
 
 #[rust:shared-tracker,permission=content-manager]

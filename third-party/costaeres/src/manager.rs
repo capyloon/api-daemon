@@ -1074,4 +1074,52 @@ impl<T> Manager<T> {
 
         Ok(current_size)
     }
+
+    /// Copy a resource to a target container with all its variants.
+    pub async fn copy_resource(
+        &mut self,
+        source: &ResourceId,
+        target: &ResourceId,
+    ) -> Result<ResourceMetadata, ResourceStoreError> {
+        // Copying containers is not supported yet.
+        if self.is_container(source).await? {
+            return Err(ResourceStoreError::Custom(
+                "Copying containers is not supported yet.".into(),
+            ));
+        }
+
+        // Check that the target exists and is a container.
+        if !self.is_container(target).await? {
+            return Err(ResourceStoreError::InvalidContainerId);
+        }
+
+        // Fail if a child with the same name already exists in the target container.
+        let source_meta = self.get_metadata(source).await?;
+        if self
+            .child_by_name(target, &source_meta.name())
+            .await
+            .is_ok()
+        {
+            return Err(ResourceStoreError::ResourceAlreadyExists);
+        }
+
+        // Get a new metadata representation with the new parent.
+        let mut new_meta = source_meta.reparent(target);
+
+        // Create the resource.
+        self.create(&mut new_meta, None).await?;
+
+        // For each variant, perform an update_variant
+        for variant in source_meta.variants() {
+            let item = self
+                .store
+                .get_variant(&source_meta.id(), &variant.name())
+                .await?;
+
+            let content = VariantContent::new(variant.clone(), item);
+            self.update_variant(&new_meta.id(), content).await?;
+        }
+
+        Ok(new_meta)
+    }
 }

@@ -228,6 +228,16 @@ impl ResourceMetadata {
         }
     }
 
+    pub fn reparent(&self, parent: &ResourceId) -> Self {
+        let mut new_meta = self.clone();
+        new_meta.id = ResourceId::new();
+        new_meta.parent = parent.clone();
+        new_meta.created = DateTimeUtc::now();
+        new_meta.modified = DateTimeUtc::now();
+        new_meta.scorer = Scorer::default();
+        new_meta
+    }
+
     pub fn has_variant(&self, name: &str) -> bool {
         self.variants.iter().any(|item| item.name() == name)
     }
