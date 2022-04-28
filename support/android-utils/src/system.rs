@@ -75,13 +75,17 @@ static MINFREE_PATH: &str = "/sys/module/lowmemorykiller/parameters/minfree";
 
 #[derive(Debug)]
 pub struct SystemState {
+    #[cfg(target_os = "android")]
     minfree: Option<String>, // The saved value of the MINFREE_PATH file.
 }
 
 impl Default for SystemState {
     fn default() -> Self {
         debug!("Total usable memory is {}M", total_memory());
-        SystemState { minfree: None }
+        SystemState {
+            #[cfg(target_os = "android")]
+            minfree: None
+        }
     }
 }
 

@@ -102,20 +102,6 @@ impl Default for ContactTelField {
     }
 }
 
-impl Default for Address {
-    fn default() -> Self {
-        Address {
-            atype: None,
-            street_address: None,
-            locality: None,
-            region: None,
-            postal_code: None,
-            country_name: None,
-            pref: None,
-        }
-    }
-}
-
 fn json_string_to_systemtime(time_str: String) -> Result<SystemTime, Error> {
     debug!("json_string_to_systemtime from time_str: {}", time_str);
 

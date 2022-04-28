@@ -62,7 +62,7 @@ pub fn rust_type(full_type: &FullConcreteType) -> String {
         ConcreteType::Dictionary(ref utype)
         | ConcreteType::Enumeration(ref utype)
         | ConcreteType::Interface(ref utype) => {
-            res.push_str(&utype.to_string());
+            res.push_str(utype);
         }
         ConcreteType::Callback(_) => res.push_str("ObjectRef"),
     }
@@ -96,7 +96,7 @@ pub fn rust_type_for_param(full_type: &FullConcreteType) -> String {
         ConcreteType::Blob => res.push_str("Blob"),
         ConcreteType::Url => res.push_str("Url"),
         ConcreteType::Dictionary(ref utype) | ConcreteType::Enumeration(ref utype) => {
-            res.push_str(&utype.to_string());
+            res.push_str(utype);
         }
         ConcreteType::Callback(_) | ConcreteType::Interface(_) => {
             res.push_str("ObjectRef"); // Interfaces are mapped to the object id.

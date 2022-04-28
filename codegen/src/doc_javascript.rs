@@ -41,7 +41,7 @@ pub fn js_type(typ: &ConcreteType, arity: Arity) -> Vec<String> {
         | ConcreteType::Enumeration(ref utype)
         | ConcreteType::Interface(ref utype)
         | ConcreteType::Callback(ref utype) => {
-            res.push_str(&utype.to_string());
+            res.push_str(utype);
         }
     }
 

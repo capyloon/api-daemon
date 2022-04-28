@@ -1489,13 +1489,11 @@ impl ContactsDb {
     ) -> Result<Vec<String>, Error> {
         debug!("ContactsDb::find_blocked_numbers options:{:?}", &options);
         let conn = self.db.connection();
-        let mut stmt;
-        if options.filter_option == FilterOption::Match {
-            stmt =
-                conn.prepare("SELECT number FROM blocked_numbers WHERE match_key LIKE :param")?;
+        let mut stmt = if options.filter_option == FilterOption::Match {
+            conn.prepare("SELECT number FROM blocked_numbers WHERE match_key LIKE :param")?
         } else {
-            stmt = conn.prepare("SELECT number FROM blocked_numbers WHERE number LIKE :param")?;
-        }
+            conn.prepare("SELECT number FROM blocked_numbers WHERE number LIKE :param")?
+        };
 
         let param = match options.filter_option {
             FilterOption::StartsWith => format!("{}%", options.filter_value),

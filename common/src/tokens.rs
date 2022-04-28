@@ -12,17 +12,10 @@ use std::collections::HashMap;
 
 pub type SharedTokensManager = Shared<TokensManager>;
 
+#[derive(Default)]
 pub struct TokensManager {
     // Map token -> attributes.
     ids: HashMap<String, OriginAttributes>,
-}
-
-impl Default for TokensManager {
-    fn default() -> Self {
-        TokensManager {
-            ids: HashMap::new(),
-        }
-    }
 }
 
 impl TokensManager {
