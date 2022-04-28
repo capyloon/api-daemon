@@ -35,6 +35,9 @@ enum ModificationKind {
     Created
     Modified
     Deleted
+    ChildCreated
+    ChildModified
+    ChildDeleted
 }
 
 enum VisitPriority {
@@ -46,6 +49,7 @@ enum VisitPriority {
 dictionary ResourceModification {
     kind: ModificationKind // The type of modification.
     id: str                // The id of the modified resource.
+    parent: str?           // For ChildCreated, ChildModified, ChildDeleted, the id of the parent container.
 }
 
 // Subset of Metadata used for resource creation.

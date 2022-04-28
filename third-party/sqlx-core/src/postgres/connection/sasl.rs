@@ -6,8 +6,7 @@ use crate::postgres::message::{
 use crate::postgres::PgConnectOptions;
 use hmac::{Hmac, Mac};
 use rand::Rng;
-use sha2::digest::Digest;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use stringprep::saslprep;
 
 const GS2_HEADER: &str = "n,,";

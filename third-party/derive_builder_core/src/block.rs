@@ -9,7 +9,6 @@ use syn::{self, spanned::Spanned, Block, LitStr};
 ///
 /// - **full access** to variables environment.
 /// - **full access** to control-flow of the environment via `return`, `?` etc.
-/// ```
 #[derive(Debug, Clone)]
 pub struct BlockContents(Block);
 
@@ -42,6 +41,21 @@ impl From<syn::Expr> for BlockContents {
             brace_token: syn::token::Brace(v.span()),
             stmts: vec![syn::Stmt::Expr(v)],
         })
+    }
+}
+
+impl darling::FromMeta for BlockContents {
+    fn from_value(value: &syn::Lit) -> darling::Result<Self> {
+        if let syn::Lit::Str(s) = value {
+            let contents = BlockContents::try_from(s)?;
+            if contents.is_empty() {
+                Err(darling::Error::unknown_value("").with_span(s))
+            } else {
+                Ok(contents)
+            }
+        } else {
+            Err(darling::Error::unexpected_lit_type(value))
+        }
     }
 }
 

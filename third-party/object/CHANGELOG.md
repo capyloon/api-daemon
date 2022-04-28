@@ -2,13 +2,100 @@
 
 --------------------------------------------------------------------------------
 
+## 0.28.3
+
+Released 2022/01/19.
+
+### Changed
+
+* For the Mach-O support in `write::Object`, accept `RelocationKind::MachO` for all
+  architecures, and accept `RelocationKind::Absolute` for ARM64.
+  [#422](https://github.com/gimli-rs/object/pull/422)
+
+### Added
+
+* Added `pe::ImageDataDirectory::file_range`, `read::pe::SectionTable::pe_file_range_at`
+  and `pe::ImageSectionHeader::pe_file_range_at`.
+  [#421](https://github.com/gimli-rs/object/pull/421)
+
+* Added `write::Object::add_coff_exports`.
+  [#423](https://github.com/gimli-rs/object/pull/423)
+
+--------------------------------------------------------------------------------
+
+## 0.28.2
+
+Released 2022/01/09.
+
+### Changed
+
+* Ignored errors for the Wasm extended name section in `read::WasmFile::parse`.
+  [#408](https://github.com/gimli-rs/object/pull/408)
+
+* Ignored errors for the COFF symbol table in `read::PeFile::parse`.
+  [#410](https://github.com/gimli-rs/object/pull/410)
+
+* Fixed handling of `SectionFlags::Coff` in `write::Object::coff_write`.
+  [#412](https://github.com/gimli-rs/object/pull/412)
+
+### Added
+
+* Added `read::ObjectSegment::flags`.
+  [#416](https://github.com/gimli-rs/object/pull/416)
+  [#418](https://github.com/gimli-rs/object/pull/418)
+
+--------------------------------------------------------------------------------
+
+## 0.28.1
+
+Released 2021/12/12.
+
+### Changed
+
+* Fixed `read::elf::SymbolTable::shndx_section`.
+  [#405](https://github.com/gimli-rs/object/pull/405)
+
+* Fixed build warnings.
+  [#405](https://github.com/gimli-rs/object/pull/405)
+  [#406](https://github.com/gimli-rs/object/pull/406)
+
+--------------------------------------------------------------------------------
+
+## 0.28.0
+
+Released 2021/12/12.
+
+### Breaking changes
+
+* `write_core` feature no longer enables `std` support. Use `write_std` instead.
+  [#400](https://github.com/gimli-rs/object/pull/400)
+
+* Multiple changes related to Mach-O split dyld cache support.
+  [#398](https://github.com/gimli-rs/object/pull/398)
+
+### Added
+
+* Added `write::pe::Writer::write_file_align`.
+  [#397](https://github.com/gimli-rs/object/pull/397)
+
+* Added support for Mach-O split dyld cache.
+  [#398](https://github.com/gimli-rs/object/pull/398)
+
+* Added support for `IMAGE_SCN_LNK_NRELOC_OVFL` when reading and writing COFF.
+  [#399](https://github.com/gimli-rs/object/pull/399)
+
+* Added `write::elf::Writer::reserve_null_symbol_index`.
+  [#402](https://github.com/gimli-rs/object/pull/402)
+
+--------------------------------------------------------------------------------
+
 ## 0.27.1
 
 Released 2021/10/22.
 
 ### Changed
 
-* Fix build error with older Rust versions due to cargo resolver version.
+* Fixed build error with older Rust versions due to cargo resolver version.
 
 --------------------------------------------------------------------------------
 

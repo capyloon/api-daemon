@@ -12,12 +12,14 @@
 [package]
 edition = "2018"
 name = "backtrace"
-version = "0.3.64"
+version = "0.3.65"
 authors = ["The Rust Project Developers"]
 build = "build.rs"
 autoexamples = true
 autotests = true
-description = "A library to acquire a stack trace (backtrace) at runtime in a Rust program.\n"
+description = """
+A library to acquire a stack trace (backtrace) at runtime in a Rust program.
+"""
 homepage = "https://github.com/rust-lang/backtrace-rs"
 documentation = "https://docs.rs/backtrace"
 readme = "README.md"
@@ -54,6 +56,7 @@ edition = "2018"
 name = "concurrent-panics"
 harness = false
 required-features = ["std"]
+
 [dependencies.addr2line]
 version = "0.17.0"
 default-features = false
@@ -71,12 +74,19 @@ version = "0.2.94"
 default-features = false
 
 [dependencies.miniz_oxide]
-version = "0.4.0"
+version = "0.5.0"
 default-features = false
 
 [dependencies.object]
-version = "0.27.0"
-features = ["read_core", "elf", "macho", "pe", "unaligned", "archive"]
+version = "0.28.0"
+features = [
+    "read_core",
+    "elf",
+    "macho",
+    "pe",
+    "unaligned",
+    "archive",
+]
 default-features = false
 
 [dependencies.rustc-demangle]
@@ -90,8 +100,10 @@ optional = true
 version = "1.0"
 features = ["derive"]
 optional = true
+
 [dev-dependencies.libloading]
 version = "0.7"
+
 [build-dependencies.cc]
 version = "1.0.67"
 
@@ -108,7 +120,19 @@ serialize-rustc = ["rustc-serialize"]
 serialize-serde = ["serde"]
 std = []
 unix-backtrace = []
-verify-winapi = ["winapi/dbghelp", "winapi/handleapi", "winapi/libloaderapi", "winapi/memoryapi", "winapi/minwindef", "winapi/processthreadsapi", "winapi/synchapi", "winapi/tlhelp32", "winapi/winbase", "winapi/winnt"]
+verify-winapi = [
+    "winapi/dbghelp",
+    "winapi/handleapi",
+    "winapi/libloaderapi",
+    "winapi/memoryapi",
+    "winapi/minwindef",
+    "winapi/processthreadsapi",
+    "winapi/synchapi",
+    "winapi/tlhelp32",
+    "winapi/winbase",
+    "winapi/winnt",
+]
+
 [target."cfg(windows)".dependencies.winapi]
 version = "0.3.9"
 optional = true

@@ -823,6 +823,9 @@ struct Tracker {
     created: usize,
     modified: usize,
     deleted: usize,
+    child_created: usize,
+    child_modified: usize,
+    child_deleted: usize,
 }
 
 impl ModificationObserver for Observer {
@@ -831,10 +834,13 @@ impl ModificationObserver for Observer {
     fn modified(&mut self, modification: &ResourceModification) {
         // println!("{:?}", modification);
         let tracker = Rc::get_mut(&mut self.tracker).unwrap();
-        match modification.kind {
-            ModificationKind::Created => tracker.created += 1,
-            ModificationKind::Modified => tracker.modified += 1,
-            ModificationKind::Deleted => tracker.deleted += 1,
+        match modification {
+            ResourceModification::Created(_) => tracker.created += 1,
+            ResourceModification::Modified(_) => tracker.modified += 1,
+            ResourceModification::Deleted(_) => tracker.deleted += 1,
+            ResourceModification::ChildCreated(_) => tracker.child_created += 1,
+            ResourceModification::ChildModified(_) => tracker.child_modified += 1,
+            ResourceModification::ChildDeleted(_) => tracker.child_deleted += 1,
         }
     }
 
@@ -1069,8 +1075,8 @@ async fn add_remove_tags() {
         dyn ModificationObserver<Inner = Rc<Tracker>>,
     >| {
         let tracker = observer.get_inner();
-        // Increases by 2: one for the leaf, one for the parent.
-        assert_eq!(tracker.modified, 6);
+        assert_eq!(tracker.modified, 5);
+        assert_eq!(tracker.child_modified, 1);
     });
 
     // Remove a tag from the leaf, and check this triggers a modification in the root observer.
@@ -1081,8 +1087,8 @@ async fn add_remove_tags() {
         dyn ModificationObserver<Inner = Rc<Tracker>>,
     >| {
         let tracker = observer.get_inner();
-        // Increases by 2: one for the leaf, one for the parent.
-        assert_eq!(tracker.modified, 8);
+        assert_eq!(tracker.modified, 6);
+        assert_eq!(tracker.child_modified, 2);
     });
 }
 

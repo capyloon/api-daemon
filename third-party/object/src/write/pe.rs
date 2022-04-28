@@ -1,7 +1,7 @@
 //! Helper for writing PE files.
-use std::mem;
-use std::string::String;
-use std::vec::Vec;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::mem;
 
 use crate::endian::{LittleEndian as LE, *};
 use crate::pe;
@@ -154,6 +154,11 @@ impl<'a> Writer<'a> {
     /// Write alignment padding bytes.
     pub fn write_align(&mut self, align_start: u32) {
         util::write_align(self.buffer, align_start as usize);
+    }
+
+    /// Write padding up to the next multiple of file alignment.
+    pub fn write_file_align(&mut self) {
+        self.write_align(self.file_alignment);
     }
 
     /// Reserve the file range up to the given file offset.

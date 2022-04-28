@@ -13,8 +13,8 @@ use crate::read::{
     self, Architecture, ComdatKind, CompressedData, CompressedFileRange, Error, Export, FileFlags,
     Import, NoDynamicRelocationIterator, Object, ObjectComdat, ObjectKind, ObjectSection,
     ObjectSegment, ObjectSymbol, ObjectSymbolTable, ReadError, ReadRef, Relocation, Result,
-    SectionFlags, SectionIndex, SectionKind, SymbolFlags, SymbolIndex, SymbolKind, SymbolScope,
-    SymbolSection,
+    SectionFlags, SectionIndex, SectionKind, SegmentFlags, SymbolFlags, SymbolIndex, SymbolKind,
+    SymbolScope, SymbolSection,
 };
 
 const SECTION_CUSTOM: usize = 0;
@@ -254,25 +254,30 @@ impl<'data, R: ReadRef<'data>> WasmFile<'data, R> {
                         .get_name_section_reader()
                         .read_error("Couldn't read header of the name section")?
                     {
-                        let name =
-                            match name.read_error("Couldn't read header of a name subsection")? {
-                                wp::Name::Function(name) => name,
-                                _ => continue,
-                            };
-                        let mut name_map = name
-                            .get_map()
-                            .read_error("Couldn't read header of the function name subsection")?;
-                        for _ in 0..name_map.get_count() {
-                            let naming = name_map
-                                .read()
-                                .read_error("Couldn't read a function name")?;
-                            if let Some(local_index) =
-                                naming.index.checked_sub(imported_funcs_count)
-                            {
-                                if let LocalFunctionKind::Local { symbol_id } =
-                                    local_func_kinds[local_index as usize]
+                        // TODO: Right now, ill-formed name subsections
+                        // are silently ignored in order to maintain
+                        // compatibility with extended name sections, which
+                        // are not yet supported by the version of
+                        // `wasmparser` currently used.
+                        // A better fix would be to update `wasmparser` to
+                        // the newest version, but this requires
+                        // a major rewrite of this file.
+                        if let Ok(wp::Name::Function(name)) = name {
+                            let mut name_map = name.get_map().read_error(
+                                "Couldn't read header of the function name subsection",
+                            )?;
+                            for _ in 0..name_map.get_count() {
+                                let naming = name_map
+                                    .read()
+                                    .read_error("Couldn't read a function name")?;
+                                if let Some(local_index) =
+                                    naming.index.checked_sub(imported_funcs_count)
                                 {
-                                    file.symbols[symbol_id as usize].name = naming.name;
+                                    if let LocalFunctionKind::Local { symbol_id } =
+                                        local_func_kinds[local_index as usize]
+                                    {
+                                        file.symbols[symbol_id as usize].name = naming.name;
+                                    }
                                 }
                             }
                         }
@@ -438,6 +443,7 @@ where
 /// An iterator over the segments of a `WasmFile`.
 #[derive(Debug)]
 pub struct WasmSegmentIterator<'data, 'file, R = &'data [u8]> {
+    #[allow(unused)]
     file: &'file WasmFile<'data, R>,
 }
 
@@ -453,6 +459,7 @@ impl<'data, 'file, R> Iterator for WasmSegmentIterator<'data, 'file, R> {
 /// A segment of a `WasmFile`.
 #[derive(Debug)]
 pub struct WasmSegment<'data, 'file, R = &'data [u8]> {
+    #[allow(unused)]
     file: &'file WasmFile<'data, R>,
 }
 
@@ -494,6 +501,11 @@ impl<'data, 'file, R> ObjectSegment<'data> for WasmSegment<'data, 'file, R> {
 
     #[inline]
     fn name(&self) -> Result<Option<&str>> {
+        unreachable!()
+    }
+
+    #[inline]
+    fn flags(&self) -> SegmentFlags {
         unreachable!()
     }
 }
@@ -652,6 +664,7 @@ impl<'data, 'file, R> ObjectSection<'data> for WasmSection<'data, 'file, R> {
 /// An iterator over the COMDAT section groups of a `WasmFile`.
 #[derive(Debug)]
 pub struct WasmComdatIterator<'data, 'file, R = &'data [u8]> {
+    #[allow(unused)]
     file: &'file WasmFile<'data, R>,
 }
 
@@ -667,6 +680,7 @@ impl<'data, 'file, R> Iterator for WasmComdatIterator<'data, 'file, R> {
 /// A COMDAT section group of a `WasmFile`.
 #[derive(Debug)]
 pub struct WasmComdat<'data, 'file, R = &'data [u8]> {
+    #[allow(unused)]
     file: &'file WasmFile<'data, R>,
 }
 
@@ -707,6 +721,7 @@ pub struct WasmComdatSectionIterator<'data, 'file, R = &'data [u8]>
 where
     'data: 'file,
 {
+    #[allow(unused)]
     file: &'file WasmFile<'data, R>,
 }
 

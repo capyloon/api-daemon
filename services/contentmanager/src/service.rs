@@ -22,8 +22,7 @@ use costaeres::config::Config as CoConfig;
 use costaeres::file_store::FileStore;
 use costaeres::indexer::*;
 use costaeres::manager::{
-    Manager, ModificationKind as ModificationKindC, ModificationObserver,
-    ResourceModification as ResourceModificationC,
+    Manager, ModificationObserver, ResourceModification as ResourceModificationC,
 };
 use costaeres::scorer::VisitEntry;
 use log::{debug, error, info};
@@ -885,21 +884,33 @@ impl ContentStoreMethods for ContentManagerService {
 
 common::impl_shared_state!(ContentManagerService, State, Config);
 
-impl Into<ModificationKind> for ModificationKindC {
-    fn into(self) -> ModificationKind {
-        match self {
-            Self::Created => ModificationKind::Created,
-            Self::Deleted => ModificationKind::Deleted,
-            Self::Modified => ModificationKind::Modified,
-        }
-    }
-}
-
 impl Into<ResourceModification> for &ResourceModificationC {
     fn into(self) -> ResourceModification {
+        let (kind, id, parent) = match &self {
+            ResourceModificationC::Created(id) => (ModificationKind::Created, id.clone(), None),
+            ResourceModificationC::Modified(id) => (ModificationKind::Modified, id.clone(), None),
+            ResourceModificationC::Deleted(id) => (ModificationKind::Deleted, id.clone(), None),
+            ResourceModificationC::ChildCreated(p_and_c) => (
+                ModificationKind::ChildCreated,
+                p_and_c.child.clone(),
+                Some(p_and_c.parent.clone()),
+            ),
+            ResourceModificationC::ChildModified(p_and_c) => (
+                ModificationKind::ChildModified,
+                p_and_c.child.clone(),
+                Some(p_and_c.parent.clone()),
+            ),
+            ResourceModificationC::ChildDeleted(p_and_c) => (
+                ModificationKind::ChildDeleted,
+                p_and_c.child.clone(),
+                Some(p_and_c.parent.clone()),
+            ),
+        };
+
         ResourceModification {
-            id: self.id.clone().into(),
-            kind: self.kind.clone().into(),
+            kind,
+            id: id.into(),
+            parent: parent.map(|id| id.into()),
         }
     }
 }
@@ -927,13 +938,22 @@ impl ModificationObserver for Observer {
             .broadcast_onresourcemodified(modification.into());
         info!("Done broadcasting event {:?}", modification);
 
+        // Get the id of the modified resource.
+        // Use the parent when getting a child modification.
+        let id = match modification {
+            ResourceModificationC::Created(id) => id.clone(),
+            ResourceModificationC::Modified(id) => id.clone(),
+            ResourceModificationC::Deleted(id) => id.clone(),
+            ResourceModificationC::ChildCreated(p_and_c) => p_and_c.parent.clone(),
+            ResourceModificationC::ChildModified(p_and_c) => p_and_c.parent.clone(),
+            ResourceModificationC::ChildDeleted(p_and_c) => p_and_c.parent.clone(),
+        };
+
         let inner = Rc::get_mut(&mut self.inner).unwrap();
-        inner
-            .resource_observers
-            .for_each(&modification.id, |proxy, id| {
-                info!("Notifiying observer {}", id);
-                proxy.modified(modification.into());
-            });
+        inner.resource_observers.for_each(&id, |proxy, id| {
+            info!("Notifiying observer {}", id);
+            proxy.modified(modification.into());
+        });
     }
 
     fn get_inner<'a>(&'a mut self) -> &'a mut Self::Inner {

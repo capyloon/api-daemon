@@ -41,11 +41,6 @@ git = "https://github.com/fabricedesre/rust-phonenumber.git"
 branch = "api-daemon"
 replace-with = "vendored-sources"
 
-[source."https://github.com/fabricedesre/sqlx.git"]
-git = "https://github.com/fabricedesre/sqlx.git"
-branch = "update-libsqlite3-sys"
-replace-with = "vendored-sources"
-
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]
 git = "ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"
 branch = "update-bindgen"

@@ -11,17 +11,17 @@
 
 [package]
 name = "derive_builder"
-version = "0.11.1"
+version = "0.11.2"
 authors = ["Colin Kiegel <kiegel@gmx.de>", "Pascal Hertleif <killercup@gmail.com>", "Jan-Erik Rediger <janerik@fnordig.de>", "Ted Driggs <ted.driggs@outlook.com>"]
 description = "Rust macro to automatically implement the builder pattern for arbitrary structs."
-documentation = "https://docs.rs/derive_builder/0.11.1"
+documentation = "https://docs.rs/derive_builder/0.11.2"
 readme = "README.md"
 keywords = ["derive", "macro", "builder", "setter", "struct"]
 categories = ["development-tools", "rust-patterns"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/colin-kiegel/rust-derive-builder"
 [dependencies.derive_builder_macro]
-version = "=0.11.1"
+version = "=0.11.2"
 [dev-dependencies.pretty_assertions]
 version = "0.6.1"
 
@@ -30,6 +30,7 @@ version = "1.0.4"
 
 [dev-dependencies.serde]
 version = "1"
+features = ["derive"]
 
 [dev-dependencies.serde_json]
 version = "1"
