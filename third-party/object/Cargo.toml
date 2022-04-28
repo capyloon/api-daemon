@@ -3,17 +3,16 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
 name = "object"
-version = "0.27.1"
+version = "0.28.3"
 exclude = ["/.github", "/testfiles"]
 description = "A unified interface for reading and writing object file formats."
 keywords = ["object", "elf", "mach-o", "pe", "coff"]
@@ -38,13 +37,20 @@ package = "rustc-std-workspace-core"
 [dependencies.crc32fast]
 version = "1.2"
 optional = true
+default-features = false
 
 [dependencies.flate2]
 version = "1"
 optional = true
 
+[dependencies.hashbrown]
+version = "0.11"
+features = ["ahash"]
+optional = true
+default-features = false
+
 [dependencies.indexmap]
-version = "1.1"
+version = "1.6"
 optional = true
 
 [dependencies.memchr]
@@ -62,7 +68,7 @@ cargo-all = []
 coff = []
 compression = ["flate2", "std"]
 default = ["read", "compression"]
-doc = ["read_core", "write_core", "std", "compression", "archive", "coff", "elf", "macho", "pe", "wasm"]
+doc = ["read_core", "write_std", "std", "compression", "archive", "coff", "elf", "macho", "pe", "wasm"]
 elf = []
 macho = []
 pe = ["coff"]
@@ -72,5 +78,6 @@ rustc-dep-of-std = ["core", "compiler_builtins", "alloc", "memchr/rustc-dep-of-s
 std = ["memchr/std"]
 unaligned = []
 wasm = ["wasmparser"]
-write = ["write_core", "coff", "elf", "macho", "pe"]
-write_core = ["crc32fast", "indexmap/std", "std"]
+write = ["write_std", "coff", "elf", "macho", "pe"]
+write_core = ["crc32fast", "indexmap", "hashbrown"]
+write_std = ["write_core", "std", "indexmap/std", "crc32fast/std"]

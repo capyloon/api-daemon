@@ -16,7 +16,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! tracing-attributes = "0.1.20"
+//! tracing-attributes = "0.1.21"
 //! ```
 //!
 //! The [`#[instrument]`][instrument] attribute can now be added to a function
@@ -36,7 +36,7 @@
 //!
 //! [`tracing`]: https://crates.io/crates/tracing
 //! [span]: https://docs.rs/tracing/latest/tracing/span/index.html
-//! [instrument]: attr.instrument.html
+//! [instrument]: macro@self::instrument
 //!
 //! ## Supported Rust Versions
 //!
@@ -52,7 +52,7 @@
 //! supported compiler version is not considered a semver breaking change as
 //! long as doing so complies with this policy.
 //!
-#![doc(html_root_url = "https://docs.rs/tracing-attributes/0.1.20")]
+#![doc(html_root_url = "https://docs.rs/tracing-attributes/0.1.21")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/tracing/master/assets/logo-type.png",
     issue_tracker_base_url = "https://github.com/tokio-rs/tracing/issues/"
@@ -345,6 +345,47 @@ mod expand;
 ///     // ...
 /// }
 /// ```
+/// Overriding the generated span's parent:
+/// ```
+/// # use tracing_attributes::instrument;
+/// #[instrument(parent = None)]
+/// pub fn my_function() {
+///     // ...
+/// }
+/// ```
+/// ```
+/// # use tracing_attributes::instrument;
+/// // A struct which owns a span handle.
+/// struct MyStruct
+/// {
+///     span: tracing::Span
+/// }
+///
+/// impl MyStruct
+/// {
+///     // Use the struct's `span` field as the parent span
+///     #[instrument(parent = &self.span, skip(self))]
+///     fn my_method(&self) {}
+/// }
+/// ```
+/// Specifying [`follows_from`] relationships:
+/// ```
+/// # use tracing_attributes::instrument;
+/// #[instrument(follows_from = causes)]
+/// pub fn my_function(causes: &[tracing::Id]) {
+///     // ...
+/// }
+/// ```
+/// Any expression of type `impl IntoIterator<Item = impl Into<Option<Id>>>`
+/// may be provided to `follows_from`; e.g.:
+/// ```
+/// # use tracing_attributes::instrument;
+/// #[instrument(follows_from = [cause])]
+/// pub fn my_function(cause: &tracing::span::EnteredSpan) {
+///     // ...
+/// }
+/// ```
+///
 ///
 /// To skip recording an argument, pass the argument's name to the `skip`:
 ///
@@ -501,7 +542,9 @@ mod expand;
 /// [`INFO`]: https://docs.rs/tracing/latest/tracing/struct.Level.html#associatedconstant.INFO
 /// [empty field]: https://docs.rs/tracing/latest/tracing/field/struct.Empty.html
 /// [field syntax]: https://docs.rs/tracing/latest/tracing/#recording-fields
-/// [`fmt::Debug`]: https://doc.rust-lang.org/std/fmt/trait.Debug.html
+/// [`follows_from`]: https://docs.rs/tracing/latest/tracing/struct.Span.html#method.follows_from
+/// [`tracing`]: https://github.com/tokio-rs/tracing
+/// [`fmt::Debug`]: std::fmt::Debug
 #[proc_macro_attribute]
 pub fn instrument(
     args: proc_macro::TokenStream,

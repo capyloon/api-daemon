@@ -3,21 +3,24 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 name = "base-x"
-version = "0.2.8"
+version = "0.2.10"
 authors = ["Alex R. <alexei.rudenko@gmail.com>"]
 description = "Encode/decode any base"
 homepage = "https://github.com/OrKoN/base-x-rs"
 readme = "README.md"
-keywords = ["base-x", "base", "convert"]
+keywords = [
+    "base-x",
+    "base",
+    "convert",
+]
 categories = ["value-formatting"]
 license = "MIT"
 repository = "https://github.com/OrKoN/base-x-rs"
@@ -25,14 +28,15 @@ repository = "https://github.com/OrKoN/base-x-rs"
 [[bench]]
 name = "base"
 harness = false
+
 [dev-dependencies.bencher]
 version = "0.1"
 
 [dev-dependencies.json]
-version = "0.11"
+version = "0.12"
 
 [dev-dependencies.rand]
-version = "0.3"
+version = "0.8"
 
 [features]
 default = ["std"]

@@ -16,7 +16,7 @@
 //! - An [`env_logger`] module, with helpers for using the [`env_logger` crate]
 //!   with `tracing` (optional, enabled by the `env-logger` feature).
 //!
-//! *Compiler support: [requires `rustc` 1.42+][msrv]*
+//! *Compiler support: [requires `rustc` 1.49+][msrv]*
 //!
 //! [msrv]: #supported-rust-versions
 //!
@@ -74,11 +74,13 @@
 //! * `log-tracer`: enables the `LogTracer` type (on by default)
 //! * `env_logger`: enables the `env_logger` module, with helpers for working
 //!   with the [`env_logger` crate].
+//! * `interest-cache`: makes it possible to configure an interest cache for
+//!   logs emitted through the `log` crate (see [`Builder::with_interest_cache`]); requires `std`
 //!
 //! ## Supported Rust Versions
 //!
 //! Tracing is built against the latest stable release. The minimum supported
-//! version is 1.42. The current Tracing version is not guaranteed to build on
+//! version is 1.49. The current Tracing version is not guaranteed to build on
 //! Rust versions earlier than the minimum supported version.
 //!
 //! Tracing follows the same compiler support policies as the rest of the Tokio
@@ -89,28 +91,21 @@
 //! supported compiler version is not considered a semver breaking change as
 //! long as doing so complies with this policy.
 //!
-//! [`init`]: struct.LogTracer.html#method.init
-//! [`init_with_filter`]: struct.LogTracer.html#method.init_with_filter
-//! [`AsTrace`]: trait.AsTrace.html
-//! [`AsLog`]: trait.AsLog.html
-//! [`LogTracer`]: struct.LogTracer.html
-//! [`TraceLogger`]: struct.TraceLogger.html
-//! [`env_logger`]: env_logger/index.html
+//! [`init`]: LogTracer::init
+//! [`init_with_filter`]: LogTracer::init_with_filter
 //! [`tracing`]: https://crates.io/crates/tracing
-//! [`log`]: https://crates.io/crates/log
 //! [`env_logger` crate]: https://crates.io/crates/env-logger
-//! [`log::Log`]: https://docs.rs/log/latest/log/trait.Log.html
-//! [`log::Record`]: https://docs.rs/log/latest/log/struct.Record.html
 //! [`tracing::Subscriber`]: https://docs.rs/tracing/latest/tracing/trait.Subscriber.html
 //! [`Subscriber`]: https://docs.rs/tracing/latest/tracing/trait.Subscriber.html
 //! [`tracing::Event`]: https://docs.rs/tracing/latest/tracing/struct.Event.html
 //! [flags]: https://docs.rs/tracing/latest/tracing/#crate-feature-flags
-#![doc(html_root_url = "https://docs.rs/tracing-log/0.1.2")]
+//! [`Builder::with_interest_cache`]: log_tracer::Builder::with_interest_cache
+#![doc(html_root_url = "https://docs.rs/tracing-log/0.1.3")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/tracing/master/assets/logo-type.png",
     issue_tracker_base_url = "https://github.com/tokio-rs/tracing/issues/"
 )]
-#![cfg_attr(docsrs, feature(doc_cfg), deny(broken_intra_doc_links))]
+#![cfg_attr(docsrs, feature(doc_cfg), deny(rustdoc::broken_intra_doc_links))]
 #![warn(
     missing_debug_implementations,
     missing_docs,
@@ -174,6 +169,16 @@ pub use self::trace_logger::TraceLogger;
 pub mod env_logger;
 
 pub use log;
+
+#[cfg(all(feature = "interest-cache", feature = "log-tracer", feature = "std"))]
+mod interest_cache;
+
+#[cfg(all(feature = "interest-cache", feature = "log-tracer", feature = "std"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(feature = "interest-cache", feature = "log-tracer", feature = "std")))
+)]
+pub use crate::interest_cache::InterestCacheConfig;
 
 /// Format a log record as a trace event in the current span.
 pub fn format_trace(record: &log::Record<'_>) -> io::Result<()> {
@@ -474,9 +479,7 @@ impl AsLog for tracing_core::LevelFilter {
 /// to allow accessing its complete metadata in a consistent way,
 /// regardless of the source of its source.
 ///
-/// [`normalized_metadata`]: trait.NormalizeEvent.html#normalized_metadata
-/// [`AsTrace`]: trait.AsTrace.html
-/// [`log::Record`]: https://docs.rs/log/0.4.7/log/struct.Record.html
+/// [`normalized_metadata`]: NormalizeEvent#normalized_metadata
 pub trait NormalizeEvent<'a>: crate::sealed::Sealed {
     /// If this `Event` comes from a `log`, this method provides a new
     /// normalized `Metadata` which has all available attributes

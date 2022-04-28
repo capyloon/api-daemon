@@ -166,6 +166,7 @@ fn build_zlib_ng(target: &str) {
     cmake
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("ZLIB_COMPAT", "ON")
+        .define("ZLIB_ENABLE_TESTS", "OFF")
         .define("WITH_GZFILEOP", "ON");
     if target.contains("s390x") {
         // Enable hardware compression on s390x.
@@ -176,6 +177,9 @@ fn build_zlib_ng(target: &str) {
     }
     if target.contains("apple") {
         cmake.cflag("-D_DARWIN_C_SOURCE=1");
+    }
+    if target == "i686-pc-windows-msvc" {
+        cmake.define("CMAKE_GENERATOR_PLATFORM", "Win32");
     }
 
     let install_dir = cmake.build();

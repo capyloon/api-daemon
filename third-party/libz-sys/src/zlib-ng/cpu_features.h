@@ -31,9 +31,6 @@ extern uint32_t adler32_neon(uint32_t adler, const unsigned char *buf, size_t le
 #ifdef PPC_VMX_ADLER32
 extern uint32_t adler32_vmx(uint32_t adler, const unsigned char *buf, size_t len);
 #endif
-#ifdef X86_SSE41_ADLER32
-extern uint32_t adler32_sse41(uint32_t adler, const unsigned char *buf, size_t len);
-#endif
 #ifdef X86_SSSE3_ADLER32
 extern uint32_t adler32_ssse3(uint32_t adler, const unsigned char *buf, size_t len);
 #endif
@@ -54,7 +51,9 @@ extern uint32_t adler32_power8(uint32_t adler, const unsigned char* buf, size_t 
 #ifdef X86_PCLMULQDQ_CRC
 extern uint32_t crc32_fold_reset_pclmulqdq(crc32_fold *crc);
 extern void     crc32_fold_copy_pclmulqdq(crc32_fold *crc, uint8_t *dst, const uint8_t *src, size_t len);
+extern void     crc32_fold_pclmulqdq(crc32_fold *crc, const uint8_t *src, size_t len, uint32_t init_crc);
 extern uint32_t crc32_fold_final_pclmulqdq(crc32_fold *crc);
+extern uint32_t crc32_pclmulqdq(uint32_t crc32, const unsigned char* buf, uint64_t len);
 #endif
 
 /* memory chunking */
@@ -115,8 +114,10 @@ typedef uint32_t (*compare256_func)(const uint8_t *src0, const uint8_t *src1);
 extern uint32_t compare256_c(const uint8_t *src0, const uint8_t *src1);
 #ifdef UNALIGNED_OK
 extern uint32_t compare256_unaligned_16(const uint8_t *src0, const uint8_t *src1);
+#ifdef HAVE_BUILTIN_CTZ
 extern uint32_t compare256_unaligned_32(const uint8_t *src0, const uint8_t *src1);
-#ifdef UNALIGNED64_OK
+#endif
+#if defined(UNALIGNED64_OK) && defined(HAVE_BUILTIN_CTZLL)
 extern uint32_t compare256_unaligned_64(const uint8_t *src0, const uint8_t *src1);
 #endif
 #if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
@@ -140,8 +141,10 @@ extern void insert_string_acle(deflate_state *const s, const uint32_t str, uint3
 extern uint32_t longest_match_c(deflate_state *const s, Pos cur_match);
 #ifdef UNALIGNED_OK
 extern uint32_t longest_match_unaligned_16(deflate_state *const s, Pos cur_match);
+#ifdef HAVE_BUILTIN_CTZ
 extern uint32_t longest_match_unaligned_32(deflate_state *const s, Pos cur_match);
-#ifdef UNALIGNED64_OK
+#endif
+#if defined(UNALIGNED64_OK) && defined(HAVE_BUILTIN_CTZLL)
 extern uint32_t longest_match_unaligned_64(deflate_state *const s, Pos cur_match);
 #endif
 #if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)

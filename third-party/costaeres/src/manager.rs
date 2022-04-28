@@ -42,17 +42,29 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::str::FromStr;
 
-#[derive(Clone, Debug)]
-pub enum ModificationKind {
-    Created,
-    Modified,
-    Deleted,
+#[derive(Debug)]
+pub struct ParentChild {
+    pub parent: ResourceId,
+    pub child: ResourceId,
+}
+
+impl ParentChild {
+    fn new(parent: &ResourceId, child: &ResourceId) -> Self {
+        Self {
+            parent: parent.clone(),
+            child: child.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
-pub struct ResourceModification {
-    pub kind: ModificationKind,
-    pub id: ResourceId,
+pub enum ResourceModification {
+    Created(ResourceId),
+    Modified(ResourceId),
+    Deleted(ResourceId),
+    ChildCreated(ParentChild),
+    ChildModified(ParentChild),
+    ChildDeleted(ParentChild),
 }
 
 pub trait ModificationObserver {
@@ -161,14 +173,9 @@ impl<T> Manager<T> {
         self.observers.len()
     }
 
-    fn notify_observers(&mut self, id: &ResourceId, kind: ModificationKind) {
-        let change = ResourceModification {
-            id: id.clone(),
-            kind,
-        };
-
+    fn notify_observers(&mut self, modification: &ResourceModification) {
         for observer in self.observers.values_mut() {
-            observer.modified(&change);
+            observer.modified(modification);
         }
     }
 
@@ -223,12 +230,13 @@ impl<T> Manager<T> {
         if metadata.add_tag(tag) {
             self.store.update(&metadata, None).await?;
             self.update_cache(&metadata);
-            self.notify_observers(id, ModificationKind::Modified);
+            self.notify_observers(&ResourceModification::Modified(id.clone()));
 
-            // Common case: changing a tag on a leaf resource is notified to its parent.
             let parent = metadata.parent();
             if metadata.kind() == ResourceKind::Leaf && *id != parent {
-                self.notify_observers(&parent, ModificationKind::Modified);
+                self.notify_observers(&ResourceModification::ChildModified(ParentChild::new(
+                    &parent, id,
+                )));
             }
         }
 
@@ -246,12 +254,13 @@ impl<T> Manager<T> {
         if metadata.remove_tag(tag) {
             self.store.update(&metadata, None).await?;
             self.update_cache(&metadata);
-            self.notify_observers(id, ModificationKind::Modified);
+            self.notify_observers(&ResourceModification::Modified(id.clone()));
 
-            // Common case: changing a tag on a leaf resource is notified to its parent.
             let parent = metadata.parent();
             if metadata.kind() == ResourceKind::Leaf && *id != parent {
-                self.notify_observers(&parent, ModificationKind::Modified);
+                self.notify_observers(&ResourceModification::ChildModified(ParentChild::new(
+                    &parent, id,
+                )));
             }
         }
 
@@ -435,7 +444,7 @@ impl<T> Manager<T> {
         sqlx::query!("DELETE FROM fts").execute(&mut tx).await?;
         tx.commit().await?;
 
-        self.notify_observers(&ROOT_ID, ModificationKind::Deleted);
+        self.notify_observers(&ResourceModification::Deleted(ROOT_ID.clone()));
         self.cache.clear();
         Ok(())
     }
@@ -661,9 +670,14 @@ impl<T> Manager<T> {
             Ok(_) => {
                 tx3.commit().await?;
                 // Trigger observers once we have committed all changes.
-                self.notify_observers(&metadata.id(), ModificationKind::Created);
-                if !metadata.id().is_root() {
-                    self.notify_observers(&metadata.parent(), ModificationKind::Modified);
+                let id = metadata.id();
+                let parent = metadata.parent();
+                self.notify_observers(&ResourceModification::Created(id.clone()));
+                if !id.is_root() {
+                    self.notify_observers(&ResourceModification::Modified(parent.clone()));
+                    self.notify_observers(&ResourceModification::ChildCreated(ParentChild::new(
+                        &parent, &id,
+                    )));
                 }
                 Ok(())
             }
@@ -717,10 +731,16 @@ impl<T> Manager<T> {
                 }
                 tx3.commit().await?;
 
-                if !metadata.id().is_root() {
-                    self.notify_observers(&metadata.parent(), ModificationKind::Modified);
+                let id = metadata.id();
+                let parent = metadata.parent();
+                if !id.is_root() {
+                    self.notify_observers(&ResourceModification::Modified(parent.clone()));
                 }
-                self.notify_observers(&metadata.id(), ModificationKind::Modified);
+                self.notify_observers(&ResourceModification::Modified(id.clone()));
+                self.notify_observers(&ResourceModification::ChildModified(ParentChild::new(
+                    &parent, &id,
+                )));
+
                 Ok(())
             }
             Err(err) => Err(err),
@@ -758,7 +778,12 @@ impl<T> Manager<T> {
 
         // 5. Perform an update with no variant to keep the metadata up to date.
         self.store.update(&metadata, None).await?;
-        self.notify_observers(&metadata.id(), ModificationKind::Modified);
+        let id = metadata.id();
+        let parent = metadata.parent();
+        self.notify_observers(&ResourceModification::Modified(id.clone()));
+        self.notify_observers(&ResourceModification::ChildModified(ParentChild::new(
+            &parent, &id,
+        )));
         Ok(())
     }
 
@@ -782,8 +807,12 @@ impl<T> Manager<T> {
 
             self.update_container_content(&parent_id, &mut tx1).await?;
             tx1.commit().await?;
-            self.notify_observers(id, ModificationKind::Deleted);
-            self.notify_observers(&parent_id, ModificationKind::Modified);
+            self.notify_observers(&ResourceModification::Deleted(id.clone()));
+            self.notify_observers(&ResourceModification::Modified(parent_id.clone()));
+            self.notify_observers(&ResourceModification::ChildDeleted(ParentChild::new(
+                &parent_id, id,
+            )));
+
             self.evict_from_cache(id);
             return Ok(());
         }
@@ -829,15 +858,18 @@ impl<T> Manager<T> {
                 .await?;
             self.store.delete(&child).await?;
             tx1 = self.fts.remove_text(&child, None, tx1).await?;
-            self.notify_observers(&child, ModificationKind::Deleted);
+            self.notify_observers(&ResourceModification::Deleted(child.clone()));
             self.evict_from_cache(&child);
         }
 
         self.store.delete(id).await?;
         self.update_container_content(&parent_id, &mut tx1).await?;
         tx1.commit().await?;
-        self.notify_observers(id, ModificationKind::Deleted);
-        self.notify_observers(&parent_id, ModificationKind::Modified);
+        self.notify_observers(&ResourceModification::Deleted(id.clone()));
+        self.notify_observers(&ResourceModification::Modified(parent_id.clone()));
+        self.notify_observers(&ResourceModification::ChildDeleted(ParentChild::new(
+            &parent_id, id,
+        )));
 
         self.evict_from_cache(id);
         Ok(())

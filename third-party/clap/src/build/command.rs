@@ -3,7 +3,6 @@
 // Std
 use std::collections::HashMap;
 use std::env;
-use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fmt;
 use std::io;
@@ -11,7 +10,6 @@ use std::ops::Index;
 use std::path::Path;
 
 // Third Party
-use os_str_bytes::RawOsStr;
 #[cfg(feature = "yaml")]
 use yaml_rust::Yaml;
 
@@ -22,10 +20,12 @@ use crate::build::{arg::ArgProvider, Arg, ArgGroup, ArgPredicate};
 use crate::error::ErrorKind;
 use crate::error::Result as ClapResult;
 use crate::mkeymap::MKeyMap;
+use crate::output::fmt::Stream;
 use crate::output::{fmt::Colorizer, Help, HelpWriter, Usage};
-use crate::parse::{ArgMatcher, ArgMatches, Input, Parser};
+use crate::parse::{ArgMatcher, ArgMatches, Parser};
 use crate::util::ChildGraph;
 use crate::util::{color::ColorChoice, Id, Key};
+use crate::PossibleValue;
 use crate::{Error, INTERNAL_ERROR_MSG};
 
 #[cfg(debug_assertions)]
@@ -58,7 +58,7 @@ use crate::build::debug_asserts::assert_app;
 ///     .version("1.0.2")
 ///     .about("Explains in brief what the program does")
 ///     .arg(
-///         Arg::new("in_file").index(1)
+///         Arg::new("in_file")
 ///     )
 ///     .after_help("Longer explanation to appear after the options when \
 ///                  displaying the help information from --help or -h")
@@ -101,7 +101,7 @@ pub struct App<'help> {
     g_settings: AppFlags,
     args: MKeyMap<'help>,
     subcommands: Vec<App<'help>>,
-    replacers: HashMap<&'help OsStr, &'help [&'help str]>,
+    replacers: HashMap<&'help str, &'help [&'help str]>,
     groups: Vec<ArgGroup<'help>>,
     current_help_heading: Option<&'help str>,
     current_disp_ord: Option<usize>,
@@ -202,7 +202,7 @@ impl<'help> App<'help> {
     /// Command::new("myprog")
     ///     .args(&[
     ///         arg!("[debug] -d 'turns on debugging info'"),
-    ///         Arg::new("input").index(1).help("the input file to use")
+    ///         Arg::new("input").help("the input file to use")
     ///     ])
     /// # ;
     /// ```
@@ -223,7 +223,7 @@ impl<'help> App<'help> {
         self
     }
 
-    /// Allows one to mutate an [`Arg`] after it's been added to an [`Command`].
+    /// Allows one to mutate an [`Arg`] after it's been added to a [`Command`].
     ///
     /// This can be useful for modifying the auto-generated help or version arguments.
     ///
@@ -378,7 +378,7 @@ impl<'help> App<'help> {
     /// # Command::new("myprog")
     /// .subcommands( vec![
     ///        Command::new("config").about("Controls configuration functionality")
-    ///                                 .arg(Arg::new("config_file").index(1)),
+    ///                                 .arg(Arg::new("config_file")),
     ///        Command::new("debug").about("Controls debug functionality")])
     /// # ;
     /// ```
@@ -633,11 +633,12 @@ impl<'help> App<'help> {
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,
     {
-        let mut it = Input::from(itr.into_iter());
+        let mut raw_args = clap_lex::RawArgs::new(itr.into_iter());
+        let mut cursor = raw_args.cursor();
 
         #[cfg(feature = "unstable-multicall")]
         if self.settings.is_set(AppSettings::Multicall) {
-            if let Some((argv0, _)) = it.next() {
+            if let Some(argv0) = raw_args.next_os(&mut cursor) {
                 let argv0 = Path::new(&argv0);
                 if let Some(command) = argv0.file_stem().and_then(|f| f.to_str()) {
                     // Stop borrowing command so we can get another mut ref to it.
@@ -648,11 +649,11 @@ impl<'help> App<'help> {
                     );
 
                     debug!("App::try_get_matches_from_mut: Reinserting command into arguments so subcommand parser matches it");
-                    it.insert(&[&command]);
+                    raw_args.insert(&cursor, &[&command]);
                     debug!("App::try_get_matches_from_mut: Clearing name and bin_name so that displayed command name starts with applet name");
                     self.name.clear();
                     self.bin_name = None;
-                    return self._do_parse(&mut it);
+                    return self._do_parse(&mut raw_args, cursor);
                 }
             }
         };
@@ -665,7 +666,7 @@ impl<'help> App<'help> {
         // to display
         // the full path when displaying help messages and such
         if !self.settings.is_set(AppSettings::NoBinaryName) {
-            if let Some((name, _)) = it.next() {
+            if let Some(name) = raw_args.next_os(&mut cursor) {
                 let p = Path::new(name);
 
                 if let Some(f) = p.file_name() {
@@ -678,7 +679,7 @@ impl<'help> App<'help> {
             }
         }
 
-        self._do_parse(&mut it)
+        self._do_parse(&mut raw_args, cursor)
     }
 
     /// Prints the short help message (`-h`) to [`io::stdout()`].
@@ -697,7 +698,7 @@ impl<'help> App<'help> {
         self._build();
         let color = self.get_color();
 
-        let mut c = Colorizer::new(false, color);
+        let mut c = Colorizer::new(Stream::Stdout, color);
         let usage = Usage::new(self);
         Help::new(HelpWriter::Buffer(&mut c), self, &usage, false).write_help()?;
         c.print()
@@ -722,7 +723,7 @@ impl<'help> App<'help> {
         self._build();
         let color = self.get_color();
 
-        let mut c = Colorizer::new(false, color);
+        let mut c = Colorizer::new(Stream::Stdout, color);
         let usage = Usage::new(self);
         Help::new(HelpWriter::Buffer(&mut c), self, &usage, true).write_help()?;
         c.print()
@@ -1944,7 +1945,7 @@ impl<'help> App<'help> {
     #[cfg(feature = "unstable-replace")]
     #[must_use]
     pub fn replace(mut self, name: &'help str, target: &'help [&'help str]) -> Self {
-        self.replacers.insert(OsStr::new(name), target);
+        self.replacers.insert(name, target);
         self
     }
 
@@ -2347,7 +2348,6 @@ impl<'help> App<'help> {
     ///         .aliases(&["do-stuff", "do-tests", "tests"]))
     ///         .arg(Arg::new("input")
     ///             .help("the file to add")
-    ///             .index(1)
     ///             .required(false))
     ///     .get_matches_from(vec!["myprog", "do-tests"]);
     /// assert_eq!(m.subcommand_name(), Some("test"));
@@ -2374,7 +2374,6 @@ impl<'help> App<'help> {
     ///         .short_flag_aliases(&['a', 'b', 'c']))
     ///         .arg(Arg::new("input")
     ///             .help("the file to add")
-    ///             .index(1)
     ///             .required(false))
     ///     .get_matches_from(vec!["myprog", "-a"]);
     /// assert_eq!(m.subcommand_name(), Some("test"));
@@ -2403,7 +2402,6 @@ impl<'help> App<'help> {
     ///                 .long_flag_aliases(&["testing", "testall", "test_all"]))
     ///                 .arg(Arg::new("input")
     ///                             .help("the file to add")
-    ///                             .index(1)
     ///                             .required(false))
     ///             .get_matches_from(vec!["myprog", "--testing"]);
     /// assert_eq!(m.subcommand_name(), Some("test"));
@@ -3935,7 +3933,7 @@ impl<'help> App<'help> {
         self.max_w
     }
 
-    pub(crate) fn get_replacement(&self, key: &OsStr) -> Option<&[&str]> {
+    pub(crate) fn get_replacement(&self, key: &str) -> Option<&[&str]> {
         self.replacers.get(key).copied()
     }
 
@@ -3957,7 +3955,11 @@ impl<'help> App<'help> {
         }
     }
 
-    fn _do_parse(&mut self, it: &mut Input) -> ClapResult<ArgMatches> {
+    fn _do_parse(
+        &mut self,
+        raw_args: &mut clap_lex::RawArgs,
+        args_cursor: clap_lex::ArgCursor,
+    ) -> ClapResult<ArgMatches> {
         debug!("App::_do_parse");
 
         // If there are global arguments, or settings we need to propagate them down to subcommands
@@ -3968,7 +3970,7 @@ impl<'help> App<'help> {
 
         // do the real parsing
         let mut parser = Parser::new(self);
-        if let Err(error) = parser.get_matches_with(&mut matcher, it) {
+        if let Err(error) = parser.get_matches_with(&mut matcher, raw_args, args_cursor) {
             if self.is_set(AppSettings::IgnoreErrors) {
                 debug!("App::_do_parse: ignoring error: {}", error);
             } else {
@@ -3984,9 +3986,17 @@ impl<'help> App<'help> {
         Ok(matcher.into_inner())
     }
 
-    // used in clap_complete (https://github.com/clap-rs/clap_complete)
     #[doc(hidden)]
+    #[deprecated(since = "3.1.10", note = "Replaced with `Command::build`")]
     pub fn _build_all(&mut self) {
+        self.build();
+    }
+
+    /// Prepare for introspecting on all included [`Command`]s
+    ///
+    /// Call this on the top-level [`Command`] when done building and before reading state for
+    /// cases like completions, custom help output, etc.
+    pub fn build(&mut self) {
         self._build();
         for subcmd in self.get_subcommands_mut() {
             subcmd._build();
@@ -4047,9 +4057,13 @@ impl<'help> App<'help> {
         Some(sc)
     }
 
-    // used in clap_complete (https://github.com/clap-rs/clap_complete)
     #[doc(hidden)]
+    #[deprecated(since = "3.1.10", note = "Replaced with `Command::build`")]
     pub fn _build(&mut self) {
+        self._build_self()
+    }
+
+    pub(crate) fn _build_self(&mut self) {
         debug!("App::_build");
         if !self.settings.is_set(AppSettings::Built) {
             // Make sure all the globally set flags apply to us as well
@@ -4654,7 +4668,7 @@ impl<'help> App<'help> {
     }
 
     /// Find a flag subcommand name by long flag or an alias
-    pub(crate) fn find_long_subcmd(&self, long: &RawOsStr) -> Option<&str> {
+    pub(crate) fn find_long_subcmd(&self, long: &str) -> Option<&str> {
         self.get_subcommands()
             .find(|sc| sc.long_flag_aliases_to(long))
             .map(|sc| sc.get_name())
@@ -4662,6 +4676,57 @@ impl<'help> App<'help> {
 
     pub(crate) fn get_display_order(&self) -> usize {
         self.disp_ord.unwrap_or(999)
+    }
+
+    pub(crate) fn write_help_err(
+        &self,
+        mut use_long: bool,
+        stream: Stream,
+    ) -> ClapResult<Colorizer> {
+        debug!(
+            "Parser::write_help_err: use_long={:?}, stream={:?}",
+            use_long && self.use_long_help(),
+            stream
+        );
+
+        use_long = use_long && self.use_long_help();
+        let usage = Usage::new(self);
+
+        let mut c = Colorizer::new(stream, self.color_help());
+        Help::new(HelpWriter::Buffer(&mut c), self, &usage, use_long).write_help()?;
+        Ok(c)
+    }
+
+    pub(crate) fn use_long_help(&self) -> bool {
+        debug!("Command::use_long_help");
+        // In this case, both must be checked. This allows the retention of
+        // original formatting, but also ensures that the actual -h or --help
+        // specified by the user is sent through. If hide_short_help is not included,
+        // then items specified with hidden_short_help will also be hidden.
+        let should_long = |v: &Arg| {
+            v.long_help.is_some()
+                || v.is_hide_long_help_set()
+                || v.is_hide_short_help_set()
+                || cfg!(feature = "unstable-v4")
+                    && v.possible_vals.iter().any(PossibleValue::should_show_help)
+        };
+
+        // Subcommands aren't checked because we prefer short help for them, deferring to
+        // `cmd subcmd --help` for more.
+        self.get_long_about().is_some()
+            || self.get_before_long_help().is_some()
+            || self.get_after_long_help().is_some()
+            || self.get_arguments().any(should_long)
+    }
+
+    // Should we color the help?
+    pub(crate) fn color_help(&self) -> ColorChoice {
+        #[cfg(feature = "color")]
+        if self.is_disable_colored_help_set() {
+            return ColorChoice::Never;
+        }
+
+        self.get_color()
     }
 }
 

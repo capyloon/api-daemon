@@ -1,5 +1,5 @@
-use std::mem;
-use std::vec::Vec;
+use alloc::vec::Vec;
+use core::mem;
 
 use crate::endian::{LittleEndian as LE, U16Bytes, U32Bytes, U16, U32};
 use crate::pe as coff;
@@ -21,6 +21,16 @@ struct SymbolOffsets {
     index: usize,
     str_id: Option<StringId>,
     aux_count: u8,
+}
+
+/// Internal format to use for the `.drectve` section containing linker
+/// directives for symbol exports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoffExportStyle {
+    /// MSVC format supported by link.exe and LLD.
+    Msvc,
+    /// Gnu format supported by GNU LD and LLD.
+    Gnu,
 }
 
 impl<'a> Object<'a> {
@@ -137,6 +147,34 @@ impl<'a> Object<'a> {
         stub_id
     }
 
+    /// Appends linker directives to the `.drectve` section to tell the linker
+    /// to export all symbols with `SymbolScope::Dynamic`.
+    ///
+    /// This must be called after all symbols have been defined.
+    pub fn add_coff_exports(&mut self, style: CoffExportStyle) {
+        assert_eq!(self.format, BinaryFormat::Coff);
+
+        let mut directives = vec![];
+        for symbol in &self.symbols {
+            if symbol.scope == SymbolScope::Dynamic {
+                match style {
+                    CoffExportStyle::Msvc => directives.extend(b" /EXPORT:\""),
+                    CoffExportStyle::Gnu => directives.extend(b" -export:\""),
+                }
+                directives.extend(&symbol.name);
+                directives.extend(b"\"");
+                if symbol.kind != SymbolKind::Text {
+                    match style {
+                        CoffExportStyle::Msvc => directives.extend(b",DATA"),
+                        CoffExportStyle::Gnu => directives.extend(b",data"),
+                    }
+                }
+            }
+        }
+        let drectve = self.add_section(vec![], b".drectve".to_vec(), SectionKind::Linker);
+        self.append_section_data(drectve, &directives, 1);
+    }
+
     pub(crate) fn coff_write(&self, buffer: &mut dyn WritableBuffer) -> Result<()> {
         // Calculate offsets of everything, and build strtab.
         let mut offset = 0;
@@ -166,9 +204,12 @@ impl<'a> Object<'a> {
             }
 
             // Calculate size of relocations.
-            let count = section.relocations.len();
+            let mut count = section.relocations.len();
             if count != 0 {
                 section_offsets[index].reloc_offset = offset;
+                if count > 0xffff {
+                    count += 1;
+                }
                 offset += count * mem::size_of::<coff::ImageRelocation>();
             }
         }
@@ -292,55 +333,60 @@ impl<'a> Object<'a> {
 
         // Write section headers.
         for (index, section) in self.sections.iter().enumerate() {
-            let mut characteristics = match section.flags {
-                SectionFlags::Coff {
-                    characteristics, ..
-                } => characteristics,
-                _ => 0,
+            let mut characteristics = if let SectionFlags::Coff {
+                characteristics, ..
+            } = section.flags
+            {
+                characteristics
+            } else {
+                match section.kind {
+                    SectionKind::Text => {
+                        coff::IMAGE_SCN_CNT_CODE
+                            | coff::IMAGE_SCN_MEM_EXECUTE
+                            | coff::IMAGE_SCN_MEM_READ
+                    }
+                    SectionKind::Data => {
+                        coff::IMAGE_SCN_CNT_INITIALIZED_DATA
+                            | coff::IMAGE_SCN_MEM_READ
+                            | coff::IMAGE_SCN_MEM_WRITE
+                    }
+                    SectionKind::UninitializedData => {
+                        coff::IMAGE_SCN_CNT_UNINITIALIZED_DATA
+                            | coff::IMAGE_SCN_MEM_READ
+                            | coff::IMAGE_SCN_MEM_WRITE
+                    }
+                    SectionKind::ReadOnlyData | SectionKind::ReadOnlyString => {
+                        coff::IMAGE_SCN_CNT_INITIALIZED_DATA | coff::IMAGE_SCN_MEM_READ
+                    }
+                    SectionKind::Debug | SectionKind::Other | SectionKind::OtherString => {
+                        coff::IMAGE_SCN_CNT_INITIALIZED_DATA
+                            | coff::IMAGE_SCN_MEM_READ
+                            | coff::IMAGE_SCN_MEM_DISCARDABLE
+                    }
+                    SectionKind::Linker => coff::IMAGE_SCN_LNK_INFO | coff::IMAGE_SCN_LNK_REMOVE,
+                    SectionKind::Common
+                    | SectionKind::Tls
+                    | SectionKind::UninitializedTls
+                    | SectionKind::TlsVariables
+                    | SectionKind::Note
+                    | SectionKind::Unknown
+                    | SectionKind::Metadata
+                    | SectionKind::Elf(_) => {
+                        return Err(Error(format!(
+                            "unimplemented section `{}` kind {:?}",
+                            section.name().unwrap_or(""),
+                            section.kind
+                        )));
+                    }
+                }
             };
             if section_offsets[index].selection != 0 {
                 characteristics |= coff::IMAGE_SCN_LNK_COMDAT;
             };
-            characteristics |= match section.kind {
-                SectionKind::Text => {
-                    coff::IMAGE_SCN_CNT_CODE
-                        | coff::IMAGE_SCN_MEM_EXECUTE
-                        | coff::IMAGE_SCN_MEM_READ
-                }
-                SectionKind::Data => {
-                    coff::IMAGE_SCN_CNT_INITIALIZED_DATA
-                        | coff::IMAGE_SCN_MEM_READ
-                        | coff::IMAGE_SCN_MEM_WRITE
-                }
-                SectionKind::UninitializedData => {
-                    coff::IMAGE_SCN_CNT_UNINITIALIZED_DATA
-                        | coff::IMAGE_SCN_MEM_READ
-                        | coff::IMAGE_SCN_MEM_WRITE
-                }
-                SectionKind::ReadOnlyData | SectionKind::ReadOnlyString => {
-                    coff::IMAGE_SCN_CNT_INITIALIZED_DATA | coff::IMAGE_SCN_MEM_READ
-                }
-                SectionKind::Debug | SectionKind::Other | SectionKind::OtherString => {
-                    coff::IMAGE_SCN_CNT_INITIALIZED_DATA
-                        | coff::IMAGE_SCN_MEM_READ
-                        | coff::IMAGE_SCN_MEM_DISCARDABLE
-                }
-                SectionKind::Linker => coff::IMAGE_SCN_LNK_INFO | coff::IMAGE_SCN_LNK_REMOVE,
-                SectionKind::Common
-                | SectionKind::Tls
-                | SectionKind::UninitializedTls
-                | SectionKind::TlsVariables
-                | SectionKind::Note
-                | SectionKind::Unknown
-                | SectionKind::Metadata
-                | SectionKind::Elf(_) => {
-                    return Err(Error(format!(
-                        "unimplemented section `{}` kind {:?}",
-                        section.name().unwrap_or(""),
-                        section.kind
-                    )));
-                }
-            } | match section.align {
+            if section.relocations.len() > 0xffff {
+                characteristics |= coff::IMAGE_SCN_LNK_NRELOC_OVFL;
+            }
+            characteristics |= match section.align {
                 1 => coff::IMAGE_SCN_ALIGN_1BYTES,
                 2 => coff::IMAGE_SCN_ALIGN_2BYTES,
                 4 => coff::IMAGE_SCN_ALIGN_4BYTES,
@@ -371,7 +417,11 @@ impl<'a> Object<'a> {
                 pointer_to_raw_data: U32::new(LE, section_offsets[index].offset as u32),
                 pointer_to_relocations: U32::new(LE, section_offsets[index].reloc_offset as u32),
                 pointer_to_linenumbers: U32::default(),
-                number_of_relocations: U16::new(LE, section.relocations.len() as u16),
+                number_of_relocations: if section.relocations.len() > 0xffff {
+                    U16::new(LE, 0xffff)
+                } else {
+                    U16::new(LE, section.relocations.len() as u16)
+                },
                 number_of_linenumbers: U16::default(),
                 characteristics: U32::new(LE, characteristics),
             };
@@ -430,6 +480,14 @@ impl<'a> Object<'a> {
 
             if !section.relocations.is_empty() {
                 debug_assert_eq!(section_offsets[index].reloc_offset, buffer.len());
+                if section.relocations.len() > 0xffff {
+                    let coff_relocation = coff::ImageRelocation {
+                        virtual_address: U32Bytes::new(LE, section.relocations.len() as u32 + 1),
+                        symbol_table_index: U32Bytes::new(LE, 0),
+                        typ: U16Bytes::new(LE, 0),
+                    };
+                    buffer.write(&coff_relocation);
+                }
                 for reloc in &section.relocations {
                     //assert!(reloc.implicit_addend);
                     let typ = match self.architecture {
@@ -587,7 +645,11 @@ impl<'a> Object<'a> {
                     let section = &self.sections[section_index];
                     let aux = coff::ImageAuxSymbolSection {
                         length: U32Bytes::new(LE, section.size as u32),
-                        number_of_relocations: U16Bytes::new(LE, section.relocations.len() as u16),
+                        number_of_relocations: if section.relocations.len() > 0xffff {
+                            U16Bytes::new(LE, 0xffff)
+                        } else {
+                            U16Bytes::new(LE, section.relocations.len() as u16)
+                        },
                         number_of_linenumbers: U16Bytes::default(),
                         check_sum: U32Bytes::new(LE, checksum(section.data())),
                         number: U16Bytes::new(
