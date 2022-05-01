@@ -1193,3 +1193,69 @@ async fn copy_resource() {
         assert_eq!(tracker.created, 1);
     });
 }
+
+#[async_std::test]
+async fn tags_persistence() {
+    let (config, store) = prepare_test(25).await;
+
+    {
+        let mut manager = Manager::<()>::new(config.clone(), Box::new(store))
+            .await
+            .unwrap();
+
+        manager.create_root().await.unwrap();
+
+        let meta = manager.get_metadata(&ROOT_ID).await.unwrap();
+
+        // Start with no tags
+        assert_eq!(meta.tags().len(), 0);
+
+        // Add a tag.
+        let meta = manager.add_tag(&ROOT_ID, "tag1").await.unwrap();
+        assert_eq!(meta.tags().len(), 1);
+    }
+
+    {
+        let path = format!("./test-content/{}", 25);
+        let store = FileStore::new(
+            &path,
+            Box::new(DefaultResourceNameProvider),
+            Box::new(IdentityTransformer),
+        )
+        .await
+        .unwrap();
+
+        let mut manager = Manager::<()>::new(config.clone(), Box::new(store))
+            .await
+            .unwrap();
+
+        // Reload the root and check the persisted state.
+        let (root_meta, _) = manager.get_root().await.unwrap();
+        assert!(root_meta.id().is_root());
+        assert_eq!(root_meta.tags().len(), 1);
+
+        // Remove the tag.
+        let meta = manager.remove_tag(&ROOT_ID, "tag1").await.unwrap();
+        assert_eq!(meta.tags().len(), 0);
+    }
+
+    {
+        let path = format!("./test-content/{}", 25);
+        let store = FileStore::new(
+            &path,
+            Box::new(DefaultResourceNameProvider),
+            Box::new(IdentityTransformer),
+        )
+        .await
+        .unwrap();
+
+        let mut manager = Manager::<()>::new(config.clone(), Box::new(store))
+            .await
+            .unwrap();
+
+        // Reload the root and check the persisted state.
+        let (root_meta, _) = manager.get_root().await.unwrap();
+        assert!(root_meta.id().is_root());
+        assert_eq!(root_meta.tags().len(), 0);
+    }
+}

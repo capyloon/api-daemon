@@ -228,6 +228,9 @@ impl<T> Manager<T> {
         let mut metadata = self.get_metadata(id).await?;
 
         if metadata.add_tag(tag) {
+            sqlx::query!("INSERT INTO tags ( id, tag ) VALUES ( ?1, ?2 )", id, tag)
+                .execute(&self.db_pool)
+                .await?;
             self.store.update(&metadata, None).await?;
             self.update_cache(&metadata);
             self.notify_observers(&ResourceModification::Modified(id.clone()));
@@ -252,6 +255,9 @@ impl<T> Manager<T> {
         let mut metadata = self.get_metadata(id).await?;
 
         if metadata.remove_tag(tag) {
+            sqlx::query!("DELETE FROM tags where id = ? and tag = ?", id, tag)
+                .execute(&self.db_pool)
+                .await?;
             self.store.update(&metadata, None).await?;
             self.update_cache(&metadata);
             self.notify_observers(&ResourceModification::Modified(id.clone()));
@@ -439,6 +445,10 @@ impl<T> Manager<T> {
     pub async fn clear(&mut self) -> Result<(), ResourceStoreError> {
         let mut tx = self.db_pool.begin().await?;
         sqlx::query!("DELETE FROM resources")
+            .execute(&mut tx)
+            .await?;
+        sqlx::query!("DELETE FROM tags").execute(&mut tx).await?;
+        sqlx::query!("DELETE FROM variants")
             .execute(&mut tx)
             .await?;
         sqlx::query!("DELETE FROM fts").execute(&mut tx).await?;
