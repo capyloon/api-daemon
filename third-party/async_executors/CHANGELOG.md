@@ -3,7 +3,35 @@
 
 ## [Unreleased]
 
-[Unreleased]: https://github.com/najamelan/async_executors/compare/0.4.2...dev
+[Unreleased]: https://github.com/najamelan/async_executors/compare/0.6.0...dev
+
+
+## [0.6.0] - 2022-04-24
+
+[0.6.0]: https://github.com/najamelan/async_executors/compare/0.5.1..0.6.0
+
+### Added 
+
+  - **BREAKING**: update glommio to 0.7.
+
+
+## [0.5.1] - 2022-01-06
+
+[0.5.1]: https://github.com/najamelan/async_executors/compare/0.5.0..0.5.1
+
+### Added 
+
+  - forward SpawnBlocking trait from `tracing_futures::Instrumented` and `tracing_futures::WithDispatch`.
+
+
+## [0.5.0] - 2022-01-04
+
+[0.5.0]: https://github.com/najamelan/async_executors/compare/0.4.2..0.5.0
+
+### Added 
+
+  - **BREAKING**: update glommio to 0.6.
+  - add `SpawnBlocking` trait and `BlockingHandle`.
 
 
 ## [0.4.2] - 2021-06-10

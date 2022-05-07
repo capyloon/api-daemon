@@ -1,10 +1,11 @@
 //! Information about directory authorities
 //!
-//! From a client's point of view, an authority's role is to to sign the
+//! From a client's point of view, an authority's role is to sign the
 //! consensus directory.
 
 use derive_builder::Builder;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tor_config::{define_list_builder_helper, ConfigBuildError};
 use tor_llcrypto::pk::rsa::RsaIdentity;
 
 /// A single authority that signs a consensus directory.
@@ -12,8 +13,9 @@ use tor_llcrypto::pk::rsa::RsaIdentity;
 // Note that we do *not* set serde(deny_unknown_fields)] on this structure:
 // we want our authorities format to be future-proof against adding new info
 // about each authority.
-#[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
-#[builder(derive(Deserialize))]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
+#[builder(build_fn(error = "ConfigBuildError"))]
+#[builder(derive(Debug, Serialize, Deserialize))]
 pub struct Authority {
     /// A memorable nickname for this authority.
     #[builder(setter(into))]
@@ -21,7 +23,12 @@ pub struct Authority {
     /// A SHA1 digest of the DER-encoded long-term v3 RSA identity key for
     /// this authority.
     // TODO: It would be lovely to use a better hash for these identities.
+    #[cfg(not(feature = "experimental-api"))]
     pub(crate) v3ident: RsaIdentity,
+    #[cfg(feature = "experimental-api")]
+    /// A SHA1 digest of the DER-encoded long-term v3 RSA identity key for
+    /// this authority.
+    pub v3ident: RsaIdentity,
 }
 
 impl Authority {
@@ -34,17 +41,26 @@ impl Authority {
     }
 }
 
+/// Authority list, built
+pub(crate) type AuthorityList = Vec<Authority>;
+
+define_list_builder_helper! {
+    pub(crate) struct AuthorityListBuilder {
+        authorities: [AuthorityBuilder],
+    }
+    built: AuthorityList = authorities;
+    default = default_authorities();
+}
+
 /// Return a vector of the default directory authorities.
-pub(crate) fn default_authorities() -> Vec<Authority> {
+pub(crate) fn default_authorities() -> Vec<AuthorityBuilder> {
     /// Build an authority; panic if input is bad.
-    fn auth(name: &str, key: &str) -> Authority {
+    fn auth(name: &str, key: &str) -> AuthorityBuilder {
         let v3ident =
             RsaIdentity::from_hex(key).expect("Built-in authority identity had bad hex!?");
-        AuthorityBuilder::new()
-            .name(name)
-            .v3ident(v3ident)
-            .build()
-            .expect("unable to construct built-in authority!?")
+        let mut auth = AuthorityBuilder::new();
+        auth.name(name).v3ident(v3ident);
+        auth
     }
 
     // (List generated August 2020.)
@@ -108,7 +124,7 @@ mod test {
 
     #[test]
     fn auth() {
-        let dflt = default_authorities();
+        let dflt = AuthorityListBuilder::default().build().unwrap();
         assert_eq!(&dflt[0].name[..], "bastet");
         assert_eq!(
             &dflt[0].v3ident.to_string()[..],

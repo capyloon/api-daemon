@@ -1,9 +1,9 @@
 //! An error attempt to represent multiple failures.
 //!
 //! This crate implements [`RetryError`], a type to use when you
-//! retry something a few times, and all those attempts.  Instead of
-//! returning only a single error, it records _all of the errors
-//! received_, in case they are different.
+//! retry something a few times, and all those attempts can fail differently
+//! each time.  Instead of returning only a single error, it records
+//! _all of the errors received_, in case they are different.
 //!
 //! This crate is developed as part of
 //! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
@@ -102,7 +102,7 @@ enum Attempt {
 impl<E: Debug + Display> Error for RetryError<E> {}
 
 impl<E> RetryError<E> {
-    /// Crate a new RetryError, with no failed attempts,
+    /// Create a new RetryError, with no failed attempts.
     ///
     /// The provided `doing` argument is a short string that describes
     /// what we were trying to do when we failed too many times.  It
@@ -127,9 +127,11 @@ impl<E> RetryError<E> {
     where
         T: Into<E>,
     {
-        self.n_errors += 1;
-        let attempt = Attempt::Single(self.n_errors);
-        self.errors.push((attempt, err.into()));
+        if self.n_errors < usize::MAX {
+            self.n_errors += 1;
+            let attempt = Attempt::Single(self.n_errors);
+            self.errors.push((attempt, err.into()));
+        }
     }
 
     /// Return an iterator over all of the reasons that the attempt
@@ -328,5 +330,28 @@ Attempt 3: invalid IP address syntax"
 Tried to parse some integers 3 times, but all attempts failed.
 Attempts 1..3: invalid digit found in string"
         );
+    }
+
+    #[test]
+    fn overflow() {
+        use std::num::ParseIntError;
+        let mut err: RetryError<ParseIntError> =
+            RetryError::in_attempt_to("parse too many integers");
+        assert!(err.is_empty());
+        let mut errors: Vec<ParseIntError> = vec!["no", "numbers"]
+            .iter()
+            .filter_map(|s| s.parse::<u16>().err())
+            .collect();
+        err.n_errors = usize::MAX;
+        err.errors.push((
+            Attempt::Range(1, err.n_errors),
+            errors.pop().expect("parser did not fail"),
+        ));
+        assert!(err.n_errors == usize::MAX);
+        assert!(err.len() == 1);
+
+        err.push(errors.pop().expect("parser did not fail"));
+        assert!(err.n_errors == usize::MAX);
+        assert!(err.len() == 1);
     }
 }

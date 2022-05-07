@@ -5,5 +5,5 @@
 //! AES-GCM-SIV, with the former tested against the NIST CAVS vectors, and the
 //! latter against the RFC8452 test vectors.
 
-mod big_endian;
-mod little_endian;
+mod be;
+mod le;

@@ -8,7 +8,6 @@
 //!
 
 use crate::{Error, Result};
-use std::convert::TryInto;
 use tor_cell::chancell::RawCellBody;
 use tor_error::internal;
 
@@ -225,9 +224,8 @@ pub(crate) type Tor1RelayCrypto =
 /// Incomplete untested implementation of Tor's current cell crypto.
 pub(crate) mod tor1 {
     use super::*;
-    use cipher::{NewCipher, StreamCipher};
+    use cipher::{KeyIvInit, StreamCipher};
     use digest::Digest;
-    use std::convert::TryInto;
     use typenum::Unsigned;
 
     /// A CryptState is part of a RelayCrypt or a ClientLayer.
@@ -253,7 +251,7 @@ pub(crate) mod tor1 {
         back: CryptState<SC, D>,
     }
 
-    impl<SC: StreamCipher + NewCipher, D: Digest + Clone> CryptInit for CryptStatePair<SC, D> {
+    impl<SC: StreamCipher + KeyIvInit, D: Digest + Clone> CryptInit for CryptStatePair<SC, D> {
         fn seed_len() -> usize {
             SC::KeySize::to_usize() * 2 + D::OutputSize::to_usize() * 2
         }

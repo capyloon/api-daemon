@@ -1,37 +1,59 @@
 //! 64-bit counter falvors.
 use super::CtrFlavor;
-use cipher::generic_array::{
-    typenum::{operator_aliases::PartialQuot, type_operators::PartialDiv, Unsigned, U8},
-    ArrayLength, GenericArray,
+use cipher::{
+    generic_array::{ArrayLength, GenericArray},
+    typenum::{PartialDiv, PartialQuot, Unsigned, U8},
 };
-use core::convert::TryInto;
+
+#[cfg(feature = "zeroize")]
+use cipher::zeroize::{Zeroize, ZeroizeOnDrop};
 
 type ChunkSize = U8;
 type Chunks<B> = PartialQuot<B, ChunkSize>;
 const CS: usize = ChunkSize::USIZE;
 
+#[derive(Clone)]
+pub struct CtrNonce64<N: ArrayLength<u64>> {
+    ctr: u64,
+    nonce: GenericArray<u64, N>,
+}
+
+#[cfg(feature = "zeroize")]
+impl<N: ArrayLength<u64>> Drop for CtrNonce64<N> {
+    fn drop(&mut self) {
+        self.ctr.zeroize();
+        self.nonce.zeroize();
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl<N: ArrayLength<u64>> ZeroizeOnDrop for CtrNonce64<N> {}
+
 /// 64-bit big endian counter flavor.
-#[derive(Default, Copy, Clone)]
-#[repr(transparent)]
-pub struct Ctr64BE(u64);
+pub enum Ctr64BE {}
 
 impl<B> CtrFlavor<B> for Ctr64BE
 where
-    Self: Default + Clone,
     B: ArrayLength<u8> + PartialDiv<ChunkSize>,
     Chunks<B>: ArrayLength<u64>,
 {
-    type Nonce = GenericArray<u64, Chunks<B>>;
+    type CtrNonce = CtrNonce64<Chunks<B>>;
     type Backend = u64;
+    const NAME: &'static str = "64BE";
 
     #[inline]
-    fn generate_block(&self, nonce: &Self::Nonce) -> GenericArray<u8, B> {
+    fn remaining(cn: &Self::CtrNonce) -> Option<usize> {
+        (core::u64::MAX - cn.ctr).try_into().ok()
+    }
+
+    #[inline(always)]
+    fn current_block(cn: &Self::CtrNonce) -> GenericArray<u8, B> {
         let mut block = GenericArray::<u8, B>::default();
         for i in 0..Chunks::<B>::USIZE {
             let t = if i == Chunks::<B>::USIZE - 1 {
-                self.0.wrapping_add(nonce[i]).to_be_bytes()
+                cn.ctr.wrapping_add(cn.nonce[i]).to_be_bytes()
             } else {
-                nonce[i].to_ne_bytes()
+                cn.nonce[i].to_ne_bytes()
             };
             block[CS * i..][..CS].copy_from_slice(&t);
         }
@@ -39,65 +61,63 @@ where
     }
 
     #[inline]
-    fn load(block: &GenericArray<u8, B>) -> Self::Nonce {
-        let mut res = Self::Nonce::default();
+    fn next_block(cn: &mut Self::CtrNonce) -> GenericArray<u8, B> {
+        let block = Self::current_block(cn);
+        cn.ctr = cn.ctr.wrapping_add(1);
+        block
+    }
+
+    #[inline]
+    fn from_nonce(block: &GenericArray<u8, B>) -> Self::CtrNonce {
+        let mut nonce = GenericArray::<u64, Chunks<B>>::default();
         for i in 0..Chunks::<B>::USIZE {
             let chunk = block[CS * i..][..CS].try_into().unwrap();
-            res[i] = if i == Chunks::<B>::USIZE - 1 {
+            nonce[i] = if i == Chunks::<B>::USIZE - 1 {
                 u64::from_be_bytes(chunk)
             } else {
                 u64::from_ne_bytes(chunk)
             }
         }
-        res
+        let ctr = 0;
+        Self::CtrNonce { ctr, nonce }
     }
 
     #[inline]
-    fn checked_add(&self, rhs: usize) -> Option<Self> {
-        rhs.try_into()
-            .ok()
-            .and_then(|rhs| self.0.checked_add(rhs))
-            .map(Self)
+    fn as_backend(cn: &Self::CtrNonce) -> Self::Backend {
+        cn.ctr
     }
 
     #[inline]
-    fn increment(&mut self) {
-        self.0 = self.0.wrapping_add(1);
-    }
-
-    #[inline]
-    fn to_backend(&self) -> Self::Backend {
-        self.0
-    }
-
-    #[inline]
-    fn from_backend(v: Self::Backend) -> Self {
-        Self(v)
+    fn set_from_backend(cn: &mut Self::CtrNonce, v: Self::Backend) {
+        cn.ctr = v;
     }
 }
 
-/// 64-bit little endian counter flavor.
-#[derive(Default, Clone)]
-#[repr(transparent)]
-pub struct Ctr64LE(u64);
+/// 64-bit big endian counter flavor.
+pub enum Ctr64LE {}
 
 impl<B> CtrFlavor<B> for Ctr64LE
 where
-    Self: Default + Clone,
     B: ArrayLength<u8> + PartialDiv<ChunkSize>,
     Chunks<B>: ArrayLength<u64>,
 {
-    type Nonce = GenericArray<u64, Chunks<B>>;
+    type CtrNonce = CtrNonce64<Chunks<B>>;
     type Backend = u64;
+    const NAME: &'static str = "64LE";
 
     #[inline]
-    fn generate_block(&self, nonce: &Self::Nonce) -> GenericArray<u8, B> {
+    fn remaining(cn: &Self::CtrNonce) -> Option<usize> {
+        (core::u64::MAX - cn.ctr).try_into().ok()
+    }
+
+    #[inline(always)]
+    fn current_block(cn: &Self::CtrNonce) -> GenericArray<u8, B> {
         let mut block = GenericArray::<u8, B>::default();
         for i in 0..Chunks::<B>::USIZE {
             let t = if i == 0 {
-                self.0.wrapping_add(nonce[i]).to_le_bytes()
+                cn.ctr.wrapping_add(cn.nonce[i]).to_le_bytes()
             } else {
-                nonce[i].to_ne_bytes()
+                cn.nonce[i].to_ne_bytes()
             };
             block[CS * i..][..CS].copy_from_slice(&t);
         }
@@ -105,39 +125,34 @@ where
     }
 
     #[inline]
-    fn load(block: &GenericArray<u8, B>) -> Self::Nonce {
-        let mut res = Self::Nonce::default();
+    fn next_block(cn: &mut Self::CtrNonce) -> GenericArray<u8, B> {
+        let block = Self::current_block(cn);
+        cn.ctr = cn.ctr.wrapping_add(1);
+        block
+    }
+
+    #[inline]
+    fn from_nonce(block: &GenericArray<u8, B>) -> Self::CtrNonce {
+        let mut nonce = GenericArray::<u64, Chunks<B>>::default();
         for i in 0..Chunks::<B>::USIZE {
             let chunk = block[CS * i..][..CS].try_into().unwrap();
-            res[i] = if i == 0 {
+            nonce[i] = if i == 0 {
                 u64::from_le_bytes(chunk)
             } else {
                 u64::from_ne_bytes(chunk)
             }
         }
-        res
+        let ctr = 0;
+        Self::CtrNonce { ctr, nonce }
     }
 
     #[inline]
-    fn checked_add(&self, rhs: usize) -> Option<Self> {
-        rhs.try_into()
-            .ok()
-            .and_then(|rhs| self.0.checked_add(rhs))
-            .map(Self)
+    fn as_backend(cn: &Self::CtrNonce) -> Self::Backend {
+        cn.ctr
     }
 
     #[inline]
-    fn increment(&mut self) {
-        self.0 = self.0.wrapping_add(1);
-    }
-
-    #[inline]
-    fn to_backend(&self) -> Self::Backend {
-        self.0
-    }
-
-    #[inline]
-    fn from_backend(v: Self::Backend) -> Self {
-        Self(v)
+    fn set_from_backend(cn: &mut Self::CtrNonce, v: Self::Backend) {
+        cn.ctr = v;
     }
 }

@@ -75,6 +75,27 @@ fn test_empty_value_is_ignored() {
 }
 
 #[test]
+fn test_keep_prefix() {
+    env::set_var("C_A_B", "");
+
+    // Do not keep the prefix
+    let environment = Environment::with_prefix("C");
+
+    assert!(environment.collect().unwrap().contains_key("a_b"));
+
+    let environment = Environment::with_prefix("C").keep_prefix(false);
+
+    assert!(environment.collect().unwrap().contains_key("a_b"));
+
+    // Keep the prefix
+    let environment = Environment::with_prefix("C").keep_prefix(true);
+
+    assert!(environment.collect().unwrap().contains_key("c_a_b"));
+
+    env::remove_var("C_A_B");
+}
+
+#[test]
 fn test_custom_separator_behavior() {
     env::set_var("C.B.A", "abc");
 
@@ -83,6 +104,19 @@ fn test_custom_separator_behavior() {
     assert!(environment.collect().unwrap().contains_key("b.a"));
 
     env::remove_var("C.B.A");
+}
+
+#[test]
+fn test_custom_prefix_separator_behavior() {
+    env::set_var("C-B.A", "abc");
+
+    let environment = Environment::with_prefix("C")
+        .separator(".")
+        .prefix_separator("-");
+
+    assert!(environment.collect().unwrap().contains_key("b.a"));
+
+    env::remove_var("C-B.A");
 }
 
 #[test]
@@ -380,6 +414,56 @@ fn test_parse_bool_fail() {
 }
 
 #[test]
+fn test_parse_string_and_list() {
+    // using a struct in an enum here to make serde use `deserialize_any`
+    #[derive(Deserialize, Debug)]
+    #[serde(tag = "tag")]
+    enum TestStringEnum {
+        String(TestString),
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct TestString {
+        string_val: String,
+        string_list: Vec<String>,
+    }
+
+    env::set_var("LIST_STRING_LIST", "test,string");
+    env::set_var("LIST_STRING_VAL", "test,string");
+
+    let environment = Environment::default()
+        .prefix("LIST")
+        .list_separator(",")
+        .with_list_parse_key("string_list")
+        .try_parsing(true);
+
+    let config = Config::builder()
+        .set_default("tag", "String")
+        .unwrap()
+        .add_source(environment)
+        .build()
+        .unwrap();
+
+    let config: TestStringEnum = config.try_deserialize().unwrap();
+
+    match config {
+        TestStringEnum::String(TestString {
+            string_val,
+            string_list,
+        }) => {
+            assert_eq!(String::from("test,string"), string_val);
+            assert_eq!(
+                vec![String::from("test"), String::from("string")],
+                string_list
+            );
+        }
+    }
+
+    env::remove_var("LIST_STRING_VAL");
+    env::remove_var("LIST_STRING_LIST");
+}
+
+#[test]
 fn test_parse_string() {
     // using a struct in an enum here to make serde use `deserialize_any`
     #[derive(Deserialize, Debug)]
@@ -413,6 +497,42 @@ fn test_parse_string() {
     }
 
     env::remove_var("STRING_VAL");
+}
+
+#[test]
+fn test_parse_string_list() {
+    // using a struct in an enum here to make serde use `deserialize_any`
+    #[derive(Deserialize, Debug)]
+    #[serde(tag = "tag")]
+    enum TestListEnum {
+        StringList(TestList),
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct TestList {
+        string_list: Vec<String>,
+    }
+
+    env::set_var("STRING_LIST", "test string");
+
+    let environment = Environment::default().try_parsing(true).list_separator(" ");
+
+    let config = Config::builder()
+        .set_default("tag", "StringList")
+        .unwrap()
+        .add_source(environment)
+        .build()
+        .unwrap();
+
+    let config: TestListEnum = config.try_deserialize().unwrap();
+
+    let test_string = vec![String::from("test"), String::from("string")];
+
+    match config {
+        TestListEnum::StringList(TestList { string_list }) => assert_eq!(test_string, string_list),
+    }
+
+    env::remove_var("STRING_LIST");
 }
 
 #[test]

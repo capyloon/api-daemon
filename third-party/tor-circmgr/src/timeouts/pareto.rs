@@ -15,7 +15,6 @@
 use bounded_vec_deque::BoundedVecDeque;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
 use std::time::Duration;
 use tor_netdir::params::NetParameters;
 
@@ -266,7 +265,7 @@ impl History {
     fn estimate_xm(&self, n_modes: usize) -> Option<u32> {
         // From path-spec:
         //   Tor clients compute the Xm parameter using the weighted
-        //   average of the the midpoints of the 'cbtnummodes' (10)
+        //   average of the midpoints of the 'cbtnummodes' (10)
         //   most frequently occurring 10ms histogram bins.
 
         // The most frequently used bins.

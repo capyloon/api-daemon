@@ -47,12 +47,18 @@
 #![deny(clippy::unwrap_used)]
 
 mod err;
+pub mod list_builder;
 mod mut_cfg;
 mod path;
 
+pub use educe;
 pub use err::{ConfigBuildError, ReconfigureError};
 pub use mut_cfg::MutCfg;
+pub use paste::paste;
 pub use path::CfgPath;
+pub use serde;
+
+pub use tor_basic_utils::macro_first_nonempty;
 
 /// Rules for reconfiguring a running Arti instance.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

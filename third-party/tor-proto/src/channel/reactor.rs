@@ -20,7 +20,6 @@ use futures::stream::Stream;
 use futures::Sink;
 use tor_error::internal;
 
-use std::convert::TryInto;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
@@ -442,6 +441,7 @@ pub(crate) mod test {
             Box::new(recv2),
             unique_id,
             dummy_target,
+            crate::ClockSkew::None,
         );
         (chan, reactor, recv1, send2)
     }

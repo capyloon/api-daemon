@@ -1,8 +1,9 @@
 [package]
 name = "arti-client"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
 description = "Library for connecting to the Tor network as an anonymous client"
@@ -30,32 +31,33 @@ error_detail = []
 experimental-api = []
 
 [dependencies]
-tor-basic-utils = { path = "../tor-basic-utils", version = "0.2.0"}
-tor-circmgr = { path = "../tor-circmgr", version = "0.2.0"}
-tor-config = { path = "../tor-config", version = "0.2.0"}
-tor-chanmgr = { path = "../tor-chanmgr", version = "0.2.0"}
-tor-dirmgr = { path = "../tor-dirmgr", version = "0.2.0"}
-tor-error = { path = "../tor-error", version = "0.2.0"}
-tor-guardmgr = { path = "../tor-guardmgr", version = "0.2.0"}
-tor-netdoc = { path = "../tor-netdoc", version = "0.2.0"}
-tor-persist = { path = "../tor-persist", version = "0.2.0"}
-tor-proto = { path = "../tor-proto", version = "0.2.0"}
-tor-rtcompat = { path = "../tor-rtcompat", version = "0.2.0"}
+safelog = { path = "../safelog", version = "0.1.0" }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.3.0"}
+tor-circmgr = { path = "../tor-circmgr", version = "0.3.0"}
+tor-config = { path = "../tor-config", version = "0.3.0"}
+tor-chanmgr = { path = "../tor-chanmgr", version = "0.3.0"}
+tor-dirmgr = { path = "../tor-dirmgr", version = "0.3.0"}
+tor-error = { path = "../tor-error", version = "0.3.0"}
+tor-guardmgr = { path = "../tor-guardmgr", version = "0.3.0"}
+tor-netdoc = { path = "../tor-netdoc", version = "0.3.0"}
+tor-persist = { path = "../tor-persist", version = "0.3.0"}
+tor-proto = { path = "../tor-proto", version = "0.3.0"}
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.3.0"}
 
 humantime-serde = "1.1.1"
-derive_builder = "0.11"
+derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
 derive_more = "0.99"
 directories = "4"
 educe = "0.4.6"
 futures = "0.3.14"
-postage = { version = "0.4", default-features = false, features = ["futures-traits"] }
+postage = { version = "0.5.0", default-features = false, features = ["futures-traits"] }
 tracing = "0.1.18"
 serde = { version = "1.0.103", features = ["derive"] }
 thiserror = "1"
 pin-project = "1"
 
 [dev-dependencies]
-tor-rtcompat = { path = "../tor-rtcompat", version = "0.2.0", features = ["tokio", "native-tls"] }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.3.0", features = ["tokio", "native-tls"] }
 tokio-crate = { package = "tokio", version = "1.7", features = [
     "rt",
     "rt-multi-thread",

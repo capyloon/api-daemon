@@ -1,35 +1,21 @@
-# RustCrypto: Counter Mode (CTR)
+# RustCrypto: CTR
 
-[![Crate][crate-image]][crate-link]
+[![crate][crate-image]][crate-link]
 [![Docs][docs-image]][docs-link]
 ![Apache2/MIT licensed][license-image]
 ![Rust Version][rustc-image]
 [![Project Chat][chat-image]][chat-link]
 [![Build Status][build-image]][build-link]
-[![HAZMAT][hazmat-image]][hazmat-link]
 
-Generic implementations of the [Counter Mode (CTR)][1] of operation for
-block ciphers, which enables adapting block ciphers into stream ciphers.
+Generic implementation of the [Counter][CTR] (CTR) block cipher mode of operation.
 
-[Documentation][docs-link]
+<img src="https://raw.githubusercontent.com/RustCrypto/media/26acc39f/img/block-modes/ctr_enc.svg" width="50%"><img src="https://raw.githubusercontent.com/RustCrypto/media/26acc39f/img/block-modes/ctr_dec.svg" width="50%">
 
-<img alt="diagram" src="https://raw.githubusercontent.com/RustCrypto/meta/master/img/stream-ciphers/ctr.png" width="500px">
-
-## ⚠️ Security Warning: [Hazmat!][hazmat-link]
-
-This crate does not ensure ciphertexts are authentic (i.e. by using a MAC to
-verify ciphertext integrity), which can lead to serious vulnerabilities
-if used incorrectly!
-
-No security audits of this crate have ever been performed, and it has not been
-thoroughly assessed to ensure its operation is constant-time on common CPU
-architectures.
-
-**USE AT YOUR OWN RISK!**
+See [documentation][cipher-doc] of the `cipher` crate for additional information.
 
 ## Minimum Supported Rust Version
 
-Rust **1.41** or higher.
+Rust **1.56** or higher.
 
 Minimum supported Rust version can be changed in the future, but it will be
 done with a minor version bump.
@@ -61,14 +47,13 @@ dual licensed as above, without any additional terms or conditions.
 [docs-image]: https://docs.rs/ctr/badge.svg
 [docs-link]: https://docs.rs/ctr/
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.41+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.56+-blue.svg
 [chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
-[chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/260049-stream-ciphers
-[build-image]: https://github.com/RustCrypto/stream-ciphers/workflows/ctr/badge.svg?branch=master&event=push
-[build-link]: https://github.com/RustCrypto/stream-ciphers/actions?query=workflow%3Actr
-[hazmat-image]: https://img.shields.io/badge/crypto-hazmat%E2%9A%A0-red.svg
-[hazmat-link]: https://github.com/RustCrypto/meta/blob/master/HAZMAT.md
+[chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/308460-block-modes
+[build-image]: https://github.com/RustCrypto/block-modes/workflows/ctr/badge.svg?branch=master&event=push
+[build-link]: https://github.com/RustCrypto/block-modes/actions?query=workflow%3Actr+branch%3Amaster
 
-[//]: # (footnotes)
+[//]: # (general links)
 
-[1]: https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#CTR
+[CTR]: https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#Counter_(CTR)
+[cipher-doc]: https://docs.rs/cipher/

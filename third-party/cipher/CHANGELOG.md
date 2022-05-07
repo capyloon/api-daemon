@@ -5,11 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.3.0 (2021-04-29)
+## 0.4.3 (2022-02-22)
+### Fixed
+- Do not enable the `alloc` feature by default ([#953])
+
+[#953]: https://github.com/RustCrypto/traits/pull/953
+
+## 0.4.2 (2022-02-16) [YANKED]
+### Fixed
+- Rename `BlockDecryptMut::decrypt_padded_vec` to `decrypt_padded_vec_mut` for consistency with other methods ([#941])
+
+[#941]: https://github.com/RustCrypto/traits/pull/941
+
+## 0.4.1 (2022-02-16) [YANKED]
+### Added
+- Allocating padded encrypt/decrypt ([#936])
+
+### Fixed
+- Minimal versions build ([#940])
+
+[#940]: https://github.com/RustCrypto/traits/pull/940
+[#936]: https://github.com/RustCrypto/traits/pull/936
+
+## 0.4.0 (2022-02-10)
+### Changed
+- Major rework of traits. Core functionality of block and stream ciphers
+is defined using rank-2 closures with convinience methods built on top of
+it. Expose block-level trait for stream ciphers and add generic wrapper
+around it. The async stream cipher trait is defined as sub-trait of
+mutable block cipher traits. ([#849])
+
+### Added
+- Re-export `rand_core` ([#683])
+
+[#683]: https://github.com/RustCrypto/traits/pull/683
+[#849]: https://github.com/RustCrypto/traits/pull/849
+
+## 0.3.0 (2021-04-28)
 ### Added
 - Encrypt/decrypt-only block cipher traits ([#352])
 - Re-export `blobby` from root ([#435])
 - Block cipher trait blanket impls for refs ([#441])
+- `generate_key` method to `New*` trait ([#513])
 
 ### Changed
 - Consolidate error types ([#373])
@@ -22,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#435]: https://github.com/RustCrypto/traits/pull/435
 [#441]: https://github.com/RustCrypto/traits/pull/441
 [#442]: https://github.com/RustCrypto/traits/pull/442
+[#513]: https://github.com/RustCrypto/traits/pull/513
 
 ## 0.2.5 (2020-11-01)
 ### Fixed

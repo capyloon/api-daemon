@@ -2,43 +2,43 @@
 
 use cipher::{
     generic_array::{ArrayLength, GenericArray},
-    SeekNum,
+    Counter,
 };
 
 mod ctr128;
 mod ctr32;
 mod ctr64;
 
-pub use ctr128::*;
-pub use ctr32::*;
-pub use ctr64::*;
+pub use ctr128::{Ctr128BE, Ctr128LE};
+pub use ctr32::{Ctr32BE, Ctr32LE};
+pub use ctr64::{Ctr64BE, Ctr64LE};
 
-/// Trait implemented by different counter types used in the CTR mode.
-pub trait CtrFlavor<B>
-where
-    Self: Default + Clone,
-    B: ArrayLength<u8>,
-{
+/// Trait implemented by different CTR flavors.
+pub trait CtrFlavor<B: ArrayLength<u8>> {
     /// Inner representation of nonce.
-    type Nonce: Clone;
+    type CtrNonce: Clone;
     /// Backend numeric type
-    type Backend: SeekNum;
+    type Backend: Counter;
+    /// Flavor name
+    const NAME: &'static str;
 
-    /// Generate block for given `nonce` value.
-    fn generate_block(&self, nonce: &Self::Nonce) -> GenericArray<u8, B>;
+    /// Return number of remaining blocks.
+    ///
+    /// If result does not fit into `usize`, returns `None`.
+    fn remaining(cn: &Self::CtrNonce) -> Option<usize>;
 
-    /// Load nonce value from bytes.
-    fn load(block: &GenericArray<u8, B>) -> Self::Nonce;
+    /// Generate block for given `nonce` and current counter value.
+    fn next_block(cn: &mut Self::CtrNonce) -> GenericArray<u8, B>;
 
-    /// Checked addition.
-    fn checked_add(&self, rhs: usize) -> Option<Self>;
+    /// Generate block for given `nonce` and current counter value.
+    fn current_block(cn: &Self::CtrNonce) -> GenericArray<u8, B>;
 
-    /// Wrapped increment.
-    fn increment(&mut self);
+    /// Initialize from bytes.
+    fn from_nonce(block: &GenericArray<u8, B>) -> Self::CtrNonce;
 
     /// Convert from a backend value
-    fn from_backend(v: Self::Backend) -> Self;
+    fn set_from_backend(cn: &mut Self::CtrNonce, v: Self::Backend);
 
     /// Convert to a backend value
-    fn to_backend(&self) -> Self::Backend;
+    fn as_backend(cn: &Self::CtrNonce) -> Self::Backend;
 }

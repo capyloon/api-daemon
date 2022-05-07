@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.1 (2022-02-17)
+### Fixed
+- Minimal versions build ([#9])
+
+[#9]: https://github.com/RustCrypto/block-modes/pull/9
+
+## 0.9.0 (2022-02-10)
+### Changed
+- Update `cipher` dependency to v0.4 and move crate
+to the [RustCrypto/block-modes] repository ([#2])
+
+[#2]: https://github.com/RustCrypto/block-modes/pull/2
+[RustCrypto/block-modes]: https://github.com/RustCrypto/block-modes
+
 ## 0.8.0 (2021-07-08)
 ### Changed
 - Make implementation generic over block size (previously it
@@ -17,7 +31,7 @@ in the `CtrFlavor` API. ([#252]).
 ### Changed
 - Generic implementation of CTR ([#195])
 - Removed `Ctr32LE` mask bit ([#197])
-- Bump `cipher` crate dependency to v0.3 ([#226])
+- Bump `cipher` dependency to v0.3 ([#226])
 
 [#195]: https://github.com/RustCrypto/stream-ciphers/pull/195
 [#197]: https://github.com/RustCrypto/stream-ciphers/pull/197

@@ -4,7 +4,7 @@ use
 	std           :: { future::Future, rc::Rc                                  } ,
 	futures_task  :: { FutureObj, LocalSpawn,  Spawn, SpawnError               } ,
 	futures_util  :: { FutureExt, task::LocalSpawnExt, future::LocalFutureObj  } ,
-	glommio_crate :: { LocalExecutor, LocalExecutorBuilder, GlommioError, Task } ,
+	glommio_crate :: { LocalExecutor, LocalExecutorBuilder, GlommioError       } ,
 };
 
 
@@ -16,6 +16,12 @@ use
 ///
 /// This always has io_uring enabled and will pull in quite some dependencies including
 /// liburing from C.
+///
+/// Glommio has some specific behavior. It will always poll spawned tasks immediately,
+/// so a spawned task will pre-empt the currently running task until it's first await.
+///
+/// When it comes to YieldNow, glommio does not yield unless the task has been running for
+/// some time. The glommio method is actually called `yield_if_needed`.
 ///
 /// # Panics
 ///
@@ -60,7 +66,7 @@ impl LocalSpawn for GlommioCt
 {
 	fn spawn_local_obj( &self, future: LocalFutureObj<'static, ()> ) -> Result<(), SpawnError>
 	{
-		Task::local( future ).detach();
+		glommio_crate::spawn_local( future ).detach();
 		Ok(())
 	}
 }
@@ -75,7 +81,7 @@ impl<Out: 'static> LocalSpawnHandle<Out> for GlommioCt
 	{
 		let (remote, handle) = future.remote_handle();
 
-		Task::local( remote ).detach();
+		glommio_crate::spawn_local( remote ).detach();
 
 		Ok( JoinHandle::remote_handle(handle) )
 	}
@@ -99,7 +105,7 @@ impl<Out: Send + 'static> SpawnHandle<Out> for GlommioCt
 	{
 		let (remote, handle) = future.remote_handle();
 
-		Task::local( remote ).detach();
+		glommio_crate::spawn_local( remote ).detach();
 
 		Ok( JoinHandle::remote_handle(handle) )
 	}
@@ -126,7 +132,7 @@ impl YieldNow for GlommioCt
 	{
 		// only yield if any other tasks are waiting.
 		//
-		if glommio_crate::Local::need_preempt()
+		if glommio_crate::executor().need_preempt()
 		{
 			crate::YieldNowFut{ done: false }
 		}

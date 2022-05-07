@@ -6,13 +6,12 @@
 
 use super::SendSyncMessage;
 use std::{
+    fmt,
     ops::{Deref, DerefMut},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        RwLock, RwLockReadGuard, RwLockWriteGuard,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use static_assertions::{assert_impl_all, assert_not_impl_all};
 
 use crate::{
@@ -42,12 +41,19 @@ pub fn channel_with<T: Clone>(value: T) -> (Sender<T>, Receiver<T>) {
     (sender, receiver)
 }
 
+/// Constructs a pair of channel endpoints that store Option<T>
+///
+/// This is helpful if T does not implement Default, and you don't have an initial value.
+pub fn channel_with_option<T: Clone>() -> (Sender<Option<T>>, Receiver<Option<T>>) {
+    channel::<Option<T>>()
+}
+
 /// The sender half of a watch channel.  The stored value can be updated with the postage::Sink trait.
 pub struct Sender<T> {
     pub(in crate::channels::watch) shared: SenderShared<StateExtension<T>>,
 }
 
-assert_impl_all!(Sender<SendSyncMessage>: Send, Sync);
+assert_impl_all!(Sender<SendSyncMessage>: Send, Sync, fmt::Debug);
 assert_not_impl_all!(Sender<SendSyncMessage>: Clone);
 
 impl<T> Sink for Sender<T> {
@@ -69,13 +75,14 @@ impl<T> Sink for Sender<T> {
     }
 }
 
+#[allow(clippy::needless_lifetimes)]
 impl<T> Sender<T> {
     /// Mutably borrows the contained value, blocking the channel while the borrow is held.
     ///
     /// After the borrow is released, receivers will be notified of a new value.
     pub fn borrow_mut<'s>(&'s mut self) -> RefMut<'s, T> {
         let extension = self.shared.extension();
-        let lock = extension.value.write().unwrap();
+        let lock = extension.value.write();
 
         RefMut {
             lock,
@@ -83,12 +90,26 @@ impl<T> Sender<T> {
         }
     }
 
+    /// Creates a new Receiver that listens to this channel.
+    pub fn subscribe(&mut self) -> Receiver<T> {
+        Receiver {
+            shared: self.shared.clone_receiver(),
+            generation: AtomicUsize::new(0),
+        }
+    }
+
     /// Immutably borrows the contained value, blocking the channel while the borrow is held.
     pub fn borrow<'s>(&'s mut self) -> Ref<'s, T> {
         let extension = self.shared.extension();
-        let lock = extension.value.read().unwrap();
+        let lock = extension.value.read();
 
         Ref { lock }
+    }
+}
+
+impl<T> fmt::Debug for Sender<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sender").finish()
     }
 }
 
@@ -99,22 +120,18 @@ mod impl_futures {
     use crate::sink::SendError;
 
     impl<T> futures::sink::Sink<T> for super::Sender<T> {
-        type Error = SendError<()>;
+        type Error = SendError<T>;
 
         fn poll_ready(
             self: std::pin::Pin<&mut Self>,
             _cx: &mut std::task::Context<'_>,
         ) -> Poll<Result<(), Self::Error>> {
-            if self.shared.is_closed() {
-                return Poll::Ready(Err(SendError(())));
-            }
-
             Poll::Ready(Ok(()))
         }
 
         fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
             if self.shared.is_closed() {
-                return Err(SendError(()));
+                return Err(SendError(item));
             }
 
             self.shared.extension().push(item);
@@ -147,7 +164,7 @@ pub struct Receiver<T> {
     pub(in crate::channels::watch) generation: AtomicUsize,
 }
 
-assert_impl_all!(Receiver<SendSyncMessage>: Clone, Send, Sync);
+assert_impl_all!(Receiver<SendSyncMessage>: Clone, Send, Sync, fmt::Debug);
 
 impl<T> Stream for Receiver<T>
 where
@@ -194,7 +211,7 @@ where
             return TryRecv::Pending;
         }
 
-        let borrow = self.shared.extension().value.read().unwrap();
+        let borrow = self.shared.extension().value.read();
         let stored_generation = self.shared.extension().generation(Ordering::SeqCst);
         self.generation
             .store(stored_generation + 1, Ordering::Release);
@@ -213,6 +230,12 @@ impl<T> Clone for Receiver<T> {
             shared: self.shared.clone(),
             generation: AtomicUsize::new(0),
         }
+    }
+}
+
+impl<T> fmt::Debug for Receiver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Receiver").finish()
     }
 }
 
@@ -260,7 +283,7 @@ impl<'t, T> Deref for Ref<'t, T> {
 impl<T> Receiver<T> {
     /// Borrows the value in the channel, blocking the channel while the value is held.
     pub fn borrow(&self) -> Ref<'_, T> {
-        let lock = self.shared.extension().value.read().unwrap();
+        let lock = self.shared.extension().value.read();
         Ref { lock }
     }
 }
@@ -279,7 +302,7 @@ impl<T> StateExtension<T> {
     }
 
     pub fn push(&self, value: T) {
-        let mut lock = self.value.write().unwrap();
+        let mut lock = self.value.write();
         *lock = value;
 
         self.generation.fetch_add(1, Ordering::SeqCst);
@@ -525,6 +548,47 @@ mod tests {
 
         assert_eq!(1, w1_count.get());
     }
+
+    #[async_std::test]
+    async fn subscribe_default() {
+        let mut cx = panic_context();
+        let (mut tx, _rx) = channel();
+        let mut rx2 = tx.subscribe();
+
+        assert_eq!(
+            PollRecv::Ready(State(0)),
+            Pin::new(&mut rx2).poll_recv(&mut cx)
+        );
+        assert_eq!(
+            PollRecv::Pending,
+            Pin::new(&mut rx2).poll_recv(&mut noop_context())
+        );
+    }
+
+    #[async_std::test]
+    async fn subscribe_both_receive_value() {
+        let mut cx = panic_context();
+        let (mut tx, mut rx) = channel();
+        let mut rx2 = tx.subscribe();
+
+        assert_eq!(
+            PollRecv::Ready(State(0)),
+            Pin::new(&mut rx).poll_recv(&mut cx)
+        );
+        assert_eq!(
+            PollRecv::Pending,
+            Pin::new(&mut rx).poll_recv(&mut noop_context())
+        );
+
+        assert_eq!(
+            PollRecv::Ready(State(0)),
+            Pin::new(&mut rx2).poll_recv(&mut cx)
+        );
+        assert_eq!(
+            PollRecv::Pending,
+            Pin::new(&mut rx2).poll_recv(&mut noop_context())
+        );
+    }
 }
 
 #[cfg(test)]
@@ -619,6 +683,7 @@ mod tokio_tests {
 
 #[cfg(test)]
 mod async_std_tests {
+
     use async_std::{future::timeout, task::spawn};
 
     use crate::{

@@ -32,12 +32,11 @@ use tor_llcrypto::d::Sha3_256;
 use tor_llcrypto::pk::{curve25519, ed25519};
 use tor_llcrypto::util::rand_compat::RngCompatExt;
 
-use cipher::{NewCipher, StreamCipher};
+use cipher::{KeyIvInit, StreamCipher};
 
 use digest::Digest;
 use generic_array::GenericArray;
 use rand_core::{CryptoRng, RngCore};
-use std::convert::TryInto;
 use tor_error::into_internal;
 use tor_llcrypto::cipher::aes::Aes256Ctr;
 use zeroize::Zeroizing;

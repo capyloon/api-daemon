@@ -160,7 +160,8 @@ impl<'a> ExitPathBuilder<'a> {
                     family.insert(*exit_relay.id());
                     // TODO(nickm): See "limitations" note on `known_family_members`.
                     family.extend(netdir.known_family_members(exit_relay).map(|r| *r.id()));
-                    b.push_restriction(tor_guardmgr::GuardRestriction::AvoidAllIds(family));
+                    b.restrictions()
+                        .push(tor_guardmgr::GuardRestriction::AvoidAllIds(family));
                 }
                 let guard_usage = b.build().expect("Failed while building guard usage!");
                 let (guard, mut mon, usable) = guardmgr.select_guard(guard_usage, Some(netdir))?;
@@ -230,7 +231,6 @@ mod test {
     use crate::path::{assert_same_path_when_owned, OwnedPath, TorPathInner};
     use crate::test::OptDummyGuardMgr;
     use std::collections::HashSet;
-    use std::convert::TryInto;
     use tor_linkspec::ChanTarget;
     use tor_netdir::testnet;
     use tor_rtcompat::SleepProvider;
@@ -431,7 +431,7 @@ mod test {
                 .unwrap();
             let exit_relay = netdir.by_id(distinct_exit.iter().next().unwrap()).unwrap();
 
-            // Now we'll try a forced exit that is not the same same as our
+            // Now we'll try a forced exit that is not the same as our
             // actual guard.
             let (path, mon, usable) = ExitPathBuilder::from_chosen_exit(exit_relay.clone())
                 .pick_path(&mut rng, dirinfo, Some(&guards), &config, rt.wallclock())

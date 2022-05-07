@@ -7,6 +7,7 @@
 use crate::address::IntoTorAddr;
 
 use crate::config::{ClientAddrConfig, StreamTimeoutConfig, TorClientConfig};
+use safelog::sensitive;
 use tor_circmgr::isolation::Isolation;
 use tor_circmgr::{isolation::StreamIsolationBuilder, IsolationToken, TargetPort};
 use tor_config::MutCfg;
@@ -18,7 +19,6 @@ use tor_rtcompat::{PreferredRuntime, Runtime, SleepProviderExt};
 use educe::Educe;
 use futures::lock::Mutex as AsyncMutex;
 use futures::task::SpawnExt;
-use std::convert::TryInto;
 use std::net::IpAddr;
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -124,7 +124,7 @@ pub enum DormantMode {
 pub struct StreamPrefs {
     /// What kind of IPv6/IPv4 we'd prefer, and how strongly.
     ip_ver_pref: IpVersionPreference,
-    /// How should we isolate connection(s) ?
+    /// How should we isolate connection(s)?
     isolation: StreamIsolationPreference,
     /// Whether to return the stream optimistically.
     optimistic_stream: bool,
@@ -388,11 +388,13 @@ impl<R: Runtime> TorClient<R> {
 
         let conn_status = chanmgr.bootstrap_events();
         let dir_status = dirmgr.bootstrap_events();
+        let skew_status = circmgr.skew_events();
         runtime
             .spawn(status::report_status(
                 status_sender,
                 conn_status,
                 dir_status,
+                skew_status,
             ))
             .map_err(|e| ErrorDetail::from_spawn("top-level status reporter", e))?;
 
@@ -674,7 +676,7 @@ impl<R: Runtime> TorClient<R> {
             .get_or_launch_exit_circ(&exit_ports, prefs)
             .await
             .map_err(wrap_err)?;
-        info!("Got a circuit for {}:{}", addr, port);
+        info!("Got a circuit for {}:{}", sensitive(&addr), port);
 
         let stream_future = circ.begin_stream(&addr, port, Some(prefs.stream_parameters()));
         // This timeout is needless but harmless for optimistic streams.

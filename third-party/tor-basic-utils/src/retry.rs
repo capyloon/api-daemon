@@ -103,6 +103,11 @@ impl RetryDelay {
     pub fn next_delay<R: Rng>(&mut self, rng: &mut R) -> Duration {
         Duration::from_millis(u64::from(self.next_delay_msec(rng)))
     }
+
+    /// Return this [`RetryDelay`] to its original state.
+    pub fn reset(&mut self) {
+        self.last_delay_ms = 0;
+    }
 }
 
 impl Default for RetryDelay {
@@ -138,6 +143,8 @@ mod test {
         assert_eq!(rd.delay_bounds(), (1000, 4500));
         rd.last_delay_ms = 3_000_000_000;
         assert_eq!(rd.delay_bounds(), (1000, std::u32::MAX));
+        rd.reset();
+        assert_eq!(rd.delay_bounds(), (1000, 1001));
     }
 
     #[test]

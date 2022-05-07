@@ -1,14 +1,15 @@
 [package]
 name = "tor-llcrypto"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
 description = "Low level cryptography wrappers used by Tor"
-keywords = [ "tor", "arti", "cryptography" ]
-categories = [ "cryptography" ]
-repository="https://gitlab.torproject.org/tpo/core/arti.git/"
+keywords = ["tor", "arti", "cryptography"]
+categories = ["cryptography"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
 [features]
 default = []
@@ -20,10 +21,11 @@ relay = []
 hsv3-client = []
 
 [dependencies]
-aes = { version = "0.7.0", features = ["ctr"] }
+aes = { version = "0.8" }
 arrayref = "0.3"
 base64 = "0.13.0"
 curve25519-dalek = "3.2"
+ctr = "0.9"
 digest = "0.10.0"
 ed25519-dalek = { version = "1", features = ["batch"] }
 hex = "0.4"
@@ -44,7 +46,7 @@ thiserror = "1"
 [dev-dependencies]
 hex-literal = "0.3"
 rand = "0.8"
-cipher = "0.3.0"
+cipher = "0.4.1"
 serde_test = "1.0.124"
 
 # This is a magic crate that runs the tests and checks the format
@@ -53,7 +55,7 @@ serde_test = "1.0.124"
 [dev-dependencies.cargo-husky]
 version = "1.5.0"
 default-features = false
-features = [ "user-hooks" ]
+features = ["user-hooks"]
 
 [target.wasm32-unknown-unknown.dependencies]
 getrandom = { version = "0.2.3", features = ["js"] }

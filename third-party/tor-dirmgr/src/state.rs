@@ -217,7 +217,7 @@ impl<DM: WriteNetDir> DirState for GetConsensusState<DM> {
     }
     fn dl_config(&self) -> Result<DownloadSchedule> {
         if let Some(wd) = Weak::upgrade(&self.writedir) {
-            Ok(*wd.config().schedule().retry_consensus())
+            Ok(wd.config().schedule.retry_consensus)
         } else {
             Err(Error::ManagerDropped)
         }
@@ -294,12 +294,9 @@ impl<DM: WriteNetDir> GetConsensusState<DM> {
                 parsed
             };
             let now = current_time(&self.writedir)?;
-            if let Ok(timely) = parsed.check_valid_at(&now) {
-                let meta = ConsensusMeta::from_unvalidated(signedval, remainder, &timely);
-                (meta, timely)
-            } else {
-                return Ok(None);
-            }
+            let timely = parsed.check_valid_at(&now)?;
+            let meta = ConsensusMeta::from_unvalidated(signedval, remainder, &timely);
+            (meta, timely)
         };
 
         // Check out what authorities we believe in, and see if enough
@@ -401,7 +398,7 @@ impl<DM: WriteNetDir> DirState for GetCertsState<DM> {
     }
     fn dl_config(&self) -> Result<DownloadSchedule> {
         if let Some(wd) = Weak::upgrade(&self.writedir) {
-            Ok(*wd.config().schedule().retry_certs())
+            Ok(wd.config().schedule.retry_certs)
         } else {
             Err(Error::ManagerDropped)
         }
@@ -421,13 +418,10 @@ impl<DM: WriteNetDir> DirState for GetCertsState<DM> {
                     .map_err(|e| Error::from_netdoc(DocSource::LocalCache, e))?
                     .check_signature()?;
                 let now = current_time(&self.writedir)?;
-                if let Ok(cert) = parsed.check_valid_at(&now) {
-                    self.missing_certs.remove(cert.key_ids());
-                    self.certs.push(cert);
-                    changed = true;
-                } else {
-                    warn!("Got a cert from our cache that we couldn't parse");
-                }
+                let cert = parsed.check_valid_at(&now)?;
+                self.missing_certs.remove(cert.key_ids());
+                self.certs.push(cert);
+                changed = true;
             }
         }
         Ok(changed)
@@ -451,9 +445,8 @@ impl<DM: WriteNetDir> DirState for GetCertsState<DM> {
                     .expect("Certificate was not in input as expected");
                 if let Ok(wellsigned) = parsed.check_signature() {
                     let now = current_time(&self.writedir)?;
-                    if let Ok(timely) = wellsigned.check_valid_at(&now) {
-                        newcerts.push((timely, s));
-                    }
+                    let timely = wellsigned.check_valid_at(&now)?;
+                    newcerts.push((timely, s));
                 } else {
                     // TODO: note the source.
                     warn!("Badly signed certificate received and discarded.");
@@ -634,7 +627,7 @@ impl<DM: WriteNetDir> GetMicrodescsState<DM> {
         let partial_dir = match Weak::upgrade(&writedir) {
             Some(wd) => {
                 let config = wd.config();
-                let params = config.override_net_params();
+                let params = &config.override_net_params;
                 let mut dir = PartialNetDir::new(consensus, Some(params));
                 if let Some(old_dir) = wd.netdir().get() {
                     dir.fill_from_previous_netdir(&old_dir);
@@ -703,7 +696,7 @@ impl<DM: WriteNetDir> GetMicrodescsState<DM> {
                         self.reset_time = pick_download_time(netdir.lifetime());
                         // We re-set the parameters here, in case they have been
                         // reconfigured.
-                        netdir.replace_overridden_parameters(wd.config().override_net_params());
+                        netdir.replace_overridden_parameters(&wd.config().override_net_params);
                         wd.netdir().replace(netdir);
                         wd.netdir_consensus_changed();
                         wd.netdir_descriptors_changed();
@@ -798,7 +791,7 @@ impl<DM: WriteNetDir> DirState for GetMicrodescsState<DM> {
     }
     fn dl_config(&self) -> Result<DownloadSchedule> {
         if let Some(wd) = Weak::upgrade(&self.writedir) {
-            Ok(*wd.config().schedule().retry_microdescs())
+            Ok(wd.config().schedule.retry_microdescs)
         } else {
             Err(Error::ManagerDropped)
         }
@@ -966,8 +959,7 @@ mod test {
     #![allow(clippy::unwrap_used)]
     #![allow(clippy::cognitive_complexity)]
     use super::*;
-    use crate::{Authority, DownloadScheduleConfig};
-    use std::convert::TryInto;
+    use crate::{Authority, AuthorityBuilder, DownloadScheduleConfig};
     use std::sync::{
         atomic::{self, AtomicBool},
         Arc,
@@ -1017,15 +1009,15 @@ mod test {
     }
 
     impl DirRcv {
-        fn new(now: SystemTime, authorities: Option<Vec<Authority>>) -> Self {
+        fn new(now: SystemTime, authorities: Option<Vec<AuthorityBuilder>>) -> Self {
             let mut netcfg = crate::NetworkConfig::builder();
-            netcfg.fallback_caches(vec![]);
+            netcfg.set_fallback_caches(vec![]);
             if let Some(a) = authorities {
-                netcfg.authorities(a);
+                netcfg.set_authorities(a);
             }
             let cfg = DirMgrConfig {
                 cache_path: "/we_will_never_use_this/".into(),
-                network_config: netcfg.build().unwrap(),
+                network: netcfg.build().unwrap(),
                 ..Default::default()
             };
             let cfg = Arc::new(cfg);
@@ -1075,13 +1067,9 @@ mod test {
     fn rsa(s: &str) -> RsaIdentity {
         RsaIdentity::from_hex(s).unwrap()
     }
-    fn test_authorities() -> Vec<Authority> {
-        fn a(s: &str) -> Authority {
-            Authority::builder()
-                .name("ignore")
-                .v3ident(rsa(s))
-                .build()
-                .unwrap()
+    fn test_authorities() -> Vec<AuthorityBuilder> {
+        fn a(s: &str) -> AuthorityBuilder {
+            Authority::builder().name("ignore").v3ident(rsa(s)).clone()
         }
         vec![
             a("5696AB38CB3852AFA476A5C07B2D4788963D5567"),
@@ -1150,7 +1138,7 @@ mod test {
         // Download configuration is simple: only 1 request can be done in
         // parallel.  It uses a consensus retry schedule.
         let retry = state.dl_config().unwrap();
-        assert_eq!(&retry, DownloadScheduleConfig::default().retry_consensus());
+        assert_eq!(retry, DownloadScheduleConfig::default().retry_consensus);
 
         // Do we know what we want?
         let docs = state.missing_docs();
@@ -1251,7 +1239,7 @@ mod test {
         let consensus_expires = datetime!(2020-08-07 12:43:20 UTC).into();
         assert_eq!(state.reset_time(), Some(consensus_expires));
         let retry = state.dl_config().unwrap();
-        assert_eq!(&retry, DownloadScheduleConfig::default().retry_certs());
+        assert_eq!(retry, DownloadScheduleConfig::default().retry_certs);
 
         // Bootstrap status okay?
         assert_eq!(
@@ -1377,7 +1365,7 @@ mod test {
             assert!(reset_time <= valid_until);
         }
         let retry = state.dl_config().unwrap();
-        assert_eq!(&retry, DownloadScheduleConfig::default().retry_microdescs());
+        assert_eq!(retry, DownloadScheduleConfig::default().retry_microdescs);
         assert_eq!(
             state.bootstrap_status().to_string(),
             "fetching microdescriptors (0/4)"

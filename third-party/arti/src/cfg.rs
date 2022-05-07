@@ -2,10 +2,8 @@
 //
 // (Thia module is called `cfg` to avoid name clash with the `config` crate, which we use.)
 
-use std::convert::TryFrom;
-
 use derive_builder::Builder;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use arti_client::config::TorClientConfigBuilder;
 use arti_client::TorClientConfig;
@@ -14,10 +12,9 @@ use tor_config::ConfigBuildError;
 use crate::{LoggingConfig, LoggingConfigBuilder};
 
 /// Structure to hold our application configuration options
-#[derive(Deserialize, Debug, Default, Clone, Builder, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Default, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
+#[builder(derive(Debug, Serialize, Deserialize))]
 pub struct ApplicationConfig {
     /// If true, we should watch our configuration files for changes, and reload
     /// our configuration when they change.
@@ -26,7 +23,6 @@ pub struct ApplicationConfig {
     /// directory holding our configuration files changes its identity (because
     /// an intermediate symlink is changed, because the directory is removed and
     /// recreated, or for some other reason).
-    #[serde(default)]
     #[builder(default)]
     pub(crate) watch_configuration: bool,
 }
@@ -35,7 +31,7 @@ pub struct ApplicationConfig {
 #[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[builder(build_fn(error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
+#[builder(derive(Debug, Serialize, Deserialize))]
 pub struct ProxyConfig {
     /// Port to listen on (at localhost) for incoming SOCKS
     /// connections.
@@ -70,15 +66,13 @@ impl ProxyConfig {
 /// Configuration for system resources used by Tor.
 ///
 /// You cannot change this section on a running Arti client.
-#[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
+#[builder(derive(Debug, Serialize, Deserialize))]
 #[non_exhaustive]
 pub struct SystemConfig {
     /// Maximum number of file descriptors we should launch with
     #[builder(setter(into), default = "default_max_files()")]
-    #[serde(default = "default_max_files")]
     pub(crate) max_files: u64,
 }
 
@@ -114,21 +108,33 @@ impl SystemConfig {
 ///
 /// NOTE: These are NOT the final options or their final layout. Expect NO
 /// stability here.
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Builder, Clone, Eq, PartialEq, Default)]
+#[builder(derive(Serialize, Deserialize, Debug))]
+#[builder(build_fn(error = "ConfigBuildError"))]
 pub struct ArtiConfig {
     /// Configuration for application behavior.
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     application: ApplicationConfig,
 
     /// Configuration for proxy listeners
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     proxy: ProxyConfig,
 
     /// Logging configuration
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     logging: LoggingConfig,
 
     /// Information on system resources used by Arti.
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     pub(crate) system: SystemConfig,
 
     /// Configuration of the actual Tor client
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(flatten))]
     tor: TorClientConfig,
 }
 
@@ -176,99 +182,12 @@ impl ArtiConfig {
     }
 }
 
-/// Builder object used to construct an ArtiConfig.
-///
-/// Most code won't need this, and should use [`TorClientConfigBuilder`] instead.
-///
-/// Unlike other builder types in Arti, this builder works by exposing an
-/// inner builder for each section in the [`TorClientConfig`].
-#[derive(Default, Clone, Deserialize)]
-// This ought to be replaced by a derive-builder generated struct (probably as part of #374),
-// but currently derive-builder can't do this.
-pub struct ArtiConfigBuilder {
-    /// Builder for the actual Tor client.
-    #[serde(flatten)]
-    tor: TorClientConfigBuilder,
-
-    /// Builder for the application section
-    #[serde(default)]
-    application: ApplicationConfigBuilder,
-    /// Builder for the proxy section.
-    #[serde(default)]
-    proxy: ProxyConfigBuilder,
-    /// Builder for the logging section.
-    #[serde(default)]
-    logging: LoggingConfigBuilder,
-    /// Builder for system resource configuration.
-    #[serde(default)]
-    system: SystemConfigBuilder,
-}
-
-impl ArtiConfigBuilder {
-    /// Try to construct a new [`ArtiConfig`] from this builder.
-    pub fn build(&self) -> Result<ArtiConfig, ConfigBuildError> {
-        let application = self
-            .application
-            .build()
-            .map_err(|e| e.within("application"))?;
-        let proxy = self.proxy.build().map_err(|e| e.within("proxy"))?;
-        let logging = self.logging.build().map_err(|e| e.within("logging"))?;
-        let system = self.system.build().map_err(|e| e.within("system"))?;
-        let tor = TorClientConfigBuilder::from(self.clone());
-        let tor = tor.build()?;
-        Ok(ArtiConfig {
-            application,
-            proxy,
-            logging,
-            system,
-            tor,
-        })
-    }
-
-    /// Return a mutable reference to an [`ApplicationConfigBuilder`] to use in
-    /// configuring the Arti process.
-    pub fn application(&mut self) -> &mut ApplicationConfigBuilder {
-        &mut self.application
-    }
-
-    /// Return a mutable reference to a [`ProxyConfig`] to use in
-    /// configuring the Arti process.
-    pub fn proxy(&mut self) -> &mut ProxyConfigBuilder {
-        &mut self.proxy
-    }
-
-    /// Return a mutable reference to a
-    /// [`LoggingConfigBuilder`]
-    /// to use in configuring the Arti process.
-    pub fn logging(&mut self) -> &mut LoggingConfigBuilder {
-        &mut self.logging
-    }
-
-    /// Return a mutable reference to a `TorClientConfigBuilder`.
-    /// to use in configuring the underlying Tor network.
-    ///
-    /// Most programs shouldn't need to alter this configuration: it's only for
-    /// cases when you need to use a nonstandard set of Tor directory authorities
-    /// and fallback caches.
-    pub fn tor(&mut self) -> &mut TorClientConfigBuilder {
-        &mut self.tor
-    }
-
-    /// Return a mutable reference to a [`SystemConfigBuilder`].
-    ///
-    /// This section controls the system parameters used by Arti.
-    pub fn system(&mut self) -> &mut SystemConfigBuilder {
-        &mut self.system
-    }
-}
-
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_used)]
 
     use arti_client::config::dir;
     use arti_config::ARTI_DEFAULTS;
-    use std::convert::TryInto;
     use std::time::Duration;
 
     use super::*;
@@ -296,37 +215,47 @@ mod test {
 
     #[test]
     fn builder() {
-        use arti_client::config::dir::DownloadSchedule;
         use tor_config::CfgPath;
         let sec = std::time::Duration::from_secs(1);
 
         let auth = dir::Authority::builder()
             .name("Fred")
             .v3ident([22; 20].into())
-            .build()
-            .unwrap();
-        let fallback = dir::FallbackDir::builder()
+            .clone();
+        let mut fallback = dir::FallbackDir::builder();
+        fallback
             .rsa_identity([23; 20].into())
             .ed_identity([99; 32].into())
-            .orports(vec!["127.0.0.7:7".parse().unwrap()])
-            .build()
-            .unwrap();
+            .orports()
+            .push("127.0.0.7:7".parse().unwrap());
 
         let mut bld = ArtiConfig::builder();
         bld.proxy().socks_port(Some(9999));
         bld.logging().console("warn");
-        bld.tor()
-            .tor_network()
-            .authorities(vec![auth])
-            .fallback_caches(vec![fallback]);
+        bld.tor().tor_network().set_authorities(vec![auth]);
+        bld.tor().tor_network().set_fallback_caches(vec![fallback]);
         bld.tor()
             .storage()
             .cache_dir(CfgPath::new("/var/tmp/foo".to_owned()))
             .state_dir(CfgPath::new("/var/tmp/bar".to_owned()));
+        bld.tor().download_schedule().retry_certs().attempts(10);
         bld.tor()
             .download_schedule()
-            .retry_certs(DownloadSchedule::new(10, sec, 3))
-            .retry_microdescs(DownloadSchedule::new(30, 10 * sec, 9));
+            .retry_certs()
+            .initial_delay(sec);
+        bld.tor().download_schedule().retry_certs().parallelism(3);
+        bld.tor()
+            .download_schedule()
+            .retry_microdescs()
+            .attempts(30);
+        bld.tor()
+            .download_schedule()
+            .retry_microdescs()
+            .initial_delay(10 * sec);
+        bld.tor()
+            .download_schedule()
+            .retry_microdescs()
+            .parallelism(9);
         bld.tor()
             .override_net_params()
             .insert("wombats-per-quokka".to_owned(), 7);
@@ -334,10 +263,12 @@ mod test {
             .path_rules()
             .ipv4_subnet_family_prefix(20)
             .ipv6_subnet_family_prefix(48);
+        bld.tor().preemptive_circuits().disable_at_threshold(12);
         bld.tor()
             .preemptive_circuits()
-            .disable_at_threshold(12)
-            .initial_predicted_ports(vec![80, 443])
+            .set_initial_predicted_ports(vec![80, 443]);
+        bld.tor()
+            .preemptive_circuits()
             .prediction_lifetime(Duration::from_secs(3600))
             .min_exit_circs_for_port(2);
         bld.tor()

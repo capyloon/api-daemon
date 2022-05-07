@@ -30,7 +30,7 @@ values back to the configuration file(s)!
 
 ```toml
 [dependencies]
-config = "0.12"
+config = "0.13.1"
 ```
 
 ### Feature flags
@@ -56,7 +56,7 @@ more usage information.
 
 ## MSRV
 
-We currently support Rust 1.49.0 and newer.
+We currently support Rust 1.56.0 and newer.
 
 
 ## License

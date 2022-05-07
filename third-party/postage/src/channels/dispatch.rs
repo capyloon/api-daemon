@@ -4,6 +4,8 @@
 //!
 //! The producer can be cloned, and the sender task is suspended if the channel becomes full.
 
+use std::fmt;
+
 use super::SendMessage;
 use crate::{
     sink::{PollSend, Sink},
@@ -32,7 +34,7 @@ pub struct Sender<T> {
     shared: SenderShared<StateExtension<T>>,
 }
 
-assert_impl_all!(Sender<String>: Clone, Send, Sync);
+assert_impl_all!(Sender<String>: Clone, Send, Sync, fmt::Debug);
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
@@ -77,13 +79,19 @@ impl<T> Sink for Sender<T> {
     }
 }
 
+impl<T> fmt::Debug for Sender<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sender").finish()
+    }
+}
+
 #[cfg(feature = "futures-traits")]
 mod impl_futures {
     use crate::sink::SendError;
     use std::task::Poll;
 
     impl<T> futures::sink::Sink<T> for super::Sender<T> {
-        type Error = SendError<()>;
+        type Error = SendError<T>;
 
         fn poll_ready(
             self: std::pin::Pin<&mut Self>,
@@ -91,7 +99,7 @@ mod impl_futures {
         ) -> Poll<Result<(), Self::Error>> {
             loop {
                 if self.shared.is_closed() {
-                    return Poll::Ready(Err(SendError(())));
+                    return Poll::Ready(Ok(()));
                 }
 
                 let queue = &self.shared.extension().queue;
@@ -113,12 +121,16 @@ mod impl_futures {
         }
 
         fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+            if self.shared.is_closed() {
+                return Err(SendError(item));
+            }
+
             let result = self
                 .shared
                 .extension()
                 .queue
                 .push(item)
-                .map_err(|_t| SendError(()));
+                .map_err(|item| SendError(item));
 
             if result.is_ok() {
                 self.shared.notify_receivers();
@@ -144,6 +156,7 @@ mod impl_futures {
 }
 
 impl<T> Sender<T> {
+    /// Creates a new Receiver that listens to this channel.
     pub fn subscribe(&self) -> Receiver<T> {
         Receiver {
             shared: self.shared.clone_receiver(),
@@ -158,7 +171,7 @@ pub struct Receiver<T> {
     shared: ReceiverShared<StateExtension<T>>,
 }
 
-assert_impl_all!(Receiver<SendMessage>: Clone, Send, Sync);
+assert_impl_all!(Receiver<SendMessage>: Clone, Send, Sync, fmt::Debug);
 
 impl<T> Stream for Receiver<T> {
     type Item = T;
@@ -196,6 +209,12 @@ impl<T> Clone for Receiver<T> {
         Self {
             shared: self.shared.clone(),
         }
+    }
+}
+
+impl<T> fmt::Debug for Receiver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Receiver").finish()
     }
 }
 

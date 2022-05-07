@@ -135,31 +135,37 @@ use futures::channel::mpsc;
 use futures::task::SpawnExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
+use tor_proto::ClockSkew;
 use tracing::{debug, info, trace, warn};
 
+use tor_config::{define_list_builder_accessors, define_list_builder_helper};
 use tor_llcrypto::pk;
 use tor_netdir::{params::NetParameters, NetDir, Relay};
 use tor_persist::{DynStorageHandle, StateMgr};
 use tor_rtcompat::Runtime;
 
 mod daemon;
+mod dirstatus;
 mod err;
+mod events;
 pub mod fallback;
 mod filter;
 mod guard;
 mod ids;
 mod pending;
 mod sample;
+mod skew;
 mod util;
 
 pub use err::{GuardMgrError, PickGuardError};
+pub use events::ClockSkewEvents;
 pub use filter::GuardFilter;
 pub use ids::FirstHopId;
 pub use pending::{GuardMonitor, GuardStatus, GuardUsable};
+pub use skew::SkewEstimate;
 
 use pending::{PendingRequest, RequestId};
 use sample::GuardSet;
@@ -240,6 +246,13 @@ struct GuardMgrInner {
 
     /// Location in which to store persistent state.
     storage: DynStorageHandle<GuardSets>,
+
+    /// A sender object to publish changes in our estimated clock skew.
+    send_skew: postage::watch::Sender<Option<SkewEstimate>>,
+
+    /// A receiver object to hand out to observers who want to know about
+    /// changes in our estimated clock skew.
+    recv_skew: events::ClockSkewEvents,
 }
 
 /// Persistent state for a guard manager, as serialized to disk.
@@ -285,6 +298,10 @@ impl<R: Runtime> GuardMgr<R> {
         // try to migrate it instead, but that's beyond the stability guarantee
         // that we're getting at this stage of our (pre-0.1) development.
         let state = storage.load()?.unwrap_or_default();
+
+        let (send_skew, recv_skew) = postage::watch::channel();
+        let recv_skew = ClockSkewEvents { inner: recv_skew };
+
         let inner = Arc::new(Mutex::new(GuardMgrInner {
             guards: state,
             last_primary_retry_time: runtime.now(),
@@ -294,6 +311,8 @@ impl<R: Runtime> GuardMgr<R> {
             waiting: Vec::new(),
             fallbacks: fallbacks.into(),
             storage,
+            send_skew,
+            recv_skew,
         }));
         {
             let weak_inner = Arc::downgrade(&inner);
@@ -557,20 +576,24 @@ impl<R: Runtime> GuardMgr<R> {
     ) {
         let mut inner = self.inner.lock().expect("Poisoned lock");
 
-        for id in inner.lookup_ids(ed_identity, rsa_identity) {
-            match &id.0 {
-                FirstHopIdInner::Guard(_) => {
-                    // TODO: Nothing to do in this case yet; there is not yet a
-                    // separate "directory succeeding" status for guards.  But there
-                    // should be, eventually.  This is part of #329.
-                }
-                FirstHopIdInner::Fallback(id) => {
-                    if external_activity == ExternalActivity::DirCache {
-                        inner.fallbacks.note_success(id);
-                    }
-                }
-            }
-        }
+        inner.record_external_success(
+            ed_identity,
+            rsa_identity,
+            external_activity,
+            self.runtime.wallclock(),
+        );
+    }
+
+    /// Return a stream of events about our estimated clock skew; these events
+    /// are `None` when we don't have enough information to make an estimate,
+    /// and `Some(`[`SkewEstimate`]`)` otherwise.
+    ///
+    /// Note that this stream can be lossy: if the estimate changes more than
+    /// one before you read from the stream, you might only get the most recent
+    /// update.
+    pub fn skew_events(&self) -> ClockSkewEvents {
+        let inner = self.inner.lock().expect("Poisoned lock");
+        inner.recv_skew.clone()
     }
 
     /// Ensure that the message queue is flushed before proceeding to
@@ -617,8 +640,8 @@ impl GuardSets {
 
     /// Update all non-persistent state for the guards in this object with the
     /// state in `other`.
-    fn copy_status_from(&mut self, other: &GuardSets) {
-        self.default.copy_status_from(&other.default);
+    fn copy_status_from(&mut self, other: GuardSets) {
+        self.default.copy_status_from(other.default);
     }
 }
 
@@ -676,8 +699,8 @@ impl GuardMgrInner {
     /// Replace the active guard state with `new_state`, preserving
     /// non-persistent state for any guards that are retained.
     fn replace_guards_with(&mut self, mut new_guards: GuardSets, now: SystemTime) {
-        new_guards.copy_status_from(&self.guards);
-        self.guards = new_guards;
+        std::mem::swap(&mut self.guards, &mut new_guards);
+        self.guards.copy_status_from(new_guards);
         self.update(now, None);
     }
 
@@ -711,12 +734,36 @@ impl GuardMgrInner {
         &mut self,
         request_id: RequestId,
         status: GuardStatus,
+        skew: Option<ClockSkew>,
         runtime: &impl tor_rtcompat::SleepProvider,
     ) {
         if let Some(mut pending) = self.pending.remove(&request_id) {
             // If there was a pending request matching this RequestId, great!
             let guard_id = pending.guard_id();
             trace!(?guard_id, ?status, "Received report of guard status");
+
+            // First, handle the skew report (if any)
+            if let Some(skew) = skew {
+                let now = runtime.now();
+                let observation = skew::SkewObservation { skew, when: now };
+
+                match &guard_id.0 {
+                    FirstHopIdInner::Guard(id) => {
+                        self.guards.active_guards_mut().record_skew(id, observation);
+                    }
+                    FirstHopIdInner::Fallback(id) => {
+                        self.fallbacks.note_skew(id, observation);
+                    }
+                }
+                // TODO: We call this whenever we receive an observed clock
+                // skew. That's not the perfect timing for two reasons.  First
+                // off, it might be too frequent: it does an O(n) calculation,
+                // which isn't ideal.  Second, it might be too infrequent: after
+                // an hour has passed, a given observation won't be up-to-date
+                // any more, and we might want to recalculate the skew
+                // accordingly.
+                self.update_skew(now);
+            }
 
             match (status, &guard_id.0) {
                 (GuardStatus::Failure, FirstHopIdInner::Fallback(id)) => {
@@ -740,6 +787,7 @@ impl GuardMgrInner {
                     self.guards.active_guards_mut().record_success(
                         id,
                         &self.params,
+                        None,
                         runtime.wallclock(),
                     );
                     // Either tell the request whether the guard is
@@ -789,6 +837,53 @@ impl GuardMgrInner {
         // not); we need to give them the information they're waiting
         // for.
         self.expire_and_answer_pending_requests(runtime.now());
+    }
+
+    /// Helper to implement `GuardMgr::note_external_success()`.
+    ///
+    /// (This has to be a separate function so that we can borrow params while
+    /// we have `mut self` borrowed.)
+    fn record_external_success(
+        &mut self,
+        ed_identity: &pk::ed25519::Ed25519Identity,
+        rsa_identity: &pk::rsa::RsaIdentity,
+        external_activity: ExternalActivity,
+        now: SystemTime,
+    ) {
+        for id in self.lookup_ids(ed_identity, rsa_identity) {
+            match &id.0 {
+                FirstHopIdInner::Guard(id) => {
+                    self.guards.active_guards_mut().record_success(
+                        id,
+                        &self.params,
+                        Some(external_activity),
+                        now,
+                    );
+                }
+                FirstHopIdInner::Fallback(id) => {
+                    if external_activity == ExternalActivity::DirCache {
+                        self.fallbacks.note_success(id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Return an iterator over all of the clock skew observations we've made
+    /// for guards or fallbacks.
+    fn skew_observations(&self) -> impl Iterator<Item = &skew::SkewObservation> {
+        self.fallbacks
+            .skew_observations()
+            .chain(self.guards.active_guards().skew_observations())
+    }
+
+    /// Recalculate our estimated clock skew, and publish it to anybody who
+    /// cares.
+    fn update_skew(&mut self, now: Instant) {
+        let estimate = skew::SkewEstimate::estimate_skew(self.skew_observations(), now);
+        // TODO: we might want to do this only conditionally, when the skew
+        // estimate changes.
+        *self.send_skew.borrow_mut() = estimate;
     }
 
     /// If the circuit built because of a given [`PendingRequest`] may
@@ -905,7 +1000,7 @@ impl GuardMgrInner {
         wallclock: SystemTime,
     ) -> Result<(sample::ListKind, FirstHop), PickGuardError> {
         // Try to find a guard.
-        let first_error = match self.select_guard_once(usage) {
+        let first_error = match self.select_guard_once(usage, now) {
             Ok(res1) => return Ok(res1),
             Err(e) => {
                 trace!("Couldn't select guard on first attempt: {}", e);
@@ -925,7 +1020,7 @@ impl GuardMgrInner {
                 self.guards
                     .active_guards_mut()
                     .select_primary_guards(&self.params);
-                match self.select_guard_once(usage) {
+                match self.select_guard_once(usage, now) {
                     Ok(res) => return Ok(res),
                     Err(e) => {
                         trace!("Couldn't select guard after expanding sample: {}", e);
@@ -948,11 +1043,12 @@ impl GuardMgrInner {
     fn select_guard_once(
         &self,
         usage: &GuardUsage,
+        now: Instant,
     ) -> Result<(sample::ListKind, FirstHop), PickGuardError> {
         let (source, id) = self
             .guards
             .active_guards()
-            .pick_guard(usage, &self.params)?;
+            .pick_guard(usage, &self.params, now)?;
         let guard = self
             .guards
             .active_guards()
@@ -1131,22 +1227,34 @@ pub struct GuardUsage {
     #[builder(default)]
     kind: GuardUsageKind,
     /// A list of restrictions on which guard may be used.
-    #[builder(default)]
-    restrictions: Vec<GuardRestriction>,
+    ///
+    /// The default is the empty list.
+    #[builder(sub_builder, setter(custom))]
+    restrictions: GuardRestrictionList,
+}
+
+/// List of socket restricteionesses, as configured
+pub type GuardRestrictionList = Vec<GuardRestriction>;
+
+define_list_builder_helper! {
+    pub struct GuardRestrictionListBuilder {
+        restrictions: [GuardRestriction],
+    }
+    built: GuardRestrictionList = restrictions;
+    default = vec![];
+    item_build: |restriction| Ok(restriction.clone());
+}
+
+define_list_builder_accessors! {
+    struct GuardUsageBuilder {
+        pub restrictions: [GuardRestriction],
+    }
 }
 
 impl GuardUsageBuilder {
     /// Create a new empty [`GuardUsageBuilder`].
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Add `restriction` to the list of restrictions on this guard usage.
-    pub fn push_restriction(&mut self, restriction: GuardRestriction) -> &mut Self {
-        self.restrictions
-            .get_or_insert_with(Vec::new)
-            .push(restriction);
-        self
     }
 }
 
@@ -1157,7 +1265,7 @@ impl GuardUsageBuilder {
 /// They're suitable for things like making sure that we don't start
 /// and end a circuit at the same relay, or requiring a specific
 /// subprotocol version for certain kinds of requests.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum GuardRestriction {
     /// Don't pick a guard with the provided Ed25519 identity.
@@ -1289,6 +1397,63 @@ mod test {
             let (guard, _mon, _usable) = guardmgr.select_guard(u, Some(&netdir)).unwrap();
             // Make sure that the filter worked.
             assert_eq!(guard.id().as_ref().rsa.as_bytes()[0] % 4, 0);
+        });
+    }
+
+    #[test]
+    fn external_status() {
+        use tor_linkspec::ChanTarget;
+        test_with_all_runtimes!(|rt| async move {
+            let (guardmgr, _statemgr, netdir) = init(rt);
+            let data_usage = GuardUsage::default();
+            let dir_usage = GuardUsageBuilder::new()
+                .kind(GuardUsageKind::OneHopDirectory)
+                .build()
+                .unwrap();
+            guardmgr.update_network(&netdir);
+            {
+                // Override this parameter, so that we can get deterministic results below.
+                let mut inner = guardmgr.inner.lock().unwrap();
+                inner.params.dir_parallelism = 1;
+            }
+
+            let (guard, mon, _usable) = guardmgr
+                .select_guard(data_usage.clone(), Some(&netdir))
+                .unwrap();
+            mon.succeeded();
+
+            // Record that this guard gave us a bad directory object.
+            guardmgr.note_external_failure(
+                guard.ed_identity(),
+                guard.rsa_identity(),
+                ExternalActivity::DirCache,
+            );
+
+            // We ask for another guard, for data usage.  We should get the same
+            // one as last time, since the director failure doesn't mean this
+            // guard is useless as a primary guard.
+            let (g2, mon, _usable) = guardmgr.select_guard(data_usage, Some(&netdir)).unwrap();
+            assert_eq!(g2.ed_identity(), guard.ed_identity());
+            mon.succeeded();
+
+            // But if we ask for a guard for directory usage, we should get a
+            // different one, since the last guard we gave out failed.
+            let (g3, mon, _usable) = guardmgr
+                .select_guard(dir_usage.clone(), Some(&netdir))
+                .unwrap();
+            assert_ne!(g3.ed_identity(), guard.ed_identity());
+            mon.succeeded();
+
+            // Now record a success for for directory usage.
+            guardmgr.note_external_success(
+                guard.ed_identity(),
+                guard.rsa_identity(),
+                ExternalActivity::DirCache,
+            );
+
+            // Now that the guard is working as a cache, asking for it should get us the same guard.
+            let (g4, _mon, _usable) = guardmgr.select_guard(dir_usage, Some(&netdir)).unwrap();
+            assert_eq!(g4.ed_identity(), guard.ed_identity());
         });
     }
 }

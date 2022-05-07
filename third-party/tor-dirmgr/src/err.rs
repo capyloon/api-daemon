@@ -68,6 +68,9 @@ pub enum Error {
         #[source]
         cause: tor_netdoc::Error,
     },
+    /// An error caused by an expired or not-yet-valid object.
+    #[error("object expired or not yet valid.")]
+    UntimelyObject(#[from] tor_checkable::TimeValidityError),
     /// An error given by dirclient
     #[error("dirclient error: {0}")]
     DirClientError(#[from] tor_dirclient::Error),
@@ -145,7 +148,8 @@ impl Error {
             | Error::BadUtf8FromDirectory(_)
             | Error::ConsensusDiffError(_)
             | Error::SignatureError(_)
-            | Error::IOError(_) => true,
+            | Error::IOError(_)
+            | Error::UntimelyObject(_) => true,
 
             // These errors cannot come from a directory cache.
             Error::NoDownloadSupport
@@ -170,7 +174,7 @@ impl Error {
             // cache is serving us bad unparsable stuff, or it could mean that
             // for some reason we're unable to parse a real legit document.
             //
-            // If the cache is serving us something unparseable, it might be
+            // If the cache is serving us something unparsable, it might be
             // because the cache doesn't know all the same parsing rules for the
             // object that we know.  That case might need special handling to
             // avoid erroneously avoiding a good cache... especially if the document
@@ -221,6 +225,7 @@ impl HasKind for Error {
                 DocSource::LocalCache => EK::CacheCorrupted,
                 DocSource::DirServer { .. } => EK::TorProtocolViolation,
             },
+            E::UntimelyObject(_) => EK::TorProtocolViolation,
             E::DirClientError(e) => e.kind(),
             E::SignatureError(_) => EK::TorProtocolViolation,
             E::IOError(_) => EK::CacheAccessFailed,

@@ -13,9 +13,8 @@
 
 use derive_builder::Builder;
 use derive_more::AsRef;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -46,17 +45,15 @@ pub mod dir {
 /// You can replace this configuration on a running Arti client.  Doing so will
 /// affect new streams and requests, but will have no effect on existing streams
 /// and requests.
-#[derive(Debug, Clone, Builder, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
-#[serde(deny_unknown_fields)]
+#[builder(derive(Debug, Serialize, Deserialize))]
 pub struct ClientAddrConfig {
     /// Should we allow attempts to make Tor connections to local addresses?
     ///
     /// This option is off by default, since (by default) Tor exits will
     /// always reject connections to such addresses.
     #[builder(default)]
-    #[serde(default)]
     pub(crate) allow_local_addrs: bool,
 }
 
@@ -68,29 +65,25 @@ pub struct ClientAddrConfig {
 /// You can replace this configuration on a running Arti client.  Doing so will
 /// affect new streams and requests, but will have no effect on existing streams
 /// and requests—even those that are currently waiting.
-#[derive(Debug, Clone, Builder, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
-#[serde(deny_unknown_fields)]
+#[builder(derive(Debug, Serialize, Deserialize))]
 #[non_exhaustive]
 pub struct StreamTimeoutConfig {
     /// How long should we wait before timing out a stream when connecting
     /// to a host?
     #[builder(default = "default_connect_timeout()")]
-    #[serde(with = "humantime_serde", default = "default_connect_timeout")]
     #[builder_field_attr(serde(with = "humantime_serde::option"))]
     pub(crate) connect_timeout: Duration,
 
     /// How long should we wait before timing out when resolving a DNS record?
     #[builder(default = "default_dns_resolve_timeout()")]
-    #[serde(with = "humantime_serde", default = "default_dns_resolve_timeout")]
     #[builder_field_attr(serde(with = "humantime_serde::option"))]
     pub(crate) resolve_timeout: Duration,
 
     /// How long should we wait before timing out when resolving a DNS
     /// PTR record?
     #[builder(default = "default_dns_resolve_ptr_timeout()")]
-    #[serde(with = "humantime_serde", default = "default_dns_resolve_ptr_timeout")]
     #[builder_field_attr(serde(with = "humantime_serde::option"))]
     pub(crate) resolve_ptr_timeout: Duration,
 }
@@ -156,18 +149,15 @@ fn default_dns_resolve_ptr_timeout() -> Duration {
 /// This section is for read/write storage.
 ///
 /// You cannot change this section on a running Arti client.
-#[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
+#[builder(derive(Debug, Serialize, Deserialize))]
 pub struct StorageConfig {
     /// Location on disk for cached directory information.
     #[builder(setter(into), default = "default_cache_dir()")]
-    #[serde(default = "default_cache_dir")]
     cache_dir: CfgPath,
     /// Location on disk for less-sensitive persistent state information.
     #[builder(setter(into), default = "default_state_dir()")]
-    #[serde(default = "default_state_dir")]
     state_dir: CfgPath,
 }
 
@@ -239,38 +229,78 @@ impl StorageConfig {
 /// to change. For more information see ticket [#285].
 ///
 /// [#285]: https://gitlab.torproject.org/tpo/core/arti/-/issues/285
-#[derive(Clone, Debug, Eq, PartialEq, AsRef)]
+#[derive(Clone, Builder, Debug, Eq, PartialEq, AsRef)]
+#[builder(build_fn(error = "ConfigBuildError"))]
+#[builder(derive(Serialize, Deserialize, Debug))]
 pub struct TorClientConfig {
     /// Information about the Tor network we want to connect to.
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     tor_network: dir::NetworkConfig,
 
     /// Directories for storing information on disk
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     pub(crate) storage: StorageConfig,
 
     /// Information about when and how often to download directory information
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     download_schedule: dir::DownloadScheduleConfig,
 
     /// Facility to override network parameters from the values set in the
     /// consensus.
+    //
+    // TODO: This field seems anomalous and should perhaps be changed somehow.
+    // Maybe NetParams<i32> ought to derive Builder.
+    #[builder(
+        sub_builder,
+        field(
+            type = "HashMap<String, i32>",
+            build = "convert_override_net_params(&self.override_net_params)"
+        )
+    )]
+    #[builder_field_attr(serde(default))]
     override_net_params: tor_netdoc::doc::netstatus::NetParams<i32>,
 
     /// Information about how to build paths through the network.
     #[as_ref]
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     path_rules: circ::PathConfig,
 
     /// Information about preemptive circuits.
     #[as_ref]
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     preemptive_circuits: circ::PreemptiveCircuitConfig,
 
     /// Information about how to retry and expire circuits and request for circuits.
     #[as_ref]
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     circuit_timing: circ::CircuitTiming,
 
     /// Rules about which addresses the client is willing to connect to.
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     pub(crate) address_filter: ClientAddrConfig,
 
     /// Information about timing out client requests.
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
     pub(crate) stream_timeouts: StreamTimeoutConfig,
+}
+
+/// Helper to convert convert_override_net_params
+fn convert_override_net_params(
+    builder: &HashMap<String, i32>,
+) -> tor_netdoc::doc::netstatus::NetParams<i32> {
+    let mut override_net_params = tor_netdoc::doc::netstatus::NetParams::new();
+    for (k, v) in builder {
+        override_net_params.set(k.clone(), *v);
+    }
+    override_net_params
 }
 
 impl tor_circmgr::CircMgrConfig for TorClientConfig {}
@@ -302,8 +332,8 @@ impl TryInto<dir::DirMgrConfig> for &TorClientConfig {
     #[rustfmt::skip]
     fn try_into(self) -> Result<dir::DirMgrConfig, ConfigBuildError> {
         Ok(dir::DirMgrConfig {
-            network_config:      self.tor_network        .clone(),
-            schedule_config:     self.download_schedule  .clone(),
+            network:             self.tor_network        .clone(),
+            schedule:            self.download_schedule  .clone(),
             cache_path:          self.storage.expand_cache_dir()?,
             override_net_params: self.override_net_params.clone(),
             extensions:          Default::default(),
@@ -311,92 +341,7 @@ impl TryInto<dir::DirMgrConfig> for &TorClientConfig {
     }
 }
 
-/// Builder object used to construct a [`TorClientConfig`].
-///
-/// Unlike other builder types in Arti, this builder works by exposing an
-/// inner builder for each section in the [`TorClientConfig`].
-#[derive(Clone, Default, Deserialize)]
-pub struct TorClientConfigBuilder {
-    /// Inner builder for the `tor_network` section.
-    #[serde(default)]
-    tor_network: dir::NetworkConfigBuilder,
-    /// Inner builder for the `storage` section.
-    #[serde(default)]
-    storage: StorageConfigBuilder,
-    /// Inner builder for the `download_schedule` section.
-    #[serde(default)]
-    download_schedule: dir::DownloadScheduleConfigBuilder,
-    /// Inner builder for the `override_net_params` section.
-    #[serde(default)]
-    override_net_params: HashMap<String, i32>,
-    /// Inner builder for the `path_rules` section.
-    #[serde(default)]
-    path_rules: circ::PathConfigBuilder,
-    /// Inner builder for the `circuit_timing` section.
-    #[serde(default)]
-    preemptive_circuits: circ::PreemptiveCircuitConfigBuilder,
-    /// Inner builder for the `circuit_timing` section.
-    #[serde(default)]
-    circuit_timing: circ::CircuitTimingBuilder,
-    /// Inner builder for the `address_filter` section.
-    #[serde(default)]
-    address_filter: ClientAddrConfigBuilder,
-    /// Inner builder for the `stream_timeouts` section.
-    #[serde(default)]
-    stream_timeouts: StreamTimeoutConfigBuilder,
-}
-
 impl TorClientConfigBuilder {
-    /// Construct a [`TorClientConfig`] from this builder.
-    pub fn build(&self) -> Result<TorClientConfig, ConfigBuildError> {
-        let tor_network = self
-            .tor_network
-            .build()
-            .map_err(|e| e.within("tor_network"))?;
-        let storage = self.storage.build().map_err(|e| e.within("storage"))?;
-        let download_schedule = self
-            .download_schedule
-            .build()
-            .map_err(|e| e.within("download_schedule"))?;
-
-        let mut override_net_params = tor_netdoc::doc::netstatus::NetParams::new();
-        for (k, v) in &self.override_net_params {
-            override_net_params.set(k.clone(), *v);
-        }
-        let path_rules = self
-            .path_rules
-            .build()
-            .map_err(|e| e.within("path_rules"))?;
-        let preemptive_circuits = self
-            .preemptive_circuits
-            .build()
-            .map_err(|e| e.within("preemptive_circuits"))?;
-        let circuit_timing = self
-            .circuit_timing
-            .build()
-            .map_err(|e| e.within("circuit_timing"))?;
-        let address_filter = self
-            .address_filter
-            .build()
-            .map_err(|e| e.within("address_filter"))?;
-        let stream_timeouts = self
-            .stream_timeouts
-            .build()
-            .map_err(|e| e.within("stream_timeouts"))?;
-
-        Ok(TorClientConfig {
-            tor_network,
-            storage,
-            download_schedule,
-            override_net_params,
-            path_rules,
-            preemptive_circuits,
-            circuit_timing,
-            address_filter,
-            stream_timeouts,
-        })
-    }
-
     /// Returns a `TorClientConfigBuilder` using the specified state and cache directories.
     ///
     /// All other configuration options are set to their defaults.
@@ -408,94 +353,9 @@ impl TorClientConfigBuilder {
         let mut builder = Self::default();
         builder
             .storage()
-            .cache_dir(CfgPath::from_path(cache_dir))
-            .state_dir(CfgPath::from_path(state_dir));
+            .cache_dir(CfgPath::new_literal(cache_dir.as_ref()))
+            .state_dir(CfgPath::new_literal(state_dir.as_ref()));
         builder
-    }
-
-    /// Return a mutable reference to a
-    /// [`NetworkConfigBuilder`](dir::NetworkConfigBuilder)
-    /// to use in configuring the underlying Tor network.
-    ///
-    /// Most programs shouldn't need to alter this configuration: it's only for
-    /// cases when you need to use a nonstandard set of Tor directory authorities
-    /// and fallback caches.
-    pub fn tor_network(&mut self) -> &mut dir::NetworkConfigBuilder {
-        &mut self.tor_network
-    }
-
-    /// Return a mutable reference to a [`StorageConfigBuilder`].
-    ///
-    /// This section is used to configure the locations where Arti should
-    /// store files on disk.
-    pub fn storage(&mut self) -> &mut StorageConfigBuilder {
-        &mut self.storage
-    }
-
-    /// Return a mutable reference to a
-    /// [`DownloadScheduleConfigBuilder`](dir::DownloadScheduleConfigBuilder).
-    ///
-    /// This section is used to override Arti's schedule when attempting and
-    /// retrying to download directory objects.
-    pub fn download_schedule(&mut self) -> &mut dir::DownloadScheduleConfigBuilder {
-        &mut self.download_schedule
-    }
-
-    /// Return a mutable reference to a [`HashMap`] of network parameters
-    /// that should be used to override those specified in the consensus
-    /// directory.
-    ///
-    /// This section should not usually be used for anything but testing:
-    /// if you find yourself needing to configure an override here for
-    /// production use, please consider opening a feature request for it
-    /// instead.
-    ///
-    /// For a complete list of Tor's defined network parameters (not all of
-    /// which are yet supported by Arti), see
-    /// [`path-spec.txt`](https://gitlab.torproject.org/tpo/core/torspec/-/blob/main/param-spec.txt).
-    pub fn override_net_params(&mut self) -> &mut HashMap<String, i32> {
-        &mut self.override_net_params
-    }
-
-    /// Return a mutable reference to a [`PathConfigBuilder`](circ::PathConfigBuilder).
-    ///
-    /// This section is used to override Arti's rules for selecting which
-    /// relays should be used in a given circuit.
-    pub fn path_rules(&mut self) -> &mut circ::PathConfigBuilder {
-        &mut self.path_rules
-    }
-
-    /// Return a mutable reference to a [`PreemptiveCircuitConfigBuilder`](circ::PreemptiveCircuitConfigBuilder).
-    ///
-    /// This section overrides Arti's rules for preemptive circuits.
-    pub fn preemptive_circuits(&mut self) -> &mut circ::PreemptiveCircuitConfigBuilder {
-        &mut self.preemptive_circuits
-    }
-
-    /// Return a mutable reference to a [`CircuitTimingBuilder`](circ::CircuitTimingBuilder).
-    ///
-    /// This section overrides Arti's rules for deciding how long to use
-    /// circuits, and when to give up on attempts to launch them.
-    pub fn circuit_timing(&mut self) -> &mut circ::CircuitTimingBuilder {
-        &mut self.circuit_timing
-    }
-
-    /// Return a mutable reference to a [`StreamTimeoutConfigBuilder`].
-    ///
-    /// This section overrides Arti's rules for deciding how long a stream
-    /// request (that is, an attempt to connect or resolve) should wait
-    /// for a response before deciding that the stream has timed out.
-    pub fn stream_timeouts(&mut self) -> &mut StreamTimeoutConfigBuilder {
-        &mut self.stream_timeouts
-    }
-
-    /// Return a mutable reference to a [`ClientAddrConfigBuilder`].
-    ///
-    /// This section controls which addresses Arti is willing to launch connections
-    /// to over the Tor network.  Any addresses rejected by this section cause
-    /// stream attempts to fail before any traffic is sent over the network.
-    pub fn address_filter(&mut self) -> &mut ClientAddrConfigBuilder {
-        &mut self.address_filter
     }
 }
 
@@ -514,31 +374,33 @@ mod test {
 
     #[test]
     fn builder() {
-        use tor_dirmgr::DownloadSchedule;
         let sec = std::time::Duration::from_secs(1);
 
         let auth = dir::Authority::builder()
             .name("Fred")
             .v3ident([22; 20].into())
-            .build()
-            .unwrap();
-        let fallback = dir::FallbackDir::builder()
+            .clone();
+        let mut fallback = dir::FallbackDir::builder();
+        fallback
             .rsa_identity([23; 20].into())
             .ed_identity([99; 32].into())
-            .orports(vec!["127.0.0.7:7".parse().unwrap()])
-            .build()
-            .unwrap();
+            .orports()
+            .push("127.0.0.7:7".parse().unwrap());
 
         let mut bld = TorClientConfig::builder();
-        bld.tor_network()
-            .authorities(vec![auth])
-            .fallback_caches(vec![fallback]);
+        bld.tor_network().set_authorities(vec![auth]);
+        bld.tor_network().set_fallback_caches(vec![fallback]);
         bld.storage()
             .cache_dir(CfgPath::new("/var/tmp/foo".to_owned()))
             .state_dir(CfgPath::new("/var/tmp/bar".to_owned()));
+        bld.download_schedule().retry_certs().attempts(10);
+        bld.download_schedule().retry_certs().initial_delay(sec);
+        bld.download_schedule().retry_certs().parallelism(3);
+        bld.download_schedule().retry_microdescs().attempts(30);
         bld.download_schedule()
-            .retry_certs(DownloadSchedule::new(10, sec, 3))
-            .retry_microdescs(DownloadSchedule::new(30, 10 * sec, 9));
+            .retry_microdescs()
+            .initial_delay(10 * sec);
+        bld.download_schedule().retry_microdescs().parallelism(9);
         bld.override_net_params()
             .insert("wombats-per-quokka".to_owned(), 7);
         bld.path_rules()

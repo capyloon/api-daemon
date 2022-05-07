@@ -1,4 +1,4 @@
-//! `tor-error` -- Support for error handling in Tor and Ari
+//! `tor-error` -- Support for error handling in Tor and Arti
 //!
 //! Primarily, this crate provides the [`ErrorKind`] enum,
 //! and associated [`HasKind`] trait.
@@ -42,6 +42,9 @@ pub use internal::*;
 
 mod report;
 pub use report::*;
+
+mod retriable;
+pub use retriable::*;
 
 mod truncated;
 pub use truncated::*;

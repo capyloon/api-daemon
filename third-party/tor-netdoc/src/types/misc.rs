@@ -113,7 +113,6 @@ mod b16impl {
 mod curve25519impl {
     use super::B64;
     use crate::{Error, ParseErrorKind as EK, Pos, Result};
-    use std::convert::TryInto;
     use tor_llcrypto::pk::curve25519::PublicKey;
 
     /// A Curve25519 public key, encoded in base64 with optional padding
@@ -246,7 +245,7 @@ mod rsa {
                     .with_msg("invalid RSA exponent"))
             }
         }
-        /// Give an error if the length of of this key's modulus, in
+        /// Give an error if the length of this key's modulus, in
         /// bits, is not contained in 'bounds'
         pub(crate) fn check_len<B: RangeBounds<usize>>(self, bounds: B) -> Result<Self> {
             if bounds.contains(&self.0.bits()) {
@@ -257,7 +256,7 @@ mod rsa {
                     .with_msg("invalid RSA length"))
             }
         }
-        /// Give an error if the length of of this key's modulus, in
+        /// Give an error if the length of this key's modulus, in
         /// bits, is not exactly `n`.
         pub(crate) fn check_len_eq(self, n: usize) -> Result<Self> {
             self.check_len(n..=n)
@@ -420,7 +419,6 @@ mod test {
 
     #[test]
     fn curve25519() -> Result<()> {
-        use std::convert::TryInto;
         use tor_llcrypto::pk::curve25519::PublicKey;
         let k1 = "ppwthHXW8kXD0f9fE7UPYsOAAu4uj5ORwSomCMxKkz8=";
         let k2 = hex::decode("a69c2d8475d6f245c3d1ff5f13b50f62c38002ee2e8f9391c12a2608cc4a933f")

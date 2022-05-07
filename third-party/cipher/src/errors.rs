@@ -2,32 +2,24 @@
 
 use core::fmt;
 
-/// The error type returned when stream cipher has reached the end of a keystream.
+/// This error is returned by the [`StreamCipher`][crate::stream::StreamCipher]
+/// trait methods.
+///
+/// Usually it's used in cases when stream cipher has reached the end
+/// of a keystream, but also can be used if lengths of provided input
+/// and output buffers are not equal.
 #[derive(Copy, Clone, Debug)]
-pub struct LoopError;
+pub struct StreamCipherError;
 
-impl fmt::Display for LoopError {
+impl fmt::Display for StreamCipherError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str("Loop Error")
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for LoopError {}
-
-/// The error type returned when key and/or nonce used in stream cipher
-/// initialization had an invalid length.
-#[derive(Copy, Clone, Debug)]
-pub struct InvalidLength;
-
-impl fmt::Display for InvalidLength {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("Loop Error")
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for InvalidLength {}
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+impl std::error::Error for StreamCipherError {}
 
 /// The error type returned when a cipher position can not be represented
 /// by the requested type.
@@ -40,11 +32,12 @@ impl fmt::Display for OverflowError {
     }
 }
 
-impl From<OverflowError> for LoopError {
-    fn from(_: OverflowError) -> LoopError {
-        LoopError
+impl From<OverflowError> for StreamCipherError {
+    fn from(_: OverflowError) -> StreamCipherError {
+        StreamCipherError
     }
 }
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl std::error::Error for OverflowError {}

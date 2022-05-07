@@ -15,7 +15,6 @@ use tor_netdoc::doc::netstatus::{ConsensusFlavor, Lifetime};
 use tor_netdoc::doc::routerdesc::RdDigest;
 
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::path::{self, Path, PathBuf};
 use std::time::SystemTime;
 
@@ -566,7 +565,7 @@ impl Store for SqliteStore {
 struct SavedBlobHandle<'a> {
     /// Transaction we're using to add the blob to the ExtDocs table.
     tx: Transaction<'a>,
-    /// Filename for the file, with respect to the the blob directory.
+    /// Filename for the file, with respect to the blob directory.
     #[allow(unused)]
     fname: String,
     /// Declared digest string for this blob. Of the format

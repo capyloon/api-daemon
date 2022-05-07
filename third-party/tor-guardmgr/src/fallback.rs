@@ -11,20 +11,20 @@
 //! `tor-dirmgr`: any changes here must be reflected there.
 
 mod set;
-mod status;
 
 use crate::ids::FallbackId;
 use derive_builder::Builder;
 use tor_config::ConfigBuildError;
+use tor_config::{define_list_builder_accessors, list_builder::VecBuilder};
 use tor_llcrypto::pk::ed25519::Ed25519Identity;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
-pub use set::FallbackList;
+use crate::dirstatus::DirStatus;
 pub(crate) use set::FallbackState;
-use status::Status;
+pub use set::{FallbackList, FallbackListBuilder};
 
 /// A directory whose location ships with Tor (or arti), and which we
 /// can use for bootstrapping when we don't know anything else about
@@ -33,16 +33,23 @@ use status::Status;
 // Note that we do *not* set serde(deny_unknown_fields) on this
 // structure: we want our fallback directory configuration format to
 // be future-proof against adding new info about each fallback.
-#[derive(Debug, Clone, Deserialize, Builder, Eq, PartialEq)]
-#[builder(build_fn(validate = "FallbackDirBuilder::validate", error = "ConfigBuildError"))]
-#[builder(derive(Deserialize))]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
+#[builder(build_fn(private, name = "build_unvalidated", error = "ConfigBuildError"))]
+#[builder(derive(Debug, Serialize, Deserialize))]
 pub struct FallbackDir {
     /// RSA identity for the directory relay
     rsa_identity: RsaIdentity,
     /// Ed25519 identity for the directory relay
     ed_identity: Ed25519Identity,
     /// List of ORPorts for the directory relay
+    #[builder(sub_builder(fn_name = "build"), setter(custom))]
     orports: Vec<SocketAddr>,
+}
+
+define_list_builder_accessors! {
+    struct FallbackDirBuilder {
+        pub orports: [SocketAddr],
+    }
 }
 
 impl FallbackDir {
@@ -68,25 +75,46 @@ impl FallbackDirBuilder {
     pub fn new() -> Self {
         Self::default()
     }
-    /// Add a single OR port for this fallback directory.
+    /// Builds a new `FallbackDir`.
     ///
-    /// This field is required, and may be called more than once.
-    pub fn orport(&mut self, orport: SocketAddr) -> &mut Self {
-        self.orports.get_or_insert_with(Vec::new).push(orport);
-        self
-    }
-    /// Check whether this builder is ready to make a FallbackDir.
-    fn validate(&self) -> std::result::Result<(), ConfigBuildError> {
-        if let Some(orports) = &self.orports {
-            if orports.is_empty() {
-                return Err(ConfigBuildError::Invalid {
-                    field: "orport".to_string(),
-                    problem: "list was empty".to_string(),
-                });
-            }
+    /// ### Errors
+    ///
+    /// Errors unless both of `rsa_identity`, `ed_identity`, and at least one `orport`,
+    /// have been provided.
+    pub fn build(&self) -> std::result::Result<FallbackDir, ConfigBuildError> {
+        let built = self.build_unvalidated()?;
+        if built.orports.is_empty() {
+            return Err(ConfigBuildError::Invalid {
+                field: "orport".to_string(),
+                problem: "list was empty".to_string(),
+            });
         }
-        Ok(())
+        Ok(built)
     }
+}
+
+/// Return a list of the default fallback directories shipped with
+/// arti.
+pub(crate) fn default_fallbacks() -> Vec<FallbackDirBuilder> {
+    /// Build a fallback directory; panic if input is bad.
+    fn fallback(rsa: &str, ed: &str, ports: &[&str]) -> FallbackDirBuilder {
+        let rsa = RsaIdentity::from_hex(rsa).expect("Bad hex in built-in fallback list");
+        let ed = base64::decode_config(ed, base64::STANDARD_NO_PAD)
+            .expect("Bad hex in built-in fallback list");
+        let ed = Ed25519Identity::from_bytes(&ed).expect("Wrong length in built-in fallback list");
+        let mut bld = FallbackDir::builder();
+        bld.rsa_identity(rsa).ed_identity(ed);
+
+        ports
+            .iter()
+            .map(|s| s.parse().expect("Bad socket address in fallbacklist"))
+            .for_each(|p| {
+                bld.orports().push(p);
+            });
+
+        bld
+    }
+    include!("fallback_dirs.inc")
 }
 
 impl tor_linkspec::ChanTarget for FallbackDir {
