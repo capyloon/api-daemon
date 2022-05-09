@@ -78,8 +78,15 @@ impl AndroidPowerManager {
         }
     }
 
+    fn is_alive(&self) -> bool {
+        if let Some(light) = &self.light_service {
+            return light.is_alive();
+        }
+        false
+    }
+
     fn ensure_service(&mut self) -> bool {
-        if self.light_service.is_some() {
+        if self.is_alive() {
             return true;
         }
 

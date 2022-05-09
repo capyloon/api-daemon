@@ -89,6 +89,7 @@ fn main() {
                 .include(_libc_kernel_scsi_inc)
                 .include(_libc_kernel_android_uapi)
                 .flag(&_sysroot)
+                .flag("-fno-rtti")
                 .compile("utils-c");
         }
     }

@@ -115,6 +115,7 @@ mod cutils {
             service_name_sz: usize,
         ) -> *mut CIBinder;
         pub fn ibinder_delete(ibinder: *mut CIBinder);
+        pub fn ibinder_isalive(ibinder: *mut CIBinder) -> bool;
         pub fn ibinder_transact(
             ibinder: *mut CIBinder,
             code: u32,
@@ -286,6 +287,7 @@ mod cutils {
         std::ptr::null_mut()
     }
     pub unsafe fn ibinder_delete(_ibinder: *mut CIBinder) {}
+    pub fn ibinder_isalive(ibinder: *mut CIBinder) -> bool { true }
     pub unsafe fn ibinder_transact(
         _ibinder: *mut CIBinder,
         _code: u32,
@@ -873,6 +875,13 @@ pub mod hidl {
             } else {
                 Err(HidlError)
             }
+        }
+
+        pub fn isalive(&self) -> bool {
+            let r = unsafe {
+                crate::cutils::ibinder_isalive(self.ibinder)
+            };
+            r
         }
     }
     impl Drop for IBinder {
