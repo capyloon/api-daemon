@@ -724,10 +724,10 @@ impl Ast {
         Ok(ast)
     }
 
-    pub fn parse_from_ctxt(&mut self, mut ctxt: &mut ParserContext) -> Result<()> {
+    pub fn parse_from_ctxt(&mut self, ctxt: &mut ParserContext) -> Result<()> {
         // Consume tokens, and build the ast as we go.
         loop {
-            let annotation = Annotation::parse(&mut ctxt)?;
+            let annotation = Annotation::parse(ctxt)?;
 
             // Get the identifier of the top level construct:
             // import, interface or fn.
@@ -745,23 +745,23 @@ impl Ast {
                 Ok(token) => {
                     let id = token.as_str();
                     if id == "import" {
-                        Import::parse(&mut ctxt, self, annotation)?;
+                        Import::parse(ctxt, self, annotation)?;
                     } else if id == "enum" {
-                        let enumeration = Enumeration::parse(&mut ctxt, self, annotation)?;
+                        let enumeration = Enumeration::parse(ctxt, self, annotation)?;
                         self.enumerations
                             .insert(enumeration.name.clone(), enumeration);
                     } else if id == "dictionary" {
-                        let dictionary = Dictionary::parse(&mut ctxt, self, annotation)?;
+                        let dictionary = Dictionary::parse(ctxt, self, annotation)?;
                         self.dictionaries
                             .insert(dictionary.name.clone(), dictionary);
                     } else if id == "service" {
-                        let service = Service::parse(&mut ctxt, self, annotation)?;
+                        let service = Service::parse(ctxt, self, annotation)?;
                         self.services.push(service);
                     } else if id == "interface" {
-                        let interface = Interface::parse(&mut ctxt, self, annotation)?;
+                        let interface = Interface::parse(ctxt, self, annotation)?;
                         self.interfaces.insert(interface.name.clone(), interface);
                     } else if id == "callback" {
-                        let callback = Callback::parse(&mut ctxt, self, annotation)?;
+                        let callback = Callback::parse(ctxt, self, annotation)?;
                         self.callbacks.insert(callback.name.clone(), callback);
                     } else {
                         return Err(AstError::UnexpectedTopLevel(id));

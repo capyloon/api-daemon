@@ -364,17 +364,9 @@ impl OriginAttributes {
 }
 
 // A context that is shared by all the sessions.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SessionContext {
     high_priority_services_count: i32, // Count the number of services that qualify to toggle high priority mode.
-}
-
-impl Default for SessionContext {
-    fn default() -> Self {
-        Self {
-            high_priority_services_count: 0,
-        }
-    }
 }
 
 impl SessionContext {
