@@ -19,6 +19,8 @@ pushd ${CI_PROJECT_DIR}/tests > /dev/null
 
 echo "Downloading b2g.linux-x86_64.tar.bz2 to `pwd`"
 
-curl --header "PRIVATE-TOKEN: $CI_ACCESS_TOKEN" https://git.kaiostech.com/api/v4/projects/11099/repository/files/b2g.linux-x86_64.tar.bz2/raw?ref=next -o b2g.linux-x86_64.tar.bz2
-tar xf b2g.linux-x86_64.tar.bz2
-popd > /dev/null
+url="${url_prefix}/releng/ci-util/b2g-desktop.git"
+git clone ${url} -b next --depth=1 ./b2g-desktop
+echo
+git -C ./b2g-desktop log -1
+tar -xf ./b2g-desktop/b2g.linux-x86_64.tar.bz2 -C ${GIT_CLONE_PATH}/tests

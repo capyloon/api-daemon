@@ -27,7 +27,7 @@ impl Frame {
         let size = source.read_u32::<NativeEndian>()? as usize;
         debug!("read_from size={}", size);
 
-        let mut data = Vec::with_capacity(size);
+        let mut data: Vec<u8> = vec![0; size];
         unsafe {
             data.set_len(size);
         }

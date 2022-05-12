@@ -28,6 +28,7 @@
       "src": "icons/icon128x128.png",
       "type": null
     }],
+    "scope": "/pwa/",
     "b2g_features": {
       "role": "",
       "developer": {

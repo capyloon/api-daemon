@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.0-experimental
 
-ARG RUSTUP_TOOLCHAIN="1.56.1"
+ARG RUSTUP_TOOLCHAIN="1.59.0"
 # separate into multiple stages in order for parallelism when DOCKER_BUILDKIT=1
 # intermediate image 0: download prebuilt .mozbuild
 FROM alpine:3.12.3 as mozbuild_downloader
@@ -40,14 +40,14 @@ FROM alpine:3.12.3 as osxcc_downloader
 ADD https://packages.preprod.kaiostech.com/tools/osxcross.tgz /osxcross.tgz
 
 # final image
-FROM ubuntu:18.04 as final
+FROM ubuntu:20.04 as final
 
 ARG LAST_EDIT_COMMIT
 # reuse previous value of RUSTUP_TOOLCHAIN
 ARG RUSTUP_TOOLCHAIN
 ARG PREFERRED_MOZBUILD_VER
 # update MINOR_VER when minor changes are made
-ARG MINOR_VER=1
+ARG MINOR_VER=0
 
 LABEL maintainer="viga.li@kaiostech.com" \
 # Update that value for automation to pick up the new tag.
@@ -64,17 +64,10 @@ RUN apt-get update && \
     pkg-config zip unzip libssl-dev openssh-server \
     autoconf automake autotools-dev libtool xutils-dev \
     libfreetype6 libfontconfig1 libxrender1 libasound-dev \
-    libgtk-3-0 libdbus-glib-1-dev libgtk2.0-0 libxt6 python-pip \
+    libgtk-3-0 libdbus-glib-1-dev libgtk2.0-0 libxt6 python \
     gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 wine64 \
-    apt-transport-https libselinux1-dev
-
-## define the versions across essentials for test
-ENV NODE_VERSION="9.11.2" \
-    RUSTUP_TOOLCHAIN="stable" \
-    FX_VERSION="84.0.2" \
-    GECKODRIVER_VERSION="0.29.0" \
-    BINDGEN_VERSION="0.56.0" \
-    PATH="/root/.cargo/bin:$PATH"
+    apt-transport-https libselinux1-dev iproute2 jq libxtst6 \
+    libncurses5
 
 # separate RUN into multiple layers to utilize local cache in development
 # node

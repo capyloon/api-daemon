@@ -99,7 +99,7 @@ fn response_from_zip<'a>(
     let _ = zip.read_to_end(&mut buf);
 
     let mut ok = HttpResponse::Ok();
-    let mut builder = ok
+    let builder = ok
         .insert_header(("Content-Security-Policy", csp))
         .insert_header(("ETag", etag))
         .content_type(mime.as_ref());
@@ -110,7 +110,7 @@ fn response_from_zip<'a>(
     if zip.compression() == CompressionMethod::Deflated {
         builder.insert_header(("Content-Encoding", "deflate"));
     } else {
-        update_response_encoding(&mime, &mut builder);
+        update_response_encoding(&mime, builder);
     }
     builder.body(buf)
 }

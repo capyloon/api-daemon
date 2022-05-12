@@ -242,8 +242,7 @@ impl AppMgmtTask for CheckForUpdateTask {
             false
         };
         let some_app = request.shared_data.lock().registry.get_by_update_url(url);
-        let app;
-        if let Some(app_) = some_app {
+        let app = if let Some(app_) = some_app {
             if app_.get_status() == AppsStatus::Disabled {
                 error!("App {} is Disabled", url);
                 if let Some(responder) = some_responder {
@@ -251,14 +250,14 @@ impl AppMgmtTask for CheckForUpdateTask {
                 }
                 return;
             }
-            app = app_;
+            app_
         } else {
             error!("App {} is not found", url);
             if let Some(responder) = some_responder {
                 responder.reject(AppsServiceError::AppNotFound);
             }
             return;
-        }
+        };
 
         match request.check_for_update(&data_path, app, is_auto_update) {
             Ok(ret) => {

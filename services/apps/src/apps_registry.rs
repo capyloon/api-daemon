@@ -659,7 +659,7 @@ impl AppsRegistry {
     pub fn validate_pwa_scope(&self, manifest: &Manifest) -> Result<(), AppsServiceError> {
         let app_scope = manifest.get_scope();
         // For the install case, check if the scope is occupied.
-        debug!("check if the scope is available: {}", &app_scope);
+        debug!("check if the scope is available: {:?}", &app_scope);
         if let Some(db) = &self.db {
             if let Ok(apps) = db.get_all() {
                 for item in &apps {
@@ -672,7 +672,7 @@ impl AppsRegistry {
                         .ok_or(AppsServiceError::FilesystemFailure)?;
                     // Do not allow installing an occupied scope to a new app.
                     if item_manifest.get_scope() == app_scope {
-                        error!("The scope {} is occupied.", &app_scope);
+                        error!("The scope {:?} is occupied.", &app_scope);
                         return Err(AppsServiceError::InvalidScope);
                     }
                 }

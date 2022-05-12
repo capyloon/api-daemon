@@ -37,6 +37,10 @@ impl ILight {
         })
     }
 
+    pub fn is_alive(&self) -> bool {
+        self.ibinder.isalive()
+    }
+
     // All methods defined in .hal
     pub fn set_light(&self, a_type: i32, a_state: &LightState) -> Result<i32, HidlError> {
         // Create a request

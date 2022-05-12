@@ -169,8 +169,8 @@ pub struct Manifest {
     display: String,
     #[serde(default = "String::new")]
     short_name: String,
-    #[serde(default = "String::new")]
-    scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<String>,
     #[serde(default = "String::new")]
     dir: String,
     #[serde(default = "String::new")]
@@ -365,7 +365,7 @@ impl Manifest {
     }
 
     pub fn set_scope(&mut self, scope: &str) {
-        self.scope = scope.to_string();
+        self.scope = Some(scope.to_string());
     }
 
     pub fn set_shortcuts(&mut self, shortcuts: Option<Vec<Shortcut>>) {
@@ -400,7 +400,7 @@ impl Manifest {
         self.start_url.clone()
     }
 
-    pub fn get_scope(&self) -> String {
+    pub fn get_scope(&self) -> Option<String> {
         self.scope.clone()
     }
 
@@ -419,25 +419,30 @@ impl Manifest {
     //     The result of the processing
     pub fn process_scope(&mut self, base_url: &Url) -> Result<(), AppsServiceError> {
         debug!("process_scope with base_url {}", base_url);
-        // Set the scope to the parsed start_url.
         let start_url = base_url
             .join(&self.get_start_url())
             .map_err(|_| AppsServiceError::InvalidScope)?;
-        let mut scope = start_url
-            .join(".")
-            .map_err(|_| AppsServiceError::InvalidScope)?;
-        // The app scope and start url need to be the same scope.
-        if !scope.same_scope(base_url) {
-            return Err(AppsServiceError::InvalidScope);
-        }
-        // If the manifest json["scope"] is not empty.,
-        // set the scope with manifest url as base.
-        let manifest_scope = self.get_scope();
-        if !manifest_scope.is_empty() {
-            scope = base_url
-                .join(&manifest_scope)
-                .map_err(|_| AppsServiceError::InvalidScope)?;
-        }
+
+        let scope = match self.get_scope() {
+            Some(manifest_scope) => {
+                if manifest_scope.is_empty() {
+                    return Err(AppsServiceError::InvalidScope);
+                }
+                // If the manifest json["scope"] is not empty.,
+                // set the scope with manifest URL as base.
+                base_url
+                    .join(&manifest_scope)
+                    .map_err(|_| AppsServiceError::InvalidScope)?
+            }
+            None => {
+                // If scope is missing in manifest use default scope.
+                // the restult of parsing '.' with start_url as base URL.
+                start_url
+                    .join(".")
+                    .map_err(|_| AppsServiceError::InvalidScope)?
+            }
+        };
+
         // The app scope and start url need to be the same scope.
         if !scope.same_scope(&start_url) {
             return Err(AppsServiceError::InvalidScope);
@@ -652,4 +657,45 @@ fn test_manifest_shortcuts() {
         }
         None => panic!(),
     }
+}
+
+#[test]
+fn test_manifest_scopes() {
+    use std::env;
+
+    let manifest_url = Url::parse("https://domain.com/manifest.webmanifest").unwrap();
+    let current = env::current_dir().unwrap();
+    let manifest_path = format!(
+        "{}/test-fixtures/test-scope/hasscope.webmanifest",
+        current.display()
+    );
+    let mut manifest = Manifest::read_from(&manifest_path).unwrap();
+    assert_eq!(manifest.process_scope(&manifest_url), Ok(()));
+    assert_eq!(manifest.get_scope(), Some("https://domain.com/foo/".into()));
+
+    let manifest_path = format!(
+        "{}/test-fixtures/test-scope/noscope.webmanifest",
+        current.display()
+    );
+    let mut manifest = Manifest::read_from(&manifest_path).unwrap();
+    assert_eq!(manifest.process_scope(&manifest_url), Ok(()));
+    assert_eq!(manifest.get_scope(), Some("https://domain.com/foo/".into()));
+
+    let manifest_path = format!(
+        "{}/test-fixtures/test-scope/noscope-2.webmanifest",
+        current.display()
+    );
+    let mut manifest = Manifest::read_from(&manifest_path).unwrap();
+    assert_eq!(manifest.process_scope(&manifest_url), Ok(()));
+    assert_eq!(manifest.get_scope(), Some("https://domain.com/bar/".into()));
+
+    let manifest_path = format!(
+        "{}/test-fixtures/test-scope/invalid.webmanifest",
+        current.display()
+    );
+    let mut manifest = Manifest::read_from(&manifest_path).unwrap();
+    assert_eq!(
+        manifest.process_scope(&manifest_url),
+        Err(AppsServiceError::InvalidScope)
+    );
 }

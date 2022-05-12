@@ -22,6 +22,8 @@ using Transport = ::android::hidl::manager::V1_0::IServiceManager::Transport;
 struct IBinderWrapper {
     int dummy;
     sp<::android::hardware::IBinder> ibinder;
+    sp<::android::hardware::hidl_death_recipient> iDeath;
+    sp<::android::hidl::base::V1_0::IBase> iBase;
 };
 
 #define __DECL_C_START extern "C" {
@@ -67,6 +69,7 @@ ibinder_query_ibinder(const char*aIface, size_t aIface_size,
     }
 
     sp<::android::hardware::IBinder> binder;
+    sp<::android::hidl::base::V1_0::IBase> base;
     if (isHwbinder) {
         Return<sp<::android::hidl::base::V1_0::IBase>> ret =
             sm->get(iface, service_name);
@@ -75,7 +78,7 @@ ibinder_query_ibinder(const char*aIface, size_t aIface_size,
                     ret.description().c_str());
             return nullptr;
         }
-        sp<::android::hidl::base::V1_0::IBase> base = ret;
+        base = ret;
         if (base == nullptr) {
             fprintf(stderr, "%s@%s is not found\n", iface, service_name);
             return nullptr;
@@ -102,7 +105,7 @@ ibinder_query_ibinder(const char*aIface, size_t aIface_size,
                     ret.description().c_str());
             return nullptr;
         }
-        sp<::android::hidl::base::V1_0::IBase> base = ret;
+        base = ret;
         if (base == nullptr) {
             fprintf(stderr, "%s@%s is not found\n", iface, service_name);
             return nullptr;
@@ -125,7 +128,30 @@ ibinder_query_ibinder(const char*aIface, size_t aIface_size,
     }
 
     auto wrapper = new IBinderWrapper;
+
+    class DeathRecipient : public ::android::hardware::hidl_death_recipient {
+     public:
+      DeathRecipient(IBinderWrapper* aWrapper) : mWrapper(aWrapper) {
+      }
+
+      ~DeathRecipient() {
+      }
+
+      void serviceDied(uint64_t cookie, const android::wp<::android::hidl::base::V1_0::IBase>& who) override {
+        if (mWrapper != nullptr) {
+            mWrapper->iBase = nullptr;
+        }
+      }
+     private:
+      IBinderWrapper* mWrapper;
+    };
+
+    android::sp<::android::hardware::hidl_death_recipient> deathRecipient = new DeathRecipient(wrapper);
+    base->linkToDeath(deathRecipient, 0);
+
     wrapper->ibinder = binder;
+    wrapper->iDeath = deathRecipient;
+    wrapper->iBase = base;
     return wrapper;
 }
 
@@ -141,6 +167,11 @@ ibinder_transact(IBinderWrapper* aWrapper, uint32_t aCode,
     auto status = aWrapper->ibinder->transact(aCode, aData->mParcel,
                                               &aReply->mParcel, aFlags);
     return status != ::android::OK;
+}
+
+bool
+ibinder_isalive(IBinderWrapper* aWrapper) {
+    return aWrapper != nullptr && aWrapper->iBase != nullptr;
 }
 
 __DECL_C_END
