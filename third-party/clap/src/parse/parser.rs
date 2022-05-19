@@ -22,7 +22,7 @@ use crate::util::Id;
 use crate::{INTERNAL_ERROR_MSG, INVALID_UTF8};
 
 pub(crate) struct Parser<'help, 'cmd> {
-    pub(crate) cmd: &'cmd mut Command<'help>,
+    cmd: &'cmd mut Command<'help>,
     seen: Vec<Id>,
     cur_idx: Cell<usize>,
     /// Index of the previous flag subcommand in a group of flags.
@@ -190,7 +190,17 @@ impl<'help, 'cmd> Parser<'help, 'cmd> {
                     }
                 }
 
-                if let Some((long_arg, long_value)) = arg_os.to_long() {
+                if arg_os.is_escape() {
+                    if matches!(&parse_state, ParseState::Opt(opt) | ParseState::Pos(opt) if
+                        self.cmd[opt].is_allow_hyphen_values_set())
+                    {
+                        // ParseResult::MaybeHyphenValue, do nothing
+                    } else {
+                        debug!("Parser::get_matches_with: setting TrailingVals=true");
+                        trailing_values = true;
+                        continue;
+                    }
+                } else if let Some((long_arg, long_value)) = arg_os.to_long() {
                     let parse_result = self.parse_long_arg(
                         matcher,
                         long_arg,
@@ -205,9 +215,7 @@ impl<'help, 'cmd> Parser<'help, 'cmd> {
                     );
                     match parse_result {
                         ParseResult::NoArg => {
-                            debug!("Parser::get_matches_with: setting TrailingVals=true");
-                            trailing_values = true;
-                            continue;
+                            unreachable!("`to_long` always has the flag specified")
                         }
                         ParseResult::ValuesDone => {
                             parse_state = ParseState::ValuesDone;
@@ -420,26 +428,34 @@ impl<'help, 'cmd> Parser<'help, 'cmd> {
 
                 // Collect the external subcommand args
                 let mut sc_m = ArgMatcher::new(self.cmd);
+                let allow_invalid_utf8 = self
+                    .cmd
+                    .is_allow_invalid_utf8_for_external_subcommands_set();
+                #[cfg(feature = "unstable-v4")]
+                {
+                    sc_m.inc_occurrence_of_external(allow_invalid_utf8);
+                }
 
                 for v in raw_args.remaining(&mut args_cursor) {
-                    let allow_invalid_utf8 = self
-                        .cmd
-                        .is_allow_invalid_utf8_for_external_subcommands_set();
                     if !allow_invalid_utf8 && v.to_str().is_none() {
                         return Err(ClapError::invalid_utf8(
                             self.cmd,
                             Usage::new(self.cmd).create_usage_with_title(&[]),
                         ));
                     }
+                    let external_id = &Id::empty_hash();
                     sc_m.add_val_to(
-                        &Id::empty_hash(),
+                        external_id,
                         v.to_os_string(),
                         ValueSource::CommandLine,
                         false,
                     );
-                    sc_m.get_mut(&Id::empty_hash())
-                        .expect("just inserted")
-                        .invalid_utf8_allowed(allow_invalid_utf8);
+                    #[cfg(not(feature = "unstable-v4"))]
+                    {
+                        sc_m.get_mut(external_id)
+                            .expect("just inserted")
+                            .invalid_utf8_allowed(allow_invalid_utf8);
+                    }
                 }
 
                 matcher.subcommand(SubCommand {
@@ -521,10 +537,7 @@ impl<'help, 'cmd> Parser<'help, 'cmd> {
             return ClapError::unrecognized_subcommand(
                 self.cmd,
                 arg_os.display().to_string(),
-                self.cmd
-                    .get_bin_name()
-                    .unwrap_or_else(|| self.cmd.get_name())
-                    .to_owned(),
+                Usage::new(self.cmd).create_usage_with_title(&[]),
             );
         }
         ClapError::unknown_argument(
@@ -605,42 +618,27 @@ impl<'help, 'cmd> Parser<'help, 'cmd> {
     ) -> ClapResult<ParseResult> {
         debug!("Parser::parse_help_subcommand");
 
-        let mut bin_name = self
-            .cmd
-            .get_bin_name()
-            .unwrap_or_else(|| self.cmd.get_name())
-            .to_owned();
-
-        let mut sc = {
-            let mut sc = self.cmd.clone();
+        let mut cmd = self.cmd.clone();
+        let sc = {
+            let mut sc = &mut cmd;
 
             for cmd in cmds {
-                sc = if let Some(c) = sc.find_subcommand(cmd) {
-                    c
-                } else if let Some(c) = sc.find_subcommand(&cmd.to_string_lossy()) {
-                    c
+                sc = if let Some(sc_name) =
+                    sc.find_subcommand(cmd).map(|sc| sc.get_name().to_owned())
+                {
+                    sc._build_subcommand(&sc_name).unwrap()
                 } else {
                     return Err(ClapError::unrecognized_subcommand(
-                        self.cmd,
+                        sc,
                         cmd.to_string_lossy().into_owned(),
-                        self.cmd
-                            .get_bin_name()
-                            .unwrap_or_else(|| self.cmd.get_name())
-                            .to_owned(),
+                        Usage::new(sc).create_usage_with_title(&[]),
                     ));
-                }
-                .clone();
-
-                sc._build_self();
-                bin_name.push(' ');
-                bin_name.push_str(sc.get_name());
+                };
             }
 
             sc
         };
-        sc = sc.bin_name(bin_name);
-
-        let parser = Parser::new(&mut sc);
+        let parser = Parser::new(sc);
 
         Err(parser.help_err(true, Stream::Stdout))
     }
@@ -660,14 +658,6 @@ impl<'help, 'cmd> Parser<'help, 'cmd> {
         {
             // If allow hyphen, this isn't a new arg.
             debug!("Parser::is_new_arg: Allow hyphen");
-            false
-        } else if next.is_escape() {
-            // Ensure we don't assuming escapes are long args
-            debug!("Parser::is_new_arg: -- found");
-            false
-        } else if next.is_stdio() {
-            // Ensure we don't assume stdio is a short arg
-            debug!("Parser::is_new_arg: - found");
             false
         } else if next.is_long() {
             // If this is a long flag, this is a new arg.
@@ -1486,11 +1476,7 @@ impl<'help, 'cmd> Parser<'help, 'cmd> {
         let required = self.cmd.required_graph();
         let used: Vec<Id> = matcher
             .arg_names()
-            .filter(|n| {
-                self.cmd
-                    .find(n)
-                    .map_or(true, |a| !(required.contains(&a.id) || a.is_hide_set()))
-            })
+            .filter(|n| self.cmd.find(n).map_or(true, |a| !a.is_hide_set()))
             .cloned()
             .collect();
 

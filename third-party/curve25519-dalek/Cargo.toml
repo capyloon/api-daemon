@@ -3,15 +3,16 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies.
+# to registry (e.g., crates.io) dependencies
 #
-# If you are reading this file be aware that the original Cargo.toml
-# will likely look very different (and much more reasonable).
-# See Cargo.toml.orig for the original contents.
+# If you believe there's an error in this file please file an
+# issue against the rust-lang/cargo repository. If you're
+# editing this file be aware that the upstream Cargo.toml
+# will likely look very different (and much more reasonable)
 
 [package]
 name = "curve25519-dalek"
-version = "3.2.1"
+version = "3.2.0"
 authors = ["Isis Lovecruft <isis@patternsinthevoid.net>", "Henry de Valence <hdevalence@hdevalence.ca>"]
 exclude = ["**/.gitignore", ".gitignore", ".travis.yml"]
 description = "A pure-Rust implementation of group operations on ristretto255 and Curve25519"
@@ -62,14 +63,13 @@ version = "^2.2.1"
 default-features = false
 
 [dependencies.zeroize]
-version = ">=1, <1.4"
+version = "1"
 default-features = false
 [dev-dependencies.bincode]
 version = "1"
 
 [dev-dependencies.criterion]
 version = "0.3.0"
-features = ["html_reports"]
 
 [dev-dependencies.hex]
 version = "0.4.2"

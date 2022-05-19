@@ -12,22 +12,36 @@
 [package]
 edition = "2018"
 name = "zstd"
-version = "0.10.0+zstd.1.5.2"
+version = "0.10.2+zstd.1.5.2"
 authors = ["Alexandre Bury <alexandre.bury@gmail.com>"]
 exclude = ["assets/*.zst"]
 description = "Binding for the zstd compression library."
 documentation = "https://docs.rs/zstd"
 readme = "Readme.md"
-keywords = ["zstd", "zstandard", "compression"]
-categories = ["compression", "api-bindings"]
+keywords = [
+    "zstd",
+    "zstandard",
+    "compression",
+]
+categories = [
+    "compression",
+    "api-bindings",
+]
 license = "MIT"
 repository = "https://github.com/gyscos/zstd-rs"
+
 [package.metadata.docs.rs]
-features = ["experimental", "zstdmt", "doc-cfg"]
+features = [
+    "experimental",
+    "zstdmt",
+    "doc-cfg",
+]
+
 [dependencies.zstd-safe]
-version = "=4.1.4"
+version = "4.1.6"
 features = ["std"]
 default-features = false
+
 [dev-dependencies.clap]
 version = "3.0"
 
@@ -44,7 +58,10 @@ version = "2.2"
 arrays = ["zstd-safe/arrays"]
 bindgen = ["zstd-safe/bindgen"]
 debug = ["zstd-safe/debug"]
-default = ["legacy", "arrays"]
+default = [
+    "legacy",
+    "arrays",
+]
 doc-cfg = []
 experimental = ["zstd-safe/experimental"]
 legacy = ["zstd-safe/legacy"]
@@ -53,5 +70,6 @@ pkg-config = ["zstd-safe/pkg-config"]
 thin = ["zstd-safe/thin"]
 wasm = []
 zstdmt = ["zstd-safe/zstdmt"]
+
 [badges.travis-ci]
 repository = "gyscos/zstd-rs"

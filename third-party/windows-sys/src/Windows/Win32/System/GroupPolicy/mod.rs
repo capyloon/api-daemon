@@ -1,4 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[link(name = "windows")]
 extern "system" {
     #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`, `\"Win32_Foundation\"`*"]
@@ -72,7 +71,7 @@ extern "system" {
     pub fn RegisterGPNotification(hevent: super::super::Foundation::HANDLE, bmachine: super::super::Foundation::BOOL) -> super::super::Foundation::BOOL;
     #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`, `\"Win32_Foundation\"`, `\"Win32_Security\"`*"]
     #[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
-    pub fn RsopAccessCheckByType(psecuritydescriptor: *const super::super::Security::SECURITY_DESCRIPTOR, pprincipalselfsid: super::super::Foundation::PSID, prsoptoken: *const ::core::ffi::c_void, dwdesiredaccessmask: u32, pobjecttypelist: *const super::super::Security::OBJECT_TYPE_LIST, objecttypelistlength: u32, pgenericmapping: *const super::super::Security::GENERIC_MAPPING, pprivilegeset: *const super::super::Security::PRIVILEGE_SET, pdwprivilegesetlength: *const u32, pdwgrantedaccessmask: *mut u32, pbaccessstatus: *mut i32) -> ::windows_sys::core::HRESULT;
+    pub fn RsopAccessCheckByType(psecuritydescriptor: super::super::Security::PSECURITY_DESCRIPTOR, pprincipalselfsid: super::super::Foundation::PSID, prsoptoken: *const ::core::ffi::c_void, dwdesiredaccessmask: u32, pobjecttypelist: *const super::super::Security::OBJECT_TYPE_LIST, objecttypelistlength: u32, pgenericmapping: *const super::super::Security::GENERIC_MAPPING, pprivilegeset: *const super::super::Security::PRIVILEGE_SET, pdwprivilegesetlength: *const u32, pdwgrantedaccessmask: *mut u32, pbaccessstatus: *mut i32) -> ::windows_sys::core::HRESULT;
     #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
     pub fn RsopFileAccessCheck(pszfilename: ::windows_sys::core::PCWSTR, prsoptoken: *const ::core::ffi::c_void, dwdesiredaccessmask: u32, pdwgrantedaccessmask: *mut u32, pbaccessstatus: *mut i32) -> ::windows_sys::core::HRESULT;
     #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`, `\"Win32_System_Wmi\"`*"]
@@ -422,29 +421,29 @@ pub const GPO_SECTION_ROOT: u32 = 0u32;
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
 pub const GPO_SECTION_USER: u32 = 1u32;
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_DLLNAME: &'static str = "DllName";
+pub const GP_DLLNAME: &str = "DllName";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_ENABLEASYNCHRONOUSPROCESSING: &'static str = "EnableAsynchronousProcessing";
+pub const GP_ENABLEASYNCHRONOUSPROCESSING: &str = "EnableAsynchronousProcessing";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_MAXNOGPOLISTCHANGESINTERVAL: &'static str = "MaxNoGPOListChangesInterval";
+pub const GP_MAXNOGPOLISTCHANGESINTERVAL: &str = "MaxNoGPOListChangesInterval";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_NOBACKGROUNDPOLICY: &'static str = "NoBackgroundPolicy";
+pub const GP_NOBACKGROUNDPOLICY: &str = "NoBackgroundPolicy";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_NOGPOLISTCHANGES: &'static str = "NoGPOListChanges";
+pub const GP_NOGPOLISTCHANGES: &str = "NoGPOListChanges";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_NOMACHINEPOLICY: &'static str = "NoMachinePolicy";
+pub const GP_NOMACHINEPOLICY: &str = "NoMachinePolicy";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_NOSLOWLINK: &'static str = "NoSlowLink";
+pub const GP_NOSLOWLINK: &str = "NoSlowLink";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_NOTIFYLINKTRANSITION: &'static str = "NotifyLinkTransition";
+pub const GP_NOTIFYLINKTRANSITION: &str = "NotifyLinkTransition";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_NOUSERPOLICY: &'static str = "NoUserPolicy";
+pub const GP_NOUSERPOLICY: &str = "NoUserPolicy";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_PERUSERLOCALSETTINGS: &'static str = "PerUserLocalSettings";
+pub const GP_PERUSERLOCALSETTINGS: &str = "PerUserLocalSettings";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_PROCESSGROUPPOLICY: &'static str = "ProcessGroupPolicy";
+pub const GP_PROCESSGROUPPOLICY: &str = "ProcessGroupPolicy";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
-pub const GP_REQUIRESSUCCESSFULREGISTRY: &'static str = "RequiresSuccessfulRegistry";
+pub const GP_REQUIRESSUCCESSFULREGISTRY: &str = "RequiresSuccessfulRegistry";
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]
 pub type GROUP_POLICY_HINT_TYPE = i32;
 #[doc = "*Required features: `\"Win32_System_GroupPolicy\"`*"]

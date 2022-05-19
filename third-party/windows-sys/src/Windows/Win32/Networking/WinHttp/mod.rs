@@ -1,4 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[link(name = "windows")]
 extern "system" {
     #[doc = "*Required features: `\"Win32_Networking_WinHttp\"`, `\"Win32_Foundation\"`*"]
@@ -377,8 +376,6 @@ pub const INTERNET_DEFAULT_HTTP_PORT: INTERNET_PORT = 80u32;
 pub const INTERNET_DEFAULT_HTTPS_PORT: INTERNET_PORT = 443u32;
 #[doc = "*Required features: `\"Win32_Networking_WinHttp\"`*"]
 pub const INTERNET_DEFAULT_PORT: INTERNET_PORT = 0u32;
-#[doc = "*Required features: `\"Win32_Networking_WinHttp\"`*"]
-pub type LPWINHTTP_STATUS_CALLBACK = ::core::option::Option<unsafe extern "system" fn()>;
 #[doc = "*Required features: `\"Win32_Networking_WinHttp\"`*"]
 pub const NETWORKING_KEY_BUFSIZE: u32 = 128u32;
 #[doc = "*Required features: `\"Win32_Networking_WinHttp\"`*"]

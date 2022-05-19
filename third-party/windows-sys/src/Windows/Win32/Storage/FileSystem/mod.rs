@@ -1,4 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[link(name = "windows")]
 extern "system" {
     #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Foundation\"`*"]
@@ -1158,7 +1157,7 @@ impl ::core::clone::Clone for BY_HANDLE_FILE_INFORMATION {
 }
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Foundation\"`, `\"Win32_Security\"`*"]
 #[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
-pub type CACHE_ACCESS_CHECK = ::core::option::Option<unsafe extern "system" fn(psecuritydescriptor: *mut super::super::Security::SECURITY_DESCRIPTOR, hclienttoken: super::super::Foundation::HANDLE, dwdesiredaccess: u32, genericmapping: *mut super::super::Security::GENERIC_MAPPING, privilegeset: *mut super::super::Security::PRIVILEGE_SET, privilegesetlength: *mut u32, grantedaccess: *mut u32, accessstatus: *mut i32) -> super::super::Foundation::BOOL>;
+pub type CACHE_ACCESS_CHECK = ::core::option::Option<unsafe extern "system" fn(psecuritydescriptor: super::super::Security::PSECURITY_DESCRIPTOR, hclienttoken: super::super::Foundation::HANDLE, dwdesiredaccess: u32, genericmapping: *mut super::super::Security::GENERIC_MAPPING, privilegeset: *mut super::super::Security::PRIVILEGE_SET, privilegesetlength: *mut u32, grantedaccess: *mut u32, accessstatus: *mut i32) -> super::super::Foundation::BOOL>;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub type CACHE_DESTROY_CALLBACK = ::core::option::Option<unsafe extern "system" fn(cb: u32, lpb: *mut u8)>;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
@@ -1173,15 +1172,15 @@ pub type CLAIMMEDIALABEL = ::core::option::Option<unsafe extern "system" fn(pbuf
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub type CLAIMMEDIALABELEX = ::core::option::Option<unsafe extern "system" fn(pbuffer: *const u8, nbuffersize: u32, plabelinfo: *mut MediaLabelInfo, labelguid: *mut ::windows_sys::core::GUID) -> u32>;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const CLFS_BASELOG_EXTENSION: &'static str = ".blf";
+pub const CLFS_BASELOG_EXTENSION: &str = ".blf";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub type CLFS_BLOCK_ALLOCATION = ::core::option::Option<unsafe extern "system" fn(cbbufferlength: u32, pvusercontext: *mut ::core::ffi::c_void) -> *mut ::core::ffi::c_void>;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub type CLFS_BLOCK_DEALLOCATION = ::core::option::Option<unsafe extern "system" fn(pvbuffer: *mut ::core::ffi::c_void, pvusercontext: *mut ::core::ffi::c_void)>;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const CLFS_CONTAINER_RELATIVE_PREFIX: &'static str = "%BLF%\\";
+pub const CLFS_CONTAINER_RELATIVE_PREFIX: &str = "%BLF%\\";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const CLFS_CONTAINER_STREAM_PREFIX: &'static str = "%BLF%:";
+pub const CLFS_CONTAINER_STREAM_PREFIX: &str = "%BLF%:";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub type CLFS_CONTEXT_MODE = i32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
@@ -2102,9 +2101,9 @@ impl ::core::clone::Clone for DISK_SPACE_INFORMATION {
     }
 }
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const EA_CONTAINER_NAME: &'static str = "ContainerName";
+pub const EA_CONTAINER_NAME: &str = "ContainerName";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const EA_CONTAINER_SIZE: &'static str = "ContainerSize";
+pub const EA_CONTAINER_SIZE: &str = "ContainerSize";
 #[repr(C)]
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub struct EFS_CERTIFICATE_BLOB {
@@ -2354,7 +2353,7 @@ impl ::core::clone::Clone for ENCRYPTION_PROTECTOR_LIST {
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub const ENLISTMENT_MAXIMUM_OPTION: u32 = 1u32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const ENLISTMENT_OBJECT_PATH: &'static str = "\\Enlistment\\";
+pub const ENLISTMENT_OBJECT_PATH: &str = "\\Enlistment\\";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub const ENLISTMENT_SUPERIOR: u32 = 1u32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
@@ -5362,7 +5361,7 @@ pub const RESOURCE_MANAGER_COMMUNICATION: u32 = 2u32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub const RESOURCE_MANAGER_MAXIMUM_OPTION: u32 = 3u32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const RESOURCE_MANAGER_OBJECT_PATH: &'static str = "\\ResourceManager\\";
+pub const RESOURCE_MANAGER_OBJECT_PATH: &str = "\\ResourceManager\\";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub const RESOURCE_MANAGER_VOLATILE: u32 = 1u32;
 #[repr(C)]
@@ -5564,15 +5563,15 @@ impl ::core::clone::Clone for SHARE_INFO_1006 {
     }
 }
 #[repr(C)]
-#[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Foundation\"`, `\"Win32_Security\"`*"]
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Security\"`*"]
+#[cfg(feature = "Win32_Security")]
 pub struct SHARE_INFO_1501 {
     pub shi1501_reserved: u32,
-    pub shi1501_security_descriptor: *mut super::super::Security::SECURITY_DESCRIPTOR,
+    pub shi1501_security_descriptor: super::super::Security::PSECURITY_DESCRIPTOR,
 }
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[cfg(feature = "Win32_Security")]
 impl ::core::marker::Copy for SHARE_INFO_1501 {}
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[cfg(feature = "Win32_Security")]
 impl ::core::clone::Clone for SHARE_INFO_1501 {
     fn clone(&self) -> Self {
         *self
@@ -5622,8 +5621,8 @@ impl ::core::clone::Clone for SHARE_INFO_501 {
     }
 }
 #[repr(C)]
-#[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Foundation\"`, `\"Win32_Security\"`*"]
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Security\"`*"]
+#[cfg(feature = "Win32_Security")]
 pub struct SHARE_INFO_502 {
     pub shi502_netname: ::windows_sys::core::PWSTR,
     pub shi502_type: SHARE_TYPE,
@@ -5634,19 +5633,19 @@ pub struct SHARE_INFO_502 {
     pub shi502_path: ::windows_sys::core::PWSTR,
     pub shi502_passwd: ::windows_sys::core::PWSTR,
     pub shi502_reserved: u32,
-    pub shi502_security_descriptor: *mut super::super::Security::SECURITY_DESCRIPTOR,
+    pub shi502_security_descriptor: super::super::Security::PSECURITY_DESCRIPTOR,
 }
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[cfg(feature = "Win32_Security")]
 impl ::core::marker::Copy for SHARE_INFO_502 {}
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[cfg(feature = "Win32_Security")]
 impl ::core::clone::Clone for SHARE_INFO_502 {
     fn clone(&self) -> Self {
         *self
     }
 }
 #[repr(C)]
-#[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Foundation\"`, `\"Win32_Security\"`*"]
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[doc = "*Required features: `\"Win32_Storage_FileSystem\"`, `\"Win32_Security\"`*"]
+#[cfg(feature = "Win32_Security")]
 pub struct SHARE_INFO_503 {
     pub shi503_netname: ::windows_sys::core::PWSTR,
     pub shi503_type: SHARE_TYPE,
@@ -5658,11 +5657,11 @@ pub struct SHARE_INFO_503 {
     pub shi503_passwd: ::windows_sys::core::PWSTR,
     pub shi503_servername: ::windows_sys::core::PWSTR,
     pub shi503_reserved: u32,
-    pub shi503_security_descriptor: *mut super::super::Security::SECURITY_DESCRIPTOR,
+    pub shi503_security_descriptor: super::super::Security::PSECURITY_DESCRIPTOR,
 }
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[cfg(feature = "Win32_Security")]
 impl ::core::marker::Copy for SHARE_INFO_503 {}
-#[cfg(all(feature = "Win32_Foundation", feature = "Win32_Security"))]
+#[cfg(feature = "Win32_Security")]
 impl ::core::clone::Clone for SHARE_INFO_503 {
     fn clone(&self) -> Self {
         *self
@@ -6022,7 +6021,7 @@ impl ::core::clone::Clone for TAPE_WRITE_MARKS {
     }
 }
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const TRANSACTIONMANAGER_OBJECT_PATH: &'static str = "\\TransactionManager\\";
+pub const TRANSACTIONMANAGER_OBJECT_PATH: &str = "\\TransactionManager\\";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub const TRANSACTION_DO_NOT_PROMOTE: u32 = 1u32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
@@ -6175,7 +6174,7 @@ pub const TRANSACTION_NOTIFY_SINGLE_PHASE_COMMIT: u32 = 512u32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub const TRANSACTION_NOTIFY_TM_ONLINE: u32 = 33554432u32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
-pub const TRANSACTION_OBJECT_PATH: &'static str = "\\Transaction\\";
+pub const TRANSACTION_OBJECT_PATH: &str = "\\Transaction\\";
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]
 pub type TRANSACTION_OUTCOME = i32;
 #[doc = "*Required features: `\"Win32_Storage_FileSystem\"`*"]

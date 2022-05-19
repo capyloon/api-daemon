@@ -1,0 +1,34 @@
+// Various dweb related features:
+// - DID management
+// - UCAN
+// - p2p discovery
+
+dictionary Did {
+    name: str // A local, human readable description for this DID.
+    uri: str  // The uri representation of the DID.
+}
+
+enum DidError {
+    NameAlreadyExists
+    UnknownDid
+    InternalError
+}
+
+#[rust:not-tracked]
+interface Dweb {
+    // Get all current managed DIDs. If none are present, returns an empty array.
+    // Will reject only when encountering an internal error.
+    fn get_dids() -> Did*, DidError
+
+    // Create a new DID with the given name.
+    fn create_did(name: str) -> Did, DidError
+
+    // Removes a DID.
+    fn remove_did(uri: str) -> void, DidError
+
+    event didcreated -> Did
+    event didremoved -> str // The uri of the removed DID
+}
+
+#[permission=dweb]
+service DwebService: Dweb

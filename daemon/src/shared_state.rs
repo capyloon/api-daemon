@@ -23,6 +23,7 @@ declare_services!(
     "contacts-service";contacts_service;ContactsService,
     "contentmanager-service";contentmanager_service;ContentManagerService,
     "devicecapability-service";devicecapability_service;DeviceCapabilityService,
+    "dweb-service";dweb_service;DWebServiceImpl,
     "geckobridge-service";geckobridge;GeckoBridgeService,
     "libsignal-service";libsignal_service;SignalService,
     "powermanager-service";powermanager_service;PowerManager,

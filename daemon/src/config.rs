@@ -12,6 +12,8 @@ use apps_service::config::Config as AppsConfig;
 use common::traits::EmptyConfig;
 #[cfg(feature = "contentmanager-service")]
 use contentmanager_service::config::Config as CmConfig;
+#[cfg(feature = "dweb-service")]
+use dweb_service::config::Config as DwebConfig;
 use serde::{Deserialize, Deserializer};
 use std::fs::File;
 use std::io::Read;
@@ -67,6 +69,8 @@ pub struct Config {
     pub procmanager_service: procmanager_service::config::Config,
     #[cfg(feature = "contentmanager-service")]
     pub content_manager: CmConfig,
+    #[cfg(feature = "dweb-service")]
+    pub dweb: DwebConfig,
 }
 
 impl Config {
@@ -132,6 +136,13 @@ impl From<&Config> for AppsConfig {
 impl Into<CmConfig> for &Config {
     fn into(self) -> CmConfig {
         self.content_manager.clone()
+    }
+}
+
+#[cfg(feature = "dweb-service")]
+impl Into<DwebConfig> for &Config {
+    fn into(self) -> DwebConfig {
+        self.dweb.clone()
     }
 }
 

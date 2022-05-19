@@ -12,29 +12,46 @@
 [package]
 edition = "2018"
 name = "zstd-safe"
-version = "4.1.4+zstd.1.5.2"
+version = "4.1.6+zstd.1.5.2"
 authors = ["Alexandre Bury <alexandre.bury@gmail.com>"]
 build = "build.rs"
 description = "Safe low-level bindings for the zstd compression library."
 readme = "Readme.md"
-keywords = ["zstd", "zstandard", "compression"]
-categories = ["api-bindings", "compression"]
+keywords = [
+    "zstd",
+    "zstandard",
+    "compression",
+]
+categories = [
+    "api-bindings",
+    "compression",
+]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/gyscos/zstd-rs"
+
 [package.metadata.docs.rs]
-features = ["experimental", "arrays", "std", "doc-cfg"]
+features = [
+    "experimental",
+    "arrays",
+    "std",
+    "doc-cfg",
+]
+
 [dependencies.libc]
 version = "0.2.21"
 
 [dependencies.zstd-sys]
-version = "=1.6.3"
+version = "1.6.3"
 default-features = false
 
 [features]
 arrays = []
 bindgen = ["zstd-sys/bindgen"]
 debug = ["zstd-sys/debug"]
-default = ["legacy", "arrays"]
+default = [
+    "legacy",
+    "arrays",
+]
 doc-cfg = []
 experimental = ["zstd-sys/experimental"]
 legacy = ["zstd-sys/legacy"]

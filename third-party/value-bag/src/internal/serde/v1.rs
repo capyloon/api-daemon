@@ -5,8 +5,8 @@
 
 use crate::{
     fill::Slot,
-    internal::{cast, Internal, InternalVisitor},
-    std::fmt,
+    internal::{Internal, InternalVisitor},
+    std::{any::Any, fmt},
     Error, ValueBag,
 };
 
@@ -19,24 +19,36 @@ impl<'v> ValueBag<'v> {
     /// before resorting to using its `Value` implementation.
     pub fn capture_serde1<T>(value: &'v T) -> Self
     where
-        T: Serialize + 'static,
+        T: serde1_lib::Serialize + 'static,
     {
         Self::try_capture(value).unwrap_or(ValueBag {
-            inner: Internal::Serde1 {
-                value,
-                type_id: cast::type_id::<T>(),
-            },
+            inner: Internal::Serde1(value),
         })
     }
 
     /// Get a value from a structured type without capturing support.
     pub fn from_serde1<T>(value: &'v T) -> Self
     where
-        T: Serialize,
+        T: serde1_lib::Serialize,
     {
         ValueBag {
-            inner: Internal::AnonSerde1 { value },
+            inner: Internal::AnonSerde1(value),
         }
+    }
+}
+
+pub(crate) trait DowncastSerialize {
+    fn as_any(&self) -> &dyn Any;
+    fn as_super(&self) -> &dyn Serialize;
+}
+
+impl<T: serde1_lib::Serialize + 'static> DowncastSerialize for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_super(&self) -> &dyn Serialize {
+        self
     }
 }
 
@@ -44,13 +56,9 @@ impl<'s, 'f> Slot<'s, 'f> {
     /// Fill the slot with a structured value.
     ///
     /// The given value doesn't need to satisfy any particular lifetime constraints.
-    ///
-    /// # Panics
-    ///
-    /// Calling more than a single `fill` method on this slot will panic.
-    pub fn fill_serde1<T>(&mut self, value: T) -> Result<(), Error>
+    pub fn fill_serde1<T>(self, value: T) -> Result<(), Error>
     where
-        T: Serialize,
+        T: serde1_lib::Serialize,
     {
         self.fill(|visitor| visitor.serde1(&value))
     }
@@ -125,13 +133,13 @@ impl<'v> serde1_lib::Serialize for ValueBag<'v> {
                 self.result()
             }
 
-            fn u128(&mut self, v: u128) -> Result<(), Error> {
-                self.result = Some(self.serializer()?.serialize_u128(v));
+            fn u128(&mut self, v: &u128) -> Result<(), Error> {
+                self.result = Some(self.serializer()?.serialize_u128(*v));
                 self.result()
             }
 
-            fn i128(&mut self, v: i128) -> Result<(), Error> {
-                self.result = Some(self.serializer()?.serialize_i128(v));
+            fn i128(&mut self, v: &i128) -> Result<(), Error> {
+                self.result = Some(self.serializer()?.serialize_i128(*v));
                 self.result()
             }
 
@@ -241,7 +249,7 @@ pub(crate) fn internal_visit<'v>(
         }
 
         fn serialize_u128(self, v: u128) -> Result<Self::Ok, Self::Error> {
-            self.0.u128(v).map_err(|_| Unsupported)
+            self.0.u128(&v).map_err(|_| Unsupported)
         }
 
         fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
@@ -261,7 +269,7 @@ pub(crate) fn internal_visit<'v>(
         }
 
         fn serialize_i128(self, v: i128) -> Result<Self::Ok, Self::Error> {
-            self.0.i128(v).map_err(|_| Unsupported)
+            self.0.i128(&v).map_err(|_| Unsupported)
         }
 
         fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {

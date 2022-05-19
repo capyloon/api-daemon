@@ -16,6 +16,7 @@ default = [
   "contacts-service",
   "contentmanager-service",
   "devicecapability-service",
+  "dweb-service",
   "geckobridge-service", # "libsignal-service",
   "powermanager-service",
   "procmanager-service",
@@ -38,6 +39,8 @@ contentmanager-service = ["contentmanager_service"]
 daemon = ["daemonize"]
 # Enable the device capability service.
 devicecapability-service = ["devicecapability_service"]
+# Enable the dweb service.
+dweb-service = ["dweb_service"]
 # Enable the Gecko Bridge service
 geckobridge-service = ["geckobridge"]
 # Enable the libsignal protocol service.
@@ -77,6 +80,7 @@ contacts_service = {path = "../services/contacts", optional = true}
 contentmanager_service = {path = "../services/contentmanager", optional = true}
 daemonize = {version = "0.4.1", optional = true}
 devicecapability_service = {path = "../services/devicecapability", optional = true}
+dweb_service = {path = "../services/dweb", optional = true}
 flate2 = "1.0"
 futures = "0.3"
 futures-util = "0.3"

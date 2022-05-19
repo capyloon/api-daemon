@@ -10,6 +10,7 @@ audiovolumemanager-service,\
 contacts-service,\
 contentmanager-service,\
 devicecapability-service,\
+dweb-service,\
 geckobridge-service,\
 powermanager-service,\
 procmanager-service,\

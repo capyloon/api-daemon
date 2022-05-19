@@ -12,14 +12,23 @@
 [package]
 edition = "2018"
 name = "openssl"
-version = "0.10.38"
+version = "0.10.40"
 authors = ["Steven Fackler <sfackler@gmail.com>"]
 description = "OpenSSL bindings"
 readme = "README.md"
-keywords = ["crypto", "tls", "ssl", "dtls"]
-categories = ["cryptography", "api-bindings"]
+keywords = [
+    "crypto",
+    "tls",
+    "ssl",
+    "dtls",
+]
+categories = [
+    "cryptography",
+    "api-bindings",
+]
 license = "Apache-2.0"
 repository = "https://github.com/sfackler/rust-openssl"
+
 [dependencies.bitflags]
 version = "1.0"
 
@@ -27,7 +36,7 @@ version = "1.0"
 version = "1.0"
 
 [dependencies.ffi]
-version = "0.9.69"
+version = "0.9.73"
 package = "openssl-sys"
 
 [dependencies.foreign-types]
@@ -38,13 +47,15 @@ version = "0.2"
 
 [dependencies.once_cell]
 version = "1.5.2"
+
+[dependencies.openssl-macros]
+version = "0.1.0"
+
 [dev-dependencies.hex]
 version = "0.3"
 
-[dev-dependencies.tempdir]
-version = "0.3"
-
 [features]
+bindgen = ["ffi/bindgen"]
 v101 = []
 v102 = []
 v110 = []

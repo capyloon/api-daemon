@@ -1,4 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[link(name = "windows")]
 extern "system" {
     #[doc = "*Required features: `\"Win32_Foundation\"`*"]
@@ -4827,7 +4826,7 @@ impl ::core::clone::Clone for POINTS {
 pub const PRESENTATION_ERROR_LOST: ::windows_sys::core::HRESULT = -2004811775i32;
 #[doc = "*Required features: `\"Win32_Foundation\"`*"]
 pub type PROC = ::core::option::Option<unsafe extern "system" fn() -> isize>;
-pub type PSID = isize;
+pub type PSID = *mut ::core::ffi::c_void;
 #[doc = "*Required features: `\"Win32_Foundation\"`*"]
 pub const PSINK_E_INDEX_ONLY: ::windows_sys::core::HRESULT = -2147215471i32;
 #[doc = "*Required features: `\"Win32_Foundation\"`*"]
@@ -6259,6 +6258,8 @@ pub const STATUS_ABIOS_NOT_PRESENT: NTSTATUS = -1073741553i32;
 pub const STATUS_ABIOS_SELECTOR_NOT_AVAILABLE: NTSTATUS = -1073741547i32;
 #[doc = "*Required features: `\"Win32_Foundation\"`*"]
 pub const STATUS_ACCESS_AUDIT_BY_POLICY: NTSTATUS = 1073741874i32;
+#[doc = "*Required features: `\"Win32_Foundation\"`*"]
+pub const STATUS_ACCESS_DENIED: NTSTATUS = -1073741790i32;
 #[doc = "*Required features: `\"Win32_Foundation\"`*"]
 pub const STATUS_ACCESS_DISABLED_BY_POLICY_DEFAULT: NTSTATUS = -1073740959i32;
 #[doc = "*Required features: `\"Win32_Foundation\"`*"]

@@ -1,4 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[cfg(feature = "Win32_System_WinRT_AllJoyn")]
 pub mod AllJoyn;
 #[cfg(feature = "Win32_System_WinRT_Composition")]
@@ -33,6 +32,10 @@ pub mod Xaml;
 extern "system" {
     #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
     pub fn CoDecodeProxy(dwclientpid: u32, ui64proxyaddress: u64, pserverinformation: *mut ServerInformation) -> ::windows_sys::core::HRESULT;
+    #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
+    pub fn CreateControlInput(riid: *const ::windows_sys::core::GUID, ppv: *mut *mut ::core::ffi::c_void) -> ::windows_sys::core::HRESULT;
+    #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
+    pub fn CreateControlInputEx(pcorewindow: ::windows_sys::core::IUnknown, riid: *const ::windows_sys::core::GUID, ppv: *mut *mut ::core::ffi::c_void) -> ::windows_sys::core::HRESULT;
     #[doc = "*Required features: `\"Win32_System_WinRT\"`, `\"System\"`*"]
     #[cfg(feature = "System")]
     pub fn CreateDispatcherQueueController(options: DispatcherQueueOptions, dispatcherqueuecontroller: *mut super::super::super::System::DispatcherQueueController) -> ::windows_sys::core::HRESULT;
@@ -142,8 +145,7 @@ extern "system" {
     pub fn WindowsConcatString(string1: ::windows_sys::core::HSTRING, string2: ::windows_sys::core::HSTRING, newstring: *mut ::windows_sys::core::HSTRING) -> ::windows_sys::core::HRESULT;
     #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
     pub fn WindowsCreateString(sourcestring: ::windows_sys::core::PCWSTR, length: u32, string: *mut ::windows_sys::core::HSTRING) -> ::windows_sys::core::HRESULT;
-    #[doc = "*Required features: `\"Win32_System_WinRT\"`, `\"Win32_Foundation\"`*"]
-    #[cfg(feature = "Win32_Foundation")]
+    #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
     pub fn WindowsCreateStringReference(sourcestring: ::windows_sys::core::PCWSTR, length: u32, hstringheader: *mut HSTRING_HEADER, string: *mut ::windows_sys::core::HSTRING) -> ::windows_sys::core::HRESULT;
     #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
     pub fn WindowsDeleteString(string: ::windows_sys::core::HSTRING) -> ::windows_sys::core::HRESULT;
@@ -236,11 +238,11 @@ pub const CASTING_CONNECTION_STATE_DISCONNECTING: CASTING_CONNECTION_STATE = 3i3
 #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
 pub const CASTING_CONNECTION_STATE_CONNECTING: CASTING_CONNECTION_STATE = 4i32;
 #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
-pub const CastingSourceInfo_Property_CastingTypes: &'static str = "CastingTypes";
+pub const CastingSourceInfo_Property_CastingTypes: &str = "CastingTypes";
 #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
-pub const CastingSourceInfo_Property_PreferredSourceUriScheme: &'static str = "PreferredSourceUriScheme";
+pub const CastingSourceInfo_Property_PreferredSourceUriScheme: &str = "PreferredSourceUriScheme";
 #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
-pub const CastingSourceInfo_Property_ProtectedMedia: &'static str = "ProtectedMedia";
+pub const CastingSourceInfo_Property_ProtectedMedia: &str = "ProtectedMedia";
 #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
 pub type DISPATCHERQUEUE_THREAD_APARTMENTTYPE = i32;
 #[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
@@ -281,30 +283,16 @@ impl ::core::clone::Clone for EventRegistrationToken {
 }
 pub type HSTRING_BUFFER = isize;
 #[repr(C)]
-#[doc = "*Required features: `\"Win32_System_WinRT\"`, `\"Win32_Foundation\"`*"]
-#[cfg(feature = "Win32_Foundation")]
+#[doc = "*Required features: `\"Win32_System_WinRT\"`*"]
 pub struct HSTRING_HEADER {
-    pub Reserved: HSTRING_HEADER_0,
+    pub flags: u32,
+    pub length: u32,
+    pub padding1: u32,
+    pub padding2: u32,
+    pub data: isize,
 }
-#[cfg(feature = "Win32_Foundation")]
 impl ::core::marker::Copy for HSTRING_HEADER {}
-#[cfg(feature = "Win32_Foundation")]
 impl ::core::clone::Clone for HSTRING_HEADER {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-#[repr(C)]
-#[doc = "*Required features: `\"Win32_System_WinRT\"`, `\"Win32_Foundation\"`*"]
-#[cfg(feature = "Win32_Foundation")]
-pub union HSTRING_HEADER_0 {
-    pub Reserved1: *mut ::core::ffi::c_void,
-    pub Reserved2: [super::super::Foundation::CHAR; 24],
-}
-#[cfg(feature = "Win32_Foundation")]
-impl ::core::marker::Copy for HSTRING_HEADER_0 {}
-#[cfg(feature = "Win32_Foundation")]
-impl ::core::clone::Clone for HSTRING_HEADER_0 {
     fn clone(&self) -> Self {
         *self
     }
@@ -318,6 +306,10 @@ pub type IBufferByteAccess = *mut ::core::ffi::c_void;
 pub type ICastingController = *mut ::core::ffi::c_void;
 pub type ICastingEventHandler = *mut ::core::ffi::c_void;
 pub type ICastingSourceInfo = *mut ::core::ffi::c_void;
+pub type ICoreInputInterop = *mut ::core::ffi::c_void;
+pub type ICoreWindowAdapterInterop = *mut ::core::ffi::c_void;
+pub type ICoreWindowComponentInterop = *mut ::core::ffi::c_void;
+pub type ICoreWindowInterop = *mut ::core::ffi::c_void;
 pub type ICorrelationVectorInformation = *mut ::core::ffi::c_void;
 pub type ICorrelationVectorSource = *mut ::core::ffi::c_void;
 pub type IDragDropManagerInterop = *mut ::core::ffi::c_void;

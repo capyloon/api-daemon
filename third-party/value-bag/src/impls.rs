@@ -2,32 +2,38 @@
 
 use super::ValueBag;
 
-macro_rules! impl_from_primitive {
+macro_rules! impl_from_internal {
     ($($into_ty:ty,)*) => {
         $(
             impl<'v> From<$into_ty> for ValueBag<'v> {
+                #[inline]
                 fn from(value: $into_ty) -> Self {
-                    ValueBag::from_primitive(value)
+                    ValueBag::from_internal(value)
+                }
+            }
+
+            impl<'a, 'v> From<&'a $into_ty> for ValueBag<'v> {
+                #[inline]
+                fn from(value: &'a $into_ty) -> Self {
+                    ValueBag::from_internal(*value)
                 }
             }
         )*
     };
 }
 
-impl_from_primitive![
+impl_from_internal![
     (),
     usize,
     u8,
     u16,
     u32,
     u64,
-    u128,
     isize,
     i8,
     i16,
     i32,
     i64,
-    i128,
     f32,
     f64,
     char,
@@ -35,8 +41,23 @@ impl_from_primitive![
 ];
 
 impl<'v> From<&'v str> for ValueBag<'v> {
+    #[inline]
     fn from(value: &'v str) -> Self {
-        ValueBag::from_primitive(value)
+        ValueBag::from_internal(value)
+    }
+}
+
+impl<'v> From<&'v u128> for ValueBag<'v> {
+    #[inline]
+    fn from(value: &'v u128) -> Self {
+        ValueBag::from_internal(value)
+    }
+}
+
+impl<'v> From<&'v i128> for ValueBag<'v> {
+    #[inline]
+    fn from(value: &'v i128) -> Self {
+        ValueBag::from_internal(value)
     }
 }
 
@@ -47,8 +68,9 @@ mod std_support {
     use crate::std::string::String;
 
     impl<'v> From<&'v String> for ValueBag<'v> {
+        #[inline]
         fn from(v: &'v String) -> ValueBag<'v> {
-            ValueBag::from_primitive(&**v)
+            ValueBag::from_internal(&**v)
         }
     }
 }

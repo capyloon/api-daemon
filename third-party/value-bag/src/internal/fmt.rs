@@ -3,9 +3,13 @@
 //! This module allows any `Value` to implement the `Debug` and `Display` traits,
 //! and for any `Debug` or `Display` to be captured as a `Value`.
 
-use crate::{fill::Slot, std::fmt, Error, ValueBag};
+use crate::{
+    fill::Slot,
+    std::{any::Any, fmt},
+    Error, ValueBag,
+};
 
-use super::{cast, Internal, InternalVisitor};
+use super::{Internal, InternalVisitor};
 
 impl<'v> ValueBag<'v> {
     /// Get a value from a debuggable type.
@@ -17,10 +21,7 @@ impl<'v> ValueBag<'v> {
         T: Debug + 'static,
     {
         Self::try_capture(value).unwrap_or(ValueBag {
-            inner: Internal::Debug {
-                value,
-                type_id: cast::type_id::<T>(),
-            },
+            inner: Internal::Debug(value),
         })
     }
 
@@ -33,10 +34,7 @@ impl<'v> ValueBag<'v> {
         T: Display + 'static,
     {
         Self::try_capture(value).unwrap_or(ValueBag {
-            inner: Internal::Display {
-                value,
-                type_id: cast::type_id::<T>(),
-            },
+            inner: Internal::Display(value),
         })
     }
 
@@ -46,7 +44,7 @@ impl<'v> ValueBag<'v> {
         T: Debug,
     {
         ValueBag {
-            inner: Internal::AnonDebug { value },
+            inner: Internal::AnonDebug(value),
         }
     }
 
@@ -56,22 +54,54 @@ impl<'v> ValueBag<'v> {
         T: Display,
     {
         ValueBag {
-            inner: Internal::AnonDisplay { value },
+            inner: Internal::AnonDisplay(value),
         }
     }
 
     /// Get a value from a debuggable type without capturing support.
+    #[inline]
     pub fn from_dyn_debug(value: &'v dyn Debug) -> Self {
         ValueBag {
-            inner: Internal::AnonDebug { value },
+            inner: Internal::AnonDebug(value),
         }
     }
 
     /// Get a value from a displayable type without capturing support.
+    #[inline]
     pub fn from_dyn_display(value: &'v dyn Display) -> Self {
         ValueBag {
-            inner: Internal::AnonDisplay { value },
+            inner: Internal::AnonDisplay(value),
         }
+    }
+}
+
+pub(crate) trait DowncastDisplay {
+    fn as_any(&self) -> &dyn Any;
+    fn as_super(&self) -> &dyn fmt::Display;
+}
+
+impl<T: fmt::Display + 'static> DowncastDisplay for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_super(&self) -> &dyn fmt::Display {
+        self
+    }
+}
+
+pub(crate) trait DowncastDebug {
+    fn as_any(&self) -> &dyn Any;
+    fn as_super(&self) -> &dyn fmt::Debug;
+}
+
+impl<T: fmt::Debug + 'static> DowncastDebug for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_super(&self) -> &dyn fmt::Debug {
+        self
     }
 }
 
@@ -79,11 +109,7 @@ impl<'s, 'f> Slot<'s, 'f> {
     /// Fill the slot with a debuggable value.
     ///
     /// The given value doesn't need to satisfy any particular lifetime constraints.
-    ///
-    /// # Panics
-    ///
-    /// Calling more than a single `fill` method on this slot will panic.
-    pub fn fill_debug<T>(&mut self, value: T) -> Result<(), Error>
+    pub fn fill_debug<T>(self, value: T) -> Result<(), Error>
     where
         T: Debug,
     {
@@ -93,11 +119,7 @@ impl<'s, 'f> Slot<'s, 'f> {
     /// Fill the slot with a displayable value.
     ///
     /// The given value doesn't need to satisfy any particular lifetime constraints.
-    ///
-    /// # Panics
-    ///
-    /// Calling more than a single `fill` method on this slot will panic.
-    pub fn fill_display<T>(&mut self, value: T) -> Result<(), Error>
+    pub fn fill_display<T>(self, value: T) -> Result<(), Error>
     where
         T: Display,
     {
@@ -136,13 +158,13 @@ impl<'v> Debug for ValueBag<'v> {
                 Ok(())
             }
 
-            fn u128(&mut self, v: u128) -> Result<(), Error> {
+            fn u128(&mut self, v: &u128) -> Result<(), Error> {
                 Debug::fmt(&v, self.0)?;
 
                 Ok(())
             }
 
-            fn i128(&mut self, v: i128) -> Result<(), Error> {
+            fn i128(&mut self, v: &i128) -> Result<(), Error> {
                 Debug::fmt(&v, self.0)?;
 
                 Ok(())
@@ -233,13 +255,13 @@ impl<'v> Display for ValueBag<'v> {
                 Ok(())
             }
 
-            fn u128(&mut self, v: u128) -> Result<(), Error> {
+            fn u128(&mut self, v: &u128) -> Result<(), Error> {
                 Display::fmt(&v, self.0)?;
 
                 Ok(())
             }
 
-            fn i128(&mut self, v: i128) -> Result<(), Error> {
+            fn i128(&mut self, v: &i128) -> Result<(), Error> {
                 Display::fmt(&v, self.0)?;
 
                 Ok(())

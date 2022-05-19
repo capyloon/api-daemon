@@ -160,31 +160,13 @@
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
     html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/8f1a9894/logo.svg",
-    html_root_url = "https://docs.rs/signature/1.5.0"
+    html_root_url = "https://docs.rs/signature/1.3.2"
 )]
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms, unused_qualifications)]
 
 #[cfg(feature = "std")]
 extern crate std;
-
-#[cfg(all(feature = "signature_derive", not(feature = "derive-preview")))]
-compile_error!(
-    "The `signature_derive` feature should not be enabled directly. \
-    Use the `derive-preview` feature instead."
-);
-
-#[cfg(all(feature = "digest", not(feature = "digest-preview")))]
-compile_error!(
-    "The `digest` feature should not be enabled directly. \
-    Use the `digest-preview` feature instead."
-);
-
-#[cfg(all(feature = "rand_core", not(feature = "rand-preview")))]
-compile_error!(
-    "The `rand_core` feature should not be enabled directly. \
-    Use the `rand-preview` feature instead."
-);
 
 #[cfg(feature = "derive-preview")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive-preview")))]
@@ -194,7 +176,6 @@ pub use signature_derive::{Signer, Verifier};
 pub use digest;
 
 #[cfg(feature = "rand-preview")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rand-preview")))]
 pub use rand_core;
 
 mod error;

@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "clap"
-version = "3.1.12"
+version = "3.1.18"
 include = [
     "build.rs",
     "src/**/*",
@@ -156,6 +156,11 @@ required-features = ["unstable-multicall"]
 [[example]]
 name = "hostname"
 path = "examples/multicall-hostname.rs"
+required-features = ["unstable-multicall"]
+
+[[example]]
+name = "repl"
+path = "examples/repl.rs"
 required-features = ["unstable-multicall"]
 
 [[example]]
@@ -399,11 +404,11 @@ optional = true
 version = "1.2"
 
 [dependencies.clap_derive]
-version = "=3.1.7"
+version = "=3.1.18"
 optional = true
 
 [dependencies.clap_lex]
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies.indexmap]
 version = "1.0"
@@ -455,6 +460,12 @@ version = "1.0"
 
 [dev-dependencies.rustversion]
 version = "1"
+
+[dev-dependencies.shlex]
+version = "1.1.0"
+
+[dev-dependencies.snapbox]
+version = "0.2.9"
 
 [dev-dependencies.trybuild]
 version = "1.0.18"
@@ -509,7 +520,7 @@ unstable-doc = [
 unstable-grouped = []
 unstable-multicall = []
 unstable-replace = []
-unstable-v4 = []
+unstable-v4 = ["clap_derive/unstable-v4"]
 wrap_help = [
     "terminal_size",
     "textwrap/terminal_size",

@@ -5,8 +5,8 @@
 
 use crate::{
     fill::Slot,
-    internal::{cast, Internal, InternalVisitor},
-    std::fmt,
+    internal::{Internal, InternalVisitor},
+    std::{any::Any, fmt},
     Error, ValueBag,
 };
 
@@ -20,10 +20,7 @@ impl<'v> ValueBag<'v> {
         T: Value + 'static,
     {
         Self::try_capture(value).unwrap_or(ValueBag {
-            inner: Internal::Sval1 {
-                value,
-                type_id: cast::type_id::<T>(),
-            },
+            inner: Internal::Sval1(value),
         })
     }
 
@@ -33,15 +30,31 @@ impl<'v> ValueBag<'v> {
         T: Value,
     {
         ValueBag {
-            inner: Internal::AnonSval1 { value },
+            inner: Internal::AnonSval1(value),
         }
     }
 
     /// Get a value from an erased structured type.
+    #[inline]
     pub fn from_dyn_sval1(value: &'v dyn Value) -> Self {
         ValueBag {
-            inner: Internal::AnonSval1 { value },
+            inner: Internal::AnonSval1(value),
         }
+    }
+}
+
+pub(crate) trait DowncastValue {
+    fn as_any(&self) -> &dyn Any;
+    fn as_super(&self) -> &dyn Value;
+}
+
+impl<T: Value + 'static> DowncastValue for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_super(&self) -> &dyn Value {
+        self
     }
 }
 
@@ -49,11 +62,7 @@ impl<'s, 'f> Slot<'s, 'f> {
     /// Fill the slot with a structured value.
     ///
     /// The given value doesn't need to satisfy any particular lifetime constraints.
-    ///
-    /// # Panics
-    ///
-    /// Calling more than a single `fill` method on this slot will panic.
-    pub fn fill_sval1<T>(&mut self, value: T) -> Result<(), Error>
+    pub fn fill_sval1<T>(self, value: T) -> Result<(), Error>
     where
         T: Value,
     {
@@ -61,7 +70,7 @@ impl<'s, 'f> Slot<'s, 'f> {
     }
 
     /// Fill the slot with a structured value.
-    pub fn fill_dyn_sval1(&mut self, value: &dyn Value) -> Result<(), Error> {
+    pub fn fill_dyn_sval1(self, value: &dyn Value) -> Result<(), Error> {
         self.fill(|visitor| visitor.sval1(value))
     }
 }
@@ -87,12 +96,12 @@ impl<'v> Value for ValueBag<'v> {
                 self.0.i64(v).map_err(Error::from_sval1)
             }
 
-            fn u128(&mut self, v: u128) -> Result<(), Error> {
-                self.0.u128(v).map_err(Error::from_sval1)
+            fn u128(&mut self, v: &u128) -> Result<(), Error> {
+                self.0.u128(*v).map_err(Error::from_sval1)
             }
 
-            fn i128(&mut self, v: i128) -> Result<(), Error> {
-                self.0.i128(v).map_err(Error::from_sval1)
+            fn i128(&mut self, v: &i128) -> Result<(), Error> {
+                self.0.i128(*v).map_err(Error::from_sval1)
             }
 
             fn f64(&mut self, v: f64) -> Result<(), Error> {
@@ -167,8 +176,9 @@ pub(crate) fn internal_visit<'v>(
             Ok(())
         }
 
-        fn u64(&mut self, v: u64) -> sval1_lib::stream::Result {
-            self.0.u64(v).map_err(Error::into_sval1)?;
+        #[cfg(feature = "error")]
+        fn error(&mut self, v: sval1_lib::stream::Source) -> sval1_lib::stream::Result {
+            self.0.error(v.get()).map_err(Error::into_sval1)?;
             Ok(())
         }
 
@@ -177,13 +187,18 @@ pub(crate) fn internal_visit<'v>(
             Ok(())
         }
 
-        fn u128(&mut self, v: u128) -> sval1_lib::stream::Result {
-            self.0.u128(v).map_err(Error::into_sval1)?;
+        fn u64(&mut self, v: u64) -> sval1_lib::stream::Result {
+            self.0.u64(v).map_err(Error::into_sval1)?;
             Ok(())
         }
 
         fn i128(&mut self, v: i128) -> sval1_lib::stream::Result {
-            self.0.i128(v).map_err(Error::into_sval1)?;
+            self.0.i128(&v).map_err(Error::into_sval1)?;
+            Ok(())
+        }
+
+        fn u128(&mut self, v: u128) -> sval1_lib::stream::Result {
+            self.0.u128(&v).map_err(Error::into_sval1)?;
             Ok(())
         }
 
@@ -192,24 +207,18 @@ pub(crate) fn internal_visit<'v>(
             Ok(())
         }
 
-        fn char(&mut self, v: char) -> sval1_lib::stream::Result {
-            self.0.char(v).map_err(Error::into_sval1)?;
-            Ok(())
-        }
-
         fn bool(&mut self, v: bool) -> sval1_lib::stream::Result {
             self.0.bool(v).map_err(Error::into_sval1)?;
             Ok(())
         }
 
-        fn str(&mut self, s: &str) -> sval1_lib::stream::Result {
-            self.0.str(s).map_err(Error::into_sval1)?;
+        fn char(&mut self, v: char) -> sval1_lib::stream::Result {
+            self.0.char(v).map_err(Error::into_sval1)?;
             Ok(())
         }
 
-        #[cfg(feature = "error")]
-        fn error(&mut self, v: sval1_lib::stream::Source) -> sval1_lib::stream::Result {
-            self.0.error(v.get()).map_err(Error::into_sval1)?;
+        fn str(&mut self, s: &str) -> sval1_lib::stream::Result {
+            self.0.str(s).map_err(Error::into_sval1)?;
             Ok(())
         }
     }

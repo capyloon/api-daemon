@@ -77,7 +77,7 @@ impl Error {
     /// Format the existing message with the Command's context
     #[must_use]
     pub fn format(mut self, cmd: &mut Command) -> Self {
-        cmd._build();
+        cmd._build_self();
         let usage = cmd.render_usage();
         if let Some(message) = self.inner.message.as_mut() {
             message.format(cmd, usage);
@@ -386,9 +386,8 @@ impl Error {
             ])
     }
 
-    pub(crate) fn unrecognized_subcommand(cmd: &Command, subcmd: String, name: String) -> Self {
+    pub(crate) fn unrecognized_subcommand(cmd: &Command, subcmd: String, usage: String) -> Self {
         let info = vec![subcmd.clone()];
-        let usage = format!("USAGE:\n    {} <subcommands>", name);
         Self::new(ErrorKind::UnrecognizedSubcommand)
             .with_cmd(cmd)
             .set_info(info)

@@ -13,21 +13,39 @@
 edition = "2021"
 rust-version = "1.56"
 name = "ed25519"
-version = "1.4.1"
+version = "1.5.0"
 authors = ["RustCrypto Developers"]
-description = "Edwards Digital Signature Algorithm (EdDSA) over Curve25519 (as specified in RFC 8032)\nsupport library providing signature type definitions and PKCS#8 private key\ndecoding/encoding support\n"
+description = """
+Edwards Digital Signature Algorithm (EdDSA) over Curve25519 (as specified in RFC 8032)
+support library providing signature type definitions and PKCS#8 private key
+decoding/encoding support
+"""
 documentation = "https://docs.rs/ed25519"
 readme = "README.md"
-keywords = ["crypto", "curve25519", "ecc", "signature", "signing"]
-categories = ["cryptography", "no-std"]
+keywords = [
+    "crypto",
+    "curve25519",
+    "ecc",
+    "signature",
+    "signing",
+]
+categories = [
+    "cryptography",
+    "no-std",
+]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/signatures/tree/master/ed25519"
 resolver = "2"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
 [dependencies.pkcs8]
-version = "0.8"
+version = "0.9"
 optional = true
 
 [dependencies.serde]
@@ -48,6 +66,7 @@ default-features = false
 version = "1"
 optional = true
 default-features = false
+
 [dev-dependencies.bincode]
 version = "1"
 
@@ -65,5 +84,9 @@ features = ["std"]
 alloc = ["pkcs8/alloc"]
 default = ["std"]
 pem = ["pkcs8/pem"]
-serde_bytes = ["serde", "serde_bytes_crate", "std"]
+serde_bytes = [
+    "serde",
+    "serde_bytes_crate",
+    "std",
+]
 std = ["signature/std"]

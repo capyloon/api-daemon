@@ -12,19 +12,33 @@
 [package]
 edition = "2018"
 name = "value-bag"
-version = "1.0.0-alpha.8"
+version = "1.0.0-alpha.9"
 authors = ["Ashley Mannix <ashleymannix@live.com.au>"]
 build = "build.rs"
 exclude = [".github/*"]
 description = "Anonymous structured values"
 documentation = "https://docs.rs/value-bag"
 readme = "README.md"
-keywords = ["serialization", "no_std"]
-categories = ["encoding", "no-std"]
+keywords = [
+    "serialization",
+    "no_std",
+]
+categories = [
+    "encoding",
+    "no-std",
+]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/sval-rs/value-bag"
+
 [package.metadata.docs.rs]
-features = ["std", "error", "sval", "serde", "test"]
+features = [
+    "std",
+    "error",
+    "sval",
+    "serde",
+    "test",
+]
+
 [dependencies.ctor]
 version = "0.1"
 
@@ -51,6 +65,7 @@ features = ["fmt"]
 optional = true
 default-features = false
 package = "sval"
+
 [dev-dependencies.serde1_json]
 version = "1"
 package = "serde_json"
@@ -74,14 +89,24 @@ version = "0.2"
 
 [dev-dependencies.wasm-bindgen-test]
 version = "0.3"
+
 [build-dependencies.rustc]
 version = "0.9"
 package = "version_check"
 
 [features]
-error = ["std", "sval1_lib/std"]
+error = [
+    "std",
+    "sval1_lib/std",
+]
 serde = ["serde1"]
-serde1 = ["serde1_lib", "sval1_lib/serde1", "sval1_lib/alloc", "erased-serde1/alloc", "serde1_fmt"]
+serde1 = [
+    "serde1_lib",
+    "sval1_lib/serde1",
+    "sval1_lib/alloc",
+    "erased-serde1/alloc",
+    "serde1_fmt",
+]
 std = []
 sval = ["sval1"]
 sval1 = ["sval1_lib"]

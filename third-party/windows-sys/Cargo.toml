@@ -11,11 +11,12 @@
 
 [package]
 edition = "2018"
+rust-version = "1.46"
 name = "windows-sys"
-version = "0.34.0"
+version = "0.36.1"
 authors = ["Microsoft"]
 description = "Rust for Windows"
-readme = "../../../.github/readme.md"
+readme = "readme.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/microsoft/windows-rs"
 
@@ -650,7 +651,6 @@ Win32_System_SettingsManagementInfrastructure = ["Win32_System"]
 Win32_System_SetupAndMigration = ["Win32_System"]
 Win32_System_Shutdown = ["Win32_System"]
 Win32_System_SideShow = ["Win32_System"]
-Win32_System_SqlLite = ["Win32_System"]
 Win32_System_StationsAndDesktops = ["Win32_System"]
 Win32_System_SubsystemForLinux = ["Win32_System"]
 Win32_System_SystemInformation = ["Win32_System"]
@@ -722,31 +722,31 @@ default = []
 deprecated = []
 
 [target.aarch64-pc-windows-msvc.dependencies.windows_aarch64_msvc]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.aarch64-uwp-windows-msvc.dependencies.windows_aarch64_msvc]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.i686-pc-windows-gnu.dependencies.windows_i686_gnu]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.i686-pc-windows-msvc.dependencies.windows_i686_msvc]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.i686-uwp-windows-gnu.dependencies.windows_i686_gnu]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.i686-uwp-windows-msvc.dependencies.windows_i686_msvc]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.x86_64-pc-windows-gnu.dependencies.windows_x86_64_gnu]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.x86_64-pc-windows-msvc.dependencies.windows_x86_64_msvc]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.x86_64-uwp-windows-gnu.dependencies.windows_x86_64_gnu]
-version = "0.34.0"
+version = "0.36.1"
 
 [target.x86_64-uwp-windows-msvc.dependencies.windows_x86_64_msvc]
-version = "0.34.0"
+version = "0.36.1"

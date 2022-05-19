@@ -1277,6 +1277,8 @@ pub const IMAGE_REL_ARM_GPREL12: u16 = 0x0006;
 pub const IMAGE_REL_ARM_GPREL7: u16 = 0x0007;
 pub const IMAGE_REL_ARM_BLX24: u16 = 0x0008;
 pub const IMAGE_REL_ARM_BLX11: u16 = 0x0009;
+/// 32-bit relative address from byte following reloc
+pub const IMAGE_REL_ARM_REL32: u16 = 0x000A;
 /// Section table index
 pub const IMAGE_REL_ARM_SECTION: u16 = 0x000E;
 /// Offset within section
@@ -1348,6 +1350,10 @@ pub const IMAGE_REL_ARM64_SECTION: u16 = 0x000D;
 pub const IMAGE_REL_ARM64_ADDR64: u16 = 0x000E;
 /// 19 bit offset << 2 & sign ext. for conditional B
 pub const IMAGE_REL_ARM64_BRANCH19: u16 = 0x000F;
+/// TBZ/TBNZ
+pub const IMAGE_REL_ARM64_BRANCH14: u16 = 0x0010;
+/// 32-bit relative address from byte following reloc
+pub const IMAGE_REL_ARM64_REL32: u16 = 0x0011;
 
 //
 // x64 relocations
@@ -2001,7 +2007,6 @@ pub struct ImageResourceDirectory {
     pub minor_version: U16<LE>,
     pub number_of_named_entries: U16<LE>,
     pub number_of_id_entries: U16<LE>,
-    // DirectoryEntries[ImageResourceDirectoryEntry];
 }
 
 pub const IMAGE_RESOURCE_NAME_IS_STRING: u32 = 0x8000_0000;
@@ -2063,11 +2068,57 @@ pub struct ImageResourceDirStringU {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ImageResourceDataEntry {
+    /// RVA of the data.
     pub offset_to_data: U32<LE>,
     pub size: U32<LE>,
     pub code_page: U32<LE>,
     pub reserved: U32<LE>,
 }
+
+// Resource type: https://docs.microsoft.com/en-us/windows/win32/menurc/resource-types
+
+/// ID for: Hardware-dependent cursor resource.
+pub const RT_CURSOR: u16 = 1;
+/// ID for: Bitmap resource.
+pub const RT_BITMAP: u16 = 2;
+/// ID for: Hardware-dependent icon resource.
+pub const RT_ICON: u16 = 3;
+/// ID for: Menu resource.
+pub const RT_MENU: u16 = 4;
+/// ID for: Dialog box.
+pub const RT_DIALOG: u16 = 5;
+/// ID for: String-table entry.
+pub const RT_STRING: u16 = 6;
+/// ID for: Font directory resource.
+pub const RT_FONTDIR: u16 = 7;
+/// ID for: Font resource.
+pub const RT_FONT: u16 = 8;
+/// ID for: Accelerator table.
+pub const RT_ACCELERATOR: u16 = 9;
+/// ID for: Application-defined resource (raw data).
+pub const RT_RCDATA: u16 = 10;
+/// ID for: Message-table entry.
+pub const RT_MESSAGETABLE: u16 = 11;
+/// ID for: Hardware-independent cursor resource.
+pub const RT_GROUP_CURSOR: u16 = 12;
+/// ID for: Hardware-independent icon resource.
+pub const RT_GROUP_ICON: u16 = 14;
+/// ID for: Version resource.
+pub const RT_VERSION: u16 = 16;
+/// ID for: Allows a resource editing tool to associate a string with an .rc file.
+pub const RT_DLGINCLUDE: u16 = 17;
+/// ID for: Plug and Play resource.
+pub const RT_PLUGPLAY: u16 = 19;
+/// ID for: VXD.
+pub const RT_VXD: u16 = 20;
+/// ID for: Animated cursor.
+pub const RT_ANICURSOR: u16 = 21;
+/// ID for: Animated icon.
+pub const RT_ANIICON: u16 = 22;
+/// ID for: HTML resource.
+pub const RT_HTML: u16 = 23;
+/// ID for: Side-by-Side Assembly Manifest.
+pub const RT_MANIFEST: u16 = 24;
 
 //
 // Code Integrity in loadconfig (CI)

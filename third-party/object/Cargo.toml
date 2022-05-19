@@ -12,14 +12,25 @@
 [package]
 edition = "2018"
 name = "object"
-version = "0.28.3"
-exclude = ["/.github", "/testfiles"]
+version = "0.28.4"
+exclude = [
+    "/.github",
+    "/testfiles",
+]
 description = "A unified interface for reading and writing object file formats."
-keywords = ["object", "elf", "mach-o", "pe", "coff"]
-license = "Apache-2.0/MIT"
+keywords = [
+    "object",
+    "elf",
+    "mach-o",
+    "pe",
+    "coff",
+]
+license = "Apache-2.0 OR MIT"
 repository = "https://github.com/gimli-rs/object"
+
 [package.metadata.docs.rs]
 features = ["doc"]
+
 [dependencies.alloc]
 version = "1.0.0"
 optional = true
@@ -62,22 +73,73 @@ version = "0.57"
 optional = true
 
 [features]
-all = ["read", "write", "std", "compression", "wasm"]
+all = [
+    "read",
+    "write",
+    "std",
+    "compression",
+    "wasm",
+]
 archive = []
 cargo-all = []
 coff = []
-compression = ["flate2", "std"]
-default = ["read", "compression"]
-doc = ["read_core", "write_std", "std", "compression", "archive", "coff", "elf", "macho", "pe", "wasm"]
+compression = [
+    "flate2",
+    "std",
+]
+default = [
+    "read",
+    "compression",
+]
+doc = [
+    "read_core",
+    "write_std",
+    "std",
+    "compression",
+    "archive",
+    "coff",
+    "elf",
+    "macho",
+    "pe",
+    "wasm",
+]
 elf = []
 macho = []
 pe = ["coff"]
-read = ["read_core", "archive", "coff", "elf", "macho", "pe", "unaligned"]
+read = [
+    "read_core",
+    "archive",
+    "coff",
+    "elf",
+    "macho",
+    "pe",
+    "unaligned",
+]
 read_core = []
-rustc-dep-of-std = ["core", "compiler_builtins", "alloc", "memchr/rustc-dep-of-std"]
+rustc-dep-of-std = [
+    "core",
+    "compiler_builtins",
+    "alloc",
+    "memchr/rustc-dep-of-std",
+]
 std = ["memchr/std"]
 unaligned = []
 wasm = ["wasmparser"]
-write = ["write_std", "coff", "elf", "macho", "pe"]
-write_core = ["crc32fast", "indexmap", "hashbrown"]
-write_std = ["write_core", "std", "indexmap/std", "crc32fast/std"]
+write = [
+    "write_std",
+    "coff",
+    "elf",
+    "macho",
+    "pe",
+]
+write_core = [
+    "crc32fast",
+    "indexmap",
+    "hashbrown",
+]
+write_std = [
+    "write_core",
+    "std",
+    "indexmap/std",
+    "crc32fast/std",
+]

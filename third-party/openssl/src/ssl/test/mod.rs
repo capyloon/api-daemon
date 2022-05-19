@@ -13,7 +13,6 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
-use tempdir::TempDir;
 
 use crate::dh::Dh;
 use crate::error::ErrorStack;
@@ -864,6 +863,7 @@ fn tmp_dh_callback() {
 
 #[test]
 #[cfg(all(ossl101, not(ossl110)))]
+#[allow(deprecated)]
 fn tmp_ecdh_callback() {
     use crate::ec::EcKey;
     use crate::nid::Nid;
@@ -913,6 +913,7 @@ fn tmp_dh_callback_ssl() {
 
 #[test]
 #[cfg(all(ossl101, not(ossl110)))]
+#[allow(deprecated)]
 fn tmp_ecdh_callback_ssl() {
     use crate::ec::EcKey;
     use crate::nid::Nid;

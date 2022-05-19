@@ -30,3 +30,6 @@ hints_path = "/data/local/tmp/prochints.dat"
 [content_manager]
 storage_path = "/mnt/runtime/default/emulated/costaeres"
 metadata_cache_capacity = 250
+
+[dweb]
+storage_path = "/data/local/dweb"

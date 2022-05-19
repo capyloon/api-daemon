@@ -5,7 +5,7 @@
 //! without losing their original structure.
 
 #![cfg_attr(value_bag_capture_const_type_id, feature(const_type_id))]
-#![doc(html_root_url = "https://docs.rs/value-bag/1.0.0-alpha.8")]
+#![doc(html_root_url = "https://docs.rs/value-bag/1.0.0-alpha.9")]
 #![no_std]
 
 #[cfg(any(feature = "std", test))]
@@ -92,7 +92,7 @@ pub use self::error::Error;
 /// ```
 /// use value_bag::{ValueBag, fill::Slot};
 ///
-/// let value = ValueBag::from_fill(&|slot: &mut Slot| {
+/// let value = ValueBag::from_fill(&|slot: Slot| {
 ///     #[derive(Debug)]
 ///     struct MyShortLivedValue;
 ///
@@ -111,7 +111,7 @@ pub use self::error::Error;
 /// struct FillDebug;
 ///
 /// impl Fill for FillDebug {
-///     fn fill(&self, slot: &mut Slot) -> Result<(), Error> {
+///     fn fill(&self, slot: Slot) -> Result<(), Error> {
 ///         slot.fill_debug(&42i32 as &dyn Debug)
 ///     }
 /// }
@@ -355,10 +355,9 @@ pub struct ValueBag<'v> {
 
 impl<'v> ValueBag<'v> {
     /// Get a `ValueBag` from a reference to a `ValueBag`.
+    #[inline]
     pub fn by_ref<'u>(&'u self) -> ValueBag<'u> {
-        ValueBag {
-            inner: self.inner,
-        }
+        ValueBag { inner: self.inner }
     }
 }
 
@@ -370,14 +369,13 @@ mod tests {
     #[test]
     fn value_bag_size() {
         let size = mem::size_of::<ValueBag<'_>>();
-        let limit = mem::size_of::<u64>() * 6;
+        let limit = mem::size_of::<u64>() * 3;
 
         if size > limit {
             panic!(
-                "`ValueBag` size ({} bytes) is too large (expected up to {} bytes)\n`Primitive`: {} bytes\n`(`&dyn` + `TypeId`): {} bytes",
+                "`ValueBag` size ({} bytes) is too large (expected up to {} bytes)\n`(`&dyn` + `TypeId`): {} bytes",
                 size,
                 limit,
-                mem::size_of::<internal::Primitive<'_>>(),
                 mem::size_of::<(&dyn internal::fmt::Debug, crate::std::any::TypeId)>(),
             );
         }

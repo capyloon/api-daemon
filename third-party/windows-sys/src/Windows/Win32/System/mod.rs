@@ -1,4 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[cfg(feature = "Win32_System_AddressBook")]
 pub mod AddressBook;
 #[cfg(feature = "Win32_System_Antimalware")]
@@ -125,8 +124,6 @@ pub mod SetupAndMigration;
 pub mod Shutdown;
 #[cfg(feature = "Win32_System_SideShow")]
 pub mod SideShow;
-#[cfg(feature = "Win32_System_SqlLite")]
-pub mod SqlLite;
 #[cfg(feature = "Win32_System_StationsAndDesktops")]
 pub mod StationsAndDesktops;
 #[cfg(feature = "Win32_System_SubsystemForLinux")]

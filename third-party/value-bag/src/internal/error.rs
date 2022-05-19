@@ -1,6 +1,10 @@
-use crate::{fill::Slot, std::error, ValueBag};
+use crate::{
+    fill::Slot,
+    std::{any::Any, error},
+    ValueBag,
+};
 
-use super::{cast, Internal};
+use super::Internal;
 
 impl<'v> ValueBag<'v> {
     /// Get a value from an error.
@@ -9,27 +13,43 @@ impl<'v> ValueBag<'v> {
         T: error::Error + 'static,
     {
         ValueBag {
-            inner: Internal::Error {
-                value,
-                type_id: cast::type_id::<T>(),
-            },
+            inner: Internal::Error(value),
         }
     }
 
     /// Get a value from an erased value.
+    #[inline]
     pub fn from_dyn_error(value: &'v (dyn error::Error + 'static)) -> Self {
         ValueBag {
-            inner: Internal::AnonError { value },
+            inner: Internal::AnonError(value),
         }
     }
 
     /// Try get an error from this value.
+    #[inline]
     pub fn to_borrowed_error(&self) -> Option<&(dyn Error + 'static)> {
         match self.inner {
-            Internal::Error { value, .. } => Some(value),
-            Internal::AnonError { value } => Some(value),
+            Internal::Error(value) => Some(value.as_super()),
+            Internal::AnonError(value) => Some(value),
             _ => None,
         }
+    }
+}
+
+#[cfg(feature = "error")]
+pub(crate) trait DowncastError {
+    fn as_any(&self) -> &dyn Any;
+    fn as_super(&self) -> &(dyn error::Error + 'static);
+}
+
+#[cfg(feature = "error")]
+impl<T: error::Error + 'static> DowncastError for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_super(&self) -> &(dyn error::Error + 'static) {
+        self
     }
 }
 
@@ -37,11 +57,7 @@ impl<'s, 'f> Slot<'s, 'f> {
     /// Fill the slot with an error.
     ///
     /// The given value doesn't need to satisfy any particular lifetime constraints.
-    ///
-    /// # Panics
-    ///
-    /// Calling more than a single `fill` method on this slot will panic.
-    pub fn fill_error<T>(&mut self, value: T) -> Result<(), crate::Error>
+    pub fn fill_error<T>(self, value: T) -> Result<(), crate::Error>
     where
         T: error::Error + 'static,
     {
@@ -49,10 +65,7 @@ impl<'s, 'f> Slot<'s, 'f> {
     }
 
     /// Fill the slot with an error.
-    pub fn fill_dyn_error(
-        &mut self,
-        value: &(dyn error::Error + 'static),
-    ) -> Result<(), crate::Error> {
+    pub fn fill_dyn_error(self, value: &(dyn error::Error + 'static)) -> Result<(), crate::Error> {
         self.fill(|visitor| visitor.error(value))
     }
 }
