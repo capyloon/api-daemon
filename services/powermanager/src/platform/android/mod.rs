@@ -49,6 +49,14 @@ impl AndroidPowerManager {
     fn power_ctl(&mut self, reason: &str, cmd: u32) {
         debug!("Receive powerOff request {} ", reason);
 
+        // Set reboot reason.
+        if let Err(err) = AndroidProperties::set("persist.b2g.reboot.reason", "normal") {
+            error!(
+                "Failed to set persist.b2g.reboot.reason to normal : {:?}",
+                err
+            );
+        }
+
         // This invokes init's power_ctl builtin via /init.rc.
         if let Err(err) = AndroidProperties::set("sys.powerctl", reason) {
             error!("Failed to set sys.powerctl to '{}' : {:?}", reason, err);
