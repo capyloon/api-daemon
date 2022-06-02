@@ -871,13 +871,12 @@ impl ContentStoreMethods for ContentManagerService {
 
     fn visit(&mut self, responder: ContentStoreVisitResponder, id: String, visit: VisitPriority) {
         let state = self.state.clone();
-        let ucan = self.ucan.clone();
+        if !self.ucan.can_visit() {
+            responder.reject();
+            return;
+        }
         task::block_on(async {
             let resource_id = id.into();
-            if !Self::can_write_resource(state.clone(), &resource_id, &ucan).await {
-                responder.reject();
-                return;
-            }
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;

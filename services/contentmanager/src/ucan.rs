@@ -21,11 +21,13 @@ impl Att {
 // Read:   { "with": "vfs:///pictures/", "can": "vfs/READ" }
 // Write:  { "with": "vfs:///pictures/", "can": "vfs/WRITE" }
 // Search: { "with": "vfs://",           "can": "vfs/SEARCH" }
+// Visit:  { "with": "vfs://",           "can": "vfs/VISIT" }
 #[derive(Clone)]
 pub(crate) enum UcanCapability {
-    Read(String),  // Read access to a path:
+    Read(String),  // Read access to a path
     Write(String), // Write access to a path
     Search,        // Various search functions
+    Visit,         // Visit a resource
 }
 
 #[derive(Clone)]
@@ -46,6 +48,7 @@ impl UcanCapabilities {
                 superuser = true;
             } else {
                 let can_search = att.can == "vfs/SEARCH";
+                let can_visit = att.can == "vfs/VISIT";
                 let can_write = att.can == "vfs/WRITE";
                 let can_read = can_write || att.can == "vfs/READ";
                 let is_vfs = att.with.starts_with("vfs:///");
@@ -61,6 +64,9 @@ impl UcanCapabilities {
                 }
                 if can_search {
                     capabilities.push(UcanCapability::Search)
+                }
+                if can_visit {
+                    capabilities.push(UcanCapability::Visit)
                 }
             }
         }
@@ -96,7 +102,7 @@ impl UcanCapabilities {
             }
         }
         error!(
-            "{} (superuser={}) is missing vfs/READ permission for {}",
+            "{} (superuser={}) is missing vfs/READ capability for {}",
             self.identity, self.superuser, full_path
         );
         false
@@ -112,7 +118,7 @@ impl UcanCapabilities {
             }
         }
         error!(
-            "{} (superuser={}) is missing vfs/WRITE permission for {}",
+            "{} (superuser={}) is missing vfs/WRITE capability for {}",
             self.identity, self.superuser, full_path
         );
         false
@@ -130,7 +136,25 @@ impl UcanCapabilities {
             }
         }
         error!(
-            "{} (superuser={}) is missing vfs/SEARCH permission",
+            "{} (superuser={}) is missing vfs/SEARCH capability",
+            self.identity, self.superuser,
+        );
+        false
+    }
+
+    pub fn can_visit(&self) -> bool {
+        info!("UcanCapabilities can_visit");
+        if self.superuser {
+            return true;
+        }
+
+        for cap in &self.capabilities {
+            if let UcanCapability::Visit = cap {
+                return true;
+            }
+        }
+        error!(
+            "{} (superuser={}) is missing vfs/VISIT capability",
             self.identity, self.superuser,
         );
         false
