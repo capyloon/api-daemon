@@ -1,6 +1,5 @@
 /// UCAN Capabilities specific to the content manager.
 /// TODO: use the ucan-rs types?
-
 use log::{error, info};
 use serde::Deserialize;
 use ucan::ucan::Ucan;
@@ -19,12 +18,14 @@ impl Att {
 }
 
 // Capabilities set:
-// Read: { "with": "vfs:///pictures/", "can": "vfs/READ" }
-// Write: { "with": "vfs:///pictures/", "can": "vfs/WRITE" }
+// Read:   { "with": "vfs:///pictures/", "can": "vfs/READ" }
+// Write:  { "with": "vfs:///pictures/", "can": "vfs/WRITE" }
+// Search: { "with": "vfs://",           "can": "vfs/SEARCH" }
 #[derive(Clone)]
 pub(crate) enum UcanCapability {
     Read(String),  // Read access to a path:
     Write(String), // Write access to a path
+    Search,        // Various search functions
 }
 
 #[derive(Clone)]
@@ -44,6 +45,7 @@ impl UcanCapabilities {
             if att.is_superuser() {
                 superuser = true;
             } else {
+                let can_search = att.can == "vfs/SEARCH";
                 let can_write = att.can == "vfs/WRITE";
                 let can_read = can_write || att.can == "vfs/READ";
                 let is_vfs = att.with.starts_with("vfs:///");
@@ -56,6 +58,9 @@ impl UcanCapabilities {
                 }
                 if can_write {
                     capabilities.push(UcanCapability::Write(path.into()))
+                }
+                if can_search {
+                    capabilities.push(UcanCapability::Search)
                 }
             }
         }
@@ -109,6 +114,24 @@ impl UcanCapabilities {
         error!(
             "{} (superuser={}) is missing vfs/WRITE permission for {}",
             self.identity, self.superuser, full_path
+        );
+        false
+    }
+
+    pub fn can_search(&self) -> bool {
+        info!("UcanCapabilities can_search");
+        if self.superuser {
+            return true;
+        }
+
+        for cap in &self.capabilities {
+            if let UcanCapability::Search = cap {
+                return true;
+            }
+        }
+        error!(
+            "{} (superuser={}) is missing vfs/SEARCH permission",
+            self.identity, self.superuser,
         );
         false
     }

@@ -785,12 +785,12 @@ impl ContentStoreMethods for ContentManagerService {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
-        let ucan = self.ucan.clone();
+
+        if !self.ucan.can_search() {
+            responder.reject();
+            return;
+        }
         task::block_on(async {
-            if !Self::can_read_resource(state.clone(), &ROOT_ID, &ucan).await {
-                responder.reject();
-                return;
-            }
             match Self::search_task(state, &query, max_count, tag).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
@@ -808,12 +808,11 @@ impl ContentStoreMethods for ContentManagerService {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
-        let ucan = self.ucan.clone();
+        if !self.ucan.can_search() {
+            responder.reject();
+            return;
+        }
         task::block_on(async {
-            if !Self::can_read_resource(state.clone(), &ROOT_ID, &ucan).await {
-                responder.reject();
-                return;
-            }
             match Self::top_by_frecency_task(state, max_count).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
@@ -831,12 +830,11 @@ impl ContentStoreMethods for ContentManagerService {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
-        let ucan = self.ucan.clone();
+        if !self.ucan.can_search() {
+            responder.reject();
+            return;
+        }
         task::block_on(async {
-            if !Self::can_read_resource(state.clone(), &ROOT_ID, &ucan).await {
-                responder.reject();
-                return;
-            }
             match Self::last_modified_task(state, max_count).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
