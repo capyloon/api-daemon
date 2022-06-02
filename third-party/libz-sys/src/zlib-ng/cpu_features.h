@@ -6,6 +6,7 @@
 #ifndef CPU_FEATURES_H_
 #define CPU_FEATURES_H_
 
+#include "adler32_fold.h"
 #include "crc32_fold.h"
 
 #if defined(X86_FEATURES)
@@ -19,7 +20,7 @@
 #  include "arch/s390/s390_features.h"
 #endif
 
-extern void cpu_check_features();
+extern void cpu_check_features(void);
 
 /* adler32 */
 typedef uint32_t (*adler32_func)(uint32_t adler, const unsigned char *buf, size_t len);
@@ -47,6 +48,20 @@ extern uint32_t adler32_avx512_vnni(uint32_t adler, const unsigned char *buf, si
 extern uint32_t adler32_power8(uint32_t adler, const unsigned char* buf, size_t len);
 #endif
 
+/* adler32 folding */
+#ifdef X86_SSE42_ADLER32
+extern uint32_t adler32_fold_copy_sse42(uint32_t adler, uint8_t *dst, const uint8_t *src, size_t len);
+#endif
+#ifdef X86_AVX2_ADLER32
+extern uint32_t adler32_fold_copy_avx2(uint32_t adler, uint8_t *dst, const uint8_t *src, size_t len);
+#endif
+#ifdef X86_AVX512_ADLER32
+extern uint32_t adler32_fold_copy_avx512(uint32_t adler, uint8_t *dst, const uint8_t *src, size_t len);
+#endif
+#ifdef X86_AVX512VNNI_ADLER32
+extern uint32_t adler32_fold_copy_avx512_vnni(uint32_t adler, uint8_t *dst, const uint8_t *src, size_t len);
+#endif
+
 /* CRC32 folding */
 #ifdef X86_PCLMULQDQ_CRC
 extern uint32_t crc32_fold_reset_pclmulqdq(crc32_fold *crc);
@@ -70,6 +85,10 @@ extern uint8_t* chunkcopy_safe_sse2(uint8_t *out, uint8_t const *from, unsigned 
 extern uint8_t* chunkunroll_sse2(uint8_t *out, unsigned *dist, unsigned *len);
 extern uint8_t* chunkmemset_sse2(uint8_t *out, unsigned dist, unsigned len);
 extern uint8_t* chunkmemset_safe_sse2(uint8_t *out, unsigned dist, unsigned len, unsigned left);
+#endif
+#ifdef X86_SSE41
+extern uint8_t* chunkmemset_sse41(uint8_t *out, unsigned dist, unsigned len);
+extern uint8_t* chunkmemset_safe_sse41(uint8_t *out, unsigned dist, unsigned len, unsigned left);
 #endif
 #ifdef X86_AVX_CHUNKSET
 extern uint32_t chunksize_avx(void);
@@ -99,13 +118,13 @@ extern uint8_t* chunkmemset_safe_power8(uint8_t *out, unsigned dist, unsigned le
 /* CRC32 */
 typedef uint32_t (*crc32_func)(uint32_t crc32, const unsigned char * buf, uint64_t len);
 
-extern uint32_t crc32_byfour(uint32_t crc, const unsigned char *buf, uint64_t len);
+extern uint32_t crc32_braid(uint32_t crc, const unsigned char *buf, uint64_t len);
 #ifdef ARM_ACLE_CRC_HASH
 extern uint32_t crc32_acle(uint32_t crc, const unsigned char *buf, uint64_t len);
 #elif defined(POWER8_VSX_CRC32)
 extern uint32_t crc32_power8(uint32_t crc, const unsigned char *buf, uint64_t len);
 #elif defined(S390_CRC32_VX)
-extern uint32_t s390_crc32_vx(uint32_t crc, const unsigned char *buf, uint64_t len);
+extern uint32_t PREFIX(s390_crc32_vx)(uint32_t crc, const unsigned char *buf, uint64_t len);
 #endif
 
 /* compare256 */
@@ -120,12 +139,18 @@ extern uint32_t compare256_unaligned_32(const uint8_t *src0, const uint8_t *src1
 #if defined(UNALIGNED64_OK) && defined(HAVE_BUILTIN_CTZLL)
 extern uint32_t compare256_unaligned_64(const uint8_t *src0, const uint8_t *src1);
 #endif
+#endif
 #if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
-extern uint32_t compare256_unaligned_sse2(const uint8_t *src0, const uint8_t *src1);
+extern uint32_t compare256_sse2(const uint8_t *src0, const uint8_t *src1);
 #endif
 #if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
-extern uint32_t compare256_unaligned_avx2(const uint8_t *src0, const uint8_t *src1);
+extern uint32_t compare256_avx2(const uint8_t *src0, const uint8_t *src1);
 #endif
+#if defined(ARM_NEON) && defined(HAVE_BUILTIN_CTZLL)
+extern uint32_t compare256_neon(const uint8_t *src0, const uint8_t *src1);
+#endif
+#ifdef POWER9
+extern uint32_t compare256_power9(const uint8_t *src0, const uint8_t *src1);
 #endif
 
 #ifdef DEFLATE_H_
@@ -147,12 +172,18 @@ extern uint32_t longest_match_unaligned_32(deflate_state *const s, Pos cur_match
 #if defined(UNALIGNED64_OK) && defined(HAVE_BUILTIN_CTZLL)
 extern uint32_t longest_match_unaligned_64(deflate_state *const s, Pos cur_match);
 #endif
+#endif
 #if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
-extern uint32_t longest_match_unaligned_sse2(deflate_state *const s, Pos cur_match);
+extern uint32_t longest_match_sse2(deflate_state *const s, Pos cur_match);
 #endif
 #if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
-extern uint32_t longest_match_unaligned_avx2(deflate_state *const s, Pos cur_match);
+extern uint32_t longest_match_avx2(deflate_state *const s, Pos cur_match);
 #endif
+#if defined(ARM_NEON) && defined(HAVE_BUILTIN_CTZLL)
+extern uint32_t longest_match_neon(deflate_state *const s, Pos cur_match);
+#endif
+#ifdef POWER9
+extern uint32_t longest_match_power9(deflate_state *const s, Pos cur_match);
 #endif
 
 /* longest_match_slow */
@@ -163,12 +194,18 @@ extern uint32_t longest_match_slow_unaligned_32(deflate_state *const s, Pos cur_
 #ifdef UNALIGNED64_OK
 extern uint32_t longest_match_slow_unaligned_64(deflate_state *const s, Pos cur_match);
 #endif
+#endif
 #if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
-extern uint32_t longest_match_slow_unaligned_sse2(deflate_state *const s, Pos cur_match);
+extern uint32_t longest_match_slow_sse2(deflate_state *const s, Pos cur_match);
 #endif
 #if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
-extern uint32_t longest_match_slow_unaligned_avx2(deflate_state *const s, Pos cur_match);
+extern uint32_t longest_match_slow_avx2(deflate_state *const s, Pos cur_match);
 #endif
+#if defined(ARM_NEON) && defined(HAVE_BUILTIN_CTZLL)
+extern uint32_t longest_match_slow_neon(deflate_state *const s, Pos cur_match);
+#endif
+#ifdef POWER9
+extern uint32_t longest_match_slow_power9(deflate_state *const s, Pos cur_match);
 #endif
 
 /* quick_insert_string */

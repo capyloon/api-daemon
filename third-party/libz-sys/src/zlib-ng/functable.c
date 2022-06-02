@@ -5,7 +5,7 @@
 
 #include "zbuild.h"
 #include "zendian.h"
-#include "crc32_p.h"
+#include "crc32_braid_p.h"
 #include "deflate.h"
 #include "deflate_p.h"
 
@@ -106,16 +106,24 @@ Z_INTERNAL uint32_t longest_match_stub(deflate_state *const s, Pos cur_match) {
 #  else
     functable.longest_match = &longest_match_unaligned_16;
 #  endif
-#  if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
-    if (x86_cpu_has_sse2)
-        functable.longest_match = &longest_match_unaligned_sse2;
-#  endif
-#  if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
-    if (x86_cpu_has_avx2)
-        functable.longest_match = &longest_match_unaligned_avx2;
-#  endif
 #else
     functable.longest_match = &longest_match_c;
+#endif
+#if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
+    if (x86_cpu_has_sse2)
+        functable.longest_match = &longest_match_sse2;
+#endif
+#if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
+    if (x86_cpu_has_avx2)
+        functable.longest_match = &longest_match_avx2;
+#endif
+#if defined(ARM_NEON) && defined(HAVE_BUILTIN_CTZLL)
+    if (arm_cpu_has_neon)
+        functable.longest_match = &longest_match_neon;
+#endif
+#ifdef POWER9
+    if (power_cpu_has_arch_3_00)
+        functable.longest_match = &longest_match_power9;
 #endif
 
     return functable.longest_match(s, cur_match);
@@ -131,16 +139,24 @@ Z_INTERNAL uint32_t longest_match_slow_stub(deflate_state *const s, Pos cur_matc
 #  else
     functable.longest_match_slow = &longest_match_slow_unaligned_16;
 #  endif
-#  if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
-    if (x86_cpu_has_sse2)
-        functable.longest_match_slow = &longest_match_slow_unaligned_sse2;
-#  endif
-#  if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
-    if (x86_cpu_has_avx2)
-        functable.longest_match_slow = &longest_match_slow_unaligned_avx2;
-#  endif
 #else
     functable.longest_match_slow = &longest_match_slow_c;
+#endif
+#if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
+    if (x86_cpu_has_sse2)
+        functable.longest_match_slow = &longest_match_slow_sse2;
+#endif
+#if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
+    if (x86_cpu_has_avx2)
+        functable.longest_match_slow = &longest_match_slow_avx2;
+#endif
+#if defined(ARM_NEON) && defined(HAVE_BUILTIN_CTZLL)
+    if (arm_cpu_has_neon)
+        functable.longest_match_slow = &longest_match_slow_neon;
+#endif
+#ifdef POWER9
+    if (power_cpu_has_arch_3_00)
+        functable.longest_match_slow = &longest_match_slow_power9;
 #endif
 
     return functable.longest_match_slow(s, cur_match);
@@ -186,6 +202,27 @@ Z_INTERNAL uint32_t adler32_stub(uint32_t adler, const unsigned char *buf, size_
     return functable.adler32(adler, buf, len);
 }
 
+Z_INTERNAL uint32_t adler32_fold_copy_stub(uint32_t adler, uint8_t *dst, const uint8_t *src, size_t len) {
+    functable.adler32_fold_copy = &adler32_fold_copy_c;
+#if (defined X86_SSE42_ADLER32)
+    if (x86_cpu_has_sse42)
+        functable.adler32_fold_copy = &adler32_fold_copy_sse42;
+#endif
+#ifdef X86_AVX2_ADLER32
+    if (x86_cpu_has_avx2)
+        functable.adler32_fold_copy = &adler32_fold_copy_avx2;
+#endif
+#ifdef X86_AVX512_ADLER32
+    if (x86_cpu_has_avx512)
+        functable.adler32_fold_copy = &adler32_fold_copy_avx512;
+#endif
+#ifdef X86_AVX512VNNI_ADLER32
+    if (x86_cpu_has_avx512vnni)
+        functable.adler32_fold_copy = &adler32_fold_copy_avx512_vnni;
+#endif
+    return functable.adler32_fold_copy(adler, dst, src, len);
+}
+
 Z_INTERNAL uint32_t crc32_fold_reset_stub(crc32_fold *crc) {
     functable.crc32_fold_reset = &crc32_fold_reset_c;
     cpu_check_features();
@@ -204,6 +241,16 @@ Z_INTERNAL void crc32_fold_copy_stub(crc32_fold *crc, uint8_t *dst, const uint8_
         functable.crc32_fold_copy = &crc32_fold_copy_pclmulqdq;
 #endif
     functable.crc32_fold_copy(crc, dst, src, len);
+}
+
+Z_INTERNAL void crc32_fold_stub(crc32_fold *crc, const uint8_t *src, size_t len, uint32_t init_crc) {
+    functable.crc32_fold = &crc32_fold_c;
+    cpu_check_features();
+#ifdef X86_PCLMULQDQ_CRC
+    if (x86_cpu_has_pclmulqdq)
+        functable.crc32_fold = &crc32_fold_pclmulqdq;
+#endif
+    functable.crc32_fold(crc, src, len, init_crc);
 }
 
 Z_INTERNAL uint32_t crc32_fold_final_stub(crc32_fold *crc) {
@@ -305,6 +352,10 @@ Z_INTERNAL uint8_t* chunkmemset_stub(uint8_t *out, unsigned dist, unsigned len) 
 # endif
         functable.chunkmemset = &chunkmemset_sse2;
 #endif
+#if defined(X86_SSE41) && defined(X86_SSE2)
+    if (x86_cpu_has_sse41)
+        functable.chunkmemset = &chunkmemset_sse41;
+#endif
 #ifdef X86_AVX_CHUNKSET
     if (x86_cpu_has_avx2)
         functable.chunkmemset = &chunkmemset_avx;
@@ -332,6 +383,10 @@ Z_INTERNAL uint8_t* chunkmemset_safe_stub(uint8_t *out, unsigned dist, unsigned 
 # endif
         functable.chunkmemset_safe = &chunkmemset_safe_sse2;
 #endif
+#if defined(X86_SSE41) && defined(X86_SSE2)
+    if (x86_cpu_has_sse41)
+        functable.chunkmemset_safe = &chunkmemset_safe_sse41;
+#endif
 #ifdef X86_AVX_CHUNKSET
     if (x86_cpu_has_avx2)
         functable.chunkmemset_safe = &chunkmemset_safe_avx;
@@ -352,7 +407,7 @@ Z_INTERNAL uint32_t crc32_stub(uint32_t crc, const unsigned char *buf, uint64_t 
     Assert(sizeof(uint64_t) >= sizeof(size_t),
            "crc32_z takes size_t but internally we have a uint64_t len");
 
-    functable.crc32 = &crc32_byfour;
+    functable.crc32 = &crc32_braid;
     cpu_check_features();
 #ifdef ARM_ACLE_CRC_HASH
     if (arm_cpu_has_crc32)
@@ -361,8 +416,8 @@ Z_INTERNAL uint32_t crc32_stub(uint32_t crc, const unsigned char *buf, uint64_t 
     if (power_cpu_has_arch_2_07)
         functable.crc32 = &crc32_power8;
 #elif defined(S390_CRC32_VX)
-    if (s390_cpu_has_vx)
-        functable.crc32 = &s390_crc32_vx;
+    if (PREFIX(s390_cpu_has_vx))
+        functable.crc32 = &PREFIX(s390_crc32_vx);
 #elif defined(X86_PCLMULQDQ_CRC)
     if (x86_cpu_has_pclmulqdq)
         functable.crc32 = &crc32_pclmulqdq;
@@ -381,16 +436,20 @@ Z_INTERNAL uint32_t compare256_stub(const uint8_t *src0, const uint8_t *src1) {
 #  else
     functable.compare256 = &compare256_unaligned_16;
 #  endif
-#  if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
-    if (x86_cpu_has_sse2)
-        functable.compare256 = &compare256_unaligned_sse2;
-#  endif
-#  if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
-    if (x86_cpu_has_avx2)
-        functable.compare256 = &compare256_unaligned_avx2;
-#  endif
 #else
     functable.compare256 = &compare256_c;
+#endif
+#if defined(X86_SSE2) && defined(HAVE_BUILTIN_CTZ)
+    if (x86_cpu_has_sse2)
+        functable.compare256 = &compare256_sse2;
+#endif
+#if defined(X86_AVX2) && defined(HAVE_BUILTIN_CTZ)
+    if (x86_cpu_has_avx2)
+        functable.compare256 = &compare256_avx2;
+#endif
+#ifdef POWER9
+    if (power_cpu_has_arch_3_00)
+        functable.compare256 = &compare256_power9;
 #endif
 
     return functable.compare256(src0, src1);
@@ -399,9 +458,11 @@ Z_INTERNAL uint32_t compare256_stub(const uint8_t *src0, const uint8_t *src1) {
 /* functable init */
 Z_INTERNAL Z_TLS struct functable_s functable = {
     adler32_stub,
+    adler32_fold_copy_stub,
     crc32_stub,
     crc32_fold_reset_stub,
     crc32_fold_copy_stub,
+    crc32_fold_stub,
     crc32_fold_final_stub,
     compare256_stub,
     chunksize_stub,

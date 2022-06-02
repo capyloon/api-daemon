@@ -534,6 +534,7 @@ where
 
     /// Access the weight for node `a`.
     ///
+    /// If node `a` doesn't exist in the graph, return `None`.
     /// Also available with indexing syntax: `&graph[a]`.
     pub fn node_weight(&self, a: NodeIndex<Ix>) -> Option<&N> {
         self.nodes.get(a.index()).map(|n| &n.weight)
@@ -541,6 +542,7 @@ where
 
     /// Access the weight for node `a`, mutably.
     ///
+    /// If node `a` doesn't exist in the graph, return `None`.
     /// Also available with indexing syntax: `&mut graph[a]`.
     pub fn node_weight_mut(&mut self, a: NodeIndex<Ix>) -> Option<&mut N> {
         self.nodes.get_mut(a.index()).map(|n| &mut n.weight)
@@ -593,7 +595,7 @@ where
     /// Computes in **O(e')** time, where **e'** is the number of edges
     /// connected to `a` (and `b`, if the graph edges are undirected).
     ///
-    /// **Panics** if any of the nodes don't exist.
+    /// **Panics** if any of the nodes doesn't exist.
     pub fn update_edge(&mut self, a: NodeIndex<Ix>, b: NodeIndex<Ix>, weight: E) -> EdgeIndex<Ix> {
         if let Some(ix) = self.find_edge(a, b) {
             if let Some(ed) = self.edge_weight_mut(ix) {
@@ -606,6 +608,7 @@ where
 
     /// Access the weight for edge `e`.
     ///
+    /// If edge `e` doesn't exist in the graph, return `None`.
     /// Also available with indexing syntax: `&graph[e]`.
     pub fn edge_weight(&self, e: EdgeIndex<Ix>) -> Option<&E> {
         self.edges.get(e.index()).map(|ed| &ed.weight)
@@ -613,12 +616,15 @@ where
 
     /// Access the weight for edge `e`, mutably.
     ///
+    /// If edge `e` doesn't exist in the graph, return `None`.
     /// Also available with indexing syntax: `&mut graph[e]`.
     pub fn edge_weight_mut(&mut self, e: EdgeIndex<Ix>) -> Option<&mut E> {
         self.edges.get_mut(e.index()).map(|ed| &mut ed.weight)
     }
 
     /// Access the source and target nodes for `e`.
+    ///
+    /// If edge `e` doesn't exist in the graph, return `None`.
     pub fn edge_endpoints(&self, e: EdgeIndex<Ix>) -> Option<(NodeIndex<Ix>, NodeIndex<Ix>)> {
         self.edges
             .get(e.index())

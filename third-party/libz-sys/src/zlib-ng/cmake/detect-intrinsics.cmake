@@ -40,7 +40,7 @@ macro(check_avx512_intrinsics)
             endif()
         endif()
     elseif(MSVC)
-        set(AVX512FLAG "/ARCH:AVX512")
+        set(AVX512FLAG "/arch:AVX512")
     endif()
     # Check whether compiler supports AVX512 intrinsics
     set(CMAKE_REQUIRED_FLAGS "${AVX512FLAG} ${NATIVEFLAG}")
@@ -78,7 +78,7 @@ macro(check_avx512vnni_intrinsics)
         if(CMAKE_HOST_UNIX OR APPLE)
             set(AVX512VNNIFLAG "-mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vnni")
         else()
-            set(AVX512VNNIFLAG "/ARCH:AVX512")
+            set(AVX512VNNIFLAG "/arch:AVX512")
         endif()
     elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
         if(NOT NATIVEFLAG)
@@ -88,7 +88,7 @@ macro(check_avx512vnni_intrinsics)
             endif()
         endif()
     elseif(MSVC)
-        set(AVX512VNNIFLAG "/ARCH:AVX512")
+        set(AVX512VNNIFLAG "/arch:AVX512")
     endif()
 
     # Check whether compiler supports AVX512vnni intrinsics
@@ -167,7 +167,7 @@ macro(check_neon_ld4_intrinsics)
             endif()
         endif()
     endif()
-    # Check whether compiler supports loading 4 neon vecs into a register range 
+    # Check whether compiler supports loading 4 neon vecs into a register range
     set(CMAKE_REQUIRED_FLAGS "${NEONFLAG}")
     check_c_source_compiles(
         "#ifdef _M_ARM64
@@ -302,6 +302,33 @@ macro(check_power8_intrinsics)
             return (getauxval(AT_HWCAP2) & PPC_FEATURE2_ARCH_2_07);
         }"
         HAVE_POWER8_INTRIN
+    )
+    set(CMAKE_REQUIRED_FLAGS)
+endmacro()
+
+macro(check_s390_intrinsics)
+    check_c_source_compiles(
+        "#include <sys/auxv.h>
+        int main() {
+            return (getauxval(AT_HWCAP) & HWCAP_S390_VX);
+        }"
+        HAVE_S390_INTRIN
+    )
+endmacro()
+
+macro(check_power9_intrinsics)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+        if(NOT NATIVEFLAG)
+            set(POWER9FLAG "-mcpu=power9")
+        endif()
+    endif()
+    # Check if we have what we need for POWER9 optimizations
+    set(CMAKE_REQUIRED_FLAGS "${POWER9FLAG} ${NATIVEFLAG}")
+    check_c_source_compiles(
+        "int main() {
+            return 0;
+        }"
+        HAVE_POWER9_INTRIN
     )
     set(CMAKE_REQUIRED_FLAGS)
 endmacro()

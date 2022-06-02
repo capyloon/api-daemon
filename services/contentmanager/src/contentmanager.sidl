@@ -72,11 +72,13 @@ callback ModificationObserver {
 
 #[rust:not-tracked]
 interface ContentStore {
+    // Present the UCAN token received from the dweb service.
+    // The capabilities granted will decide what operations and
+    // resource access are allowed.
+    fn with_ucan(token: str)
+
     // Get a hold to the root of the resource tree.
     fn get_root() -> Metadata
-
-    // Retrieve resources for a set of ids.
-    fn by_ids(ids: str+) -> MetadataCursor
 
     // Retrieve the resources that are children of the given id.
     // This is not recursive.
@@ -158,5 +160,5 @@ interface ContentStore {
     fn copy_resource(source: str, target: str) -> Metadata
 }
 
-#[rust:shared-tracker,permission=content-manager]
+#[rust:shared-tracker]
 service ContentManager: ContentStore

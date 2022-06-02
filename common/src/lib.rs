@@ -23,6 +23,7 @@ pub mod tokens;
 #[macro_use]
 pub mod traits;
 pub mod observers;
+pub mod ucan;
 
 pub use bincode::Error as BincodeError;
 

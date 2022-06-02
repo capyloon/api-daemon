@@ -336,6 +336,11 @@ where
         self.sift_up(0, old_len);
     }
 
+    /// Returns the underlying ```Vec<T,N>```. Order is arbitrary and time is O(1).
+    pub fn into_vec(self) -> Vec<T, N> {
+        self.data
+    }
+
     /* Private API */
     fn sift_down_to_bottom(&mut self, mut pos: usize) {
         let end = self.len();
@@ -606,6 +611,26 @@ mod tests {
             v.push(Droppable::new()).ok().unwrap();
             v.push(Droppable::new()).ok().unwrap();
         }
+
+        assert_eq!(Droppable::count(), 0);
+    }
+
+    #[test]
+    fn into_vec() {
+        droppable!();
+
+        let mut h: BinaryHeap<Droppable, Max, 2> = BinaryHeap::new();
+        h.push(Droppable::new()).ok().unwrap();
+        h.push(Droppable::new()).ok().unwrap();
+        h.pop().unwrap();
+
+        assert_eq!(Droppable::count(), 1);
+
+        let v = h.into_vec();
+
+        assert_eq!(Droppable::count(), 1);
+
+        core::mem::drop(v);
 
         assert_eq!(Droppable::count(), 0);
     }

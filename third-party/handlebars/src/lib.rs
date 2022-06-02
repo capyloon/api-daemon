@@ -1,4 +1,4 @@
-#![doc(html_root_url = "https://docs.rs/handlebars/4.2.2")]
+#![doc(html_root_url = "https://docs.rs/handlebars/4.3.0")]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //! # Handlebars
 //!
@@ -375,13 +375,8 @@
 #[macro_use]
 extern crate log;
 
-#[cfg(test)]
-#[macro_use]
-extern crate maplit;
 #[macro_use]
 extern crate pest_derive;
-#[macro_use]
-extern crate quick_error;
 #[cfg(test)]
 #[macro_use]
 extern crate serde_derive;

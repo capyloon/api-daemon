@@ -11,8 +11,9 @@
 
 [package]
 edition = "2021"
+rust-version = "1.57"
 name = "handlebars"
-version = "4.2.2"
+version = "4.3.0"
 authors = ["Ning Sun <sunng@pm.me>"]
 description = "Handlebars templating implemented in Rust."
 homepage = "https://github.com/sunng87/handlebars-rust"
@@ -63,11 +64,8 @@ version = "2.1.0"
 [dependencies.pest_derive]
 version = "2.1.0"
 
-[dependencies.quick-error]
-version = "2.0"
-
 [dependencies.rhai]
-version = "1"
+version = "1.6"
 features = [
     "sync",
     "serde",
@@ -84,6 +82,9 @@ version = "1.0.0"
 [dependencies.serde_json]
 version = "1.0.39"
 
+[dependencies.thiserror]
+version = "1"
+
 [dependencies.walkdir]
 version = "2.2.3"
 optional = true
@@ -93,9 +94,6 @@ version = "0.3"
 
 [dev-dependencies.env_logger]
 version = "0.9"
-
-[dev-dependencies.maplit]
-version = "1.0.0"
 
 [dev-dependencies.serde_derive]
 version = "1.0.75"
@@ -121,10 +119,10 @@ no_logging = []
 script_helper = ["rhai"]
 
 [target."cfg(unix)".dev-dependencies.pprof]
-version = "0.7"
+version = "0.9"
 features = [
     "flamegraph",
-    "protobuf",
+    "prost-codec",
 ]
 
 [badges.maintenance]

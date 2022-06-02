@@ -32,13 +32,20 @@ impl DidStorage {
         let dids = {
             if let Ok(file) = File::open(&path) {
                 let dids: Vec<SerdeDid> = serde_json::from_reader(file).unwrap_or_else(|_| vec![]);
-                dids.into_iter().map(|item| Did::from(item)).collect()
+                dids.into_iter().map(Did::from).collect()
             } else {
                 vec![]
             }
         };
 
-        Self { path, dids }
+        let mut res = Self { path, dids };
+
+        // Create a default super user.
+        if res.dids.is_empty() {
+            res.add(&Did::superuser());
+        }
+
+        res
     }
 
     pub fn add(&mut self, did: &Did) -> bool {
@@ -59,14 +66,20 @@ impl DidStorage {
     pub fn remove(&mut self, uri: &str) -> bool {
         let position = &self.dids.iter().position(|item| item.uri() == uri);
         if let Some(index) = position {
-            self.dids.swap_remove(*index);
-            return true;
+            if self.dids[*index].removable {
+                self.dids.swap_remove(*index);
+                return true;
+            }
         }
-        return false;
+        false
     }
 
     pub fn get_all(&self) -> Vec<SidlDid> {
         self.dids.iter().map(|item| item.into()).collect()
+    }
+
+    pub fn by_name(&self, name: &str) -> Option<Did> {
+        self.dids.iter().find(|item| item.name == name).cloned()
     }
 
     pub fn save(&self) -> Result<(), std::io::Error> {

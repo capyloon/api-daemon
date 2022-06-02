@@ -100,7 +100,7 @@
 #  define ZSWAP32(q) _byteswap_ulong(q)
 #  define ZSWAP64(q) _byteswap_uint64(q)
 
-#elif defined(__Clang__) || (defined(__GNUC__) && \
+#elif defined(__clang__) || (defined(__GNUC__) && \
         (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
 #  define ZSWAP16(q) __builtin_bswap16(q)
 #  define ZSWAP32(q) __builtin_bswap32(q)
@@ -144,7 +144,7 @@
 #endif
 
 /* Only enable likely/unlikely if the compiler is known to support it */
-#if (defined(__GNUC__) && (__GNUC__ >= 3)) || defined(__INTEL_COMPILER) || defined(__Clang__)
+#if (defined(__GNUC__) && (__GNUC__ >= 3)) || defined(__INTEL_COMPILER) || defined(__clang__)
 #  define LIKELY_NULL(x)        __builtin_expect((x) != 0, 0)
 #  define LIKELY(x)             __builtin_expect(!!(x), 1)
 #  define UNLIKELY(x)           __builtin_expect(!!(x), 0)
@@ -244,6 +244,13 @@
 #  define zmemcmp_4(str1, str2) memcmp(str1, str2, 4)
 #  define zmemcpy_8(dest, src)  memcpy(dest, src, 8)
 #  define zmemcmp_8(str1, str2) memcmp(str1, str2, 8)
+#endif
+
+#if defined(__has_feature)
+#  if __has_feature(memory_sanitizer)
+#    define Z_MEMORY_SANITIZER 1
+#    include <sanitizer/msan_interface.h>
+#  endif
 #endif
 
 #endif

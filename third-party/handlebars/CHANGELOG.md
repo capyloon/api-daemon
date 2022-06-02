@@ -1,5 +1,16 @@
 # Change Log
 
+## [4.3.0](https://github.com/sunng87/handlebars-rust/compare/4.2.2...4.3.0) - 2022-05-18
+
+* [Changed] update MSRV to 1.57 as rhai requires
+* [Fixed] Reimplemented indent support for partial expression `{{>
+  partial}}`, which is introduced in 4.2.0. The new implementation is
+  aligned with original javascript version, that every text line
+  generated from partial are indented as `{{> partial}}`
+  does. `prevent_indent` will turn-off this feature. [#505]
+* [Changed] changed error support library from quick_error to
+  thiserror
+
 ## [4.2.2](https://github.com/sunng87/handlebars-rust/compare/4.2.1...4.2.2) - 2022-03-09
 
 * [Fixed] Block param scope leaked into partials [#496]

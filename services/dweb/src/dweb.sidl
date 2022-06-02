@@ -14,8 +14,39 @@ enum DidError {
     InternalError
 }
 
+enum UcanError {
+    NoUiProvider
+    InternalError
+    InvalidAudience
+    UiCancel
+}
+
+dictionary Capability {
+    scope: url
+    action: str
+}
+
+dictionary GrantedCapabilities {
+    issuer: Did
+    capabilities: Capability*
+    not_before: date
+    expiration: date
+}
+
+dictionary RequestedCapabilities {
+    url: url                  // The url of the calling page.
+    audience: str             // Caller DID
+    capabilities: Capability+ // The set of requested capabilities
+}
+
+callback UcanProvider {
+    fn grant_capabilities(capabilities: RequestedCapabilities) -> GrantedCapabilities
+}
+
 #[rust:not-tracked]
 interface Dweb {
+    // DID related features.
+
     // Get all current managed DIDs. If none are present, returns an empty array.
     // Will reject only when encountering an internal error.
     fn get_dids() -> Did*, DidError
@@ -28,6 +59,20 @@ interface Dweb {
 
     event didcreated -> Did
     event didremoved -> str // The uri of the removed DID
+
+    // UCAN related features.
+
+    // Hook up the UI implementation. This requires the 'dweb' permission
+    // and can only be called once.
+    fn set_ucan_ui(provider: UcanProvider)
+
+    // Returns a base64 form of the token. This will trigger the UI to
+    // let the user chose the issuer and capabilities.
+    // The 'capabilities' parameter describes the set of requested capabilities.
+    fn request_capabilities(audience: str, capabilities: Capability+) -> str, UcanError
+
+    // For core apps, return a "superuser" token.
+    fn request_superuser() -> str, UcanError
 }
 
 #[permission=dweb]

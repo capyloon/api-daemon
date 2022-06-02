@@ -1,10 +1,26 @@
+Version 0.6.2 (2022-05-28)
+==========================
+
+- Loosed the strict version dependency set in `493`_, to allow users to use newer versions of indexmap  (`495`_).
+
+.. _`#495`: https://github.com/petgraph/petgraph/issues/493
+
+Version 0.6.1 (2022-05-22)
+==========================
+
+- Added clarifications on Graph docs (`491`_).
+- Fix build errors on rust 1.41 (`493`_).
+
+.. _`#491`: https://github.com/petgraph/petgraph/issues/491
+.. _`#493`: https://github.com/petgraph/petgraph/issues/493
+
 Version 0.6.0 (2021-07-04)
 ==========================
 
 Breaking changes
 ----------------
 
-- MSRV is now 1.14 (`#444`_).
+- MSRV is now 1.41 (`#444`_).
 - Removed the ``NodeCompactIndexable`` trait impl for ``MatrixGraph`` (`#429`_).
 - The ``IntoEdges::edges`` implementations are now required return edges with the passed node as source (`#433`_).
 

@@ -59,13 +59,15 @@ endif()
 
 # Make sure we use an appropriate BUILD_TYPE by default, "Release" to be exact
 # this should select the maximum generic optimisation on the current platform (i.e. -O3 for gcc/clang)
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING
-        "Choose the type of build, standard options are: Debug Release RelWithDebInfo MinSizeRel."
-        FORCE)
-    add_feature_info(CMAKE_BUILD_TYPE 1 "Build type: ${CMAKE_BUILD_TYPE} (default)")
-else()
-    add_feature_info(CMAKE_BUILD_TYPE 1 "Build type: ${CMAKE_BUILD_TYPE} (selected)")
+if(NOT GENERATOR_IS_MULTI_CONFIG)
+    if(NOT CMAKE_BUILD_TYPE)
+        set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+            "Choose the type of build, standard options are: Debug Release RelWithDebInfo MinSizeRel."
+            FORCE)
+        add_feature_info(CMAKE_BUILD_TYPE 1 "Build type: ${CMAKE_BUILD_TYPE} (default)")
+    else()
+        add_feature_info(CMAKE_BUILD_TYPE 1 "Build type: ${CMAKE_BUILD_TYPE} (selected)")
+    endif()
 endif()
 
 #
@@ -103,6 +105,7 @@ if(BASEARCH_ARM_FOUND)
 elseif(BASEARCH_PPC_FOUND)
     option(WITH_ALTIVEC "Build with AltiVec (VMX) optimisations for PowerPC" ON)
     option(WITH_POWER8 "Build with optimisations for POWER8" ON)
+    option(WITH_POWER9 "Build with optimisations for POWER9" ON)
 elseif(BASEARCH_S360_FOUND)
     option(WITH_DFLTCC_DEFLATE "Build with DFLTCC intrinsics for compression on IBM Z" OFF)
     option(WITH_DFLTCC_INFLATE "Build with DFLTCC intrinsics for decompression on IBM Z" OFF)
@@ -136,6 +139,7 @@ mark_as_advanced(FORCE
     WITH_PCLMULQDQ
     WITH_ALTIVEC
     WITH_POWER8
+    WITH_POWER9
     WITH_INFLATE_STRICT
     WITH_INFLATE_ALLOW_INVALID_DIST
     WITH_UNALIGNED
@@ -249,6 +253,15 @@ else()
     endif()
 endif()
 
+# Disable LTO
+if(NOT WITH_NATIVE_INSTRUCTIONS)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
+    foreach(_cfg_name IN LISTS CMAKE_CONFIGURATION_TYPES)
+        string(TOUPPER "${_cfg_name}" _cfg_name_uc)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_${_cfg_name_uc} OFF)
+    endforeach()
+endif()
+
 # Set architecture alignment requirements
 if(NOT WITH_UNALIGNED)
     add_definitions(-DNO_UNALIGNED)
@@ -282,6 +295,10 @@ endif()
 #
 # Check for standard/system includes
 #
+check_include_file(sys/auxv.h  HAVE_SYS_AUXV_H)
+if(HAVE_SYS_AUXV_H)
+    add_definitions(-DHAVE_SYS_AUXV_H)
+endif()
 check_include_file(sys/sdt.h   HAVE_SYS_SDT_H)
 if(HAVE_SYS_SDT_H)
     add_definitions(-DHAVE_SYS_SDT_H)
@@ -587,8 +604,9 @@ if(WITH_OPTIM)
         if(WITH_NEON)
             check_neon_compiler_flag()
             if(MFPU_NEON_AVAILABLE)
-                add_definitions(-DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH)
-                set(NEON_SRCS ${ARCHDIR}/adler32_neon.c ${ARCHDIR}/chunkset_neon.c ${ARCHDIR}/slide_hash_neon.c)
+                add_definitions(-DARM_NEON -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH)
+                set(NEON_SRCS ${ARCHDIR}/adler32_neon.c ${ARCHDIR}/chunkset_neon.c
+                    ${ARCHDIR}/compare256_neon.c ${ARCHDIR}/slide_hash_neon.c)
                 list(APPEND ZLIB_ARCH_SRCS ${NEON_SRCS})
                 set_property(SOURCE ${NEON_SRCS} PROPERTY COMPILE_FLAGS "${NEONFLAG} ${NOLTOFLAG}")
                 if(MSVC)
@@ -612,7 +630,10 @@ if(WITH_OPTIM)
         if(WITH_POWER8)
             check_power8_intrinsics()
         endif()
-        if(HAVE_VMX OR HAVE_POWER8_INTRIN)
+        if(WITH_POWER9)
+            check_power9_intrinsics()
+        endif()
+        if(HAVE_VMX OR HAVE_POWER8_INTRIN OR HAVE_POWER9_INTRIN)
             list(APPEND ZLIB_ARCH_HDRS ${ARCHDIR}/power_features.h)
             list(APPEND ZLIB_ARCH_SRCS ${ARCHDIR}/power_features.c)
         endif()
@@ -651,8 +672,20 @@ if(WITH_OPTIM)
                 set(WITH_POWER8 OFF)
             endif()
         endif()
+        # Power9 specific options and files
+        if(WITH_POWER9)
+            if(HAVE_POWER9_INTRIN)
+                add_definitions(-DPOWER9)
+                set(POWER9_SRCS ${ARCHDIR}/compare256_power9.c)
+                list(APPEND ZLIB_ARCH_SRCS ${POWER9_SRCS})
+                set_property(SOURCE ${POWER9_SRCS} PROPERTY COMPILE_FLAGS "${POWER9FLAG} ${NOLTOFLAG}")
+            else()
+                set(WITH_POWER9 OFF)
+            endif()
+        endif()
     elseif(BASEARCH_S360_FOUND)
-        if(WITH_CRC32_VX)
+        check_s390_intrinsics()
+        if(HAVE_S390_INTRIN)
             add_definitions(-DS390_FEATURES)
             list(APPEND ZLIB_ARCH_HDRS ${ARCHDIR}/s390_features.h)
             list(APPEND ZLIB_ARCH_SRCS ${ARCHDIR}/s390_features.c)
@@ -736,6 +769,9 @@ if(WITH_OPTIM)
             check_sse41_intrinsics()
             if(HAVE_SSE41_INTRIN)
                 add_definitions(-DX86_SSE41)
+                list(APPEND SSE41_SRCS ${ARCHDIR}/chunkset_sse41.c)
+                list(APPEND ZLIB_ARCH_SRCS ${SSE41_SRCS})
+                set_property(SOURCE ${SSE41_SRCS} PROPERTY COMPILE_FLAGS "${SSE41FLAG} ${NOLTOFLAG}")
             else()
                 set(WITH_SSE41 OFF)
             endif()
@@ -743,8 +779,8 @@ if(WITH_OPTIM)
         if(WITH_SSE42)
             check_sse42_intrinsics()
             if(HAVE_SSE42CRC_INLINE_ASM OR HAVE_SSE42CRC_INTRIN)
-                add_definitions(-DX86_SSE42_CRC_HASH)
-                set(SSE42_SRCS ${ARCHDIR}/insert_string_sse42.c)
+                add_definitions(-DX86_SSE42_CRC_HASH -DX86_SSE42_ADLER32)
+                set(SSE42_SRCS ${ARCHDIR}/adler32_sse42.c ${ARCHDIR}/insert_string_sse42.c)
                 add_feature_info(SSE42_CRC 1 "Support SSE4.2 optimized CRC hash generation, using \"${SSE42FLAG}\"")
                 list(APPEND ZLIB_ARCH_SRCS ${SSE42_SRCS})
                 set_property(SOURCE ${SSE42_SRCS} PROPERTY COMPILE_FLAGS "${SSE42FLAG} ${NOLTOFLAG}")
@@ -892,9 +928,9 @@ set(ZLIB_PRIVATE_HDRS
     adler32_p.h
     chunkset_tpl.h
     cpu_features.h
-    crc32_p.h
-    crc32_tbl.h
-    crc32_comb_tbl.h
+    crc32_braid_p.h
+    crc32_braid_comb_p.h
+    crc32_braid_tbl.h
     crc32_fold.h
     deflate.h
     deflate_p.h
@@ -915,12 +951,13 @@ set(ZLIB_PRIVATE_HDRS
 )
 set(ZLIB_SRCS
     adler32.c
+    adler32_fold.c
     chunkset.c
     compare256.c
     compress.c
     cpu_features.c
-    crc32.c
-    crc32_comb.c
+    crc32_braid.c
+    crc32_braid_comb.c
     crc32_fold.c
     deflate.c
     deflate_fast.c
@@ -1134,9 +1171,13 @@ option(ZLIB_ENABLE_TESTS "Build test binaries" ON)
 if(ZLIB_ENABLE_TESTS)
     enable_testing()
 
-    add_subdirectory(test)
-    if(WITH_BENCHMARKS)
-        add_subdirectory(test/benchmarks)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.12)
+        add_subdirectory(test)
+        if(WITH_BENCHMARKS)
+            add_subdirectory(test/benchmarks)
+        endif()
+    else()
+        message(WARNING "Minimum cmake version of 3.12 not met for GoogleTest or benchmarks!")
     endif()
 
     macro(configure_test_executable target)
@@ -1209,7 +1250,7 @@ if(ZLIB_ENABLE_TESTS)
     add_test(NAME makefixed
         COMMAND ${CMAKE_COMMAND}
         "-DCOMMAND=${MAKEFIXED_COMMAND}"
-        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/inffixed_tbl._h
+        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/Testing/Temporary/inffixed_tbl._h
         -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/inffixed_tbl.h
         -DIGNORE_LINE_ENDINGS=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-compare.cmake)
@@ -1223,7 +1264,7 @@ if(ZLIB_ENABLE_TESTS)
     add_test(NAME maketrees
         COMMAND ${CMAKE_COMMAND}
         "-DCOMMAND=${MAKETREES_COMMAND}"
-        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/trees_tbl._h
+        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/Testing/Temporary/trees_tbl._h
         -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/trees_tbl.h
         -DIGNORE_LINE_ENDINGS=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-compare.cmake)
@@ -1234,33 +1275,16 @@ if(ZLIB_ENABLE_TESTS)
         "$<INSTALL_INTERFACE:include>")
 
     set(MAKECRCT_COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} $<TARGET_FILE:makecrct>)
-    add_test(NAME makecrct-crc32
+    add_test(NAME makecrct
         COMMAND ${CMAKE_COMMAND}
         "-DCOMMAND=${MAKECRCT_COMMAND}"
-        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/crc32_tbl._h
-        -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/crc32_tbl.h
-        -DIGNORE_LINE_ENDINGS=ON
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-compare.cmake)
-
-    set(MAKECRCT_COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} $<TARGET_FILE:makecrct> -c)
-    add_test(NAME makecrct-crc32-combine
-        COMMAND ${CMAKE_COMMAND}
-        "-DCOMMAND=${MAKECRCT_COMMAND}"
-        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/crc32_comb_tbl._h
-        -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/crc32_comb_tbl.h
+        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/Testing/Temporary/crc32_braid_tbl._h
+        -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/crc32_braid_tbl.h
         -DIGNORE_LINE_ENDINGS=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-compare.cmake)
 
     if(WITH_FUZZERS)
-        set(FUZZERS checksum compress example_small example_large example_flush example_dict minigzip)
-        file(GLOB ALL_SRC_FILES "${CMAKE_CURRENT_SOURCE_DIR}/*")
-        foreach(FUZZER ${FUZZERS})
-            add_executable(fuzzer_${FUZZER} test/fuzz/fuzzer_${FUZZER}.c test/fuzz/standalone_fuzz_target_runner.c)
-            configure_test_executable(fuzzer_${FUZZER})
-            target_link_libraries(fuzzer_${FUZZER} zlib)
-            set(FUZZER_COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} $<TARGET_FILE:fuzzer_${FUZZER}> ${ALL_SRC_FILES})
-            add_test(NAME fuzzer_${FUZZER} COMMAND ${FUZZER_COMMAND})
-        endforeach()
+        add_subdirectory(test/fuzz)
     endif()
 
     macro(test_minigzip name path)
@@ -1333,6 +1357,27 @@ if(ZLIB_ENABLE_TESTS)
             -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/test/${CVE}/test.gz
             "-DSUCCESS_EXIT=0;1"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-redirect.cmake)
+    endforeach()
+
+    set(TEST_LEVELS 6 1 2)
+    foreach(TEST_LEVEL ${TEST_LEVELS})
+        add_test(NAME CVE-2018-25032-fixed-level-${TEST_LEVEL}
+            COMMAND ${CMAKE_COMMAND}
+            "-DTARGET=${MINIDEFLATE_COMMAND}"
+            "-DCOMPRESS_ARGS=-c;-k;-m;1;-w;-15;-s;4;-F;-${TEST_LEVEL}"
+            "-DDECOMPRESS_ARGS=-c;-k;-d;-m;1;-w;-15;-${TEST_LEVEL}"
+            -DGZIP_VERIFY=OFF
+            -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/test/CVE-2018-25032/fixed.txt
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test-compress.cmake)
+
+        add_test(NAME CVE-2018-25032-default-level-${TEST_LEVEL}
+            COMMAND ${CMAKE_COMMAND}
+            "-DTARGET=${MINIDEFLATE_COMMAND}"
+            "-DCOMPRESS_ARGS=-c;-k;-m;1;-w;-15;-s;4;-${TEST_LEVEL}"
+            "-DDECOMPRESS_ARGS=-c;-k;-d;-m;1;-w;-15;-${TEST_LEVEL}"
+            -DGZIP_VERIFY=OFF
+            -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/test/CVE-2018-25032/default.txt
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test-compress.cmake)
     endforeach()
 
     # Run tests targeting tools
@@ -1429,6 +1474,7 @@ if(BASEARCH_ARM_FOUND)
 elseif(BASEARCH_PPC_FOUND)
     add_feature_info(WITH_ALTIVEC WITH_ALTIVEC "Build with AltiVec optimisations")
     add_feature_info(WITH_POWER8 WITH_POWER8 "Build with optimisations for POWER8")
+    add_feature_info(WITH_POWER9 WITH_POWER9 "Build with optimisations for POWER9")
 elseif(BASEARCH_S360_FOUND)
     add_feature_info(WITH_DFLTCC_DEFLATE WITH_DFLTCC_DEFLATE "Build with DFLTCC intrinsics for compression on IBM Z")
     add_feature_info(WITH_DFLTCC_INFLATE WITH_DFLTCC_INFLATE "Build with DFLTCC intrinsics for decompression on IBM Z")

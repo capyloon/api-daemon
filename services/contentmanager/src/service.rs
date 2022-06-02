@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::cursor::MetadataCursorImpl;
 use crate::generated::{common::*, service::*};
+use crate::ucan::UcanCapabilities;
 use async_std::io::ReadExt;
 use async_std::path::Path;
 use async_std::task;
@@ -11,6 +12,7 @@ use common::traits::{
     DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
     SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
+use common::ucan::SUPPORTED_UCAN_KEYS;
 use common::Blob;
 use common::JsonValue;
 use costaeres::array::Array;
@@ -31,6 +33,8 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
+use ucan::crypto::did::DidParser;
+use ucan::ucan::Ucan;
 
 pub(crate) struct Timer {
     start: Instant,
@@ -116,8 +120,9 @@ pub struct ContentManagerService {
     tracker: Arc<Mutex<ContentManagerTrackerType>>,
     proxy_tracker: ContentManagerProxyTracker,
     observers: ServiceObserverTracker<ResourceId>,
-    _origin_attributes: OriginAttributes,
+    origin_attributes: OriginAttributes,
     http_key: String,
+    ucan: UcanCapabilities,
 }
 
 impl ContentManager for ContentManagerService {
@@ -206,14 +211,12 @@ impl ContentManagerService {
 
     async fn update_variant_task(
         state: Shared<State>,
-        id: &str,
+        id: &ResourceId,
         variant: &str,
         blob: Blob,
     ) -> Result<(), ResourceStoreError> {
         let mut lock = state.lock();
         let manager = &mut lock.manager;
-
-        let id: ResourceId = id.to_owned().into();
 
         manager
             .update_variant(&id, variant_content_for_blob(variant, blob))
@@ -288,6 +291,64 @@ impl ContentManagerService {
         let manager = &mut lock.manager;
 
         Ok(manager.get_full_path(id).await?)
+    }
+
+    async fn get_full_path_str(
+        state: Shared<State>,
+        id: &ResourceId,
+    ) -> Result<String, ResourceStoreError> {
+        // Fast path for the root.
+        if id.is_root() {
+            return Ok("/".into());
+        }
+
+        let metas = Self::get_full_path_task(state, id).await?;
+        let mut res = String::new();
+        for meta in &metas {
+            res.push('/');
+            res.push_str(&meta.name());
+        }
+        Ok(res)
+    }
+
+    fn validate_ucan_token(&mut self, token: &str) -> Result<Ucan, ()> {
+        let ucan = Ucan::try_from_token_string(&token).map_err(|_| ())?;
+        async_std::task::block_on(async {
+            let mut parser = DidParser::new(SUPPORTED_UCAN_KEYS);
+            ucan.validate(&mut parser).await
+        })
+        .map_err(|_| ())?;
+        Ok(ucan)
+    }
+
+    async fn can_read_resource(
+        state: Shared<State>,
+        id: &ResourceId,
+        ucan: &UcanCapabilities,
+    ) -> bool {
+        if ucan.is_superuser() {
+            return true;
+        }
+
+        match Self::get_full_path_str(state, id).await {
+            Ok(full_path) => ucan.can_read(&full_path),
+            Err(_) => false,
+        }
+    }
+
+    async fn can_write_resource(
+        state: Shared<State>,
+        id: &ResourceId,
+        ucan: &UcanCapabilities,
+    ) -> bool {
+        if ucan.is_superuser() {
+            return true;
+        }
+
+        match Self::get_full_path_str(state, id).await {
+            Ok(full_path) => ucan.can_write(&full_path),
+            Err(_) => false,
+        }
     }
 }
 
@@ -379,28 +440,31 @@ impl ContentStoreMethods for ContentManagerService {
         }
     }
 
-    fn by_ids(&mut self, responder: ContentStoreByIdsResponder, _ids: Vec<String>) {
-        responder.reject();
-    }
-
     fn children_of(&mut self, responder: ContentStoreChildrenOfResponder, id: String) {
         debug!("children_of {}", id);
         let state = self.state.clone();
         let tracker = self.get_tracker();
+        let ucan = self.ucan.clone();
         task::block_on(async move {
+            let resource_id = id.into();
+            if !Self::can_read_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
+
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
-                manager.get_container(&id.clone().into()).await
+                manager.get_container(&resource_id).await
             };
             match res {
                 Ok((_obj, children)) => {
-                    debug!("Got {} children for {}", children.len(), id);
+                    debug!("Got {} children for {}", children.len(), resource_id);
                     let cursor = Self::get_cursor(tracker, children);
                     responder.resolve(cursor);
                 }
                 Err(err) => {
-                    error!("Failed to get children of {}: {}", id, err);
+                    error!("Failed to get children of {}: {}", resource_id, err);
                     responder.reject();
                 }
             }
@@ -416,7 +480,13 @@ impl ContentStoreMethods for ContentManagerService {
     ) {
         debug!("createobj {:?} {}", data.kind, data.name);
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async move {
+            if !Self::can_write_resource(state.clone(), &ROOT_ID, &ucan).await {
+                responder.reject();
+                return;
+            }
+
             match Self::create_task(state, data, &variant, blob).await {
                 Ok(meta) => responder.resolve(meta),
                 Err(err) => {
@@ -430,7 +500,12 @@ impl ContentStoreMethods for ContentManagerService {
     fn get_root(&mut self, responder: ContentStoreGetRootResponder) {
         debug!("get_root");
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async move {
+            if !Self::can_read_resource(state.clone(), &ROOT_ID, &ucan).await {
+                responder.reject();
+                return;
+            }
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
@@ -455,11 +530,18 @@ impl ContentStoreMethods for ContentManagerService {
         debug!("get_variant {} {:?}", id, variant_name);
         let state = self.state.clone();
         let variant_name = variant_name.unwrap_or_else(|| "default".into());
+        let ucan = self.ucan.clone();
         task::block_on(async move {
+            let resource_id = id.into();
+            if !Self::can_read_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
+
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
-                manager.get_leaf(&id.clone().into(), &variant_name).await
+                manager.get_leaf(&resource_id, &variant_name).await
             };
             match res {
                 Ok((meta, mut reader)) => {
@@ -476,7 +558,10 @@ impl ContentStoreMethods for ContentManagerService {
                     }
                 }
                 Err(err) => {
-                    error!("Failed to get leaf content for resource {}: {}", id, err);
+                    error!(
+                        "Failed to get leaf content for resource {}: {}",
+                        resource_id, err
+                    );
                     responder.reject();
                 }
             }
@@ -492,11 +577,18 @@ impl ContentStoreMethods for ContentManagerService {
         debug!("get_variant_as_json {} {:?}", id, variant_name);
         let state = self.state.clone();
         let variant_name = variant_name.unwrap_or_else(|| "default".into());
+        let ucan = self.ucan.clone();
         task::block_on(async move {
+            let resource_id = id.into();
+            if !Self::can_read_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
+
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
-                manager.get_leaf(&id.clone().into(), &variant_name).await
+                manager.get_leaf(&resource_id, &variant_name).await
             };
             match res {
                 Ok((meta, mut reader)) => {
@@ -507,7 +599,7 @@ impl ContentStoreMethods for ContentManagerService {
                     if !mime_type.contains("json") {
                         error!(
                             "Expected json mime type for resource {} but got {}",
-                            id, mime_type
+                            resource_id, mime_type
                         );
                         responder.reject();
                         return;
@@ -525,7 +617,7 @@ impl ContentStoreMethods for ContentManagerService {
                             Err(err) => {
                                 error!(
                                     "Failed to parse json for {}/{} : {}",
-                                    id, variant_name, err
+                                    resource_id, variant_name, err
                                 );
                                 responder.reject();
                             }
@@ -535,7 +627,10 @@ impl ContentStoreMethods for ContentManagerService {
                     }
                 }
                 Err(err) => {
-                    error!("Failed to get leaf content for resource {}: {}", id, err);
+                    error!(
+                        "Failed to get leaf content for resource {}: {}",
+                        resource_id, err
+                    );
                     responder.reject();
                 }
             }
@@ -545,16 +640,26 @@ impl ContentStoreMethods for ContentManagerService {
     fn get_metadata(&mut self, responder: ContentStoreGetMetadataResponder, id: String) {
         debug!("get_metadata {}", id);
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async move {
+            let resource_id = id.into();
+            if !Self::can_read_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
+
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
-                manager.get_metadata(&id.clone().into()).await
+                manager.get_metadata(&resource_id).await
             };
             match res {
                 Ok(value) => responder.resolve(value.into()),
                 Err(err) => {
-                    error!("Failed to get metadata for resource {}: {}", id, err);
+                    error!(
+                        "Failed to get metadata for resource {}: {}",
+                        resource_id, err
+                    );
                     responder.reject();
                 }
             }
@@ -570,11 +675,18 @@ impl ContentStoreMethods for ContentManagerService {
     ) {
         debug!("update {}", &id);
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async move {
-            match Self::update_variant_task(state, &id, &variant, blob).await {
+            let resource_id = id.into();
+            if !Self::can_write_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
+
+            match Self::update_variant_task(state, &resource_id, &variant, blob).await {
                 Ok(()) => responder.resolve(),
                 Err(err) => {
-                    error!("Failed to update resource {}: {}", &id, err);
+                    error!("Failed to update resource {}: {}", &resource_id, err);
                     responder.reject();
                 }
             }
@@ -583,16 +695,23 @@ impl ContentStoreMethods for ContentManagerService {
 
     fn delete(&mut self, responder: ContentStoreDeleteResponder, id: String) {
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async {
+            let resource_id = id.into();
+            if !Self::can_write_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
+
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
-                manager.delete(&id.clone().into()).await
+                manager.delete(&resource_id).await
             };
             match res {
                 Ok(()) => responder.resolve(),
                 Err(err) => {
-                    error!("Failed to delete resource {}: {}", id, err);
+                    error!("Failed to delete resource {}: {}", resource_id, err);
                     responder.reject();
                 }
             }
@@ -606,18 +725,22 @@ impl ContentStoreMethods for ContentManagerService {
         variant_name: String,
     ) {
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async {
+            let resource_id = id.into();
+            if !Self::can_write_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
-                manager
-                    .delete_variant(&id.clone().into(), &variant_name)
-                    .await
+                manager.delete_variant(&resource_id, &variant_name).await
             };
             match res {
                 Ok(()) => responder.resolve(),
                 Err(err) => {
-                    error!("Failed to delete object {}: {}", id, err);
+                    error!("Failed to delete object {}: {}", resource_id, err);
                     responder.reject();
                 }
             }
@@ -631,6 +754,7 @@ impl ContentStoreMethods for ContentManagerService {
         name: String,
     ) {
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async {
             let res = {
                 let mut lock = state.lock();
@@ -638,7 +762,11 @@ impl ContentStoreMethods for ContentManagerService {
                 manager.child_by_name(&parent.clone().into(), &name).await
             };
             match res {
-                Ok(meta) => responder.resolve(meta.into()),
+                Ok(meta) => {
+                    if Self::can_read_resource(state.clone(), &meta.id(), &ucan).await {
+                        responder.resolve(meta.into());
+                    }
+                }
                 Err(err) => {
                     error!("Failed to child_by_name {} {}: {}", parent, name, err);
                     responder.reject();
@@ -657,8 +785,12 @@ impl ContentStoreMethods for ContentManagerService {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
-
+        let ucan = self.ucan.clone();
         task::block_on(async {
+            if !Self::can_read_resource(state.clone(), &ROOT_ID, &ucan).await {
+                responder.reject();
+                return;
+            }
             match Self::search_task(state, &query, max_count, tag).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
@@ -676,8 +808,12 @@ impl ContentStoreMethods for ContentManagerService {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
-
+        let ucan = self.ucan.clone();
         task::block_on(async {
+            if !Self::can_read_resource(state.clone(), &ROOT_ID, &ucan).await {
+                responder.reject();
+                return;
+            }
             match Self::top_by_frecency_task(state, max_count).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
@@ -695,8 +831,12 @@ impl ContentStoreMethods for ContentManagerService {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
-
+        let ucan = self.ucan.clone();
         task::block_on(async {
+            if !Self::can_read_resource(state.clone(), &ROOT_ID, &ucan).await {
+                responder.reject();
+                return;
+            }
             match Self::last_modified_task(state, max_count).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
@@ -712,9 +852,14 @@ impl ContentStoreMethods for ContentManagerService {
 
     fn get_full_path(&mut self, responder: ContentStoreGetFullPathResponder, id: String) {
         let state = self.state.clone();
-
+        let ucan = self.ucan.clone();
         task::block_on(async {
-            match Self::get_full_path_task(state, &id.into()).await {
+            let resource_id = id.into();
+            if !Self::can_read_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
+            match Self::get_full_path_task(state, &resource_id).await {
                 Ok(meta) => {
                     responder.resolve(meta.iter().map(|item| item.clone().into()).collect());
                 }
@@ -728,18 +873,24 @@ impl ContentStoreMethods for ContentManagerService {
 
     fn visit(&mut self, responder: ContentStoreVisitResponder, id: String, visit: VisitPriority) {
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async {
+            let resource_id = id.into();
+            if !Self::can_write_resource(state.clone(), &resource_id, &ucan).await {
+                responder.reject();
+                return;
+            }
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
                 manager
-                    .visit(&id.clone().into(), &VisitEntry::now(visit.into()))
+                    .visit(&resource_id, &VisitEntry::now(visit.into()))
                     .await
             };
             match res {
                 Ok(_) => responder.resolve(),
                 Err(err) => {
-                    error!("Failed to visit {}: {}", id, err);
+                    error!("Failed to visit {}: {}", resource_id, err);
                     responder.reject();
                 }
             }
@@ -754,12 +905,17 @@ impl ContentStoreMethods for ContentManagerService {
         visit: VisitPriority,
     ) {
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async {
             let res = {
                 let mut lock = state.lock();
                 let manager = &mut lock.manager;
                 match manager.child_by_name(&parent.clone().into(), &name).await {
                     Ok(meta) => {
+                        if !Self::can_write_resource(state.clone(), &meta.id(), &ucan).await {
+                            responder.reject();
+                            return;
+                        }
                         manager
                             .visit(&meta.id(), &VisitEntry::now(visit.into()))
                             .await
@@ -785,7 +941,12 @@ impl ContentStoreMethods for ContentManagerService {
         remove: bool,
     ) {
         let state = self.state.clone();
+        let ucan = self.ucan.clone();
         task::block_on(async {
+            if !Self::can_write_resource(state.clone(), &ROOT_ID, &ucan).await {
+                responder.reject();
+                return;
+            }
             let mut lock = state.lock();
             let manager = &mut lock.manager;
             match manager
@@ -880,6 +1041,15 @@ impl ContentStoreMethods for ContentManagerService {
             }
         });
     }
+
+    fn with_ucan(&mut self, responder: ContentStoreWithUcanResponder, token: String) {
+        if let Ok(ucan) = self.validate_ucan_token(&token) {
+            self.ucan = UcanCapabilities::from_ucan(&ucan, &self.origin_attributes.identity());
+            responder.resolve();
+        } else {
+            responder.reject();
+        }
+    }
 }
 
 common::impl_shared_state!(ContentManagerService, State, Config);
@@ -967,7 +1137,7 @@ impl Service<ContentManagerService> for ContentManagerService {
         _context: SharedSessionContext,
         helper: SessionSupport,
     ) -> Result<ContentManagerService, String> {
-        info!("ContentManagerService::create");
+        info!("ContentManagerService::create from {}", attrs.identity());
         let service_id = helper.session_tracker_id().service();
         let event_dispatcher = ContentStoreEventDispatcher::from(helper, 0 /* object id */);
         let state = Self::shared_state();
@@ -998,9 +1168,10 @@ impl Service<ContentManagerService> for ContentManagerService {
             dispatcher_id,
             tracker: Arc::new(Mutex::new(ObjectTracker::default())),
             proxy_tracker: ContentManagerProxyTracker::default(),
-            _origin_attributes: attrs.clone(),
+            origin_attributes: attrs.clone(),
             observers: ServiceObserverTracker::default(),
             http_key: uuid::Uuid::new_v4().to_string(),
+            ucan: UcanCapabilities::new(&attrs.identity()),
         })
     }
 

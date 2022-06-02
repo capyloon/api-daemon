@@ -28,7 +28,7 @@
 #include "cpu_features.h"
 
 #include "../../crc32_fold.h"
-#include "../../crc32_p.h"
+#include "../../crc32_braid_p.h"
 #include <assert.h>
 
 #ifdef X86_VPCLMULQDQ_CRC
@@ -398,18 +398,23 @@ Z_INTERNAL void crc32_fold_pclmulqdq(crc32_fold *crc, const uint8_t *src, size_t
     __m128i xmm_t0, xmm_t1, xmm_t2, xmm_t3;
     __m128i xmm_crc0, xmm_crc1, xmm_crc2, xmm_crc3, xmm_crc_part;
     __m128i xmm_initial = _mm_cvtsi32_si128(init_crc);
-    int32_t first = 1;
+    xmm_crc_part = _mm_setzero_si128();
+    int32_t first = init_crc != 0;
 
     /* Technically the CRC functions don't even call this for input < 64, but a bare minimum of 31
-     * bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to 
+     * bytes of input is needed for the aligning load that occurs.  If there's an initial CRC, to
      * carry it forward through the folded CRC there must be 16 - src % 16 + 16 bytes available, which
      * by definition can be up to 15 bytes + one full vector load. */
-    assert(len >= 31);
+    assert(len >= 31 || first == 0);
     crc32_fold_load((__m128i *)crc->fold, &xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3);
+
+    if (len < 16) {
+        goto partial_nocpy;
+    }
 
     algn_diff = ((uintptr_t)16 - ((uintptr_t)src & 0xF)) & 0xF;
     if (algn_diff) {
-        if (algn_diff >= 4) {
+        if (algn_diff >= 4 || init_crc == 0) {
             xmm_crc_part = _mm_loadu_si128((__m128i *)src);
 
             src += algn_diff;
@@ -428,9 +433,9 @@ Z_INTERNAL void crc32_fold_pclmulqdq(crc32_fold *crc, const uint8_t *src, size_t
             src += (algn_diff + 16);
             len -= (algn_diff + 16);
         }
-    }
 
-    xmm_crc_part = _mm_setzero_si128();
+        xmm_crc_part = _mm_setzero_si128();
+    }
 
 #ifdef X86_VPCLMULQDQ_CRC
     if (x86_cpu_has_vpclmulqdq && x86_cpu_has_avx512 && (len >= 256)) {
@@ -472,7 +477,7 @@ Z_INTERNAL void crc32_fold_pclmulqdq(crc32_fold *crc, const uint8_t *src, size_t
         xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t1);
         xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t2);
         len -= 48;
-        src += 48; 
+        src += 48;
     } else if (len >= 32) {
         xmm_t0 = _mm_load_si128((__m128i *)src);
         xmm_t1 = _mm_load_si128((__m128i *)src + 1);
@@ -497,6 +502,7 @@ Z_INTERNAL void crc32_fold_pclmulqdq(crc32_fold *crc, const uint8_t *src, size_t
         src += 16;
     }
 
+partial_nocpy:
     if (len) {
         memcpy(&xmm_crc_part, src, len);
         partial_fold((size_t)len, &xmm_crc0, &xmm_crc1, &xmm_crc2, &xmm_crc3, &xmm_crc_part);
@@ -588,10 +594,10 @@ Z_INTERNAL uint32_t crc32_fold_final_pclmulqdq(crc32_fold *crc) {
 }
 
 uint32_t crc32_pclmulqdq(uint32_t crc32, const unsigned char* buf, uint64_t len) {
-    /* For lens < 64, crc32_byfour method is faster. The CRC32 instruction for
+    /* For lens < 64, crc32_braid method is faster. The CRC32 instruction for
      * these short lengths might also prove to be effective */
-    if (len < 64) 
-        return crc32_byfour(crc32, buf, len);
+    if (len < 64)
+        return crc32_braid(crc32, buf, len);
 
     crc32_fold ALIGNED_(16) crc_state;
     crc32_fold_reset_pclmulqdq(&crc_state);

@@ -5,14 +5,16 @@
 #ifndef INFLATE_P_H
 #define INFLATE_P_H
 
+#include <stdlib.h>
+
 /* Architecture-specific hooks. */
 #ifdef S390_DFLTCC_INFLATE
 #  include "arch/s390/dfltcc_inflate.h"
 #else
 /* Memory management for the inflate state. Useful for allocating arch-specific extension blocks. */
-#  define ZALLOC_STATE(strm, items, size) ZALLOC(strm, items, size)
+#  define ZALLOC_INFLATE_STATE(strm) ((struct inflate_state *)ZALLOC(strm, 1, sizeof(struct inflate_state)))
 #  define ZFREE_STATE(strm, addr) ZFREE(strm, addr)
-#  define ZCOPY_STATE(dst, src, size) memcpy(dst, src, size)
+#  define ZCOPY_INFLATE_STATE(dst, src) memcpy(dst, src, sizeof(struct inflate_state))
 /* Memory management for the window. Useful for allocation the aligned window. */
 #  define ZALLOC_WINDOW(strm, items, size) ZALLOC(strm, items, size)
 #  define ZFREE_WINDOW(strm, addr) ZFREE(strm, addr)
@@ -145,8 +147,8 @@ static inline uint8_t* chunkcopy_safe(uint8_t *out, uint8_t *from, size_t len, u
      * we have to get a bit clever. First if the overlap is such that src falls between dst and dst+len, we can do the
      * initial bulk memcpy of the nonoverlapping region. Then, we can leverage the size of this to determine the safest
      * atomic memcpy size we can pick such that we have non-overlapping regions. This effectively becomes a safe look
-     * behind or lookahead distance */
-    size_t non_olap_size = ((from > out) ? from - out : out - from);
+     * behind or lookahead distance. */
+    size_t non_olap_size = llabs(from - out); // llabs vs labs for compatibility with windows
 
     memcpy(out, from, non_olap_size);
     out += non_olap_size;

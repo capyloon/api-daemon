@@ -15,8 +15,34 @@
 
 /* function prototypes */
 static int inflateStateCheck(PREFIX3(stream) *strm);
-static int updatewindow(PREFIX3(stream) *strm, const unsigned char *end, uint32_t copy);
+static int updatewindow(PREFIX3(stream) *strm, const uint8_t *end, uint32_t len, int32_t cksum);
 static uint32_t syncsearch(uint32_t *have, const unsigned char *buf, uint32_t len);
+
+static inline void inf_chksum_cpy(PREFIX3(stream) *strm, uint8_t *dst,
+                           const uint8_t *src, uint32_t copy) {
+    if (!copy) return;
+    struct inflate_state *state = (struct inflate_state*)strm->state;
+#ifdef GUNZIP
+    if (state->flags) {
+        functable.crc32_fold_copy(&state->crc_fold, dst, src, copy);
+    } else
+#endif
+    {
+        strm->adler = state->check = functable.adler32_fold_copy(state->check, dst, src, copy);
+    }
+}
+
+static inline void inf_chksum(PREFIX3(stream) *strm, const uint8_t *src, uint32_t len) {
+    struct inflate_state *state = (struct inflate_state*)strm->state;
+#ifdef GUNZIP
+    if (state->flags) {
+        functable.crc32_fold(&state->crc_fold, src, len, 0);
+    } else
+#endif
+    {
+        strm->adler = state->check = functable.adler32(state->check, src, len);
+    }
+}
 
 static int inflateStateCheck(PREFIX3(stream) *strm) {
     struct inflate_state *state;
@@ -119,7 +145,7 @@ int32_t Z_EXPORT PREFIX(inflateInit2_)(PREFIX3(stream) *strm, int32_t windowBits
     }
     if (strm->zfree == NULL)
         strm->zfree = zng_cfree;
-    state = (struct inflate_state *) ZALLOC_STATE(strm, 1, sizeof(struct inflate_state));
+    state = ZALLOC_INFLATE_STATE(strm);
     if (state == NULL)
         return Z_MEM_ERROR;
     Tracev((stderr, "inflate: allocated\n"));
@@ -172,14 +198,19 @@ void Z_INTERNAL fixedtables(struct inflate_state *state) {
     state->distbits = 5;
 }
 
-int Z_INTERNAL inflate_ensure_window(struct inflate_state *state) {
+int Z_INTERNAL PREFIX(inflate_ensure_window)(struct inflate_state *state) {
     /* if it hasn't been done already, allocate space for the window */
     if (state->window == NULL) {
         unsigned wsize = 1U << state->wbits;
         state->window = (unsigned char *)ZALLOC_WINDOW(state->strm, wsize + state->chunksize, sizeof(unsigned char));
         if (state->window == NULL)
             return Z_MEM_ERROR;
-        memset(state->window + wsize, 0, state->chunksize);
+#ifdef Z_MEMORY_SANITIZER
+        /* This is _not_ to subvert the memory sanitizer but to instead unposion some
+           data we willingly and purposefully load uninitialized into vector registers
+           in order to safely read the last < chunksize bytes of the window. */
+        __msan_unpoison(state->window + wsize, state->chunksize);
+#endif
     }
 
     /* if window not in use yet, initialize */
@@ -206,28 +237,50 @@ int Z_INTERNAL inflate_ensure_window(struct inflate_state *state) {
    output will fall in the output data, making match copies simpler and faster.
    The advantage may be dependent on the size of the processor's data caches.
  */
-static int32_t updatewindow(PREFIX3(stream) *strm, const uint8_t *end, uint32_t copy) {
+static int32_t updatewindow(PREFIX3(stream) *strm, const uint8_t *end, uint32_t len, int32_t cksum) {
     struct inflate_state *state;
     uint32_t dist;
 
     state = (struct inflate_state *)strm->state;
 
-    if (inflate_ensure_window(state)) return 1;
+    if (PREFIX(inflate_ensure_window)(state)) return 1;
 
-    /* copy state->wsize or less output bytes into the circular window */
-    if (copy >= state->wsize) {
-        memcpy(state->window, end - state->wsize, state->wsize);
+    /* len state->wsize or less output bytes into the circular window */
+    if (len >= state->wsize) {
+        /* Only do this if the caller specifies to checksum bytes AND the platform requires
+         * it (s/390 being the primary exception to this. Also, for now, do the adler checksums
+         * if not a gzip based header. The inline adler checksums will come in the near future,
+         * possibly the next commit */
+        if (INFLATE_NEED_CHECKSUM(strm) && cksum) {
+            /* We have to split the checksum over non-copied and copied bytes */
+            if (len > state->wsize)
+                inf_chksum(strm, end - len, len - state->wsize);
+            inf_chksum_cpy(strm, state->window, end - state->wsize, state->wsize);
+        } else {
+            memcpy(state->window, end - state->wsize, state->wsize);
+        }
+
         state->wnext = 0;
         state->whave = state->wsize;
     } else {
         dist = state->wsize - state->wnext;
-        if (dist > copy)
-            dist = copy;
-        memcpy(state->window + state->wnext, end - copy, dist);
-        copy -= dist;
-        if (copy) {
-            memcpy(state->window, end - copy, copy);
-            state->wnext = copy;
+        /* Only do this if the caller specifies to checksum bytes AND the platform requires
+         * We need to maintain the correct order here for the checksum */
+        dist = MIN(dist, len);
+        if (INFLATE_NEED_CHECKSUM(strm) && cksum) {
+            inf_chksum_cpy(strm, state->window + state->wnext, end - len, dist);
+        } else {
+            memcpy(state->window + state->wnext, end - len, dist);
+        }
+        len -= dist;
+        if (len) {
+            if (INFLATE_NEED_CHECKSUM(strm) && cksum) {
+                inf_chksum_cpy(strm, state->window, end - len, len);
+            } else {
+                memcpy(state->window, end - len, len);
+            }
+
+            state->wnext = len;
             state->whave = state->wsize;
         } else {
             state->wnext += dist;
@@ -480,8 +533,9 @@ int32_t Z_EXPORT PREFIX(inflate)(PREFIX3(stream) *strm, int32_t flush) {
                                 len + copy > state->head->extra_max ?
                                 state->head->extra_max - len : copy);
                     }
-                    if ((state->flags & 0x0200) && (state->wrap & 4))
+                    if ((state->flags & 0x0200) && (state->wrap & 4)) {
                         state->check = PREFIX(crc32)(state->check, next, copy);
+                    }
                     have -= copy;
                     next += copy;
                     state->length -= copy;
@@ -547,7 +601,9 @@ int32_t Z_EXPORT PREFIX(inflate)(PREFIX3(stream) *strm, int32_t flush) {
                 state->head->hcrc = (int)((state->flags >> 9) & 1);
                 state->head->done = 1;
             }
-            strm->adler = state->check = CRC32_INITIAL_VALUE;
+            /* compute crc32 checksum if not in raw mode */
+            if ((state->wrap & 4) && state->flags)
+                strm->adler = state->check = functable.crc32_fold_reset(&state->crc_fold);
             state->mode = TYPE;
             break;
 #endif
@@ -946,8 +1002,17 @@ int32_t Z_EXPORT PREFIX(inflate)(PREFIX3(stream) *strm, int32_t flush) {
                 out -= left;
                 strm->total_out += out;
                 state->total += out;
-                if (INFLATE_NEED_CHECKSUM(strm) && (state->wrap & 4) && out)
-                    strm->adler = state->check = UPDATE(state->check, put - out, out);
+
+                /* compute crc32 checksum if not in raw mode */
+                if (INFLATE_NEED_CHECKSUM(strm) && state->wrap & 4) {
+                    if (out) {
+                        inf_chksum(strm, put - out, out);
+                    }
+#ifdef GUNZIP
+                    if (state->flags)
+                        strm->adler = state->check = functable.crc32_fold_final(&state->crc_fold);
+#endif
+                }
                 out = left;
                 if ((state->wrap & 4) && (
 #ifdef GUNZIP
@@ -1005,7 +1070,8 @@ int32_t Z_EXPORT PREFIX(inflate)(PREFIX3(stream) *strm, int32_t flush) {
     if (INFLATE_NEED_UPDATEWINDOW(strm) &&
             (state->wsize || (out != strm->avail_out && state->mode < BAD &&
                  (state->mode < CHECK || flush != Z_FINISH)))) {
-        if (updatewindow(strm, strm->next_out, out - strm->avail_out)) {
+        /* update sliding window with respective checksum if not in "raw" mode */
+        if (updatewindow(strm, strm->next_out, out - strm->avail_out, state->wrap & 4)) {
             state->mode = MEM;
             return Z_MEM_ERROR;
         }
@@ -1015,8 +1081,7 @@ int32_t Z_EXPORT PREFIX(inflate)(PREFIX3(stream) *strm, int32_t flush) {
     strm->total_in += in;
     strm->total_out += out;
     state->total += out;
-    if (INFLATE_NEED_CHECKSUM(strm) && (state->wrap & 4) && out)
-        strm->adler = state->check = UPDATE(state->check, strm->next_out - out, out);
+
     strm->data_type = (int)state->bits + (state->last ? 64 : 0) +
                       (state->mode == TYPE ? 128 : 0) + (state->mode == LEN_ || state->mode == COPY_ ? 256 : 0);
     if (((in == 0 && out == 0) || flush == Z_FINISH) && ret == Z_OK)
@@ -1076,7 +1141,7 @@ int32_t Z_EXPORT PREFIX(inflateSetDictionary)(PREFIX3(stream) *strm, const uint8
 
     /* copy dictionary to window using updatewindow(), which will amend the
        existing dictionary if appropriate */
-    ret = updatewindow(strm, dictionary + dictLength, dictLength);
+    ret = updatewindow(strm, dictionary + dictLength, dictLength, 0);
     if (ret) {
         state->mode = MEM;
         return Z_MEM_ERROR;
@@ -1214,7 +1279,7 @@ int32_t Z_EXPORT PREFIX(inflateCopy)(PREFIX3(stream) *dest, PREFIX3(stream) *sou
     state = (struct inflate_state *)source->state;
 
     /* allocate space */
-    copy = (struct inflate_state *)ZALLOC_STATE(source, 1, sizeof(struct inflate_state));
+    copy = ZALLOC_INFLATE_STATE(source);
     if (copy == NULL)
         return Z_MEM_ERROR;
     window = NULL;
@@ -1229,7 +1294,7 @@ int32_t Z_EXPORT PREFIX(inflateCopy)(PREFIX3(stream) *dest, PREFIX3(stream) *sou
 
     /* copy state */
     memcpy((void *)dest, (void *)source, sizeof(PREFIX3(stream)));
-    ZCOPY_STATE((void *)copy, (void *)state, sizeof(struct inflate_state));
+    ZCOPY_INFLATE_STATE(copy, state);
     copy->strm = dest;
     if (state->lencode >= state->codes && state->lencode <= state->codes + ENOUGH - 1) {
         copy->lencode = copy->codes + (state->lencode - state->codes);

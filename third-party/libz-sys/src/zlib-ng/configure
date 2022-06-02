@@ -95,12 +95,11 @@ buildvpclmulqdq=1
 buildacle=1
 buildaltivec=1
 buildpower8=1
+buildpower9=1
 buildneon=1
 builddfltccdeflate=0
 builddfltccinflate=0
 buildcrc32vx=1
-with_sanitizer=""
-with_fuzzers=0
 floatabi=
 native=0
 forcesse2=0
@@ -177,8 +176,6 @@ case "$1" in
       echo '    [--with-reduced-mem]        Reduced memory usage for special cases (reduces performance)' | tee -a configure.log
       echo '    [--force-sse2]              Assume SSE2 instructions are always available (disabled by default on x86, enabled on x86_64)' | tee -a configure.log
       echo '    [--force-tzcnt]             Assume TZCNT instructions are always available (disabled by default)' | tee -a configure.log
-      echo '    [--with-sanitizer]          Build with sanitizer (memory, address, undefined)' | tee -a configure.log
-      echo '    [--with-fuzzers]            Build test/fuzz (disabled by default)' | tee -a configure.log
       echo '    [--native]                  Compiles with full instruction set supported on this host' | tee -a configure.log
         exit 0 ;;
     -p*=* | --prefix=*) prefix=$(echo $1 | sed 's/.*=//'); shift ;;
@@ -206,6 +203,7 @@ case "$1" in
     --without-neon) buildneon=0; shift ;;
     --without-altivec) buildaltivec=0 ; shift ;;
     --without-power8) buildpower8=0 ; shift ;;
+    --without-power9) buildpower9=0 ; shift ;;
     --with-dfltcc-deflate) builddfltccdeflate=1; shift ;;
     --with-dfltcc-inflate) builddfltccinflate=1; shift ;;
     --without-crc32-vx) buildcrc32vx=0; shift ;;
@@ -220,8 +218,6 @@ case "$1" in
     -oldstrat | --without-new-strategies) without_new_strategies=1; shift;;
     -w* | --warn) warn=1; shift ;;
     -d* | --debug) debug=1; shift ;;
-    --with-sanitizer=*) with_sanitizer=$(echo $1 | sed 's/.*=//'); shift ;;
-    --with-fuzzers) with_fuzzers=1; shift ;;
 
     *)
       echo "unknown option: $1" | tee -a configure.log
@@ -625,80 +621,6 @@ fi
 
 echo >> configure.log
 
-if test "$with_sanitizer" = "address"; then
-    echo -n "Checking for address sanitizer... " | tee -a configure.log
-    sanitizers=""
-    for san in address pointer-compare pointer-subtract; do
-        if try $CC -c $CFLAGS $test.c -fsanitize=$san ; then
-            if test -n "$sanitizers"; then
-                sanitizers="$sanitizers,$san"
-            else
-                sanitizers="$san"
-            fi
-        fi
-    done
-
-    if test -n "$sanitizers"; then
-        echo "-fsanitize=$sanitizers" | tee -a configure.log
-        CFLAGS="$CFLAGS -fsanitize=$sanitizers"
-        SFLAGS="$SFLAGS -fsanitize=$sanitizers"
-        LDFLAGS="$LDFLAGS -fsanitize=$sanitizers"
-    else
-        echo No | tee -a configure.log
-    fi
-
-    echo -n "Checking for leak sanitizer... " | tee -a configure.log
-    if try $CC -c $CFLAGS $test.c -fsanitize=leak; then
-        echo "-fsanitize=leak" | tee -a configure.log
-        CFLAGS="$CFLAGS -fsanitize=leak"
-        SFLAGS="$SFLAGS -fsanitize=leak"
-        LDFLAGS="$LDFLAGS -fsanitize=leak"
-    else
-        echo No | tee -a configure.log
-    fi
-
-    echo >> configure.log
-fi
-
-if test "$with_sanitizer" = "memory"; then
-    echo -n "Checking for memory sanitizer... " | tee -a configure.log
-    if try $CC -c $CFLAGS $test.c -fsanitize=memory ; then
-        echo "-fsanitize=memory" | tee -a configure.log
-        CFLAGS="$CFLAGS -fsanitize=memory"
-        SFLAGS="$SFLAGS -fsanitize=memory"
-        LDFLAGS="$LDFLAGS -fsanitize=memory"
-    else
-        echo No | tee -a configure.log
-    fi
-
-    echo >> configure.log
-fi
-
-if test "$with_sanitizer" = "undefined"; then
-    echo -n "Checking for undefined behavior sanitizer... " | tee -a configure.log
-    sanitizers=""
-    for san in array-bounds bool bounds builtin enum float-cast-overflow float-divide-by-zero function integer-divide-by-zero local-bounds null nonnull-attribute object-size pointer-overflow return returns-nonnull-attribute shift shift-base shift-exponent signed-integer-overflow undefined unsigned-integer-overflow unsigned-shift-base vla-bound vptr; do
-        if try $CC -c $CFLAGS $test.c -fsanitize=$san; then
-            if test -n "$sanitizers"; then
-                sanitizers="$sanitizers,$san"
-            else
-                sanitizers="$san"
-            fi
-        fi
-    done
-
-    if test -n "$sanitizers"; then
-        echo "-fsanitize=$sanitizers" | tee -a configure.log
-        CFLAGS="$CFLAGS -fsanitize=$sanitizers"
-        SFLAGS="$SFLAGS -fsanitize=$sanitizers"
-        LDFLAGS="$LDFLAGS -fsanitize=$sanitizers"
-    else
-        echo No | tee -a configure.log
-    fi
-
-    echo >> configure.log
-fi
-
 # see if shared library build supported
 cat > $test.c <<EOF
 extern int getchar();
@@ -811,6 +733,19 @@ else
   CFLAGS="${CFLAGS} -DNO_STRERROR"
   SFLAGS="${SFLAGS} -DNO_STRERROR"
   echo "Checking for strerror... No." | tee -a configure.log
+fi
+
+# check for getauxval() for architecture feature detection at run-time
+cat > $test.c <<EOF
+#include <sys/auxv.h>
+int main() { return getauxval(0); }
+EOF
+if try $CC $CFLAGS -o $test $test.c $LDSHAREDLIBC; then
+  echo "Checking for getauxval() in sys/auxv.h... Yes." | tee -a configure.log
+  CFLAGS="${CFLAGS} -DHAVE_SYS_AUXV_H"
+  SFLAGS="${SFLAGS} -DHAVE_SYS_AUXV_H"
+else
+  echo "Checking for getauxval() in sys/auxv.h... No." | tee -a configure.log
 fi
 
 # We need to remove consigured files (zconf.h etc) from source directory if building outside of it
@@ -1294,7 +1229,7 @@ EOF
 }
 
 check_power8_intrinsics() {
-    # Check whether features needed by POWER optimisations are available
+    # Check whether features needed by POWER8 optimisations are available
     cat > $test.c << EOF
 #include <sys/auxv.h>
 int main() { return (getauxval(AT_HWCAP2) & PPC_FEATURE2_ARCH_2_07); }
@@ -1305,6 +1240,20 @@ EOF
     else
         HAVE_POWER8_INTRIN=0
         echo "Check whether POWER8 instructions are available ... No." | tee -a configure.log
+    fi
+}
+
+check_power9_intrinsics() {
+    # Check whether features needed by POWER9 optimisations are available
+    cat > $test.c << EOF
+int main() { return 0; }
+EOF
+    if test $buildpower9 -eq 1 && try $CC -c $CFLAGS -mcpu=power9 $test.c; then
+        HAVE_POWER9_INTRIN=1
+        echo "Check whether POWER9 instructions are available ... Yes." | tee -a configure.log
+    else
+        HAVE_POWER9_INTRIN=0
+        echo "Check whether POWER9 instructions are available ... No." | tee -a configure.log
     fi
 }
 
@@ -1538,21 +1487,24 @@ case "${ARCH}" in
             if test ${HAVE_SSE41_INTRIN} -eq 1; then
                 CFLAGS="${CFLAGS} -DX86_SSE41"
                 SFLAGS="${SFLAGS} -DX86_SSE41"
+
+                ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} chunkset_sse41.o"
+                ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} chunkset_sse41.lo"
             fi
 
             check_sse42_intrinsics
 
             if test ${HAVE_SSE42CRC_INTRIN} -eq 1 || test ${HAVE_SSE42CRC_INLINE_ASM} -eq 1; then
-                CFLAGS="${CFLAGS} -DX86_SSE42_CRC_HASH"
-                SFLAGS="${SFLAGS} -DX86_SSE42_CRC_HASH"
+                CFLAGS="${CFLAGS} -DX86_SSE42_CRC_HASH -DX86_SSE42_ADLER32"
+                SFLAGS="${SFLAGS} -DX86_SSE42_CRC_HASH -DX86_SSE42_ADLER32"
 
                 if test ${HAVE_SSE42CRC_INTRIN} -eq 1; then
                   CFLAGS="${CFLAGS} -DX86_SSE42_CRC_INTRIN"
                   SFLAGS="${SFLAGS} -DX86_SSE42_CRC_INTRIN"
                 fi
 
-                ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} insert_string_sse42.o"
-                ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} insert_string_sse42.lo"
+                ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_sse42.o insert_string_sse42.o"
+                ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_sse42.lo insert_string_sse42.lo"
             fi
 
             check_sse2_intrinsics
@@ -1726,7 +1678,10 @@ EOF
                     fi
 
                     if test $buildneon -eq 1; then
-                        if test $MFPU_NEON_AVAILABLE -eq 1;then
+                        CFLAGS="${CFLAGS} -DARM_NEON"
+                        SFLAGS="${SFLAGS} -DARM_NEON"
+
+                        if test $MFPU_NEON_AVAILABLE -eq 1; then
                             neonflag="-mfpu=neon"
                         fi
 
@@ -1738,8 +1693,8 @@ EOF
                         CFLAGS="${CFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
                         SFLAGS="${SFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
 
-                        ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o slide_hash_neon.o"
-                        ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo slide_hash_neon.lo"
+                        ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o compare256_neon.o slide_hash_neon.o"
+                        ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo compare256_neon.lo slide_hash_neon.lo"
                     fi
                 fi
             ;;
@@ -1750,6 +1705,9 @@ EOF
                     fi
 
                     if test $buildneon -eq 1; then
+                        CFLAGS="${CFLAGS} -DARM_NEON"
+                        SFLAGS="${SFLAGS} -DARM_NEON"
+
                         if test $MFPU_NEON_AVAILABLE -eq 1;then
                             neonflag="-mfpu=neon"
                         fi
@@ -1762,8 +1720,8 @@ EOF
                         CFLAGS="${CFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
                         SFLAGS="${SFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
 
-                        ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o slide_hash_neon.o"
-                        ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo slide_hash_neon.lo"
+                        ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o compare256_neon.o slide_hash_neon.o"
+                        ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo compare256_neon.lo slide_hash_neon.lo"
                     fi
                 fi
             ;;
@@ -1780,6 +1738,9 @@ EOF
                     fi
 
                     if test $buildneon -eq 1; then
+                        CFLAGS="${CFLAGS} -DARM_NEON"
+                        SFLAGS="${SFLAGS} -DARM_NEON"
+
                         if test $MFPU_NEON_AVAILABLE -eq 1;then
                             neonflag="-mfpu=neon"
                         fi
@@ -1792,8 +1753,8 @@ EOF
                         CFLAGS="${CFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
                         SFLAGS="${SFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
 
-                        ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o slide_hash_neon.o"
-                        ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo slide_hash_neon.lo"
+                        ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o compare256_neon.o slide_hash_neon.o"
+                        ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo compare256_neon.lo slide_hash_neon.lo"
                     fi
                 fi
             ;;
@@ -1853,10 +1814,10 @@ EOF
                 if test $native -eq 0; then
                     ARCH="${ARCH}+simd"
                 fi
-                CFLAGS="${CFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
-                SFLAGS="${SFLAGS} -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
-                ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o slide_hash_neon.o"
-                ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo slide_hash_neon.lo"
+                CFLAGS="${CFLAGS} -DARM_NEON -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
+                SFLAGS="${SFLAGS} -DARM_NEON -DARM_NEON_ADLER32 -DARM_NEON_CHUNKSET -DARM_NEON_SLIDEHASH"
+                ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} adler32_neon.o chunkset_neon.o compare256_neon.o slide_hash_neon.o"
+                ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} adler32_neon.lo chunkset_neon.lo compare256_neon.lo slide_hash_neon.lo"
             fi
         fi
 
@@ -1882,6 +1843,7 @@ EOF
 
             check_ppc_intrinsics
             check_power8_intrinsics
+            check_power9_intrinsics
 
             if test $HAVE_VMX -eq 1; then
                 CFLAGS="${CFLAGS} -DPPC_FEATURES"
@@ -1912,6 +1874,13 @@ EOF
                         SFLAGS="${SFLAGS} -DPOWER8_VSX_CRC32"
                         ;;
                 esac
+            fi
+            if test $HAVE_POWER9_INTRIN -eq 1; then
+                CFLAGS="${CFLAGS} -DPOWER9 -DPOWER_FEATURES"
+                SFLAGS="${SFLAGS} -DPOWER9 -DPOWER_FEATURES"
+
+                ARCH_STATIC_OBJS="${ARCH_STATIC_OBJS} compare256_power9.o"
+                ARCH_SHARED_OBJS="${ARCH_SHARED_OBJS} compare256_power9.lo"
             fi
         fi
     ;;
@@ -2043,7 +2012,6 @@ if [ "$SRCDIR" != "$BUILDDIR" ]; then INCLUDES="-I$BUILDDIR ${INCLUDES}"; fi
 sed < $SRCDIR/Makefile.in "
 /^CC *=/s#=.*#=$CC#
 /^CFLAGS *=/s#=.*#=$CFLAGS#
-/^WITH_FUZZERS *=/s#=.*#=$with_fuzzers#
 /^SFLAGS *=/s#=.*#=$SFLAGS#
 /^LDFLAGS *=/s#=.*#=$LDFLAGS#
 /^LDSHARED *=/s#=.*#=$LDSHARED#
@@ -2211,7 +2179,6 @@ sed < $SRCDIR/test/Makefile.in "
 /^SRCDIR *=/s#=.*#=$SRCDIR/test#
 /^SRCTOP *=/s#=.*#=$SRCDIR#
 /^QEMU_RUN *=/s#=.*#=$QEMU_RUN#
-/^WITH_FUZZERS *=/s#=.*#=$with_fuzzers#
 /^LIBNAME *=/s#=.*#=$LIBNAME#
 " > test/Makefile
 

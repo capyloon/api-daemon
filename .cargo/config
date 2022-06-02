@@ -16,7 +16,7 @@ replace-with = "vendored-sources"
 
 [source."https://github.com/capyloon/did-key.rs.git"]
 git = "https://github.com/capyloon/did-key.rs.git"
-rev = "3cd338a212444ded93a8cc95a4028cf46a32593f"
+rev = "a608794d20a4c1b2c8155d2074f7b1dbe4092fb7"
 replace-with = "vendored-sources"
 
 [source."https://github.com/capyloon/wspty.git"]
