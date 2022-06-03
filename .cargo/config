@@ -27,10 +27,6 @@ replace-with = "vendored-sources"
 git = "https://github.com/capyloon/x25519-dalek.git"
 replace-with = "vendored-sources"
 
-[source."https://github.com/fabricedesre/h2.git"]
-git = "https://github.com/fabricedesre/h2.git"
-replace-with = "vendored-sources"
-
 [source."https://github.com/fabricedesre/pest.git"]
 git = "https://github.com/fabricedesre/pest.git"
 replace-with = "vendored-sources"

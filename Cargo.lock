@@ -2722,8 +2722,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.3.11"
-source = "git+https://github.com/fabricedesre/h2.git#1dd1d83a8f5bb44ca87dbf2c32ca81b40b12f71f"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37a82c6d637fc9515a4694bbf1cb2457b79d81ce52b3108bdeea58b07dd34a57"
 dependencies = [
  "bytes",
  "fnv",
