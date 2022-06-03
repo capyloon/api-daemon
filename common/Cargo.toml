@@ -6,7 +6,7 @@ name = "common"
 version = "0.2.0"
 
 [dependencies]
-actix = "0.12"
+actix = "0.13"
 android_utils = {path = "../support/android-utils"}
 anyhow = "1.0"
 async-trait = "0.1"

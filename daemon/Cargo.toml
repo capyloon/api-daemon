@@ -59,7 +59,7 @@ time-service = ["time_service"]
 virtual-host = ["vhost_server"]
 
 [dependencies]
-actix = "0.12"
+actix = "0.13"
 actix-cors = "0.6"
 actix-http = "3.0"
 actix-rt = "2.6"

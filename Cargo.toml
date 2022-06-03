@@ -34,8 +34,6 @@ members = [
 ]
 
 [patch.crates-io]
-# Bump parking-lot and tokio-util
-actix = {git = "https://github.com/fabricedesre/actix.git", branch = "parking-lot-0.12"}
 # Bump tokio-util
 h2 = {git = "https://github.com/fabricedesre/h2.git"}
 # Bump base64 and cookie to avoid duplicates.

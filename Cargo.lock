@@ -4,8 +4,9 @@ version = 3
 
 [[package]]
 name = "actix"
-version = "0.12.0"
-source = "git+https://github.com/fabricedesre/actix.git?branch=parking-lot-0.12#4117277e74e43c36f1fa7571a15a98c37ca31268"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f728064aca1c318585bf4bb04ffcfac9e75e508ab4e8b1bd9ba5dfe04e2cbed5"
 dependencies = [
  "actix-rt",
  "actix_derive",
