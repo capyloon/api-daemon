@@ -1,6 +1,6 @@
 /// UCAN Capabilities specific to the content manager.
 /// TODO: use the ucan-rs types?
-use log::{error, info};
+use log::{error, debug};
 use serde::Deserialize;
 use ucan::ucan::Ucan;
 
@@ -22,7 +22,7 @@ impl Att {
 // Write:  { "with": "vfs:///pictures/", "can": "vfs/WRITE" }
 // Search: { "with": "vfs://",           "can": "vfs/SEARCH" }
 // Visit:  { "with": "vfs://",           "can": "vfs/VISIT" }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum UcanCapability {
     Read(String),  // Read access to a path
     Write(String), // Write access to a path
@@ -88,44 +88,49 @@ impl UcanCapabilities {
 
     #[inline(always)]
     pub fn is_superuser(&self) -> bool {
-        // info!("UcanCapabilities is_superuser");
+        // debug!("UcanCapabilities is_superuser");
         self.superuser
     }
 
-    pub fn can_read(&self, full_path: &str) -> bool {
-        info!("UcanCapabilities can_read {}", full_path);
+    pub fn can_read(&self, requested_path: &str) -> bool {
+        debug!("UcanCapabilities can_read {}", requested_path);
+        debug!("UcanCapabilities {:?}", self.capabilities);
         for cap in &self.capabilities {
             if let UcanCapability::Read(path) = cap {
-                if full_path.starts_with(path) {
+                // Temporary: special case '/' to allow reading of the root.
+                // TODO: provide a better direct access to a full path.
+                if requested_path == "/" || requested_path.starts_with(path) {
                     return true;
                 }
             }
         }
         error!(
             "{} (superuser={}) is missing vfs/READ capability for {}",
-            self.identity, self.superuser, full_path
+            self.identity, self.superuser, requested_path
         );
         false
     }
 
-    pub fn can_write(&self, full_path: &str) -> bool {
-        info!("UcanCapabilities can_write {}", full_path);
+    pub fn can_write(&self, requested_path: &str) -> bool {
+        debug!("UcanCapabilities can_write {}", requested_path);
+        debug!("UcanCapabilities {:?}", self.capabilities);
         for cap in &self.capabilities {
             if let UcanCapability::Write(path) = cap {
-                if full_path.starts_with(path) {
+                if requested_path.starts_with(path) {
                     return true;
                 }
             }
         }
         error!(
             "{} (superuser={}) is missing vfs/WRITE capability for {}",
-            self.identity, self.superuser, full_path
+            self.identity, self.superuser, requested_path
         );
         false
     }
 
     pub fn can_search(&self) -> bool {
-        info!("UcanCapabilities can_search");
+        debug!("UcanCapabilities can_search");
+        debug!("UcanCapabilities {:?}", self.capabilities);
         if self.superuser {
             return true;
         }
@@ -143,7 +148,8 @@ impl UcanCapabilities {
     }
 
     pub fn can_visit(&self) -> bool {
-        info!("UcanCapabilities can_visit");
+        debug!("UcanCapabilities can_visit");
+        debug!("UcanCapabilities {:?}", self.capabilities);
         if self.superuser {
             return true;
         }

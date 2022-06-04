@@ -273,8 +273,11 @@ impl DwebMethods for DWebServiceImpl {
 
     fn request_superuser(&mut self, responder: DwebRequestSuperuserResponder) {
         // Check that the dweb permission was granted.
-        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "request super user")
-        {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "request super user",
+        ) {
             return;
         }
 

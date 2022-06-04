@@ -305,8 +305,16 @@ impl ContentManagerService {
         let metas = Self::get_full_path_task(state, id).await?;
         let mut res = String::new();
         for meta in &metas {
-            res.push('/');
-            res.push_str(&meta.name());
+            let m_id = meta.id();
+            // Don't push the / name for the root
+            if !m_id.is_root() {
+                res.push_str(&meta.name());
+            }
+
+            // Add a / separator, unless we process the last item and it's a leaf.
+            if m_id != *id || meta.kind() == costaeres::common::ResourceKind::Container {
+                res.push('/');
+            }
         }
         Ok(res)
     }
