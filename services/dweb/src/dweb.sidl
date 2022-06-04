@@ -75,5 +75,4 @@ interface Dweb {
     fn request_superuser() -> str, UcanError
 }
 
-#[permission=dweb]
 service DwebService: Dweb
