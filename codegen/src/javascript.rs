@@ -814,7 +814,7 @@ impl Codegen {
                 "let obj = new {}Base(service_id, session);",
                 callback.name
             )?;
-            let method_name = callback.methods.iter().next().unwrap().0;
+            let method_name = &callback.methods.values().next().unwrap().name;
             writeln!(sink, "obj.{} = fn.bind(obj);", method_name)?;
             writeln!(sink, "return obj;")?;
             writeln!(sink, "}}")?;
