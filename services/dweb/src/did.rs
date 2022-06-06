@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use ucan_key_support::ed25519::Ed25519KeyMaterial;
 
-pub(crate) struct Did {
+pub struct Did {
     pub name: String,
     pub removable: bool,
     pub key_pair: PatchedKeyPair,

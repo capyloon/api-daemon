@@ -11,7 +11,7 @@ use std::fs::{create_dir_all, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub(crate) struct DidStorage {
+pub struct DidStorage {
     path: PathBuf,
     dids: Vec<Did>,
 }
@@ -80,6 +80,10 @@ impl DidStorage {
 
     pub fn by_name(&self, name: &str) -> Option<Did> {
         self.dids.iter().find(|item| item.name == name).cloned()
+    }
+
+    pub fn by_uri(&self, uri: &str) -> Option<Did> {
+        self.dids.iter().find(|item| item.uri() == uri).cloned()
     }
 
     pub fn save(&self) -> Result<(), std::io::Error> {

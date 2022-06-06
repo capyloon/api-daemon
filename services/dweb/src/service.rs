@@ -17,7 +17,7 @@ use ucan::ucan::Ucan;
 use url::Url as StdUrl;
 
 pub struct State {
-    did_store: DidStorage,
+    pub did_store: DidStorage,
     event_broadcaster: DwebEventBroadcaster,
     ui_provider: Option<UcanProviderProxy>,
 }
@@ -184,8 +184,12 @@ impl DwebMethods for DWebServiceImpl {
 
         let mut state = self.state.lock();
         if state.did_store.remove(&uri) {
-            state.event_broadcaster.broadcast_didremoved(uri);
-            responder.resolve();
+            if state.did_store.save().is_ok() {
+                state.event_broadcaster.broadcast_didremoved(uri);
+                responder.resolve();
+            } else {
+                responder.reject(DidError::InternalError)
+            }
         } else {
             responder.reject(DidError::UnknownDid);
         }

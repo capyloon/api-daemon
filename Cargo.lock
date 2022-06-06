@@ -1510,6 +1510,7 @@ dependencies = [
  "chrono",
  "common",
  "costaeres",
+ "dweb_service",
  "lazy_static",
  "log",
  "parking_lot 0.12.1",

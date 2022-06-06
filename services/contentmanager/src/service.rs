@@ -27,6 +27,7 @@ use costaeres::manager::{
     Manager, ModificationObserver, ResourceModification as ResourceModificationC,
 };
 use costaeres::scorer::VisitEntry;
+use dweb_service::service::DWebServiceImpl;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use std::collections::HashSet;
@@ -322,10 +323,17 @@ impl ContentManagerService {
     fn validate_ucan_token(&mut self, token: &str) -> Result<Ucan, ()> {
         let ucan = Ucan::try_from_token_string(&token).map_err(|_| ())?;
         async_std::task::block_on(async {
+            // Parse the token, check time bounds and signature.
             let mut parser = DidParser::new(SUPPORTED_UCAN_KEYS);
-            ucan.validate(&mut parser).await
-        })
-        .map_err(|_| ())?;
+            ucan.validate(&mut parser).await.map_err(|_| ())?;
+            // Check that the issuer is a known one.
+            let dweb_state = DWebServiceImpl::shared_state();
+            if dweb_state.lock().did_store.by_uri(ucan.issuer()).is_some() {
+                Ok(())
+            } else {
+                Err(())
+            }
+        })?;
         Ok(ucan)
     }
 
