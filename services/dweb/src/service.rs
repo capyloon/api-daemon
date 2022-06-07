@@ -115,6 +115,7 @@ fn build_ucan_token(
         .lock()
         .did_store
         .by_name(&granted.issuer.name)
+        .map_err(|_| ())?
         .ok_or(())?
         .clone();
 
@@ -155,14 +156,10 @@ impl DwebMethods for DWebServiceImpl {
 
         let did = Did::create(&name);
         let mut state = self.state.lock();
-        if state.did_store.add(&did) {
-            if state.did_store.save().is_err() {
-                responder.reject(DidError::InternalError);
-            } else {
-                let sdid: SidlDid = did.into();
-                state.event_broadcaster.broadcast_didcreated(sdid.clone());
-                responder.resolve(sdid);
-            }
+        if let Ok(true) = state.did_store.add(&did) {
+            let sdid: SidlDid = did.into();
+            state.event_broadcaster.broadcast_didcreated(sdid.clone());
+            responder.resolve(sdid);
         } else {
             responder.reject(DidError::InternalError);
         }
@@ -173,8 +170,10 @@ impl DwebMethods for DWebServiceImpl {
             return;
         }
 
-        let result = self.state.lock().did_store.get_all();
-        responder.resolve(Some(result));
+        match self.state.lock().did_store.get_all() {
+            Ok(list) => responder.resolve(Some(list)),
+            Err(_) => responder.reject(DidError::InternalError),
+        }
     }
 
     fn remove_did(&mut self, responder: DwebRemoveDidResponder, uri: String) {
@@ -183,13 +182,9 @@ impl DwebMethods for DWebServiceImpl {
         }
 
         let mut state = self.state.lock();
-        if state.did_store.remove(&uri) {
-            if state.did_store.save().is_ok() {
-                state.event_broadcaster.broadcast_didremoved(uri);
-                responder.resolve();
-            } else {
-                responder.reject(DidError::InternalError)
-            }
+        if let Ok(true) = state.did_store.remove(&uri) {
+            state.event_broadcaster.broadcast_didremoved(uri);
+            responder.resolve();
         } else {
             responder.reject(DidError::UnknownDid);
         }
@@ -287,7 +282,7 @@ impl DwebMethods for DWebServiceImpl {
 
         let maybe_audience = self.state.lock().did_store.by_name("superuser");
 
-        if let Some(audience) = maybe_audience {
+        if let Ok(Some(audience)) = maybe_audience {
             let granted = GrantedCapabilities {
                 issuer: audience.clone().into(),
                 capabilities: Some(vec![Capability {

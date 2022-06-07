@@ -15,8 +15,10 @@ ed25519-zebra = "3.0"
 lazy_static = "1.4"
 log = "0.4"
 parking_lot = "0.12"
+rusqlite = {version = "0.27", features = ["bundled"]}
 serde = "1.0"
 serde_json = "1.0"
+sqlite-utils = {path = "../../support/sqlite-utils"}
 thiserror = "1.0"
 tokio = "1"
 ucan = "0.6.0-alpha.1"

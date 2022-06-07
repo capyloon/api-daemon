@@ -328,10 +328,10 @@ impl ContentManagerService {
             ucan.validate(&mut parser).await.map_err(|_| ())?;
             // Check that the issuer is a known one.
             let dweb_state = DWebServiceImpl::shared_state();
-            if dweb_state.lock().did_store.by_uri(ucan.issuer()).is_some() {
-                Ok(())
-            } else {
-                Err(())
+            let res = dweb_state.lock().did_store.by_uri(ucan.issuer());
+            match res {
+                Ok(Some(_)) => Ok(()),
+                _ => Err(()),
             }
         })?;
         Ok(ucan)
