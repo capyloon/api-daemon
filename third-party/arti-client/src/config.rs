@@ -13,12 +13,14 @@
 
 use derive_builder::Builder;
 use derive_more::AsRef;
+use fs_mistrust::{Mistrust, MistrustBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
-pub use tor_config::{CfgPath, ConfigBuildError, Reconfigure};
+pub use tor_config::impl_standard_builder;
+pub use tor_config::{CfgPath, CfgPathError, ConfigBuildError, Reconfigure};
 
 /// Types for configuring how Tor circuits are built.
 pub mod circ {
@@ -31,9 +33,9 @@ pub mod circ {
 /// Types for configuring how Tor accesses its directory information.
 pub mod dir {
     pub use tor_dirmgr::{
-        Authority, AuthorityBuilder, DirMgrConfig, DownloadSchedule, DownloadScheduleConfig,
-        DownloadScheduleConfigBuilder, FallbackDir, FallbackDirBuilder, NetworkConfig,
-        NetworkConfigBuilder,
+        Authority, AuthorityBuilder, DirMgrConfig, DirSkewTolerance, DirSkewToleranceBuilder,
+        DownloadSchedule, DownloadScheduleConfig, DownloadScheduleConfigBuilder, FallbackDir,
+        FallbackDirBuilder, NetworkConfig, NetworkConfigBuilder,
     };
 }
 
@@ -56,6 +58,7 @@ pub struct ClientAddrConfig {
     #[builder(default)]
     pub(crate) allow_local_addrs: bool,
 }
+impl_standard_builder! { ClientAddrConfig }
 
 /// Configuration for client behavior relating to stream connection timeouts
 ///
@@ -73,51 +76,21 @@ pub struct StreamTimeoutConfig {
     /// How long should we wait before timing out a stream when connecting
     /// to a host?
     #[builder(default = "default_connect_timeout()")]
-    #[builder_field_attr(serde(with = "humantime_serde::option"))]
+    #[builder_field_attr(serde(default, with = "humantime_serde::option"))]
     pub(crate) connect_timeout: Duration,
 
     /// How long should we wait before timing out when resolving a DNS record?
     #[builder(default = "default_dns_resolve_timeout()")]
-    #[builder_field_attr(serde(with = "humantime_serde::option"))]
+    #[builder_field_attr(serde(default, with = "humantime_serde::option"))]
     pub(crate) resolve_timeout: Duration,
 
     /// How long should we wait before timing out when resolving a DNS
     /// PTR record?
     #[builder(default = "default_dns_resolve_ptr_timeout()")]
-    #[builder_field_attr(serde(with = "humantime_serde::option"))]
+    #[builder_field_attr(serde(default, with = "humantime_serde::option"))]
     pub(crate) resolve_ptr_timeout: Duration,
 }
-
-// NOTE: it seems that `unwrap` may be safe because of builder defaults
-// check `derive_builder` documentation for details
-// https://docs.rs/derive_builder/0.10.2/derive_builder/#default-values
-#[allow(clippy::unwrap_used)]
-impl Default for ClientAddrConfig {
-    fn default() -> Self {
-        ClientAddrConfigBuilder::default().build().unwrap()
-    }
-}
-
-impl ClientAddrConfig {
-    /// Return a new [`ClientAddrConfigBuilder`].
-    pub fn builder() -> ClientAddrConfigBuilder {
-        ClientAddrConfigBuilder::default()
-    }
-}
-
-#[allow(clippy::unwrap_used)]
-impl Default for StreamTimeoutConfig {
-    fn default() -> Self {
-        StreamTimeoutConfigBuilder::default().build().unwrap()
-    }
-}
-
-impl StreamTimeoutConfig {
-    /// Return a new [`StreamTimeoutConfigBuilder`].
-    pub fn builder() -> StreamTimeoutConfigBuilder {
-        StreamTimeoutConfigBuilder::default()
-    }
-}
+impl_standard_builder! { StreamTimeoutConfig }
 
 /// Return the default stream timeout
 fn default_connect_timeout() -> Duration {
@@ -132,6 +105,26 @@ fn default_dns_resolve_timeout() -> Duration {
 /// Return the default PTR resolve timeout
 fn default_dns_resolve_ptr_timeout() -> Duration {
     Duration::new(10, 0)
+}
+
+/// Extension trait for `MistrustBuilder` to convert the error type on
+/// build.
+trait BuilderExt {
+    /// Type that this builder provides.
+    type Built;
+    /// Run this builder and convert its error type (if any)
+    fn build_for_arti(&self) -> Result<Self::Built, ConfigBuildError>;
+}
+
+impl BuilderExt for MistrustBuilder {
+    type Built = Mistrust;
+
+    fn build_for_arti(&self) -> Result<Self::Built, ConfigBuildError> {
+        self.build().map_err(|e| ConfigBuildError::Invalid {
+            field: "permissions".to_string(),
+            problem: e.to_string(),
+        })
+    }
 }
 
 /// Configuration for where information should be stored on disk.
@@ -152,6 +145,7 @@ fn default_dns_resolve_ptr_timeout() -> Duration {
 #[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
 #[builder(derive(Debug, Serialize, Deserialize))]
+#[non_exhaustive]
 pub struct StorageConfig {
     /// Location on disk for cached directory information.
     #[builder(setter(into), default = "default_cache_dir()")]
@@ -159,7 +153,12 @@ pub struct StorageConfig {
     /// Location on disk for less-sensitive persistent state information.
     #[builder(setter(into), default = "default_state_dir()")]
     state_dir: CfgPath,
+    /// Filesystem state to
+    #[builder(sub_builder(fn_name = "build_for_arti"))]
+    #[builder_field_attr(serde(default))]
+    permissions: Mistrust,
 }
+impl_standard_builder! { StorageConfig }
 
 /// Return the default cache directory.
 fn default_cache_dir() -> CfgPath {
@@ -171,18 +170,7 @@ fn default_state_dir() -> CfgPath {
     CfgPath::new("${ARTI_LOCAL_DATA}".to_owned())
 }
 
-impl Default for StorageConfig {
-    fn default() -> Self {
-        Self::builder().build().expect("Default builder failed")
-    }
-}
-
 impl StorageConfig {
-    /// Return a new StorageConfigBuilder.
-    pub fn builder() -> StorageConfigBuilder {
-        StorageConfigBuilder::default()
-    }
-
     /// Try to expand `state_dir` to be a path buffer.
     pub(crate) fn expand_state_dir(&self) -> Result<PathBuf, ConfigBuildError> {
         self.state_dir
@@ -200,6 +188,10 @@ impl StorageConfig {
                 field: "cache_dir".to_owned(),
                 problem: e.to_string(),
             })
+    }
+    /// Return the FS permissions to use for state and cache directories.
+    pub(crate) fn permissions(&self) -> &Mistrust {
+        &self.permissions
     }
 }
 
@@ -232,6 +224,7 @@ impl StorageConfig {
 #[derive(Clone, Builder, Debug, Eq, PartialEq, AsRef)]
 #[builder(build_fn(error = "ConfigBuildError"))]
 #[builder(derive(Serialize, Deserialize, Debug))]
+#[non_exhaustive]
 pub struct TorClientConfig {
     /// Information about the Tor network we want to connect to.
     #[builder(sub_builder)]
@@ -248,11 +241,13 @@ pub struct TorClientConfig {
     #[builder_field_attr(serde(default))]
     download_schedule: dir::DownloadScheduleConfig,
 
+    /// Information about how much clock skew to tolerate in our directory information
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
+    download_tolerance: dir::DirSkewTolerance,
+
     /// Facility to override network parameters from the values set in the
     /// consensus.
-    //
-    // TODO: This field seems anomalous and should perhaps be changed somehow.
-    // Maybe NetParams<i32> ought to derive Builder.
     #[builder(
         sub_builder,
         field(
@@ -291,6 +286,11 @@ pub struct TorClientConfig {
     #[builder_field_attr(serde(default))]
     pub(crate) stream_timeouts: StreamTimeoutConfig,
 }
+impl_standard_builder! { TorClientConfig }
+
+impl tor_config::load::TopLevel for TorClientConfig {
+    type Builder = TorClientConfigBuilder;
+}
 
 /// Helper to convert convert_override_net_params
 fn convert_override_net_params(
@@ -311,33 +311,38 @@ impl AsRef<tor_guardmgr::fallback::FallbackList> for TorClientConfig {
     }
 }
 
-impl Default for TorClientConfig {
-    fn default() -> Self {
-        Self::builder()
-            .build()
-            .expect("Could not build TorClientConfig from default configuration.")
-    }
-}
-
 impl TorClientConfig {
-    /// Return a new TorClientConfigBuilder.
-    pub fn builder() -> TorClientConfigBuilder {
-        TorClientConfigBuilder::default()
-    }
-}
-
-impl TryInto<dir::DirMgrConfig> for &TorClientConfig {
-    type Error = ConfigBuildError;
-
+    /// Try to create a DirMgrConfig corresponding to this object.
     #[rustfmt::skip]
-    fn try_into(self) -> Result<dir::DirMgrConfig, ConfigBuildError> {
+    pub(crate) fn dir_mgr_config(&self, mistrust: fs_mistrust::Mistrust) -> Result<dir::DirMgrConfig, ConfigBuildError> {
         Ok(dir::DirMgrConfig {
             network:             self.tor_network        .clone(),
             schedule:            self.download_schedule  .clone(),
+            tolerance:           self.download_tolerance .clone(),
             cache_path:          self.storage.expand_cache_dir()?,
+            cache_trust:         mistrust,
             override_net_params: self.override_net_params.clone(),
             extensions:          Default::default(),
         })
+    }
+
+    /// Return a reference to the [`fs_mistrust::Mistrust`] object that we'll
+    /// use to check permissions on files and directories by default.
+    ///
+    /// # Usage notes
+    ///
+    /// In the future, specific files or directories may have stricter or looser
+    /// permissions checks applied to them than this default.  Callers shouldn't
+    /// use this [`Mistrust`] to predict what Arti will accept for a specific
+    /// file or directory.  Rather, you should use this if you have some file or
+    /// directory of your own on which you'd like to enforce the same rules as
+    /// Arti uses.
+    //
+    // NOTE: The presence of this accessor is _NOT_ in any form a commitment to
+    // expose every field from the configuration as an accessor.  We explicitly
+    // reject that slippery slope argument.
+    pub fn fs_mistrust(&self) -> &Mistrust {
+        self.storage.permissions()
     }
 }
 
@@ -357,6 +362,21 @@ impl TorClientConfigBuilder {
             .state_dir(CfgPath::new_literal(state_dir.as_ref()));
         builder
     }
+}
+
+/// Return a filename for the default user configuration file.
+pub fn default_config_file() -> Result<PathBuf, CfgPathError> {
+    CfgPath::new("${ARTI_CONFIG}/arti.toml".into()).path()
+}
+
+/// Return true if the environment has been set up to disable FS permissions
+/// checking.
+///
+/// This function is exposed so that other tools can use the same checking rules
+/// as `arti-client`.  For more information, see
+/// [`TorClientBuilder`](crate::TorClientBuilder).
+pub fn fs_permissions_checks_disabled_via_env() -> bool {
+    std::env::var_os("ARTI_FS_DISABLE_PERMISSION_CHECKS").is_some()
 }
 
 #[cfg(test)]
@@ -416,5 +436,14 @@ mod test {
         let val = bld.build().unwrap();
 
         assert_ne!(val, TorClientConfig::default());
+    }
+
+    #[test]
+    fn check_default() {
+        // We don't want to second-guess the directories crate too much
+        // here, so we'll just make sure it does _something_ plausible.
+
+        let dflt = default_config_file().unwrap();
+        assert!(dflt.ends_with("arti.toml"));
     }
 }

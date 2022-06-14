@@ -1,29 +1,12 @@
 [package]
 name = "arti-config"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
-description = "High-level configuration for the Arti Tor implementation"
+description = "Removed crate.  (Tools for configuration management in Arti)"
 keywords = ["tor", "arti"]
 categories = ["config"]
 repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
-
-[dependencies]
-arti-client = { package = "arti-client", path = "../arti-client", version = "0.3.0"}
-tor-circmgr = { package = "tor-circmgr", path = "../tor-circmgr", version = "0.3.0"}
-tor-config = { package = "tor-config", path = "../tor-config", version = "0.3.0", features = [
-    "expand-paths",
-] }
-config = { version = "0.13", default-features = false, features = ["toml"] }
-once_cell = "1"
-serde = { version = "1.0.103", features = ["derive"] }
-toml = "0.5"
-regex = { version = "1", default-features = false, features = ["std"] }
-thiserror = "1"
-derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
-
-[dev-dependencies]
-tempfile = "3"

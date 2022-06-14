@@ -2,12 +2,15 @@
 
 #![no_std]
 #![deny(rust_2018_idioms, nonstandard_style)]
-#![doc(html_logo_url = "https://actix.rs/img/logo.png")]
-#![doc(html_favicon_url = "https://actix.rs/favicon.ico")]
+#![warn(future_incompatible, missing_docs)]
 
 extern crate alloc;
 
-use alloc::{string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::{borrow, convert::TryFrom, fmt, hash, ops, str};
 
 use bytes::Bytes;
@@ -108,6 +111,20 @@ impl From<&str> for ByteString {
     #[inline]
     fn from(value: &str) -> Self {
         Self(Bytes::copy_from_slice(value.as_ref()))
+    }
+}
+
+impl From<Box<str>> for ByteString {
+    #[inline]
+    fn from(value: Box<str>) -> Self {
+        Self(Bytes::from(value.into_boxed_bytes()))
+    }
+}
+
+impl From<ByteString> for String {
+    #[inline]
+    fn from(value: ByteString) -> Self {
+        value.to_string()
     }
 }
 
@@ -217,6 +234,16 @@ mod serde {
             String::deserialize(deserializer).map(ByteString::from)
         }
     }
+
+    #[cfg(test)]
+    mod serde_impl_tests {
+        use serde::de::DeserializeOwned;
+        use static_assertions::assert_impl_all;
+
+        use super::*;
+
+        assert_impl_all!(ByteString: Serialize, DeserializeOwned);
+    }
 }
 
 #[cfg(test)]
@@ -224,9 +251,24 @@ mod test {
     use alloc::borrow::ToOwned;
     use core::hash::{Hash, Hasher};
 
-    use siphasher::sip::SipHasher;
+    use ahash::AHasher;
+    use static_assertions::assert_impl_all;
 
     use super::*;
+
+    assert_impl_all!(ByteString: Send, Sync, Unpin, Sized);
+    assert_impl_all!(ByteString: Clone, Default, Eq, PartialOrd, Ord);
+    assert_impl_all!(ByteString: fmt::Debug, fmt::Display);
+
+    #[rustversion::since(1.56)]
+    mod above_1_56_impls {
+        // `[Ref]UnwindSafe` traits were only in std until rust 1.56
+
+        use core::panic::{RefUnwindSafe, UnwindSafe};
+
+        use super::*;
+        assert_impl_all!(ByteString: UnwindSafe, RefUnwindSafe);
+    }
 
     #[test]
     fn test_partial_eq() {
@@ -243,10 +285,10 @@ mod test {
 
     #[test]
     fn test_hash() {
-        let mut hasher1 = SipHasher::default();
+        let mut hasher1 = AHasher::default();
         "str".hash(&mut hasher1);
 
-        let mut hasher2 = SipHasher::default();
+        let mut hasher2 = AHasher::default();
         let s = ByteString::from_static("str");
         s.hash(&mut hasher2);
         assert_eq!(hasher1.finish(), hasher2.finish());

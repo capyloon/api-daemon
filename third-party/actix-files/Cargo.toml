@@ -12,12 +12,25 @@
 [package]
 edition = "2018"
 name = "actix-files"
-version = "0.6.0"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>", "fakeshadow <24548779@qq.com>", "Rob Ede <robjtede@icloud.com>"]
+version = "0.6.1"
+authors = [
+    "Nikolay Kim <fafhrd91@gmail.com>",
+    "fakeshadow <24548779@qq.com>",
+    "Rob Ede <robjtede@icloud.com>",
+]
 description = "Static file serving for Actix Web"
 homepage = "https://actix.rs"
-keywords = ["actix", "http", "async", "futures"]
-categories = ["asynchronous", "web-programming::http-server"]
+readme = "README.md"
+keywords = [
+    "actix",
+    "http",
+    "async",
+    "futures",
+]
+categories = [
+    "asynchronous",
+    "web-programming::http-server",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web"
 resolver = "2"
@@ -25,6 +38,7 @@ resolver = "2"
 [lib]
 name = "actix_files"
 path = "src/lib.rs"
+
 [dependencies.actix-http]
 version = "3"
 
@@ -73,10 +87,29 @@ version = "2.1"
 [dependencies.pin-project-lite]
 version = "0.2.7"
 
-[dependencies.tokio-uring]
-version = "0.2"
-features = ["bytes"]
-optional = true
+[dev-dependencies.actix-rt]
+version = "2.7"
+
+[dev-dependencies.actix-test]
+version = "0.1.0-beta.13"
+
+[dev-dependencies.actix-web]
+version = "4"
+
+[dev-dependencies.tempfile]
+version = "3.2"
 
 [features]
-experimental-io-uring = ["actix-web/experimental-io-uring", "tokio-uring"]
+experimental-io-uring = [
+    "actix-web/experimental-io-uring",
+    "tokio-uring",
+]
+
+[target."cfg(target_os = \"linux\")".dependencies.actix-server]
+version = "2.1"
+optional = true
+
+[target."cfg(target_os = \"linux\")".dependencies.tokio-uring]
+version = "0.3"
+features = ["bytes"]
+optional = true

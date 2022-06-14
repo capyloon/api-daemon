@@ -4,14 +4,12 @@ mod clean;
 
 use crate::{load_error, store_error};
 use crate::{Error, LockStatus, Result, StateMgr};
+use fs_mistrust::CheckedDir;
 use serde::{de::DeserializeOwned, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tracing::{info, warn};
-
-#[cfg(target_family = "unix")]
-use std::os::unix::fs::DirBuilderExt;
 
 /// Implementation of StateMgr that stores state as JSON files on disk.
 ///
@@ -48,7 +46,7 @@ pub struct FsStateMgr {
 #[derive(Debug)]
 struct FsStateMgrInner {
     /// Directory in which we store state files.
-    statepath: PathBuf,
+    statepath: CheckedDir,
     /// Lockfile to achieve exclusive access to state files.
     lockfile: Mutex<fslock::LockFile>,
 }
@@ -58,17 +56,20 @@ impl FsStateMgr {
     ///
     /// This function will try to create `path` if it does not already
     /// exist.
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+    ///
+    /// All files must be "private" according to the rules specified in `mistrust`.
+    pub fn from_path_and_mistrust<P: AsRef<Path>>(
+        path: P,
+        mistrust: &fs_mistrust::Mistrust,
+    ) -> Result<Self> {
         let path = path.as_ref();
         let statepath = path.join("state");
-        let lockpath = path.join("state.lock");
 
-        {
-            let mut builder = std::fs::DirBuilder::new();
-            #[cfg(target_family = "unix")]
-            builder.mode(0o700);
-            builder.recursive(true).create(&statepath)?;
-        }
+        let statepath = mistrust
+            .verifier()
+            .check_content()
+            .make_secure_dir(statepath)?;
+        let lockpath = statepath.join("state.lock")?;
 
         let lockfile = Mutex::new(fslock::LockFile::open(&lockpath)?);
 
@@ -79,20 +80,32 @@ impl FsStateMgr {
             }),
         })
     }
-    /// Return a filename to use for storing data with `key`.
+    /// Like from_path_and_mistrust, but do not verify permissions.
+    ///
+    /// Testing only.
+    #[cfg(test)]
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::from_path_and_mistrust(
+            path,
+            &fs_mistrust::Mistrust::new_dangerously_trust_everyone(),
+        )
+    }
+
+    /// Return a filename, relative to the top of this directory, to use for
+    /// storing data with `key`.
     ///
     /// See "Limitations" section on [`FsStateMgr`] for caveats.
-    fn filename(&self, key: &str) -> PathBuf {
-        self.inner
-            .statepath
-            .join(sanitize_filename::sanitize(key) + ".json")
+    fn rel_filename(&self, key: &str) -> PathBuf {
+        (sanitize_filename::sanitize(key) + ".json").into()
     }
     /// Return the top-level directory for this storage manager.
     ///
-    /// (This is the same directory passed to [`FsStateMgr::from_path`].)
+    /// (This is the same directory passed to
+    /// [`FsStateMgr::from_path_and_mistrust`].)
     pub fn path(&self) -> &Path {
         self.inner
             .statepath
+            .as_path()
             .parent()
             .expect("No parent directory even after path.join?")
     }
@@ -100,8 +113,8 @@ impl FsStateMgr {
     /// Remove old and/or obsolete items from this storage manager.
     ///
     /// Requires that we hold the lock.
-    fn clean(&self) {
-        for fname in clean::files_to_delete(&self.inner.statepath, SystemTime::now()) {
+    fn clean(&self, now: SystemTime) {
+        for fname in clean::files_to_delete(self.inner.statepath.as_path(), now) {
             info!("Deleting obsolete file {}", fname.display());
             if let Err(e) = std::fs::remove_file(&fname) {
                 warn!("Unable to delete {}: {}", fname.display(), e);
@@ -128,7 +141,7 @@ impl StateMgr for FsStateMgr {
         if lockfile.owns_lock() {
             Ok(LockStatus::AlreadyHeld)
         } else if lockfile.try_lock()? {
-            self.clean();
+            self.clean(SystemTime::now());
             Ok(LockStatus::NewlyAcquired)
         } else {
             Ok(LockStatus::NoLock)
@@ -149,17 +162,13 @@ impl StateMgr for FsStateMgr {
     where
         D: DeserializeOwned,
     {
-        let fname = self.filename(key);
+        let rel_fname = self.rel_filename(key);
 
-        let string = match std::fs::read_to_string(fname) {
-            Ok(s) => s,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    return Ok(None);
-                } else {
-                    return Err(e.into());
-                }
-            }
+        let string = match self.inner.statepath.read_to_string(rel_fname) {
+            Ok(string) => string,
+            Err(fs_mistrust::Error::NotFound(_)) => return Ok(None),
+            Err(fs_mistrust::Error::Io(_, e)) => return Err(Error::IoError(e)),
+            Err(e) => return Err(e.into()),
         };
 
         Ok(Some(serde_json::from_str(&string).map_err(load_error)?))
@@ -173,13 +182,11 @@ impl StateMgr for FsStateMgr {
             return Err(Error::NoLock);
         }
 
-        let fname = self.filename(key);
+        let rel_fname = self.rel_filename(key);
 
         let output = serde_json::to_string_pretty(val).map_err(store_error)?;
 
-        let fname_tmp = fname.with_extension("tmp");
-        std::fs::write(&fname_tmp, &output)?;
-        std::fs::rename(fname_tmp, fname)?;
+        self.inner.statepath.write_and_replace(rel_fname, output)?;
 
         Ok(())
     }
@@ -189,7 +196,7 @@ impl StateMgr for FsStateMgr {
 mod test {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, time::Duration};
 
     #[test]
     fn simple() -> Result<()> {
@@ -228,5 +235,98 @@ mod test {
         assert_eq!(Some(stuff4), stuff5);
 
         Ok(())
+    }
+
+    #[test]
+    fn clean_successful() -> Result<()> {
+        let dir = tempfile::TempDir::new().unwrap();
+        let statedir = dir.path().join("state");
+        let store = FsStateMgr::from_path(dir.path())?;
+
+        assert_eq!(store.try_lock()?, LockStatus::NewlyAcquired);
+        let fname = statedir.join("numbat.toml");
+        let fname2 = statedir.join("quoll.json");
+        std::fs::write(fname, "we no longer use toml files.").unwrap();
+        std::fs::write(fname2, "{}").unwrap();
+
+        let count = statedir.read_dir().unwrap().count();
+        assert_eq!(count, 3); // two files, one lock.
+
+        // Now we can make sure that "clean" actually removes the right file.
+        store.clean(SystemTime::now() + Duration::from_secs(365 * 86400));
+        let lst: Vec<_> = statedir.read_dir().unwrap().collect();
+        assert_eq!(lst.len(), 2); // one file, one lock.
+        assert!(lst
+            .iter()
+            .any(|ent| ent.as_ref().unwrap().file_name() == "quoll.json"));
+
+        Ok(())
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn permissions() -> Result<()> {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+
+        let ro_dir = Permissions::from_mode(0o500);
+        let rw_dir = Permissions::from_mode(0o700);
+        let unusable = Permissions::from_mode(0o000);
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let statedir = dir.path().join("state");
+        let store = FsStateMgr::from_path(dir.path())?;
+
+        assert_eq!(store.try_lock()?, LockStatus::NewlyAcquired);
+        let fname = statedir.join("numbat.toml");
+        let fname2 = statedir.join("quoll.json");
+        std::fs::write(&fname, "we no longer use toml files.").unwrap();
+        std::fs::write(&fname2, "{}").unwrap();
+
+        // Make the store directory read-only and make sure that we can't delete from it.
+        std::fs::set_permissions(&statedir, ro_dir)?;
+        store.clean(SystemTime::now() + Duration::from_secs(365 * 86400));
+        let lst: Vec<_> = statedir.read_dir().unwrap().collect();
+        if lst.len() == 2 {
+            // We must be root.  Don't do any more tests here.
+            return Ok(());
+        }
+        assert_eq!(lst.len(), 3); // We can't remove the file, but we didn't freak out. Great!
+                                  // Try failing to read a mode-0 file.
+        std::fs::set_permissions(&statedir, rw_dir)?;
+        std::fs::set_permissions(&fname2, unusable)?;
+
+        let h: Result<Option<HashMap<String, u32>>> = store.load("quoll");
+        assert!(h.is_err());
+        assert!(matches!(h, Err(Error::IoError(_))));
+
+        Ok(())
+    }
+
+    #[test]
+    fn locking() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store1 = FsStateMgr::from_path(dir.path()).unwrap();
+        let store2 = FsStateMgr::from_path(dir.path()).unwrap();
+
+        // Nobody has the lock; store1 will take it.
+        assert_eq!(store1.try_lock().unwrap(), LockStatus::NewlyAcquired);
+        assert_eq!(store1.try_lock().unwrap(), LockStatus::AlreadyHeld);
+        assert!(store1.can_store());
+
+        // store1 has the lock; store2 will try to get it and fail.
+        assert!(!store2.can_store());
+        assert_eq!(store2.try_lock().unwrap(), LockStatus::NoLock);
+        assert!(!store2.can_store());
+
+        // Store 1 will drop the lock.
+        store1.unlock().unwrap();
+        assert!(!store1.can_store());
+        assert!(!store2.can_store());
+
+        // Now store2 can get the lock.
+        assert_eq!(store2.try_lock().unwrap(), LockStatus::NewlyAcquired);
+        assert!(store2.can_store());
+        assert!(!store1.can_store());
     }
 }

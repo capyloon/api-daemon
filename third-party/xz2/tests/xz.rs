@@ -1,31 +1,32 @@
-extern crate xz2;
-
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 
 use xz2::read;
-use xz2::write;
 use xz2::stream;
+use xz2::write;
 
 #[test]
 fn standard_files() {
     for file in Path::new("lzma-sys/xz-5.2/tests/files").read_dir().unwrap() {
         let file = file.unwrap();
         if file.path().extension().and_then(|s| s.to_str()) != Some("xz") {
-            continue
+            continue;
         }
 
         let filename = file.file_name().into_string().unwrap();
 
         // This appears to be implementation-defined how it's handled
         if filename.contains("unsupported-check") {
-            continue
+            continue;
         }
 
         println!("testing {:?}", file.path());
         let mut contents = Vec::new();
-        File::open(&file.path()).unwrap().read_to_end(&mut contents).unwrap();
+        File::open(&file.path())
+            .unwrap()
+            .read_to_end(&mut contents)
+            .unwrap();
         if filename.starts_with("bad") || filename.starts_with("unsupported") {
             test_bad(&contents);
         } else {
@@ -36,7 +37,9 @@ fn standard_files() {
 
 fn test_good(data: &[u8]) {
     let mut ret = Vec::new();
-    read::XzDecoder::new_multi_decoder(data).read_to_end(&mut ret).unwrap();
+    read::XzDecoder::new_multi_decoder(data)
+        .read_to_end(&mut ret)
+        .unwrap();
     let mut w = write::XzDecoder::new_multi_decoder(ret);
     w.write_all(data).unwrap();
     w.finish().unwrap();
@@ -49,7 +52,7 @@ fn test_bad(data: &[u8]) {
     assert!(w.write_all(data).is_err() || w.finish().is_err());
 }
 
-fn assert_send_sync<T: Send + Sync>() { }
+fn assert_send_sync<T: Send + Sync>() {}
 
 #[test]
 fn impls_send_and_sync() {

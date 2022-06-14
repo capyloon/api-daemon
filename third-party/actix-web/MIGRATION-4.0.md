@@ -3,7 +3,7 @@
 This guide walks you through the process of migrating from v3.x.y to v4.x.y.  
 If you are migrating to v4.x.y from an older version of Actix Web (v2.x.y or earlier), check out the other historical migration notes in this folder.
 
-This document is not designed to be exhaustive—it focuses on the most significant changes coming in v4. You can find an exhaustive changelog in the changelogs for [`actix-web`](./CHANGES.md#400---2022-02-25) and [`actix-http`](../actix-http/CHANGES.md#300---2022-02-25), complete of PR links. If you think that some of the changes that we omitted deserve to be called out in this document, please open an issue or submit a PR.
+This document is not designed to be exhaustive—it focuses on the most significant changes in v4. You can find an exhaustive changelog in the changelogs for [`actix-web`](./CHANGES.md#400---2022-02-25) and [`actix-http`](../actix-http/CHANGES.md#300---2022-02-25), complete with PR links. If you think there are any changes that deserve to be called out in this document, please open an issue or pull request.
 
 Headings marked with :warning: are **breaking behavioral changes**. They will probably not surface as compile-time errors though automated tests _might_ detect their effects on your app.
 
@@ -29,8 +29,9 @@ Headings marked with :warning: are **breaking behavioral changes**. They will pr
 - [Server Must Be Polled :warning:](#server-must-be-polled-warning)
 - [Guards API](#guards-api)
 - [Returning `HttpResponse` synchronously](#returning-httpresponse-synchronously)
-- [`#[actix_web::main]` and `#[tokio::main]`](#actixwebmain-and-tokiomain)
+- [`#[actix_web::main]` and `#[tokio::main]`](#actix_webmain-and-tokiomain)
 - [`web::block`](#webblock)
+- 
 
 ## MSRV
 
@@ -110,6 +111,8 @@ The inner field for `web::Path` is now private. It was causing ambiguity when tr
 + async fn handler(params: web::Path<(String, String)>) {
 +   let (foo, bar) = params.into_inner();
 ```
+
+An alternative [path param type with public field but no `Deref` impl is available in `actix-web-lab`](https://docs.rs/actix-web-lab/0.12.0/actix_web_lab/extract/struct.Path.html).
 
 ## Rustls Crate Upgrade
 
@@ -480,4 +483,25 @@ The `web::block` helper has changed return type from roughly `async fn(fn() -> R
 
 - let n: u32 = web::block(|| Ok(123)).await?;
 + let n: u32 = web::block(|| Ok(123)).await??;
+```
+
+## `HttpResponse` as a `ResponseError`
+
+The implementation of `ResponseError` for `HttpResponse` has been removed.
+
+It was common in v3 to use `HttpResponse` as an error type in fallible handlers. The problem is that `HttpResponse` contains no knowledge or reference to the source error. Being able to guarantee that an "error" response actually contains an error reference makes middleware and other parts of Actix Web more effective.
+
+The error response builders in the `error` module were available in v3 but are now the best method for simple error responses without requiring you to implement the trait on your own custom error types. These builders can receive simple strings and third party errors that can not implement the `ResponseError` trait.
+
+A few common patterns are affected by this change:
+
+```diff
+- Err(HttpResponse::InternalServerError().finish())
++ Err(error::ErrorInternalServerError("reason"))
+
+- Err(HttpResponse::InternalServerError().body(third_party_error.to_string()))
++ Err(error::ErrorInternalServerError(err))
+
+- .map_err(|err| HttpResponse::InternalServerError().finish())?
++ .map_err(error::ErrorInternalServerError)?
 ```

@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.4] - 2022-06-04
+### Added
+- Add madvice operations specific to Darwin. [@turbocool3r](https://github.com/turbocool3r)
+- Implement common traits for the `Advice` enum. [@nyurik](https://github.com/nyurik)
+
+### Changed
+- Make stub implementation Infallible. [@coolreader18](https://github.com/coolreader18)
+- Use `tempfile` crate instead of `tempdir` in tests.
+  [@alexanderkjall](https://github.com/alexanderkjall)
+
 ## [0.5.3] - 2022-02-10
 ### Added
 - `Mmap::advise` and `MmapMut::advise`. [@nyurik](https://github.com/nyurik)
@@ -90,7 +100,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Removed
 - `winapi` dependency. [memmap-rs/pull/89](https://github.com/danburkert/memmap-rs/pull/89)
 
-[Unreleased]: https://github.com/RazrFalcon/memmap2-rs/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/RazrFalcon/memmap2-rs/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/RazrFalcon/memmap2-rs/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/RazrFalcon/memmap2-rs/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/RazrFalcon/memmap2-rs/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/RazrFalcon/memmap2-rs/compare/v0.5.0...v0.5.1

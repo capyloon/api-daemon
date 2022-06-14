@@ -1,38 +1,147 @@
-//! A minimal implementation of SHA1 for rust.
+//! Pure Rust implementation of the [SHA-1][1] cryptographic hash algorithm
+//! with optional hardware-specific optimizations.
 //!
-//! This implementation supports no_std which is the default mode.  The
-//! following features are available and can be optionally enabled:
+//! # 🚨 Warning: Cryptographically Broken! 🚨
 //!
-//! * ``serde``: when enabled the `Digest` type can be serialized.
-//! * ``std``: when enabled errors from this library implement `std::error::Error`
-//!   and the `hexdigest` shortcut becomes available.
+//! The SHA-1 hash function should be considered cryptographically broken and
+//! unsuitable for further use in any security critical capacity, as it is
+//! [practically vulnerable to chosen-prefix collisions][2].
 //!
-//! **Note:** future versions of this crate with the old code are now under
-//! `sha1_smol`, the `sha1` crate name with versions beyond the 0.6 line now
-//! refer to the `RustCrypto` implementation.
+//! We provide this crate for legacy interoperability purposes only.
 //!
-//! ## Example
+//! # Usage
 //!
 //! ```rust
-//! # fn main() {
+//! use hex_literal::hex;
+//! use sha1::{Sha1, Digest};
 //!
-//! let mut m = sha1_smol::Sha1::new();
-//! m.update(b"Hello World!");
-//! assert_eq!(m.digest().to_string(),
-//!            "2ef7bde608ce5404e97d5f042f95f89f1c232871");
-//! # }
+//! // create a Sha1 object
+//! let mut hasher = Sha1::new();
+//!
+//! // process input message
+//! hasher.update(b"hello world");
+//!
+//! // acquire hash digest in the form of GenericArray,
+//! // which in this case is equivalent to [u8; 20]
+//! let result = hasher.finalize();
+//! assert_eq!(result[..], hex!("2aae6c35c94fcfb415dbe95f408b9ce91ee846ed"));
 //! ```
 //!
-//! The sha1 object can be updated multiple times.  If you only need to use
-//! it once you can also use shortcuts (requires std):
+//! Also see [RustCrypto/hashes][3] readme.
 //!
-//! ```
-//! # trait X { fn hexdigest(&self) -> &'static str { "2ef7bde608ce5404e97d5f042f95f89f1c232871" }}
-//! # impl X for sha1_smol::Sha1 {}
-//! # fn main() {
-//! assert_eq!(sha1_smol::Sha1::from("Hello World!").hexdigest(),
-//!            "2ef7bde608ce5404e97d5f042f95f89f1c232871");
-//! # }
-//! ```
+//! # Note for users of `sha1 v0.6`
+//!
+//! This crate has been transferred to the RustCrypto organization and uses
+//! implementation previously published as the `sha-1` crate. The previous
+//! zero dependencies version is now published as the [`sha1_smoll`] crate.
+//!
+//! [1]: https://en.wikipedia.org/wiki/SHA-1
+//! [2]: https://sha-mbles.github.io/
+//! [3]: https://github.com/RustCrypto/hashes
+//! [`sha1_smoll`]: https://github.com/mitsuhiko/sha1-smol/
 
-pub use sha1_smol::*;
+#![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
+    html_root_url = "https://docs.rs/sha1/0.10.1"
+)]
+#![warn(missing_docs, rust_2018_idioms)]
+
+pub use digest::{self, Digest};
+
+use core::{fmt, slice::from_ref};
+use digest::{
+    block_buffer::Eager,
+    core_api::{
+        AlgorithmName, Block, BlockSizeUser, Buffer, BufferKindUser, CoreWrapper, FixedOutputCore,
+        OutputSizeUser, Reset, UpdateCore,
+    },
+    typenum::{Unsigned, U20, U64},
+    HashMarker, Output,
+};
+
+mod compress;
+
+#[cfg(feature = "compress")]
+pub use compress::compress;
+#[cfg(not(feature = "compress"))]
+use compress::compress;
+
+const STATE_LEN: usize = 5;
+
+/// Core SHA-1 hasher state.
+#[derive(Clone)]
+pub struct Sha1Core {
+    h: [u32; STATE_LEN],
+    block_len: u64,
+}
+
+impl HashMarker for Sha1Core {}
+
+impl BlockSizeUser for Sha1Core {
+    type BlockSize = U64;
+}
+
+impl BufferKindUser for Sha1Core {
+    type BufferKind = Eager;
+}
+
+impl OutputSizeUser for Sha1Core {
+    type OutputSize = U20;
+}
+
+impl UpdateCore for Sha1Core {
+    #[inline]
+    fn update_blocks(&mut self, blocks: &[Block<Self>]) {
+        self.block_len += blocks.len() as u64;
+        compress(&mut self.h, blocks);
+    }
+}
+
+impl FixedOutputCore for Sha1Core {
+    #[inline]
+    fn finalize_fixed_core(&mut self, buffer: &mut Buffer<Self>, out: &mut Output<Self>) {
+        let bs = Self::BlockSize::U64;
+        let bit_len = 8 * (buffer.get_pos() as u64 + bs * self.block_len);
+
+        let mut h = self.h;
+        buffer.len64_padding_be(bit_len, |b| compress(&mut h, from_ref(b)));
+        for (chunk, v) in out.chunks_exact_mut(4).zip(h.iter()) {
+            chunk.copy_from_slice(&v.to_be_bytes());
+        }
+    }
+}
+
+impl Default for Sha1Core {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            h: [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0],
+            block_len: 0,
+        }
+    }
+}
+
+impl Reset for Sha1Core {
+    #[inline]
+    fn reset(&mut self) {
+        *self = Default::default();
+    }
+}
+
+impl AlgorithmName for Sha1Core {
+    fn write_alg_name(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Sha1")
+    }
+}
+
+impl fmt::Debug for Sha1Core {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Sha1Core { ... }")
+    }
+}
+
+/// SHA-1 hasher state.
+pub type Sha1 = CoreWrapper<Sha1Core>;

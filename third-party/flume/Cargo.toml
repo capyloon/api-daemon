@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "flume"
-version = "0.10.12"
+version = "0.10.13"
 authors = ["Joshua Barretto <joshua.s.barretto@gmail.com>"]
 exclude = ["/.github", "/misc"]
 description = "A blazingly fast multi-producer channel"

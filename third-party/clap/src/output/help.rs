@@ -1,18 +1,14 @@
 // Std
-use std::{
-    borrow::Cow,
-    cmp,
-    fmt::Write as _,
-    io::{self, Write},
-    usize,
-};
+use std::borrow::Cow;
+use std::cmp;
+use std::fmt::Write as _;
+use std::io::{self, Write};
+use std::usize;
 
 // Internal
-use crate::{
-    build::{display_arg_val, Arg, Command},
-    output::{fmt::Colorizer, Usage},
-    PossibleValue,
-};
+use crate::builder::{display_arg_val, Arg, Command};
+use crate::output::{fmt::Colorizer, Usage};
+use crate::PossibleValue;
 
 // Third party
 use indexmap::IndexSet;
@@ -69,7 +65,7 @@ impl<'help, 'cmd, 'writer> Help<'help, 'cmd, 'writer> {
         usage: &'cmd Usage<'help, 'cmd>,
         use_long: bool,
     ) -> Self {
-        debug!("Help::new");
+        debug!("Help::new cmd={}, use_long={}", cmd.get_name(), use_long);
         let term_w = match cmd.get_term_width() {
             Some(0) => usize::MAX,
             Some(w) => w,
@@ -460,27 +456,23 @@ impl<'help, 'cmd, 'writer> Help<'help, 'cmd, 'writer> {
         if let Some(arg) = arg {
             const DASH_SPACE: usize = "- ".len();
             const COLON_SPACE: usize = ": ".len();
+            let possible_vals = arg.get_possible_values2();
             if self.use_long
                 && !arg.is_hide_possible_values_set()
-                && arg
-                    .possible_vals
-                    .iter()
-                    .any(PossibleValue::should_show_help)
+                && possible_vals.iter().any(PossibleValue::should_show_help)
             {
-                debug!("Help::help: Found possible vals...{:?}", arg.possible_vals);
+                debug!("Help::help: Found possible vals...{:?}", possible_vals);
                 if !help.is_empty() {
                     self.none("\n\n")?;
                     self.spaces(spaces)?;
                 }
                 self.none("Possible values:")?;
-                let longest = arg
-                    .possible_vals
+                let longest = possible_vals
                     .iter()
                     .filter_map(|f| f.get_visible_quoted_name().map(|name| display_width(&name)))
                     .max()
                     .expect("Only called with possible value");
-                let help_longest = arg
-                    .possible_vals
+                let help_longest = possible_vals
                     .iter()
                     .filter_map(|f| f.get_visible_help().map(display_width))
                     .max()
@@ -498,7 +490,7 @@ impl<'help, 'cmd, 'writer> Help<'help, 'cmd, 'writer> {
                     spaces + longest + DASH_SPACE + COLON_SPACE
                 };
 
-                for pv in arg.possible_vals.iter().filter(|pv| !pv.is_hide_set()) {
+                for pv in possible_vals.iter().filter(|pv| !pv.is_hide_set()) {
                     self.none("\n")?;
                     self.spaces(spaces)?;
                     self.none("- ")?;
@@ -609,7 +601,7 @@ impl<'help, 'cmd, 'writer> Help<'help, 'cmd, 'writer> {
                 spec_vals.push(env_info);
             }
         }
-        if !a.is_hide_default_value_set() && !a.default_vals.is_empty() {
+        if a.is_takes_value_set() && !a.is_hide_default_value_set() && !a.default_vals.is_empty() {
             debug!(
                 "Help::spec_vals: Found default value...[{:?}]",
                 a.default_vals
@@ -666,19 +658,16 @@ impl<'help, 'cmd, 'writer> Help<'help, 'cmd, 'writer> {
             }
         }
 
+        let possible_vals = a.get_possible_values2();
         if !(a.is_hide_possible_values_set()
-            || a.possible_vals.is_empty()
+            || possible_vals.is_empty()
             || cfg!(feature = "unstable-v4")
                 && self.use_long
-                && a.possible_vals.iter().any(PossibleValue::should_show_help))
+                && possible_vals.iter().any(PossibleValue::should_show_help))
         {
-            debug!(
-                "Help::spec_vals: Found possible vals...{:?}",
-                a.possible_vals
-            );
+            debug!("Help::spec_vals: Found possible vals...{:?}", possible_vals);
 
-            let pvs = a
-                .possible_vals
+            let pvs = possible_vals
                 .iter()
                 .filter_map(PossibleValue::get_visible_quoted_name)
                 .collect::<Vec<_>>()

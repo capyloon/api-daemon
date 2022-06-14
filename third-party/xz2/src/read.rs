@@ -8,8 +8,8 @@ use futures::Poll;
 #[cfg(feature = "tokio")]
 use tokio_io::{AsyncRead, AsyncWrite};
 
-use bufread;
-use stream::Stream;
+use crate::bufread;
+use crate::stream::Stream;
 
 /// A compression stream which wraps an uncompressed stream of data. Compressed
 /// data will be read from the stream.
@@ -89,8 +89,7 @@ impl<R: Read> Read for XzEncoder<R> {
 }
 
 #[cfg(feature = "tokio")]
-impl<R: AsyncRead> AsyncRead for XzEncoder<R> {
-}
+impl<R: AsyncRead> AsyncRead for XzEncoder<R> {}
 
 impl<W: Write + Read> Write for XzEncoder<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -181,8 +180,7 @@ impl<R: Read> Read for XzDecoder<R> {
 }
 
 #[cfg(feature = "tokio")]
-impl<R: AsyncRead + Read> AsyncRead for XzDecoder<R> {
-}
+impl<R: AsyncRead + Read> AsyncRead for XzDecoder<R> {}
 
 impl<W: Write + Read> Write for XzDecoder<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -203,9 +201,10 @@ impl<R: AsyncWrite + Read> AsyncWrite for XzDecoder<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::prelude::*;
-    use read::{XzEncoder, XzDecoder};
+    use crate::read::{XzDecoder, XzEncoder};
     use rand::{thread_rng, Rng};
+    use std::io::prelude::*;
+    use std::iter;
 
     #[test]
     fn smoke() {
@@ -247,14 +246,19 @@ mod tests {
         let mut result = Vec::new();
         c.read_to_end(&mut result).unwrap();
 
-        let v = thread_rng().gen_iter::<u8>().take(1024).collect::<Vec<_>>();
+        let mut rng = thread_rng();
+        let v = iter::repeat_with(|| rng.gen::<u8>())
+            .take(1024)
+            .collect::<Vec<_>>();
         for _ in 0..200 {
             result.extend(v.iter().map(|x| *x));
         }
 
         let mut d = XzDecoder::new(&result[..]);
         let mut data = Vec::with_capacity(m.len());
-        unsafe { data.set_len(m.len()); }
+        unsafe {
+            data.set_len(m.len());
+        }
         assert!(d.read(&mut data).unwrap() == m.len());
         assert!(data == &m[..]);
     }
@@ -302,7 +306,7 @@ mod tests {
     fn two_streams() {
         let mut input_stream1: Vec<u8> = Vec::new();
         let mut input_stream2: Vec<u8> = Vec::new();
-        let mut all_input : Vec<u8> = Vec::new();
+        let mut all_input: Vec<u8> = Vec::new();
 
         // Generate input data.
         const STREAM1_SIZE: usize = 1024;
@@ -334,7 +338,10 @@ mod tests {
             let mut decoder = XzDecoder::new_multi_decoder(&mut decoder_reader);
             let mut decompressed_data = vec![0u8; all_input.len()];
 
-            assert_eq!(decoder.read(&mut decompressed_data).unwrap(), all_input.len());
+            assert_eq!(
+                decoder.read(&mut decompressed_data).unwrap(),
+                all_input.len()
+            );
             assert_eq!(decompressed_data, &all_input[..]);
         }
     }

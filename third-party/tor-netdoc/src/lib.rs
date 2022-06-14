@@ -50,6 +50,7 @@
 //!
 //! TODO: this crate needs far more tests!
 
+// @@ begin lint list maintained by maint/add_warning @@
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -79,6 +80,8 @@
 #![deny(clippy::unnecessary_wraps)]
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
+#![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+//! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 #[macro_use]
 pub(crate) mod parse;
@@ -98,7 +101,7 @@ pub type BuildResult<T> = std::result::Result<T, BuildError>;
 
 /// Indicates whether we should parse an annotated list of objects or a
 /// non-annotated list.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Eq)]
 #[allow(clippy::exhaustive_enums)]
 pub enum AllowAnnotations {
     /// Parsing a document where items might be annotated.

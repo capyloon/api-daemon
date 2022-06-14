@@ -12,24 +12,44 @@
 [package]
 edition = "2018"
 name = "zstd-sys"
-version = "1.6.3+zstd.1.5.2"
+version = "2.0.1+zstd.1.5.2"
 authors = ["Alexandre Bury <alexandre.bury@gmail.com>"]
 build = "build.rs"
 links = "zstd"
-include = ["/LICENSE", "/*.*", "/src/", "/zstd/LICENSE", "/zstd/COPYING", "/zstd/lib/**/*.c", "/zstd/lib/**/*.h", "/zstd/lib/**/*.S"]
+include = [
+    "/LICENSE",
+    "/*.*",
+    "/src/",
+    "/wasm-shim/**/*.h",
+    "/zstd/LICENSE",
+    "/zstd/COPYING",
+    "/zstd/lib/**/*.c",
+    "/zstd/lib/**/*.h",
+    "/zstd/lib/**/*.S",
+]
 description = "Low-level bindings for the zstd compression library."
 readme = "Readme.md"
-keywords = ["zstd", "zstandard", "compression"]
-categories = ["api-bindings", "compression"]
+keywords = [
+    "zstd",
+    "zstandard",
+    "compression",
+]
+categories = [
+    "api-bindings",
+    "compression",
+]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/gyscos/zstd-rs"
+
 [package.metadata.docs.rs]
 features = ["experimental"]
 
 [lib]
 doctest = false
+
 [dependencies.libc]
 version = "0.2.45"
+
 [build-dependencies.bindgen]
 version = "0.59"
 optional = true
@@ -44,11 +64,15 @@ optional = true
 
 [features]
 debug = []
-default = ["legacy"]
+default = [
+    "legacy",
+    "zdict_builder",
+]
 experimental = []
 legacy = []
 no_asm = []
 non-cargo = []
 std = []
 thin = []
+zdict_builder = []
 zstdmt = []

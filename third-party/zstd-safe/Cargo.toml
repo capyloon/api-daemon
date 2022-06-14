@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "zstd-safe"
-version = "4.1.6+zstd.1.5.2"
+version = "5.0.2+zstd.1.5.2"
 authors = ["Alexandre Bury <alexandre.bury@gmail.com>"]
 build = "build.rs"
 description = "Safe low-level bindings for the zstd compression library."
@@ -34,6 +34,7 @@ features = [
     "experimental",
     "arrays",
     "std",
+    "zdict_builder",
     "doc-cfg",
 ]
 
@@ -41,7 +42,7 @@ features = [
 version = "0.2.21"
 
 [dependencies.zstd-sys]
-version = "1.6.3"
+version = "2.0.1"
 default-features = false
 
 [features]
@@ -51,6 +52,7 @@ debug = ["zstd-sys/debug"]
 default = [
     "legacy",
     "arrays",
+    "zdict_builder",
 ]
 doc-cfg = []
 experimental = ["zstd-sys/experimental"]
@@ -59,4 +61,5 @@ no_asm = ["zstd-sys/no_asm"]
 pkg-config = ["zstd-sys/pkg-config"]
 std = ["zstd-sys/std"]
 thin = ["zstd-sys/thin"]
+zdict_builder = ["zstd-sys/zdict_builder"]
 zstdmt = ["zstd-sys/zstdmt"]

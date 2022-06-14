@@ -1,78 +1,249 @@
 //! Functions to download or load directory objects, using the
 //! state machines in the `states` module.
 
+use std::ops::{Deref, DerefMut};
 use std::{
     collections::HashMap,
     sync::{Arc, Weak},
     time::{Duration, SystemTime},
 };
 
+use crate::err::BootstrapAction;
+use crate::state::{DirState, PoisonedState};
+use crate::DirMgrConfig;
+use crate::DocSource;
 use crate::{
     docid::{self, ClientRequest},
-    state::WriteNetDir,
-    upgrade_weak_ref, DirMgr, DirState, DocId, DocumentText, Error, Readiness, Result,
+    upgrade_weak_ref, DirMgr, DocId, DocQuery, DocumentText, Error, Readiness, Result,
 };
 
 use futures::channel::oneshot;
 use futures::FutureExt;
 use futures::StreamExt;
-use tor_checkable::TimeValidityError;
 use tor_dirclient::DirResponse;
 use tor_rtcompat::{Runtime, SleepProviderExt};
 use tracing::{debug, info, trace, warn};
 
+use crate::storage::Store;
 #[cfg(test)]
 use once_cell::sync::Lazy;
 #[cfg(test)]
 use std::sync::Mutex;
+use tor_circmgr::{CircMgr, DirInfo};
+use tor_netdir::NetDir;
+use tor_netdoc::doc::netstatus::ConsensusFlavor;
 
-/// Try to read a set of documents from `dirmgr` by ID.
-fn load_all<R: Runtime>(
-    dirmgr: &DirMgr<R>,
-    missing: Vec<DocId>,
+/// Given a Result<()>, exit the current function if it is anything other than
+/// Ok(), or a nonfatal error.
+macro_rules! propagate_fatal_errors {
+    ( $e:expr ) => {
+        let v: Result<()> = $e;
+        if let Err(e) = v {
+            match e.bootstrap_action() {
+                BootstrapAction::Nonfatal => {}
+                _ => return Err(e),
+            }
+        }
+    };
+}
+
+/// If there were errors from a peer in `outcome`, record those errors by
+/// marking the circuit (if any) as needing retirement, and noting the peer
+/// (if any) as having failed.
+fn note_request_outcome<R: Runtime>(
+    circmgr: &CircMgr<R>,
+    outcome: &tor_dirclient::Result<tor_dirclient::DirResponse>,
+) {
+    use tor_dirclient::Error::RequestFailed;
+    // Extract an error and a source from this outcome, if there is one.
+    //
+    // This is complicated because DirResponse can encapsulate the notion of
+    // a response that failed part way through a download: in the case, it
+    // has some data, and also an error.
+    let (err, source) = match outcome {
+        Ok(req) => {
+            if let (Some(e), Some(source)) = (req.error(), req.source()) {
+                (
+                    RequestFailed {
+                        error: e.clone(),
+                        source: Some(source.clone()),
+                    },
+                    source,
+                )
+            } else {
+                return;
+            }
+        }
+        Err(RequestFailed {
+            source: Some(source),
+            ..
+        }) => (
+            // TODO: Use an @ binding in the pattern once we are on MSRV >=
+            // 1.56.
+            outcome.as_ref().unwrap_err().clone(),
+            source,
+        ),
+        _ => return,
+    };
+
+    note_cache_error(circmgr, source, &err.into());
+}
+
+/// Record that a problem has occurred because of a failure in an answer from `source`.
+fn note_cache_error<R: Runtime>(
+    circmgr: &CircMgr<R>,
+    source: &tor_dirclient::SourceInfo,
+    problem: &Error,
+) {
+    use tor_circmgr::ExternalActivity;
+
+    if !problem.indicates_cache_failure() {
+        return;
+    }
+
+    // Does the error here tell us whom to really blame?  If so, blame them
+    // instead.
+    //
+    // (This can happen if we notice a problem while downloading a certificate,
+    // but the real problem is that the consensus was no good.)
+    let real_source = match problem {
+        Error::NetDocError {
+            source: DocSource::DirServer { source: Some(info) },
+            ..
+        } => info,
+        _ => source,
+    };
+
+    info!("Marking {:?} as failed: {}", real_source, problem);
+    circmgr.note_external_failure(real_source.cache_id(), ExternalActivity::DirCache);
+    circmgr.retire_circ(source.unique_circ_id());
+}
+
+/// Record that `source` has successfully given us some directory info.
+fn note_cache_success<R: Runtime>(circmgr: &CircMgr<R>, source: &tor_dirclient::SourceInfo) {
+    use tor_circmgr::ExternalActivity;
+
+    trace!("Marking {:?} as successful", source);
+    circmgr.note_external_success(source.cache_id(), ExternalActivity::DirCache);
+}
+
+/// Load a set of documents from a `Store`, returning all documents found in the store.
+/// Note that this may be less than the number of documents in `missing`.
+fn load_documents_from_store(
+    missing: &[DocId],
+    store: &dyn Store,
 ) -> Result<HashMap<DocId, DocumentText>> {
     let mut loaded = HashMap::new();
-    for query in docid::partition_by_type(missing.into_iter()).values() {
-        dirmgr.load_documents_into(query, &mut loaded)?;
+    for query in docid::partition_by_type(missing.iter().copied()).values() {
+        query.load_from_store_into(&mut loaded, store)?;
     }
     Ok(loaded)
 }
 
-/// Testing helper: if this is Some, then we return it in place of any
-/// response to fetch_single.
-///
-/// Note that only one test uses this: otherwise there would be a race
-/// condition. :p
-#[cfg(test)]
-static CANNED_RESPONSE: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+/// Construct an appropriate ClientRequest to download a consensus
+/// of the given flavor.
+pub(crate) fn make_consensus_request(
+    now: SystemTime,
+    flavor: ConsensusFlavor,
+    store: &dyn Store,
+    config: &DirMgrConfig,
+) -> Result<ClientRequest> {
+    let mut request = tor_dirclient::request::ConsensusRequest::new(flavor);
+
+    let default_cutoff = crate::default_consensus_cutoff(now, &config.tolerance)?;
+
+    match store.latest_consensus_meta(flavor) {
+        Ok(Some(meta)) => {
+            let valid_after = meta.lifetime().valid_after();
+            request.set_last_consensus_date(std::cmp::max(valid_after, default_cutoff));
+            request.push_old_consensus_digest(*meta.sha3_256_of_signed());
+        }
+        latest => {
+            if let Err(e) = latest {
+                warn!("Error loading directory metadata: {}", e);
+            }
+            // If we don't have a consensus, then request one that's
+            // "reasonably new".  That way, our clock is set far in the
+            // future, we won't download stuff we can't use.
+            request.set_last_consensus_date(default_cutoff);
+        }
+    }
+
+    request.set_skew_limit(
+        // If we are _fast_ by at least this much, then any valid directory will
+        // seem to be at least this far in the past.
+        config.tolerance.post_valid_tolerance,
+        // If we are _slow_ by this much, then any valid directory will seem to
+        // be at least this far in the future.
+        config.tolerance.pre_valid_tolerance,
+    );
+
+    Ok(ClientRequest::Consensus(request))
+}
+
+/// Construct a set of `ClientRequest`s in order to fetch the documents in `docs`.
+pub(crate) fn make_requests_for_documents<R: Runtime>(
+    rt: &R,
+    docs: &[DocId],
+    store: &dyn Store,
+    config: &DirMgrConfig,
+) -> Result<Vec<ClientRequest>> {
+    let mut res = Vec::new();
+    for q in docid::partition_by_type(docs.iter().copied())
+        .into_iter()
+        .flat_map(|(_, x)| x.split_for_download().into_iter())
+    {
+        match q {
+            DocQuery::LatestConsensus { flavor, .. } => {
+                res.push(make_consensus_request(
+                    rt.wallclock(),
+                    flavor,
+                    store,
+                    config,
+                )?);
+            }
+            DocQuery::AuthCert(ids) => {
+                res.push(ClientRequest::AuthCert(ids.into_iter().collect()));
+            }
+            DocQuery::Microdesc(ids) => {
+                res.push(ClientRequest::Microdescs(ids.into_iter().collect()));
+            }
+            #[cfg(feature = "routerdesc")]
+            DocQuery::RouterDesc(ids) => {
+                res.push(ClientRequest::RouterDescs(ids.into_iter().collect()));
+            }
+        }
+    }
+    Ok(res)
+}
 
 /// Launch a single client request and get an associated response.
 async fn fetch_single<R: Runtime>(
-    dirmgr: Arc<DirMgr<R>>,
+    rt: &R,
     request: ClientRequest,
+    current_netdir: Option<&NetDir>,
+    circmgr: Arc<CircMgr<R>>,
 ) -> Result<(ClientRequest, DirResponse)> {
-    #[cfg(test)]
-    {
-        let m = CANNED_RESPONSE.lock().expect("Poisoned mutex");
-        if let Some(s) = m.as_ref() {
-            return Ok((request, DirResponse::from_body(s)));
-        }
-    }
-    let circmgr = dirmgr.circmgr()?;
-    let cur_netdir = dirmgr.opt_netdir();
-    let dirinfo = match cur_netdir {
-        Some(ref netdir) => netdir.as_ref().into(),
+    let dirinfo: DirInfo = match current_netdir {
+        Some(netdir) => netdir.into(),
         None => tor_circmgr::DirInfo::Nothing,
     };
     let outcome =
-        tor_dirclient::get_resource(request.as_requestable(), dirinfo, &dirmgr.runtime, circmgr)
-            .await;
+        tor_dirclient::get_resource(request.as_requestable(), dirinfo, rt, circmgr.clone()).await;
 
-    dirmgr.note_request_outcome(&outcome);
+    note_request_outcome(&circmgr, &outcome);
 
     let resource = outcome?;
     Ok((request, resource))
 }
+
+/// Testing helper: if this is Some, then we return it in place of any
+/// response to fetch_multiple.
+///
+/// Note that only one test uses this: otherwise there would be a race
+/// condition. :p
+#[cfg(test)]
+static CANNED_RESPONSE: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(vec![]));
 
 /// Launch a set of download requests for a set of missing objects in
 /// `missing`, and return each request along with the response it received.
@@ -80,18 +251,38 @@ async fn fetch_single<R: Runtime>(
 /// Don't launch more than `parallelism` requests at once.
 async fn fetch_multiple<R: Runtime>(
     dirmgr: Arc<DirMgr<R>>,
-    missing: Vec<DocId>,
+    missing: &[DocId],
     parallelism: usize,
 ) -> Result<Vec<(ClientRequest, DirResponse)>> {
-    let mut requests = Vec::new();
-    for (_type, query) in docid::partition_by_type(missing.into_iter()) {
-        requests.extend(dirmgr.query_into_requests(query)?);
+    let requests = {
+        let store = dirmgr.store.lock().expect("store lock poisoned");
+        make_requests_for_documents(
+            &dirmgr.runtime,
+            missing,
+            store.deref(),
+            &dirmgr.config.get(),
+        )?
+    };
+
+    #[cfg(test)]
+    {
+        let m = CANNED_RESPONSE.lock().expect("Poisoned mutex");
+        if !m.is_empty() {
+            return Ok(requests
+                .into_iter()
+                .zip(m.iter().map(DirResponse::from_body))
+                .collect());
+        }
     }
+
+    let circmgr = dirmgr.circmgr()?;
+    // TODO(eta): Maybe don't hold this netdir for so long?
+    let netdir = dirmgr.opt_netdir();
 
     // TODO: instead of waiting for all the queries to finish, we
     // could stream the responses back or something.
     let responses: Vec<Result<(ClientRequest, DirResponse)>> = futures::stream::iter(requests)
-        .map(|query| fetch_single(Arc::clone(&dirmgr), query))
+        .map(|query| fetch_single(&dirmgr.runtime, query, netdir.as_deref(), circmgr.clone()))
         .buffer_unordered(parallelism)
         .collect()
         .await;
@@ -117,36 +308,34 @@ async fn fetch_multiple<R: Runtime>(
     Ok(useful_responses)
 }
 
-/// Try tp update `state` by loading cached information from `dirmgr`.
-/// Return true if anything changed.
+/// Try to update `state` by loading cached information from `dirmgr`.
 async fn load_once<R: Runtime>(
     dirmgr: &Arc<DirMgr<R>>,
     state: &mut Box<dyn DirState>,
-) -> Result<bool> {
+    changed: &mut bool,
+) -> Result<()> {
     let missing = state.missing_docs();
-    let outcome = if missing.is_empty() {
+    let outcome: Result<()> = if missing.is_empty() {
         trace!("Found no missing documents; can't advance current state");
-        Ok(false)
+        Ok(())
     } else {
         trace!(
             "Found {} missing documents; trying to load them",
             missing.len()
         );
-        let documents = load_all(dirmgr, missing)?;
 
-        match state.add_from_cache(documents, dirmgr.store_if_rw()) {
-            Err(Error::UntimelyObject(TimeValidityError::Expired(_))) => {
-                // This is just an expired object from the cache; we don't need
-                // to call that an error.  Treat it as if it were absent.
-                Ok(false)
-            }
-            other => other,
-        }
+        let documents = {
+            let store = dirmgr.store.lock().expect("store lock poisoned");
+            load_documents_from_store(&missing, store.deref())?
+        };
+
+        state.add_from_cache(documents, changed)
     };
 
-    if matches!(outcome, Ok(true)) {
-        dirmgr.update_status(state.bootstrap_status());
-    }
+    // We have to update the status here regardless of the outcome: even if
+    // there was an error, we might have received partial information that
+    // changed our status.
+    dirmgr.update_status(state.bootstrap_status());
 
     outcome
 }
@@ -162,13 +351,31 @@ pub(crate) async fn load<R: Runtime>(
     let mut safety_counter = 0_usize;
     loop {
         trace!(state=%state.describe(), "Loading from cache");
-        let changed = load_once(&dirmgr, &mut state).await?;
+        let mut changed = false;
+        let outcome = load_once(&dirmgr, &mut state, &mut changed).await;
+        {
+            let mut store = dirmgr.store.lock().expect("store lock poisoned");
+            dirmgr.apply_netdir_changes(&mut state, store.deref_mut())?;
+        }
+
+        if let Err(e) = outcome {
+            match e.bootstrap_action() {
+                BootstrapAction::Nonfatal => {
+                    debug!("Recoverable error loading from cache: {}", e);
+                }
+                BootstrapAction::Fatal | BootstrapAction::Reset => {
+                    return Err(e);
+                }
+            }
+        }
 
         if state.can_advance() {
-            state = state.advance()?;
+            state = state.advance();
             safety_counter = 0;
         } else {
             if !changed {
+                // TODO: Are there more nonfatal errors that mean we should
+                // break?
                 break;
             }
             safety_counter += 1;
@@ -187,16 +394,13 @@ pub(crate) async fn load<R: Runtime>(
 ///
 /// This can launch one or more download requests, but will not launch more
 /// than `parallelism` requests at a time.
-///
-/// Return true if the state reports that it changed.
 async fn download_attempt<R: Runtime>(
     dirmgr: &Arc<DirMgr<R>>,
     state: &mut Box<dyn DirState>,
     parallelism: usize,
-) -> Result<bool> {
-    let mut changed = false;
+) -> Result<()> {
     let missing = state.missing_docs();
-    let fetched = fetch_multiple(Arc::clone(dirmgr), missing, parallelism).await?;
+    let fetched = fetch_multiple(Arc::clone(dirmgr), &missing, parallelism).await?;
     for (client_req, dir_response) in fetched {
         let source = dir_response.source().map(Clone::clone);
         let text = match String::from_utf8(dir_response.into_output())
@@ -205,68 +409,75 @@ async fn download_attempt<R: Runtime>(
             Ok(t) => t,
             Err(e) => {
                 if let Some(source) = source {
-                    dirmgr.note_cache_error(&source, &e);
+                    note_cache_error(dirmgr.circmgr()?.deref(), &source, &e);
                 }
                 continue;
             }
         };
         match dirmgr.expand_response_text(&client_req, text) {
             Ok(text) => {
-                let outcome = state.add_from_download(&text, &client_req, Some(&dirmgr.store));
-                match outcome {
-                    Ok(b) => {
-                        changed |= b;
-                        if let Some(source) = source {
-                            dirmgr.note_cache_success(&source);
-                        }
-                    }
-                    Err(e) => {
-                        warn!("error while adding directory info: {}", e);
-                        if let Some(source) = source {
-                            dirmgr.note_cache_error(&source, &e);
-                        }
+                let doc_source = DocSource::DirServer {
+                    source: source.clone(),
+                };
+                let mut changed = false;
+                let outcome = state.add_from_download(
+                    &text,
+                    &client_req,
+                    doc_source,
+                    Some(&dirmgr.store),
+                    &mut changed,
+                );
+
+                if !changed {
+                    debug_assert!(outcome.is_err());
+                }
+
+                if let Some(source) = source {
+                    if let Err(e) = &outcome {
+                        note_cache_error(dirmgr.circmgr()?.deref(), &source, e);
+                    } else {
+                        note_cache_success(dirmgr.circmgr()?.deref(), &source);
                     }
                 }
+
+                if let Err(e) = &outcome {
+                    warn!("error while adding directory info: {}", e);
+                }
+                propagate_fatal_errors!(outcome);
             }
             Err(e) => {
                 warn!("Error when expanding directory text: {}", e);
                 if let Some(source) = source {
-                    dirmgr.note_cache_error(&source, &e);
+                    note_cache_error(dirmgr.circmgr()?.deref(), &source, &e);
                 }
+                propagate_fatal_errors!(Err(e));
             }
         }
     }
 
-    if changed {
-        dirmgr.update_status(state.bootstrap_status());
-    }
+    dirmgr.update_status(state.bootstrap_status());
 
-    Ok(changed)
+    Ok(())
 }
 
 /// Download information into a DirState state machine until it is
-/// ["complete"](Readiness::Complete), or until we hit a
-/// non-recoverable error.
+/// ["complete"](Readiness::Complete), or until we hit a non-recoverable error.
 ///
 /// Use `dirmgr` to load from the cache or to launch downloads.
 ///
 /// Keep resetting the state as needed.
 ///
-/// The first time that the state becomes ["usable"](Readiness::Usable),
-/// notify the sender in `on_usable`.
-///
-/// Return Err only on a non-recoverable error.  On an error that
-/// merits another bootstrap attempt with the same state, return the
-/// state and an Error object in an option.
+/// The first time that the state becomes ["usable"](Readiness::Usable), notify
+/// the sender in `on_usable`.
 pub(crate) async fn download<R: Runtime>(
     dirmgr: Weak<DirMgr<R>>,
-    mut state: Box<dyn DirState>,
+    state: &mut Box<dyn DirState>,
     on_usable: &mut Option<oneshot::Sender<()>>,
-) -> Result<(Box<dyn DirState>, Option<Error>)> {
+) -> Result<()> {
     let runtime = upgrade_weak_ref(&dirmgr)?.runtime.clone();
 
     'next_state: loop {
-        let retry_config = state.dl_config()?;
+        let retry_config = state.dl_config();
         let parallelism = retry_config.parallelism();
 
         // In theory this could be inside the loop below maybe?  If we
@@ -274,17 +485,33 @@ pub(crate) async fn download<R: Runtime>(
         // state must never grow, then we'll need to move it inside.
         let mut now = {
             let dirmgr = upgrade_weak_ref(&dirmgr)?;
-            load_once(&dirmgr, &mut state).await?;
-            dirmgr.now()
+            let mut changed = false;
+            let load_result = load_once(&dirmgr, state, &mut changed).await;
+            if let Err(e) = &load_result {
+                // If the load failed but the error can be blamed on a directory
+                // cache, do so.
+                if let Some(source) = e.responsible_cache() {
+                    note_cache_error(dirmgr.circmgr()?.deref(), source, e);
+                }
+            }
+            propagate_fatal_errors!(load_result);
+            dirmgr.runtime.wallclock()
         };
 
         // Skip the downloads if we can...
         if state.can_advance() {
-            state = state.advance()?;
+            advance(state);
             continue 'next_state;
         }
+        // Apply any netdir changes that the state gives us.
+        // TODO(eta): Consider deprecating state.is_ready().
+        {
+            let dirmgr = upgrade_weak_ref(&dirmgr)?;
+            let mut store = dirmgr.store.lock().expect("store lock poisoned");
+            dirmgr.apply_netdir_changes(state, store.deref_mut())?;
+        }
         if state.is_ready(Readiness::Complete) {
-            return Ok((state, None));
+            return Ok(());
         }
 
         let reset_time = no_more_than_a_week_from(runtime.wallclock(), state.reset_time());
@@ -306,7 +533,7 @@ pub(crate) async fn download<R: Runtime>(
                 futures::select_biased! {
                     _ = reset_timeout_future => {
                         info!("Download attempt timed out completely; resetting download state.");
-                        state = state.reset()?;
+                        reset(state);
                         continue 'next_state;
                     }
                     _ = FutureExt::fuse(runtime.sleep(delay)) => {}
@@ -319,15 +546,11 @@ pub(crate) async fn download<R: Runtime>(
             now = {
                 let dirmgr = upgrade_weak_ref(&dirmgr)?;
                 futures::select_biased! {
-                    outcome = download_attempt(&dirmgr, &mut state, parallelism.into()).fuse() => {
-                        match outcome {
-                            Err(e) => {
-                                warn!("Error while downloading: {}", e);
-                                continue 'next_attempt;
-                            }
-                            Ok(changed) => {
-                                changed
-                            }
+                    outcome = download_attempt(&dirmgr,  state, parallelism.into()).fuse() => {
+                        if let Err(e) = outcome {
+                            warn!("Error while downloading: {}", e);
+                            propagate_fatal_errors!(Err(e));
+                            continue 'next_attempt;
                         }
                     }
                     _ = runtime.sleep_until_wallclock(reset_time).fuse() => {
@@ -335,16 +558,25 @@ pub(crate) async fn download<R: Runtime>(
                         // example) we're downloading the last few
                         // microdescriptors on a consensus that now
                         // we're ready to replace.
-                        state = state.reset()?;
+                       reset(state);
                         continue 'next_state;
                     },
                 };
-                dirmgr.now()
+                dirmgr.runtime.wallclock()
             };
+
+            // Apply any netdir changes that the state gives us.
+            // TODO(eta): Consider deprecating state.is_ready().
+            {
+                let dirmgr = upgrade_weak_ref(&dirmgr)?;
+                let mut store = dirmgr.store.lock().expect("store lock poisoned");
+                let outcome = dirmgr.apply_netdir_changes(state, store.deref_mut());
+                propagate_fatal_errors!(outcome);
+            }
 
             // Exit if there is nothing more to download.
             if state.is_ready(Readiness::Complete) {
-                return Ok((state, None));
+                return Ok(());
             }
 
             // Report usable-ness if appropriate.
@@ -356,7 +588,7 @@ pub(crate) async fn download<R: Runtime>(
 
             if state.can_advance() {
                 // We have enough info to advance to another state.
-                state = state.advance()?;
+                advance(state);
                 continue 'next_state;
             }
         }
@@ -365,8 +597,20 @@ pub(crate) async fn download<R: Runtime>(
         warn!(n_attempts=retry_config.n_attempts(),
               state=%state.describe(),
               "Unable to advance downloading state");
-        return Ok((state, Some(Error::CantAdvanceState)));
+        return Err(Error::CantAdvanceState);
     }
+}
+
+/// Replace `state` with `state.reset()`.
+fn reset(state: &mut Box<dyn DirState>) {
+    let cur_state = std::mem::replace(state, Box::new(PoisonedState));
+    *state = cur_state.reset();
+}
+
+/// Replace `state` with `state.advance()`.
+fn advance(state: &mut Box<dyn DirState>) {
+    let cur_state = std::mem::replace(state, Box::new(PoisonedState));
+    *state = cur_state.advance();
 }
 
 /// Helper: Clamp `v` so that it is no more than one week from `now`.
@@ -486,53 +730,53 @@ mod test {
         fn add_from_cache(
             &mut self,
             docs: HashMap<DocId, DocumentText>,
-            _storage: Option<&Mutex<DynStore>>,
-        ) -> Result<bool> {
-            let mut changed = false;
+            changed: &mut bool,
+        ) -> Result<()> {
             for id in docs.keys() {
                 if let DocId::Microdesc(id) = id {
                     if self.got_items.get(id) == Some(&false) {
                         self.got_items.insert(*id, true);
-                        changed = true;
+                        *changed = true;
                     }
                 }
             }
-            Ok(changed)
+            Ok(())
         }
         fn add_from_download(
             &mut self,
             text: &str,
             _request: &ClientRequest,
+            _source: DocSource,
             _storage: Option<&Mutex<DynStore>>,
-        ) -> Result<bool> {
-            let mut changed = false;
+            changed: &mut bool,
+        ) -> Result<()> {
             for token in text.split_ascii_whitespace() {
                 if let Ok(v) = hex::decode(token) {
                     if let Ok(id) = v.try_into() {
                         if self.got_items.get(&id) == Some(&false) {
                             self.got_items.insert(id, true);
-                            changed = true;
+                            *changed = true;
                         }
                     }
                 }
             }
-            Ok(changed)
+            Ok(())
         }
-        fn dl_config(&self) -> Result<DownloadSchedule> {
-            Ok(DownloadSchedule::default())
+        fn dl_config(&self) -> DownloadSchedule {
+            DownloadSchedule::default()
         }
-        fn advance(self: Box<Self>) -> Result<Box<dyn DirState>> {
+        fn advance(self: Box<Self>) -> Box<dyn DirState> {
             if self.can_advance() {
-                Ok(Box::new(Self::new2()))
+                Box::new(Self::new2())
             } else {
-                Ok(self)
+                self
             }
         }
         fn reset_time(&self) -> Option<SystemTime> {
             None
         }
-        fn reset(self: Box<Self>) -> Result<Box<dyn DirState>> {
-            Ok(Box::new(Self::new1()))
+        fn reset(self: Box<Self>) -> Box<dyn DirState> {
+            Box::new(Self::new1())
         }
     }
 
@@ -557,13 +801,13 @@ mod test {
             assert!(result.is_ready(Readiness::Complete));
 
             // Try a bootstrap that could (but won't!) download.
-            let state = Box::new(DemoState::new1());
+            let mut state: Box<dyn DirState> = Box::new(DemoState::new1());
 
             let mut on_usable = None;
-            let result = super::download(Arc::downgrade(&mgr), state, &mut on_usable)
+            super::download(Arc::downgrade(&mgr), &mut state, &mut on_usable)
                 .await
                 .unwrap();
-            assert!(result.0.is_ready(Readiness::Complete));
+            assert!(state.is_ready(Readiness::Complete));
         });
     }
 
@@ -584,20 +828,20 @@ mod test {
             {
                 let mut resp = CANNED_RESPONSE.lock().unwrap();
                 // H4 and H5.
-                *resp = Some(
+                *resp = vec![
                     "7768696c652069206c696b6520746f207761746368207468696e6773206f6e20
                      545620536174656c6c697465206f66206c6f766520536174656c6c6974652d2d"
                         .to_owned(),
-                );
+                ];
             }
             let mgr = Arc::new(mgr);
             let mut on_usable = None;
 
-            let state = Box::new(DemoState::new1());
-            let result = super::download(Arc::downgrade(&mgr), state, &mut on_usable)
+            let mut state: Box<dyn DirState> = Box::new(DemoState::new1());
+            super::download(Arc::downgrade(&mgr), &mut state, &mut on_usable)
                 .await
                 .unwrap();
-            assert!(result.0.is_ready(Readiness::Complete));
+            assert!(state.is_ready(Readiness::Complete));
         });
     }
 }

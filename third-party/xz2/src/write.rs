@@ -1,15 +1,15 @@
 //! Writer-based compression/decompression streams
 
-use std::io::prelude::*;
-use std::io;
 use lzma_sys;
+use std::io;
+use std::io::prelude::*;
 
 #[cfg(feature = "tokio")]
 use futures::Poll;
 #[cfg(feature = "tokio")]
-use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::{try_nb, AsyncRead, AsyncWrite};
 
-use stream::{Action, Status, Stream, Check};
+use crate::stream::{Action, Check, Status, Stream};
 
 /// A compression stream which will have uncompressed data written to it and
 /// will write compressed data to an output stream.
@@ -81,7 +81,7 @@ impl<W: Write> XzEncoder<W> {
             self.dump()?;
             let res = self.data.process_vec(&[], &mut self.buf, Action::Finish)?;
             if res == Status::StreamEnd {
-                break
+                break;
             }
         }
         self.dump()
@@ -124,12 +124,13 @@ impl<W: Write> Write for XzEncoder<W> {
             self.dump()?;
 
             let total_in = self.total_in();
-            self.data.process_vec(data, &mut self.buf, Action::Run)
+            self.data
+                .process_vec(data, &mut self.buf, Action::Run)
                 .unwrap();
             let written = (self.total_in() - total_in) as usize;
 
             if written > 0 || data.len() == 0 {
-                return Ok(written)
+                return Ok(written);
             }
         }
     }
@@ -137,10 +138,12 @@ impl<W: Write> Write for XzEncoder<W> {
     fn flush(&mut self) -> io::Result<()> {
         loop {
             self.dump()?;
-            let status = self.data.process_vec(&[], &mut self.buf,
-                                               Action::FullFlush).unwrap();
+            let status = self
+                .data
+                .process_vec(&[], &mut self.buf, Action::FullFlush)
+                .unwrap();
             if status == Status::StreamEnd {
-                break
+                break;
             }
         }
         self.obj.as_mut().unwrap().flush()
@@ -162,8 +165,7 @@ impl<W: Read + Write> Read for XzEncoder<W> {
 }
 
 #[cfg(feature = "tokio")]
-impl<W: AsyncRead + AsyncWrite> AsyncRead for XzEncoder<W> {
-}
+impl<W: AsyncRead + AsyncWrite> AsyncRead for XzEncoder<W> {}
 
 impl<W: Write> Drop for XzEncoder<W> {
     fn drop(&mut self) {
@@ -184,7 +186,8 @@ impl<W: Write> XzDecoder<W> {
     /// Creates a new decoding stream which will decode into `obj` all the xz streams
     /// from the input written to it.
     pub fn new_multi_decoder(obj: W) -> XzDecoder<W> {
-        let stream = Stream::new_stream_decoder(u64::max_value(), lzma_sys::LZMA_CONCATENATED).unwrap();
+        let stream =
+            Stream::new_stream_decoder(u64::max_value(), lzma_sys::LZMA_CONCATENATED).unwrap();
         XzDecoder::new_stream(obj, stream)
     }
 
@@ -225,8 +228,7 @@ impl<W: Write> XzDecoder<W> {
     fn try_finish(&mut self) -> io::Result<()> {
         loop {
             self.dump()?;
-            let res = self.data.process_vec(&[], &mut self.buf,
-                                                 Action::Finish)?;
+            let res = self.data.process_vec(&[], &mut self.buf, Action::Finish)?;
 
             // When decoding a truncated file, XZ returns LZMA_BUF_ERROR and
             // decodes no new data, which corresponds to this crate's MemNeeded
@@ -236,13 +238,12 @@ impl<W: Write> XzDecoder<W> {
             // See the 02_decompress.c example in xz-utils.
             if self.buf.is_empty() && res == Status::MemNeeded {
                 let msg = "xz compressed stream is truncated or otherwise corrupt";
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, msg))
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, msg));
             }
 
             if res == Status::StreamEnd {
-                break
+                break;
             }
-
         }
         self.dump()
     }
@@ -275,12 +276,11 @@ impl<W: Write> Write for XzDecoder<W> {
             self.dump()?;
 
             let before = self.total_in();
-            let res = self.data.process_vec(data, &mut self.buf,
-                                                 Action::Run)?;
+            let res = self.data.process_vec(data, &mut self.buf, Action::Run)?;
             let written = (self.total_in() - before) as usize;
 
             if written > 0 || data.len() == 0 || res == Status::StreamEnd {
-                return Ok(written)
+                return Ok(written);
             }
         }
     }
@@ -306,8 +306,7 @@ impl<W: Read + Write> Read for XzDecoder<W> {
 }
 
 #[cfg(feature = "tokio")]
-impl<W: AsyncRead + AsyncWrite> AsyncRead for XzDecoder<W> {
-}
+impl<W: AsyncRead + AsyncWrite> AsyncRead for XzDecoder<W> {}
 
 impl<W: Write> Drop for XzDecoder<W> {
     fn drop(&mut self) {
@@ -319,9 +318,9 @@ impl<W: Write> Drop for XzDecoder<W> {
 
 #[cfg(test)]
 mod tests {
+    use super::{XzDecoder, XzEncoder};
     use std::io::prelude::*;
     use std::iter::repeat;
-    use super::{XzEncoder, XzDecoder};
 
     #[test]
     fn smoke() {

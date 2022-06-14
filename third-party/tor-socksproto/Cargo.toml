@@ -1,6 +1,6 @@
 [package]
 name = "tor-socksproto"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
@@ -12,11 +12,10 @@ categories = ["network-programming"]
 repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
 [dependencies]
-caret = { path = "../caret", version = "0.2.0"}
-tor-bytes = { path = "../tor-bytes", version = "0.3.0"}
-tor-error = { path = "../tor-error", version = "0.3.0"}
-
+caret = { path = "../caret", version = "0.2.0" }
 thiserror = "1"
+tor-bytes = { path = "../tor-bytes", version = "0.3.0" }
+tor-error = { path = "../tor-error", version = "0.3.1" }
 
 [dev-dependencies]
 hex-literal = "0.3"

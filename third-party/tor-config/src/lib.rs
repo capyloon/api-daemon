@@ -6,7 +6,47 @@
 //! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
 //! implement [Tor](https://www.torproject.org/) in Rust.
 //!
-//! It provides low-level types for handling configuration values.
+//! It provides types for handling configuration values,
+//! and general machinery for configuration management.
+//!
+//! # Configuration in Arti
+//!
+//! The configuration for the `arti` command line program,
+//! and other programs which embed Arti reusing the configuration machinery,
+//! works as follows:
+//!
+//!  1. We use [`tor_config::ConfigurationSources`](ConfigurationSources)
+//!     to enumerate the various places
+//!     where configuration information needs to come from,
+//!     and configure how they are to be read.
+//!     `arti` uses [`ConfigurationSources::from_cmdline`].
+//!
+//!  2. [`ConfigurationSources::load`] actually *reads* all of these sources,
+//!     parses them (eg, as TOML files),
+//!     and returns a [`config::Config`].
+//!     This is a tree-structured dynamically typed data structure,
+//!     mirroring the input configuration structure, largely unvalidated,
+//!     and containing everything in the input config sources.
+//!
+//!  3. We call one of the [`tor_config::resolve`](resolve) family.
+//!     This maps the input configuration data to concrete `ConfigBuilder `s
+//!     for the configuration consumers within the program.
+//!     (For `arti`, that's `TorClientConfigBuilder` and `ArtiBuilder`).
+//!     This mapping is done using the `Deserialize` implementations on the `Builder`s.
+//!     `resolve` then calls the `build()` method on each of these parts of the configuration
+//!     which applies defaults and validates the resulting configuation.
+//!
+//!     It is important to call `resolve` *once* for *all* the configuration consumers,
+//!     so that it sees a unified view of which config settings in the input
+//!     were unrecognized, and therefore may need to be reported to the user.
+//!     See the example in the [`load`] module documentation.
+//!
+//!  4. The resulting configuration objects (eg, `TorClientConfig`, `ArtiConfig`)
+//!     are provided to the code that must use them (eg, to make a `TorClient`).
+//!
+//! See the
+//! [`tor_config::load` module-level documentation](load).
+//! for an example.
 //!
 //! # ⚠ Stability Warning ⚠
 //!
@@ -16,6 +56,7 @@
 //!
 //! [#285]: https://gitlab.torproject.org/tpo/core/arti/-/issues/285
 
+// @@ begin lint list maintained by maint/add_warning @@
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -45,18 +86,27 @@
 #![deny(clippy::unnecessary_wraps)]
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
+#![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+//! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
+pub mod cmdline;
 mod err;
 pub mod list_builder;
+pub mod load;
 mod mut_cfg;
 mod path;
+pub mod sources;
 
+pub use cmdline::CmdLine;
+pub use config as config_crate;
 pub use educe;
 pub use err::{ConfigBuildError, ReconfigureError};
+pub use load::{resolve, resolve_ignore_unrecognized, resolve_return_unrecognized};
 pub use mut_cfg::MutCfg;
 pub use paste::paste;
-pub use path::CfgPath;
+pub use path::{CfgPath, CfgPathError};
 pub use serde;
+pub use sources::ConfigurationSources;
 
 pub use tor_basic_utils::macro_first_nonempty;
 
@@ -90,9 +140,174 @@ impl Reconfigure {
     }
 }
 
+/// Resolves an `Option<Option<T>>` (in a builder) into an `Option<T>`
+///
+///  * If the input is `None`, this indicates that the user did not specify a value,
+///    and we therefore use `def` to obtain the default value.
+///
+///  * If the input is `Some(None)`, or `Some(Some(Default::default()))`,
+///    the user has explicitly specified that this config item should be null/none/nothing,
+///    so we return `None`.
+///
+///  * Otherwise the user provided an actual value, and we return `Some` of it.
+///
+/// See <https://gitlab.torproject.org/tpo/core/arti/-/issues/488>
+///
+/// # ⚠ Stability Warning ⚠
+///
+/// We hope to significantly change this so that it is an method in an extension trait.
+//
+// This is an annoying AOI right now because you have to write things like
+//     #[builder(field(build = r#"tor_config::resolve_option(&self.dns_port, || None)"#))]
+//     pub(crate) dns_port: Option<u16>,
+// which recapitulates the field name.  That is very much a bug hazard (indeed, in an
+// early version of some of this code I perpetrated precisely that bug).
+// Fixing this involves a derive_builder feature.
+pub fn resolve_option<T, DF>(input: &Option<Option<T>>, def: DF) -> Option<T>
+where
+    T: Clone + Default + PartialEq,
+    DF: FnOnce() -> Option<T>,
+{
+    match input {
+        None => def(),
+        Some(None) => None,
+        Some(Some(v)) if v == &T::default() => None,
+        Some(Some(v)) => Some(v.clone()),
+    }
+}
+
+/// Defines standard impls for a struct with a `Builder`, incl `Default`
+///
+/// **Use this.**  Do not `#[derive(Builder, Default)]`.  That latter approach would produce
+/// wrong answers if builder attributes are used to specify non-`Default` default values.
+///
+/// # Input syntax
+///
+/// ```
+/// use derive_builder::Builder;
+/// use serde::{Deserialize, Serialize};
+/// use tor_config::impl_standard_builder;
+/// use tor_config::ConfigBuildError;
+///
+/// #[derive(Debug, Builder, Clone, Eq, PartialEq)]
+/// #[builder(derive(Serialize, Deserialize, Debug))]
+/// #[builder(build_fn(error = "ConfigBuildError"))]
+/// struct SomeConfigStruct { }
+/// impl_standard_builder! { SomeConfigStruct }
+///
+/// #[derive(Debug, Builder, Clone, Eq, PartialEq)]
+/// struct UnusualStruct { }
+/// impl_standard_builder! { UnusualStruct: !Deserialize + !Builder }
+/// ```
+///
+/// # Requirements
+///
+/// `$Config`'s builder must have default values for all the fields,
+/// or this macro-generated self-test will fail.
+/// This should be OK for all principal elements of our configuration.
+///
+/// `$ConfigBuilder` must have an appropriate `Deserialize` impl.
+///
+/// # Options
+///
+///  * `!Deserialize` suppresses the test case involving `Builder: Deserialize`.
+///    This should not be done for structs which are part of Arti's configuration,
+///    but can be appropriate for other types that use [`derive_builder`].
+///
+///  * `!Builder` suppresses the impl of the [`tor_config::load::Builder`](load::Builder) trait
+///    This will be necessary if the error from the builder is not [`ConfigBuildError`].
+///
+/// # Generates
+///
+///  * `impl Default for $Config`
+///  * `impl Builder for $ConfigBuilder`
+///  * a self-test that the `Default` impl actually works
+///  * a test that the `Builder` can be deserialized from an empty [`config::Config`],
+///    and then built, and that the result is the same as the ordinary default.
+//
+// The implementation munches fake "trait bounds" (`: !Deserialie + !Wombat ...`) off the RHS.
+// We're going to add at least one more option.
+#[macro_export]
+macro_rules! impl_standard_builder {
+    // Convert the input into the "being processed format":
+    {
+        $Config:ty $(: $($options:tt)* )?
+    } => { $crate::impl_standard_builder!{
+        // ^Being processed format:
+        @ ( Builder                    )
+          ( try_deserialize            ) $Config    :                 $( $( $options    )* )?
+        //  ~~~~~~~~~~~~~~~              ^^^^^^^    ^   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        // present iff not !Builder
+        // present iff not !Deserialize  type      always present    options yet to be parsed
+    } };
+    // If !Deserialize is the next option, implement it by making $try_deserialize absent
+    {
+        @ ( $($Builder        :ident)? )
+          ( $($try_deserialize:ident)? ) $Config:ty : $(+)? !Deserialize $( $options:tt )*
+    } => {  $crate::impl_standard_builder!{
+        @ ( $($Builder              )? )
+          (                            ) $Config    :                    $( $options    )*
+    } };
+    // If !Builder is the next option, implement it by making $Builder absent
+    {
+        @ ( $($Builder        :ident)? )
+          ( $($try_deserialize:ident)? ) $Config:ty : $(+)? !Builder     $( $options:tt )*
+    } => {  $crate::impl_standard_builder!{
+        @ (                            )
+          ( $($try_deserialize      )? ) $Config    :                    $( $options    )*
+    } };
+    // Having parsed all options, produce output:
+    {
+        @ ( $($Builder        :ident)? )
+          ( $($try_deserialize:ident)? ) $Config:ty : $(+)?
+    } => { $crate::paste!{
+        impl $Config {
+            /// Returns a fresh, default, builder
+            pub fn builder() -> [< $Config Builder >] {
+                Default::default()
+            }
+        }
+
+        impl Default for $Config {
+            fn default() -> Self {
+                // unwrap is good because one of the test cases above checks that it works!
+                [< $Config Builder >]::default().build().unwrap()
+            }
+        }
+
+        $( // expands iff there was $Builder, which is always Builder
+            impl $crate::load::$Builder for [< $Config Builder >] {
+                type Built = $Config;
+                fn build(&self) -> Result<$Config, $crate::ConfigBuildError> {
+                    [< $Config Builder >]::build(self)
+                }
+            }
+        )?
+
+        #[test]
+        #[allow(non_snake_case)]
+        fn [< test_impl_Default_for_ $Config >] () {
+            #[allow(unused_variables)]
+            let def = $Config::default();
+
+            $( // expands iff there was $try_deserialize, which is always try_deserialize
+                let empty_config = $crate::config_crate::Config::builder().build().unwrap();
+                let builder: [< $Config Builder >] = empty_config.$try_deserialize().unwrap();
+                let from_empty = builder.build().unwrap();
+                assert_eq!(def, from_empty);
+            )*
+        }
+    } };
+}
+
 #[cfg(test)]
+#[allow(clippy::unwrap_used)] // why is this not the default in tests
 mod test {
     use super::*;
+    use crate as tor_config;
+    use derive_builder::Builder;
+    use serde::{Deserialize, Serialize};
+    use serde_json::json;
     use tracing_test::traced_test;
 
     #[test]
@@ -109,5 +324,73 @@ mod test {
         let ok = how.cannot_change("stuff");
         assert!(ok.is_ok());
         assert!(logs_contain("Cannot change stuff on a running client."));
+    }
+
+    #[test]
+    #[rustfmt::skip] // autoformatting obscures the regular structure
+    fn resolve_option_test() {
+        #[derive(Debug, Clone, Builder, Eq, PartialEq)]
+        #[builder(build_fn(error = "ConfigBuildError"))]
+        #[builder(derive(Debug, Serialize, Deserialize, Eq, PartialEq))]
+        struct TestConfig {
+            #[builder(field(build = r#"tor_config::resolve_option(&self.none, || None)"#))]
+            none: Option<u32>,
+
+            #[builder(field(build = r#"tor_config::resolve_option(&self.four, || Some(4))"#))]
+            four: Option<u32>,
+        }
+
+        // defaults
+        {
+            let builder_from_json: TestConfigBuilder = serde_json::from_value(
+                json!{ { } }
+            ).unwrap();
+
+            let builder_from_methods = TestConfigBuilder::default();
+
+            assert_eq!(builder_from_methods, builder_from_json);
+            assert_eq!(builder_from_methods.build().unwrap(),
+                        TestConfig { none: None, four: Some(4) });
+        }
+
+        // explicit positive values
+        {
+            let builder_from_json: TestConfigBuilder = serde_json::from_value(
+                json!{ { "none": 123, "four": 456 } }
+            ).unwrap();
+
+            let mut builder_from_methods = TestConfigBuilder::default();
+            builder_from_methods.none(Some(123));
+            builder_from_methods.four(Some(456));
+
+            assert_eq!(builder_from_methods, builder_from_json);
+            assert_eq!(builder_from_methods.build().unwrap(),
+                       TestConfig { none: Some(123), four: Some(456) });
+        }
+
+        // explicit "null" values
+        {
+            let builder_from_json: TestConfigBuilder = serde_json::from_value(
+                json!{ { "none": 0, "four": 0 } }
+            ).unwrap();
+
+            let mut builder_from_methods = TestConfigBuilder::default();
+            builder_from_methods.none(Some(0));
+            builder_from_methods.four(Some(0));
+
+            assert_eq!(builder_from_methods, builder_from_json);
+            assert_eq!(builder_from_methods.build().unwrap(),
+                       TestConfig { none: None, four: None });
+        }
+
+        // explicit None (API only, serde can't do this for Option)
+        {
+            let mut builder_from_methods = TestConfigBuilder::default();
+            builder_from_methods.none(None);
+            builder_from_methods.four(None);
+
+            assert_eq!(builder_from_methods.build().unwrap(),
+                       TestConfig { none: None, four: None });
+        }
     }
 }

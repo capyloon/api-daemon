@@ -29,7 +29,7 @@
 //! the `tokio` feature of this crate:
 //!
 //! ```toml
-//! xz2 = { version = "0.3", features = ["tokio"] }
+//! xz2 = { version = "0.1.6", features = ["tokio"] }
 //! ```
 //!
 //! All methods are internally capable of working with streams that may return
@@ -45,18 +45,6 @@
 
 #![deny(missing_docs)]
 #![doc(html_root_url = "https://docs.rs/xz2/0.1")]
-
-extern crate lzma_sys;
-
-#[cfg(test)]
-extern crate rand;
-#[cfg(test)]
-extern crate quickcheck;
-#[cfg(feature = "tokio")]
-#[macro_use]
-extern crate tokio_io;
-#[cfg(feature = "tokio")]
-extern crate futures;
 
 pub mod stream;
 

@@ -5,6 +5,7 @@ use crate::{Mmap, MmapMut};
 /// Values supported by [Mmap::advise] and [MmapMut::advise] functions.
 /// See [madvise()](https://man7.org/linux/man-pages/man2/madvise.2.html) map page.
 #[repr(i32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Advice {
     /// **MADV_NORMAL**
     ///
@@ -64,7 +65,7 @@ pub enum Advice {
     //
     // The rest are Linux-specific
     //
-    /// **MADV_FREE** - Linux only (since Linux 4.5)
+    /// **MADV_FREE** - Linux (since Linux 4.5) and Darwin
     ///
     /// The application no longer requires the pages in the range
     /// specified by addr and len.  The kernel can thus free these
@@ -87,7 +88,7 @@ pub enum Advice {
     /// 4.12, when freeing pages on a swapless system, the pages
     /// in the given range are freed instantly, regardless of
     /// memory pressure.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios"))]
     Free = libc::MADV_FREE,
 
     /// **MADV_REMOVE** - Linux only (since Linux 2.6.16)
@@ -239,10 +240,34 @@ pub enum Advice {
     /// configured with CONFIG_MEMORY_FAILURE.
     #[cfg(target_os = "linux")]
     HwPoison = libc::MADV_HWPOISON,
-    // Future expansion:
-    // MADV_SOFT_OFFLINE  (since Linux 2.6.33)
-    // MADV_WIPEONFORK  (since Linux 4.14)
-    // MADV_KEEPONFORK  (since Linux 4.14)
-    // MADV_COLD  (since Linux 5.4)
-    // MADV_PAGEOUT  (since Linux 5.4)
+
+    /// **MADV_ZERO_WIRED_PAGES** - Darwin only
+    ///
+    /// Indicates that the application would like the wired pages in this address range to be
+    /// zeroed out if the address range is deallocated without first unwiring the pages (i.e.
+    /// a munmap(2) without a preceding munlock(2) or the application quits).  This is used
+    /// with madvise() system call.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    ZeroWiredPages = libc::MADV_ZERO_WIRED_PAGES,
+
+    /// **MADV_FREE_REUSABLE** - Darwin only
+    ///
+    /// Behaves like **MADV_FREE**, but the freed pages are accounted for in the RSS of the process.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    FreeReusable = libc::MADV_FREE_REUSABLE,
+
+    /// **MADV_FREE_REUSE** - Darwin only
+    ///
+    /// Marks a memory region previously freed by **MADV_FREE_REUSABLE** as non-reusable, accounts
+    /// for the pages in the RSS of the process. Pages that have been freed will be replaced by
+    /// zero-filled pages on demand, other pages will be left as is.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    FreeReuse = libc::MADV_FREE_REUSE,
 }
+
+// Future expansion:
+// MADV_SOFT_OFFLINE  (since Linux 2.6.33)
+// MADV_WIPEONFORK  (since Linux 4.14)
+// MADV_KEEPONFORK  (since Linux 4.14)
+// MADV_COLD  (since Linux 5.4)
+// MADV_PAGEOUT  (since Linux 5.4)
