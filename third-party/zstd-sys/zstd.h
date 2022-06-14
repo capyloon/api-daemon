@@ -2,13 +2,11 @@
 
 /* Just use installed headers */
 #include <zstd.h>
-#include <zdict.h>
 // Don't use experimental features like zstdmt
 
 #else // #ifdef PKG_CONFIG
 
 #include "zstd/lib/zstd.h"
-#include "zstd/lib/zdict.h"
 
 #endif // #ifdef PKG_CONFIG
 

@@ -1,15 +1,15 @@
 //! I/O streams for wrapping `BufRead` types as encoders/decoders
 
-use std::io::prelude::*;
-use std::io;
 use lzma_sys;
+use std::io;
+use std::io::prelude::*;
 
 #[cfg(feature = "tokio")]
 use futures::Poll;
 #[cfg(feature = "tokio")]
 use tokio_io::{AsyncRead, AsyncWrite};
 
-use stream::{Stream, Check, Action, Status};
+use crate::stream::{Action, Check, Status, Stream};
 
 /// An xz encoder, or compressor.
 ///
@@ -75,10 +75,10 @@ impl<R> XzEncoder<R> {
     ///
     /// Note that, due to buffering, this only bears any relation to
     /// total_in() when the compressor chooses to flush its data
-    /// (unfortunately, this won't happen this won't happen in general
-    /// at the end of the stream, because the compressor doesn't know
-    /// if there's more data to come).  At that point,
-    /// `total_out() / total_in()` would be the compression ratio.
+    /// (unfortunately, this won't happen in general at the end of the
+    /// stream, because the compressor doesn't know if there's more data
+    /// to come).  At that point, `total_out() / total_in()` would be
+    /// the compression ratio.
     pub fn total_out(&self) -> u64 {
         self.data.total_out()
     }
@@ -99,7 +99,7 @@ impl<R: BufRead> Read for XzEncoder<R> {
                 eof = input.is_empty();
                 let before_out = self.data.total_out();
                 let before_in = self.data.total_in();
-                let action = if eof {Action::Finish} else {Action::Run};
+                let action = if eof { Action::Finish } else { Action::Run };
                 ret = self.data.process(input, buf, action);
                 read = (self.data.total_out() - before_out) as usize;
                 consumed = (self.data.total_in() - before_in) as usize;
@@ -112,16 +112,15 @@ impl<R: BufRead> Read for XzEncoder<R> {
             // need to keep asking for more data because if we return that 0
             // bytes of data have been read then it will be interpreted as EOF.
             if read == 0 && !eof && buf.len() > 0 {
-                continue
+                continue;
             }
-            return Ok(read)
+            return Ok(read);
         }
     }
 }
 
 #[cfg(feature = "tokio")]
-impl<R: AsyncRead + BufRead> AsyncRead for XzEncoder<R> {
-}
+impl<R: AsyncRead + BufRead> AsyncRead for XzEncoder<R> {}
 
 impl<W: Write> Write for XzEncoder<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -151,7 +150,8 @@ impl<R: BufRead> XzDecoder<R> {
     /// Creates a new decoder which will decompress data read from the given
     /// input. All the concatenated xz streams from input will be consumed.
     pub fn new_multi_decoder(r: R) -> XzDecoder<R> {
-        let stream = Stream::new_auto_decoder(u64::max_value(), lzma_sys::LZMA_CONCATENATED).unwrap();
+        let stream =
+            Stream::new_auto_decoder(u64::max_value(), lzma_sys::LZMA_CONCATENATED).unwrap();
         XzDecoder::new_stream(r, stream)
     }
 
@@ -160,7 +160,10 @@ impl<R: BufRead> XzDecoder<R> {
     /// The `Stream` can be pre-configured for various checks, different
     /// decompression options/tuning, etc.
     pub fn new_stream(r: R, stream: Stream) -> XzDecoder<R> {
-        XzDecoder { obj: r, data: stream }
+        XzDecoder {
+            obj: r,
+            data: stream,
+        }
     }
 }
 
@@ -206,7 +209,9 @@ impl<R: BufRead> Read for XzDecoder<R> {
                 eof = input.is_empty();
                 let before_out = self.data.total_out();
                 let before_in = self.data.total_in();
-                ret = self.data.process(input, buf, if eof { Action::Finish } else { Action::Run });
+                ret = self
+                    .data
+                    .process(input, buf, if eof { Action::Finish } else { Action::Run });
                 read = (self.data.total_out() - before_out) as usize;
                 consumed = (self.data.total_in() - before_in) as usize;
             }
@@ -215,22 +220,25 @@ impl<R: BufRead> Read for XzDecoder<R> {
             let status = ret?;
             if read > 0 || eof || buf.len() == 0 {
                 if read == 0 && status != Status::StreamEnd && buf.len() > 0 {
-                    return Err(io::Error::new(io::ErrorKind::Other,
-                                              "premature eof"))
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "premature eof",
+                    ));
                 }
-                return Ok(read)
+                return Ok(read);
             }
             if consumed == 0 {
-                return Err(io::Error::new(io::ErrorKind::Other,
-                                          "corrupt xz stream"))
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "corrupt xz stream",
+                ));
             }
         }
     }
 }
 
 #[cfg(feature = "tokio")]
-impl<R: AsyncRead + BufRead> AsyncRead for XzDecoder<R> {
-}
+impl<R: AsyncRead + BufRead> AsyncRead for XzDecoder<R> {}
 
 impl<W: Write> Write for XzDecoder<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -251,13 +259,13 @@ impl<R: AsyncWrite> AsyncWrite for XzDecoder<R> {
 
 #[cfg(test)]
 mod tests {
-    use bufread::{XzEncoder, XzDecoder};
+    use crate::bufread::{XzDecoder, XzEncoder};
     use std::io::Read;
 
     #[test]
     fn compressed_and_trailing_data() {
         // Make a vector with compressed data...
-        let mut to_compress : Vec<u8> = Vec::new();
+        let mut to_compress: Vec<u8> = Vec::new();
         const COMPRESSED_ORIG_SIZE: usize = 1024;
         for num in 0..COMPRESSED_ORIG_SIZE {
             to_compress.push(num as u8)
@@ -268,7 +276,7 @@ mod tests {
         encoder.read_to_end(&mut decoder_input).unwrap();
 
         // ...plus additional unrelated trailing data
-        const ADDITIONAL_SIZE : usize = 123;
+        const ADDITIONAL_SIZE: usize = 123;
         let mut additional_data = Vec::new();
         for num in 0..ADDITIONAL_SIZE {
             additional_data.push(((25 + num) % 256) as u8)
@@ -281,7 +289,10 @@ mod tests {
             let mut decoder = XzDecoder::new(&mut decoder_reader);
             let mut decompressed_data = vec![0u8; to_compress.len()];
 
-            assert_eq!(decoder.read(&mut decompressed_data).unwrap(), COMPRESSED_ORIG_SIZE);
+            assert_eq!(
+                decoder.read(&mut decompressed_data).unwrap(),
+                COMPRESSED_ORIG_SIZE
+            );
             assert_eq!(decompressed_data, &to_compress[..]);
         }
 

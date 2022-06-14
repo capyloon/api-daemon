@@ -136,6 +136,10 @@ impl Lifetime {
     pub fn valid_until(&self) -> time::SystemTime {
         self.valid_until
     }
+    /// Return true if this consensus is officially valid at the provided time.
+    pub fn valid_at(&self, when: time::SystemTime) -> bool {
+        self.valid_after <= when && when <= self.valid_until
+    }
 }
 
 /// A set of named network parameters.
@@ -143,6 +147,9 @@ impl Lifetime {
 /// These are used to describe current settings for the Tor network,
 /// current weighting parameters for path selection, and so on.  They're
 /// encoded with a space-separated K=V format.
+///
+/// A `NetParams<i32>` is part of the validated directory manager configuration,
+/// where it is built (in the builder-pattern sense) from a transparent HashMap.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct NetParams<T> {
     /// Map from keys to values.

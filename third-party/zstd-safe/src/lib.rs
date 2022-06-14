@@ -8,7 +8,7 @@
 //! [zstd]: https://crates.io/crates/zstd
 //!
 //! Most of the functions here map 1-for-1 to a function from
-//! [the C zstd library][zstd-c] mentionned in their descriptions.
+//! [the C zstd library][zstd-c] mentioned in their descriptions.
 //! Check the [source documentation][doc] for more information on their
 //! behaviour.
 //!
@@ -2041,6 +2041,8 @@ pub fn cctx_set_pledged_src_size(
 }
 
 /// Wraps the `ZDICT_trainFromBuffer()` function.
+#[cfg(feature = "zdict_builder")]
+#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "zdict_builder")))]
 pub fn train_from_buffer<C: WriteBuf + ?Sized>(
     dict_buffer: &mut C,
     samples_buffer: &[u8],
@@ -2062,6 +2064,8 @@ pub fn train_from_buffer<C: WriteBuf + ?Sized>(
 }
 
 /// Wraps the `ZSTD_getDictID_fromDict()` function.
+#[cfg(feature = "zdict_builder")]
+#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "zdict_builder")))]
 pub fn get_dict_id(dict_buffer: &[u8]) -> Option<u32> {
     let id = unsafe {
         zstd_sys::ZDICT_getDictID(ptr_void(dict_buffer), dict_buffer.len())

@@ -5,14 +5,16 @@
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
-use arti_client::config::TorClientConfigBuilder;
 use arti_client::TorClientConfig;
-use tor_config::ConfigBuildError;
+use tor_config::{impl_standard_builder, ConfigBuildError};
 
 use crate::{LoggingConfig, LoggingConfigBuilder};
 
+/// Default options to use for our configuration.
+pub const ARTI_EXAMPLE_CONFIG: &str = concat!(include_str!("./arti-example-config.toml"),);
+
 /// Structure to hold our application configuration options
-#[derive(Debug, Default, Clone, Builder, Eq, PartialEq)]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
 #[builder(derive(Debug, Serialize, Deserialize))]
 pub struct ApplicationConfig {
@@ -26,42 +28,22 @@ pub struct ApplicationConfig {
     #[builder(default)]
     pub(crate) watch_configuration: bool,
 }
+impl_standard_builder! { ApplicationConfig }
 
 /// Configuration for one or more proxy listeners.
-#[derive(Deserialize, Debug, Clone, Builder, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(build_fn(error = "ConfigBuildError"))]
 #[builder(derive(Debug, Serialize, Deserialize))]
 pub struct ProxyConfig {
     /// Port to listen on (at localhost) for incoming SOCKS
     /// connections.
-    #[serde(default = "default_socks_port")]
-    #[builder(default = "default_socks_port()")]
+    #[builder(field(build = r#"tor_config::resolve_option(&self.socks_port, || Some(9150))"#))]
     pub(crate) socks_port: Option<u16>,
     /// Port to lisen on (at localhost) for incoming DNS connections.
-    #[serde(default)]
-    #[builder(default)]
+    #[builder(field(build = r#"tor_config::resolve_option(&self.dns_port, || None)"#))]
     pub(crate) dns_port: Option<u16>,
 }
-
-/// Return the default value for `socks_port`
-#[allow(clippy::unnecessary_wraps)]
-fn default_socks_port() -> Option<u16> {
-    Some(9150)
-}
-
-impl Default for ProxyConfig {
-    fn default() -> Self {
-        Self::builder().build().expect("Default builder failed")
-    }
-}
-
-impl ProxyConfig {
-    /// Return a new [`ProxyConfigBuilder`].
-    pub fn builder() -> ProxyConfigBuilder {
-        ProxyConfigBuilder::default()
-    }
-}
+impl_standard_builder! { ProxyConfig }
 
 /// Configuration for system resources used by Tor.
 ///
@@ -75,23 +57,11 @@ pub struct SystemConfig {
     #[builder(setter(into), default = "default_max_files()")]
     pub(crate) max_files: u64,
 }
+impl_standard_builder! { SystemConfig }
 
 /// Return the default maximum number of file descriptors to launch with.
 fn default_max_files() -> u64 {
     16384
-}
-
-impl Default for SystemConfig {
-    fn default() -> Self {
-        Self::builder().build().expect("Default builder failed")
-    }
-}
-
-impl SystemConfig {
-    /// Return a new SystemConfigBuilder.
-    pub fn builder() -> SystemConfigBuilder {
-        SystemConfigBuilder::default()
-    }
 }
 
 /// Structure to hold Arti's configuration options, whether from a
@@ -108,7 +78,7 @@ impl SystemConfig {
 ///
 /// NOTE: These are NOT the final options or their final layout. Expect NO
 /// stability here.
-#[derive(Debug, Builder, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Builder, Clone, Eq, PartialEq)]
 #[builder(derive(Serialize, Deserialize, Debug))]
 #[builder(build_fn(error = "ConfigBuildError"))]
 pub struct ArtiConfig {
@@ -131,41 +101,19 @@ pub struct ArtiConfig {
     #[builder(sub_builder)]
     #[builder_field_attr(serde(default))]
     pub(crate) system: SystemConfig,
+}
+impl_standard_builder! { ArtiConfig }
 
-    /// Configuration of the actual Tor client
-    #[builder(sub_builder)]
-    #[builder_field_attr(serde(flatten))]
-    tor: TorClientConfig,
+impl tor_config::load::TopLevel for ArtiConfig {
+    type Builder = ArtiConfigBuilder;
 }
 
-impl TryFrom<config::Config> for ArtiConfig {
-    type Error = config::ConfigError;
-    fn try_from(cfg: config::Config) -> Result<ArtiConfig, Self::Error> {
-        let builder: ArtiConfigBuilder = cfg.try_deserialize()?;
-        builder
-            .build()
-            .map_err(|e| config::ConfigError::Foreign(Box::new(e)))
-    }
-}
-
-// This handwritten impl ought not to exist, but it is needed until #374 is done.
-impl From<ArtiConfigBuilder> for TorClientConfigBuilder {
-    fn from(cfg: ArtiConfigBuilder) -> TorClientConfigBuilder {
-        cfg.tor
-    }
-}
+/// Convenience alias for the config for a whole `arti` program
+///
+/// Used primarily as a type parameter on calls to [`tor_config::resolve`]
+pub type ArtiCombinedConfig = (ArtiConfig, TorClientConfig);
 
 impl ArtiConfig {
-    /// Construct a [`TorClientConfig`] based on this configuration.
-    pub fn tor_client_config(&self) -> Result<TorClientConfig, ConfigBuildError> {
-        Ok(self.tor.clone())
-    }
-
-    /// Return a new ArtiConfigBuilder.
-    pub fn builder() -> ArtiConfigBuilder {
-        ArtiConfigBuilder::default()
-    }
-
     /// Return the [`ApplicationConfig`] for this configuration.
     pub fn application(&self) -> &ApplicationConfig {
         &self.application
@@ -187,30 +135,51 @@ mod test {
     #![allow(clippy::unwrap_used)]
 
     use arti_client::config::dir;
-    use arti_config::ARTI_DEFAULTS;
+    use arti_client::config::TorClientConfigBuilder;
+    use regex::Regex;
     use std::time::Duration;
 
     use super::*;
 
+    fn uncomment_example_settings(template: &str) -> String {
+        let re = Regex::new(r#"(?m)^\#([^ \n])"#).unwrap();
+        re.replace_all(template, |cap: &regex::Captures<'_>| -> _ {
+            cap.get(1).unwrap().as_str().to_string()
+        })
+        .into()
+    }
+
     #[test]
     fn default_config() {
-        // TODO: this is duplicate code.
+        let empty_config = config::Config::builder().build().unwrap();
+        let empty_config: ArtiCombinedConfig = tor_config::resolve(empty_config).unwrap();
+
+        let example = uncomment_example_settings(ARTI_EXAMPLE_CONFIG);
         let cfg = config::Config::builder()
-            .add_source(config::File::from_str(
-                ARTI_DEFAULTS,
-                config::FileFormat::Toml,
-            ))
+            .add_source(config::File::from_str(&example, config::FileFormat::Toml))
             .build()
             .unwrap();
 
-        let parsed: ArtiConfig = cfg.try_into().unwrap();
-        let default = ArtiConfig::default();
-        assert_eq!(&parsed, &default);
+        // This tests that the example settings do not *contradict* the defaults.
+        //
+        // Also we should ideally test that every setting from the config appears here in
+        // the file.  Possibly that could be done with some kind of stunt Deserializer,
+        // but it's not trivial.
+        let (parsed, unrecognized): (ArtiCombinedConfig, _) =
+            tor_config::resolve_return_unrecognized(cfg).unwrap();
 
-        // Make sure that the client configuration this gives us is the default one.
-        let client_config = parsed.tor_client_config().unwrap();
-        let dflt_client_config = TorClientConfig::default();
-        assert_eq!(&client_config, &dflt_client_config);
+        let default = (ArtiConfig::default(), TorClientConfig::default());
+        assert_eq!(&parsed, &default);
+        assert_eq!(&parsed, &empty_config);
+
+        assert_eq!(unrecognized, &[]);
+
+        let built_default = (
+            ArtiConfigBuilder::default().build().unwrap(),
+            TorClientConfigBuilder::default().build().unwrap(),
+        );
+        assert_eq!(&parsed, &built_default);
+        assert_eq!(&default, &built_default);
     }
 
     #[test]
@@ -230,57 +199,192 @@ mod test {
             .push("127.0.0.7:7".parse().unwrap());
 
         let mut bld = ArtiConfig::builder();
+        let mut bld_tor = TorClientConfig::builder();
+
         bld.proxy().socks_port(Some(9999));
         bld.logging().console("warn");
-        bld.tor().tor_network().set_authorities(vec![auth]);
-        bld.tor().tor_network().set_fallback_caches(vec![fallback]);
-        bld.tor()
+
+        bld_tor.tor_network().set_authorities(vec![auth]);
+        bld_tor.tor_network().set_fallback_caches(vec![fallback]);
+        bld_tor
             .storage()
             .cache_dir(CfgPath::new("/var/tmp/foo".to_owned()))
             .state_dir(CfgPath::new("/var/tmp/bar".to_owned()));
-        bld.tor().download_schedule().retry_certs().attempts(10);
-        bld.tor()
-            .download_schedule()
-            .retry_certs()
-            .initial_delay(sec);
-        bld.tor().download_schedule().retry_certs().parallelism(3);
-        bld.tor()
-            .download_schedule()
-            .retry_microdescs()
-            .attempts(30);
-        bld.tor()
+        bld_tor.download_schedule().retry_certs().attempts(10);
+        bld_tor.download_schedule().retry_certs().initial_delay(sec);
+        bld_tor.download_schedule().retry_certs().parallelism(3);
+        bld_tor.download_schedule().retry_microdescs().attempts(30);
+        bld_tor
             .download_schedule()
             .retry_microdescs()
             .initial_delay(10 * sec);
-        bld.tor()
+        bld_tor
             .download_schedule()
             .retry_microdescs()
             .parallelism(9);
-        bld.tor()
+        bld_tor
             .override_net_params()
             .insert("wombats-per-quokka".to_owned(), 7);
-        bld.tor()
+        bld_tor
             .path_rules()
             .ipv4_subnet_family_prefix(20)
             .ipv6_subnet_family_prefix(48);
-        bld.tor().preemptive_circuits().disable_at_threshold(12);
-        bld.tor()
+        bld_tor.preemptive_circuits().disable_at_threshold(12);
+        bld_tor
             .preemptive_circuits()
             .set_initial_predicted_ports(vec![80, 443]);
-        bld.tor()
+        bld_tor
             .preemptive_circuits()
             .prediction_lifetime(Duration::from_secs(3600))
             .min_exit_circs_for_port(2);
-        bld.tor()
+        bld_tor
             .circuit_timing()
             .max_dirtiness(90 * sec)
             .request_timeout(10 * sec)
             .request_max_retries(22)
             .request_loyalty(3600 * sec);
-        bld.tor().address_filter().allow_local_addrs(true);
+        bld_tor.address_filter().allow_local_addrs(true);
 
         let val = bld.build().unwrap();
 
         assert_ne!(val, ArtiConfig::default());
+    }
+
+    #[test]
+    fn articonfig_application() {
+        let config = ArtiConfig::default();
+
+        let application = config.application();
+        assert_eq!(&config.application, application);
+    }
+
+    #[test]
+    fn articonfig_logging() {
+        let config = ArtiConfig::default();
+
+        let logging = config.logging();
+        assert_eq!(&config.logging, logging);
+    }
+
+    #[test]
+    fn articonfig_proxy() {
+        let config = ArtiConfig::default();
+
+        let proxy = config.proxy();
+        assert_eq!(&config.proxy, proxy);
+    }
+
+    #[test]
+    fn exhaustive() {
+        use itertools::Itertools;
+        use serde_json::Value as JsValue;
+        use std::collections::BTreeSet;
+
+        let example = uncomment_example_settings(ARTI_EXAMPLE_CONFIG);
+        let example: toml::Value = toml::from_str(&example).unwrap();
+        // dbg!(&example);
+        let example = serde_json::to_value(&example).unwrap();
+        // dbg!(&example);
+
+        // "Exhaustive" taxonomy of the recognised configuration keys
+        //
+        // We use the JSON serialization of the default builders, because Rust's toml
+        // implementation likes to omit more things, that we want to see.
+        //
+        // I'm not sure this is quite perfect but it is pretty good,
+        // and has found a number of un-exampled config keys.
+        let exhausts = [
+            serde_json::to_value(&TorClientConfig::builder()).unwrap(),
+            serde_json::to_value(&ArtiConfig::builder()).unwrap(),
+        ];
+
+        #[derive(Default, Debug)]
+        struct Walk {
+            current_path: Vec<String>,
+            problems: Vec<(String, String)>,
+        }
+
+        impl Walk {
+            /// Records a problem
+            fn bad(&mut self, m: &str) {
+                self.problems
+                    .push((self.current_path.join("."), m.to_string()));
+            }
+
+            /// Recurses, looking for problems
+            ///
+            /// Visited for every node in either or both of the starting `exhausts`.
+            ///
+            /// `E` is the number of elements in `exhausts`, ie the number of different
+            /// top-level config types that Arti uses.  Ie, 2.
+            fn walk<const E: usize>(
+                &mut self,
+                example: Option<&JsValue>,
+                exhausts: [Option<&JsValue>; E],
+            ) {
+                assert! { exhausts.into_iter().any(|e| e.is_some()) }
+
+                let example = if let Some(e) = example {
+                    e
+                } else {
+                    self.bad("missing from example");
+                    return;
+                };
+
+                let tables = exhausts.map(|e| e?.as_object());
+
+                // Union of the keys of both exhausts' tables (insofar as they *are* tables)
+                let table_keys = tables
+                    .iter()
+                    .flat_map(|t| t.map(|t| t.keys().cloned()).into_iter().flatten())
+                    .collect::<BTreeSet<String>>();
+
+                for key in table_keys {
+                    let example = if let Some(e) = example.as_object() {
+                        e
+                    } else {
+                        // At least one of the exhausts was a nonempty table,
+                        // but the corresponding example node isn't a table.
+                        self.bad("expected table in example");
+                        continue;
+                    };
+
+                    // Descend the same key in all the places.
+                    self.current_path.push(key.clone());
+                    self.walk(example.get(&key), tables.map(|t| t?.get(&key)));
+                    self.current_path.pop().unwrap();
+                }
+            }
+        }
+
+        let exhausts = exhausts.iter().map(Some).collect_vec().try_into().unwrap();
+
+        let mut walk = Walk::default();
+        walk.walk::<2>(Some(&example), exhausts);
+        let mut problems = walk.problems;
+
+        // When adding things here, check that `arti-example-config.toml`
+        // actually has something about these particular config keys.
+        let expect_missing = ["tor_network.authorities", "tor_network.fallback_caches"];
+
+        for exp in expect_missing {
+            let was = problems.len();
+            problems.retain(|(path, _)| path != exp);
+            if problems.len() == was {
+                problems.push((
+                    exp.into(),
+                    "expected to be missing but found in default".into(),
+                ));
+            }
+        }
+
+        let problems = problems
+            .into_iter()
+            .map(|(path, m)| format!("    config key {:?}: {}", path, m))
+            .collect_vec();
+
+        assert! { problems.is_empty(),
+        "example config exhaustiveness check failed:\n{}\n",
+        problems.join("\n")}
     }
 }

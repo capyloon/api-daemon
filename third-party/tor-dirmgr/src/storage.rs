@@ -17,8 +17,10 @@ use crate::docmeta::{AuthCertMeta, ConsensusMeta};
 use crate::{Error, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs::File;
+use std::ops::{Deref, DerefMut};
+use std::str::Utf8Error;
 use std::time::SystemTime;
-use std::{path::Path, str::Utf8Error};
 use time::Duration;
 
 pub(crate) mod sqlite;
@@ -124,18 +126,19 @@ impl InputString {
             }
         }
     }
-
-    /// Construct a new InputString from a file on disk, trying to
-    /// memory-map the file if possible.
-    pub(crate) fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let f = std::fs::File::open(path)?;
+    /// Try to create an [`InputString`] from an open [`File`].
+    ///
+    /// We'll try to memory-map the file if we can.  If that fails, or if we
+    /// were built without the `mmap` feature, we'll fall back to reading the
+    /// file into memory.
+    pub(crate) fn load(file: File) -> Result<Self> {
         #[cfg(feature = "mmap")]
         {
             let mapping = unsafe {
                 // I'd rather have a safe option, but that's not possible
                 // with mmap, since other processes could in theory replace
                 // the contents of the file while we're using it.
-                memmap2::Mmap::map(&f)
+                memmap2::Mmap::map(&file)
             };
             if let Ok(bytes) = mapping {
                 return Ok(InputString::MappedBytes {
@@ -145,7 +148,7 @@ impl InputString {
             }
         }
         use std::io::{BufReader, Read};
-        let mut f = BufReader::new(f);
+        let mut f = BufReader::new(file);
         let mut result = String::new();
         f.read_to_string(&mut result)?;
         Ok(InputString::Utf8(result))
@@ -280,6 +283,93 @@ pub(crate) trait Store {
     fn store_routerdescs(&mut self, digests: &[(&str, SystemTime, &RdDigest)]) -> Result<()>;
 }
 
+// TODO(eta): maybe use something like the `delegate` crate to autogenerate this?
+impl Store for DynStore {
+    fn is_readonly(&self) -> bool {
+        self.deref().is_readonly()
+    }
+
+    fn upgrade_to_readwrite(&mut self) -> Result<bool> {
+        self.deref_mut().upgrade_to_readwrite()
+    }
+
+    fn expire_all(&mut self, expiration: &ExpirationConfig) -> Result<()> {
+        self.deref_mut().expire_all(expiration)
+    }
+
+    fn latest_consensus(
+        &self,
+        flavor: ConsensusFlavor,
+        pending: Option<bool>,
+    ) -> Result<Option<InputString>> {
+        self.deref().latest_consensus(flavor, pending)
+    }
+
+    fn latest_consensus_meta(&self, flavor: ConsensusFlavor) -> Result<Option<ConsensusMeta>> {
+        self.deref().latest_consensus_meta(flavor)
+    }
+
+    fn consensus_by_meta(&self, cmeta: &ConsensusMeta) -> Result<InputString> {
+        self.deref().consensus_by_meta(cmeta)
+    }
+
+    fn consensus_by_sha3_digest_of_signed_part(
+        &self,
+        d: &[u8; 32],
+    ) -> Result<Option<(InputString, ConsensusMeta)>> {
+        self.deref().consensus_by_sha3_digest_of_signed_part(d)
+    }
+
+    fn store_consensus(
+        &mut self,
+        cmeta: &ConsensusMeta,
+        flavor: ConsensusFlavor,
+        pending: bool,
+        contents: &str,
+    ) -> Result<()> {
+        self.deref_mut()
+            .store_consensus(cmeta, flavor, pending, contents)
+    }
+
+    fn mark_consensus_usable(&mut self, cmeta: &ConsensusMeta) -> Result<()> {
+        self.deref_mut().mark_consensus_usable(cmeta)
+    }
+
+    fn delete_consensus(&mut self, cmeta: &ConsensusMeta) -> Result<()> {
+        self.deref_mut().delete_consensus(cmeta)
+    }
+
+    fn authcerts(&self, certs: &[AuthCertKeyIds]) -> Result<HashMap<AuthCertKeyIds, String>> {
+        self.deref().authcerts(certs)
+    }
+
+    fn store_authcerts(&mut self, certs: &[(AuthCertMeta, &str)]) -> Result<()> {
+        self.deref_mut().store_authcerts(certs)
+    }
+
+    fn microdescs(&self, digests: &[MdDigest]) -> Result<HashMap<MdDigest, String>> {
+        self.deref().microdescs(digests)
+    }
+
+    fn store_microdescs(&mut self, digests: &[(&str, &MdDigest)], when: SystemTime) -> Result<()> {
+        self.deref_mut().store_microdescs(digests, when)
+    }
+
+    fn update_microdescs_listed(&mut self, digests: &[MdDigest], when: SystemTime) -> Result<()> {
+        self.deref_mut().update_microdescs_listed(digests, when)
+    }
+
+    #[cfg(feature = "routerdesc")]
+    fn routerdescs(&self, digests: &[RdDigest]) -> Result<HashMap<RdDigest, String>> {
+        self.deref().routerdescs(digests)
+    }
+
+    #[cfg(feature = "routerdesc")]
+    fn store_routerdescs(&mut self, digests: &[(&str, SystemTime, &RdDigest)]) -> Result<()> {
+        self.deref_mut().store_routerdescs(digests)
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_used)]
@@ -308,13 +398,9 @@ mod test {
     fn files() {
         let td = tempdir().unwrap();
 
-        let absent = td.path().join("absent");
-        let s = InputString::load(&absent);
-        assert!(s.is_err());
-
         let goodstr = td.path().join("goodstr");
         std::fs::write(&goodstr, "This is a reasonable file.\n").unwrap();
-        let s = InputString::load(&goodstr);
+        let s = InputString::load(File::open(goodstr).unwrap());
         let s = s.unwrap();
         assert_eq!(s.as_str().unwrap(), "This is a reasonable file.\n");
         assert_eq!(s.as_str().unwrap(), "This is a reasonable file.\n");
@@ -322,7 +408,7 @@ mod test {
 
         let badutf8 = td.path().join("badutf8");
         std::fs::write(&badutf8, b"Not good \xff UTF-8.\n").unwrap();
-        let s = InputString::load(&badutf8);
+        let s = InputString::load(File::open(badutf8).unwrap());
         assert!(s.is_err() || s.unwrap().as_str().is_err());
     }
 

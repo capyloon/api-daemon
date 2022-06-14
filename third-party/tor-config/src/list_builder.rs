@@ -130,6 +130,9 @@
 //! assert_eq!{ builder.build().unwrap().values, &[27, 12] }
 //! ```
 
+pub use crate::define_list_builder_accessors;
+pub use crate::define_list_builder_helper;
+
 /// Define a list builder struct for use with [`define_list_builder_accessors`]
 ///
 /// Generates an builder struct that can be used with derive_builder
@@ -376,12 +379,13 @@ define_list_builder_helper! {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
     use derive_builder::Builder;
-    use serde::{Deserialize, Serialize};
 
     #[test]
     fn nonempty_default() {
-        #[derive(Eq, PartialEq, Builder, Serialize, Deserialize)]
+        #[derive(Eq, PartialEq, Builder)]
         struct Outer {
             #[builder(sub_builder, setter(custom))]
             list: List,
@@ -420,5 +424,16 @@ mod test {
 
         *b.opt_list_mut() = None;
         assert_eq! { (&b).build().expect("build failed").list, ['a'] };
+    }
+
+    #[test]
+    fn vecbuilder() {
+        // Minimal test, since rustdoc tests seem not to be finding the documentation inside
+        // the declaration of VecBuilder.  (Or at least that's what the coverage says.)
+        let mut b = VecBuilder::<u32>::default();
+        b.access().push(1);
+        b.access().push(2);
+        b.access().push(3);
+        assert_eq!(b.build().unwrap(), vec![1, 2, 3]);
     }
 }

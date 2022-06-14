@@ -1,6 +1,6 @@
 [package]
 name = "tor-basic-utils"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
@@ -13,8 +13,15 @@ categories = ["rust-patterns"]
 repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
 [dependencies]
+futures = "0.3.14"
+hex = "0.4"
+pin-project = "1"
 rand = "0.8"
+rand_chacha = "0.3"
+thiserror = "1"
 
 [dev-dependencies]
 derive_more = "0.99"
 educe = "0.4.6"
+futures-await-test = "0.3.0"
+tokio = { version = "1.7", features = ["macros", "rt", "rt-multi-thread", "time"] }

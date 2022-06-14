@@ -12,16 +12,21 @@
 [package]
 edition = "2018"
 name = "actix-web-codegen"
-version = "4.0.0"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rob Ede <robjtede@icloud.com>"]
+version = "4.0.1"
+authors = [
+    "Nikolay Kim <fafhrd91@gmail.com>",
+    "Rob Ede <robjtede@icloud.com>",
+]
 description = "Routing and runtime macros for Actix Web"
 homepage = "https://actix.rs"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web.git"
 resolver = "2"
 
 [lib]
 proc-macro = true
+
 [dependencies.actix-router]
 version = "0.5.0"
 
@@ -33,4 +38,33 @@ version = "1"
 
 [dependencies.syn]
 version = "1"
-features = ["full", "parsing"]
+features = [
+    "full",
+    "parsing",
+]
+
+[dev-dependencies.actix-macros]
+version = "0.2.3"
+
+[dev-dependencies.actix-rt]
+version = "2.2"
+
+[dev-dependencies.actix-test]
+version = "0.1.0-beta.13"
+
+[dev-dependencies.actix-utils]
+version = "3.0.0"
+
+[dev-dependencies.actix-web]
+version = "4.0.0"
+
+[dev-dependencies.futures-core]
+version = "0.3.7"
+features = ["alloc"]
+default-features = false
+
+[dev-dependencies.rustversion]
+version = "1"
+
+[dev-dependencies.trybuild]
+version = "1"

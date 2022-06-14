@@ -1,23 +1,17 @@
 #![cfg(feature = "tokio")]
 
-extern crate tokio_core;
-extern crate xz2;
-extern crate tokio_io;
-extern crate futures;
-extern crate rand;
-
-use std::thread;
-use std::net::{Shutdown, TcpListener};
 use std::io::{Read, Write};
+use std::net::{Shutdown, TcpListener};
+use std::thread;
 
-use xz2::read;
-use xz2::write;
 use futures::Future;
-use rand::{Rng, thread_rng};
+use rand::Rng;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor::Core;
-use tokio_io::AsyncRead;
 use tokio_io::io::{copy, shutdown};
+use tokio_io::AsyncRead;
+use xz2::read;
+use xz2::write;
 
 #[test]
 fn tcp_stream_echo_pattern() {
@@ -49,24 +43,25 @@ fn tcp_stream_echo_pattern() {
             let buf = [i; M];
             a.write_all(&buf).unwrap();
         }
-        a.finish().unwrap()
-         .shutdown(Shutdown::Write).unwrap();
+        a.finish().unwrap().shutdown(Shutdown::Write).unwrap();
 
         t.join().unwrap();
     });
 
     let handle = core.handle();
     let stream = TcpStream::connect(&addr, &handle);
-    let copy = stream.and_then(|s| {
-        let (a, b) = s.split();
-        let a = read::XzDecoder::new(a);
-        let b = write::XzEncoder::new(b, 6);
-        copy(a, b)
-    }).then(|result| {
-        let (amt, _a, b) = result.unwrap();
-        assert_eq!(amt, (N as u64) * (M as u64));
-        shutdown(b).map(|_| ())
-    });
+    let copy = stream
+        .and_then(|s| {
+            let (a, b) = s.split();
+            let a = read::XzDecoder::new(a);
+            let b = write::XzEncoder::new(b, 6);
+            copy(a, b)
+        })
+        .then(|result| {
+            let (amt, _a, b) = result.unwrap();
+            assert_eq!(amt, (N as u64) * (M as u64));
+            shutdown(b).map(|_| ())
+        });
 
     core.run(copy).unwrap();
     t.join().unwrap();
@@ -74,7 +69,10 @@ fn tcp_stream_echo_pattern() {
 
 #[test]
 fn echo_random() {
-    let v = thread_rng().gen_iter::<u8>().take(1024 * 1024).collect::<Vec<_>>();
+    let v = std::iter::repeat(())
+        .map(|_| rand::thread_rng().gen::<u8>())
+        .take(1024 * 1024)
+        .collect::<Vec<_>>();
     let mut core = Core::new().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -100,24 +98,25 @@ fn echo_random() {
 
         let mut a = write::XzEncoder::new(a, 6);
         a.write_all(&v2).unwrap();
-        a.finish().unwrap()
-         .shutdown(Shutdown::Write).unwrap();
+        a.finish().unwrap().shutdown(Shutdown::Write).unwrap();
 
         t.join().unwrap();
     });
 
     let handle = core.handle();
     let stream = TcpStream::connect(&addr, &handle);
-    let copy = stream.and_then(|s| {
-        let (a, b) = s.split();
-        let a = read::XzDecoder::new(a);
-        let b = write::XzEncoder::new(b, 6);
-        copy(a, b)
-    }).then(|result| {
-        let (amt, _a, b) = result.unwrap();
-        assert_eq!(amt, v.len() as u64);
-        shutdown(b).map(|_| ())
-    });
+    let copy = stream
+        .and_then(|s| {
+            let (a, b) = s.split();
+            let a = read::XzDecoder::new(a);
+            let b = write::XzEncoder::new(b, 6);
+            copy(a, b)
+        })
+        .then(|result| {
+            let (amt, _a, b) = result.unwrap();
+            assert_eq!(amt, v.len() as u64);
+            shutdown(b).map(|_| ())
+        });
 
     core.run(copy).unwrap();
     t.join().unwrap();

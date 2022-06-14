@@ -94,6 +94,7 @@
 //! [`guard-spec.txt`](https://gitlab.torproject.org/tpo/core/torspec/-/raw/main/guard-spec.txt)
 //! document.
 
+// @@ begin lint list maintained by maint/add_warning @@
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -123,6 +124,8 @@
 #![deny(clippy::unnecessary_wraps)]
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
+#![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+//! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 // Glossary:
 //     Primary guard
@@ -141,6 +144,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tor_proto::ClockSkew;
 use tracing::{debug, info, trace, warn};
 
+use tor_config::impl_standard_builder;
 use tor_config::{define_list_builder_accessors, define_list_builder_helper};
 use tor_llcrypto::pk;
 use tor_netdir::{params::NetParameters, NetDir, Relay};
@@ -911,6 +915,7 @@ impl GuardMgrInner {
     /// are unusable.
     fn expire_and_answer_pending_requests(&mut self, now: Instant) {
         // TODO: Use Vec::drain_filter or Vec::retain_mut when/if it's stable.
+        #[allow(deprecated)]
         use retain_mut::RetainMut;
 
         // A bit ugly: we use a separate Vec here to avoid borrowing issues,
@@ -918,6 +923,7 @@ impl GuardMgrInner {
         let mut waiting = Vec::new();
         std::mem::swap(&mut waiting, &mut self.waiting);
 
+        #[allow(deprecated)]
         RetainMut::retain_mut(&mut waiting, |pending| {
             let expired = pending
                 .waiting_since()
@@ -1220,7 +1226,7 @@ pub enum GuardUsageKind {
 /// A set of parameters describing how a single guard should be selected.
 ///
 /// Used as an argument to [`GuardMgr::select_guard`].
-#[derive(Clone, Debug, Default, derive_builder::Builder)]
+#[derive(Clone, Debug, derive_builder::Builder)]
 #[builder(build_fn(error = "tor_config::ConfigBuildError"))]
 pub struct GuardUsage {
     /// The purpose for which this guard will be used.
@@ -1232,6 +1238,8 @@ pub struct GuardUsage {
     #[builder(sub_builder, setter(custom))]
     restrictions: GuardRestrictionList,
 }
+
+impl_standard_builder! { GuardUsage: !Deserialize }
 
 /// List of socket restricteionesses, as configured
 pub type GuardRestrictionList = Vec<GuardRestriction>;

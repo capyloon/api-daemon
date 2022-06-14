@@ -3,6 +3,13 @@
 ## Unreleased - 2021-xx-xx
 
 
+## 4.0.1 - 2022-06-11
+- Fix support for guard paths in route handler macros. [#2771]
+- Minimum supported Rust version (MSRV) is now 1.56 due to transitive `hashbrown` dependency.
+
+[#2771]: https://github.com/actix/actix-web/pull/2771
+
+
 ## 4.0.0 - 2022-02-24
 - Version aligned with `actix-web` and will remain in sync going forward.
 - No significant changes since `0.5.0`.

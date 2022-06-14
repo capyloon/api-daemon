@@ -12,17 +12,41 @@
 [package]
 edition = "2018"
 name = "actix-http"
-version = "3.0.4"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rob Ede <robjtede@icloud.com>"]
+version = "3.1.0"
+authors = [
+    "Nikolay Kim <fafhrd91@gmail.com>",
+    "Rob Ede <robjtede@icloud.com>",
+]
 description = "HTTP primitives for the Actix ecosystem"
 homepage = "https://actix.rs"
-keywords = ["actix", "http", "framework", "async", "futures"]
-categories = ["network-programming", "asynchronous", "web-programming::http-server", "web-programming::websocket"]
+readme = "README.md"
+keywords = [
+    "actix",
+    "http",
+    "framework",
+    "async",
+    "futures",
+]
+categories = [
+    "network-programming",
+    "asynchronous",
+    "web-programming::http-server",
+    "web-programming::websocket",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web.git"
 resolver = "2"
+
 [package.metadata.docs.rs]
-features = ["http2", "ws", "openssl", "rustls", "compress-brotli", "compress-gzip", "compress-zstd"]
+features = [
+    "http2",
+    "ws",
+    "openssl",
+    "rustls",
+    "compress-brotli",
+    "compress-gzip",
+    "compress-zstd",
+]
 
 [lib]
 name = "actix_http"
@@ -30,7 +54,10 @@ path = "src/lib.rs"
 
 [[example]]
 name = "ws"
-required-features = ["rustls"]
+required-features = [
+    "ws",
+    "rustls",
+]
 
 [[bench]]
 name = "write-camel-case"
@@ -47,6 +74,7 @@ harness = false
 [[bench]]
 name = "quality-value"
 harness = false
+
 [dependencies.actix-codec]
 version = "0.5"
 
@@ -123,9 +151,6 @@ version = "0.3"
 version = "0.1"
 optional = true
 
-[dependencies.log]
-version = "0.4"
-
 [dependencies.mime]
 version = "0.3"
 
@@ -139,24 +164,119 @@ version = "0.2"
 version = "0.8"
 optional = true
 
-[dependencies.sha-1]
+[dependencies.sha1]
 version = "0.10"
 optional = true
 
 [dependencies.smallvec]
 version = "1.6.1"
 
+[dependencies.tracing]
+version = "0.1.30"
+features = ["log"]
+default-features = false
+
 [dependencies.zstd]
-version = "0.10"
+version = "0.11"
 optional = true
+
+[dev-dependencies.actix-http-test]
+version = "3.0.0-beta.13"
+features = ["openssl"]
+
+[dev-dependencies.actix-server]
+version = "2"
+
+[dev-dependencies.actix-tls]
+version = "3"
+features = ["openssl"]
+
+[dev-dependencies.async-stream]
+version = "0.3"
+
+[dev-dependencies.criterion]
+version = "0.3"
+features = ["html_reports"]
+
+[dev-dependencies.env_logger]
+version = "0.9"
+
+[dev-dependencies.futures-util]
+version = "0.3.7"
+features = ["alloc"]
+default-features = false
+
+[dev-dependencies.memchr]
+version = "2.4"
+
+[dev-dependencies.once_cell]
+version = "1.9"
+
+[dev-dependencies.rcgen]
+version = "0.8"
+
+[dev-dependencies.regex]
+version = "1.3"
+
+[dev-dependencies.rustls-pemfile]
+version = "0.2"
+
+[dev-dependencies.rustversion]
+version = "1"
+
+[dev-dependencies.serde]
+version = "1.0"
+features = ["derive"]
+
+[dev-dependencies.serde_json]
+version = "1.0"
+
+[dev-dependencies.static_assertions]
+version = "1"
+
+[dev-dependencies.tls-openssl]
+version = "0.10.9"
+package = "openssl"
+
+[dev-dependencies.tls-rustls]
+version = "0.20.0"
+package = "rustls"
+
+[dev-dependencies.tokio]
+version = "1.8.4"
+features = [
+    "net",
+    "rt",
+    "macros",
+]
 
 [features]
 __compress = []
-compress-brotli = ["__compress", "brotli"]
-compress-gzip = ["__compress", "flate2"]
-compress-zstd = ["__compress", "zstd"]
+compress-brotli = [
+    "__compress",
+    "brotli",
+]
+compress-gzip = [
+    "__compress",
+    "flate2",
+]
+compress-zstd = [
+    "__compress",
+    "zstd",
+]
 default = []
 http2 = ["h2"]
-openssl = ["actix-tls/accept", "actix-tls/openssl"]
-rustls = ["actix-tls/accept", "actix-tls/rustls"]
-ws = ["local-channel", "base64", "rand", "sha-1"]
+openssl = [
+    "actix-tls/accept",
+    "actix-tls/openssl",
+]
+rustls = [
+    "actix-tls/accept",
+    "actix-tls/rustls",
+]
+ws = [
+    "local-channel",
+    "base64",
+    "rand",
+    "sha1",
+]

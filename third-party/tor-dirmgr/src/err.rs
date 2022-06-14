@@ -14,6 +14,9 @@ pub enum Error {
     /// We received a document we didn't want at all.
     #[error("unwanted object: {0}")]
     Unwanted(&'static str),
+    /// The NetDir we downloaded is older than the one we already have.
+    #[error("downloaded netdir is older than the one we have")]
+    NetDirOlder,
     /// This DirMgr doesn't support downloads.
     #[error("tried to download information on a DirMgr with no download support")]
     NoDownloadSupport,
@@ -27,9 +30,6 @@ pub enum Error {
     /// A schema version that says we can't read it.
     #[error("unrecognized data storage schema")]
     UnrecognizedSchema,
-    /// We couldn't configure the network.
-    #[error("bad network configuration")]
-    BadNetworkConfig(&'static str),
     /// User requested an operation that required a usable
     /// bootstrapped directory, but we didn't have one.
     #[error("directory not present or not up-to-date")]
@@ -68,6 +68,19 @@ pub enum Error {
         #[source]
         cause: tor_netdoc::Error,
     },
+    /// An error indicating that the consensus could not be validated.
+    ///
+    /// This kind of error is only returned during the certificate fetching
+    /// state; it indicates that a consensus which previously seemed to be
+    /// plausible has turned out to be wrong after we got the certificates.
+    #[error("invalid consensus from {source}: {cause}")]
+    ConsensusInvalid {
+        /// Where the document came from.
+        source: DocSource,
+        /// What error we got.
+        #[source]
+        cause: tor_netdoc::Error,
+    },
     /// An error caused by an expired or not-yet-valid object.
     #[error("object expired or not yet valid.")]
     UntimelyObject(#[from] tor_checkable::TimeValidityError),
@@ -83,7 +96,9 @@ pub enum Error {
     /// An attempt was made to bootstrap a `DirMgr` created in offline mode.
     #[error("cannot bootstrap offline DirMgr")]
     OfflineMode,
-
+    /// A problem with file permissions on our cache directory.
+    #[error("Bad permissions in cache directory")]
+    CachePermissions(#[from] fs_mistrust::Error),
     /// Unable to spawn task
     #[error("unable to spawn {spawning}")]
     Spawn {
@@ -122,6 +137,26 @@ impl From<signature::Error> for Error {
     }
 }
 
+/// The effect that a given error has on our bootstrapping process
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum BootstrapAction {
+    /// The error isn't fatal.  We should blame it on its source (if any), and
+    /// continue bootstrapping.
+    Nonfatal,
+    /// The error requires that we restart bootstrapping from scratch.  
+    ///
+    /// This kind of error typically means that we've downloaded a consensus
+    /// that turned out to be useless at a later stage, and so we need to
+    /// restart the downloading process from the beginning, by downloading a
+    /// fresh one.
+    Reset,
+    /// The error indicates that we cannot bootstrap, and should stop trying.
+    ///
+    /// These are typically internal programming errors, filesystem access
+    /// problems, directory manager shutdown, and the like.
+    Fatal,
+}
+
 impl Error {
     /// Construct a new `Error` from a `SpawnError`.
     pub(crate) fn from_spawn(spawning: &'static str, err: SpawnError) -> Error {
@@ -149,14 +184,15 @@ impl Error {
             | Error::ConsensusDiffError(_)
             | Error::SignatureError(_)
             | Error::IOError(_)
+            | Error::ConsensusInvalid { .. }
             | Error::UntimelyObject(_) => true,
 
             // These errors cannot come from a directory cache.
             Error::NoDownloadSupport
             | Error::CacheCorruption(_)
+            | Error::CachePermissions(_)
             | Error::SqliteError(_)
             | Error::UnrecognizedSchema
-            | Error::BadNetworkConfig(_)
             | Error::DirectoryNotPresent
             | Error::ManagerDropped
             | Error::CantAdvanceState
@@ -165,6 +201,7 @@ impl Error {
             | Error::BadHexInCache(_)
             | Error::OfflineMode
             | Error::Spawn { .. }
+            | Error::NetDirOlder
             | Error::Bug(_) => false,
 
             // For this one, we delegate.
@@ -183,6 +220,58 @@ impl Error {
 
             // We can never see this kind of error from within the crate.
             Error::ExternalDirProvider { .. } => false,
+        }
+    }
+
+    /// Return information about which directory cache caused this error, if
+    /// this error contains one.
+    pub(crate) fn responsible_cache(&self) -> Option<&tor_dirclient::SourceInfo> {
+        match self {
+            Error::NetDocError {
+                source: DocSource::DirServer { source },
+                ..
+            } => source.as_ref(),
+            Error::ConsensusInvalid {
+                source: DocSource::DirServer { source },
+                ..
+            } => source.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Return information about what to do if this error occurs during the
+    /// bootstrapping process.
+    #[allow(dead_code)]
+    pub(crate) fn bootstrap_action(&self) -> BootstrapAction {
+        match self {
+            Error::Unwanted(_)
+            | Error::NetDirOlder
+            | Error::UnrecognizedAuthorities
+            | Error::ConsensusDiffError(_)
+            | Error::BadUtf8FromDirectory(_)
+            | Error::UntimelyObject(_)
+            | Error::DirClientError(_)
+            | Error::SignatureError(_)
+            | Error::IOError(_)
+            | Error::NetDocError { .. } => BootstrapAction::Nonfatal,
+
+            Error::ConsensusInvalid { .. } | Error::CantAdvanceState => BootstrapAction::Reset,
+
+            Error::NoDownloadSupport
+            | Error::OfflineMode
+            | Error::CacheCorruption(_)
+            | Error::SqliteError(_)
+            | Error::UnrecognizedSchema
+            | Error::ManagerDropped
+            | Error::StorageError(_)
+            | Error::BadUtf8InCache(_)
+            | Error::BadHexInCache(_)
+            | Error::CachePermissions(_)
+            | Error::Spawn { .. }
+            | Error::ExternalDirProvider { .. } => BootstrapAction::Fatal,
+
+            // These should actually be impossible during the bootstrap process.
+            Error::DirectoryNotPresent | Error::Bug(_) => BootstrapAction::Fatal,
         }
     }
 }
@@ -209,10 +298,17 @@ impl HasKind for Error {
             E::Unwanted(_) => EK::TorProtocolViolation,
             E::NoDownloadSupport => EK::NotImplemented,
             E::CacheCorruption(_) => EK::CacheCorrupted,
+            E::CachePermissions(e) => {
+                if e.is_bad_permission() {
+                    EK::FsPermissions
+                } else {
+                    EK::CacheAccessFailed
+                }
+            }
             E::SqliteError(e) => sqlite_error_kind(e),
             E::UnrecognizedSchema => EK::CacheCorrupted,
-            E::BadNetworkConfig(_) => EK::InvalidConfig,
             E::DirectoryNotPresent => EK::DirectoryExpired,
+            E::NetDirOlder => EK::TorDirectoryError,
             E::BadUtf8FromDirectory(_) => EK::TorProtocolViolation,
             E::BadUtf8InCache(_) => EK::CacheCorrupted,
             E::BadHexInCache(_) => EK::CacheCorrupted,
@@ -222,6 +318,10 @@ impl HasKind for Error {
             E::StorageError(_) => EK::CacheAccessFailed,
             E::ConsensusDiffError(_) => EK::TorProtocolViolation,
             E::NetDocError { source, .. } => match source {
+                DocSource::LocalCache => EK::CacheCorrupted,
+                DocSource::DirServer { .. } => EK::TorProtocolViolation,
+            },
+            E::ConsensusInvalid { source, .. } => match source {
                 DocSource::LocalCache => EK::CacheCorrupted,
                 DocSource::DirServer { .. } => EK::TorProtocolViolation,
             },

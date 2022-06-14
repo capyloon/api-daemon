@@ -1,5 +1,8 @@
 //! Declares macros to help implementing parsers.
 
+// https://github.com/rust-lang/rust-clippy/issues/6860
+#![allow(renamed_and_removed_lints, clippy::unknown_clippy_lints)]
+
 /// Macro for declaring a keyword enumeration to help parse a document.
 ///
 /// A keyword enumeration implements the Keyword trait.
@@ -21,6 +24,7 @@
 /// assert_eq!(Location::from_str("start"), Location::START);
 /// assert_eq!(Location::from_str("stfff"), Location::UNRECOGNIZED);
 /// ```
+#[allow(unused_macro_rules)]
 macro_rules! decl_keyword {
     { $(#[$meta:meta])* $v:vis
       $name:ident { $( $($anno:ident)? $($s:literal)|+ => $i:ident),* $(,)? } } => {
@@ -28,7 +32,8 @@ macro_rules! decl_keyword {
         #[allow(non_camel_case_types)]
         $(#[$meta])*
         #[allow(unknown_lints)]
-        #[allow(clippy::unknown_clippy_lints)]
+        // https://github.com/rust-lang/rust-clippy/issues/6860
+        #[allow(renamed_and_removed_lints, clippy::unknown_clippy_lints)]
         #[allow(clippy::upper_case_acronyms)]
         $v enum $name {
             $( $i , )*
