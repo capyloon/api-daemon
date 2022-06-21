@@ -76,8 +76,6 @@ fn response_from_file(req: HttpRequest, file: &str) -> HttpResponse {
 static MAC_KEY: &str = "p7cI80SwX+gmX0G+T938agWAV1eR9wrpCR9JgsoIIlk=";
 static PORT: u16 = 8596;
 static HOST: &str = "127.0.0.1";
-// This UA is defined in daemon/config.toml.
-static EXPECTED_UA: &str = "Mozilla/5.0 (Mobile; rv:95.0) Gecko/95.0 Firefox/95.0 KAIOS/3.5";
 static EXPECTED_LANG: &str = "en-US";
 
 fn check_header(req: &HttpRequest, header: header::HeaderName, expected: &str) -> bool {
@@ -153,9 +151,6 @@ async fn apps_responses(req: HttpRequest, params: web::Path<(String, String)>) -
     // For power off during installation
     if app == "testpowerlost" {
         std::thread::sleep(std::time::Duration::from_millis(2000));
-    }
-    if !check_header(&req, header::USER_AGENT, EXPECTED_UA) {
-        return HttpResponse::BadRequest().finish();
     }
     if !check_header(&req, header::ACCEPT_LANGUAGE, EXPECTED_LANG) {
         return HttpResponse::BadRequest().finish();

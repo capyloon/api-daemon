@@ -143,7 +143,7 @@ impl AppsRequest {
     pub fn new(shared_data: Shared<AppsSharedData>) -> Result<Self, AppsMgmtError> {
         let (user_agent, lang) = {
             let lock = &shared_data.lock();
-            (lock.config.user_agent.clone(), lock.registry.get_lang())
+            (lock.registry.get_user_agent(), lock.registry.get_lang())
         };
         let downloader =
             Downloader::new(&user_agent, &lang).map_err(|_| AppsMgmtError::DownloaderError)?;
@@ -908,7 +908,6 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
         String::from("uds_path"),
         String::from("test"),
         String::from("updater_socket"),
-        String::from("user_agent"),
         true,
     );
 

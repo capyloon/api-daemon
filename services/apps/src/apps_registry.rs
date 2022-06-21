@@ -146,6 +146,7 @@ pub struct AppsRegistry {
     db: Option<RegistryDb>, // The sqlite DB wrapper.
     vhost_port: u16,        // Keeping vhost vhost_port number in registry
     lang: String,
+    user_agent: String,
     apps_list: Vec<AppsObject>,
     pub event_broadcaster: AppsEngineEventBroadcaster,
     data_path: PathBuf,
@@ -293,6 +294,7 @@ impl AppsRegistry {
             root_path,
             data_path,
             allow_remove_preloaded: config.allow_remove_preloaded,
+            user_agent: "Mozilla/5.0 (Mobile; rv:x.y) Gecko/x.y Firefox/x.y KAIOS/3.x".to_string(),
         })
     }
 
@@ -300,8 +302,16 @@ impl AppsRegistry {
         self.lang = lang.to_string();
     }
 
+    pub fn set_user_agent(&mut self, user_agent: &str) {
+        self.user_agent = user_agent.to_string();
+    }
+
     pub fn get_lang(&self) -> String {
         self.lang.clone()
+    }
+
+    pub fn get_user_agent(&self) -> String {
+        self.user_agent.clone()
     }
 
     pub fn print_pool_status(&self) {
@@ -960,11 +970,21 @@ pub trait AppMgmtTask: Send {
 fn observe_bridge(shared_data: Shared<AppsSharedData>) {
     let receiver = GeckoBridgeService::shared_state().lock().observe_bridge();
     loop {
-        if GeckoBridgeService::shared_state().lock().is_ready() {
-            if let Err(err) = shared_data.lock().registry.register_on_boot() {
+        let is_ready = GeckoBridgeService::shared_state().lock().is_ready();
+        if is_ready {
+            let mut shared = shared_data.lock();
+            if let Err(err) = shared.registry.register_on_boot() {
                 error!("register_on_boot failed: {}", err);
             }
-            let mut shared = shared_data.lock();
+            if let Ok(ua) = GeckoBridgeService::shared_state()
+                .lock()
+                .apps_service_get_ua()
+            {
+                debug!("Update user_agent to {}", &ua);
+                shared.registry.set_user_agent(&ua);
+            } else {
+                error!("Failed to get user_agent from gecko.");
+            }
             if shared.state != AppsServiceState::Running {
                 shared.state = AppsServiceState::Running;
             }
@@ -1039,7 +1059,6 @@ fn test_init_apps_from_system() {
         String::from("uds_path"),
         String::from("production"),
         String::from("updater_socket"),
-        String::from("user_agent"),
         true,
     );
 
@@ -1150,7 +1169,6 @@ fn test_register_app() {
         String::from("uds_path"),
         String::from("test"),
         String::from("updater_socket"),
-        String::from("user_agent"),
         true,
     );
 
@@ -1312,7 +1330,6 @@ fn test_unregister_app() {
         String::from("uds_path"),
         String::from("test"),
         String::from("updater_socket"),
-        String::from("user_agent"),
         true,
     );
 
@@ -1400,7 +1417,6 @@ fn test_apply_download() {
         String::from("uds_path"),
         String::from("test"),
         String::from("updater_socket"),
-        String::from("user_agent"),
         true,
     );
 

@@ -391,8 +391,8 @@ pub fn install_package(
                 Url::parse(&deeplinks.config()).map_err(|_| AppsActorError::DeepLinkError)?;
             let config_path = download_dir.join("deeplinks_config");
             let (user_agent, lang) = {
-                let lock = shared_data.lock();
-                (lock.config.user_agent.clone(), lock.registry.get_lang())
+                let registry = &shared_data.lock().registry;
+                (registry.get_user_agent(), registry.get_lang())
             };
             let downloader =
                 Downloader::new(&user_agent, &lang).map_err(|_| AppsActorError::DeepLinkError)?;
@@ -661,7 +661,6 @@ fn test_install_app() {
             String::from("uds_path"),
             String::from("test"),
             String::from("updater_socket"),
-            String::from("user_agent"),
             true,
         );
         AppsService::init_shared_state(&config);
@@ -794,7 +793,6 @@ fn test_get_all() {
         String::from("uds_path"),
         String::from("test"),
         String::from("updater_socket"),
-        String::from("user_agent"),
         true,
     );
     AppsService::init_shared_state(&config);
