@@ -31,6 +31,8 @@ pub enum DelegateError {
     InvalidDelegate,
     #[error("Invalid wakelock")]
     InvalidWakelock,
+    #[error("Invalid apps service")]
+    InvalidAppsService,
 }
 
 pub enum PrefValue {
@@ -379,6 +381,28 @@ impl GeckoBridgeState {
         } else {
             error!("The apps service delegate is not set!");
         }
+    }
+
+    pub fn apps_service_get_ua(&mut self) -> Result<String, DelegateError> {
+        if let Some(service) = &mut self.appsservice {
+            let rx = service.get_ua();
+            if let Ok(result) = rx.recv() {
+                match result {
+                    Ok(ua) => {
+                        debug!("Get user_agent: {}.", ua);
+                        return Ok(ua);
+                    }
+                    Err(_) => {
+                        error!("Get user_agent error - invalid result.");
+                        return Err(DelegateError::InvalidAppsService);
+                    }
+                }
+            }
+            error!("Get user_agent error - invalid channel.");
+            return Err(DelegateError::InvalidChannel);
+        }
+        error!("Get apps service proxy error.");
+        Err(DelegateError::InvalidAppsService)
     }
 
     // CardInfo manager delegate management.
