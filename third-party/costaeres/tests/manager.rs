@@ -8,23 +8,23 @@ use costaeres::manager::*;
 use costaeres::scorer::{VisitEntry, VisitPriority};
 use std::rc::Rc;
 
-fn named_variant(name: &str, mime_type: &str) -> Variant {
-    Variant::new(name, mime_type, 42)
+fn named_variant(name: &str, mime_type: &str) -> VariantMetadata {
+    VariantMetadata::new(name, mime_type, 42)
 }
 
-fn default_variant() -> Variant {
+fn default_variant() -> VariantMetadata {
     named_variant("default", "application/octet-stream")
 }
 
-async fn named_content(name: &str) -> VariantContent {
+async fn named_content(name: &str) -> Variant {
     let file = fs::File::open("./create_db.sh").await.unwrap();
-    VariantContent::new(
+    Variant::new(
         named_variant(name, "application/octet-stream"),
         Box::new(file),
     )
 }
 
-async fn default_content() -> VariantContent {
+async fn default_content() -> Variant {
     named_content("default").await
 }
 
@@ -466,7 +466,7 @@ async fn index_places() {
     manager
         .create(
             &mut leaf_meta,
-            Some(VariantContent::new(
+            Some(Variant::new(
                 named_variant("default", "application/x-places+json"),
                 Box::new(places1),
             )),
@@ -492,7 +492,7 @@ async fn index_places() {
     manager
         .update_variant(
             &leaf_meta.id(),
-            VariantContent::new(
+            Variant::new(
                 named_variant("default", "application/x-places+json"),
                 Box::new(places2),
             ),
@@ -554,7 +554,7 @@ async fn index_contacts() {
     manager
         .create(
             &mut leaf_meta,
-            Some(VariantContent::new(
+            Some(Variant::new(
                 named_variant("default", "application/x-contact+json"),
                 Box::new(contacts),
             )),
@@ -747,7 +747,7 @@ async fn index_places_mdn() {
     manager
         .create(
             &mut leaf_meta,
-            Some(VariantContent::new(
+            Some(Variant::new(
                 named_variant("default", "application/x-places+json"),
                 Box::new(places1),
             )),

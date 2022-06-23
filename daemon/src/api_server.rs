@@ -222,7 +222,7 @@ async fn http_index(data: Data<SharedWsData>, req: HttpRequest) -> Result<HttpRe
         Ok((mut file, gzipped)) => {
             // Send the file as a byte stream.
             let content_length = file.metadata().await?.len();
-            let content_type = mime_guess::from_path(req.path()).first_or_octet_stream();
+            let content_type = new_mime_guess::from_path(req.path()).first_or_octet_stream();
 
             let etag = etag_for_file(&file).await;
             let if_none_match = req.headers().get(header::IF_NONE_MATCH);

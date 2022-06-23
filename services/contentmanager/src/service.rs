@@ -18,7 +18,7 @@ use common::JsonValue;
 use costaeres::array::Array;
 use costaeres::common::{
     DefaultResourceNameProvider, IdFrec, IdentityTransformer, ResourceId, ResourceMetadata,
-    ResourceStoreError, Variant as VariantC, VariantContent, ROOT_ID,
+    ResourceStoreError, Variant, VariantMetadata, ROOT_ID,
 };
 use costaeres::config::Config as CoConfig;
 use costaeres::file_store::FileStore;
@@ -136,16 +136,17 @@ impl ContentManager for ContentManagerService {
     }
 }
 
-impl From<Payload> for VariantContent {
+impl From<Payload> for Variant {
     fn from(val: Payload) -> Self {
-        let variant = VariantC::new(&val.variant, &val.blob.mime_type(), val.blob.len() as _);
-        VariantContent::new(variant, Box::new(Array::new(val.blob.take_data())))
+        let variant =
+            VariantMetadata::new(&val.variant, &val.blob.mime_type(), val.blob.len() as _);
+        Variant::new(variant, Box::new(Array::new(val.blob.take_data())))
     }
 }
 
-fn variant_content_for_blob(variant: &str, blob: Blob) -> VariantContent {
-    let variant = VariantC::new(variant, &blob.mime_type(), blob.len() as _);
-    VariantContent::new(variant, Box::new(Array::new(blob.take_data())))
+fn variant_content_for_blob(variant: &str, blob: Blob) -> Variant {
+    let variant = VariantMetadata::new(variant, &blob.mime_type(), blob.len() as _);
+    Variant::new(variant, Box::new(Array::new(blob.take_data())))
 }
 
 impl ContentManagerService {

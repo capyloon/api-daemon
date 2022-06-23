@@ -11,18 +11,23 @@
 
 [package]
 name = "lru"
-version = "0.6.6"
+version = "0.7.7"
 authors = ["Jerome Froelich <jeromefroelic@hotmail.com>"]
 description = "A LRU cache implementation"
 homepage = "https://github.com/jeromefroe/lru-rs"
 documentation = "https://docs.rs/lru/"
 readme = "README.md"
-keywords = ["LRU", "cache"]
+keywords = [
+    "LRU",
+    "cache",
+]
 license = "MIT"
 repository = "https://github.com/jeromefroe/lru-rs.git"
+
 [dependencies.hashbrown]
 version = "0.11.2"
 optional = true
+
 [dev-dependencies.scoped_threadpool]
 version = "0.1.*"
 
@@ -31,4 +36,7 @@ version = "0.1.*"
 
 [features]
 default = ["hashbrown"]
-nightly = ["hashbrown", "hashbrown/nightly"]
+nightly = [
+    "hashbrown",
+    "hashbrown/nightly",
+]

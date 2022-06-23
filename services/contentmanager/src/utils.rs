@@ -1,7 +1,7 @@
 /// Various utilities to convert data types.
 use crate::generated::common::*;
 use chrono::{DateTime, Utc};
-use costaeres::common::{ResourceKind as ResourceKindC, ResourceMetadata, Variant as VariantC};
+use costaeres::common::{ResourceKind as ResourceKindC, ResourceMetadata, VariantMetadata};
 
 impl From<VisitPriority> for costaeres::scorer::VisitPriority {
     fn from(val: VisitPriority) -> Self {
@@ -31,8 +31,8 @@ impl Into<ResourceKindC> for ResourceKind {
     }
 }
 
-impl From<&VariantC> for Variant {
-    fn from(val: &VariantC) -> Self {
+impl From<&VariantMetadata> for Variant {
+    fn from(val: &VariantMetadata) -> Self {
         Self {
             name: val.name(),
             mime_type: val.mime_type(),
@@ -41,9 +41,9 @@ impl From<&VariantC> for Variant {
     }
 }
 
-impl From<&Variant> for VariantC {
+impl From<&Variant> for VariantMetadata {
     fn from(val: &Variant) -> Self {
-        VariantC::new(&val.name, &val.mime_type, val.size as _)
+        VariantMetadata::new(&val.name, &val.mime_type, val.size as _)
     }
 }
 
@@ -86,7 +86,7 @@ impl From<ResourceMetadata> for Metadata {
 
 impl Into<ResourceMetadata> for Metadata {
     fn into(self) -> ResourceMetadata {
-        let variants: Vec<VariantC> = self.variants.iter().map(|item| item.into()).collect();
+        let variants: Vec<VariantMetadata> = self.variants.iter().map(|item| item.into()).collect();
 
         let mut meta = ResourceMetadata::new(
             &self.id.into(),

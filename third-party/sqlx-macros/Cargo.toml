@@ -10,16 +10,23 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
 name = "sqlx-macros"
-version = "0.5.13"
-authors = ["Ryan Leckey <leckey.ryan@gmail.com>", "Austin Bonander <austin.bonander@gmail.com>", "Chloe Ross <orangesnowfox@gmail.com>", "Daniel Akhterov <akhterovd@gmail.com>"]
+version = "0.6.0"
+authors = [
+    "Ryan Leckey <leckey.ryan@gmail.com>",
+    "Austin Bonander <austin.bonander@gmail.com>",
+    "Chloe Ross <orangesnowfox@gmail.com>",
+    "Daniel Akhterov <akhterovd@gmail.com>",
+]
 description = "Macros for SQLx, the rust SQL toolkit. Not intended to be used directly."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/launchbadge/sqlx"
+resolver = "2"
 
 [lib]
 proc-macro = true
+
 [dependencies.dotenv]
 version = "0.15.0"
 default-features = false
@@ -60,11 +67,12 @@ version = "0.10.0"
 optional = true
 
 [dependencies.sqlx-core]
-version = "0.5.13"
+version = "0.6.0"
+features = ["any"]
 default-features = false
 
 [dependencies.sqlx-rt]
-version = "0.5.13"
+version = "0.6.0"
 default-features = false
 
 [dependencies.syn]
@@ -84,21 +92,60 @@ bigdecimal = ["sqlx-core/bigdecimal"]
 bit-vec = ["sqlx-core/bit-vec"]
 chrono = ["sqlx-core/chrono"]
 decimal = ["sqlx-core/decimal"]
-default = ["runtime-async-std-native-tls", "migrate"]
+default = [
+    "runtime-async-std-native-tls",
+    "migrate",
+]
 ipnetwork = ["sqlx-core/ipnetwork"]
-json = ["sqlx-core/json", "serde_json"]
+json = [
+    "sqlx-core/json",
+    "serde_json",
+]
 mac_address = ["sqlx-core/mac_address"]
-migrate = ["sha2", "sqlx-core/migrate"]
+migrate = [
+    "sha2",
+    "sqlx-core/migrate",
+]
 mssql = ["sqlx-core/mssql"]
 mysql = ["sqlx-core/mysql"]
-offline = ["sqlx-core/offline", "hex", "serde", "serde_json", "sha2"]
+offline = [
+    "sqlx-core/offline",
+    "hex",
+    "serde",
+    "serde_json",
+    "sha2",
+]
 postgres = ["sqlx-core/postgres"]
-runtime-actix-native-tls = ["sqlx-core/runtime-actix-native-tls", "sqlx-rt/runtime-actix-native-tls", "_rt-actix"]
-runtime-actix-rustls = ["sqlx-core/runtime-actix-rustls", "sqlx-rt/runtime-actix-rustls", "_rt-actix"]
-runtime-async-std-native-tls = ["sqlx-core/runtime-async-std-native-tls", "sqlx-rt/runtime-async-std-native-tls", "_rt-async-std"]
-runtime-async-std-rustls = ["sqlx-core/runtime-async-std-rustls", "sqlx-rt/runtime-async-std-rustls", "_rt-async-std"]
-runtime-tokio-native-tls = ["sqlx-core/runtime-tokio-native-tls", "sqlx-rt/runtime-tokio-native-tls", "_rt-tokio"]
-runtime-tokio-rustls = ["sqlx-core/runtime-tokio-rustls", "sqlx-rt/runtime-tokio-rustls", "_rt-tokio"]
+runtime-actix-native-tls = [
+    "sqlx-core/runtime-actix-native-tls",
+    "sqlx-rt/runtime-actix-native-tls",
+    "_rt-actix",
+]
+runtime-actix-rustls = [
+    "sqlx-core/runtime-actix-rustls",
+    "sqlx-rt/runtime-actix-rustls",
+    "_rt-actix",
+]
+runtime-async-std-native-tls = [
+    "sqlx-core/runtime-async-std-native-tls",
+    "sqlx-rt/runtime-async-std-native-tls",
+    "_rt-async-std",
+]
+runtime-async-std-rustls = [
+    "sqlx-core/runtime-async-std-rustls",
+    "sqlx-rt/runtime-async-std-rustls",
+    "_rt-async-std",
+]
+runtime-tokio-native-tls = [
+    "sqlx-core/runtime-tokio-native-tls",
+    "sqlx-rt/runtime-tokio-native-tls",
+    "_rt-tokio",
+]
+runtime-tokio-rustls = [
+    "sqlx-core/runtime-tokio-rustls",
+    "sqlx-rt/runtime-tokio-rustls",
+    "_rt-tokio",
+]
 sqlite = ["sqlx-core/sqlite"]
 time = ["sqlx-core/time"]
 uuid = ["sqlx-core/uuid"]

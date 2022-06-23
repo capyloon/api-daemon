@@ -1,5 +1,37 @@
 # Changelog
 
+## [v0.7.7](https://github.com/jeromefroe/lru-rs/tree/0.7.7) - 2022-06-14
+
+- Use `FnOnce` instead of `Fn` for trait bound of `fn` in `get_or_insert`.
+
+## [v0.7.6](https://github.com/jeromefroe/lru-rs/tree/0.7.6) - 2022-05-25
+
+- Add `pop_entry` method.
+
+## [v0.7.5](https://github.com/jeromefroe/lru-rs/tree/0.7.5) - 2022-04-04
+
+- Add `push` method.
+
+## [v0.7.4](https://github.com/jeromefroe/lru-rs/tree/0.7.4) - 2022-04-03
+
+- Implement `IntoIterator` trait and fix lifetime bug in `get_or_insert`.
+
+## [v0.7.3](https://github.com/jeromefroe/lru-rs/tree/0.7.3) - 2022-02-28
+
+- Add `get_or_insert` method.
+
+## [v0.7.2](https://github.com/jeromefroe/lru-rs/tree/0.7.2) - 2021-12-28
+
+- Explicitly implement Borrow for Box for non-nightly.
+
+## [v0.7.1](https://github.com/jeromefroe/lru-rs/tree/0.7.1) - 2021-12-18
+
+- Fix lifetime of iterators.
+
+## [v0.7.0](https://github.com/jeromefroe/lru-rs/tree/0.7.0) - 2021-09-14
+
+- Explicitly implement Borrow for String and Vec types for non-nightly.
+
 ## [v0.6.6](https://github.com/jeromefroe/lru-rs/tree/0.6.6) - 2021-07-28
 
 - Update dependency on hashbrown to 0.11.2.

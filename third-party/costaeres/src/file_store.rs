@@ -4,7 +4,7 @@
 /// ${object.id}.content for the opaque content.
 use crate::common::{
     BoxedReader, ResourceId, ResourceKind, ResourceMetadata, ResourceNameProvider, ResourceStore,
-    ResourceStoreError, ResourceTransformer, VariantContent,
+    ResourceStoreError, ResourceTransformer, Variant,
 };
 use async_std::{
     fs,
@@ -78,7 +78,7 @@ impl FileStore {
     async fn create_or_update(
         &self,
         metadata: &ResourceMetadata,
-        content: Option<VariantContent>,
+        content: Option<Variant>,
         create: bool,
     ) -> Result<(), ResourceStoreError> {
         // 0. TODO: check if we have enough storage available.
@@ -109,14 +109,14 @@ impl FileStore {
         }
 
         if let Some(content) = content {
-            let name = content.0.name();
+            let name = content.metadata.name();
             if !metadata.has_variant(&name) {
                 error!("Variant '{}' is not in metadata.", name);
                 return Err(ResourceStoreError::InvalidVariant(name));
             }
             let mut file = Self::create_file(&self.variant_path(&id, &name)).await?;
-            file.set_len(content.0.size() as _).await?;
-            let writer = self.transformer.transform_to(content.1);
+            file.set_len(content.metadata.size() as _).await?;
+            let writer = self.transformer.transform_to(content.reader);
             futures::io::copy(writer, &mut file).await?;
             file.sync_all().await?;
         }
@@ -130,7 +130,7 @@ impl ResourceStore for FileStore {
     async fn create(
         &self,
         metadata: &ResourceMetadata,
-        content: Option<VariantContent>,
+        content: Option<Variant>,
     ) -> Result<(), ResourceStoreError> {
         self.create_or_update(metadata, content, true).await
     }
@@ -138,7 +138,7 @@ impl ResourceStore for FileStore {
     async fn update(
         &self,
         metadata: &ResourceMetadata,
-        content: Option<VariantContent>,
+        content: Option<Variant>,
     ) -> Result<(), ResourceStoreError> {
         self.create_or_update(metadata, content, false).await
     }

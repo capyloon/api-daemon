@@ -19,7 +19,7 @@ serde_json = "1.0"
 sqlite-utils = { path = "../../support/sqlite-utils" }
 thiserror = "1.0"
 threadpool = "1.8"
-uuid = { version = "0.8.1", features = ["serde", "v4"] }
+uuid = { version = "1.1", features = ["serde", "v4"] }
 
 [build-dependencies]
 common = { path = "../../common" }

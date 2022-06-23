@@ -5,7 +5,7 @@ use actix_web::{http, web, HttpRequest, HttpResponse, HttpResponseBuilder, Respo
 use async_trait::async_trait;
 use common::traits::Shared;
 use log::debug;
-use mime_guess::{Mime, MimeGuess};
+use new_mime_guess::{Mime, MimeGuess};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;

@@ -166,20 +166,20 @@ mod test {
     use async_std::fs;
     use speedy::Writable;
 
-    fn named_variant(name: &str) -> Variant {
-        Variant::new(name, "application/octet-stream", 42)
+    fn named_variant(name: &str) -> VariantMetadata {
+        VariantMetadata::new(name, "application/octet-stream", 42)
     }
 
-    fn default_variant() -> Variant {
+    fn default_variant() -> VariantMetadata {
         named_variant("default")
     }
 
-    async fn named_content(name: &str) -> VariantContent {
+    async fn named_content(name: &str) -> Variant {
         let file = fs::File::open("./create_db.sh").await.unwrap();
-        VariantContent::new(named_variant(name), Box::new(file))
+        Variant::new(named_variant(name), Box::new(file))
     }
 
-    async fn default_content() -> VariantContent {
+    async fn default_content() -> Variant {
         named_content("default").await
     }
 
@@ -208,7 +208,7 @@ mod test {
             ResourceKind::Container,
             "/",
             vec![],
-            vec![Variant::new("default", "inode/directory", 0)],
+            vec![VariantMetadata::new("default", "inode/directory", 0)],
         );
 
         let _ = store.create(&meta, None).await.unwrap();

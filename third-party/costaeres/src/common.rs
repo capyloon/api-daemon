@@ -78,9 +78,9 @@ impl From<DateTime<Utc>> for DateTimeUtc {
     }
 }
 
-impl Into<DateTime<Utc>> for DateTimeUtc {
-    fn into(self) -> DateTime<Utc> {
-        self.0
+impl From<DateTimeUtc> for DateTime<Utc> {
+    fn from(val: DateTimeUtc) -> Self {
+        val.0
     }
 }
 
@@ -145,13 +145,13 @@ impl From<i64> for ResourceKind {
 }
 
 #[derive(Clone, Debug, Readable, Writable, PartialEq)]
-pub struct Variant {
+pub struct VariantMetadata {
     name: String,
     mime_type: String,
     size: u32,
 }
 
-impl Variant {
+impl VariantMetadata {
     pub fn new(name: &str, mime_type: &str, size: u32) -> Self {
         Self {
             name: name.into(),
@@ -185,11 +185,14 @@ impl Variant {
     }
 }
 
-pub struct VariantContent(pub Variant, pub BoxedReader);
+pub struct Variant {
+    pub metadata: VariantMetadata,
+    pub reader: BoxedReader,
+}
 
-impl VariantContent {
-    pub fn new(variant: Variant, reader: BoxedReader) -> Self {
-        VariantContent(variant, reader)
+impl Variant {
+    pub fn new(metadata: VariantMetadata, reader: BoxedReader) -> Self {
+        Variant { metadata, reader }
     }
 }
 
@@ -200,7 +203,7 @@ pub struct ResourceMetadata {
     kind: ResourceKind,
     name: String,
     tags: Vec<String>,
-    variants: Vec<Variant>,
+    variants: Vec<VariantMetadata>,
     created: DateTimeUtc,
     modified: DateTimeUtc,
     scorer: Scorer,
@@ -213,7 +216,7 @@ impl ResourceMetadata {
         kind: ResourceKind,
         name: &str,
         tags: Vec<String>,
-        variants: Vec<Variant>,
+        variants: Vec<VariantMetadata>,
     ) -> Self {
         Self {
             id: id.clone(),
@@ -339,15 +342,15 @@ impl ResourceMetadata {
         self.tags = tags;
     }
 
-    pub fn variants(&self) -> &Vec<Variant> {
+    pub fn variants(&self) -> &Vec<VariantMetadata> {
         &self.variants
     }
 
-    pub fn set_variants(&mut self, variants: Vec<Variant>) {
+    pub fn set_variants(&mut self, variants: Vec<VariantMetadata>) {
         self.variants = variants;
     }
 
-    pub fn add_variant(&mut self, variant: Variant) {
+    pub fn add_variant(&mut self, variant: VariantMetadata) {
         if !self.has_variant(&variant.name()) {
             self.variants.push(variant);
         }
@@ -359,7 +362,7 @@ impl ResourceMetadata {
             .iter()
             .filter_map(|item| {
                 if item.name() != name {
-                    let v: Variant = item.clone();
+                    let v: VariantMetadata = item.clone();
                     Some(v)
                 } else {
                     None
@@ -444,7 +447,7 @@ pub trait ResourceStore {
     async fn create(
         &self,
         metadata: &ResourceMetadata,
-        content: Option<VariantContent>,
+        variant: Option<Variant>,
     ) -> Result<(), ResourceStoreError>;
 
     /// Updates the metadata and variant for a resource.
@@ -452,7 +455,7 @@ pub trait ResourceStore {
     async fn update(
         &self,
         metadata: &ResourceMetadata,
-        content: Option<VariantContent>,
+        variant: Option<Variant>,
     ) -> Result<(), ResourceStoreError>;
 
     /// Helper method to update the default variant using

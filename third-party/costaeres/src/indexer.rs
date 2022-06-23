@@ -1,5 +1,5 @@
 /// Indexers for recognized mime types.
-use crate::common::{ResourceMetadata, TransactionResult, VariantContent};
+use crate::common::{ResourceMetadata, TransactionResult, Variant};
 use crate::fts::Fts;
 use async_std::io::{ReadExt, SeekFrom};
 use async_trait::async_trait;
@@ -12,7 +12,7 @@ pub trait Indexer {
     async fn index<'c>(
         &self,
         meta: &ResourceMetadata,
-        variant: &mut VariantContent,
+        variant: &mut Variant,
         fts: &Fts,
         mut tx: Transaction<'c, Sqlite>,
     ) -> TransactionResult<'c>;
@@ -39,16 +39,16 @@ impl Indexer for FlatJsonIndexer {
     async fn index<'c>(
         &self,
         meta: &ResourceMetadata,
-        variant: &mut VariantContent,
+        variant: &mut Variant,
         fts: &Fts,
         mut tx: Transaction<'c, Sqlite>,
     ) -> TransactionResult<'c> {
         // 0. Filter by mime type.
-        if self.mime_type != variant.0.mime_type() {
+        if self.mime_type != variant.metadata.mime_type() {
             return Ok(tx);
         }
 
-        let content = &mut variant.1;
+        let content = &mut variant.reader;
 
         // 1. Read the content as json.
         content.seek(SeekFrom::Start(0)).await?;
@@ -61,14 +61,14 @@ impl Indexer for FlatJsonIndexer {
             match v.get(field) {
                 Some(Value::String(text)) => {
                     tx = fts
-                        .add_text(&meta.id(), &variant.0.name(), text, tx)
+                        .add_text(&meta.id(), &variant.metadata.name(), text, tx)
                         .await?;
                 }
                 Some(Value::Array(array)) => {
                     for item in array {
                         if let Value::String(text) = item {
                             tx = fts
-                                .add_text(&meta.id(), &variant.0.name(), text, tx)
+                                .add_text(&meta.id(), &variant.metadata.name(), text, tx)
                                 .await?;
                         }
                     }

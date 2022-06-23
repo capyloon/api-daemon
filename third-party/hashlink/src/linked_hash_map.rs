@@ -1,4 +1,5 @@
 use std::{
+    alloc::Layout,
     borrow::Borrow,
     cmp::Ordering,
     fmt,
@@ -12,7 +13,10 @@ use std::{
 
 use hashbrown::{hash_map, HashMap};
 
-pub type TryReserveError = hashbrown::TryReserveError;
+pub enum TryReserveError {
+    CapacityOverflow,
+    AllocError { layout: Layout },
+}
 
 /// A version of `HashMap` that has a user controllable order for its entries.
 ///
@@ -93,14 +97,12 @@ impl<K, V, S> LinkedHashMap<K, V, S> {
 
     #[inline]
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        self.map.try_reserve(additional)
-    }
-
-    #[inline]
-    pub fn shrink_to_fit(&mut self) {
-        self.map.shrink_to_fit();
-        unsafe { drop_free_nodes(self.free) };
-        self.free = None;
+        self.map.try_reserve(additional).map_err(|e| match e {
+            hashbrown::TryReserveError::CapacityOverflow => TryReserveError::CapacityOverflow,
+            hashbrown::TryReserveError::AllocError { layout } => {
+                TryReserveError::AllocError { layout }
+            }
+        })
     }
 
     #[inline]
@@ -378,6 +380,21 @@ where
         }
     }
 
+    /// If the given key is not in this map, inserts the key / value pair at the *back* of the
+    /// internal linked list and returns `None`, otherwise, replaces the existing value with the
+    /// given value *without* moving the entry in the internal linked list and returns the previous
+    /// value.
+    #[inline]
+    pub fn replace(&mut self, k: K, v: V) -> Option<V> {
+        match self.raw_entry_mut().from_key(&k) {
+            RawEntryMut::Occupied(mut occupied) => Some(occupied.replace_value(v)),
+            RawEntryMut::Vacant(vacant) => {
+                vacant.insert(k, v);
+                None
+            }
+        }
+    }
+
     #[inline]
     pub fn remove<Q>(&mut self, k: &Q) -> Option<V>
     where
@@ -473,6 +490,41 @@ where
                 Some(occupied.into_mut())
             }
             RawEntryMut::Vacant(_) => None,
+        }
+    }
+
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        unsafe {
+            let len = self.map.len();
+            if len != self.map.capacity() {
+                self.map = HashMap::with_hasher(NullHasher);
+                self.map.reserve(len);
+
+                if let Some(guard) = self.values {
+                    let mut cur = guard.as_ref().links.value.next;
+                    while cur != guard {
+                        let hash = hash_key(&self.hash_builder, cur.as_ref().key_ref());
+                        match self
+                            .map
+                            .raw_entry_mut()
+                            .from_hash(hash, |k| (*k).as_ref().key_ref().eq(cur.as_ref().key_ref()))
+                        {
+                            hash_map::RawEntryMut::Occupied(_) => unreachable!(),
+                            hash_map::RawEntryMut::Vacant(vacant) => {
+                                let hash_builder = &self.hash_builder;
+                                vacant.insert_with_hasher(hash, cur, (), |k| {
+                                    hash_key(hash_builder, (*k).as_ref().key_ref())
+                                });
+                            }
+                        }
+                        cur = cur.as_ref().links.value.next;
+                    }
+                }
+            }
+
+            drop_free_nodes(self.free);
+            self.free = None;
         }
     }
 }
