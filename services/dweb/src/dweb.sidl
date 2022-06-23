@@ -18,6 +18,7 @@ enum UcanError {
     NoUiProvider
     InternalError
     InvalidAudience
+    InvalidToken
     UiCancel
 }
 
@@ -41,6 +42,17 @@ dictionary RequestedCapabilities {
 
 callback UcanProvider {
     fn grant_capabilities(capabilities: RequestedCapabilities) -> GrantedCapabilities
+}
+
+// Encapsulation of a UCAN.
+interface Ucan {
+    // Returns the base64 encoded representation.
+    fn encoded() -> str, UcanError
+
+    // Remove this UCAN from the set of registered UCANs.
+    fn remove() -> void, UcanError
+
+    blocked: bool
 }
 
 #[rust:not-tracked]
@@ -73,6 +85,9 @@ interface Dweb {
 
     // For core apps, return a "superuser" token.
     fn request_superuser() -> str, UcanError
+
+    // Retrieve the ucans granted for this origin as a base 64 encoded ucan.
+    fn ucans_for(origin: str) -> Ucan*, UcanError
 }
 
 service DwebService: Dweb

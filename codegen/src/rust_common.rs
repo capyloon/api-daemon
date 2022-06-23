@@ -3,7 +3,8 @@ use crate::helpers::*;
 use heck::ToUpperCamelCase;
 use log::error;
 use sidl_parser::ast::{
-    Ast, Callback, ConcreteType, Dictionary, Enumeration, FullConcreteType, Interface, Service,
+    Arity, Ast, Callback, ConcreteType, Dictionary, Enumeration, FullConcreteType, Interface,
+    Service,
 };
 use std::io::Write;
 use thiserror::Error as ThisError;
@@ -21,7 +22,7 @@ type Result<T> = ::std::result::Result<T, Error>;
 // In that case, we check if it's shared and has a custom trait.
 fn rust_type_for_resolve_reject(ast: &Ast, full_type: &FullConcreteType) -> String {
     if let ConcreteType::Interface(name) = &full_type.typ {
-        let info = TrackedInterfaceInfo::by_name(ast, name);
+        let info = TrackedInterfaceInfo::by_name(ast, name, full_type.arity);
         info.type_representation()
     } else {
         rust_type(full_type)
@@ -377,13 +378,35 @@ impl Codegen {
                     write!(sink, ", value: {}", stype)?;
                 }
                 writeln!(sink, ") {{")?;
+
+                let is_interface = if let ConcreteType::Interface(_) = &method.returns.success.typ {
+                    true
+                } else {
+                    false
+                };
+
+                let value_name = if is_interface && method.returns.success.arity != Arity::Unary {
+                    writeln!(
+                        sink,
+                        "// looping for multiple arity type: {:?}",
+                        method.returns.success.arity
+                    )?;
+                    writeln!(sink, "let mut value2 = vec![];")?;
+                    writeln!(sink, "for item in value.iter() {{")?;
+                    writeln!(sink, "value2.push(item.id());")?;
+                    writeln!(sink, "}}")?;
+                    "value2"
+                } else {
+                    "value"
+                };
+
                 write!(
                     sink,
                     "self.inner.send(&{}::{}Success",
                     enum_name, camel_name
                 )?;
                 if stype != "()" {
-                    let is_interface =
+                    let maybe_interface =
                         if let ConcreteType::Interface(name) = &method.returns.success.typ {
                             Some(name.clone())
                         } else {
@@ -391,12 +414,19 @@ impl Codegen {
                         };
                     write!(
                         sink,
-                        "(value{})",
-                        match is_interface {
+                        "({}{})",
+                        value_name,
+                        match maybe_interface {
                             None => "",
                             Some(name) => {
-                                let info = TrackedInterfaceInfo::by_name(&self.ast, &name);
-                                if info.shared() {
+                                let info = TrackedInterfaceInfo::by_name(
+                                    &self.ast,
+                                    &name,
+                                    method.returns.success.arity,
+                                );
+                                if info.multiple() {
+                                    ""
+                                } else if info.shared() {
                                     ".lock().id()"
                                 } else {
                                     ".id()"
@@ -415,9 +445,31 @@ impl Codegen {
                     write!(sink, ", value: {}", stype)?;
                 }
                 writeln!(sink, ") {{")?;
+
+                let is_interface = if let ConcreteType::Interface(_) = &method.returns.error.typ {
+                    true
+                } else {
+                    false
+                };
+
+                let value_name = if is_interface && method.returns.error.arity != Arity::Unary {
+                    writeln!(
+                        sink,
+                        "// looping for multiple arity type: {:?}",
+                        method.returns.success.arity
+                    )?;
+                    writeln!(sink, "let mut value2 = vec![];")?;
+                    writeln!(sink, "for item in value.iter() {{")?;
+                    writeln!(sink, "value2.push(item.id());")?;
+                    writeln!(sink, "}}")?;
+                    "value2"
+                } else {
+                    "value"
+                };
+
                 write!(sink, "self.inner.send(&{}::{}Error", enum_name, camel_name)?;
                 if stype != "()" {
-                    let is_interface =
+                    let maybe_interface =
                         if let ConcreteType::Interface(name) = &method.returns.error.typ {
                             Some(name.clone())
                         } else {
@@ -425,12 +477,19 @@ impl Codegen {
                         };
                     write!(
                         sink,
-                        "(value{})",
-                        match is_interface {
+                        "({}{})",
+                        value_name,
+                        match maybe_interface {
                             None => "",
                             Some(name) => {
-                                let info = TrackedInterfaceInfo::by_name(&self.ast, &name);
-                                if info.shared() {
+                                let info = TrackedInterfaceInfo::by_name(
+                                    &self.ast,
+                                    &name,
+                                    method.returns.error.arity,
+                                );
+                                if info.multiple() {
+                                    ""
+                                } else if info.shared() {
                                     ".lock().id()"
                                 } else {
                                     ".id()"
@@ -445,7 +504,7 @@ impl Codegen {
                 writeln!(sink, "}}\n")?; // End `impl XyzResponder`
             }
 
-            // Getter responder. They are simpler since getter are infallible.
+            // Getter responder. They are simpler since getters are infallible.
             for member in &interface.members {
                 let name = member.0;
                 let camel_name = name.to_upper_camel_case();
@@ -494,7 +553,8 @@ impl Codegen {
                         match is_interface {
                             None => "",
                             Some(name) => {
-                                let info = TrackedInterfaceInfo::by_name(&self.ast, &name);
+                                let info =
+                                    TrackedInterfaceInfo::by_name(&self.ast, &name, repr.typ.arity);
                                 if info.shared() {
                                     ".lock().id()"
                                 } else {

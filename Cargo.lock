@@ -1407,8 +1407,6 @@ version = "0.2.0"
 dependencies = [
  "actix",
  "android_utils",
- "anyhow",
- "async-trait",
  "bincode",
  "byteorder",
  "did-key",
@@ -1425,7 +1423,6 @@ dependencies = [
  "thiserror",
  "threadpool",
  "toml",
- "ucan",
  "url",
 ]
 
@@ -2121,7 +2118,9 @@ dependencies = [
 name = "dweb_service"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-std",
+ "async-trait",
  "base64 0.13.0",
  "chrono",
  "common",

@@ -12,7 +12,6 @@ use common::traits::{
     DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport, Shared,
     SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
-use common::ucan::SUPPORTED_UCAN_KEYS;
 use common::Blob;
 use common::JsonValue;
 use costaeres::array::Array;
@@ -27,14 +26,12 @@ use costaeres::manager::{
     Manager, ModificationObserver, ResourceModification as ResourceModificationC,
 };
 use costaeres::scorer::VisitEntry;
-use dweb_service::service::DWebServiceImpl;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
-use ucan::crypto::did::DidParser;
 use ucan::ucan::Ucan;
 
 pub(crate) struct Timer {
@@ -322,20 +319,7 @@ impl ContentManagerService {
     }
 
     fn validate_ucan_token(&mut self, token: &str) -> Result<Ucan, ()> {
-        let ucan = Ucan::try_from_token_string(&token).map_err(|_| ())?;
-        async_std::task::block_on(async {
-            // Parse the token, check time bounds and signature.
-            let mut parser = DidParser::new(SUPPORTED_UCAN_KEYS);
-            ucan.validate(&mut parser).await.map_err(|_| ())?;
-            // Check that the issuer is a known one.
-            let dweb_state = DWebServiceImpl::shared_state();
-            let res = dweb_state.lock().did_store.by_uri(ucan.issuer());
-            match res {
-                Ok(Some(_)) => Ok(()),
-                _ => Err(()),
-            }
-        })?;
-        Ok(ucan)
+        async_std::task::block_on(async { dweb_service::validate_ucan_token(token).await })
     }
 
     async fn can_read_resource(

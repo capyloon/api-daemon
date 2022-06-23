@@ -8,7 +8,11 @@ use std::io::Write;
 pub fn rust_type_with_reqresp(full_type: &FullConcreteType) -> (String, String) {
     let type1 = rust_type(full_type);
     let type2 = if let ConcreteType::Interface(_name) = &full_type.typ {
-        "u32".to_owned()
+        if full_type.arity == Arity::ZeroOrMore || full_type.arity == Arity::OneOrMore {
+            "Vec<u32>".to_owned()
+        } else {
+            "u32".to_owned()
+        }
     } else {
         type1.clone()
     };

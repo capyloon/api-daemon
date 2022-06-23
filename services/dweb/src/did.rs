@@ -80,6 +80,10 @@ impl Did {
             key_pair: from_existing_key::<Ed25519KeyPair>(&public_key, Some(&private_key)),
         })
     }
+
+    pub fn is_superuser(&self) -> bool {
+        self.name == "superuser"
+    }
 }
 
 impl From<Did> for SidlDid {

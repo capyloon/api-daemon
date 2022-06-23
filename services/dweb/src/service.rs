@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::did::Did;
 use crate::generated::common::Did as SidlDid;
 use crate::generated::{common::*, service::*};
-use crate::storage::DidStorage;
+use crate::storage::DwebStorage;
 use async_std::path::Path;
 use common::core::BaseMessage;
 use common::traits::{
@@ -10,6 +10,7 @@ use common::traits::{
     SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{debug, error, info};
+use std::rc::Rc;
 use std::time::SystemTime;
 use ucan::builder::UcanBuilder;
 use ucan::capability::{Action, Capability as UCapability, Resource, Scope, With};
@@ -17,7 +18,7 @@ use ucan::ucan::Ucan;
 use url::Url as StdUrl;
 
 pub struct State {
-    pub did_store: DidStorage,
+    pub dweb_store: DwebStorage,
     event_broadcaster: DwebEventBroadcaster,
     ui_provider: Option<UcanProviderProxy>,
 }
@@ -31,7 +32,7 @@ impl Into<State> for &Config {
         let store_path = Path::new(&config_path);
 
         State {
-            did_store: DidStorage::new(store_path),
+            dweb_store: DwebStorage::new(store_path),
             event_broadcaster: DwebEventBroadcaster::default(),
             ui_provider: None,
         }
@@ -94,12 +95,13 @@ pub struct DWebServiceImpl {
     origin_attributes: OriginAttributes,
     proxy_tracker: DwebServiceProxyTracker,
     provides_ui: bool,
+    tracker: DwebServiceTrackerType,
 }
 
 impl DwebService for DWebServiceImpl {
-    // fn get_tracker(&mut self) -> Arc<Mutex<DWebTrackerType>> {
-    //     self.tracker.clone()
-    // }
+    fn get_tracker(&mut self) -> &mut DwebServiceTrackerType {
+        &mut self.tracker
+    }
 
     fn get_proxy_tracker(&mut self) -> &mut DwebServiceProxyTracker {
         &mut self.proxy_tracker
@@ -113,8 +115,8 @@ fn build_ucan_token(
 ) -> Result<Ucan, ()> {
     let issuer = state
         .lock()
-        .did_store
-        .by_name(&granted.issuer.name)
+        .dweb_store
+        .did_by_name(&granted.issuer.name)
         .map_err(|_| ())?
         .ok_or(())?
         .clone();
@@ -156,7 +158,7 @@ impl DwebMethods for DWebServiceImpl {
 
         let did = Did::create(&name);
         let mut state = self.state.lock();
-        if let Ok(true) = state.did_store.add(&did) {
+        if let Ok(true) = state.dweb_store.add_did(&did) {
             let sdid: SidlDid = did.into();
             state.event_broadcaster.broadcast_didcreated(sdid.clone());
             responder.resolve(sdid);
@@ -170,7 +172,7 @@ impl DwebMethods for DWebServiceImpl {
             return;
         }
 
-        match self.state.lock().did_store.get_all() {
+        match self.state.lock().dweb_store.get_all_dids() {
             Ok(list) => responder.resolve(Some(list)),
             Err(_) => responder.reject(DidError::InternalError),
         }
@@ -182,7 +184,7 @@ impl DwebMethods for DWebServiceImpl {
         }
 
         let mut state = self.state.lock();
-        if let Ok(true) = state.did_store.remove(&uri) {
+        if let Ok(true) = state.dweb_store.remove_did(&uri) {
             state.event_broadcaster.broadcast_didremoved(uri);
             responder.resolve();
         } else {
@@ -252,7 +254,13 @@ impl DwebMethods for DWebServiceImpl {
                 match result {
                     Ok(granted) => {
                         // Build the token.
-                        if let Ok(ucan) = build_ucan_token(state, &audience, granted) {
+                        if let Ok(ucan) = build_ucan_token(state.clone(), &audience, granted) {
+                            // Store the UCAN in the unblocked state.
+                            match state.lock().dweb_store.add_ucan(&ucan, &url, false) {
+                                Ok(false) | Err(_) => responder.reject(UcanError::InternalError),
+                                _ => {}
+                            }
+
                             if let Ok(base64) = ucan.encode() {
                                 responder.resolve(base64);
                             } else {
@@ -280,7 +288,7 @@ impl DwebMethods for DWebServiceImpl {
             return;
         }
 
-        let maybe_audience = self.state.lock().did_store.by_name("superuser");
+        let maybe_audience = self.state.lock().dweb_store.did_by_name("superuser");
 
         if let Ok(Some(audience)) = maybe_audience {
             let granted = GrantedCapabilities {
@@ -304,6 +312,28 @@ impl DwebMethods for DWebServiceImpl {
             } else {
                 responder.reject(UcanError::InternalError);
             }
+        } else {
+            responder.reject(UcanError::InternalError);
+        }
+    }
+
+    fn ucans_for(&mut self, responder: DwebUcansForResponder, origin: String) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "UCANs for origin",
+        ) {
+            return;
+        }
+
+        if let Ok(tokens) = self.state.lock().dweb_store.ucans_for_origin(&origin) {
+            let mut ucans: Vec<Box<dyn UcanMethods>> = vec![];
+            for token in tokens {
+                if let Some(ucan) = crate::sidl_ucan::SidlUcan::try_new(token, self.state.clone()) {
+                    ucans.push(Box::new(ucan));
+                }
+            }
+            responder.resolve(Rc::new(ucans));
         } else {
             responder.reject(UcanError::InternalError);
         }
@@ -334,6 +364,7 @@ impl Service<DWebServiceImpl> for DWebServiceImpl {
             origin_attributes: attrs.clone(),
             proxy_tracker: DwebServiceProxyTracker::default(),
             provides_ui: false,
+            tracker: DwebServiceTrackerType::default(),
         })
     }
 

@@ -1,7 +1,7 @@
 /// Rust service code generator.
 use crate::ast_utils::*;
 use heck::ToUpperCamelCase;
-use sidl_parser::ast::{Ast, ConcreteType, Service};
+use sidl_parser::ast::{Arity, Ast, ConcreteType, Service};
 use std::collections::HashSet;
 use std::io::Write;
 use thiserror::Error as ThisError;
@@ -52,11 +52,19 @@ impl Codegen {
         for method in &interface.methods {
             let method = method.1;
             if let ConcreteType::Interface(name) = &method.returns.success.typ {
-                set.insert(TrackedInterfaceInfo::by_name(&self.ast, name));
+                set.insert(TrackedInterfaceInfo::by_name(
+                    &self.ast,
+                    name,
+                    Arity::Unary, // Force to unary because we only want the interface type.
+                ));
                 self.find_tracked_interfaces(self.ast.interfaces.get(name).unwrap(), set);
             }
             if let ConcreteType::Interface(name) = &method.returns.error.typ {
-                set.insert(TrackedInterfaceInfo::by_name(&self.ast, name));
+                set.insert(TrackedInterfaceInfo::by_name(
+                    &self.ast,
+                    name,
+                    Arity::Unary, // Force to unary because we only want the interface type.
+                ));
                 self.find_tracked_interfaces(self.ast.interfaces.get(name).unwrap(), set);
             }
         }
@@ -333,7 +341,8 @@ impl Codegen {
             // Methods on tracked objects.
             for method in &interface.methods {
                 let method = method.1;
-                let mut req_name = format!("{}{}", interface.name, method.name.to_upper_camel_case());
+                let mut req_name =
+                    format!("{}{}", interface.name, method.name.to_upper_camel_case());
                 let mut params = String::new();
                 let mut variant_params = String::new();
                 let mut bootstrap = String::new();
@@ -457,8 +466,11 @@ impl Codegen {
                 let returned = &method.returns;
 
                 // Success return value.
-                let mut req_name =
-                    format!("{}{}Success", callback.name, method.name.to_upper_camel_case());
+                let mut req_name = format!(
+                    "{}{}Success",
+                    callback.name,
+                    method.name.to_upper_camel_case()
+                );
                 if returned.success.typ != ConcreteType::Void {
                     req_name.push_str("(value)");
                 }
@@ -540,7 +552,11 @@ impl Codegen {
 
                 // Error return value.
                 // TODO: refactor to share code with the success case
-                let mut req_name = format!("{}{}Error", callback.name, method.name.to_upper_camel_case());
+                let mut req_name = format!(
+                    "{}{}Error",
+                    callback.name,
+                    method.name.to_upper_camel_case()
+                );
                 if returned.error.typ != ConcreteType::Void {
                     req_name.push_str("(value)");
                 }

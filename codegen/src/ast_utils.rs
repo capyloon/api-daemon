@@ -422,10 +422,11 @@ pub struct TrackedInterfaceInfo {
     interface_name: String, // The interface name.
     trait_name: String,     // The name of the trait implemented by the tracked object.
     shared: bool,           // Whether this object should be available from multiple threads or not.
+    multiple: bool,         // Whether arity is not single.
 }
 
 impl TrackedInterfaceInfo {
-    pub fn by_name(ast: &Ast, interface_name: &str) -> Self {
+    pub fn by_name(ast: &Ast, interface_name: &str, arity: Arity) -> Self {
         let interface = ast.interfaces.get(interface_name).unwrap();
 
         // Use the "rust:shared" annotation to switch to a Shared<T> tracked object.
@@ -452,14 +453,20 @@ impl TrackedInterfaceInfo {
             interface_name: interface_name.into(),
             trait_name,
             shared,
+            multiple: arity == Arity::ZeroOrMore || arity == Arity::OneOrMore,
         }
     }
 
     pub fn type_representation(&self) -> String {
+        let mult_start = if self.multiple { "<Vec<Box" } else { "" };
+        let mult_end = if self.multiple { ">>" } else { "" };
+
         format!(
-            "{}<dyn {}>{}",
+            "{}{}<dyn {}>{}{}",
             if self.shared { "Arc<Mutex" } else { "Rc" },
+            mult_start,
             self.trait_name,
+            mult_end,
             if self.shared { ">" } else { "" },
         )
     }
@@ -470,6 +477,10 @@ impl TrackedInterfaceInfo {
 
     pub fn shared(&self) -> bool {
         self.shared
+    }
+
+    pub fn multiple(&self) -> bool {
+        self.multiple
     }
 }
 
