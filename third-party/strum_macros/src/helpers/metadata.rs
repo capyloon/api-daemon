@@ -5,8 +5,7 @@ use syn::{
     parse2, parse_str,
     punctuated::Punctuated,
     spanned::Spanned,
-    Attribute, DeriveInput, Ident, Lit, LitBool, LitStr, Meta, MetaNameValue, Path, Token, Variant,
-    Visibility,
+    Attribute, DeriveInput, Ident, Lit, LitBool, LitStr, Meta, MetaNameValue, Path, Token, Variant, Visibility,
 };
 
 use super::case_style::CaseStyle;
@@ -17,7 +16,6 @@ pub mod kw {
 
     // enum metadata
     custom_keyword!(serialize_all);
-    custom_keyword!(use_phf);
 
     // enum discriminant metadata
     custom_keyword!(derive);
@@ -45,7 +43,6 @@ pub enum EnumMeta {
         kw: kw::Crate,
         crate_module_path: Path,
     },
-    UsePhf(kw::use_phf),
 }
 
 impl Parse for EnumMeta {
@@ -67,9 +64,8 @@ impl Parse for EnumMeta {
                 crate_module_path,
             })
         } else if lookahead.peek(kw::ascii_case_insensitive) {
-            Ok(EnumMeta::AsciiCaseInsensitive(input.parse()?))
-        } else if lookahead.peek(kw::use_phf) {
-            Ok(EnumMeta::UsePhf(input.parse()?))
+            let kw = input.parse()?;
+            Ok(EnumMeta::AsciiCaseInsensitive(kw))
         } else {
             Err(lookahead.error())
         }
@@ -82,7 +78,6 @@ impl Spanned for EnumMeta {
             EnumMeta::SerializeAll { kw, .. } => kw.span(),
             EnumMeta::AsciiCaseInsensitive(kw) => kw.span(),
             EnumMeta::Crate { kw, .. } => kw.span(),
-            EnumMeta::UsePhf(use_phf) => use_phf.span(),
         }
     }
 }
@@ -280,19 +275,14 @@ pub trait VariantExt {
 impl VariantExt for Variant {
     fn get_metadata(&self) -> syn::Result<Vec<VariantMeta>> {
         let result = get_metadata_inner("strum", &self.attrs)?;
-        self.attrs
-            .iter()
+        self.attrs.iter()
             .filter(|attr| attr.path.is_ident("doc"))
             .try_fold(result, |mut vec, attr| {
-                if let Meta::NameValue(MetaNameValue {
-                    lit: Lit::Str(value),
-                    ..
-                }) = attr.parse_meta()?
-                {
-                    vec.push(VariantMeta::Documentation { value })
-                }
-                Ok(vec)
-            })
+            if let Meta::NameValue(MetaNameValue { lit: Lit::Str(value), .. }) = attr.parse_meta()? {
+                vec.push(VariantMeta::Documentation { value })
+            }
+            Ok(vec)
+        })
     }
 }
 

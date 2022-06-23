@@ -760,6 +760,7 @@ impl OffsetDateTime {
                 .assume_utc()
                 .replace_offset(self.offset)
         } else {
+            debug_assert!(duration.is_positive());
             PrimitiveDateTime::MAX
                 .assume_utc()
                 .replace_offset(self.offset)
@@ -794,6 +795,7 @@ impl OffsetDateTime {
                 .assume_utc()
                 .replace_offset(self.offset)
         } else {
+            debug_assert!(duration.is_positive());
             PrimitiveDateTime::MIN
                 .assume_utc()
                 .replace_offset(self.offset)
@@ -1225,10 +1227,10 @@ impl Add<Duration> for SystemTime {
         if duration.is_zero() {
             self
         } else if duration.is_positive() {
-            self + duration.abs_std()
+            self + duration.unsigned_abs()
         } else {
             debug_assert!(duration.is_negative());
-            self - duration.abs_std()
+            self - duration.unsigned_abs()
         }
     }
 }
@@ -1311,10 +1313,10 @@ impl From<OffsetDateTime> for SystemTime {
         if duration.is_zero() {
             Self::UNIX_EPOCH
         } else if duration.is_positive() {
-            Self::UNIX_EPOCH + duration.abs_std()
+            Self::UNIX_EPOCH + duration.unsigned_abs()
         } else {
             debug_assert!(duration.is_negative());
-            Self::UNIX_EPOCH - duration.abs_std()
+            Self::UNIX_EPOCH - duration.unsigned_abs()
         }
     }
 }

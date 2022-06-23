@@ -5,11 +5,15 @@ All notable changes to async-std will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://book.async.rs/overview/stability-guarantees.html).
 
-# [Unreleased]
+# [1.12.0] - 2022-06-18
 
 ## Added
-## Removed
+- `std::task_spawn_blocking` is now stabilized. We consider it a fundamental API for bridging between blocking code and async code, and we widely use it within async-std's own implementation.
+- Add `TryFrom` implementations to convert `TcpListener`, `TcpStream`, `UdpSocket`, `UnixDatagram`, `UnixListener`, and `UnixStream` to their synchronous equivalents, including putting them back into blocking mode.
+
 ## Changed
+- async-std no longer depends on `num_cpus`; it uses functionality in the standard library instead (via `async-global-executor`).
+- Miscellaneous documentation fixes and cleanups.
 
 # [1.11.0] - 2022-03-22
 
@@ -155,7 +159,7 @@ release, and updates internal dependencies.
 ## Fixed
 
 - Fix `TcpListener::incoming`. ([#889](https://github.com/async-rs/async-std/pull/889))
-- Fix tokio compatability flag. ([#882](https://github.com/async-rs/async-std/pull/882))
+- Fix tokio compatibility flag. ([#882](https://github.com/async-rs/async-std/pull/882))
 
 # [1.6.4] - 2020-09-16
 
@@ -207,7 +211,7 @@ release, and updates internal dependencies.
 
 ## Added
 
-- Added `tokio02` feature flag, to allow compatability usage with tokio@0.2 ([#804](https://github.com/async-rs/async-std/pull/804)).
+- Added `tokio02` feature flag, to allow compatibility usage with tokio@0.2 ([#804](https://github.com/async-rs/async-std/pull/804)).
 
 ## Changed
 
@@ -416,7 +420,7 @@ assert_eq!(right, [2, 4]);
 
 ## Changed
 
-- Enabled CI on master branch.
+- Enabled CI.
 - `Future::join` and `Future::try_join` can now join futures with different
   output types.
 

@@ -1,7 +1,6 @@
 //! The [`Instant`] struct and its associated `impl`s.
 
 use core::cmp::{Ord, Ordering, PartialEq, PartialOrd};
-use core::convert::{TryFrom, TryInto};
 use core::ops::{Add, Sub};
 use core::time::Duration as StdDuration;
 use std::borrow::Borrow;
@@ -73,10 +72,10 @@ impl Instant {
         if duration.is_zero() {
             Some(self)
         } else if duration.is_positive() {
-            self.0.checked_add(duration.abs_std()).map(Self)
+            self.0.checked_add(duration.unsigned_abs()).map(Self)
         } else {
             debug_assert!(duration.is_negative());
-            self.0.checked_sub(duration.abs_std()).map(Self)
+            self.0.checked_sub(duration.unsigned_abs()).map(Self)
         }
     }
 
@@ -94,10 +93,10 @@ impl Instant {
         if duration.is_zero() {
             Some(self)
         } else if duration.is_positive() {
-            self.0.checked_sub(duration.abs_std()).map(Self)
+            self.0.checked_sub(duration.unsigned_abs()).map(Self)
         } else {
             debug_assert!(duration.is_negative());
-            self.0.checked_add(duration.abs_std()).map(Self)
+            self.0.checked_add(duration.unsigned_abs()).map(Self)
         }
     }
     // endregion checked arithmetic
@@ -163,10 +162,11 @@ impl Add<Duration> for Instant {
 
     fn add(self, duration: Duration) -> Self::Output {
         if duration.is_positive() {
-            Self(self.0 + duration.abs_std())
+            Self(self.0 + duration.unsigned_abs())
         } else if duration.is_negative() {
-            Self(self.0 - duration.abs_std())
+            Self(self.0 - duration.unsigned_abs())
         } else {
+            debug_assert!(duration.is_zero());
             self
         }
     }
@@ -196,10 +196,11 @@ impl Sub<Duration> for Instant {
 
     fn sub(self, duration: Duration) -> Self::Output {
         if duration.is_positive() {
-            Self(self.0 - duration.abs_std())
+            Self(self.0 - duration.unsigned_abs())
         } else if duration.is_negative() {
-            Self(self.0 + duration.abs_std())
+            Self(self.0 + duration.unsigned_abs())
         } else {
+            debug_assert!(duration.is_zero());
             self
         }
     }

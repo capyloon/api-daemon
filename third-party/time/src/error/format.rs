@@ -1,6 +1,5 @@
 //! Error formatting a struct
 
-use core::convert::TryFrom;
 use core::fmt;
 use std::io;
 
@@ -92,6 +91,6 @@ impl Format {
     #[doc(hidden)] // Exposed only for the `declare_format_string` macro
     pub fn into_invalid_serde_value<S: serde::Serializer>(self) -> S::Error {
         use serde::ser::Error;
-        S::Error::custom(format!("{}", self))
+        S::Error::custom(self)
     }
 }

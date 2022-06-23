@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.36"
 name = "dyn-clone"
-version = "1.0.5"
+version = "1.0.6"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 description = "Clone trait that is object-safe"
 documentation = "https://docs.rs/dyn-clone"

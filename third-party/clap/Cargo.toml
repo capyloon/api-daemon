@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.56.0"
+rust-version = "1.56.1"
 name = "clap"
-version = "3.2.4"
+version = "3.2.6"
 include = [
     "build.rs",
     "src/**/*",
@@ -24,8 +24,6 @@ include = [
     "examples/**/*",
 ]
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
-documentation = "https://docs.rs/clap/"
-readme = "README.md"
 keywords = [
     "argument",
     "cli",
@@ -373,7 +371,7 @@ optional = true
 version = "1.2"
 
 [dependencies.clap_derive]
-version = "=3.2.4"
+version = "=3.2.6"
 optional = true
 
 [dependencies.clap_lex]

@@ -14,6 +14,8 @@ macro_rules! item {
 }
 
 #[cfg(feature = "serde-well-known")]
+pub mod iso8601;
+#[cfg(feature = "serde-well-known")]
 pub mod rfc2822;
 #[cfg(feature = "serde-well-known")]
 pub mod rfc3339;
@@ -36,6 +38,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// module named `mod_name` in the current scope that can be used to format `Date` structs. A
 /// submodule (`mod_name::option`) is also generated for `Option<Date>`. Both modules are only
 /// visible in the current scope.
+///
+/// The returned `Option` will contain a deserialized value if present and `None` if the field
+/// is present but the value is `null` (or the equivalent in other formats). To return `None`
+/// when the field is not present, you should use `#[serde(default)]` on the field.
 ///
 /// # Examples
 ///
@@ -95,7 +101,11 @@ impl Serialize for Date {
 
 impl<'a> Deserialize<'a> for Date {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_tuple(2, Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion date
@@ -118,7 +128,11 @@ impl Serialize for Duration {
 
 impl<'a> Deserialize<'a> for Duration {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_tuple(2, Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion Duration
@@ -161,7 +175,11 @@ impl Serialize for OffsetDateTime {
 
 impl<'a> Deserialize<'a> for OffsetDateTime {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_tuple(9, Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion OffsetDateTime
@@ -199,7 +217,11 @@ impl Serialize for PrimitiveDateTime {
 
 impl<'a> Deserialize<'a> for PrimitiveDateTime {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_tuple(6, Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion PrimitiveDateTime
@@ -233,7 +255,11 @@ impl Serialize for Time {
 
 impl<'a> Deserialize<'a> for Time {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_tuple(4, Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion Time
@@ -270,7 +296,11 @@ impl Serialize for UtcOffset {
 
 impl<'a> Deserialize<'a> for UtcOffset {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_tuple(3, Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion UtcOffset
@@ -291,7 +321,11 @@ impl Serialize for Weekday {
 
 impl<'a> Deserialize<'a> for Weekday {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_u8(Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion Weekday
@@ -312,7 +346,11 @@ impl Serialize for Month {
 
 impl<'a> Deserialize<'a> for Month {
     fn deserialize<D: Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        if cfg!(feature = "serde-human-readable") && deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor::<Self>(PhantomData))
+        } else {
+            deserializer.deserialize_u8(Visitor::<Self>(PhantomData))
+        }
     }
 }
 // endregion Month
