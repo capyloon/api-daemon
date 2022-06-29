@@ -21,6 +21,8 @@
 //! is wrong too.
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -51,6 +53,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use tor_basic_utils::retry::RetryDelay;
@@ -198,6 +201,7 @@ impl<R: Runtime> CircMgr<R> {
             storage.clone(),
             config.fallbacks().clone(),
         )?;
+        guardmgr.set_filter(config.path_rules().build_guard_filter(), None);
 
         let storage_handle = storage.create_handle(PARETO_TIMEOUT_DATA_KEY);
 
@@ -230,7 +234,7 @@ impl<R: Runtime> CircMgr<R> {
         state_mgr: FsStateMgr,
     ) -> Result<Vec<TaskHandle>>
     where
-        D: NetDirProvider + Send + Sync + 'static + ?Sized,
+        D: NetDirProvider + 'static + ?Sized,
     {
         let mut ret = vec![];
 
@@ -275,6 +279,11 @@ impl<R: Runtime> CircMgr<R> {
             ))
             .map_err(|e| Error::from_spawn("preemptive circuit launcher", e))?;
 
+        self.mgr
+            .peek_builder()
+            .guardmgr()
+            .install_netdir_provider(&dir_provider.clone().upcast_arc())?;
+
         Ok(ret)
     }
 
@@ -304,6 +313,12 @@ impl<R: Runtime> CircMgr<R> {
             .peek_builder()
             .guardmgr()
             .replace_fallback_list(new_config.fallbacks().clone());
+
+        let new_reachable = &new_config.path_rules().reachable_addrs;
+        if new_reachable != &old_path_rules.reachable_addrs {
+            let filter = new_config.path_rules().build_guard_filter();
+            self.mgr.peek_builder().guardmgr().set_filter(filter, None);
+        }
 
         let discard_circuits = !new_config
             .path_rules()
@@ -353,7 +368,11 @@ impl<R: Runtime> CircMgr<R> {
     /// Reconfigure this circuit manager using the latest set of
     /// network parameters.
     ///
-    /// (NOTE: for now, this only affects circuit timeout estimation.)
+    /// This is deprecated as a public function: `launch_background_tasks` now
+    /// ensures that this happens as needed.
+    #[deprecated(
+        note = "There is no need to call this function if you have used launch_background_tasks"
+    )]
     pub fn update_network_parameters(&self, p: &tor_netdir::params::NetParameters) {
         self.mgr.update_network_parameters(p);
         self.mgr.peek_builder().update_network_parameters(p);
@@ -373,9 +392,10 @@ impl<R: Runtime> CircMgr<R> {
 
     /// Reconfigure this circuit manager using the latest network directory.
     ///
-    /// This should be called on _any_ change to the network, as opposed to
-    /// [`CircMgr::update_network_parameters`], which should only be
-    /// called when the parameters change.
+    /// This function is deprecated: `launch_background_tasks` now makes sure that this happens as needed.
+    #[deprecated(
+        note = "There is no need to call this function if you have used launch_background_tasks"
+    )]
     pub fn update_network(&self, netdir: &NetDir) {
         self.mgr.peek_builder().guardmgr().update_network(netdir);
     }
@@ -546,38 +566,20 @@ impl<R: Runtime> CircMgr<R> {
         circmgr: Weak<Self>,
         dirmgr: Weak<D>,
     ) where
-        D: NetDirProvider + Send + Sync + 'static + ?Sized,
+        D: NetDirProvider + 'static + ?Sized,
     {
         use DirEvent::*;
         while let Some(event) = events.next().await {
-            match event {
-                NewConsensus => {
-                    if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr))
-                    {
-                        let netdir = dm
-                            .latest_netdir()
-                            .expect("got new consensus event, without a netdir?");
-                        cm.update_network_parameters(netdir.params());
-                        cm.update_network(&netdir);
-                    } else {
-                        debug!("Circmgr or dirmgr has disappeared; task exiting.");
-                        break;
-                    }
-                }
-                NewDescriptors => {
-                    if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr))
-                    {
-                        let netdir = dm
-                            .latest_netdir()
-                            .expect("got new descriptors event, without a netdir?");
-                        cm.update_network(&netdir);
-                    } else {
-                        debug!("Circmgr or dirmgr has disappeared; task exiting.");
-                        break;
-                    }
-                }
-                _ => {
-                    // Nothing we recognize.
+            if matches!(event, NewConsensus) {
+                if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
+                    let netdir = dm
+                        .latest_netdir()
+                        .expect("got new consensus event, without a netdir?");
+                    #[allow(deprecated)]
+                    cm.update_network_parameters(netdir.params());
+                } else {
+                    debug!("Circmgr or dirmgr has disappeared; task exiting.");
+                    break;
                 }
             }
         }
@@ -594,7 +596,7 @@ impl<R: Runtime> CircMgr<R> {
         circmgr: Weak<Self>,
         dirmgr: Weak<D>,
     ) where
-        D: NetDirProvider + Send + Sync + 'static + ?Sized,
+        D: NetDirProvider + 'static + ?Sized,
     {
         while sched.next().await.is_some() {
             if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
@@ -694,7 +696,7 @@ impl<R: Runtime> CircMgr<R> {
         circmgr: Weak<Self>,
         dirmgr: Weak<D>,
     ) where
-        D: NetDirProvider + Send + Sync + 'static + ?Sized,
+        D: NetDirProvider + 'static + ?Sized,
     {
         let base_delay = Duration::from_secs(10);
         let mut retry = RetryDelay::from_duration(base_delay);

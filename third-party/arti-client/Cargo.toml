@@ -1,6 +1,6 @@
 [package]
 name = "arti-client"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
@@ -13,29 +13,51 @@ repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
 [features]
 default = ["tokio", "rustls"]
+# "full" is a top-level selector that turns on every feature, _EXCEPT FOR_:
+#   * Features that are experimental or unstable
+#   * Features that are testing-only
+#   * Features which are select a particular implementation or build flag and
+#     which therefore are not strictly additive.
+#   * Features which may introduce unnecessary licensing restrictions.
+full = ["tokio", "async-std", "rustls", "tor-rtcompat/full", "tor-proto/full", "tor-netdoc/full", "tor-dirmgr/full"]
+
 async-std = ["tor-rtcompat/async-std"]
 tokio = ["tor-rtcompat/tokio", "tor-proto/tokio"]
 native-tls = ["tor-rtcompat/native-tls"]
 rustls = ["tor-rtcompat/rustls"]
+
 static = ["static-sqlite", "static-native-tls"]
 static-sqlite = ["tor-dirmgr/static"]
 static-native-tls = ["tor-rtcompat/static", "native-tls"]
 
-dirfilter = ["tor-dirmgr/dirfilter"]
-error_detail = []
+accel-sha1-asm = ["tor-llcrypto/with-sha1-asm"]
+accel-openssl = ["tor-llcrypto/with-openssl"]
 
 # Enable experimental APIs that are not yet officially supported.
 #
 # These APIs are not covered by semantic versioning.  Using this
 # feature voids your "semver warrantee".
+experimental = [
+    "dirfilter",
+    "experimental-api",
+    "error_detail",
+    "tor-proto/experimental",
+    "tor-cell/experimental",
+    "tor-checkable/experimental",
+    "tor-netdoc/experimental",
+    "tor-dirmgr/experimental",
+    "tor-circmgr/experimental",
+]
 experimental-api = []
+dirfilter = ["tor-dirmgr/dirfilter"]
+error_detail = []
 
 [dependencies]
 derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
 derive_more = "0.99"
 directories = "4"
 educe = "0.4.6"
-fs-mistrust = { path = "../fs-mistrust", version = "0.2.0", features = ["serde"] }
+fs-mistrust = { path = "../fs-mistrust", version = "0.3.0", features = ["serde"] }
 futures = "0.3.14"
 humantime-serde = "1.1.1"
 pin-project = "1"
@@ -43,17 +65,20 @@ postage = { version = "0.5.0", default-features = false, features = ["futures-tr
 safelog = { path = "../safelog", version = "0.1.0" }
 serde = { version = "1.0.103", features = ["derive"] }
 thiserror = "1"
-tor-basic-utils = { path = "../tor-basic-utils", version = "0.3.1" }
-tor-chanmgr = { path = "../tor-chanmgr", version = "0.3.1" }
-tor-circmgr = { path = "../tor-circmgr", version = "0.3.1" }
-tor-config = { path = "../tor-config", version = "0.4.0" }
-tor-dirmgr = { path = "../tor-dirmgr", version = "0.4.0" }
-tor-error = { path = "../tor-error", version = "0.3.1" }
-tor-guardmgr = { path = "../tor-guardmgr", version = "0.3.1" }
-tor-netdoc = { path = "../tor-netdoc", version = "0.4.0" }
-tor-persist = { path = "../tor-persist", version = "0.4.0" }
-tor-proto = { path = "../tor-proto", version = "0.3.1" }
-tor-rtcompat = { path = "../tor-rtcompat", version = "0.4.0" }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.3.2" }
+tor-cell = { path = "../tor-cell", version = "0.4.0" }
+tor-chanmgr = { path = "../tor-chanmgr", version = "0.4.0" }
+tor-checkable = { path = "../tor-checkable", version = "0.3.0" }
+tor-circmgr = { path = "../tor-circmgr", version = "0.3.2" }
+tor-config = { path = "../tor-config", version = "0.4.1" }
+tor-dirmgr = { path = "../tor-dirmgr", version = "0.5.0" }
+tor-error = { path = "../tor-error", version = "0.3.2" }
+tor-guardmgr = { path = "../tor-guardmgr", version = "0.4.0" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.2" }
+tor-netdoc = { path = "../tor-netdoc", version = "0.4.1" }
+tor-persist = { path = "../tor-persist", version = "0.4.1" }
+tor-proto = { path = "../tor-proto", version = "0.4.0" }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.5.0" }
 tracing = "0.1.18"
 
 [dev-dependencies]
@@ -70,5 +95,5 @@ tokio-crate = { package = "tokio", version = "1.7", features = [
     "macros",
 ] }
 tokio-util = { version = "0.7.0", features = ["compat"] }
-tor-rtcompat = { path = "../tor-rtcompat", version = "0.4.0", features = ["tokio", "native-tls"] }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.5.0", features = ["tokio", "native-tls"] }
 tracing-subscriber = "0.3.0"

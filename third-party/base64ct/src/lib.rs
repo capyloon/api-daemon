@@ -1,29 +1,23 @@
-//! Pure Rust implementation of Base64 encoding ([RFC 4648, section 4])
-//! with a constant-time `no_std`-friendly implementation.
-//!
-//! # About
-//!
-//! This crate implements several Base64 variants in constant-time for
-//! sidechannel resistance, aimed at purposes like encoding/decoding the
-//! "PEM" format used to store things like cryptographic
-//! private keys.
-//!
-//! The paper [Util::Lookup: Exploiting key decoding in cryptographic libraries][Util::Lookup]
-//! demonstrates how the leakage from non-constant-time Base64 parsers can be used
-//! to practically extract RSA private keys from SGX enclaves.
-//!
-//! The padded variants require (`=`) padding. Unpadded variants expressly
-//! reject such padding.
-//!
-//! Whitespace is expressly disallowed.
-//!
-//! # Minimum Supported Rust Version
-//!
-//! This crate requires **Rust 1.55** at a minimum.
-//!
-//! We may change the MSRV in the future, but it will be accompanied by a minor
-//! version bump.
-//!
+#![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
+    html_root_url = "https://docs.rs/base64ct/1.4.1"
+)]
+#![doc = include_str!("../README.md")]
+#![warn(
+    clippy::integer_arithmetic,
+    clippy::panic,
+    clippy::panic_in_result_fn,
+    clippy::unwrap_used,
+    missing_docs,
+    rust_2018_idioms,
+    unsafe_code,
+    unused_lifetimes,
+    unused_qualifications
+)]
+
 //! # Usage
 //!
 //! ## Allocating (enable `alloc` crate feature)
@@ -63,7 +57,7 @@
 //!
 //! # Implementation
 //!
-//! Implemented using bitwise arithmetic alone without any lookup tables or
+//! Implemented using integer arithmetic alone without any lookup tables or
 //! data-dependent branches, thereby providing portable "best effort"
 //! constant-time operation.
 //!
@@ -75,18 +69,6 @@
 //!
 //! Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com).
 //! Derived code is dual licensed MIT + Apache 2 (with permission from Sc00bz).
-//!
-//! [RFC 4648, section 4]: https://tools.ietf.org/html/rfc4648#section-4
-//! [Util::Lookup]: https://arxiv.org/pdf/2108.04600.pdf
-
-#![no_std]
-#![cfg_attr(docsrs, feature(doc_cfg))]
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_root_url = "https://docs.rs/base64ct/1.1.1"
-)]
-#![warn(missing_docs, rust_2018_idioms)]
 
 #[cfg(feature = "alloc")]
 #[macro_use]
@@ -94,17 +76,29 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod alphabet;
+mod decoder;
+mod encoder;
 mod encoding;
 mod errors;
-mod variant;
+mod line_ending;
+
+#[cfg(test)]
+mod test_vectors;
 
 pub use crate::{
-    encoding::Encoding,
-    errors::{Error, InvalidEncodingError, InvalidLengthError},
-    variant::{
+    alphabet::{
         bcrypt::Base64Bcrypt,
         crypt::Base64Crypt,
         standard::{Base64, Base64Unpadded},
         url::{Base64Url, Base64UrlUnpadded},
     },
+    decoder::Decoder,
+    encoder::Encoder,
+    encoding::Encoding,
+    errors::{Error, InvalidEncodingError, InvalidLengthError},
+    line_ending::LineEnding,
 };
+
+/// Minimum supported line width.
+const MIN_LINE_WIDTH: usize = 4;

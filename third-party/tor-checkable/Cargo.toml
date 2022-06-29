@@ -1,6 +1,6 @@
 [package]
 name = "tor-checkable"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
@@ -12,9 +12,11 @@ categories = ["cryptography", "rust-patterns"]
 repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
 [features]
+experimental = ["experimental-api"]
 experimental-api = []
 
 [dependencies]
+humantime = "2"
 signature = "1"
 thiserror = "1"
-tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.0" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.2" }

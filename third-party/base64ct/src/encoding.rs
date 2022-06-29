@@ -1,22 +1,34 @@
 //! Base64 encodings
 
 use crate::{
+    alphabet::Alphabet,
     errors::{Error, InvalidEncodingError, InvalidLengthError},
-    variant::Variant,
 };
 use core::str;
 
 #[cfg(feature = "alloc")]
 use alloc::{string::String, vec::Vec};
 
+#[cfg(doc)]
+use crate::{Base64, Base64Bcrypt, Base64Crypt, Base64Unpadded, Base64Url, Base64UrlUnpadded};
+
 /// Padding character
 const PAD: u8 = b'=';
 
 /// Base64 encoding trait.
 ///
-/// This trait must be imported to make use of any Base64 variant defined
+/// This trait must be imported to make use of any Base64 alphabet defined
 /// in this crate.
-pub trait Encoding {
+///
+/// The following encoding types impl this trait:
+///
+/// - [`Base64`]: standard Base64 encoding with `=` padding.
+/// - [`Base64Bcrypt`]: bcrypt Base64 encoding.
+/// - [`Base64Crypt`]: `crypt(3)` Base64 encoding.
+/// - [`Base64Unpadded`]: standard Base64 encoding *without* padding.
+/// - [`Base64Url`]: URL-safe Base64 encoding with `=` padding.
+/// - [`Base64UrlUnpadded`]: URL-safe Base64 encoding *without* padding.
+pub trait Encoding: Alphabet {
     /// Decode a Base64 string into the provided destination buffer.
     fn decode(src: impl AsRef<[u8]>, dst: &mut [u8]) -> Result<&[u8], Error>;
 
@@ -51,7 +63,7 @@ pub trait Encoding {
     fn encoded_len(bytes: &[u8]) -> usize;
 }
 
-impl<T: Variant> Encoding for T {
+impl<T: Alphabet> Encoding for T {
     fn decode(src: impl AsRef<[u8]>, dst: &mut [u8]) -> Result<&[u8], Error> {
         let (src_unpadded, mut err) = if T::PADDED {
             let (unpadded_len, e) = decode_padding(src.as_ref())?;
@@ -84,13 +96,15 @@ impl<T: Variant> Encoding for T {
         dst_rem.copy_from_slice(&tmp_out[..dst_rem.len()]);
 
         if err == 0 {
-            validate_padding::<T>(src.as_ref(), dst)?;
+            validate_last_block::<T>(src.as_ref(), dst)?;
             Ok(dst)
         } else {
             Err(Error::InvalidEncoding)
         }
     }
 
+    // TODO(tarcieri): explicitly checked/wrapped arithmetic
+    #[allow(clippy::integer_arithmetic)]
     fn decode_in_place(mut buf: &mut [u8]) -> Result<&[u8], InvalidEncodingError> {
         // TODO: eliminate unsafe code when LLVM12 is stable
         // See: https://github.com/rust-lang/rust/issues/80963
@@ -109,6 +123,7 @@ impl<T: Variant> Encoding for T {
             // SAFETY: `p3` and `p4` point inside `buf`, while they may overlap,
             // read and write are clearly separated from each other and done via
             // raw pointers.
+            #[allow(unsafe_code)]
             unsafe {
                 debug_assert!(3 * chunk + 3 <= buf.len());
                 debug_assert!(4 * chunk + 4 <= buf.len());
@@ -138,6 +153,7 @@ impl<T: Variant> Encoding for T {
             // SAFETY: `dst_rem_len` is always smaller than 4, so we don't
             // read outside of `tmp_out`, write and the final slicing never go
             // outside of `buf`.
+            #[allow(unsafe_code)]
             unsafe {
                 debug_assert!(dst_rem_pos + dst_rem_len <= buf.len());
                 debug_assert!(dst_rem_len <= tmp_out.len());
@@ -213,6 +229,7 @@ impl<T: Variant> Encoding for T {
         debug_assert!(str::from_utf8(dst).is_ok());
 
         // SAFETY: values written by `encode_3bytes` are valid one-byte UTF-8 chars
+        #[allow(unsafe_code)]
         Ok(unsafe { str::from_utf8_unchecked(dst) })
     }
 
@@ -226,7 +243,10 @@ impl<T: Variant> Encoding for T {
         debug_assert!(str::from_utf8(&dst).is_ok());
 
         // SAFETY: `dst` is fully written and contains only valid one-byte UTF-8 chars
-        unsafe { String::from_utf8_unchecked(dst) }
+        #[allow(unsafe_code)]
+        unsafe {
+            String::from_utf8_unchecked(dst)
+        }
     }
 
     fn encoded_len(bytes: &[u8]) -> usize {
@@ -234,44 +254,34 @@ impl<T: Variant> Encoding for T {
     }
 }
 
-/// Get the length of the output from decoding the provided *unpadded*
-/// Base64-encoded input (use [`unpadded_len_ct`] to compute this value for
-/// a padded input)
-///
-/// Note that this function does not fully validate the Base64 is well-formed
-/// and may return incorrect results for malformed Base64.
-#[inline(always)]
-fn decoded_len(input_len: usize) -> usize {
-    // overflow-proof computation of `(3*n)/4`
-    let k = input_len / 4;
-    let l = input_len - 4 * k;
-    3 * k + (3 * l) / 4
-}
-
 /// Validate padding is of the expected length compute unpadded length.
 ///
 /// Note that this method does not explicitly check that the padded data
-/// is valid in and of itself: that is performed by `validate_padding` as a
+/// is valid in and of itself: that is performed by `validate_last_block` as a
 /// final step.
 ///
 /// Returns length-related errors eagerly as a [`Result`], and data-dependent
 /// errors (i.e. malformed padding bytes) as `i16` to be combined with other
 /// encoding-related errors prior to branching.
 #[inline(always)]
-fn decode_padding(input: &[u8]) -> Result<(usize, i16), InvalidEncodingError> {
+pub(crate) fn decode_padding(input: &[u8]) -> Result<(usize, i16), InvalidEncodingError> {
     if input.len() % 4 != 0 {
         return Err(InvalidEncodingError);
     }
 
     let unpadded_len = match *input {
-        [.., b0, b1] => {
-            let pad_len = is_pad_ct(b0) + is_pad_ct(b1);
-            input.len() - pad_len as usize
-        }
+        [.., b0, b1] => is_pad_ct(b0)
+            .checked_add(is_pad_ct(b1))
+            .and_then(|len| len.try_into().ok())
+            .and_then(|len| input.len().checked_sub(len))
+            .ok_or(InvalidEncodingError)?,
         _ => input.len(),
     };
 
-    let padding_len = input.len() - unpadded_len;
+    let padding_len = input
+        .len()
+        .checked_sub(unpadded_len)
+        .ok_or(InvalidEncodingError)?;
 
     let err = match *input {
         [.., b0] if padding_len == 1 => is_pad_ct(b0) ^ 1,
@@ -288,36 +298,37 @@ fn decode_padding(input: &[u8]) -> Result<(usize, i16), InvalidEncodingError> {
     Ok((unpadded_len, err))
 }
 
-/// Check that the padding of a Base64 encoding string is valid given
-/// the decoded buffer.
-fn validate_padding<T: Variant>(encoded: &[u8], decoded: &[u8]) -> Result<(), Error> {
-    if !T::PADDED || (encoded.is_empty() && decoded.is_empty()) {
+/// Validate that the last block of the decoded data round-trips back to the
+/// encoded data.
+fn validate_last_block<T: Alphabet>(encoded: &[u8], decoded: &[u8]) -> Result<(), Error> {
+    if encoded.is_empty() && decoded.is_empty() {
         return Ok(());
     }
 
-    let padding_start = encoded.len().checked_sub(4).ok_or(Error::InvalidEncoding)?;
-    let padding = encoded.get(padding_start..).ok_or(Error::InvalidEncoding)?;
+    // TODO(tarcieri): explicitly checked/wrapped arithmetic
+    #[allow(clippy::integer_arithmetic)]
+    fn last_block_start(bytes: &[u8], block_size: usize) -> usize {
+        (bytes.len().saturating_sub(1) / block_size) * block_size
+    }
 
-    let decoded_start = if decoded.len() % 3 != 0 {
-        decoded
-            .len()
-            .checked_sub(decoded.len() % 3)
-            .ok_or(Error::InvalidEncoding)?
-    } else if decoded.len() == 3 {
-        0
-    } else {
-        decoded.len().checked_sub(3).ok_or(Error::InvalidEncoding)?
-    };
+    let enc_block = encoded
+        .get(last_block_start(encoded, 4)..)
+        .ok_or(Error::InvalidEncoding)?;
 
-    let decoded = decoded.get(decoded_start..).ok_or(Error::InvalidEncoding)?;
+    let dec_block = decoded
+        .get(last_block_start(decoded, 3)..)
+        .ok_or(Error::InvalidEncoding)?;
 
+    // Round-trip encode the decoded block
     let mut buf = [0u8; 4];
-    T::encode(decoded, &mut buf)?;
+    let block = T::encode(dec_block, &mut buf)?;
 
     // Non-short-circuiting comparison of padding
-    if padding
+    // TODO(tarcieri): better constant-time mechanisms (e.g. `subtle`)?
+    if block
+        .as_bytes()
         .iter()
-        .zip(buf.iter())
+        .zip(enc_block.iter())
         .fold(0, |acc, (a, b)| acc | (a ^ b))
         == 0
     {
@@ -327,12 +338,31 @@ fn validate_padding<T: Variant>(encoded: &[u8], decoded: &[u8]) -> Result<(), Er
     }
 }
 
+/// Get the length of the output from decoding the provided *unpadded*
+/// Base64-encoded input.
+///
+/// Note that this function does not fully validate the Base64 is well-formed
+/// and may return incorrect results for malformed Base64.
+// TODO(tarcieri): explicitly checked/wrapped arithmetic
+#[allow(clippy::integer_arithmetic)]
+#[inline(always)]
+pub(crate) fn decoded_len(input_len: usize) -> usize {
+    // overflow-proof computation of `(3*n)/4`
+    let k = input_len / 4;
+    let l = input_len - 4 * k;
+    3 * k + (3 * l) / 4
+}
+
 /// Branchless match that a given byte is the `PAD` character
+// TODO(tarcieri): explicitly checked/wrapped arithmetic
+#[allow(clippy::integer_arithmetic)]
 #[inline(always)]
 fn is_pad_ct(input: u8) -> i16 {
     ((((PAD as i16 - 1) - input as i16) & (input as i16 - (PAD as i16 + 1))) >> 8) & 1
 }
 
+// TODO(tarcieri): explicitly checked/wrapped arithmetic
+#[allow(clippy::integer_arithmetic)]
 #[inline(always)]
 const fn encoded_len_inner(n: usize, padded: bool) -> Option<usize> {
     match n.checked_mul(4) {

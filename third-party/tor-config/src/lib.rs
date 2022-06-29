@@ -34,7 +34,7 @@
 //!     (For `arti`, that's `TorClientConfigBuilder` and `ArtiBuilder`).
 //!     This mapping is done using the `Deserialize` implementations on the `Builder`s.
 //!     `resolve` then calls the `build()` method on each of these parts of the configuration
-//!     which applies defaults and validates the resulting configuation.
+//!     which applies defaults and validates the resulting configuration.
 //!
 //!     It is important to call `resolve` *once* for *all* the configuration consumers,
 //!     so that it sees a unified view of which config settings in the input
@@ -57,6 +57,8 @@
 //! [#285]: https://gitlab.torproject.org/tpo/core/arti/-/issues/285
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -87,6 +89,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 pub mod cmdline;
@@ -153,9 +156,14 @@ impl Reconfigure {
 ///
 /// See <https://gitlab.torproject.org/tpo/core/arti/-/issues/488>
 ///
+/// For consistency with other APIs in Arti, when using this,
+/// do not pass `setter(strip_option)` to derive_builder.
+///
 /// # ⚠ Stability Warning ⚠
 ///
 /// We hope to significantly change this so that it is an method in an extension trait.
+/// We may also make it able to support settings where the special "no such thing" value is
+/// not `T::Default`.
 //
 // This is an annoying AOI right now because you have to write things like
 //     #[builder(field(build = r#"tor_config::resolve_option(&self.dns_port, || None)"#))]
@@ -210,6 +218,10 @@ where
 ///
 /// # Options
 ///
+///  * `!Default` suppresses the `Default` implementation, and the corresponding tests.
+///    This should be done within Arti's configuration only for sub-structures which
+///    contain mandatory fields (and are themselves optional).
+///
 ///  * `!Deserialize` suppresses the test case involving `Builder: Deserialize`.
 ///    This should not be done for structs which are part of Arti's configuration,
 ///    but can be appropriate for other types that use [`derive_builder`].
@@ -225,8 +237,21 @@ where
 ///  * a test that the `Builder` can be deserialized from an empty [`config::Config`],
 ///    and then built, and that the result is the same as the ordinary default.
 //
-// The implementation munches fake "trait bounds" (`: !Deserialie + !Wombat ...`) off the RHS.
+// The implementation munches fake "trait bounds" (`: !Deserialize + !Wombat ...`) off the RHS.
 // We're going to add at least one more option.
+//
+// When run with `!Default`, this only generates a `builder` impl and an impl of
+// the `Resolvable` trait which probably won't be used anywhere.  That may seem
+// like a poor tradeoff (much fiddly macro code to generate a trivial function in
+// a handful of call sites).  However, this means that `impl_standard_builder!`
+// can be used in more places.  That sets a good example: always use the macro.
+//
+// That is a good example because we want `impl_standard_builder!` to be
+// used elsewhere because it generates necessary tests of properties
+// which might otherwise be violated.  When adding code, people add according to the
+// patterns they see.
+//
+// (We, sadly, don't have a good way to *ensure* use of `impl_standard_builder`.)
 #[macro_export]
 macro_rules! impl_standard_builder {
     // Convert the input into the "being processed format":
@@ -235,30 +260,47 @@ macro_rules! impl_standard_builder {
     } => { $crate::impl_standard_builder!{
         // ^Being processed format:
         @ ( Builder                    )
+          ( default                    )
           ( try_deserialize            ) $Config    :                 $( $( $options    )* )?
         //  ~~~~~~~~~~~~~~~              ^^^^^^^    ^   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        // present iff not !Builder
+        // present iff not !Builder, !Default
+        // present iff not !Default
         // present iff not !Deserialize  type      always present    options yet to be parsed
     } };
     // If !Deserialize is the next option, implement it by making $try_deserialize absent
     {
         @ ( $($Builder        :ident)? )
+          ( $($default        :ident)? )
           ( $($try_deserialize:ident)? ) $Config:ty : $(+)? !Deserialize $( $options:tt )*
     } => {  $crate::impl_standard_builder!{
         @ ( $($Builder              )? )
+          ( $($default              )? )
           (                            ) $Config    :                    $( $options    )*
     } };
     // If !Builder is the next option, implement it by making $Builder absent
     {
         @ ( $($Builder        :ident)? )
+          ( $($default        :ident)? )
           ( $($try_deserialize:ident)? ) $Config:ty : $(+)? !Builder     $( $options:tt )*
     } => {  $crate::impl_standard_builder!{
         @ (                            )
+          ( $($default              )? )
+          ( $($try_deserialize      )? ) $Config    :                    $( $options    )*
+    } };
+    // If !Default is the next option, implement it by making $default absent
+    {
+        @ ( $($Builder        :ident)? )
+          ( $($default        :ident)? )
+          ( $($try_deserialize:ident)? ) $Config:ty : $(+)? !Default     $( $options:tt )*
+    } => {  $crate::impl_standard_builder!{
+        @ ( $($Builder              )? )
+          (                            )
           ( $($try_deserialize      )? ) $Config    :                    $( $options    )*
     } };
     // Having parsed all options, produce output:
     {
         @ ( $($Builder        :ident)? )
+          ( $($default        :ident)? )
           ( $($try_deserialize:ident)? ) $Config:ty : $(+)?
     } => { $crate::paste!{
         impl $Config {
@@ -268,17 +310,19 @@ macro_rules! impl_standard_builder {
             }
         }
 
-        impl Default for $Config {
-            fn default() -> Self {
-                // unwrap is good because one of the test cases above checks that it works!
-                [< $Config Builder >]::default().build().unwrap()
+        $( // expands iff there was $default, which is always default
+            impl Default for $Config {
+                fn $default() -> Self {
+                    // unwrap is good because one of the test cases above checks that it works!
+                    [< $Config Builder >]::default().build().unwrap()
+                }
             }
-        }
+        )?
 
         $( // expands iff there was $Builder, which is always Builder
             impl $crate::load::$Builder for [< $Config Builder >] {
                 type Built = $Config;
-                fn build(&self) -> Result<$Config, $crate::ConfigBuildError> {
+                fn build(&self) -> std::result::Result<$Config, $crate::ConfigBuildError> {
                     [< $Config Builder >]::build(self)
                 }
             }
@@ -288,14 +332,19 @@ macro_rules! impl_standard_builder {
         #[allow(non_snake_case)]
         fn [< test_impl_Default_for_ $Config >] () {
             #[allow(unused_variables)]
-            let def = $Config::default();
+            let def = None::<$Config>;
+            $( // expands iff there was $default, which is always default
+                let def = Some($Config::$default());
+            )?
 
-            $( // expands iff there was $try_deserialize, which is always try_deserialize
-                let empty_config = $crate::config_crate::Config::builder().build().unwrap();
-                let builder: [< $Config Builder >] = empty_config.$try_deserialize().unwrap();
-                let from_empty = builder.build().unwrap();
-                assert_eq!(def, from_empty);
-            )*
+            if let Some(def) = def {
+                $( // expands iff there was $try_deserialize, which is always try_deserialize
+                    let empty_config = $crate::config_crate::Config::builder().build().unwrap();
+                    let builder: [< $Config Builder >] = empty_config.$try_deserialize().unwrap();
+                    let from_empty = builder.build().unwrap();
+                    assert_eq!(def, from_empty);
+                )*
+            }
         }
     } };
 }

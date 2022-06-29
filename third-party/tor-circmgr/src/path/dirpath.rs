@@ -80,23 +80,28 @@ impl DirPathBuilder {
 
 #[cfg(test)]
 mod test {
-    #![allow(clippy::unwrap_used)]
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
     #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::unwrap_used)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
+
     use super::*;
     use crate::path::assert_same_path_when_owned;
     use crate::test::OptDummyGuardMgr;
     use std::collections::HashSet;
+    use tor_basic_utils::test_rng::testing_rng;
     use tor_guardmgr::fallback::{FallbackDir, FallbackList};
     use tor_linkspec::ChanTarget;
     use tor_netdir::testnet;
 
     #[test]
     fn dirpath_relay() {
-        let netdir = testnet::construct_netdir()
-            .unwrap()
-            .unwrap_if_sufficient()
-            .unwrap();
-        let mut rng = rand::thread_rng();
+        let netdir = testnet::construct_netdir().unwrap_if_sufficient().unwrap();
+        let mut rng = testing_rng();
         let dirinfo = (&netdir).into();
         let guards: OptDummyGuardMgr<'_> = None;
 
@@ -136,7 +141,7 @@ mod test {
         ];
         let fb: FallbackList = fb_owned.clone().into();
         let dirinfo = (&fb).into();
-        let mut rng = rand::thread_rng();
+        let mut rng = testing_rng();
         let guards: OptDummyGuardMgr<'_> = None;
 
         for _ in 0..10 {
@@ -158,7 +163,7 @@ mod test {
     fn dirpath_no_fallbacks() {
         let fb = FallbackList::from([]);
         let dirinfo = DirInfo::Fallbacks(&fb);
-        let mut rng = rand::thread_rng();
+        let mut rng = testing_rng();
         let guards: OptDummyGuardMgr<'_> = None;
 
         let err = DirPathBuilder::default().pick_path(&mut rng, dirinfo, guards);
@@ -174,11 +179,8 @@ mod test {
     #[test]
     fn dirpath_with_guards() {
         tor_rtcompat::test_with_all_runtimes!(|rt| async move {
-            let netdir = testnet::construct_netdir()
-                .unwrap()
-                .unwrap_if_sufficient()
-                .unwrap();
-            let mut rng = rand::thread_rng();
+            let netdir = testnet::construct_netdir().unwrap_if_sufficient().unwrap();
+            let mut rng = testing_rng();
             let dirinfo = (&netdir).into();
             let statemgr = tor_persist::TestingStateMgr::new();
             let guards = tor_guardmgr::GuardMgr::new(rt.clone(), statemgr, [].into()).unwrap();

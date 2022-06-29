@@ -35,6 +35,8 @@
 //! ```
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -65,6 +67,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use std::error::Error;
@@ -241,7 +244,7 @@ impl<E: Display> Display for RetryError<E> {
             n => {
                 write!(
                     f,
-                    "Tried to {} {} times, but all attempts failed.",
+                    "Tried to {} {} times, but all attempts failed",
                     self.doing, n
                 )?;
 
@@ -274,7 +277,7 @@ mod test {
         assert_eq!(
             disp,
             "\
-Tried to convert some things 3 times, but all attempts failed.
+Tried to convert some things 3 times, but all attempts failed
 Attempt 1: provided string was not `true` or `false`
 Attempt 2: invalid digit found in string
 Attempt 3: invalid IP address syntax"
@@ -330,7 +333,7 @@ Attempt 3: invalid IP address syntax"
         assert_eq!(
             disp,
             "\
-Tried to parse some integers 3 times, but all attempts failed.
+Tried to parse some integers 3 times, but all attempts failed
 Attempts 1..3: invalid digit found in string"
         );
     }

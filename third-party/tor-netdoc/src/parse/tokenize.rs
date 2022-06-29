@@ -8,6 +8,7 @@ use crate::parse::keyword::Keyword;
 use crate::types::misc::FromBytes;
 use crate::util::PauseAt;
 use crate::{Error, ParseErrorKind as EK, Pos, Result};
+use base64ct::{Base64, Encoding};
 use std::cell::{Ref, RefCell};
 use std::str::FromStr;
 use tor_error::internal;
@@ -290,12 +291,11 @@ impl<'a, K: Keyword> Iterator for NetDocReaderBase<'a, K> {
 
 /// Helper: as base64::decode(), but allows newlines in the middle of the
 /// encoded object.
-fn base64_decode_multiline(s: &str) -> std::result::Result<Vec<u8>, base64::DecodeError> {
+fn base64_decode_multiline(s: &str) -> std::result::Result<Vec<u8>, base64ct::Error> {
     // base64 module hates whitespace.
-    let mut v = Vec::new();
     let mut s = s.to_string();
     s.retain(|ch| ch != '\n');
-    base64::decode_config_buf(s, base64::STANDARD, &mut v)?;
+    let v = Base64::decode_vec(&s)?;
     Ok(v)
 }
 
@@ -618,18 +618,6 @@ impl<'a, K: Keyword> NetDocReader<'a, K> {
         F: FnMut(&Result<Item<'a, K>>) -> bool,
     {
         PauseAt::from_peekable(&mut self.tokens, f)
-    }
-    /// Return a PauseAt wrapper around the peekable iterator in this
-    /// NetDocReader that returns all items.
-    #[allow(unused)]
-    pub(crate) fn pauseable(
-        &mut self,
-    ) -> PauseAt<
-        '_,
-        impl Iterator<Item = Result<Item<'a, K>>>,
-        impl FnMut(&Result<Item<'a, K>>) -> bool,
-    > {
-        self.pause_at(|_| false)
     }
 
     /// Return true if there are no more items in this NetDocReader.

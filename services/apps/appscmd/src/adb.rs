@@ -2,11 +2,10 @@
 
 use super::CmdLineError;
 use log::debug;
-use mozdevice::{AndroidStorageInput, Device, DeviceError, Host};
+use mozdevice::{AndroidStorageInput, Device, DeviceError, Host, UnixPath};
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
-use std::path::Path;
 
 // Device only has tcp forwarding, so we use the lower lever api
 // to forward to the unix socket.
@@ -56,7 +55,7 @@ impl AdbDevice {
         let device = host.device_or_default::<String>(None, AndroidStorageInput::Auto)?;
         debug!("Using device {}", device.serial);
 
-        let uds_exist = device.path_exists(Path::new(uds_path), true)?;
+        let uds_exist = device.path_exists(UnixPath::new(uds_path), true)?;
         if uds_exist {
             forward_path_to_port(&device.host, port, uds_path)?;
         } else if let Some(path) = backup_path {
@@ -69,7 +68,7 @@ impl AdbDevice {
         let mut file = File::open(source)?;
 
         self.device
-            .push(&mut file, Path::new(dest), 0o555)
+            .push(&mut file, UnixPath::new(dest), 0o555)
             .map_err(AdbError::from)
             .map_err(|err| err.into())
     }

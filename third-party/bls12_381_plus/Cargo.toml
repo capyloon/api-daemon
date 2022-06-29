@@ -3,25 +3,37 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
 name = "bls12_381_plus"
-version = "0.6.0"
-authors = ["Sean Bowe <ewillbefull@gmail.com>", "Jack Grigg <thestr4d@gmail.com>", "Mike Lodder <redmike7@gmail.com>"]
-description = "Implementation of the BLS12-381 pairing-friendly elliptic curve construction.\nThis is a fork from zkcrypto/bls12_381 but adds hash to curve and multiexponentiation methods\nas well as enables multi-pairing without the allocator requirement.\n"
+version = "0.7.0"
+authors = [
+    "Sean Bowe <ewillbefull@gmail.com>",
+    "Jack Grigg <thestr4d@gmail.com>",
+    "Mike Lodder <redmike7@gmail.com>",
+]
+description = """
+Implementation of the BLS12-381 pairing-friendly elliptic curve construction.
+This is a fork from zkcrypto/bls12_381 but adds hash to curve and multiexponentiation methods
+as well as enables multi-pairing without the allocator requirement.
+"""
 homepage = "https://github.com/mikelodder7/bls12_381_plus"
 documentation = "https://docs.rs/bls12_381_plus/"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/mikelodder7/bls12_381_plus"
+resolver = "2"
+
 [package.metadata.docs.rs]
-rustdoc-args = ["--html-in-header", "katex-header.html"]
+rustdoc-args = [
+    "--html-in-header",
+    "katex-header.html",
+]
 
 [[bench]]
 name = "groups"
@@ -32,16 +44,17 @@ required-features = ["groups"]
 name = "hash_to_curve"
 harness = false
 required-features = ["experimental"]
+
 [dependencies.digest]
 version = "0.9"
 optional = true
 
 [dependencies.ff]
-version = "0.11"
+version = "0.12"
 default-features = false
 
 [dependencies.group]
-version = "0.11"
+version = "0.12"
 optional = true
 default-features = false
 
@@ -49,7 +62,7 @@ default-features = false
 version = "0.7"
 
 [dependencies.pairing]
-version = "0.21"
+version = "0.22"
 optional = true
 
 [dependencies.rand_core]
@@ -68,6 +81,7 @@ default-features = false
 [dependencies.zeroize]
 version = "1.4"
 default-features = false
+
 [dev-dependencies.criterion]
 version = "0.3"
 
@@ -89,10 +103,19 @@ version = "0.9"
 [features]
 alloc = ["group/alloc"]
 bits = ["ff/bits"]
-default = ["groups", "pairings", "alloc", "bits", "hashing"]
+default = [
+    "groups",
+    "pairings",
+    "alloc",
+    "bits",
+    "hashing",
+]
 experimental = ["digest"]
 expose-fields = ["groups"]
 groups = ["group"]
 hashing = ["digest"]
 nightly = ["subtle/nightly"]
-pairings = ["groups", "pairing"]
+pairings = [
+    "groups",
+    "pairing",
+]

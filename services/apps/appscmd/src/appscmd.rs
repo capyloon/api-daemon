@@ -234,7 +234,7 @@ fn run() -> Result<(), CmdLineError> {
         .about("Manages apps installed on a b2g device, simulator or desktop.")
         .arg(
             Arg::with_name("json")
-                .short("j")
+                .short('j')
                 .long("json")
                 .takes_value(false)
                 .help("Set output as json format"),
@@ -278,7 +278,9 @@ fn run() -> Result<(), CmdLineError> {
         )
         .subcommand(SubCommand::with_name("list").about("List installed applications"))
         .subcommand(SubCommand::with_name("wait").about("Wait for the api-daemon to be ready"))
-        .subcommand(SubCommand::with_name("show-warnings").about("Show warnings of non-fatal errors"))
+        .subcommand(
+            SubCommand::with_name("show-warnings").about("Show warnings of non-fatal errors"),
+        )
         .get_matches();
 
     let opts = CmdOptions {

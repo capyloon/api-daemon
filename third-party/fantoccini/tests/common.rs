@@ -3,10 +3,11 @@
 extern crate fantoccini;
 extern crate futures_util;
 
-use fantoccini::{error, Client};
+use fantoccini::{error, Client, ClientBuilder};
 
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, StatusCode};
+use serde_json::map;
 use std::convert::Infallible;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -15,34 +16,62 @@ use tokio::fs::read_to_string;
 
 const ASSETS_DIR: &str = "tests/test_html";
 
-pub async fn select_client_type(s: &str) -> Result<Client, error::NewSessionError> {
+pub fn make_capabilities(s: &str) -> map::Map<String, serde_json::Value> {
     match s {
         "firefox" => {
             let mut caps = serde_json::map::Map::new();
             let opts = serde_json::json!({ "args": ["--headless"] });
-            caps.insert("moz:firefoxOptions".to_string(), opts.clone());
-            Client::with_capabilities("http://localhost:4444", caps).await
+            caps.insert("moz:firefoxOptions".to_string(), opts);
+            caps
         }
         "chrome" => {
             let mut caps = serde_json::map::Map::new();
             let opts = serde_json::json!({
                 "args": ["--headless", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
-                "binary":
-                    if std::path::Path::new("/usr/bin/chromium-browser").exists() {
-                        // on Ubuntu, it's called chromium-browser
-                        "/usr/bin/chromium-browser"
-                    } else if std::path::Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome").exists() {
-                        // macOS
-                        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-                    } else {
-                        // elsewhere, it's just called chromium
-                        "/usr/bin/chromium"
-                    }
             });
-            caps.insert("goog:chromeOptions".to_string(), opts.clone());
-
-            Client::with_capabilities("http://localhost:9515", caps).await
+            caps.insert("goog:chromeOptions".to_string(), opts);
+            caps
         }
+        browser => unimplemented!("unsupported browser backend {}", browser),
+    }
+}
+
+pub async fn make_client(
+    url: &str,
+    caps: map::Map<String, serde_json::Value>,
+    conn: &str,
+) -> Result<Client, error::NewSessionError> {
+    match conn {
+        #[cfg(feature = "rustls-tls")]
+        "rustls" => {
+            ClientBuilder::rustls()
+                .capabilities(caps)
+                .connect(url)
+                .await
+        }
+        #[cfg(not(feature = "rustls-tls"))]
+        "rustls" => {
+            panic!("Asked to run the rustls test, but the rustls-tls feature is not enabled")
+        }
+        #[cfg(feature = "native-tls")]
+        "native" => {
+            ClientBuilder::native()
+                .capabilities(caps)
+                .connect(url)
+                .await
+        }
+        #[cfg(not(feature = "native-tls"))]
+        "native" => {
+            panic!("Asked to run the native test, but the native-tls feature is not enabled")
+        }
+        other => unimplemented!("Unsupported connector type {}", other),
+    }
+}
+
+pub fn make_url(s: &str) -> &'static str {
+    match s {
+        "firefox" => "http://localhost:4444",
+        "chrome" => "http://localhost:9515",
         browser => unimplemented!("unsupported browser backend {}", browser),
     }
 }
@@ -72,10 +101,23 @@ pub fn handle_test_error(
 #[macro_export]
 macro_rules! tester {
     ($f:ident, $endpoint:expr) => {{
+        use common::{make_capabilities, make_url};
+        let url = make_url($endpoint);
+        let caps = make_capabilities($endpoint);
+        #[cfg(feature = "rustls-tls")]
+        tester_inner!($f, common::make_client(url, caps.clone(), "rustls"));
+        #[cfg(feature = "native-tls")]
+        tester_inner!($f, common::make_client(url, caps, "native"));
+    }};
+}
+
+#[macro_export]
+macro_rules! tester_inner {
+    ($f:ident, $connector:expr) => {{
         use std::sync::{Arc, Mutex};
         use std::thread;
 
-        let c = common::select_client_type($endpoint);
+        let c = $connector;
 
         // we'll need the session_id from the thread
         // NOTE: even if it panics, so can't just return it
@@ -88,7 +130,7 @@ macro_rules! tester {
                 .enable_all()
                 .build()
                 .unwrap();
-            let mut c = rt.block_on(c).expect("failed to construct test client");
+            let c = rt.block_on(c).expect("failed to construct test client");
             *sid.lock().unwrap() = rt.block_on(c.session_id()).unwrap();
             // make sure we close, even if an assertion fails
             let x = rt.block_on(async move {
@@ -108,9 +150,14 @@ macro_rules! tester {
 #[macro_export]
 macro_rules! local_tester {
     ($f:ident, $endpoint:expr) => {{
-        let port: u16 = common::setup_server();
+        let port = common::setup_server();
+        let url = common::make_url($endpoint);
+        let caps = common::make_capabilities($endpoint);
         let f = move |c: Client| async move { $f(c, port).await };
-        tester!(f, $endpoint)
+        #[cfg(feature = "rustls-tls")]
+        tester_inner!(f, common::make_client(url, caps.clone(), "rustls"));
+        #[cfg(feature = "native-tls")]
+        tester_inner!(f, common::make_client(url, caps, "native"))
     }};
 }
 
@@ -183,4 +230,12 @@ fn file_not_found() -> Response<Body> {
         .status(StatusCode::NOT_FOUND)
         .body(Body::empty())
         .unwrap()
+}
+
+pub fn sample_page_url(port: u16) -> String {
+    format!("http://localhost:{}/sample_page.html", port)
+}
+
+pub fn other_page_url(port: u16) -> String {
+    format!("http://localhost:{}/other_page.html", port)
 }

@@ -1,3 +1,15 @@
+# 0.7.0
+
+## Changed
+- MSRV bumped to `1.56.0`
+- Bumped dependencies to `ff 0.12`, `group 0.12`, `pairing 0.22`.
+
+# 0.6.1
+
+## Changed
+- G2 arithmetic is now 25-30% faster across the board.
+- Pairings are now 10-15% faster.
+
 # 0.6.0
 
 ## Fixed

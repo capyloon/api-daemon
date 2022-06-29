@@ -4,6 +4,10 @@ This module provides a system of marker types that can be used to encode write
 permissions into type parameters rather than duplicate structures.
 !*/
 
+//  This module has no compute logic of its own; it only exists in the
+//  type-system and to forward to the standard library.
+#![cfg(not(tarpaulin_include))]
+
 use core::{
 	cmp,
 	convert::TryFrom,
@@ -18,7 +22,9 @@ use core::{
 		Hash,
 		Hasher,
 	},
+	ops::Deref,
 	ptr::NonNull,
+	slice,
 };
 
 use tap::Pipe;
@@ -50,7 +56,7 @@ shared logic can be placed in an `impl<T, M> Ptr<T, M>` block, but unique logic
 (such as freezing a `Mut` pointer, or unfreezing a `Frozen<Mut>`) can be placed
 in specialized `impl<T> Ptr<T, Mut>` blocks.
 **/
-pub trait Mutability: 'static + Copy + Sized + seal::Sealed {
+pub trait Mutability: 'static + Copy + Sized + self::seal::Sealed {
 	/// Marks whether this type contains mutability permissions within it.
 	///
 	/// This is `false` for `Const` and `true` for `Mut`. `Frozen` wrappers
@@ -74,8 +80,6 @@ pub trait Mutability: 'static + Copy + Sized + seal::Sealed {
 
 	/// Thaw a previously-frozen type, removing its `Frozen` marker and
 	/// restoring it to `Self`.
-	///
-	/// [`PEANO_NUMBER`]: Self::PEANO_NUMBER
 	fn thaw(Frozen { inner }: Frozen<Self>) -> Self {
 		inner
 	}
@@ -86,7 +90,7 @@ impl Mutability for Const {
 	const SELF: Self = Self;
 }
 
-impl seal::Sealed for Const {
+impl self::seal::Sealed for Const {
 }
 
 impl<Inner> Mutability for Frozen<Inner>
@@ -98,7 +102,7 @@ where Inner: Mutability + Sized
 	const SELF: Self = Self { inner: Inner::SELF };
 }
 
-impl<Inner> seal::Sealed for Frozen<Inner> where Inner: Mutability + Sized
+impl<Inner> self::seal::Sealed for Frozen<Inner> where Inner: Mutability + Sized
 {
 }
 
@@ -108,7 +112,7 @@ impl Mutability for Mut {
 	const SELF: Self = Self;
 }
 
-impl seal::Sealed for Mut {
+impl self::seal::Sealed for Mut {
 }
 
 /** A generic non-null pointer with type-system mutability tracking.
@@ -119,7 +123,9 @@ impl seal::Sealed for Mut {
 - `T`: The referent type of the source pointer.
 **/
 pub struct Address<M, T>
-where M: Mutability
+where
+	M: Mutability,
+	T: ?Sized,
 {
 	/// The address value.
 	inner: NonNull<T>,
@@ -135,7 +141,13 @@ where M: Mutability
 		inner: NonNull::dangling(),
 		comu: M::SELF,
 	};
+}
 
+impl<M, T> Address<M, T>
+where
+	M: Mutability,
+	T: ?Sized,
+{
 	/// Constructs a new `Address` over some pointer value.
 	///
 	/// You are responsible for selecting the correct `Mutability` marker.
@@ -154,13 +166,13 @@ where M: Mutability
 	pub fn immut(self) -> Address<Const, T> {
 		Address {
 			inner: self.inner,
-			..Address::DANGLING
+			comu: Const,
 		}
 	}
 
 	/// Force an `Address<Const>` to be `Address<Mut>`.
 	///
-	/// # Safety
+	/// ## Safety
 	///
 	/// You should only call this on addresses you know to have been created
 	/// with `Mut`able permissions and previously removed by [`Address::immut`].
@@ -171,7 +183,7 @@ where M: Mutability
 	pub unsafe fn assert_mut(self) -> Address<Mut, T> {
 		Address {
 			inner: self.inner,
-			..Address::DANGLING
+			comu: Mut,
 		}
 	}
 
@@ -191,72 +203,26 @@ where M: Mutability
 		self.inner
 	}
 
-	/// Applies `<*T>::offset`.
-	///
-	/// # Panics
-	///
-	/// This panics if the result of applying the offset is the null pointer.
-	///
-	/// # Safety
-	///
-	/// See [`pointer::offset`].
-	///
-	/// [`pointer::offset`]: https://doc.rust-lang.org/std/primitive.pointer.html#method.offset
-	#[inline]
-	pub unsafe fn offset(mut self, count: isize) -> Self {
-		self.inner = self
-			.inner
-			.as_ptr()
-			.offset(count)
-			.pipe(NonNull::new)
-			.unwrap();
-		self
-	}
-
-	/// Applies `<*T>::wrapping_offset`.
-	///
-	/// # Panics
-	///
-	/// This panics if the result of applying the offset is the null pointer.
-	#[inline]
-	pub fn wrapping_offset(mut self, count: isize) -> Self {
-		self.inner = self
-			.inner
-			.as_ptr()
-			.wrapping_offset(count)
-			.pipe(NonNull::new)
-			.unwrap();
-		self
-	}
-
 	/// Gets the address as a read-only pointer.
 	#[inline(always)]
 	pub fn to_const(self) -> *const T {
 		self.inner.as_ptr() as *const T
-	}
-
-	/// Changes the referent type of the pointer.
-	#[inline(always)]
-	pub fn cast<U>(self) -> Address<M, U> {
-		let Self { inner, comu } = self;
-		Address {
-			inner: inner.cast::<U>(),
-			comu,
-		}
 	}
 }
 
 impl<T> Address<Mut, T> {
 	/// Gets the address as a write-capable pointer.
 	#[inline(always)]
-	#[allow(clippy::clippy::wrong_self_convention)]
+	#[allow(clippy::wrong_self_convention)]
 	pub fn to_mut(self) -> *mut T {
 		self.inner.as_ptr()
 	}
 }
 
 impl<M, T> Address<Frozen<M>, T>
-where M: Mutability
+where
+	M: Mutability,
+	T: ?Sized,
 {
 	/// Thaws the `Address` to its original mutability permission.
 	#[inline(always)]
@@ -269,8 +235,133 @@ where M: Mutability
 	}
 }
 
-impl<M, T> Clone for Address<M, T>
+/// Implement `*T -> *T` functions as `Address<T> -> Address<T>`.
+macro_rules! fwd {
+	($(
+		$(@$unsafe:ident)?
+		$name:ident
+		$(<
+			$($lt:lifetime),*
+			$($typaram:ident$(: $($bound:ident),+ $(,)?)?),*
+			$(,)*
+		>)?
+		$(, $arg:ident: $ty:ty)*
+		$(=> $ret:ty)?
+	);+ $(;)?) => { $(
+		#[doc = concat!("Applies `<*T>::", stringify!($name), "`.")]
+		///
+		/// See [original documentation][orig].
+		///
+		#[doc = concat!("[orig]: https://doc.rust-lang.org/std/primitive.pointer.html#method.", stringify!($name))]
+		pub $($unsafe)? fn $name$(<
+			$($lt,)* $($typaram$(: $($bound),+)?,)*
+		>)?(self$(, $arg: $ty)*) $(-> $ret)? {
+			self.with_ptr(|ptr| ptr.$name($($arg),*))
+		}
+	)+ };
+}
+
+/// Implement all other pointer functions.
+macro_rules! map {
+	($(
+		$(@$unsafe:ident)?
+		$name:ident
+		$(<
+			$($lt:lifetime),*
+			$($typaram:ident$(: $($bound:ident),+ $(,)?)?),*
+			$(,)?
+		>)?
+		$(, $arg:ident: $ty:ty $(as $map:expr)?)*
+		$(=> $ret:ty)?
+	);+ $(;)?) => { $(
+		#[doc = concat!("Applies `<*T>::", stringify!($name), "`.")]
+		///
+		/// See [original documentation][orig].
+		///
+		#[doc = concat!("[orig]: https://doc.rust-lang.org/std/primitive.pointer.html#method.", stringify!($name))]
+		pub $($unsafe)? fn $name$(<
+			$($lt,)* $($typaram$(: $($bound),+)?,)*
+		>)?(self$(, $arg: $ty)*) $(-> $ret)? {
+			self.inner.as_ptr().$name($($arg$(.pipe($map))?),*)
+		}
+	)+ };
+}
+
+/// Port of the pointer inherent methods on `Address`es of `Sized` types.
+#[allow(clippy::missing_safety_doc)]
+impl<M, T> Address<M, T>
 where M: Mutability
+{
+	fwd! {
+		cast<U> => Address<M, U>;
+		@unsafe offset, count: isize => Self;
+		@unsafe add, count: usize => Self;
+		@unsafe sub, count: usize => Self;
+		wrapping_offset, count: isize => Self;
+		wrapping_add, count: usize => Self;
+		wrapping_sub, count: usize => Self;
+	}
+
+	map! {
+		@unsafe offset_from, origin: Self as |orig| orig.to_const() as *mut T => isize;
+		@unsafe read => T;
+		@unsafe read_volatile => T;
+		@unsafe read_unaligned => T;
+		@unsafe copy_to, dest: Address<Mut, T> as Address::to_mut, count: usize;
+		@unsafe copy_to_nonoverlapping, dest: Address<Mut, T> as Address::to_mut, count: usize;
+		align_offset, align: usize => usize;
+	}
+}
+
+/// Port of the pointer inherent methods on `Address`es of any type.
+impl<M, T> Address<M, T>
+where
+	M: Mutability,
+	T: ?Sized,
+{
+	map! {
+		@unsafe as_ref<'a> => Option<&'a T>;
+	}
+
+	/// Applies a pointer -> pointer function within an Address -> Address.
+	#[track_caller]
+	fn with_ptr<U>(self, func: impl FnOnce(*mut T) -> *mut U) -> Address<M, U> {
+		self.inner
+			.as_ptr()
+			.pipe(func)
+			.pipe(NonNull::new)
+			.unwrap()
+			.pipe(Address::new)
+	}
+}
+
+/// Port of pointer inherent methods on mutable `Address`es of sized types.
+impl<T> Address<Mut, T> {
+	map! {
+		@unsafe copy_from<M2: Mutability>, src: Address<M2, T> as Address::to_const, count: usize;
+		@unsafe copy_from_nonoverlapping<M2: Mutability>, src: Address<M2, T> as Address::to_const, count: usize;
+		@unsafe write, value: T;
+		@unsafe write_volatile, value: T;
+		@unsafe write_unaligned, value: T;
+		@unsafe replace, src: T => T;
+		@unsafe swap, with: Self as Self::to_mut;
+	}
+}
+
+/// Port of pointer inherent methods on mutable `Address`es of any type.
+impl<T> Address<Mut, T>
+where T: ?Sized
+{
+	map! {
+		@unsafe as_mut<'a> => Option<&'a mut T>;
+		@unsafe drop_in_place;
+	}
+}
+
+impl<M, T> Clone for Address<M, T>
+where
+	M: Mutability,
+	T: ?Sized,
 {
 	#[inline(always)]
 	fn clone(&self) -> Self {
@@ -278,7 +369,9 @@ where M: Mutability
 	}
 }
 
-impl<T> TryFrom<*const T> for Address<Const, T> {
+impl<T> TryFrom<*const T> for Address<Const, T>
+where T: ?Sized
+{
 	type Error = NullPtrError;
 
 	#[inline(always)]
@@ -289,14 +382,18 @@ impl<T> TryFrom<*const T> for Address<Const, T> {
 	}
 }
 
-impl<T> From<&T> for Address<Const, T> {
+impl<T> From<&T> for Address<Const, T>
+where T: ?Sized
+{
 	#[inline(always)]
 	fn from(elem: &T) -> Self {
 		Self::new(elem.into())
 	}
 }
 
-impl<T> TryFrom<*mut T> for Address<Mut, T> {
+impl<T> TryFrom<*mut T> for Address<Mut, T>
+where T: ?Sized
+{
 	type Error = NullPtrError;
 
 	#[inline(always)]
@@ -305,7 +402,9 @@ impl<T> TryFrom<*mut T> for Address<Mut, T> {
 	}
 }
 
-impl<T> From<&mut T> for Address<Mut, T> {
+impl<T> From<&mut T> for Address<Mut, T>
+where T: ?Sized
+{
 	#[inline(always)]
 	fn from(elem: &mut T) -> Self {
 		Self::new(elem.into())
@@ -332,7 +431,7 @@ where M: Mutability
 {
 	#[inline]
 	fn cmp(&self, other: &Self) -> cmp::Ordering {
-		self.partial_cmp(&other)
+		self.partial_cmp(other)
 			.expect("Addresses have a total ordering")
 	}
 }
@@ -350,7 +449,9 @@ where
 }
 
 impl<M, T> Debug for Address<M, T>
-where M: Mutability
+where
+	M: Mutability,
+	T: ?Sized,
 {
 	#[inline(always)]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
@@ -359,7 +460,9 @@ where M: Mutability
 }
 
 impl<M, T> Pointer for Address<M, T>
-where M: Mutability
+where
+	M: Mutability,
+	T: ?Sized,
 {
 	#[inline(always)]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
@@ -368,7 +471,9 @@ where M: Mutability
 }
 
 impl<M, T> Hash for Address<M, T>
-where M: Mutability
+where
+	M: Mutability,
+	T: ?Sized,
 {
 	#[inline(always)]
 	fn hash<H>(&self, state: &mut H)
@@ -377,8 +482,134 @@ where M: Mutability
 	}
 }
 
-impl<M, T> Copy for Address<M, T> where M: Mutability
+impl<M, T> Copy for Address<M, T>
+where
+	M: Mutability,
+	T: ?Sized,
 {
+}
+
+impl<M, T> self::seal::Sealed for Address<M, T>
+where
+	M: Mutability,
+	T: ?Sized,
+{
+}
+
+/// Allows an `Address` to produce an ordinary reference.
+pub trait Referential<'a>: self::seal::Sealed {
+	/// The created reference type. Must be one of `&T` or `&mut T`.
+	type Ref: 'a + Deref;
+
+	/// Converts the `Address` to a reference.
+	///
+	/// ## Safety
+	///
+	/// The caller is responsible for ensuring that the memory location that the
+	/// `Address` describes contains an initialized value, and that the produced
+	/// reference abides by the Rust `&`/`&mut` exclusion rules.
+	unsafe fn to_ref(self) -> Self::Ref;
+
+	/// Converts a reference back into an `Address`.
+	fn from_ref(this: Self::Ref) -> Self;
+}
+
+impl<'a, T> Referential<'a> for Address<Const, T>
+where T: 'a + ?Sized
+{
+	type Ref = &'a T;
+
+	unsafe fn to_ref(self) -> Self::Ref {
+		self.inner.as_ref()
+	}
+
+	fn from_ref(this: Self::Ref) -> Self {
+		this.into()
+	}
+}
+
+impl<'a, T> Referential<'a> for Address<Mut, T>
+where T: 'a + ?Sized
+{
+	type Ref = &'a mut T;
+
+	unsafe fn to_ref(mut self) -> Self::Ref {
+		self.inner.as_mut()
+	}
+
+	fn from_ref(this: Self::Ref) -> Self {
+		this.into()
+	}
+}
+
+impl<'a, M, T> Referential<'a> for Address<Frozen<M>, T>
+where
+	M: Mutability,
+	T: 'a + ?Sized,
+{
+	type Ref = &'a T;
+
+	unsafe fn to_ref(self) -> Self::Ref {
+		self.inner.as_ref()
+	}
+
+	fn from_ref(this: Self::Ref) -> Self {
+		Self::new(NonNull::from(this))
+	}
+}
+
+/// A generically-mutable reference.
+pub type Reference<'a, M, T> = <Address<M, T> as Referential<'a>>::Ref;
+
+/// Allows an `Address<M, [T]>` to produce an ordinary slice reference.
+pub trait SliceReferential<'a>: Referential<'a> + self::seal::Sealed {
+	/// The type of the element pointer.
+	type ElementAddr;
+
+	/// Constructs an ordinary slice reference from a base-address and a length.
+	///
+	/// ## Parameters
+	///
+	/// - `ptr`: The address of the base element in the slice.
+	/// - `len`: The number of elements, beginning at `ptr`, in the slice.
+	///
+	/// ## Safety
+	///
+	/// The base address and the element count must describe a valid region of
+	/// memory.
+	unsafe fn from_raw_parts(ptr: Self::ElementAddr, len: usize) -> Self::Ref;
+}
+
+impl<'a, T> SliceReferential<'a> for Address<Const, [T]>
+where T: 'a
+{
+	type ElementAddr = Address<Const, T>;
+
+	unsafe fn from_raw_parts(ptr: Self::ElementAddr, len: usize) -> Self::Ref {
+		slice::from_raw_parts(ptr.to_const(), len)
+	}
+}
+
+impl<'a, M, T> SliceReferential<'a> for Address<Frozen<M>, [T]>
+where
+	M: Mutability,
+	T: 'a,
+{
+	type ElementAddr = Address<Frozen<M>, T>;
+
+	unsafe fn from_raw_parts(ptr: Self::ElementAddr, len: usize) -> Self::Ref {
+		slice::from_raw_parts(ptr.to_const(), len)
+	}
+}
+
+impl<'a, T> SliceReferential<'a> for Address<Mut, [T]>
+where T: 'a
+{
+	type ElementAddr = Address<Mut, T>;
+
+	unsafe fn from_raw_parts(ptr: Self::ElementAddr, len: usize) -> Self::Ref {
+		slice::from_raw_parts_mut(ptr.to_mut(), len)
+	}
 }
 
 /// [`Address`] cannot be constructed over null pointers.

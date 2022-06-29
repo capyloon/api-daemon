@@ -83,6 +83,8 @@
 //! find a good way to eliminate every lock that we have.
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -113,6 +115,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 pub mod channel;
@@ -121,8 +124,10 @@ mod crypto;
 pub mod stream;
 mod util;
 
-pub use util::err::Error;
+pub use util::err::{Error, ResolveError};
 pub use util::skew::ClockSkew;
+
+pub use channel::params::ChannelsParams;
 
 /// A vector of bytes that gets cleared when it's dropped.
 type SecretBytes = zeroize::Zeroizing<Vec<u8>>;

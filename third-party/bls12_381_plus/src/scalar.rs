@@ -1,7 +1,7 @@
 //! This module provides an implementation of the BLS12-381 scalar field $\mathbb{F}_q$
 //! where `q = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001`
 
-use core::convert::TryFrom;
+use core::convert::{TryFrom, TryInto};
 use core::fmt;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use rand_core::RngCore;
@@ -9,9 +9,6 @@ use rand_core::RngCore;
 use ff::{Field, PrimeField};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 use zeroize::Zeroize;
-
-#[cfg(feature = "bits")]
-use core::convert::TryInto;
 
 #[cfg(feature = "bits")]
 use ff::{FieldBits, PrimeFieldBits};
@@ -719,6 +716,10 @@ impl Field for Scalar {
         Self::one()
     }
 
+    fn is_zero(&self) -> Choice {
+        Choice::from(if *self == Self::zero() { 1u8 } else {0u8})
+    }
+
     #[must_use]
     fn square(&self) -> Self {
         self.square()
@@ -1283,7 +1284,6 @@ fn test_double() {
 
     assert_eq!(a.double(), a + a);
 }
-
 
 #[test]
 fn test_from_okm() {

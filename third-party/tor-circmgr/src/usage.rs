@@ -365,6 +365,7 @@ pub(crate) mod test {
     use crate::isolation::{IsolationToken, StreamIsolationBuilder};
     use crate::path::OwnedPath;
     use crate::test::OptDummyGuardMgr;
+    use tor_basic_utils::test_rng::testing_rng;
     use tor_linkspec::ChanTarget;
     use tor_netdir::testnet;
 
@@ -660,11 +661,8 @@ pub(crate) mod test {
     #[test]
     fn buildpath() {
         use crate::mgr::AbstractSpec;
-        let mut rng = rand::thread_rng();
-        let netdir = testnet::construct_netdir()
-            .unwrap()
-            .unwrap_if_sufficient()
-            .unwrap();
+        let mut rng = testing_rng();
+        let netdir = testnet::construct_netdir().unwrap_if_sufficient().unwrap();
         let di = (&netdir).into();
         let config = crate::PathConfig::default();
         let guards: OptDummyGuardMgr<'_> = None;
@@ -735,7 +733,7 @@ pub(crate) mod test {
     fn build_testing_noexit() {
         // Here we'll try to build paths for testing circuits on a network
         // with no exits.
-        let mut rng = rand::thread_rng();
+        let mut rng = testing_rng();
         let netdir = testnet::construct_custom_netdir(|_idx, bld| {
             bld.md.parse_ipv4_policy("reject 1-65535").unwrap();
         })

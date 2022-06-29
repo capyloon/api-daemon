@@ -43,6 +43,8 @@
 //! sets the flag wrong, they will skip doing the checks.
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -73,6 +75,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use std::time;
@@ -87,13 +90,13 @@ pub mod timed;
 #[non_exhaustive]
 pub enum TimeValidityError {
     /// The object is not yet valid
-    #[error("will not be valid for {0:?}")]
+    #[error("Object will not be valid for {}", humantime::format_duration(*.0))]
     NotYetValid(time::Duration),
     /// The object is expired
-    #[error("has been expired for {0:?}")]
+    #[error("Object has been expired for {}", humantime::format_duration(*.0))]
     Expired(time::Duration),
     /// The object isn't timely, and we don't know why, or won't say.
-    #[error("is not currently valid")]
+    #[error("Object is not currently valid")]
     Unspecified,
 }
 

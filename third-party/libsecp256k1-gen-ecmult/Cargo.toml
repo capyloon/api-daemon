@@ -13,11 +13,12 @@
 [package]
 edition = "2018"
 name = "libsecp256k1-gen-ecmult"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Wei Tang <hi@that.world>"]
 description = "Generator function of const_gen for libsecp256k1."
 keywords = ["crypto", "ECDSA", "secp256k1", "bitcoin", "no_std"]
 license = "Apache-2.0"
 repository = "https://github.com/paritytech/libsecp256k1"
+resolver = "2"
 [dependencies.libsecp256k1-core]
-version = "0.2.2"
+version = "0.3.0"

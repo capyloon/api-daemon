@@ -3,17 +3,16 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
 name = "ff"
-version = "0.11.1"
+version = "0.12.0"
 authors = ["Sean Bowe <ewillbefull@gmail.com>", "Jack Grigg <thestr4d@gmail.com>"]
 description = "Library for building and interfacing with finite fields"
 homepage = "https://github.com/zkcrypto/ff"
@@ -21,6 +20,7 @@ documentation = "https://docs.rs/ff/"
 readme = "README.md"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/zkcrypto/ff"
+resolver = "2"
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
@@ -29,7 +29,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 name = "derive"
 required-features = ["derive"]
 [dependencies.bitvec]
-version = "0.22"
+version = "1"
 optional = true
 default-features = false
 
@@ -39,7 +39,7 @@ optional = true
 default-features = false
 
 [dependencies.ff_derive]
-version = "0.11.1"
+version = "0.12"
 optional = true
 
 [dependencies.rand_core]

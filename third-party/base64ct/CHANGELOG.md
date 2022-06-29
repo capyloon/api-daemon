@@ -4,6 +4,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.5.1 (2022-06-26)
+### Fixed
+- Last block validation ([#680])
+
+[#680]: https://github.com/RustCrypto/formats/pull/680
+
+## 1.5.0 (2022-03-29)
+### Fixed
+- Ensure checked arithmetic with `clippy::integer_arithmetic` lint ([#557])
+- Prevent foreign impls of `Encoding` by bounding sealed `Variant` trait ([#562])
+
+[#557]: https://github.com/RustCrypto/formats/pull/557
+[#562]: https://github.com/RustCrypto/formats/pull/562
+
+## 1.4.1 (2022-03-11)
+### Changed
+- Rename `Decoder::decoded_len` => `::remaining_len` ([#500])
+
+[#500]: https://github.com/RustCrypto/formats/pull/500
+
+## 1.4.0 (2022-03-10) [YANKED]
+### Added
+- Buffered `Encoder` type ([#366], [#455], [#457])
+- `Decoder::decoded_len` method ([#403])
+- Impl `std::io::Read` for `Decoder` ([#404])
+- Bounds for `Encoding`/`Variant` ZSTs ([#405], [#408])
+
+[#366]: https://github.com/RustCrypto/formats/pull/366
+[#403]: https://github.com/RustCrypto/formats/pull/403
+[#404]: https://github.com/RustCrypto/formats/pull/404
+[#405]: https://github.com/RustCrypto/formats/pull/405
+[#408]: https://github.com/RustCrypto/formats/pull/408
+[#455]: https://github.com/RustCrypto/formats/pull/455
+[#457]: https://github.com/RustCrypto/formats/pull/457
+
+## 1.3.3 (2021-12-28)
+### Fixed
+- Potential infinite loop in `Decoder::decode` ([#305])
+
+[#305]: https://github.com/RustCrypto/formats/pull/305
+
+## 1.3.2 (2021-12-26) [YANKED]
+### Fixed
+- `Decoder` unpadding ([#299])
+- Edge case when using `Decoder::new_wrapped` ([#300])
+
+[#299]: https://github.com/RustCrypto/formats/pull/299
+[#300]: https://github.com/RustCrypto/formats/pull/300
+
+## 1.3.1 (2021-12-20) [YANKED]
+### Added
+- `Decoder::new_wrapped` with support for line-wrapped Base64 ([#292], [#293], [#294])
+
+[#292]: https://github.com/RustCrypto/formats/pull/292
+[#293]: https://github.com/RustCrypto/formats/pull/292
+[#294]: https://github.com/RustCrypto/formats/pull/294
+
+## 1.3.0 (2021-12-02) [YANKED]
+### Added
+- Stateful `Decoder` type ([#266])
+
+[#266]: https://github.com/RustCrypto/formats/pull/266
+
+## 1.2.0 (2021-11-03)
+### Changed
+- Rust 2021 edition upgrade; MSRV 1.56 ([#136])
+
+### Fixed
+- Benchmarks ([#135])
+
+[#135]: https://github.com/RustCrypto/formats/pull/135
+[#136]: https://github.com/RustCrypto/formats/pull/136
+
 ## 1.1.1 (2021-10-14)
 ### Changed
 - Update `Util::Lookup` paper references ([#32])

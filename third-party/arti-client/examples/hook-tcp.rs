@@ -1,3 +1,12 @@
+// @@ begin test lint list maintained by maint/add_warning @@
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::dbg_macro)]
+#![allow(clippy::print_stderr)]
+#![allow(clippy::print_stdout)]
+#![allow(clippy::unwrap_used)]
+//! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
+
 //! This example showcases using a custom [`TcpProvider`] to do custom actions before Arti initiates
 //! TCP connections, and after the connections are closed.
 //!
@@ -61,6 +70,7 @@ async fn main() -> Result<()> {
 
 /// A custom TCP provider that relies on an existing TCP provider (`inner`), but modifies its
 /// behavior.
+#[derive(Clone)]
 struct CustomTcpProvider<T> {
     /// The underlying TCP provider.
     inner: T,

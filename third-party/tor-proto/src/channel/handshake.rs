@@ -12,6 +12,7 @@ use crate::channel::UniqId;
 use crate::util::skew::ClockSkew;
 use crate::{Error, Result};
 use tor_cell::chancell::{msg, ChanCmd};
+use tor_rtcompat::SleepProvider;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -34,7 +35,13 @@ use tracing::{debug, trace};
 static LINK_PROTOCOLS: &[u16] = &[4];
 
 /// A raw client channel on which nothing has been done.
-pub struct OutboundClientHandshake<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> {
+pub struct OutboundClientHandshake<
+    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    S: SleepProvider,
+> {
+    /// Runtime handle (insofar as we need it)
+    sleep_prov: S,
+
     /// Underlying TLS stream.
     ///
     /// (We don't enforce that this is actually TLS, but if it isn't, the
@@ -51,7 +58,9 @@ pub struct OutboundClientHandshake<T: AsyncRead + AsyncWrite + Send + Unpin + 's
 /// A client channel on which versions have been negotiated and the
 /// relay's handshake has been read, but where the certs have not
 /// been checked.
-pub struct UnverifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> {
+pub struct UnverifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> {
+    /// Runtime handle (insofar as we need it)
+    sleep_prov: S,
     /// The negotiated link protocol.  Must be a member of LINK_PROTOCOLS
     link_protocol: u16,
     /// The Source+Sink on which we're reading and writing cells.
@@ -79,7 +88,9 @@ pub struct UnverifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static>
 /// This type is separate from UnverifiedChannel, since finishing the
 /// handshake requires a bunch of CPU, and you might want to do it as
 /// a separate task or after a yield.
-pub struct VerifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> {
+pub struct VerifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> {
+    /// Runtime handle (insofar as we need it)
+    sleep_prov: S,
     /// The negotiated link protocol.
     link_protocol: u16,
     /// The Source+Sink on which we're reading and writing cells.
@@ -101,17 +112,23 @@ pub struct VerifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> {
 fn codec_err_to_handshake(err: CodecError) -> Error {
     match err {
         CodecError::Io(e) => Error::HandshakeIoErr(Arc::new(e)),
-        CodecError::Cell(e) => Error::HandshakeProto(format!("Invalid cell on handshake: {}", e)),
+        CodecError::DecCell(e) => {
+            Error::HandshakeProto(format!("Invalid cell on handshake: {}", e))
+        }
+        CodecError::EncCell(e) => Error::from_cell_enc(e, "cell on handshake"),
     }
 }
 
-impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> OutboundClientHandshake<T> {
+impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider>
+    OutboundClientHandshake<T, S>
+{
     /// Construct a new OutboundClientHandshake.
-    pub(crate) fn new(tls: T, target_addr: Option<SocketAddr>) -> Self {
+    pub(crate) fn new(tls: T, target_addr: Option<SocketAddr>, sleep_prov: S) -> Self {
         Self {
             tls,
             target_addr,
             unique_id: UniqId::new(),
+            sleep_prov,
         }
     }
 
@@ -120,7 +137,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> OutboundClientHandshake
     ///
     /// Takes a function that reports the current time.  In theory, this can just be
     /// `SystemTime::now()`.
-    pub async fn connect<F>(mut self, now_fn: F) -> Result<UnverifiedChannel<T>>
+    pub async fn connect<F>(mut self, now_fn: F) -> Result<UnverifiedChannel<T, S>>
     where
         F: FnOnce() -> SystemTime,
     {
@@ -136,7 +153,8 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> OutboundClientHandshake
         trace!("{}: sending versions", self.unique_id);
         // Send versions cell
         {
-            let my_versions = msg::Versions::new(LINK_PROTOCOLS)?;
+            let my_versions = msg::Versions::new(LINK_PROTOCOLS)
+                .map_err(|e| Error::from_cell_enc(e, "versions message"))?;
             self.tls
                 .write_all(&my_versions.encode_for_handshake())
                 .await
@@ -171,7 +189,9 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> OutboundClientHandshake
                 .await
                 .map_err(io_err_to_handshake)?;
             let mut reader = Reader::from_slice(&msg);
-            reader.extract()?
+            reader
+                .extract()
+                .map_err(|e| Error::from_bytes_err(e, "versions cell"))?
         };
         trace!("{}: received {:?}", self.unique_id, their_versions);
 
@@ -265,13 +285,14 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> OutboundClientHandshake
                     clock_skew,
                     target_addr: self.target_addr,
                     unique_id: self.unique_id,
+                    sleep_prov: self.sleep_prov.clone(),
                 })
             }
         }
     }
 }
 
-impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> UnverifiedChannel<T> {
+impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> UnverifiedChannel<T, S> {
     /// Return the reported clock skew from this handshake.
     ///
     /// Note that the skew reported by this function might not be "true": the
@@ -302,7 +323,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> UnverifiedChannel<T> {
         peer: &U,
         peer_cert: &[u8],
         now: Option<std::time::SystemTime>,
-    ) -> Result<VerifiedChannel<T>> {
+    ) -> Result<VerifiedChannel<T, S>> {
         let peer_cert_sha256 = ll::d::Sha256::digest(peer_cert);
         self.check_internal(peer, &peer_cert_sha256[..], now)
     }
@@ -314,7 +335,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> UnverifiedChannel<T> {
         peer: &U,
         peer_cert_sha256: &[u8],
         now: Option<SystemTime>,
-    ) -> Result<VerifiedChannel<T>> {
+    ) -> Result<VerifiedChannel<T, S>> {
         use tor_cert::CertType;
         use tor_checkable::*;
 
@@ -385,7 +406,11 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> UnverifiedChannel<T> {
         // clock skew.)
 
         // Check the identity->signing cert
-        let (id_sk, id_sk_sig) = id_sk.check_key(&None)?.dangerously_split()?;
+        let (id_sk, id_sk_sig) = id_sk
+            .check_key(&None)
+            .map_err(Error::HandshakeCertErr)?
+            .dangerously_split()
+            .map_err(Error::HandshakeCertErr)?;
         sigs.push(&id_sk_sig);
         let (id_sk_timeliness, id_sk) = check_timeliness(id_sk, now, self.clock_skew);
 
@@ -402,8 +427,10 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> UnverifiedChannel<T> {
         // Now look at the signing->TLS cert and check it against the
         // peer certificate.
         let (sk_tls, sk_tls_sig) = sk_tls
-            .check_key(&Some(*signing_key))? // TODO(nickm): this is a bad interface
-            .dangerously_split()?;
+            .check_key(&Some(*signing_key))
+            .map_err(Error::HandshakeCertErr)?
+            .dangerously_split()
+            .map_err(Error::HandshakeCertErr)?;
         sigs.push(&sk_tls_sig);
         let (sk_tls_timeliness, sk_tls) = check_timeliness(sk_tls, now, self.clock_skew);
 
@@ -446,7 +473,8 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> UnverifiedChannel<T> {
         let rsa_cert = c
             .cert_body(CertType::RSA_ID_V_IDENTITY)
             .ok_or_else(|| Error::HandshakeProto("No RSA->Ed crosscert".into()))?;
-        let rsa_cert = tor_cert::rsa::RsaCrosscert::decode(rsa_cert)?
+        let rsa_cert = tor_cert::rsa::RsaCrosscert::decode(rsa_cert)
+            .map_err(|e| Error::from_bytes_err(e, "RSA identity cross-certificate"))?
             .check_signature(&pkrsa)
             .map_err(|_| Error::HandshakeProto("Bad RSA->Ed crosscert signature".into()))?;
         let (rsa_cert_timeliness, rsa_cert) = check_timeliness(rsa_cert, now, self.clock_skew);
@@ -510,18 +538,19 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> UnverifiedChannel<T> {
             ed25519_id,
             rsa_id,
             clock_skew: self.clock_skew,
+            sleep_prov: self.sleep_prov,
         })
     }
 }
 
-impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> VerifiedChannel<T> {
+impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> VerifiedChannel<T, S> {
     /// Send a 'Netinfo' message to the relay to finish the handshake,
     /// and create an open channel and reactor.
     ///
     /// The channel is used to send cells, and to create outgoing circuits.
     /// The reactor is used to route incoming messages to their appropriate
     /// circuit.
-    pub async fn finish(mut self) -> Result<(super::Channel, super::reactor::Reactor)> {
+    pub async fn finish(mut self) -> Result<(super::Channel, super::reactor::Reactor<S>)> {
         // We treat a completed channel -- that is to say, one where the
         // authentication is finished -- as incoming traffic.
         //
@@ -556,6 +585,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> VerifiedChannel<T> {
             self.unique_id,
             peer_id,
             self.clock_skew,
+            self.sleep_prov,
         ))
     }
 }
@@ -570,6 +600,7 @@ pub(super) mod test {
     use crate::channel::codec::test::MsgBuf;
     use crate::Result;
     use tor_cell::chancell::msg;
+    use tor_rtcompat::{PreferredRuntime, Runtime};
 
     const VERSIONS: &[u8] = &hex!("0000 07 0006 0003 0004 0005");
     // no certificates in this cell, but connect() doesn't care.
@@ -606,7 +637,7 @@ pub(super) mod test {
 
     #[test]
     fn connect_ok() -> Result<()> {
-        tor_rtcompat::test_with_one_runtime!(|_rt| async move {
+        tor_rtcompat::test_with_one_runtime!(|rt| async move {
             let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1217696400);
             let mut buf = Vec::new();
             // versions cell
@@ -616,7 +647,7 @@ pub(super) mod test {
             // netinfo cell -- quite minimal.
             add_padded(&mut buf, NETINFO_PREFIX);
             let mb = MsgBuf::new(&buf[..]);
-            let handshake = OutboundClientHandshake::new(mb, None);
+            let handshake = OutboundClientHandshake::new(mb, None, rt.clone());
             let unverified = handshake.connect(|| now).await?;
 
             assert_eq!(unverified.link_protocol, 4);
@@ -632,7 +663,7 @@ pub(super) mod test {
             buf.extend_from_slice(VPADDING);
             add_padded(&mut buf, NETINFO_PREFIX_WITH_TIME);
             let mb = MsgBuf::new(&buf[..]);
-            let handshake = OutboundClientHandshake::new(mb, None);
+            let handshake = OutboundClientHandshake::new(mb, None, rt.clone());
             let unverified = handshake.connect(|| now).await?;
             // Correct timestamp in the NETINFO, so no skew.
             assert_eq!(unverified.clock_skew(), ClockSkew::None);
@@ -640,7 +671,7 @@ pub(super) mod test {
             // Now pretend our clock is fast.
             let now2 = now + Duration::from_secs(3600);
             let mb = MsgBuf::new(&buf[..]);
-            let handshake = OutboundClientHandshake::new(mb, None);
+            let handshake = OutboundClientHandshake::new(mb, None, rt.clone());
             let unverified = handshake.connect(|| now2).await?;
             assert_eq!(
                 unverified.clock_skew(),
@@ -651,56 +682,59 @@ pub(super) mod test {
         })
     }
 
-    async fn connect_err<T: Into<Vec<u8>>>(input: T) -> Error {
+    async fn connect_err<T: Into<Vec<u8>>, S>(input: T, sleep_prov: S) -> Error
+    where
+        S: SleepProvider,
+    {
         let mb = MsgBuf::new(input);
-        let handshake = OutboundClientHandshake::new(mb, None);
+        let handshake = OutboundClientHandshake::new(mb, None, sleep_prov);
         handshake.connect(SystemTime::now).await.err().unwrap()
     }
 
     #[test]
     fn connect_badver() {
-        tor_rtcompat::test_with_one_runtime!(|_rt| async move {
-            let err = connect_err(&b"HTTP://"[..]).await;
+        tor_rtcompat::test_with_one_runtime!(|rt| async move {
+            let err = connect_err(&b"HTTP://"[..], rt.clone()).await;
             assert!(matches!(err, Error::HandshakeProto(_)));
             assert_eq!(
                 format!("{}", err),
-                "handshake protocol violation: Doesn't seem to be a tor relay"
+                "Handshake protocol violation: Doesn't seem to be a tor relay"
             );
 
-            let err = connect_err(&hex!("0000 07 0004 1234 ffff")[..]).await;
+            let err = connect_err(&hex!("0000 07 0004 1234 ffff")[..], rt.clone()).await;
             assert!(matches!(err, Error::HandshakeProto(_)));
             assert_eq!(
                 format!("{}", err),
-                "handshake protocol violation: No shared link protocols"
+                "Handshake protocol violation: No shared link protocols"
             );
         });
     }
 
     #[test]
     fn connect_cellparse() {
-        tor_rtcompat::test_with_one_runtime!(|_rt| async move {
+        tor_rtcompat::test_with_one_runtime!(|rt| async move {
             let mut buf = Vec::new();
             buf.extend_from_slice(VERSIONS);
             // Here's a certs cell that will fail.
             buf.extend_from_slice(&hex!("00000000 81 0001 01")[..]);
-            let err = connect_err(buf).await;
+            let err = connect_err(buf, rt.clone()).await;
             assert!(matches!(err, Error::HandshakeProto(_)));
         });
     }
 
     #[test]
     fn connect_duplicates() {
-        tor_rtcompat::test_with_one_runtime!(|_rt| async move {
+        tor_rtcompat::test_with_one_runtime!(|rt| async move {
             let mut buf = Vec::new();
             buf.extend_from_slice(VERSIONS);
             buf.extend_from_slice(NOCERTS);
             buf.extend_from_slice(NOCERTS);
             add_netinfo(&mut buf);
-            let err = connect_err(buf).await;
+            let err = connect_err(buf, rt.clone()).await;
             assert!(matches!(err, Error::HandshakeProto(_)));
             assert_eq!(
                 format!("{}", err),
-                "handshake protocol violation: Duplicate certs cell"
+                "Handshake protocol violation: Duplicate certs cell"
             );
 
             let mut buf = Vec::new();
@@ -709,47 +743,50 @@ pub(super) mod test {
             buf.extend_from_slice(AUTHCHALLENGE);
             buf.extend_from_slice(AUTHCHALLENGE);
             add_netinfo(&mut buf);
-            let err = connect_err(buf).await;
+            let err = connect_err(buf, rt.clone()).await;
             assert!(matches!(err, Error::HandshakeProto(_)));
             assert_eq!(
                 format!("{}", err),
-                "handshake protocol violation: Duplicate authchallenge cell"
+                "Handshake protocol violation: Duplicate authchallenge cell"
             );
         });
     }
 
     #[test]
     fn connect_missing_certs() {
-        tor_rtcompat::test_with_one_runtime!(|_rt| async move {
+        tor_rtcompat::test_with_one_runtime!(|rt| async move {
             let mut buf = Vec::new();
             buf.extend_from_slice(VERSIONS);
             add_netinfo(&mut buf);
-            let err = connect_err(buf).await;
+            let err = connect_err(buf, rt.clone()).await;
             assert!(matches!(err, Error::HandshakeProto(_)));
             assert_eq!(
                 format!("{}", err),
-                "handshake protocol violation: Missing certs cell"
+                "Handshake protocol violation: Missing certs cell"
             );
         });
     }
 
     #[test]
     fn connect_misplaced_cell() {
-        tor_rtcompat::test_with_one_runtime!(|_rt| async move {
+        tor_rtcompat::test_with_one_runtime!(|rt| async move {
             let mut buf = Vec::new();
             buf.extend_from_slice(VERSIONS);
             // here's a create cell.
             add_padded(&mut buf, &hex!("00000001 01")[..]);
-            let err = connect_err(buf).await;
+            let err = connect_err(buf, rt.clone()).await;
             assert!(matches!(err, Error::HandshakeProto(_)));
             assert_eq!(
                 format!("{}", err),
-                "handshake protocol violation: Unexpected cell type CREATE"
+                "Handshake protocol violation: Unexpected cell type CREATE"
             );
         });
     }
 
-    fn make_unverified(certs: msg::Certs) -> UnverifiedChannel<MsgBuf> {
+    fn make_unverified<R>(certs: msg::Certs, runtime: R) -> UnverifiedChannel<MsgBuf, R>
+    where
+        R: Runtime,
+    {
         let localhost = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let netinfo_cell = msg::Netinfo::for_client(Some(localhost));
         let clock_skew = ClockSkew::None;
@@ -761,6 +798,7 @@ pub(super) mod test {
             clock_skew,
             target_addr: None,
             unique_id: UniqId::new(),
+            sleep_prov: runtime,
         }
     }
 
@@ -785,14 +823,18 @@ pub(super) mod test {
         SystemTime::UNIX_EPOCH + Duration::new(1601143280, 0)
     }
 
-    fn certs_test(
+    fn certs_test<R>(
         certs: msg::Certs,
         when: Option<SystemTime>,
         peer_ed: &[u8],
         peer_rsa: &[u8],
         peer_cert_sha256: &[u8],
-    ) -> Result<VerifiedChannel<MsgBuf>> {
-        let unver = make_unverified(certs);
+        runtime: &R,
+    ) -> Result<VerifiedChannel<MsgBuf, R>>
+    where
+        R: Runtime,
+    {
+        let unver = make_unverified(certs, runtime.clone());
         let ed = Ed25519Identity::from_bytes(peer_ed).unwrap();
         let rsa = RsaIdentity::from_bytes(peer_rsa).unwrap();
         let chan = DummyChanTarget { ed, rsa };
@@ -802,23 +844,26 @@ pub(super) mod test {
     // no certs at all!
     #[test]
     fn certs_none() {
+        let rt = PreferredRuntime::create().unwrap();
         let err = certs_test(
             msg::Certs::new_empty(),
             None,
             &[0_u8; 32],
             &[0_u8; 20],
             &[0_u8; 128],
+            &rt,
         )
         .err()
         .unwrap();
         assert_eq!(
             format!("{}", err),
-            "handshake protocol violation: Missing IDENTITY_V_SIGNING certificate"
+            "Handshake protocol violation: Missing IDENTITY_V_SIGNING certificate"
         );
     }
 
     #[test]
     fn certs_good() {
+        let rt = PreferredRuntime::create().unwrap();
         let mut certs = msg::Certs::new_empty();
 
         certs.push_cert_body(2.into(), certs::CERT_T2);
@@ -831,12 +876,14 @@ pub(super) mod test {
             certs::PEER_ED,
             certs::PEER_RSA,
             certs::PEER_CERT_DIGEST,
+            &rt,
         );
         let _ = res.unwrap();
     }
 
     #[test]
     fn certs_missing() {
+        let rt = PreferredRuntime::create().unwrap();
         let all_certs = [
             (2, certs::CERT_T2, "Couldn't find RSA identity key"),
             (7, certs::CERT_T7, "No RSA->Ed crosscert"),
@@ -862,19 +909,21 @@ pub(super) mod test {
                 certs::PEER_ED,
                 certs::PEER_RSA,
                 certs::PEER_CERT_DIGEST,
+                &rt,
             )
             .err()
             .unwrap();
 
             assert_eq!(
                 format!("{}", res),
-                format!("handshake protocol violation: {}", expect_err.unwrap())
+                format!("Handshake protocol violation: {}", expect_err.unwrap())
             );
         }
     }
 
     #[test]
     fn certs_wrongtarget() {
+        let rt = PreferredRuntime::create().unwrap();
         let mut certs = msg::Certs::new_empty();
         certs.push_cert_body(2.into(), certs::CERT_T2);
         certs.push_cert_body(5.into(), certs::CERT_T5);
@@ -886,13 +935,14 @@ pub(super) mod test {
             &[0x10; 32],
             certs::PEER_RSA,
             certs::PEER_CERT_DIGEST,
+            &rt,
         )
         .err()
         .unwrap();
 
         assert_eq!(
             format!("{}", err),
-            "handshake protocol violation: Peer ed25519 id not as expected"
+            "Handshake protocol violation: Peer ed25519 id not as expected"
         );
 
         let err = certs_test(
@@ -901,13 +951,14 @@ pub(super) mod test {
             certs::PEER_ED,
             &[0x99; 20],
             certs::PEER_CERT_DIGEST,
+            &rt,
         )
         .err()
         .unwrap();
 
         assert_eq!(
             format!("{}", err),
-            "handshake protocol violation: Peer RSA id not as expected"
+            "Handshake protocol violation: Peer RSA id not as expected"
         );
 
         let err = certs_test(
@@ -916,18 +967,20 @@ pub(super) mod test {
             certs::PEER_ED,
             certs::PEER_RSA,
             &[0; 32],
+            &rt,
         )
         .err()
         .unwrap();
 
         assert_eq!(
             format!("{}", err),
-            "handshake protocol violation: Peer cert did not authenticate TLS cert"
+            "Handshake protocol violation: Peer cert did not authenticate TLS cert"
         );
     }
 
     #[test]
     fn certs_badsig() {
+        let rt = PreferredRuntime::create().unwrap();
         fn munge(inp: &[u8]) -> Vec<u8> {
             let mut v: Vec<u8> = inp.into();
             v[inp.len() - 1] ^= 0x10;
@@ -944,13 +997,14 @@ pub(super) mod test {
             certs::PEER_ED,
             certs::PEER_RSA,
             certs::PEER_CERT_DIGEST,
+            &rt,
         )
         .err()
         .unwrap();
 
         assert_eq!(
             format!("{}", res),
-            "handshake protocol violation: Invalid ed25519 signature in handshake"
+            "Handshake protocol violation: Invalid ed25519 signature in handshake"
         );
 
         let mut certs = msg::Certs::new_empty();
@@ -964,13 +1018,14 @@ pub(super) mod test {
             certs::PEER_ED,
             certs::PEER_RSA,
             certs::PEER_CERT_DIGEST,
+            &rt,
         )
         .err()
         .unwrap();
 
         assert_eq!(
             format!("{}", res),
-            "handshake protocol violation: Bad RSA->Ed crosscert signature"
+            "Handshake protocol violation: Bad RSA->Ed crosscert signature"
         );
     }
 
@@ -999,7 +1054,7 @@ pub(super) mod test {
 
     #[test]
     fn test_finish() {
-        tor_rtcompat::test_with_one_runtime!(|_rt| async move {
+        tor_rtcompat::test_with_one_runtime!(|rt| async move {
             let ed25519_id = [3_u8; 32].into();
             let rsa_id = [4_u8; 20].into();
             let peer_addr = "127.1.1.2:443".parse().unwrap();
@@ -1011,6 +1066,7 @@ pub(super) mod test {
                 ed25519_id,
                 rsa_id,
                 clock_skew: ClockSkew::None,
+                sleep_prov: rt,
             };
 
             let (_chan, _reactor) = ver.finish().await.unwrap();

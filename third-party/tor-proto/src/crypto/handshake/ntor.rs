@@ -169,8 +169,12 @@ where
     T: AsRef<[u8]>,
 {
     let mut cur = Reader::from_slice(msg.as_ref());
-    let their_pk: PublicKey = cur.extract()?;
-    let auth: Authcode = cur.extract()?;
+    let their_pk: PublicKey = cur
+        .extract()
+        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
+    let auth: Authcode = cur
+        .extract()
+        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
 
     let xy = state.my_sk.diffie_hellman(&their_pk);
     let xb = state.my_sk.diffie_hellman(&state.relay_public.pk);
@@ -185,7 +189,7 @@ where
     if okay.into() {
         Ok(keygen)
     } else {
-        Err(Error::BadCircHandshake)
+        Err(Error::BadCircHandshakeAuth)
     }
 }
 
@@ -305,7 +309,7 @@ where
     if okay.into() {
         Ok((keygen, reply))
     } else {
-        Err(RelayHandshakeError::BadHandshake)
+        Err(RelayHandshakeError::BadClientHandshake)
     }
 }
 
@@ -314,11 +318,12 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::crypto::testing::FakePRNG;
+    use tor_basic_utils::test_rng::testing_rng;
 
     #[test]
     fn simple() -> Result<()> {
         use crate::crypto::handshake::{ClientHandshake, ServerHandshake};
-        let mut rng = rand::thread_rng().rng_compat();
+        let mut rng = testing_rng().rng_compat();
         let relay_secret = StaticSecret::new(&mut rng);
         let relay_public = PublicKey::from(&relay_secret);
         let relay_identity = RsaIdentity::from_bytes(&[12; 20]).unwrap();
@@ -400,7 +405,7 @@ mod tests {
     #[test]
     fn failing_handshakes() {
         use crate::crypto::handshake::{ClientHandshake, ServerHandshake};
-        let mut rng = rand::thread_rng().rng_compat();
+        let mut rng = testing_rng().rng_compat();
 
         // Set up keys.
         let relay_secret = StaticSecret::new(&mut rng);

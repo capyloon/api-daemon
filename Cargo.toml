@@ -34,8 +34,6 @@ members = [
 ]
 
 [patch.crates-io]
-# Bump base64 and cookie to avoid duplicates.
-webdriver = {path = "support/webdriver"}
 # Use our fork with the extra feature for vhost
 zip = {path = "support/zip"}
 # For the sha-1 update

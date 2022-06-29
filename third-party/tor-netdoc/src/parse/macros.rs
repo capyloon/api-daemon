@@ -24,6 +24,7 @@
 /// assert_eq!(Location::from_str("start"), Location::START);
 /// assert_eq!(Location::from_str("stfff"), Location::UNRECOGNIZED);
 /// ```
+#[allow(unknown_lints)] // We can remove once MSRV >= 1.63
 #[allow(unused_macro_rules)]
 macro_rules! decl_keyword {
     { $(#[$meta:meta])* $v:vis
@@ -110,6 +111,7 @@ pub(crate) mod test {
             "lemon" => LEMON,
             "guava" => GUAVA,
             "cherry" | "plum" => STONEFRUIT,
+            "banana" => BANANA,
             annotation "@tasty" => ANN_TASTY,
         }
     }
@@ -127,12 +129,12 @@ pub(crate) mod test {
 
         assert_eq!(APPLE.idx(), 0);
         assert_eq!(ORANGE.idx(), 1);
-        assert_eq!(ANN_UNRECOGNIZED.idx(), 7);
-        assert_eq!(Fruit::n_vals(), 8);
+        assert_eq!(ANN_UNRECOGNIZED.idx(), 8);
+        assert_eq!(Fruit::n_vals(), 9);
 
         assert_eq!(Fruit::from_idx(0), Some(APPLE));
-        assert_eq!(Fruit::from_idx(7), Some(ANN_UNRECOGNIZED));
-        assert_eq!(Fruit::from_idx(8), None);
+        assert_eq!(Fruit::from_idx(8), Some(ANN_UNRECOGNIZED));
+        assert_eq!(Fruit::from_idx(9), None);
 
         assert_eq!(Fruit::idx_to_str(3), "guava");
         assert_eq!(Fruit::idx_to_str(999), "<out of range>");

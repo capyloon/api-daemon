@@ -55,7 +55,7 @@ use crate::circuit::reactor::{
 pub use crate::circuit::unique_id::UniqId;
 use crate::crypto::cell::{HopNum, InboundClientCrypt, OutboundClientCrypt};
 use crate::stream::{DataStream, ResolveStream, StreamParameters, StreamReader};
-use crate::{Error, Result};
+use crate::{Error, ResolveError, Result};
 use tor_cell::{
     chancell::{self, msg::ChanMsg, CircId},
     relaycell::msg::{Begin, RelayMsg, Resolve, Resolved, ResolvedVal},
@@ -342,7 +342,8 @@ impl ClientCirc {
         let parameters = parameters.unwrap_or_default();
         let begin_flags = parameters.begin_flags();
         let optimistic = parameters.is_optimistic();
-        let beginmsg = Begin::new(target, port, begin_flags)?;
+        let beginmsg = Begin::new(target, port, begin_flags)
+            .map_err(|e| Error::from_cell_enc(e, "begin message"))?;
         self.begin_data_stream(beginmsg.into(), optimistic).await
     }
 
@@ -653,12 +654,9 @@ impl StreamTarget {
 /// it represents an error.
 fn resolvedval_to_result(val: ResolvedVal) -> Result<ResolvedVal> {
     match val {
-        ResolvedVal::TransientError => Err(Error::ResolveError(
-            "Received retriable transient error".into(),
-        )),
-        ResolvedVal::NontransientError => {
-            Err(Error::ResolveError("Received not retriable error.".into()))
-        }
+        ResolvedVal::TransientError => Err(Error::ResolveError(ResolveError::Transient)),
+        ResolvedVal::NontransientError => Err(Error::ResolveError(ResolveError::Nontransient)),
+        ResolvedVal::Unrecognized(_, _) => Err(Error::ResolveError(ResolveError::Unrecognized)),
         _ => Ok(val),
     }
 }
@@ -677,8 +675,8 @@ mod test {
     use futures::stream::StreamExt;
     use futures::task::SpawnExt;
     use hex_literal::hex;
-    use rand::thread_rng;
     use std::time::Duration;
+    use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::chancell::{msg as chanmsg, ChanCell};
     use tor_cell::relaycell::{msg as relaymsg, RelayCell, StreamId};
     use tor_llcrypto::pk;
@@ -690,7 +688,7 @@ mod test {
         ID: Into<StreamId>,
     {
         let body: RelayCellBody = RelayCell::new(id.into(), msg)
-            .encode(&mut thread_rng())
+            .encode(&mut testing_rng())
             .unwrap()
             .into();
         let chanmsg = chanmsg::Relay::from_raw(body.into());
@@ -747,7 +745,7 @@ mod test {
         Receiver<ChanCell>,
         Sender<std::result::Result<ChanCell, CodecError>>,
     ) {
-        let (channel, chan_reactor, rx, tx) = new_reactor();
+        let (channel, chan_reactor, rx, tx) = new_reactor(rt.clone());
         rt.spawn(async {
             let _ignore = chan_reactor.run().await;
         })
@@ -777,7 +775,7 @@ mod test {
 
         // Future to pretend to be a relay on the other end of the circuit.
         let simulate_relay_fut = async move {
-            let mut rng = rand::thread_rng();
+            let mut rng = testing_rng();
             let create_cell = rx.next().await.unwrap();
             assert_eq!(create_cell.circid(), 128.into());
             let reply = if fast {
@@ -1053,7 +1051,7 @@ mod test {
                     RelayMsg::Extend2(e2) => e2,
                     _ => panic!(),
                 };
-                let mut rng = thread_rng();
+                let mut rng = testing_rng();
                 let (_, reply) =
                     NtorServer::server(&mut rng, &[example_ntor_key()], e2.handshake()).unwrap();
                 let extended2 = relaymsg::Extended2::new(reply).into();
@@ -1154,7 +1152,7 @@ mod test {
             let extended2 = relaymsg::Extended2::new(vec![99; 256]).into();
             let cc = rmsg_to_ccmsg(0, extended2);
             let error = bad_extend_test_impl(&rt, 2.into(), cc).await;
-            assert!(matches!(error, Error::BadCircHandshake));
+            assert!(matches!(error, Error::BadCircHandshakeAuth));
         });
     }
 

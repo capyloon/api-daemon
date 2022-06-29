@@ -9,7 +9,7 @@ use std::time::Duration;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use tor_basic_utils::retry::RetryDelay;
-use tor_config::ConfigBuildError;
+use tor_config::{impl_standard_builder, ConfigBuildError};
 
 /// Configuration for how many times to retry a download, with what
 /// frequency.
@@ -30,7 +30,7 @@ pub struct DownloadSchedule {
     /// The amount of time to delay after the first failure, and a
     /// lower-bound for future delays.
     #[builder(default = "Duration::from_millis(1000)")]
-    #[builder_field_attr(serde(with = "humantime_serde::option"))]
+    #[builder_field_attr(serde(default, with = "humantime_serde::option"))]
     initial_delay: Duration,
 
     /// When we want to download a bunch of these at a time, how many
@@ -44,6 +44,8 @@ pub struct DownloadSchedule {
     )]
     parallelism: NonZeroU8,
 }
+
+impl_standard_builder! { DownloadSchedule }
 
 impl DownloadScheduleBuilder {
     /// Default value for retry_bootstrap in DownloadScheduleConfig.
@@ -66,14 +68,6 @@ impl DownloadScheduleBuilder {
     }
 }
 
-impl Default for DownloadSchedule {
-    fn default() -> Self {
-        DownloadSchedule::builder()
-            .build()
-            .expect("build default DownloadSchedule")
-    }
-}
-
 /// Helper for building a NonZero* field
 fn build_nonzero<NZ, I>(
     spec: Option<I>,
@@ -91,11 +85,6 @@ where
 }
 
 impl DownloadSchedule {
-    /// Return a new [`DownloadScheduleBuilder`]
-    pub fn builder() -> DownloadScheduleBuilder {
-        DownloadScheduleBuilder::default()
-    }
-
     /// Return an iterator to use over all the supported attempts for
     /// this configuration.
     pub fn attempts(&self) -> impl Iterator<Item = u32> {
@@ -125,13 +114,14 @@ impl DownloadSchedule {
 #[cfg(test)]
 mod test {
     use super::*;
+    use tor_basic_utils::test_rng::testing_rng;
 
     #[test]
     fn config() {
         // default configuration is 3 tries, 1000 msec initial delay
         let cfg = DownloadSchedule::default();
         let one_sec = Duration::from_secs(1);
-        let mut rng = rand::thread_rng();
+        let mut rng = testing_rng();
 
         assert_eq!(cfg.n_attempts(), 3);
         let v: Vec<_> = cfg.attempts().collect();

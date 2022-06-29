@@ -7,6 +7,8 @@
 //! crates higher up the dependency stack.
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -37,6 +39,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use derive_more::Display;
@@ -436,8 +439,16 @@ pub enum ErrorKind {
     ///
     /// Trying at another exit might succeed, or the address might truly be
     /// unresolvable.
-    #[display(fmt = "remote hostname lookup failure")]
+    #[display(fmt = "remote hostname not found")]
     RemoteHostNotFound,
+
+    /// An resolve operation finished with an error.
+    ///
+    /// Contrary to [`RemoteHostNotFound`](ErrorKind::RemoteHostNotFound),
+    /// this can't mean "this is not a hostname".
+    /// This error should be retried.
+    #[display(fmt = "remote hostname lookup failure")]
+    RemoteHostResolutionFailed,
 
     /// Trouble involving a protocol we're using with a peer on the far side of the Tor network
     ///

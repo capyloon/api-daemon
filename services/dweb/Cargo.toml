@@ -12,7 +12,7 @@ async-trait = "0.1"
 base64 = "0.13"
 chrono = "0.4"
 common = {path = "../../common"}
-did-key = {git = "https://github.com/capyloon/did-key.rs.git", rev = "a608794d20a4c1b2c8155d2074f7b1dbe4092fb7"}
+did-key = {git = "https://github.com/capyloon/did-key.rs.git", rev = "0fd82e043d41e70104a395aec239db5b449f7a96"}
 ed25519-zebra = "3.0"
 lazy_static = "1.4"
 log = "0.4"

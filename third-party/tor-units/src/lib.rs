@@ -16,6 +16,8 @@
 //!   * a SendMeVersion which can be compared only.
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -46,6 +48,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use derive_more::{Add, Display, Div, From, FromStr, Mul};
@@ -58,10 +61,10 @@ use thiserror::Error;
 #[non_exhaustive]
 pub enum Error {
     /// A passed value was below the lower bound for the type.
-    #[error("Value {0} was below the lower bound {1} for this type.")]
+    #[error("Value {0} was below the lower bound {1} for this type")]
     BelowLowerBound(i32, i32),
     /// A passed value was above the upper bound for the type.
-    #[error("Value {0} was above the lower bound {1} for this type.")]
+    #[error("Value {0} was above the lower bound {1} for this type")]
     AboveUpperBound(i32, i32),
     /// Tried to convert a negative value to an unsigned type.
     #[error("Tried to convert a negative value to an unsigned type")]
@@ -307,16 +310,42 @@ impl<const H: i32, const L: i32> TryFrom<i32> for Percentage<BoundedInt32<H, L>>
 )]
 /// This type represents an integer number of milliseconds.
 ///
-/// The underlying type should implement TryInto<u64>.
+/// The underlying type should usually implement TryInto<u64>.
 pub struct IntegerMilliseconds<T> {
     /// Interior Value. Should Implement TryInto<u64> to be useful.
     value: T,
 }
 
-impl<T: TryInto<u64>> IntegerMilliseconds<T> {
+impl<T> IntegerMilliseconds<T> {
     /// Public Constructor
     pub fn new(value: T) -> Self {
         IntegerMilliseconds { value }
+    }
+
+    /// Deconstructor
+    ///
+    /// Use only in contexts where it's no longer possible to
+    /// use the Rust type system to ensure secs vs ms vs us correctness.
+    pub fn as_millis(self) -> T {
+        self.value
+    }
+
+    /// Map the inner value (useful for conversion)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use tor_units::{BoundedInt32, IntegerMilliseconds};
+    ///
+    /// let value: IntegerMilliseconds<i32> = 42.into();
+    /// let value: IntegerMilliseconds<BoundedInt32<0,1000>>
+    ///     = value.try_map(TryInto::try_into).unwrap();
+    /// ```
+    pub fn try_map<U, F, E>(self, f: F) -> Result<IntegerMilliseconds<U>, E>
+    where
+        F: FnOnce(T) -> Result<U, E>,
+    {
+        Ok(IntegerMilliseconds::new(f(self.value)?))
     }
 }
 
@@ -339,16 +368,40 @@ impl<const H: i32, const L: i32> TryFrom<i32> for IntegerMilliseconds<BoundedInt
 )]
 /// This type represents an integer number of seconds.
 ///
-/// The underlying type should implement TryInto<u64>.
+/// The underlying type should usually implement TryInto<u64>.
 pub struct IntegerSeconds<T> {
     /// Interior Value. Should Implement TryInto<u64> to be useful.
     value: T,
 }
 
-impl<T: TryInto<u64>> IntegerSeconds<T> {
+impl<T> IntegerSeconds<T> {
     /// Public Constructor
     pub fn new(value: T) -> Self {
         IntegerSeconds { value }
+    }
+
+    /// Deconstructor
+    ///
+    /// Use only in contexts where it's no longer possible to
+    /// use the Rust type system to ensure secs vs ms vs us correctness.
+    pub fn as_secs(self) -> T {
+        self.value
+    }
+
+    /// Map the inner value (useful for conversion)
+    ///
+    /// ```
+    /// use tor_units::{BoundedInt32, IntegerSeconds};
+    ///
+    /// let value: IntegerSeconds<i32> = 42.into();
+    /// let value: IntegerSeconds<BoundedInt32<0,1000>>
+    ///     = value.try_map(TryInto::try_into).unwrap();
+    /// ```
+    pub fn try_map<U, F, E>(self, f: F) -> Result<IntegerSeconds<U>, E>
+    where
+        F: FnOnce(T) -> Result<U, E>,
+    {
+        Ok(IntegerSeconds::new(f(self.value)?))
     }
 }
 
@@ -369,7 +422,7 @@ impl<const H: i32, const L: i32> TryFrom<i32> for IntegerSeconds<BoundedInt32<H,
 #[derive(Copy, Clone, From, FromStr, Display, Debug, PartialEq, Eq, Ord, PartialOrd)]
 /// This type represents an integer number of days.
 ///
-/// The underlying type should implement TryInto<u64>.
+/// The underlying type should usually implement TryInto<u64>.
 pub struct IntegerDays<T> {
     /// Interior Value. Should Implement TryInto<u64> to be useful.
     value: T,
@@ -379,6 +432,30 @@ impl<T> IntegerDays<T> {
     /// Public Constructor
     pub fn new(value: T) -> Self {
         IntegerDays { value }
+    }
+
+    /// Deconstructor
+    ///
+    /// Use only in contexts where it's no longer possible to
+    /// use the Rust type system to ensure secs vs ms vs us correctness.
+    pub fn as_days(self) -> T {
+        self.value
+    }
+
+    /// Map the inner value (useful for conversion)
+    ///
+    /// ```
+    /// use tor_units::{BoundedInt32, IntegerDays};
+    ///
+    /// let value: IntegerDays<i32> = 42.into();
+    /// let value: IntegerDays<BoundedInt32<0,1000>>
+    ///     = value.try_map(TryInto::try_into).unwrap();
+    /// ```
+    pub fn try_map<U, F, E>(self, f: F) -> Result<IntegerDays<U>, E>
+    where
+        F: FnOnce(T) -> Result<U, E>,
+    {
+        Ok(IntegerDays::new(f(self.value)?))
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "tor-netdoc"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
@@ -13,6 +13,9 @@ repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
 [features]
 default = []
+
+full = ["routerdesc", "ns_consensus"]
+experimental = ["build_docs", "experimental-api"]
 
 # Enable code to build the objects that represent different network documents.
 build_docs = ["rand"]
@@ -42,7 +45,7 @@ experimental-api = []
 dangerous-expose-struct-fields = ["visible", "visibility"]
 
 [dependencies]
-base64 = "0.13.0"
+base64ct = { version = "1.5.0", features = ["alloc"] }
 bitflags = "1"
 derive_more = "0.99"
 digest = "0.10.0"
@@ -52,15 +55,16 @@ once_cell = "1"
 phf = { version = "0.10.0", features = ["macros"] }
 rand = { version = "0.8", optional = true }
 serde = "1.0.103"
+serde_with = "1.14.0"
 signature = "1"
 thiserror = "1"
 time = { version = "0.3", features = ["std", "parsing", "macros"] }
 tinystr = "0.6.0"
-tor-bytes = { path = "../tor-bytes", version = "0.3.0" }
-tor-cert = { path = "../tor-cert", version = "0.3.0" }
+tor-bytes = { path = "../tor-bytes", version = "0.4.0" }
+tor-cert = { path = "../tor-cert", version = "0.4.0" }
 tor-checkable = { path = "../tor-checkable", version = "0.3.0" }
-tor-error = { path = "../tor-error", version = "0.3.1" }
-tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.0" }
+tor-error = { path = "../tor-error", version = "0.3.2" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.2" }
 tor-protover = { path = "../tor-protover", version = "0.3.0" }
 visibility = { version = "0.0.1", optional = true }
 visible = { version = "0.0.1", optional = true }
@@ -68,3 +72,4 @@ weak-table = "0.3.0"
 
 [dev-dependencies]
 hex-literal = "0.3"
+serde_json = "1.0.50"

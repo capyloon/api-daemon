@@ -8,27 +8,28 @@
 
 use super::circmap::{CircEnt, CircMap};
 use crate::circuit::halfcirc::HalfCirc;
-use crate::util::err::ReactorError;
+use crate::util::err::{ChannelClosed, ReactorError};
 use crate::{Error, Result};
 use tor_basic_utils::futures::SinkExt as _;
 use tor_cell::chancell::msg::{Destroy, DestroyReason};
 use tor_cell::chancell::{msg::ChanMsg, ChanCell, CircId};
+use tor_rtcompat::SleepProvider;
 
 use futures::channel::{mpsc, oneshot};
 
-use futures::select;
 use futures::sink::SinkExt;
 use futures::stream::Stream;
 use futures::Sink;
 use futures::StreamExt as _;
+use futures::{select, select_biased};
 use tor_error::internal;
 
 use std::fmt;
-//use std::pin::Pin;
+use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::channel::{codec::CodecError, unique_id, ChannelDetails};
+use crate::channel::{codec::CodecError, padding, params::*, unique_id, ChannelDetails};
 use crate::circuit::celltypes::{ClientCircChanMsg, CreateResponse};
 use tracing::{debug, trace};
 
@@ -46,7 +47,8 @@ pub(super) type ReactorResultChannel<T> = oneshot::Sender<Result<T>>;
 fn codec_err_to_chan(err: CodecError) -> Error {
     match err {
         CodecError::Io(e) => crate::Error::ChanIoErr(Arc::new(e)),
-        CodecError::Cell(e) => e.into(),
+        CodecError::EncCell(err) => Error::from_cell_enc(err, "channel cell"),
+        CodecError::DecCell(err) => Error::from_cell_dec(err, "channel cell"),
     }
 }
 
@@ -67,6 +69,15 @@ pub(super) enum CtrlMsg {
         /// Oneshot channel to send the new circuit's identifiers down.
         tx: ReactorResultChannel<(CircId, crate::circuit::UniqId)>,
     },
+    /// Enable/disable/reconfigure channel padding
+    ///
+    /// The sender of these messages is responsible for the optimisation of
+    /// ensuring that "no-change" messages are elided.
+    /// (This is implemented in `ChannelsParamsUpdatesBuilder`.)
+    ///
+    /// These updates are done via a control message to avoid adding additional branches to the
+    /// main reactor `select!`.
+    ConfigUpdate(Arc<ChannelsParamsUpdates>),
 }
 
 /// Object to handle incoming cells and background tasks on a channel.
@@ -74,7 +85,7 @@ pub(super) enum CtrlMsg {
 /// This type is returned when you finish a channel; you need to spawn a
 /// new task that calls `run()` on it.
 #[must_use = "If you don't call run() on a reactor, the channel won't work."]
-pub struct Reactor {
+pub struct Reactor<S: SleepProvider> {
     /// A receiver for control messages from `Channel` objects.
     pub(super) control: mpsc::UnboundedReceiver<CtrlMsg>,
     /// A receiver for cells to be sent on this reactor's sink.
@@ -89,6 +100,8 @@ pub struct Reactor {
     ///
     /// This should also be backed by a TLS connection if you want it to be secure.
     pub(super) output: BoxedChannelSink,
+    /// Timer tracking when to generate channel padding
+    pub(super) padding_timer: Pin<Box<padding::Timer<S>>>,
     /// A map from circuit ID to Sinks on which we can deliver cells.
     pub(super) circs: CircMap,
     /// Information shared with the frontend
@@ -104,13 +117,13 @@ pub struct Reactor {
 ///
 /// There is no risk of confusion because no-one would try to print a
 /// Reactor for some other reason.
-impl fmt::Display for Reactor {
+impl<S: SleepProvider> fmt::Display for Reactor<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.details.unique_id, f)
     }
 }
 
-impl Reactor {
+impl<S: SleepProvider> Reactor<S> {
     /// Launch the reactor, and run until the channel closes or we
     /// encounter an error.
     ///
@@ -118,7 +131,7 @@ impl Reactor {
     /// used again.
     pub async fn run(mut self) -> Result<()> {
         if self.details.closed.load(Ordering::SeqCst) {
-            return Err(Error::ChannelClosed);
+            return Err(ChannelClosed.into());
         }
         debug!("{}: Running reactor", &self);
         let result: Result<()> = loop {
@@ -140,10 +153,32 @@ impl Reactor {
 
             // See if the output sink can have cells written to it yet.
             // If so, see if we have to-be-transmitted cells.
-            ret = self.output.prepare_send_from(
+            ret = self.output.prepare_send_from(async {
                 // This runs if we will be able to write, so do the read:
-                self.cells.next()
-            ) => {
+                select_biased! {
+                    n = self.cells.next() => {
+                        // Note transmission on *input* to the reactor, not ultimate
+                        // transmission.  Ideally we would tap into the TCP stream at the far
+                        // end of our TLS or perhaps during encoding on entry to the TLS, but
+                        // both of those would involve quite some plumbing.  Doing it here in
+                        // the reactor avoids additional inter-task communication, mutexes,
+                        // etc.  (And there is no real difference between doing it here on
+                        // input, to just below, on enquieing into the `sendable`.)
+                        //
+                        // Padding is sent when the output channel is idle, and the effect of
+                        // buffering is just that we might sent it a little early because we
+                        // measure idleness when we last put something into the output layers.
+                        //
+                        // We can revisit this if measurement shows it to be bad in practice.
+                        //
+                        // (We in any case need padding that we generate when idle to make it
+                        // through to the output promptly, or it will be late and ineffective.)
+                        self.padding_timer.as_mut().note_cell_sent();
+                        n
+                    },
+                    p = self.padding_timer.as_mut().next() => Some(p.into()),
+                }
+            }) => {
                 let (msg, sendable) = ret.map_err(codec_err_to_chan)?;
                 let msg = msg.ok_or(ReactorError::Shutdown)?;
                 sendable.send(msg).map_err(codec_err_to_chan)?;
@@ -189,6 +224,24 @@ impl Reactor {
                     .map(|id| (id, circ_unique_id));
                 let _ = tx.send(ret); // don't care about other side going away
                 self.update_disused_since();
+            }
+            CtrlMsg::ConfigUpdate(updates) => {
+                let ChannelsParamsUpdates {
+                    // List all the fields explicitly; that way the compiler will warn us
+                    // if one is added and we fail to handle it here.
+                    padding_enable,
+                    padding_parameters,
+                } = &*updates;
+                if let Some(parameters) = padding_parameters {
+                    self.padding_timer.as_mut().reconfigure(parameters);
+                }
+                if let Some(enable) = padding_enable {
+                    if *enable {
+                        self.padding_timer.as_mut().enable();
+                    } else {
+                        self.padding_timer.as_mut().disable();
+                    }
+                }
             }
         }
         Ok(())
@@ -367,12 +420,15 @@ pub(crate) mod test {
     use futures::stream::StreamExt;
     use futures::task::SpawnExt;
     use tor_linkspec::OwnedChanTarget;
+    use tor_rtcompat::Runtime;
 
     type CodecResult = std::result::Result<ChanCell, CodecError>;
 
-    pub(crate) fn new_reactor() -> (
+    pub(crate) fn new_reactor<R: Runtime>(
+        runtime: R,
+    ) -> (
         crate::channel::Channel,
-        Reactor,
+        Reactor<R>,
         mpsc::Receiver<ChanCell>,
         mpsc::Sender<CodecResult>,
     ) {
@@ -383,7 +439,7 @@ pub(crate) mod test {
         let dummy_target = OwnedChanTarget::new(vec![], [6; 32].into(), [10; 20].into());
         let send1 = send1.sink_map_err(|e| {
             trace!("got sink error: {}", e);
-            CodecError::Cell(tor_cell::Error::ChanProto("dummy message".into()))
+            CodecError::DecCell(tor_cell::Error::ChanProto("dummy message".into()))
         });
         let (chan, reactor) = crate::channel::Channel::new(
             link_protocol,
@@ -392,6 +448,7 @@ pub(crate) mod test {
             unique_id,
             dummy_target,
             crate::ClockSkew::None,
+            runtime,
         );
         (chan, reactor, recv1, send2)
     }
@@ -399,8 +456,8 @@ pub(crate) mod test {
     // Try shutdown from inside run_once..
     #[test]
     fn shutdown() {
-        tor_rtcompat::test_with_all_runtimes!(|_rt| async move {
-            let (chan, mut reactor, _output, _input) = new_reactor();
+        tor_rtcompat::test_with_all_runtimes!(|rt| async move {
+            let (chan, mut reactor, _output, _input) = new_reactor(rt);
 
             chan.terminate();
             let r = reactor.run_once().await;
@@ -411,13 +468,13 @@ pub(crate) mod test {
     // Try shutdown while reactor is running.
     #[test]
     fn shutdown2() {
-        tor_rtcompat::test_with_all_runtimes!(|_rt| async move {
+        tor_rtcompat::test_with_all_runtimes!(|rt| async move {
             // TODO: Ask a rust person if this is how to do this.
 
             use futures::future::FutureExt;
             use futures::join;
 
-            let (chan, reactor, _output, _input) = new_reactor();
+            let (chan, reactor, _output, _input) = new_reactor(rt);
             // Let's get the reactor running...
             let run_reactor = reactor.run().map(|x| x.is_ok()).shared();
 
@@ -439,7 +496,7 @@ pub(crate) mod test {
     #[test]
     fn new_circ_closed() {
         tor_rtcompat::test_with_all_runtimes!(|rt| async move {
-            let (chan, mut reactor, mut output, _input) = new_reactor();
+            let (chan, mut reactor, mut output, _input) = new_reactor(rt.clone());
             assert!(chan.duration_unused().is_some()); // unused yet
 
             let (ret, reac) = futures::join!(chan.new_circ(), reactor.run_once());
@@ -479,7 +536,7 @@ pub(crate) mod test {
 
         tor_rtcompat::test_with_all_runtimes!(|rt| async move {
             use tor_cell::chancell::msg;
-            let (chan, mut reactor, mut output, mut input) = new_reactor();
+            let (chan, mut reactor, mut output, mut input) = new_reactor(rt.clone());
 
             let (ret, reac) = futures::join!(chan.new_circ(), reactor.run_once());
             let (pending, circr) = ret.unwrap();
@@ -510,7 +567,7 @@ pub(crate) mod test {
             let (circ, _) =
                 futures::join!(pending.create_firsthop_fast(&circparams), send_response);
             // Make sure statuses are as expected.
-            assert!(matches!(circ.err().unwrap(), Error::BadCircHandshake));
+            assert!(matches!(circ.err().unwrap(), Error::BadCircHandshakeAuth));
 
             reactor.run_once().await.unwrap();
 
@@ -527,9 +584,9 @@ pub(crate) mod test {
     // Try incoming cells that shouldn't arrive on channels.
     #[test]
     fn bad_cells() {
-        tor_rtcompat::test_with_all_runtimes!(|_rt| async move {
+        tor_rtcompat::test_with_all_runtimes!(|rt| async move {
             use tor_cell::chancell::msg;
-            let (_chan, mut reactor, _output, mut input) = new_reactor();
+            let (_chan, mut reactor, _output, mut input) = new_reactor(rt);
 
             // We shouldn't get create cells, ever.
             let create_cell = msg::Create2::new(4, *b"hihi").into();
@@ -548,13 +605,13 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: CREATE2 cell on client channel"
+                "Channel protocol violation: CREATE2 cell on client channel"
             );
 
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: Unexpected CREATED* cell not on opening circuit"
+                "Channel protocol violation: Unexpected CREATED* cell not on opening circuit"
             );
 
             // Can't get a relay cell on a circuit we've never heard of.
@@ -566,7 +623,7 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: Relay cell on nonexistent circuit"
+                "Channel protocol violation: Relay cell on nonexistent circuit"
             );
 
             // Can't get handshaking cells while channel is open.
@@ -578,7 +635,7 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: VERSIONS cell after handshake is done"
+                "Channel protocol violation: VERSIONS cell after handshake is done"
             );
 
             // We don't accept CREATED.
@@ -590,19 +647,19 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: CREATED cell received, but we never send CREATEs"
+                "Channel protocol violation: CREATED cell received, but we never send CREATEs"
             );
         });
     }
 
     #[test]
     fn deliver_relay() {
-        tor_rtcompat::test_with_all_runtimes!(|_rt| async move {
+        tor_rtcompat::test_with_all_runtimes!(|rt| async move {
             use crate::circuit::celltypes::ClientCircChanMsg;
             use futures::channel::oneshot;
             use tor_cell::chancell::msg;
 
-            let (_chan, mut reactor, _output, mut input) = new_reactor();
+            let (_chan, mut reactor, _output, mut input) = new_reactor(rt);
 
             let (_circ_stream_7, mut circ_stream_13) = {
                 let (snd1, _rcv1) = oneshot::channel();
@@ -639,7 +696,7 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
             format!("{}", e),
-            "channel protocol violation: Relay cell on pending circuit before CREATED* received"
+            "Channel protocol violation: Relay cell on pending circuit before CREATED* received"
         );
 
             // If a relay cell is sent on a non-existent channel, that's an error.
@@ -650,7 +707,7 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: Relay cell on nonexistent circuit"
+                "Channel protocol violation: Relay cell on nonexistent circuit"
             );
 
             // It's fine to get a relay cell on a DestroySent channel: that happens
@@ -673,19 +730,19 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: Too many cells received on destroyed circuit"
+                "Channel protocol violation: Too many cells received on destroyed circuit"
             );
         });
     }
 
     #[test]
     fn deliver_destroy() {
-        tor_rtcompat::test_with_all_runtimes!(|_rt| async move {
+        tor_rtcompat::test_with_all_runtimes!(|rt| async move {
             use crate::circuit::celltypes::*;
             use futures::channel::oneshot;
             use tor_cell::chancell::msg;
 
-            let (_chan, mut reactor, _output, mut input) = new_reactor();
+            let (_chan, mut reactor, _output, mut input) = new_reactor(rt);
 
             let (circ_oneshot_7, mut circ_stream_13) = {
                 let (snd1, rcv1) = oneshot::channel();
@@ -737,7 +794,7 @@ pub(crate) mod test {
             let e = reactor.run_once().await.unwrap_err().unwrap_err();
             assert_eq!(
                 format!("{}", e),
-                "channel protocol violation: Destroy for nonexistent circuit"
+                "Channel protocol violation: Destroy for nonexistent circuit"
             );
         });
     }

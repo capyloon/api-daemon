@@ -25,7 +25,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("rust")
-                .short("r")
+                .short('r')
                 .long("rust")
                 .value_name("rust")
                 .help("Path to the generated Rust code.")
@@ -33,7 +33,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("js")
-                .short("j")
+                .short('j')
                 .long("js")
                 .value_name("js")
                 .help("Path to the generated Javascript.")

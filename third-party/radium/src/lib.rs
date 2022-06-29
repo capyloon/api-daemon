@@ -133,6 +133,7 @@ pub trait Radium {
     /// See also: [`AtomicUsize::compare_and_swap`].
     ///
     /// [`AtomicUsize::compare_and_swap`]: core::sync::atomic::AtomicUsize::compare_and_swap
+    #[deprecated = "Use `compare_exchange` or `compare_exchange_weak` instead"]
     fn compare_and_swap(&self, current: Self::Item, new: Self::Item, order: Ordering)
         -> Self::Item;
 
@@ -261,6 +262,31 @@ pub trait Radium {
     fn fetch_sub(&self, value: Self::Item, order: Ordering) -> Self::Item
     where
         Self::Item: marker::NumericOps;
+
+    /// Fetches the value, and applies a function to it that returns an
+    /// optional new value.
+    ///
+    /// Note: This may call the function multiple times if the value has been
+    /// changed from other threads in the meantime, as long as the function
+    /// returns `Some(_)`, but the function will have been applied only once to
+    /// the stored value.
+    ///
+    /// Returns a `Result` of `Ok(previous_value)` if the function returned
+    /// `Some(_)`, else `Err(previous_value)`.
+    ///
+    /// Ordering arguments are ignored by non-atomic types.
+    ///
+    /// See also: [`AtomicUsize::fetch_update`].
+    ///
+    /// [`AtomicUsize::fetch_update`]: core::sync::atomic::AtomicUsize::fetch_update
+    fn fetch_update<F>(
+        &self,
+        set_order: Ordering,
+        fetch_order: Ordering,
+        f: F,
+    ) -> Result<Self::Item, Self::Item>
+    where
+        F: FnMut(Self::Item) -> Option<Self::Item>;
 }
 
 /// Marker traits used by [`Radium`].
@@ -362,6 +388,7 @@ macro_rules! radium {
         }
 
         #[inline]
+        #[allow(deprecated)]
         fn compare_and_swap(&self, current: $base, new: $base, order: Ordering) -> $base {
             self.compare_and_swap(current, new, order)
         }
@@ -386,6 +413,19 @@ macro_rules! radium {
             failure: Ordering,
         ) -> Result<$base, $base> {
             self.compare_exchange_weak(current, new, success, failure)
+        }
+
+        #[inline]
+        fn fetch_update<F>(
+            &self,
+            set_order: Ordering,
+            fetch_order: Ordering,
+            f: F,
+        ) -> Result<$base, $base>
+        where
+            F: FnMut($base) -> Option<$base>,
+        {
+            self.fetch_update(set_order, fetch_order, f)
         }
     };
 
@@ -493,6 +533,17 @@ macro_rules! radium {
             failure: Ordering,
         ) -> Result<$base, $base> {
             Radium::compare_exchange(self, current, new, success, failure)
+        }
+
+        #[inline]
+        fn fetch_update<F>(&self, _: Ordering, _: Ordering, mut f: F) -> Result<$base, $base>
+        where
+            F: FnMut($base) -> Option<$base>,
+        {
+            match f(self.get()) {
+                Some(x) => Ok(self.replace(x)),
+                None => Err(self.get()),
+            }
         }
     };
 

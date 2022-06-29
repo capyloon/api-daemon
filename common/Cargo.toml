@@ -10,7 +10,7 @@ actix = "0.13"
 android_utils = {path = "../support/android-utils"}
 bincode = "1.3"
 byteorder = "1.3"
-did-key = {git = "https://github.com/capyloon/did-key.rs.git", rev = "a608794d20a4c1b2c8155d2074f7b1dbe4092fb7"}
+did-key = {git = "https://github.com/capyloon/did-key.rs.git", rev = "0fd82e043d41e70104a395aec239db5b449f7a96"}
 dyn-clone = "1.0"
 file-rotate = "0.6"
 libc = "0.2"

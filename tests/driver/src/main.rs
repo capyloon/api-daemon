@@ -6,7 +6,7 @@
 // set to the path of the profile to use.
 
 use fantoccini::error::CmdError;
-use fantoccini::{Client, Locator};
+use fantoccini::{Client, ClientBuilder, Locator};
 use log::{error, info};
 use serde::Deserialize;
 use std::env;
@@ -33,7 +33,7 @@ async fn test_script(script: &str, client: &mut Client) -> Result<(), CmdError> 
     client.goto(&script).await?;
     println!("{}", Paint::blue(format!("Navigated to {}", script)).bold());
 
-    let mut element = loop {
+    let element = loop {
         match client.find(Locator::Css(".json")).await {
             Ok(element) => break element,
             Err(_) => {
@@ -96,6 +96,7 @@ async fn test_script(script: &str, client: &mut Client) -> Result<(), CmdError> 
 }
 
 fn find_process(process_name: &str) -> bool {
+    #[cfg(not(target_os = "macos"))]
     for prc in procfs::process::all_processes().unwrap() {
         if prc.stat.comm.as_str() == process_name {
             return true;
@@ -180,8 +181,7 @@ async fn main() -> Result<(), CmdError> {
     loop {
         // Try to connect to localhost:4444 with a socket,
         // and wait the homescreen app is started.
-        if TcpStream::connect("localhost:4444").is_ok() &&
-           find_process("Web Content") {
+        if TcpStream::connect("localhost:4444").is_ok() && find_process("Web Content") {
             break;
         }
 
@@ -200,7 +200,8 @@ async fn main() -> Result<(), CmdError> {
     }
     info!("Connectivity to geckodriver verified.");
 
-    let mut client = Client::new("http://localhost:4444")
+    let mut client = ClientBuilder::native()
+        .connect("http://localhost:4444")
         .await
         .map_err(|error| unimplemented!("failed to connect to WebDriver: {:?}", error))
         .expect("Failed to connect to WebDriver");

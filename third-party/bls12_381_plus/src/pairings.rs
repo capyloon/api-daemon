@@ -5,6 +5,7 @@ use crate::fp6::Fp6;
 use crate::{G1Affine, G1Projective, G2Affine, G2Projective, Scalar, BLS_X, BLS_X_IS_NEGATIVE};
 
 use core::borrow::Borrow;
+use core::convert::TryFrom;
 use core::fmt;
 use core::iter::Sum;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -12,7 +13,7 @@ use group::Group;
 use heapless::Vec;
 use pairing::{Engine, PairingCurveAffine};
 use rand_core::RngCore;
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 use pairing::MultiMillerLoop;
 
@@ -188,14 +189,14 @@ impl_add_binop_specify_output!(MillerLoopResult, MillerLoopResult, MillerLoopRes
 impl AddAssign<MillerLoopResult> for MillerLoopResult {
     #[inline]
     fn add_assign(&mut self, rhs: MillerLoopResult) {
-        *self = &*self + &rhs;
+        *self = *self + rhs;
     }
 }
 
 impl<'b> AddAssign<&'b MillerLoopResult> for MillerLoopResult {
     #[inline]
     fn add_assign(&mut self, rhs: &'b MillerLoopResult) {
-        *self = &*self + rhs;
+        *self = *self + rhs;
     }
 }
 
@@ -241,6 +242,8 @@ impl PartialEq for Gt {
 }
 
 impl Gt {
+    const BYTES: usize = 576;
+
     /// Returns the group identity, which is $1$.
     pub fn identity() -> Gt {
         Gt(Fp12::one())
@@ -249,6 +252,99 @@ impl Gt {
     /// Doubles this group element.
     pub fn double(&self) -> Gt {
         Gt(self.0.square())
+    }
+
+    /// Return the byte representation of this value in big-endian
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        let mut output = [0u8; Self::BYTES];
+        output[..48].copy_from_slice(&self.0.c0.c0.c0.to_bytes());
+        output[48..96].copy_from_slice(&self.0.c0.c0.c1.to_bytes());
+        output[96..144].copy_from_slice(&self.0.c0.c1.c0.to_bytes());
+        output[144..192].copy_from_slice(&self.0.c0.c1.c1.to_bytes());
+        output[192..240].copy_from_slice(&self.0.c0.c2.c0.to_bytes());
+        output[240..288].copy_from_slice(&self.0.c0.c2.c1.to_bytes());
+        output[288..336].copy_from_slice(&self.0.c1.c0.c0.to_bytes());
+        output[336..384].copy_from_slice(&self.0.c1.c0.c1.to_bytes());
+        output[384..432].copy_from_slice(&self.0.c1.c1.c0.to_bytes());
+        output[432..480].copy_from_slice(&self.0.c1.c1.c1.to_bytes());
+        output[480..528].copy_from_slice(&self.0.c1.c2.c0.to_bytes());
+        output[528..Self::BYTES].copy_from_slice(&self.0.c1.c2.c1.to_bytes());
+        output
+    }
+
+    /// Attempts to convert a big-endian byte representation of
+    /// a scalar into a `Gt`, failing if the input is not canonical.
+    pub fn from_bytes(bytes: &[u8; Self::BYTES]) -> CtOption<Self> {
+        let c000 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[..48]).unwrap());
+        let c001 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[48..96]).unwrap());
+        let c010 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[96..144]).unwrap());
+        let c011 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[144..192]).unwrap());
+        let c020 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[192..240]).unwrap());
+        let c021 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[240..288]).unwrap());
+        let c100 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[288..336]).unwrap());
+        let c101 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[336..384]).unwrap());
+        let c110 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[384..432]).unwrap());
+        let c111 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[432..480]).unwrap());
+        let c120 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[480..528]).unwrap());
+        let c121 = Fp::from_bytes(&<[u8; 48]>::try_from(&bytes[528..Self::BYTES]).unwrap());
+
+        c000.and_then(|cc000| {
+            c001.and_then(|cc001| {
+                c010.and_then(|cc010| {
+                    c011.and_then(|cc011| {
+                        c020.and_then(|cc020| {
+                            c021.and_then(|cc021| {
+                                c100.and_then(|cc100| {
+                                    c101.and_then(|cc101| {
+                                        c110.and_then(|cc110| {
+                                            c111.and_then(|cc111| {
+                                                c120.and_then(|cc120| {
+                                                    c121.and_then(|cc121| {
+                                                        CtOption::new(
+                                                            Gt(Fp12 {
+                                                                c0: Fp6 {
+                                                                    c0: Fp2 {
+                                                                        c0: cc000,
+                                                                        c1: cc001,
+                                                                    },
+                                                                    c1: Fp2 {
+                                                                        c0: cc010,
+                                                                        c1: cc011,
+                                                                    },
+                                                                    c2: Fp2 {
+                                                                        c0: cc020,
+                                                                        c1: cc021,
+                                                                    },
+                                                                },
+                                                                c1: Fp6 {
+                                                                    c0: Fp2 {
+                                                                        c0: cc100,
+                                                                        c1: cc101,
+                                                                    },
+                                                                    c1: Fp2 {
+                                                                        c0: cc110,
+                                                                        c1: cc111,
+                                                                    },
+                                                                    c2: Fp2 {
+                                                                        c0: cc120,
+                                                                        c1: cc121,
+                                                                    },
+                                                                },
+                                                            }),
+                                                            Choice::from(1u8),
+                                                        )
+                                                    })
+                                                })
+                                            })
+                                        })
+                                    })
+                                })
+                            })
+                        })
+                    })
+                })
+            })
+        })
     }
 }
 
@@ -479,6 +575,13 @@ impl Group for Gt {
     }
 }
 
+impl_serde!(
+    Gt,
+    |p: &Gt| p.to_bytes(),
+    |arr: &[u8; Gt::BYTES]| Gt::from_bytes(arr),
+    Gt::BYTES
+);
+
 #[cfg_attr(docsrs, doc(cfg(all(feature = "pairings"))))]
 #[derive(Clone, Debug)]
 /// This structure contains cached computations pertaining to a $\mathbb{G}_2$
@@ -630,8 +733,8 @@ pub fn pairing(p: &G1Affine, q: &G2Affine) -> Gt {
     }
 
     let either_identity = p.is_identity() | q.is_identity();
-    let p = G1Affine::conditional_select(&p, &G1Affine::generator(), either_identity);
-    let q = G2Affine::conditional_select(&q, &G2Affine::generator(), either_identity);
+    let p = G1Affine::conditional_select(p, &G1Affine::generator(), either_identity);
+    let q = G2Affine::conditional_select(q, &G2Affine::generator(), either_identity);
 
     let mut adder = Adder {
         cur: G2Projective::from(q),
@@ -961,4 +1064,28 @@ fn tricking_miller_loop_result() {
         .final_exponentiation(),
         Gt::identity()
     );
+}
+
+#[test]
+fn serialization() {
+    use rand_core::SeedableRng;
+    use rand_xorshift::XorShiftRng;
+
+    let seed = [1u8; 16];
+    let mut rng = XorShiftRng::from_seed(seed);
+
+    let t1 = Gt::random(rng);
+    let bytes = t1.to_bytes();
+    let res = Gt::from_bytes(&bytes);
+    assert_eq!(res.is_some().unwrap_u8(), 1u8);
+    let t2 = res.unwrap();
+    assert_eq!(t1, t2);
+
+    let res = serde_bare::to_vec(&t1);
+    assert!(res.is_ok());
+    let bytes = res.unwrap();
+    let res = serde_bare::from_slice(&bytes);
+    assert!(res.is_ok());
+    let t2 = res.unwrap();
+    assert_eq!(t1, t2);
 }

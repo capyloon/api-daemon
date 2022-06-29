@@ -13,17 +13,18 @@
 [package]
 edition = "2018"
 name = "libsecp256k1"
-version = "0.5.0"
+version = "0.7.0"
 authors = ["Wei Tang <hi@that.world>"]
 description = "Pure Rust secp256k1 implementation."
 keywords = ["crypto", "ECDSA", "secp256k1", "bitcoin", "no_std"]
 license = "Apache-2.0"
 repository = "https://github.com/paritytech/libsecp256k1"
+resolver = "2"
 [dependencies.arrayref]
 version = "0.3"
 
 [dependencies.base64]
-version = "0.12"
+version = "0.13"
 default-features = false
 
 [dependencies.digest]
@@ -33,12 +34,16 @@ version = "0.9"
 version = "0.3"
 optional = true
 
+[dependencies.lazy_static]
+version = "1.4.0"
+optional = true
+
 [dependencies.libsecp256k1-core]
-version = "0.2.0"
+version = "0.3.0"
 default-features = false
 
 [dependencies.rand]
-version = "0.7"
+version = "0.8"
 default-features = false
 
 [dependencies.serde]
@@ -58,23 +63,24 @@ optional = true
 version = "0.2"
 
 [dev-dependencies.hex-literal]
-version = "0.2.1"
+version = "0.3.3"
 
 [dev-dependencies.secp256k1-test]
-version = "0.17"
+version = "0.20.3"
 features = ["rand-std", "recovery"]
 package = "secp256k1"
 
 [dev-dependencies.serde_json]
 version = "1.0"
 [build-dependencies.libsecp256k1-gen-ecmult]
-version = "0.2.0"
+version = "0.3.0"
 
 [build-dependencies.libsecp256k1-gen-genmult]
-version = "0.2.0"
+version = "0.3.0"
 
 [features]
 default = ["std", "hmac", "static-context"]
 hmac = ["hmac-drbg", "sha2", "typenum"]
+lazy-static-context = ["static-context", "lazy_static", "std"]
 static-context = []
 std = ["libsecp256k1-core/std", "sha2/std", "rand/std", "serde/std", "base64/std"]

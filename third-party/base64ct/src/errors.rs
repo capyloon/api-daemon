@@ -3,7 +3,7 @@
 use core::fmt;
 
 const INVALID_ENCODING_MSG: &str = "invalid Base64 encoding";
-const INVALID_LENGTH_MSG: &str = "insufficient output buffer length";
+const INVALID_LENGTH_MSG: &str = "invalid Base64 length";
 
 /// Insufficient output buffer length.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -65,5 +65,22 @@ impl From<InvalidLengthError> for Error {
     }
 }
 
+impl From<core::str::Utf8Error> for Error {
+    #[inline]
+    fn from(_: core::str::Utf8Error) -> Error {
+        Error::InvalidEncoding
+    }
+}
+
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+impl From<Error> for std::io::Error {
+    fn from(err: Error) -> std::io::Error {
+        // TODO(tarcieri): better customize `ErrorKind`?
+        std::io::Error::new(std::io::ErrorKind::InvalidData, err)
+    }
+}
+
+#[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl std::error::Error for Error {}

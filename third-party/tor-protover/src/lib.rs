@@ -34,6 +34,8 @@
 //! protocols against the required list in the consensus.)
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -64,6 +66,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 #![allow(non_upper_case_globals)]
@@ -274,13 +277,13 @@ impl Protocols {
 #[non_exhaustive]
 pub enum ParseError {
     /// A protocol version was not in the range 0..=63.
-    #[error("protocol version out of range")]
+    #[error("Protocol version out of range")]
     OutOfRange,
     /// Some subprotocol or protocol version appeared more than once.
-    #[error("duplicate protocol entry")]
+    #[error("Duplicate protocol entry")]
     Duplicate,
     /// The list of protocol versions was malformed in some other way.
-    #[error("malformed protocol entry")]
+    #[error("Malformed protocol entry")]
     Malformed,
 }
 

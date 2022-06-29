@@ -3,7 +3,7 @@
 This crate provides an implementation of the BLS12-381 pairing-friendly elliptic curve construction with [hash to curve](https://www.ietf.org/archive/id/draft-irtf-cfrg-hash-to-curve-10.html) and multiexponentiation methods like Straus and Pippenger.
 
 * **This implementation has not been reviewed or audited. Use at your own risk.**
-* This implementation targets Rust `1.51` or later.
+* This implementation targets Rust `1.56` or later.
 * This implementation does not require the Rust standard library.
 * All operations are constant time unless explicitly noted.
 
@@ -16,7 +16,7 @@ This crate provides an implementation of the BLS12-381 pairing-friendly elliptic
 * `alloc` (on by default): Enables APIs that require an allocator.
 * `nightly`: Enables `subtle/nightly` which tries to prevent compiler optimizations that could jeopardize constant time operations. Requires the nightly Rust compiler.
 * `experimental`: Enables experimental features. These features have no backwards-compatibility guarantees and may change at any time; users that depend on specific behaviour should pin an exact version of this crate. The current list of experimental features:
-  * Hashing to curves ([Internet Draft v11](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hash-to-curve-11))
+  * Hashing to curves ([Internet Draft v12](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hash-to-curve-12))
 
 ## [Documentation](https://docs.rs/bls12_381)
 

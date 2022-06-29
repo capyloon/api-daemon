@@ -9,7 +9,7 @@ use crate::crypto::cell::{
     ClientLayer, CryptInit, HopNum, InboundClientCrypt, InboundClientLayer, OutboundClientCrypt,
     OutboundClientLayer, RelayCellBody, Tor1RelayCrypto,
 };
-use crate::util::err::ReactorError;
+use crate::util::err::{ChannelClosed, ReactorError};
 use crate::{Error, Result};
 use std::collections::VecDeque;
 use std::marker::PhantomData;
@@ -633,7 +633,7 @@ impl Reactor {
 
             let _ = Pin::new(&mut self.channel)
                 .poll_flush(cx)
-                .map_err(|_| Error::ChannelClosed)?;
+                .map_err(|_| ChannelClosed)?;
             if create_message.is_some() {
                 Poll::Ready(Ok(create_message))
             } else if did_things {
@@ -673,7 +673,7 @@ impl Reactor {
             futures::future::poll_fn(|cx| -> Poll<Result<()>> {
                 let _ = Pin::new(&mut self.channel)
                     .poll_flush(cx)
-                    .map_err(|_| Error::ChannelClosed)?;
+                    .map_err(|_| ChannelClosed)?;
                 Poll::Ready(Ok(()))
             })
             .await?;
@@ -1006,7 +1006,10 @@ impl Reactor {
                 return Ok(());
             }
         }
-        let mut body: RelayCellBody = cell.encode(&mut rand::thread_rng())?.into();
+        let mut body: RelayCellBody = cell
+            .encode(&mut rand::thread_rng())
+            .map_err(|e| Error::from_cell_enc(e, "relay cell body"))?
+            .into();
         let tag = self.crypto_out.encrypt(&mut body, hop)?;
         // NOTE(eta): Now that we've encrypted the cell, we *must* either send it or abort
         //            the whole circuit (e.g. by returning an error).
@@ -1242,7 +1245,8 @@ impl Reactor {
             tag_copy
         };
         // Decode the cell.
-        let msg = RelayCell::decode(body.into())?;
+        let msg =
+            RelayCell::decode(body.into()).map_err(|e| Error::from_bytes_err(e, "relay cell"))?;
 
         let c_t_w = sendme::cell_counts_towards_windows(&msg);
 

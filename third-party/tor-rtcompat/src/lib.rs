@@ -96,7 +96,9 @@
 //!   crate for TLS support
 //! * `static` -- link the native TLS library statically (enables the `vendored` feature of the
 //!   `native-tls` crate).
-//! * `rustls` -- build with the [rustls](https://github.com/rustls/rustls) crate for TLS support
+//! * `rustls` -- build with the [rustls](https://github.com/rustls/rustls) crate for TLS support.  Note that `rustls` uses the `ring` crate, which uses
+//!    the old (3BSD/SSLEay) OpenSSL license, which may introduce licensing
+//!    compatibility issues.
 //!
 //! By default, *this* crate doesn't enable any features. However, you're almost certainly
 //! using this as part of the `arti-client` crate, which will enable `tokio` and `native-tls` in
@@ -137,6 +139,8 @@
 //! (See the [`tor-rtmock`] crate for examples.)
 
 // @@ begin lint list maintained by maint/add_warning @@
+#![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
+#![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
 #![deny(missing_docs)]
 #![warn(noop_method_call)]
 #![deny(unreachable_pub)]
@@ -167,6 +171,7 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 #[cfg(all(

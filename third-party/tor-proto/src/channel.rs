@@ -59,22 +59,28 @@ pub const CHANNEL_BUFFER_SIZE: usize = 128;
 mod circmap;
 mod codec;
 mod handshake;
+pub mod padding;
+pub mod params;
 mod reactor;
 mod unique_id;
 
+pub use crate::channel::params::*;
 use crate::channel::reactor::{BoxedChannelSink, BoxedChannelStream, CtrlMsg, Reactor};
 pub use crate::channel::unique_id::UniqId;
 use crate::circuit::celltypes::CreateResponse;
+use crate::util::err::ChannelClosed;
 use crate::util::ts::OptTimestamp;
 use crate::{circuit, ClockSkew};
 use crate::{Error, Result};
 use std::pin::Pin;
+use std::result::Result as StdResult;
 use std::time::Duration;
 use tor_cell::chancell::{msg, ChanCell, CircId};
 use tor_error::internal;
 use tor_linkspec::{ChanTarget, OwnedChanTarget};
 use tor_llcrypto::pk::ed25519::Ed25519Identity;
 use tor_llcrypto::pk::rsa::RsaIdentity;
+use tor_rtcompat::SleepProvider;
 
 use asynchronous_codec as futures_codec;
 use futures::channel::{mpsc, oneshot};
@@ -150,13 +156,13 @@ impl Sink<ChanCell> for Channel {
         let this = self.get_mut();
         Pin::new(&mut this.cell_tx)
             .poll_ready(cx)
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| ChannelClosed.into())
     }
 
     fn start_send(self: Pin<&mut Self>, cell: ChanCell) -> Result<()> {
         let this = self.get_mut();
         if this.details.closed.load(Ordering::SeqCst) {
-            return Err(Error::ChannelClosed);
+            return Err(ChannelClosed.into());
         }
         this.check_cell(&cell)?;
         {
@@ -174,21 +180,21 @@ impl Sink<ChanCell> for Channel {
 
         Pin::new(&mut this.cell_tx)
             .start_send(cell)
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| ChannelClosed.into())
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         let this = self.get_mut();
         Pin::new(&mut this.cell_tx)
             .poll_flush(cx)
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| ChannelClosed.into())
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         let this = self.get_mut();
         Pin::new(&mut this.cell_tx)
             .poll_close(cx)
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| ChannelClosed.into())
     }
 }
 
@@ -225,11 +231,12 @@ impl ChannelBuilder {
     /// authentication info from the relay: call `check()` on the result
     /// to check that.  Finally, to finish the handshake, call `finish()`
     /// on the result of _that_.
-    pub fn launch<T>(self, tls: T) -> OutboundClientHandshake<T>
+    pub fn launch<T, S>(self, tls: T, sleep_prov: S) -> OutboundClientHandshake<T, S>
     where
         T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+        S: SleepProvider,
     {
-        handshake::OutboundClientHandshake::new(tls, self.target)
+        handshake::OutboundClientHandshake::new(tls, self.target, sleep_prov)
     }
 }
 
@@ -239,14 +246,18 @@ impl Channel {
     /// Internal method, called to finalize the channel when we've
     /// sent our netinfo cell, received the peer's netinfo cell, and
     /// we're finally ready to create circuits.
-    fn new(
+    fn new<S>(
         link_protocol: u16,
         sink: BoxedChannelSink,
         stream: BoxedChannelStream,
         unique_id: UniqId,
         peer_id: OwnedChanTarget,
         clock_skew: ClockSkew,
-    ) -> (Self, reactor::Reactor) {
+        sleep_prov: S,
+    ) -> (Self, reactor::Reactor<S>)
+    where
+        S: SleepProvider,
+    {
         use circmap::{CircIdRange, CircMap};
         let circmap = CircMap::new(CircIdRange::High);
 
@@ -272,6 +283,9 @@ impl Channel {
             details: Arc::clone(&details),
         };
 
+        // We start disabled; the channel manager will `reconfigure` us soon after creation.
+        let padding_timer = Box::pin(padding::Timer::new_disabled(sleep_prov, None));
+
         let reactor = Reactor {
             control: control_rx,
             cells: cell_rx,
@@ -281,6 +295,7 @@ impl Channel {
             circ_unique_id_ctx: CircUniqIdContext::new(),
             link_protocol,
             details,
+            padding_timer,
         };
 
         (channel, reactor)
@@ -316,6 +331,18 @@ impl Channel {
     /// claimed that we had when we negotiated the connection.
     pub fn clock_skew(&self) -> ClockSkew {
         self.details.clock_skew
+    }
+
+    /// Reparameterise (update parameters; reconfigure)
+    ///
+    /// Returns `Err` if the channel was closed earlier
+    pub fn reparameterize(
+        &mut self,
+        updates: Arc<ChannelsParamsUpdates>,
+    ) -> StdResult<(), ChannelClosed> {
+        self.control
+            .unbounded_send(CtrlMsg::ConfigUpdate(updates))
+            .map_err(|_| ChannelClosed)
     }
 
     /// Return an error if this channel is somehow mismatched with the
@@ -402,7 +429,7 @@ impl Channel {
         &self,
     ) -> Result<(circuit::PendingClientCirc, circuit::reactor::Reactor)> {
         if self.is_closing() {
-            return Err(Error::ChannelClosed);
+            return Err(ChannelClosed.into());
         }
 
         // TODO: blocking is risky, but so is unbounded.
@@ -416,8 +443,8 @@ impl Channel {
                 sender,
                 tx,
             })
-            .map_err(|_| Error::ChannelClosed)?;
-        let (id, circ_unique_id) = rx.await.map_err(|_| Error::ChannelClosed)??;
+            .map_err(|_| ChannelClosed)?;
+        let (id, circ_unique_id) = rx.await.map_err(|_| ChannelClosed)??;
 
         trace!("{}: Allocated CircId {}", circ_unique_id, id);
 
@@ -447,7 +474,7 @@ impl Channel {
     pub fn close_circuit(&self, circid: CircId) -> Result<()> {
         self.control
             .unbounded_send(CtrlMsg::CloseCircuit(circid))
-            .map_err(|_| Error::ChannelClosed)?;
+            .map_err(|_| ChannelClosed)?;
         Ok(())
     }
 }
@@ -461,6 +488,7 @@ pub(crate) mod test {
     use crate::channel::codec::test::MsgBuf;
     pub(crate) use crate::channel::reactor::test::new_reactor;
     use tor_cell::chancell::{msg, ChanCell};
+    use tor_rtcompat::PreferredRuntime;
 
     /// Make a new fake reactor-less channel.  For testing only, obviously.
     pub(crate) fn fake_channel(details: Arc<ChannelDetails>) -> Channel {
@@ -489,17 +517,18 @@ pub(crate) mod test {
     #[test]
     fn send_bad() {
         tor_rtcompat::test_with_all_runtimes!(|_rt| async move {
+            use std::error::Error;
             let chan = fake_channel(fake_channel_details());
 
             let cell = ChanCell::new(7.into(), msg::Created2::new(&b"hihi"[..]).into());
             let e = chan.check_cell(&cell);
             assert!(e.is_err());
-            assert!(format!("{}", e.unwrap_err())
+            assert!(format!("{}", e.unwrap_err().source().unwrap())
                 .contains("Can't send CREATED2 cell on client channel"));
             let cell = ChanCell::new(0.into(), msg::Certs::new_empty().into());
             let e = chan.check_cell(&cell);
             assert!(e.is_err());
-            assert!(format!("{}", e.unwrap_err())
+            assert!(format!("{}", e.unwrap_err().source().unwrap())
                 .contains("Can't send CERTS cell after handshake is done"));
 
             let cell = ChanCell::new(5.into(), msg::Create2::new(2, &b"abc"[..]).into());
@@ -513,10 +542,11 @@ pub(crate) mod test {
 
     #[test]
     fn chanbuilder() {
+        let rt = PreferredRuntime::create().unwrap();
         let mut builder = ChannelBuilder::default();
         builder.set_declared_addr("127.0.0.1:9001".parse().unwrap());
         let tls = MsgBuf::new(&b""[..]);
-        let _outbound = builder.launch(tls);
+        let _outbound = builder.launch(tls, rt);
     }
 
     #[test]

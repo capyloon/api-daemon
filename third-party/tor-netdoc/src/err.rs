@@ -291,6 +291,9 @@ pub(crate) enum ParseErrorSource {
     /// An error when validating a signature.
     #[error("Invalid signature")]
     Signature(#[source] Arc<signature::Error>),
+    /// An error when validating a signature on an embedded binary certificate.
+    #[error("Invalid certificate")]
+    CertSignature(#[from] tor_cert::CertError),
     /// Invalid protocol versions.
     #[error("Protocol versions")]
     Protovers(#[from] tor_protover::ParseError),
@@ -416,6 +419,11 @@ impl Error {
     {
         self.source = Some(source.into());
         self
+    }
+
+    /// Return the [`ParseErrorKind`] of this error.
+    pub fn parse_error_kind(&self) -> ParseErrorKind {
+        self.kind
     }
 }
 
