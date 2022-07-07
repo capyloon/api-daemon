@@ -6,8 +6,8 @@ use crate::storage::DwebStorage;
 use async_std::path::Path;
 use common::core::BaseMessage;
 use common::traits::{
-    CommonResponder, DispatcherId, OriginAttributes, Service, SessionSupport, Shared,
-    SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
+    CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
+    Shared, SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{debug, error, info};
 use std::rc::Rc;
@@ -327,10 +327,16 @@ impl DwebMethods for DWebServiceImpl {
         }
 
         if let Ok(tokens) = self.state.lock().dweb_store.ucans_for_origin(&origin) {
-            let mut ucans: Vec<Box<dyn UcanMethods>> = vec![];
+            let mut ucans: Vec<Rc<dyn UcanMethods>> = vec![];
             for token in tokens {
-                if let Some(ucan) = crate::sidl_ucan::SidlUcan::try_new(token, self.state.clone()) {
-                    ucans.push(Box::new(ucan));
+                let id = self.tracker.next_id();
+                if let Some(ucan) =
+                    crate::sidl_ucan::SidlUcan::try_new(id, token, self.state.clone())
+                {
+                    let tracked = Rc::new(ucan);
+                    self.tracker
+                        .track(DwebServiceTrackedObject::Ucan(tracked.clone()));
+                    ucans.push(tracked);
                 }
             }
             responder.resolve(Rc::new(ucans));
@@ -412,7 +418,7 @@ impl Drop for DWebServiceImpl {
         // TODO: when needed
         // self.observers.clear(...);
 
-        // self.tracker.lock().clear();
+        self.tracker.clear();
     }
 }
 

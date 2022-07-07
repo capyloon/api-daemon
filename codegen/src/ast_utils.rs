@@ -458,7 +458,7 @@ impl TrackedInterfaceInfo {
     }
 
     pub fn type_representation(&self) -> String {
-        let mult_start = if self.multiple { "<Vec<Box" } else { "" };
+        let mult_start = if self.multiple { "<Vec<Rc" } else { "" };
         let mult_end = if self.multiple { ">>" } else { "" };
 
         format!(

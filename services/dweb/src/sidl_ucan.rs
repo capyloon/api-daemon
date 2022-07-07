@@ -1,27 +1,33 @@
 /// UCAN sidl implementation.
 use crate::generated::common::*;
 use crate::service::State;
-use common::traits::{Shared, SimpleObjectTracker};
+use common::traits::{Shared, SimpleObjectTracker, TrackerId};
 use ucan::ucan::Ucan;
 
 pub struct SidlUcan {
     inner: Ucan,
+    id: TrackerId,
     state: Shared<State>,
 }
 
-impl SimpleObjectTracker for SidlUcan {}
+impl SimpleObjectTracker for SidlUcan {
+    fn id(&self) -> TrackerId {
+        self.id
+    }
+}
 
 impl SidlUcan {
-    pub fn new(ucan: Ucan, state: Shared<State>) -> Self {
+    pub fn new(id: TrackerId, ucan: Ucan, state: Shared<State>) -> Self {
         Self {
+            id,
             inner: ucan,
             state: state.clone(),
         }
     }
 
-    pub fn try_new(token: String, state: Shared<State>) -> Option<Self> {
+    pub fn try_new(id: TrackerId, token: String, state: Shared<State>) -> Option<Self> {
         if let Ok(ucan) = Ucan::try_from_token_string(&token) {
-            Some(Self::new(ucan, state))
+            Some(Self::new(id, ucan, state))
         } else {
             None
         }
