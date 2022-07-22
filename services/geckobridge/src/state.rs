@@ -383,6 +383,15 @@ impl GeckoBridgeState {
         }
     }
 
+    pub fn apps_service_on_launch(&mut self, manifest_url: &Url) {
+        debug!("apps_service_on_launch: {}", manifest_url.as_str());
+        if let Some(service) = &mut self.appsservice {
+            let _ = service.on_launch(manifest_url.as_str().to_string());
+        } else {
+            error!("The apps service delegate is not set!");
+        }
+    }
+
     pub fn apps_service_get_ua(&mut self) -> Result<String, DelegateError> {
         if let Some(service) = &mut self.appsservice {
             let rx = service.get_ua();

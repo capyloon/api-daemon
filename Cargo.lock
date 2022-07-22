@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "daemon"
-version = "3.5.0"
+version = "3.5.1"
 dependencies = [
  "actix",
  "actix-cors",

@@ -5,7 +5,8 @@ use crate::downloader::{Downloader, DownloaderInfo};
 use crate::generated::common::*;
 use crate::manifest::{Manifest, ManifestError};
 use crate::shared_state::AppsSharedData;
-use common::traits::Shared;
+use common::traits::{Shared, SharedServiceState};
+use geckobridge::service::GeckoBridgeService;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -153,7 +154,10 @@ pub fn start_webapp_actor(shared_data: Shared<AppsSharedData>) {
 }
 
 fn validate_request(request: &Request) -> bool {
-    if (request.cmd == "install" || request.cmd == "install-pwa" || request.cmd == "uninstall")
+    if (request.cmd == "install"
+        || request.cmd == "install-pwa"
+        || request.cmd == "uninstall"
+        || request.cmd == "launch")
         && request.param.is_some()
     {
         true
@@ -293,6 +297,30 @@ fn handle_client(shared_data: Shared<AppsSharedData>, stream: UnixStream) {
                 }
 
                 info!("Uninstallation success");
+                write_response(&mut stream_write, &request.cmd, true, "success");
+            }
+            "launch" => {
+                let url = match Url::parse(&request.param.unwrap()) {
+                    Ok(url) => url,
+                    Err(err) => {
+                        error!("Invalid URL,  error: {:?}", err);
+                        write_response(
+                            &mut stream_write,
+                            &request.cmd,
+                            false,
+                            &format!("{:?}", err),
+                        );
+                        continue;
+                    }
+                };
+                if let Err(err) = launch(&shared_data, &url) {
+                    error!("launch failed, {}", err);
+                    write_response(&mut stream_write, &request.cmd, false, &format!("{}", err));
+
+                    continue;
+                }
+
+                info!("Launch success");
                 write_response(&mut stream_write, &request.cmd, true, "success");
             }
             "list" => match get_all(&shared_data) {
@@ -473,6 +501,23 @@ pub fn uninstall(
         .broadcast_app_uninstalled(manifest_url.clone());
 
     shared.vhost_api.app_uninstalled(&app.name);
+
+    Ok(())
+}
+
+pub fn launch(
+    shared_data: &Shared<AppsSharedData>,
+    manifest_url: &Url,
+) -> Result<(), AppsActorError> {
+    // Ensure that this is a valid manifest url.
+    let shared = shared_data.lock();
+    let _app = shared
+        .get_by_manifest_url(manifest_url)
+        .map_err(|_| AppsActorError::AppNotFound)?;
+
+    // Call the bridge to relay the command.
+    let bridge = GeckoBridgeService::shared_state();
+    bridge.lock().apps_service_on_launch(manifest_url);
 
     Ok(())
 }
@@ -873,6 +918,18 @@ fn test_validate_request() {
     let req = Request {
         cmd: "list".into(),
         param: Some("none".into()),
+    };
+    assert!(validate_request(&req));
+
+    let req = Request {
+        cmd: "launch".into(),
+        param: Some("app".into()),
+    };
+    assert!(validate_request(&req));
+
+    let req = Request {
+        cmd: "launch".into(),
+        param: Some("".into()),
     };
     assert!(validate_request(&req));
 }
