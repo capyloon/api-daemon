@@ -17,6 +17,8 @@ callback AppsServiceDelegate {
   fn on_uninstall(manifest_url: str)
   // Get the user_agent from gecko.
   fn get_ua() -> str
+  // Request the app for this manifest url to be launched.
+  fn on_launch(manifest_url: str)
 }
 
 callback Wakelock {

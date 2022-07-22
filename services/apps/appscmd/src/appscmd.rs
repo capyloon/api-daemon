@@ -276,6 +276,15 @@ fn run() -> Result<(), CmdLineError> {
                         .help("The manifest URL of the application to uninstall"),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("launch")
+                .about("Launch an application")
+                .arg(
+                    Arg::with_name("manifest_url")
+                        .required(true)
+                        .help("The manifest URL of the application to launch"),
+                ),
+        )
         .subcommand(SubCommand::with_name("list").about("List installed applications"))
         .subcommand(SubCommand::with_name("wait").about("Wait for the api-daemon to be ready"))
         .subcommand(SubCommand::with_name("show-warnings").about("Show warnings of non-fatal errors"))
@@ -340,6 +349,11 @@ fn run() -> Result<(), CmdLineError> {
     } else if let Some(sub_command) = matches.subcommand_matches("uninstall") {
         Request {
             cmd: "uninstall".into(),
+            param: Some(sub_command.value_of("manifest_url").unwrap().into()),
+        }
+    } else if let Some(sub_command) = matches.subcommand_matches("launch") {
+        Request {
+            cmd: "launch".into(),
             param: Some(sub_command.value_of("manifest_url").unwrap().into()),
         }
     } else if matches.subcommand_matches("list").is_some() {
