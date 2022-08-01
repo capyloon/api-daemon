@@ -478,6 +478,7 @@ impl Codegen {
                 TypedMessage::Request(req) => {
                     writeln!(sink, "{}Request: {{", req.name)?;
                     writeln!(sink, "encode: (data) => {{")?;
+                    writeln!(sink, "let timerStart = Date.now();")?;
                     writeln!(sink, "let encoder = new Encoder();")?;
                     writeln!(sink, "let result = encoder.enum_tag({});", req_index)?;
                     req_index += 1;
@@ -486,6 +487,7 @@ impl Codegen {
                         self.write_encoder_for_item("data", ptype, sink)?;
                     }
 
+                    writeln!(sink, "console.log(`Encoding {} request: ${{Date.now() - timerStart}}ms`);", req.name)?;
                     writeln!(sink, "return result.value();")?;
                     writeln!(sink, "}}")?;
                     writeln!(sink, "}},")?;
@@ -494,6 +496,7 @@ impl Codegen {
                     // For each response, provide a decoder.
                     writeln!(sink, "{}Response: {{", resp.name)?;
                     writeln!(sink, "decode: (buffer , service_id, session) => {{")?;
+                    writeln!(sink, "let timerStart = Date.now();")?;
                     writeln!(sink, "let decoder = new Decoder(buffer);")?;
                     writeln!(sink, "let variant = decoder.enum_tag();")?;
 
@@ -504,6 +507,7 @@ impl Codegen {
 
                         writeln!(sink, "let result = null;")?;
                         self.write_decoder_for_item(item, sink, "result")?;
+                        writeln!(sink, "console.log(`Decoding {} response: ${{Date.now() - timerStart}}ms`);", resp.name)?;
                         writeln!(sink, "return {{ success: result }}")?;
                         writeln!(sink, "}}")?;
 
@@ -518,6 +522,7 @@ impl Codegen {
 
                         writeln!(sink, "let result = null;")?;
                         self.write_decoder_for_item(item, sink, "result")?;
+                        writeln!(sink, "console.log(`Decoding {} response: ${{Date.now() - timerStart}}ms`);", resp.name)?;
                         writeln!(sink, "return {{ error: result }}")?;
                         writeln!(sink, "}}")?;
                         resp_index += 1;
