@@ -258,7 +258,7 @@ impl AppsItem {
             // If the update_url is empty and the removable is true or we
             // explicitely allow to remove preloaded apps,
             // allow the sideload one to override the preload one.
-            if allow_remove_preloaded {
+            if allow_remove_preloaded && found {
                 false
             } else {
                 found && !self.removable
