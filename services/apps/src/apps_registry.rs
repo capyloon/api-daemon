@@ -367,7 +367,8 @@ impl AppsRegistry {
 
             if let Some(origin) = origin {
                 let origin = origin.to_lowercase();
-                if !Self::is_valid_hostname(&origin) || db.get_first_by_name(&origin).is_ok() {
+                if !Self::is_valid_hostname(&origin) ||
+                   (db.get_first_by_name(&origin).is_ok() && update_url.is_some()) {
                     return Err(AppsServiceError::InvalidOrigin);
                 }
                 return Ok(origin);
@@ -1200,11 +1201,23 @@ fn test_register_app() {
     // Test register_app - without update url
     let name = "some_name";
     let launch_path = "some_path";
-    let b2g_features = None;
-    let manifest = Manifest::new(name, launch_path, b2g_features);
+    let manifest = Manifest::new(name, launch_path, None);
     let app_name = registry
         .get_unique_name(&manifest.get_name(), manifest.get_origin(), None)
         .unwrap();
+    assert_eq!(app_name, "somename");
+    let mut apps_item = AppsItem::default(&app_name, vhost_port);
+    apps_item.set_install_state(AppsInstallState::Installing);
+    if registry.register_app(&apps_item).is_err() {
+        panic!();
+    }
+
+    // Install the same app again
+    let manifest = Manifest::new(name, launch_path, None);
+    let app_name = registry
+        .get_unique_name(&manifest.get_name(), manifest.get_origin(), None)
+        .unwrap();
+    assert_eq!(app_name, "somename");
     let mut apps_item = AppsItem::default(&app_name, vhost_port);
     apps_item.set_install_state(AppsInstallState::Installing);
     if registry.register_app(&apps_item).is_err() {
@@ -1220,7 +1233,7 @@ fn test_register_app() {
     let name = "helloworld";
     let launch_path = "/index.html";
     let version = "1.0.0";
-    let data = r#"{"version": "1.0.0"}"#;
+    let data = r#"{"version": "1.0.0", "origin": "helloworld"}"#;
     let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
     let manifest = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
@@ -1259,7 +1272,7 @@ fn test_register_app() {
     let name = "helloworld";
     let launch_path = "/index.html";
     let version = "1.0.1";
-    let data = r#"{"version": "1.0.1"}"#;
+    let data = r#"{"version": "1.0.1", "origin": "helloworld"}"#;
     let b2g_features: B2GFeatures = serde_json::from_str(data).unwrap();
     let manifest1 = Manifest::new(name, launch_path, Some(b2g_features));
     let app_name = registry
