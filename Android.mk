@@ -4,7 +4,7 @@
 
 LOCAL_PATH:= $(call my-dir)
 GONK_DIR := $(abspath $(LOCAL_PATH)/../../)
-DAEMON_ROOT := $(abspath $(LOCAL_PATH))
+API_DAEMON_ROOT := $(abspath $(LOCAL_PATH))
 
 # Add the api-daemon executable.
 include $(CLEAR_VARS)
@@ -55,7 +55,7 @@ $(LOCAL_BUILT_MODULE): $(TARGET_CRTBEGIN_DYNAMIC_O) $(TARGET_CRTEND_O) $(addpref
 	export BUILD_WITH_NDK_DIR=$(LOCAL_NDK) && \
 	export GONK_DIR=$(GONK_DIR) && \
 	export GONK_PRODUCT=$(TARGET_DEVICE) && \
-	(cd $(DAEMON_ROOT) ; $(SHELL) update-prebuilts.sh)
+	(cd $(API_DAEMON_ROOT) ; $(SHELL) update-prebuilts.sh)
 
 $(LOCAL_INSTALLED_MODULE):
 	@mkdir -p $(@D)
@@ -63,8 +63,8 @@ $(LOCAL_INSTALLED_MODULE):
 	@mkdir -p $(TARGET_OUT)/api-daemon
 	@rm -rf $(TARGET_OUT)/api-daemon/*
 
-	@cp $(DAEMON_ROOT)/daemon/config-device.toml $(TARGET_OUT)/api-daemon/config.toml
-	@cp -R $(DAEMON_ROOT)/prebuilts/http_root $(TARGET_OUT)/api-daemon/
-	@cp $(DAEMON_ROOT)/$(API_DAEMON_EXEC) $(TARGET_OUT)/bin/
-	@cp $(DAEMON_ROOT)/services/devicecapability/devicecapability.json $(TARGET_OUT)/b2g/defaults/devicecapability.json
+	@cp $(API_DAEMON_ROOT)/daemon/config-device.toml $(TARGET_OUT)/api-daemon/config.toml
+	@cp -R $(API_DAEMON_ROOT)/prebuilts/http_root $(TARGET_OUT)/api-daemon/
+	@cp $(API_DAEMON_ROOT)/$(API_DAEMON_EXEC) $(TARGET_OUT)/bin/
+	@cp $(API_DAEMON_ROOT)/services/devicecapability/devicecapability.json $(TARGET_OUT)/b2g/defaults/devicecapability.json
 	@cp $(LOCAL_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$(TARGET_INCLUDE)/libc++_shared.so $(TARGET_OUT)/lib$(LIBSUFFIX)
