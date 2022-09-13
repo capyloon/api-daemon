@@ -1460,8 +1460,8 @@ impl ContactsDb {
         debug!("ContactsDb::remove_blocked_number number:{}", number);
 
         let conn = self.db.connection();
-        let mut stmt = conn.prepare("DELETE FROM blocked_numbers WHERE number = ?")?;
-        let size = stmt.execute(&[number])?;
+        let mut stmt = conn.prepare("DELETE FROM blocked_numbers WHERE match_key = ?")?;
+        let size = stmt.execute([format_phone_number(number)])?;
         if size > 0 {
             let event = BlockedNumberChangeEvent {
                 reason: ChangeReason::Remove,
