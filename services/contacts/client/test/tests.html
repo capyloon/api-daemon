@@ -1859,6 +1859,8 @@
           ["4444444444", "4446666666", "4448885555"]
         );
 
+        // Verify findBlockedNumbers with Match filterOption.
+        // And make sure +16503903655 blocked number exist.
         await tester.assert_eq(
           `find blocked numbers use Match filterOption`,
           (service) => {
@@ -1882,6 +1884,29 @@
             });
           },
           ["+16503903655"]
+        );
+
+        await tester.assert_eq(
+          "remove blocked number with national number 6503903655",
+          (service) => service.removeBlockedNumber("6503903655"),
+          {}
+        );
+
+        await tester.assert_eq(
+          `verify +16503903655 blocked number is removed`,
+          (service) => {
+            return new Promise((resolve, reject) => {
+              service
+                .findBlockedNumbers({
+                  filterValue: "6503903655",
+                  filterOption: lib_contacts.FilterOption.MATCH,
+                })
+                .then((numbers) => {
+                  resolve(numbers.length);
+                });
+            });
+          },
+          0
         );
 
         let get_all_cursor = await tester.service.getAll(
