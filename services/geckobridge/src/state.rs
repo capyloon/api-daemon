@@ -35,6 +35,14 @@ pub enum DelegateError {
     InvalidAppsService,
 }
 
+#[derive(Debug)]
+pub enum PrefType {
+    Char,
+    Int,
+    Bool,
+}
+
+#[derive(Clone, Debug)]
 pub enum PrefValue {
     Str(String),
     Int(i64),
@@ -52,6 +60,8 @@ pub struct GeckoBridgeState {
     observers: Vec<Sender<()>>,
     tokens: SharedTokensManager,
     pub(crate) pool: ThreadPool,
+    pref_observers: HashMap<String, HashMap<i64, Sender<PrefValue>>>,
+    pref_observers_id: i64,
 }
 
 impl From<&EmptyConfig> for GeckoBridgeState {
@@ -107,6 +117,8 @@ impl GeckoBridgeState {
         // delegates.
         let tracker = self.proxy_tracker();
         tracker.lock().clear();
+        self.pref_observers = HashMap::new();
+        self.pref_observers_id = 0;
 
         // On session dropped, do no reset the observers.
     }
@@ -151,8 +163,68 @@ impl GeckoBridgeState {
         receiver
     }
 
+    // Return id and receiver to receive the update when a pref is changed.
+    // The 'id' can be used in remove_pref_observer.
+    pub fn add_pref_observer(
+        &mut self,
+        name: &str,
+        value_type: PrefType,
+    ) -> (i64, Receiver<PrefValue>) {
+        let (sender, receiver) = channel();
+
+        let id = self.pref_observers_id + 1;
+        if self.pref_observers.get(name).is_none() {
+            self.pref_observers.insert(name.to_string(), HashMap::new());
+        }
+        if let Some(observer) = self.pref_observers.get_mut(name) {
+            observer.insert(id, sender);
+        } else {
+            error!("Failed to get pref_observers.");
+        }
+        self.pref_observers_id = id;
+        // This will notify the gecko to add the pref to the interested list.
+        if self.prefs.get(name).is_none() {
+            match value_type {
+                PrefType::Char => {
+                    let _ = self.preference_get_char(name.to_string());
+                }
+                PrefType::Bool => {
+                    let _ = self.preference_get_bool(name.to_string());
+                }
+                PrefType::Int => {
+                    let _ = self.preference_get_int(name.to_string());
+                }
+            }
+        }
+
+        (id, receiver)
+    }
+
+    pub fn remove_pref_observer(&mut self, name: &str, id: i64) {
+        if let Some(observers) = self.pref_observers.get_mut(name) {
+            let _ = observers.remove(&id);
+        } else {
+            error!("Observer for {} is not found.", name);
+        }
+    }
+
+    fn notify_pref_observers(&mut self, name: &str, value: PrefValue) {
+        let mut err_list: Vec<i64> = Vec::new();
+        if let Some(observers) = self.pref_observers.get_mut(name) {
+            for (id, sender) in observers.clone() {
+                if sender.send(value.clone()).is_err() {
+                    err_list.push(id);
+                }
+            }
+            for id in &err_list {
+                let _ = observers.remove(id);
+            }
+        }
+    }
+
     // Preferences related methods.
     pub fn set_bool_pref(&mut self, name: String, value: bool) {
+        self.notify_pref_observers(&name, PrefValue::Bool(value));
         let _ = self.prefs.insert(name, PrefValue::Bool(value));
     }
 
@@ -164,6 +236,7 @@ impl GeckoBridgeState {
     }
 
     pub fn set_int_pref(&mut self, name: String, value: i64) {
+        self.notify_pref_observers(&name, PrefValue::Int(value));
         let _ = self.prefs.insert(name, PrefValue::Int(value));
     }
 
@@ -175,6 +248,7 @@ impl GeckoBridgeState {
     }
 
     pub fn set_char_pref(&mut self, name: String, value: String) {
+        self.notify_pref_observers(&name, PrefValue::Str(value.clone()));
         let _ = self.prefs.insert(name, PrefValue::Str(value));
     }
 
@@ -339,7 +413,11 @@ impl GeckoBridgeState {
     }
 
     pub fn apps_service_on_boot(&mut self, manifest_url: &Url, value: JsonValue) {
-        debug!("apps_service_on_boot: {} - {:?}", manifest_url.as_str(), value);
+        debug!(
+            "apps_service_on_boot: {} - {:?}",
+            manifest_url.as_str(),
+            value
+        );
         if let Some(service) = &mut self.appsservice {
             let _ = service.on_boot(manifest_url.as_str().to_string(), value);
         } else {
@@ -357,7 +435,11 @@ impl GeckoBridgeState {
     }
 
     pub fn apps_service_on_install(&mut self, manifest_url: &Url, value: JsonValue) {
-        debug!("apps_service_on_install: {} - {:?}", manifest_url.as_str(), value);
+        debug!(
+            "apps_service_on_install: {} - {:?}",
+            manifest_url.as_str(),
+            value
+        );
         if let Some(service) = &mut self.appsservice {
             let _ = service.on_install(manifest_url.as_str().to_string(), value);
         } else {
@@ -366,7 +448,11 @@ impl GeckoBridgeState {
     }
 
     pub fn apps_service_on_update(&mut self, manifest_url: &Url, value: JsonValue) {
-        debug!("apps_service_on_update: {} - {:?}", manifest_url.as_str(), value);
+        debug!(
+            "apps_service_on_update: {} - {:?}",
+            manifest_url.as_str(),
+            value
+        );
         if let Some(service) = &mut self.appsservice {
             let _ = service.on_update(manifest_url.as_str().to_string(), value);
         } else {
@@ -547,6 +633,107 @@ impl<T> DelegateResponse<T> {
                 .map_err(|_| DelegateError::InvalidChannel)
                 .and_then(|result| result.map_err(|_| DelegateError::InvalidWebRuntimeService)),
             Self::Error(err) => Err(err.clone()),
+        }
+    }
+}
+
+#[test]
+fn test_pref_observer() {
+    use crate::service::GeckoBridgeService;
+    use common::traits::EmptyConfig;
+    use common::traits::SharedServiceState;
+
+    GeckoBridgeService::init_shared_state(&EmptyConfig);
+    let shared = GeckoBridgeService::shared_state();
+
+    let mut receivers = Vec::new();
+
+    // 1. Add some prefs observers and check if the id got increased.
+    let (id, receiver) = shared
+        .lock()
+        .add_pref_observer("test.pref.char", PrefType::Char);
+    assert_eq!(id, 1);
+    receivers.push(receiver);
+
+    let (id, receiver) = shared
+        .lock()
+        .add_pref_observer("test.pref.char", PrefType::Char);
+    assert_eq!(id, 2);
+    receivers.push(receiver);
+
+    let (id, receiver) = shared
+        .lock()
+        .add_pref_observer("test.pref.bool", PrefType::Bool);
+    assert_eq!(id, 3);
+    receivers.push(receiver);
+
+    let (id, receiver) = shared
+        .lock()
+        .add_pref_observer("test.pref.bool", PrefType::Bool);
+    assert_eq!(id, 4);
+    // Do not push to receivers list, and will try to receive after remove.
+    let removed_receiver = receiver;
+    shared.lock().remove_pref_observer("test.pref.bool", id);
+
+    let (id, receiver) = shared
+        .lock()
+        .add_pref_observer("test.pref.int", PrefType::Int);
+    assert_eq!(id, 5);
+    receivers.push(receiver);
+
+    let (id, receiver) = shared
+        .lock()
+        .add_pref_observer("test.pref.int", PrefType::Int);
+    assert_eq!(id, 6);
+    receivers.push(receiver);
+
+    // 2. Set prefs to notify the observers.
+    shared.lock().set_int_pref("test.pref.int".to_string(), 1);
+    shared
+        .lock()
+        .set_char_pref("test.pref.char".to_string(), "foo".to_string());
+    shared
+        .lock()
+        .set_bool_pref("test.pref.bool".to_string(), true);
+
+    // 3. check if all receivers got notified;
+    for receiver in &receivers {
+        if let Ok(val) = receiver.try_recv() {
+            match val {
+                PrefValue::Str(v) => assert_eq!(v, "foo"),
+                PrefValue::Bool(v) => assert_eq!(v, true),
+                PrefValue::Int(v) => assert_eq!(v, 1),
+            }
+        } else {
+            panic!("Failed to receive.");
+        }
+    }
+
+    if removed_receiver.try_recv().is_ok() {
+        panic!("Should not receive after remove.");
+    }
+
+    // 4. Pop the last entry, set pref and test again.
+    let poped_receiver = receivers.pop().unwrap();
+    drop(poped_receiver);
+    shared.lock().set_int_pref("test.pref.int".to_string(), 2);
+    shared
+        .lock()
+        .set_char_pref("test.pref.char".to_string(), "bar".to_string());
+    shared
+        .lock()
+        .set_bool_pref("test.pref.bool".to_string(), false);
+
+    // 5. check if all receivers got notified;
+    for receiver in &receivers {
+        if let Ok(val) = receiver.try_recv() {
+            match val {
+                PrefValue::Str(v) => assert_eq!(v, "bar"),
+                PrefValue::Bool(v) => assert_eq!(v, false),
+                PrefValue::Int(v) => assert_eq!(v, 2),
+            }
+        } else {
+            panic!("Failed to receive.");
         }
     }
 }
