@@ -4,6 +4,8 @@
  * Takes care of managing the initial handshake.
  */
 
+import { core } from "./core.js";
+
 class WSTransport {
     /**
      * Initialize a web socket transport object.
@@ -36,14 +38,14 @@ class WSTransport {
         this.socket.onopen = () => {
             console.log("Websocket: opened");
             // Send the handshake
-            let handshake = new ExternalAPI.core.SessionHandshake(token);
+            let handshake = new core.SessionHandshake(token);
             this.socket.send(handshake.encode());
         }
 
         this.socket.onmessage = (event) => {
             if (this.state == "start") {
                 // We are waiting for the session Ack.
-                let ack = new ExternalAPI.core.SessionAck().decode(new Uint8Array(event.data));
+                let ack = new core.SessionAck().decode(new Uint8Array(event.data));
                 console.log(`Got ack: ${JSON.stringify(ack)}`);
                 if (!ack.success) {
                     this.socket.close();

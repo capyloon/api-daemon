@@ -9,7 +9,7 @@ function pack_lib() {
     rm -rf ${dst}/*.gz
     # Install generated documentation if present
     [ -f ${src}/generated/*_service.html ] && cp ${src}/generated/*_service.html ${dst}/docs.html
-    gzip --recursive --best --force ${dst}
+    /usr/bin/gzip --recursive --best --force ${dst}
 }
 
 function release_shared_lib() {
@@ -17,10 +17,11 @@ function release_shared_lib() {
     local dst=$1/shared
     local build_type=$2
 
+    mkdir -p ${dst}
+
     pushd ${src} 2>/dev/null
-    yarn install
-    yarn ${build_type}session
-    yarn ${build_type}core
+    mkdir -p dist
+    cp src/*.js dist
     popd 2>/dev/null
 
     pack_lib common/client ${dst}
@@ -33,8 +34,8 @@ function release_service_lib() {
     local build_type=$3
 
     pushd ${src} 2>/dev/null
-    yarn install
-    yarn ${build_type}
+    mkdir -p dist
+    cp generated/*.js dist/
     popd 2>/dev/null
 
     pack_lib ${src} ${dst}

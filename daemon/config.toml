@@ -28,3 +28,10 @@ allow_remove_preloaded = true
 [procmanager_service]
 socket_path = "/tmp/b2gkiller_hints"
 hints_path = "/tmp/prochints.dat"
+
+[content_manager]
+storage_path = "/Users/fabrice/dev/capyloon/nutria/builder/output/dev/costaeres"
+metadata_cache_capacity = 250
+
+[dweb]
+storage_path = "/Users/fabrice/dev/capyloon/nutria/builder/output/dev/dweb"

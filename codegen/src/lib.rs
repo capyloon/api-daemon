@@ -52,7 +52,6 @@ pub fn generate_rust_service(src: &Path, dest: &Path) -> Result<()> {
 pub fn generate_javascript_code(
     src: &Path,
     dest: &Path,
-    config: Option<config::Config>,
 ) -> Result<()> {
     info!("Generating Javascript code {:?} -> {:?}", src, dest);
     let ast = ast::Ast::parse_file(src, None)?;
@@ -63,7 +62,7 @@ pub fn generate_javascript_code(
     }
     let mut file = File::create(dest)?;
     let mut generator = javascript::Codegen::new(ast);
-    generator.generate(&mut file, &config.unwrap_or_default())?;
+    generator.generate(&mut file)?;
     Ok(())
 }
 

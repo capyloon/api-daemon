@@ -4,10 +4,9 @@
  * It hides the specificity of the transport layer.
  */
 
-import WSTransport from "./ws_transport";
-import services from "./services";
-
-var kcore = ExternalAPI.core;
+import WSTransport from "./ws_transport.js";
+import services from "./services.js";
+import { core } from "./core.js";
 
 const DEBUG = false;
 
@@ -15,14 +14,14 @@ const DEBUG = false;
  * Release an object registered in the finalization registry of this session.
  */
 function releaseObject(object, session) {
-  let buff = services.create_core_message(kcore.CoreRequest.RELEASE_OBJECT, {
+  let buff = services.create_core_message(core.CoreRequest.RELEASE_OBJECT, {
     service: object.service,
     object: object.id,
   });
-  let message = new kcore.BaseMessage(0, 0, buff);
-  session.send_request(message, kcore.CoreResponse).then((res) => {
+  let message = new core.BaseMessage(0, 0, buff);
+  session.send_request(message, core.CoreResponse).then((res) => {
     let msg = res.msg;
-    if (msg.variant === kcore.CoreRequest.RELEASE_OBJECT && msg.success) {
+    if (msg.variant === core.CoreRequest.RELEASE_OBJECT && msg.success) {
       DEBUG &&
         console.log(
           `Object #${object.id} on service ${
@@ -357,7 +356,7 @@ export class Session {
   on_message(data) {
     // Dispatch to the right service/object/promise once we have decoded the common header.
     // If request_id is in our request map, resolve the promise
-    let message = ExternalAPI.core.BaseMessage.decode(data);
+    let message = core.BaseMessage.decode(data);
     let kind = message.kind;
     DEBUG &&
       console.log(

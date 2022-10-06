@@ -1004,17 +1004,6 @@ impl Codegen {
         )?;
         writeln!(sink)?;
 
-        // Helper function that returns a wrapper object from a blob suitable for bincode.
-        write!(
-            sink,
-            r#"function wrapBlob(blob) {{
-            let btype = blob.type;
-            return blob.arrayBuffer().then(data => {{
-                return {{ __isblob__: true, data: new Uint8Array(data), type: btype }}
-            }});
-        }}"#
-        )?;
-
         Ok(())
     }
 
@@ -1034,16 +1023,14 @@ impl Codegen {
     pub fn generate<W: Write>(
         &mut self,
         sink: &mut W,
-        config: &crate::config::Config,
     ) -> Result<()> {
         writeln!(
             sink,
             r#"// This file is generated. Do not edit.
-              // @generated
-              import Services from '{}/client/src/services';
-              import SessionObject from '{}/client/src/sessionobject';
-              import {{Encoder, Decoder}} from '{}/client/src/bincode.js';"#,
-            config.js_common_path, config.js_common_path, config.js_common_path,
+// @generated
+import Services from '../shared/services.js';
+import SessionObject from '../shared/sessionobject.js';
+import {{Encoder, Decoder, wrapBlob}} from '../shared/bincode.js';"#
         )?;
 
         // Generate enums representations.
@@ -1162,7 +1149,7 @@ mod test {
         let mut generator = Codegen::new(ast);
 
         generator
-            .generate(&mut ::std::io::stdout(), &crate::config::Config::default())
+            .generate(&mut ::std::io::stdout())
             .expect("Failed to generate Javascript code!");
     }
 }

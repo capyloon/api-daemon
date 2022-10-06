@@ -2,7 +2,7 @@
  * Helper to get a reference to a service.
  */
 
-var kcore = ExternalAPI.core;
+import { core } from "./core.js";
 
 const DEBUG = false;
 
@@ -18,25 +18,25 @@ const Services = {
    */
   get: (name, fingerprint, session) => {
     DEBUG && console.log(`Services.get(${name})`);
-    let buff = kcore.CoreRequest.encode({
-      variant: kcore.CoreRequest.GET_SERVICE,
+    let buff = core.CoreRequest.encode({
+      variant: core.CoreRequest.GET_SERVICE,
       name: name,
       fingerprint: fingerprint,
     });
 
-    let base_message = new kcore.BaseMessage(
+    let base_message = new core.BaseMessage(
       /*service*/ 0,
       /*object*/ 0,
       /*content*/ buff
     );
     return session
-      .send_request(base_message, kcore.CoreResponse)
+      .send_request(base_message, core.CoreResponse)
       .then((res) => {
         DEBUG &&
           console.log(`Service.get(${name}) response: ${JSON.stringify(res)}`);
         let msg = res.msg;
         if (
-          msg.variant === kcore.CoreRequest.GET_SERVICE &&
+          msg.variant === core.CoreRequest.GET_SERVICE &&
           msg.response.service
         ) {
           return msg.response.service;
@@ -56,17 +56,17 @@ const Services = {
    */
   has: (name, session) => {
     DEBUG && console.log(`Services.has(${name})`);
-    let buff = kcore.CoreRequest.encode({
-      variant: kcore.CoreRequest.HAS_SERVICE,
+    let buff = core.CoreRequest.encode({
+      variant: core.CoreRequest.HAS_SERVICE,
       name: name,
     });
 
-    let message = new kcore.BaseMessage(
+    let message = new core.BaseMessage(
       /*service*/ 0,
       /*object*/ 0,
       /*content*/ buff
     );
-    return session.send_request(message, kcore.CoreResponse).then((res) => {
+    return session.send_request(message, core.CoreResponse).then((res) => {
       DEBUG &&
         console.log(`Service.has(${name}) response: ${JSON.stringify(res)}`);
       if (res.msg.success !== undefined) {
@@ -98,7 +98,7 @@ const Services = {
     }
 
     init_value.variant = variant;
-    return kcore.CoreRequest.encode(init_value);
+    return core.CoreRequest.encode(init_value);
   },
 };
 

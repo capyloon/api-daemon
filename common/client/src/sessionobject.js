@@ -2,9 +2,8 @@
  * Base object of a Session service object.
  */
 
-import services from "../../../common/client/src/services";
-
-var kcore = ExternalAPI.core;
+import services from "./services.js";
+import { core } from "./core.js";
 
 class SessionObject {
   /**
@@ -74,7 +73,7 @@ class SessionObject {
    * @param {object} base_message - the message to encode and send.
    */
   send_callback_message(base_message) {
-    let message = new kcore.BaseMessage(
+    let message = new core.BaseMessage(
       base_message.service,
       base_message.object,
       base_message.content
@@ -93,7 +92,7 @@ class SessionObject {
   call_method(method_name, payload) {
     // console.log(`SessionObject call_method ${method_name} ${JSON.stringify(payload || "")}`);
     let buff = this.create_payload_message(`${method_name}Request`, payload);
-    let message = new kcore.BaseMessage(this.service_id, this.id, buff);
+    let message = new core.BaseMessage(this.service_id, this.id, buff);
     return this.send_request(message, `${method_name}Response`).then(
       (res) => {
         return res;
@@ -130,7 +129,7 @@ class SessionObject {
   call_method_oneway(method_name, payload) {
     // console.log(`SessionObject call_method_oneway ${method_name} ${JSON.stringify(payload || "")}`);
     let buff = this.create_payload_message(`${method_name}Request`, payload);
-    let message = new kcore.BaseMessage(this.service_id, this.id, buff);
+    let message = new core.BaseMessage(this.service_id, this.id, buff);
     this.send_request_oneway(message);
   }
 
@@ -139,17 +138,17 @@ class SessionObject {
    *
    */
   release() {
-    let buff = services.create_core_message(kcore.CoreRequest.RELEASE_OBJECT, {
+    let buff = services.create_core_message(core.CoreRequest.RELEASE_OBJECT, {
       service: this.service_id,
       object: this.id,
     });
-    let message = new kcore.BaseMessage(0, 0, buff);
+    let message = new core.BaseMessage(0, 0, buff);
     return this.session
-      .send_request(message, kcore.CoreResponse)
+      .send_request(message, core.CoreResponse)
       .then((res) => {
         console.log("CoreResponse is %o", res);
         if (
-          res.msg.variant === kcore.CoreRequest.RELEASE_OBJECT &&
+          res.msg.variant === core.CoreRequest.RELEASE_OBJECT &&
           res.msg.success
         ) {
           return Promise.resolve();
@@ -169,13 +168,13 @@ class SessionObject {
    *
    */
   enable_event(event_id) {
-    let buff = services.create_core_message(kcore.CoreRequest.ENABLE_EVENT, {
+    let buff = services.create_core_message(core.CoreRequest.ENABLE_EVENT, {
       service: this.service_id,
       object: this.id,
       event: event_id,
     });
-    let message = new kcore.BaseMessage(0, 0, buff);
-    this.session.send_request(message, kcore.CoreResponse);
+    let message = new core.BaseMessage(0, 0, buff);
+    this.session.send_request(message, core.CoreResponse);
   }
 
   /**
@@ -185,13 +184,13 @@ class SessionObject {
    *
    */
   disable_event(event_id) {
-    let buff = services.create_core_message(kcore.CoreRequest.DISABLE_EVENT, {
+    let buff = services.create_core_message(core.CoreRequest.DISABLE_EVENT, {
       service: this.service_id,
       object: this.id,
       event: event_id,
     });
-    let message = new kcore.BaseMessage(0, 0, buff);
-    this.session.send_request(message, kcore.CoreResponse);
+    let message = new core.BaseMessage(0, 0, buff);
+    this.session.send_request(message, core.CoreResponse);
   }
 
   /**

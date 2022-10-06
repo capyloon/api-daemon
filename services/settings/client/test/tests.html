@@ -6,17 +6,20 @@
     <link rel="stylesheet" href="http://127.0.0.1:8081/tests/testing.css" />
   </head>
   <body>
-    <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
-    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script>
-    <script src="http://127.0.0.1:8081/api/v1/settings/service.js"></script>
-    <script src="http://127.0.0.1:8081/tests/testing.js"></script>
+    <!-- <script src="http://127.0.0.1:8081/api/v1/shared/core.js"></script>
+    <script src="http://127.0.0.1:8081/api/v1/shared/session.js"></script> -->
+    <!-- <script type=module src="http://127.0.0.1:8081/api/v1/settings/service.js"></script> -->
+    <!-- <script type=module src="http://127.0.0.1:8081/tests/testing.js"></script> -->
 
     <script>
       async function run_tests() {
-        let tester = await test_service(
-          lib_settings.SettingsManager,
-          "client-1"
+        const { test_service } = await import(
+          "http://127.0.0.1:8081/tests/testing.js"
         );
+        const { SettingsManager, GetErrorReason, SettingObserverBase } =
+          await import("http://127.0.0.1:8081/api/v1/settings/service.js");
+
+        let tester = await test_service(SettingsManager, "client-1");
 
         // Clear the settings storage
         await tester.assert_eq(
@@ -31,7 +34,7 @@
           (service) => service.get("testing.setting1"),
           {
             name: "testing.setting1",
-            reason: lib_settings.GetErrorReason.NON_EXISTING_SETTING,
+            reason: GetErrorReason.NON_EXISTING_SETTING,
           }
         );
 
@@ -68,7 +71,7 @@
           called_me = resolve;
         });
 
-        class MyObserver extends lib_settings.SettingObserverBase {
+        class MyObserver extends SettingObserverBase {
           constructor(service, session) {
             super(service.id, session);
           }
@@ -114,10 +117,7 @@
 
         // Now include another client to verify observer and event dispatching accros windows.
 
-        let tester2 = await test_service(
-          lib_settings.SettingsManager,
-          "client-2"
-        );
+        let tester2 = await test_service(SettingsManager, "client-2");
 
         let onchange_handler2 = tester2.setup_event(
           tester2.service.CHANGE_EVENT
@@ -194,7 +194,10 @@
 
           // Add and remove the event listener to disable/re-enable the event.
           tester.service.addEventListener(tester.service.CHANGE_EVENT, handler);
-          tester.service.removeEventListener(tester.service.CHANGE_EVENT, handler);
+          tester.service.removeEventListener(
+            tester.service.CHANGE_EVENT,
+            handler
+          );
 
           // Add another event listener for verification.
           tester.service.addEventListener(tester.service.CHANGE_EVENT, handler);
@@ -214,16 +217,22 @@
             1
           );
 
-          tester.service.removeEventListener(tester.service.CHANGE_EVENT, handler);
+          tester.service.removeEventListener(
+            tester.service.CHANGE_EVENT,
+            handler
+          );
         }
 
         // Verify get batch
         // TODO: ensure the order of the returned settings.
         await tester.assert_eq(
           "verify get batch",
-          (service) => service.getBatch(["testing.setting1", "testing.observed"]),
-          [{ name: "testing.observed", value: "bonjour !"},
-           { name: "testing.setting1", value: 44 },]
+          (service) =>
+            service.getBatch(["testing.setting1", "testing.observed"]),
+          [
+            { name: "testing.observed", value: "bonjour !" },
+            { name: "testing.setting1", value: 44 },
+          ]
         );
 
         // test case for
@@ -246,7 +255,7 @@
             console.log("MyObserver2::callback " + JSON.stringify(setting));
             if (setting.name == "key1") {
               this.key1++;
-            } else if (setting.name == "key2"){
+            } else if (setting.name == "key2") {
               this.key2++;
             }
             toResolve([this.key1, this.key2]);
@@ -277,14 +286,15 @@
         // remove key1 again
         await tester.assert_eq(
           "remove observer for key1 again",
-          (service) => service.removeObserver("key1", pivot).then(
-            resolve => {
-              return Promise.resolve(true);
-            },
-            reject => {
-              return Promise.resolve(false);
-            }
-          ),
+          (service) =>
+            service.removeObserver("key1", pivot).then(
+              (resolve) => {
+                return Promise.resolve(true);
+              },
+              (reject) => {
+                return Promise.resolve(false);
+              }
+            ),
           false
         );
 
@@ -311,28 +321,32 @@
         // remove a non-existing observer
         await tester.assert_eq(
           "remove non-existing observer case 1",
-          (service) => service.removeObserver("non-existing-key", pivot).then(
-            resolve => {
-              return Promise.resolve(true);
-            },
-            reject => {
-              return Promise.resolve(false);
-            }
-          ),
+          (service) =>
+            service.removeObserver("non-existing-key", pivot).then(
+              (resolve) => {
+                return Promise.resolve(true);
+              },
+              (reject) => {
+                return Promise.resolve(false);
+              }
+            ),
           false
         );
 
         let neverAddedObs = new MyObserver2(tester.service, tester.session);
         await tester.assert_eq(
           "remove non-existing observer case 2",
-          (service) => service.removeObserver("non-existingi-observer", neverAddedObs).then(
-            resolve => {
-              return Promise.resolve(true);
-            },
-            reject => {
-              return Promise.resolve(false);
-            }
-          ),
+          (service) =>
+            service
+              .removeObserver("non-existingi-observer", neverAddedObs)
+              .then(
+                (resolve) => {
+                  return Promise.resolve(true);
+                },
+                (reject) => {
+                  return Promise.resolve(false);
+                }
+              ),
           false
         );
 

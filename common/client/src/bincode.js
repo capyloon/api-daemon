@@ -613,4 +613,12 @@ function test_decoder() {
   console.log("Result is %o", result);
 }
 
+// Helper function that returns a wrapper object from a blob suitable for bincode.
+export function wrapBlob(blob) {
+  let btype = blob.type;
+  return blob.arrayBuffer().then(data => {
+      return { __isblob__: true, data: new Uint8Array(data), type: btype }
+  });
+}
+
 // test_decoder();

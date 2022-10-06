@@ -2,6 +2,8 @@
 
 "use strict";
 
+import { Session } from "../api/v1/shared/session.js";
+
 function deep_equals(a, b) {
   // If they're triple equals, then it must be equals!
   if (a === b) {
@@ -194,11 +196,11 @@ class ServiceTester {
 }
 
 // Returns a promise resolving to a ServiceTester attached to the service.
-function test_service(service, tester_name, existing_session) {
+export function test_service(service, tester_name, existing_session) {
   return new Promise((resolve, reject) => {
     let session = existing_session
       ? existing_session
-      : new lib_session.Session();
+      : new Session();
     let sessionstate = {
       onsessionconnected() {
         service.get(session).then((service) => {

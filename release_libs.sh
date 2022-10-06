@@ -14,7 +14,7 @@ if [ 'Test'$WITH_TEST_SERVICE != 'Test' ]; then
     cp ./tests/testing.css ./prebuilts/http_root/tests/testing.css
     cp -R ./tests/fixtures ./prebuilts/http_root/tests/
     cp ./services/libsignal/test-fixtures/example3 ./prebuilts/http_root/tests/fixtures/
-    release_service_lib test ${RELEASE_ROOT} ${BUILD_TYPE}
+    #release_service_lib test ${RELEASE_ROOT} ${BUILD_TYPE}
 fi
 
 release_service_lib apps ${RELEASE_ROOT} ${BUILD_TYPE}
