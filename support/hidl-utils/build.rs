@@ -31,6 +31,8 @@ fn main() {
                 env::var("GONK_PRODUCT").expect("Please set the GONK_PRODUCT env variable");
             let _sysroot = format!("--sysroot={}/out/target/product/{}/obj", _prefix, _product);
             let _hidl_base_inc = format!("{}/system/libhidl/base/include", _prefix);
+            let _fmq_inc = format!("{}/system/libfmq/base", _prefix);
+            let _log_inc = format!("{}/system/logging/liblog/include", _prefix);
             let _cutils_inc = format!("{}/system/core/libcutils/include", _prefix);
             let _utils_inc = format!("{}/system/core/libutils/include", _prefix);
             let _libbacktrace_inc = format!("{}/system/core/libbacktrace/include", _prefix);
@@ -59,9 +61,12 @@ fn main() {
             let _libc_kernel_android_uapi = format!("{}/bionic/libc/kernel/android/uapi", _prefix);
 
             cc::Build::new()
+                .cpp(true)
                 .file("parcel.cpp")
                 .file("ibinder.cpp")
                 .include(_hidl_base_inc)
+                .include(_fmq_inc)
+                .include(_log_inc)
                 .include(_cutils_inc)
                 .include(_utils_inc)
                 .include(_libbacktrace_inc)
@@ -90,6 +95,7 @@ fn main() {
                 .include(_libc_kernel_android_uapi)
                 .flag(&_sysroot)
                 .flag("-fno-rtti")
+                .flag("-std=c++17")
                 .compile("utils-c");
         }
     }

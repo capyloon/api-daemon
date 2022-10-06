@@ -32,6 +32,7 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libc libm libdl liblog libssl libcutils libc++_shared
 LOCAL_SRC_FILES := update-prebuilts.sh
 LOCAL_MODULE_PATH := $(TARGET_OUT)/api-daemon
+LOCAL_UNINSTALLABLE_MODULE := true
 
 API_DAEMON_LIB_DEPS := \
 	libhwbinder.so \
@@ -41,10 +42,12 @@ API_DAEMON_LIB_DEPS := \
 	libselinux.so \
 	$(NULL)
 
-include $(BUILD_PREBUILT)
+include $(BUILD_SYSTEM)/base_rules.mk
+
+# include $(BUILD_PREBUILT)
 
 ifndef ANDROID_NDK
-LOCAL_NDK := $(HOME)/.mozbuild/android-ndk-r21d
+LOCAL_NDK := $(HOME)/.mozbuild/android-ndk-r25b
 else
 LOCAL_NDK := $(ANDROID_NDK)
 endif
@@ -57,7 +60,7 @@ $(LOCAL_BUILT_MODULE): $(TARGET_CRTBEGIN_DYNAMIC_O) $(TARGET_CRTEND_O) $(addpref
 	export GONK_PRODUCT=$(TARGET_DEVICE) && \
 	(cd $(API_DAEMON_ROOT) ; $(SHELL) update-prebuilts.sh)
 
-$(LOCAL_INSTALLED_MODULE):
+$(LOCAL_INSTALLED_MODULE): $(LOCAL_BUILT_MODULE)
 	@mkdir -p $(@D)
 	@mkdir -p $(TARGET_OUT)/b2g/defaults
 	@mkdir -p $(TARGET_OUT)/api-daemon

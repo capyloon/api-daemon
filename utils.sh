@@ -46,8 +46,8 @@ function setup_xcompile_envs() {
     # TODO: do the inverse mapping instead since we'll get the clang arch when running
     #       from Android.mk
     export TARGET_ARCH=${TARGET_ARCH:-armv7-linux-androideabi}
-    export ANDROID_API=${ANDROID_API:-29}
-    export ANDROID_PLATFORM=${ANDROID_PLATFORM:-android-29}
+    export ANDROID_API=${ANDROID_API:-33}
+    export ANDROID_PLATFORM=${ANDROID_PLATFORM:-android-33}
     LIB_SUFFIX=""
 
     case "$TARGET_ARCH" in
@@ -112,6 +112,10 @@ function setup_xcompile_envs() {
             echo "${BUILD_WITH_NDK_DIR} doesn't exixt."
 	    exit 1
 	fi
+
+	# Workaround rustc bug, see https://github.com/godot-rust/godot-rust/pull/920/files
+	# find -L ${BUILD_WITH_NDK_DIR} -name libunwind.a -execdir sh -c 'echo "INPUT(-lunwind)" > libgcc.a' \;
+
         # If NDK_TOOLS_PATH is set and NULL, use the value NULL.
         NDK_TOOLS_PATH=${NDK_TOOLS_PATH-/toolchains/llvm/prebuilt/linux-x86_64}
         export TOOLCHAIN_CC=${TOOLCHAIN_PREFIX}-clang
@@ -120,7 +124,8 @@ function setup_xcompile_envs() {
         export SYS_INCLUDE_DIR=${SYSROOT}/usr/include
         export ANDROID_NDK=${BUILD_WITH_NDK_DIR}
         export PATH=${ANDROID_NDK}${NDK_TOOLS_PATH}/bin:${PATH}
-        export LINKER=${TOOLCHAIN_CC}
+        export AR=${BUILD_WITH_NDK_DIR}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+	export LINKER=${TOOLCHAIN_CC}
 
         echo "Building for ${TARGET_TRIPLE} using NDK '${BUILD_WITH_NDK_DIR}'"
     elif [ -n "${MOZBUILD}" ]; then
@@ -188,7 +193,7 @@ EOF
         cat <<EOF >>$CARGO_CONFIG
   "-C", "link-arg=--sysroot=${SYSROOT}",
   "-C", "link-arg=-L",
-  "-C", "link-arg=${BUILD_WITH_NDK_DIR}/lib/gcc/${TARGET_TRIPLE}/4.9.x",
+  "-C", "link-arg=${GONK_DIR}/out/target/product/${GONK_PRODUCT}/system/lib${LIB_SUFFIX}",
   "-C", "link-arg=-L",
   "-C", "link-arg=${BUILD_WITH_NDK_DIR}/sysroot/usr/lib/${TARGET_TRIPLE}/${ANDROID_API}",
   "-C", "link-arg=-Wl,-rpath,${GONK_DIR}/out/target/product/${GONK_PRODUCT}/system/lib${LIB_SUFFIX}",
@@ -235,7 +240,7 @@ export TARGET_CC=${TOOLCHAIN_CC}
 export TARGET_LD=${TOOLCHAIN_CC}
 EOF
 
-    printenv
+    # printenv
     rustc --version
     cargo --version
     cargo build --verbose --target=${TARGET_TRIPLE} --features=${FEATURES} ${OPT}
