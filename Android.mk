@@ -59,8 +59,6 @@ $(LOCAL_BUILT_MODULE): $(TARGET_CRTBEGIN_DYNAMIC_O) $(TARGET_CRTEND_O) $(addpref
 	export GONK_DIR=$(GONK_DIR) && \
 	export GONK_PRODUCT=$(TARGET_DEVICE) && \
 	(cd $(API_DAEMON_ROOT) ; $(SHELL) update-prebuilts.sh)
-
-$(LOCAL_INSTALLED_MODULE): $(LOCAL_BUILT_MODULE)
 	@mkdir -p $(@D)
 	@mkdir -p $(TARGET_OUT)/b2g/defaults
 	@mkdir -p $(TARGET_OUT)/api-daemon
