@@ -455,6 +455,10 @@ pub fn install_package(
                 Err(_) => return Err(AppsActorError::DeepLinkError),
             }
         }
+
+        if b2g_features.is_from_legacy() {
+            apps_item.set_legacy_manifest_url();
+        }
     }
 
     let mut shared = shared_data.lock();
@@ -673,7 +677,6 @@ fn test_install_app() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
-    use common::traits::SharedServiceState;
     use config::Config;
     use std::env;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -808,7 +811,6 @@ fn test_get_all() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
-    use common::traits::SharedServiceState;
     use config::Config;
     use std::env;
 

@@ -47,8 +47,8 @@ use geckobridge::service::GeckoBridgeService;
 pub enum AppsError {
     #[error("Custom Error")]
     AppsConfigError,
-    #[error("AppsError")]
-    WrongManifest,
+    #[error("Manifest Error, {0}")]
+    WrongManifest(ManifestError),
     #[error("IO Error: {0}")]
     Io(#[from] io::Error),
     #[error("Json Error: {0}")]
@@ -367,8 +367,9 @@ impl AppsRegistry {
 
             if let Some(origin) = origin {
                 let origin = origin.to_lowercase();
-                if !Self::is_valid_hostname(&origin) ||
-                   (db.get_first_by_name(&origin).is_ok() && update_url.is_some()) {
+                if !Self::is_valid_hostname(&origin)
+                    || (db.get_first_by_name(&origin).is_ok() && update_url.is_some())
+                {
                     return Err(AppsServiceError::InvalidOrigin);
                 }
                 return Ok(origin);
@@ -1625,6 +1626,55 @@ fn test_apply_download() {
             None => panic!(),
         }
     }
+
+    // Test apply a legacy app.
+    let src_app = current.join("test-fixtures/apps-from/legacy/application.zip");
+    let available_dir = test_path.join("downloading/legacy");
+    let available_app = available_dir.join("application.zip");
+
+    if let Err(err) = fs::create_dir_all(&available_dir) {
+        println!("{:?}", err);
+    }
+    let _ = fs::copy(&src_app, &available_app).unwrap();
+    let manifest = validate_package(&available_app).unwrap();
+    let update_url = Url::parse("https://testz.helloworld/manifest.webmanifest").ok();
+
+    let app_name = registry
+        .get_unique_name(
+            &manifest.get_name(),
+            manifest.get_origin(),
+            update_url.clone(),
+        )
+        .unwrap();
+    let mut apps_item = AppsItem::default(&app_name, vhost_port);
+    if !manifest.get_version().is_empty() {
+        apps_item.set_version(&manifest.get_version());
+    }
+    apps_item.set_install_state(AppsInstallState::Installing);
+    apps_item.set_update_url(update_url.clone());
+    if let Some(b2g_features) = manifest.get_b2g_features() {
+        if b2g_features.is_from_legacy() {
+            apps_item.set_legacy_manifest_url();
+        } else {
+            panic!("Invalid b2g_features.");
+        }
+    } else {
+        panic!("Failed to get b2g_features.");
+    }
+
+    if registry
+        .apply_download(&mut apps_item, &available_dir, &manifest, false)
+        .is_ok()
+    {
+        assert_eq!(app_name, "legacyapp");
+    } else {
+        panic!("Failed to apply download.");
+    }
+
+    let expected_manfiest_url =
+        Url::parse(&format!("http://{}.localhost/manifest.webapp", &app_name)).unwrap();
+    let app = registry.get_by_update_url(&update_url.unwrap()).unwrap();
+    assert_eq!(app.get_manifest_url(), expected_manfiest_url);
 }
 
 #[test]

@@ -21,8 +21,12 @@ function deeplinks_expected(installState, progress=0) {
   return {"name":"atestapp","installState":installState,"manifestUrl":new URL("http://atestapp.localhost:8081/manifest.webmanifest"),"removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/atestapp/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/deeplinks/kzLiaFQOTlGk8DJePIQA"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://atestapp.localhost:8081"};
 }
 
+// The app used in this test is a legacy app.
+// During the install the manifest url is http://{app}.localhost/manifest.webmanifest
+// After installed the manifest url is http://{app}.localhost/manifest.webapp
 function power_off_installing_expected(installState, progress=0) {
-  return {"name":"testpowerlost","installState":installState,"manifestUrl":new URL("http://testpowerlost.localhost:8081/manifest.webmanifest"),"removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/testpowerlost/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://testpowerlost.localhost:8081"};
+  let manifestUrl = (installState == 1) ? new URL("http://testpowerlost.localhost:8081/manifest.webmanifest") : new URL("http://testpowerlost.localhost:8081/manifest.webapp");
+  return {"name":"testpowerlost","installState":installState,"manifestUrl": manifestUrl, "removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/testpowerlost/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://testpowerlost.localhost:8081"};
 }
 
 function update_expected(updateState, allowedAutoDownload=false) {

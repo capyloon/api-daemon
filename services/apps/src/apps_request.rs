@@ -413,6 +413,14 @@ impl AppsRequest {
         Ok(())
     }
 
+    pub fn check_legacy_manifest(&mut self, apps_item: &mut AppsItem, manifest: &Manifest) {
+        if let Some(b2g_features) = manifest.get_b2g_features() {
+            if b2g_features.is_from_legacy() {
+                apps_item.set_legacy_manifest_url();
+            }
+        }
+    }
+
     pub fn process_deeplinks(
         &mut self,
         apps_item: &mut AppsItem,
@@ -559,6 +567,8 @@ impl AppsRequest {
                 err
             ));
         }
+        // Only package app need to check if it is a legacy one.
+        self.check_legacy_manifest(&mut apps_item, &manifest);
 
         // We can lock registry now, since no waiting job.
         let shared = &mut self.shared_data.lock();
@@ -882,10 +892,12 @@ fn remove_canceller(shared_data: Shared<AppsSharedData>, url: &Url) {
     let _ = shared_data.lock().downloadings.remove(url);
 }
 
-#[cfg(test)]
-fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
+#[test]
+fn test_apply_pwa() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
+    use crate::service::AppsService;
+    use common::traits::{EmptyConfig, SharedServiceState};
     use config::Config;
     use std::env;
 
@@ -913,7 +925,10 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
 
     // Create a locale instance of shared data because it's using a different
     // configuration path than other tests.
-    let shared_data: Shared<AppsSharedData> = Shared::default();
+    settings_service::service::SettingsService::init_shared_state(&EmptyConfig);
+    geckobridge::service::GeckoBridgeService::init_shared_state(&EmptyConfig);
+    AppsService::init_shared_state(&config);
+    let shared_data = AppsService::shared_state();
     let vhost_port = 80;
     match AppsRegistry::initialize(&config, vhost_port) {
         Ok(registry) => {
@@ -927,7 +942,7 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
     println!("registry.count(): {}", shared_data.lock().registry.count());
     assert_eq!(6, shared_data.lock().registry.count());
 
-    // Test 1: apply from a local dir
+    // Apply from a local dir
     let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webmanifest");
     let update_url = Url::parse("https://pwa1.test/manifest.webmanifest").unwrap();
     let download_dir = AppsStorage::get_app_dir(
@@ -974,61 +989,7 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
             println!("err: {:?}", err);
             panic!();
         }
-    }
-
-    // Test 2: download and apply from a remote url
-    let mut request = AppsRequest::new(shared_data.clone()).unwrap();
-    let app_url = Url::parse(app_url_str).unwrap();
-    match request.download_and_apply_pwa(test_path, &app_url, false) {
-        Ok(app) => {
-            if expected_err.is_some() {
-                panic!();
-            }
-            assert_eq!(app.name, "hellopwa");
-            assert_eq!(app.removable, true);
-        }
-        Err(err) => {
-            if let Some(expected) = expected_err {
-                if err == expected {
-                    return;
-                }
-            }
-            println!("err: {:?}", err);
-            panic!();
-        }
-    }
-    let lock = shared_data.lock();
-    if let Some(app) = lock.registry.get_by_update_url(&app_url) {
-        assert_eq!(app.get_name(), "hellopwa");
-
-        let cached_dir = test_path.join("cached");
-        let update_manifest = cached_dir.join(app.get_name()).join("manifest.webmanifest");
-        let manifest = Manifest::read_from(&update_manifest).unwrap();
-
-        // The start url in cached manifest is an absolute url of remote address.
-        let expected_start_url = app_url.join("index.html").unwrap().as_str().to_string();
-        assert_eq!(manifest.get_start_url(), expected_start_url);
-
-        // icon url should be relative path of local cached address
-        if let Some(icons_value) = manifest.get_icons() {
-            let icons: Vec<Icon> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
-            assert_eq!(4, icons.len());
-            let manifest_url_base = app.get_manifest_url().join("/");
-            for icon in icons {
-                let icon_src = icon.get_src();
-                let icon_url = Url::parse(&icon_src).unwrap();
-                let icon_url_base = icon_url.join("/");
-                let icon_path = format!("{}{}", cached_dir.to_str().unwrap(), icon_url.path());
-
-                assert_eq!(icon_url_base, manifest_url_base);
-                assert!(Path::new(&icon_path).is_file(), "Error in icon path.");
-            }
-        } else {
-            panic!();
-        }
-    } else {
-        panic!();
-    }
+    };
 }
 
 #[test]
