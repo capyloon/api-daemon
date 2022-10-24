@@ -122,7 +122,7 @@ impl PowermanagerMethods for PowerManager {
         responder: PowermanagerControlScreenResponder,
         info: crate::generated::common::ScreenControlInfo,
     ) {
-        debug!("Control_screen {:?} ", info);
+        debug!("control_screen {:?} ", info);
 
         let mut shared = self.shared_obj.lock();
         // Handle the screen enable/disable and backlight with
@@ -137,24 +137,20 @@ impl PowermanagerMethods for PowerManager {
             // Enabled the screen before turn on the backlight.
             if state {
                 if !shared.screen_enabled(state, info.is_external) {
-                    responder.reject();
-                    return;
+                    error!("screen_enabled {} failed!", state);
                 }
                 if !shared.screen_brightness(brightness, info.is_external) {
-                    responder.reject();
-                    return;
+                    error!("screen_brightness {} failed!", brightness);
                 }
                 responder.resolve();
                 return;
             }
             // Turn off the backlight before disable the screen.
             if !shared.screen_brightness(brightness, info.is_external) {
-                responder.reject();
-                return;
+                error!("screen_brightness {} failed!", brightness);
             }
             if !shared.screen_enabled(state, info.is_external) {
-                responder.reject();
-                return;
+                error!("screen_enabled {} failed!", state);
             }
             responder.resolve();
             return;
@@ -167,15 +163,13 @@ impl PowermanagerMethods for PowerManager {
             };
 
             if !shared.screen_enabled(state, info.is_external) {
-                responder.reject();
-                return;
+                error!("screen_enabled {} failed!", state);
             }
         }
 
         if let Some(brightness) = info.brightness {
             if !shared.screen_brightness(brightness, info.is_external) {
-                responder.reject();
-                return;
+                error!("screen_brightness {} failed!", brightness);
             }
         }
         responder.resolve();
