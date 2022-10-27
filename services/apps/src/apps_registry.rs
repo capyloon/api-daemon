@@ -461,6 +461,22 @@ impl AppsRegistry {
         });
     }
 
+    fn check_legacy_manifest(
+        &mut self,
+        apps_item: &mut AppsItem,
+        manifest: &Manifest,
+        app_dir: &Path,
+    ) {
+        if let Some(b2g_features) = manifest.get_b2g_features() {
+            if b2g_features.is_from_legacy() {
+                apps_item.set_legacy_manifest_url();
+                if let Err(err) = AppsStorage::write_localized_manifest(app_dir) {
+                    error!("Failed to update localized manifest: {:?}", err);
+                }
+            }
+        }
+    }
+
     pub fn apply_download(
         &mut self,
         apps_item: &mut AppsItem,
@@ -490,6 +506,7 @@ impl AppsRegistry {
             error!("Link installed app failed: {:?}", err);
             return Err(AppsServiceError::FilesystemFailure);
         }
+        self.check_legacy_manifest(apps_item, manifest, &installed_dir);
 
         // Cannot serve a flat file in the same dir as zip.
         // Save the downloaded update manifest file in cached dir.
@@ -1652,15 +1669,6 @@ fn test_apply_download() {
     }
     apps_item.set_install_state(AppsInstallState::Installing);
     apps_item.set_update_url(update_url.clone());
-    if let Some(b2g_features) = manifest.get_b2g_features() {
-        if b2g_features.is_from_legacy() {
-            apps_item.set_legacy_manifest_url();
-        } else {
-            panic!("Invalid b2g_features.");
-        }
-    } else {
-        panic!("Failed to get b2g_features.");
-    }
 
     if registry
         .apply_download(&mut apps_item, &available_dir, &manifest, false)

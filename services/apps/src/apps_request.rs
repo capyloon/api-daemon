@@ -413,14 +413,6 @@ impl AppsRequest {
         Ok(())
     }
 
-    pub fn check_legacy_manifest(&mut self, apps_item: &mut AppsItem, manifest: &Manifest) {
-        if let Some(b2g_features) = manifest.get_b2g_features() {
-            if b2g_features.is_from_legacy() {
-                apps_item.set_legacy_manifest_url();
-            }
-        }
-    }
-
     pub fn process_deeplinks(
         &mut self,
         apps_item: &mut AppsItem,
@@ -567,8 +559,6 @@ impl AppsRequest {
                 err
             ));
         }
-        // Only package app need to check if it is a legacy one.
-        self.check_legacy_manifest(&mut apps_item, &manifest);
 
         // We can lock registry now, since no waiting job.
         let shared = &mut self.shared_data.lock();

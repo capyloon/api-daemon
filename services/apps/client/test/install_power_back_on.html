@@ -85,6 +85,31 @@
           gzip_pwa_expected(0)
         );
 
+        // Fetch the localized manfiest with the full name.
+        await tester.assert_eq(
+          "get update manifest",
+          service => {
+            let req = new Request("http://testpowerlost.localhost:8081/manifest.en-US.webapp");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(app => app.name);
+          },
+          "TestPowerLost",
+        );
+
+        await tester.assert_eq(
+          "get update manifest",
+          service => {
+            let req = new Request("http://testpowerlost.localhost:8081/manifest.zh-TW.webapp");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(app => app.name);
+          },
+          "自動測試掉电",
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 

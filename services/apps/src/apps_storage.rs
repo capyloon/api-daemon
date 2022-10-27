@@ -7,14 +7,16 @@ use common::log_warning;
 use log::{debug, error, warn};
 use nix::sys::statvfs;
 use serde::Deserialize;
-use std::fs::{self, remove_dir_all, File};
-use std::io::BufReader;
+use serde_json::{json, Value};
+use std::fs::{self, remove_dir_all, File, OpenOptions};
+use std::io::{BufReader, Write};
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use url::Url;
 use zip::result::ZipError;
-use zip::ZipArchive;
+use zip::write::FileOptions;
+use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 #[derive(Error, Debug)]
 pub enum PackageError {
@@ -160,6 +162,9 @@ impl AppsStorage {
                 }
                 if b2g_features.is_from_legacy() {
                     app.set_legacy_manifest_url();
+                    if let Err(err) = Self::write_localized_manifest(&app_dir) {
+                        error!("Failed to update localized manifest: {:?}", err);
+                    }
                 }
             }
         }
@@ -253,6 +258,61 @@ impl AppsStorage {
     pub fn read_warnings() -> String {
         let logfile = Path::new(APP_LOG_FILE);
         fs::read_to_string(logfile).unwrap_or_else(|_| "".into())
+    }
+
+    // Write localized manifest file to application zip for legacy app.
+    // In
+    //   app_dir: the application dir.
+    // Out
+    //   Result Ok or Error.
+    pub fn write_localized_manifest(app_dir: &Path) -> Result<(), PackageError> {
+        let app_zip = app_dir.join("application.zip");
+        let zip_file = File::open(&app_zip)?;
+        let mut archive = ZipArchive::new(zip_file)?;
+        let manifest = archive.by_name("manifest.webapp")?;
+        let manifest: Value = serde_json::from_reader(manifest)
+            .map_err(|err| PackageError::WrongManifest(ManifestError::Json(err)))?;
+
+        if let Some(Value::Object(locales)) = manifest.get("locales") {
+            let file = OpenOptions::new()
+                .create(false)
+                .write(true)
+                .read(true)
+                .open(app_zip)?;
+            let mut zip = ZipWriter::new_append(file)?;
+            let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+            let mut localized_manifest = manifest.clone();
+            // Do not include the full locales in the localized manifest.
+            if let Some(v) = localized_manifest.get_mut("locales") {
+                *v = json!({});
+            }
+            for (locale_key, locale_value) in locales.iter() {
+                if let Value::Object(lang) = locale_value {
+                    let localized_file = format!("manifest.{}.webapp", locale_key);
+                    if archive.by_name(&localized_file).is_ok() {
+                        continue;
+                    }
+
+                    for (lang_key, lang_value) in lang.iter() {
+                        if let Some(v) = localized_manifest.get_mut(lang_key) {
+                            *v = lang_value.clone();
+                        }
+                    }
+                    zip.start_file(&localized_file, options)?;
+                    match serde_json::to_vec(&localized_manifest) {
+                        Ok(value) => {
+                            if let Err(err) = zip.write_all(&value) {
+                                error!("Faile to write {}, error: {:?}", localized_file, err);
+                            }
+                        }
+                        Err(err) => error!("Manifest {}, error: {:?}", localized_file, err),
+                    }
+                }
+            }
+            zip.finish()?;
+        }
+
+        Ok(())
     }
 }
 

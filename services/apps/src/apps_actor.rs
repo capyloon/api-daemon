@@ -455,10 +455,6 @@ pub fn install_package(
                 Err(_) => return Err(AppsActorError::DeepLinkError),
             }
         }
-
-        if b2g_features.is_from_legacy() {
-            apps_item.set_legacy_manifest_url();
-        }
     }
 
     let mut shared = shared_data.lock();
