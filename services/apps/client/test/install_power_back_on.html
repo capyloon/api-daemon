@@ -78,6 +78,13 @@
           "TestPowerLost",
         );
 
+// Install PWA with gzip manifest.
+        await tester.assert_eq(
+          "install a pwa app with gzip manifest.",
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/gzip/manifest.webmanifest")),
+          gzip_pwa_expected(0)
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 

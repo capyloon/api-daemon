@@ -61,6 +61,7 @@ impl Downloader {
         let client = reqwest::blocking::Client::builder()
             .user_agent(user_agent)
             .default_headers(headers)
+            .gzip(true)
             .build()
             .map_err(DownloadError::Reqwest)?;
 

@@ -70,6 +70,13 @@ function update_pwa_expected(updateState, allowedAutoDownload=false) {
   return {"name":"hellopwa","installState":0,"manifestUrl":new URL("http://cached.localhost:8081/hellopwa/manifest.webmanifest"),"removable":true,"status":0,"updateManifestUrl":new URL("http://cached.localhost:8081/hellopwa/update.webmanifest"),"updateState":updateState,"updateUrl":new URL("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"),"allowedAutoDownload":allowedAutoDownload,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
 }
 
+function gzip_pwa_expected(installState, status=0) {
+  let manifestUrl = new URL("http://cached.localhost:8081/hellogzip/manifest.webmanifest");
+  let updateManifestUrl = new URL("http://cached.localhost:8081/hellogzip/update.webmanifest");
+  let updateUrl = new URL("http://127.0.0.1:8596/apps/gzip/manifest.webmanifest");
+  return {"name":"hellogzip","installState":installState,"manifestUrl":manifestUrl,"removable":true,"status":status,"updateManifestUrl":updateManifestUrl,"updateState":0,"updateUrl":updateUrl,"allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
+}
+
 // reason and updateUrl is accurate anytime
 // some times apps Object is not properly constructed.
 // That's because it fails to get manifest.
