@@ -22,7 +22,7 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "tokio",
- "tokio-util",
+ "tokio-util 0.7.0",
 ]
 
 [[package]]
@@ -39,7 +39,7 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "tokio",
- "tokio-util",
+ "tokio-util 0.7.0",
 ]
 
 [[package]]
@@ -198,7 +198,7 @@ dependencies = [
  "log",
  "pin-project-lite",
  "tokio-rustls",
- "tokio-util",
+ "tokio-util 0.7.0",
  "webpki-roots",
 ]
 
@@ -481,6 +481,19 @@ dependencies = [
  "concurrent-queue",
  "event-listener",
  "futures-core",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "942c7cd7ae39e91bde4820d74132e9862e62c2f386c3aa90ccf55949f5bad63a"
+dependencies = [
+ "flate2",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -1671,7 +1684,7 @@ dependencies = [
  "indexmap",
  "slab",
  "tokio",
- "tokio-util",
+ "tokio-util 0.7.0",
  "tracing",
 ]
 
@@ -2900,6 +2913,7 @@ version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87f242f1488a539a79bac6dbe7c8609ae43b7914b7736210f239a37cccb32525"
 dependencies = [
+ "async-compression",
  "base64",
  "bytes",
  "encoding_rs",
@@ -2924,6 +2938,7 @@ dependencies = [
  "serde_urlencoded",
  "tokio",
  "tokio-rustls",
+ "tokio-util 0.6.10",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -3680,6 +3695,20 @@ dependencies = [
  "rustls",
  "tokio",
  "webpki",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.6.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36943ee01a6d67977dd3f84a5a1d2efeb4ada3a1ae771cadfaa535d9d9fc6507"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "log",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
