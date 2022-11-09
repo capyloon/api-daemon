@@ -1,6 +1,7 @@
 {
     "name": "different origin pwa",
-    "start_url": "http://128.0.0.1:8596/apps/different/index.html",
+    "start_url": "/apps/different/index.html",
+    "scope": "http://10.0.0.1/",
     "version": "",
     "theme_color": "#008fff",
     "background_color": "#008fff",

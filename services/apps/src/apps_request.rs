@@ -623,8 +623,10 @@ impl AppsRequest {
         let mut manifest = Manifest::read_from(&download_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
         let update_url_base = update_url.clone();
-        let _ = is_same_origin_with(&update_url_base, &manifest.get_start_url())?;
         manifest.process_scope(&update_url_base)?;
+        let scope = Url::parse(&manifest.get_scope().unwrap_or_default())
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        let _ = is_same_origin_with(&scope, &manifest.get_start_url())?;
 
         let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
