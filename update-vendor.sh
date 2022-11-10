@@ -12,3 +12,10 @@ cargo vendor -- third-party > .cargo/config
 
 # Unused for now.
 rm -rf third-party/breakpad_sys/breakpad/
+
+# Unused windows libraries
+rm -rf third-party/winapi-x86_64-pc-windows-gnu/lib
+rm -rf third-party/winapi-i686-pc-windows-gnu/lib
+rm -rf third-party/windows_i686_gnu/lib
+rm -rf third-party/windows_x86_64_gnu/lib
+rm -rf third-party/windows-sys/src/Windows/
