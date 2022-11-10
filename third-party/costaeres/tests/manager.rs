@@ -589,6 +589,20 @@ async fn index_contacts() {
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
+
+    // Starts with "j"
+    let results = manager
+        .by_text("^^^^j", Some("contact".into()))
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
+
+    // Doesn't start with "a"
+    let results = manager
+        .by_text("^^^^a", Some("contact".into()))
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 0);
 }
 
 #[async_std::test]
@@ -826,6 +840,25 @@ struct Tracker {
     child_created: usize,
     child_modified: usize,
     child_deleted: usize,
+}
+
+impl Tracker {
+    fn assert(
+        &self,
+        created: usize,
+        modified: usize,
+        deleted: usize,
+        child_created: usize,
+        child_modified: usize,
+        child_deleted: usize,
+    ) {
+        assert_eq!(self.created, created);
+        assert_eq!(self.modified, modified);
+        assert_eq!(self.deleted, deleted);
+        assert_eq!(self.child_created, child_created);
+        assert_eq!(self.child_modified, child_modified);
+        assert_eq!(self.child_deleted, child_deleted);
+    }
 }
 
 impl ModificationObserver for Observer {
@@ -1257,5 +1290,108 @@ async fn tags_persistence() {
         let (root_meta, _) = manager.get_root().await.unwrap();
         assert!(root_meta.id().is_root());
         assert_eq!(root_meta.tags().len(), 0);
+    }
+}
+
+#[async_std::test]
+async fn move_resource() {
+    let (config, store) = prepare_test(26).await;
+
+    {
+        let mut manager = Manager::new(config.clone(), Box::new(store)).await.unwrap();
+
+        let observer_id = manager.add_observer(Box::new(Observer::default()));
+
+        manager.create_root().await.unwrap();
+
+        manager.with_observer(observer_id, &mut |observer: &mut Box<
+            dyn ModificationObserver<Inner = Rc<Tracker>>,
+        >| {
+            let tracker = observer.get_inner();
+            tracker.assert(1, 0, 0, 0, 0, 0);
+        });
+
+        // Create two sub containers.
+        let mut container1 = ResourceMetadata::new(
+            &1.into(),
+            &ROOT_ID,
+            ResourceKind::Container,
+            "container_1",
+            vec![],
+            vec![],
+        );
+        manager.create(&mut container1, None).await.unwrap();
+
+        let mut container2 = ResourceMetadata::new(
+            &2.into(),
+            &ROOT_ID,
+            ResourceKind::Container,
+            "container_2",
+            vec![],
+            vec![],
+        );
+        manager.create(&mut container2, None).await.unwrap();
+
+        // Add a leaf to container_1
+        let mut leaf = ResourceMetadata::new(
+            &3.into(),
+            &container1.id(),
+            ResourceKind::Leaf,
+            "leaf",
+            vec![],
+            vec![],
+        );
+        manager
+            .create(&mut leaf, Some(default_content().await))
+            .await
+            .unwrap();
+
+        let (_, children) = manager.get_container(&container1.id()).await.unwrap();
+        assert_eq!(children.len(), 1);
+
+        let (_, children) = manager.get_container(&container2.id()).await.unwrap();
+        assert_eq!(children.len(), 0);
+
+        manager
+            .move_resource(&leaf.id(), &container2.id())
+            .await
+            .unwrap();
+
+        // 4 resources created: root, 2 containers, 1 leaf
+        // 3 resource modified: root x 2, container 1
+        // 4 children created: container 1, container 2, leaf, leaf when moved.
+        // 1 children deleted when moving the leaf.
+        manager.with_observer(observer_id, &mut |observer: &mut Box<
+            dyn ModificationObserver<Inner = Rc<Tracker>>,
+        >| {
+            let tracker = observer.get_inner();
+            tracker.assert(4, 3, 0, 4, 0, 1);
+        });
+
+        let (_, children) = manager.get_container(&container1.id()).await.unwrap();
+        assert_eq!(children.len(), 0);
+
+        let (_, children) = manager.get_container(&container2.id()).await.unwrap();
+        assert_eq!(children.len(), 1);
+    }
+
+    // Verify persistence
+    {
+        let path = format!("./test-content/{}", 26);
+        let store = FileStore::new(
+            &path,
+            Box::new(DefaultResourceNameProvider),
+            Box::new(IdentityTransformer),
+        )
+        .await
+        .unwrap();
+
+        let mut manager = Manager::<()>::new(config, Box::new(store)).await.unwrap();
+
+        let (_, children) = manager.get_container(&1.into()).await.unwrap();
+        assert_eq!(children.len(), 0);
+
+        let (_, children) = manager.get_container(&2.into()).await.unwrap();
+        assert_eq!(children.len(), 1);
     }
 }

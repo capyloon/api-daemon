@@ -1544,7 +1544,7 @@ dependencies = [
 [[package]]
 name = "costaeres"
 version = "0.1.2"
-source = "git+https://github.com/capyloon/costaeres.git#ca232468bed7c68da7bdcf8187427021d720fc8c"
+source = "git+https://github.com/capyloon/costaeres.git#aae0cb58de5df5cd8548038dd035bcec6514e05a"
 dependencies = [
  "actix-rt",
  "actix-web",
@@ -1786,7 +1786,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "powermanager_service",
  "procmanager_service",
- "rand 0.8.5",
+ "rand 0.7.3",
  "reqwest",
  "rusty-s3",
  "serde",
@@ -6665,7 +6665,7 @@ checksum = "e7141e445af09c8919f1d5f8a20dae0b20c3b57a45dee0d5823c6ed5d237f15a"
 dependencies = [
  "bitflags",
  "chrono",
- "rustc_version 0.4.0",
+ "rustc_version 0.2.3",
 ]
 
 [[package]]
