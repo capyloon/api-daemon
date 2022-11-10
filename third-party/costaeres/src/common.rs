@@ -63,7 +63,7 @@ impl<'r> FromRow<'r, SqliteRow> for ResourceId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DateTimeUtc(DateTime<Utc>);
 
 impl DateTimeUtc {
@@ -112,7 +112,7 @@ where
     }
 }
 
-#[derive(sqlx::FromRow, Clone, PartialEq, Debug)]
+#[derive(sqlx::FromRow, Clone, PartialEq, Eq, Debug)]
 pub struct IdFrec {
     pub id: ResourceId,
     pub frecency: u32,
@@ -127,7 +127,7 @@ impl IdFrec {
     }
 }
 
-#[derive(sqlx::Type, Clone, Copy, Debug, PartialEq, Readable, Writable)]
+#[derive(sqlx::Type, Clone, Copy, Debug, PartialEq, Eq, Readable, Writable)]
 #[repr(u8)]
 pub enum ResourceKind {
     Container,
@@ -144,7 +144,7 @@ impl From<i64> for ResourceKind {
     }
 }
 
-#[derive(Clone, Debug, Readable, Writable, PartialEq)]
+#[derive(Clone, Debug, Readable, Writable, PartialEq, Eq)]
 pub struct VariantMetadata {
     name: String,
     mime_type: String,
@@ -402,6 +402,8 @@ pub enum ResourceStoreError {
     Io(#[from] async_std::io::Error),
     #[error("Invalid Container Id")]
     InvalidContainerId,
+    #[error("Invalid Resource Id")]
+    InvalidResourceId,
     #[error("Speedy error: {0}")]
     Speedy(#[from] speedy::Error),
 }

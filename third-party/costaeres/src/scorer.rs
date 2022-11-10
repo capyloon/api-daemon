@@ -118,7 +118,8 @@ impl Scorer {
         // For each sampled visit, the score is (bonus / 100.0) * weight
         // The final score for each item is ceiling(total visit count * sum of points for sampled visits / number of sampled visits)
 
-        let sum = (&self.entries)
+        let sum = self
+            .entries
             .iter()
             .map(|item| (item.priority.bonus() * weight_for(item.timestamp)))
             .sum::<u32>();
