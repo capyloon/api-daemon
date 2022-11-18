@@ -226,6 +226,25 @@
           true,
         );
 
+        // Test all icons are downloaded successfully in cached dir.
+        let icons = [
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/apps/pwa/icons/icon16x16.png",
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/apps/pwa/icons/icon48x48.png",
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/icons/icon60x60.png",
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/icons/icon128x128.png"
+        ];
+        await Promise.all(icons.map( async (icon) => {
+          await tester.assert_eq(
+            "test get icons",
+            service => {
+              let req = new Request(icon);
+              return fetch(req)
+                .then(response => response.ok);
+            },
+            true,
+          );
+        }));
+
 // Install PWA with relative start URL case 2.
         await tester.assert_eq(
           "install pwa app relative start url case 2",

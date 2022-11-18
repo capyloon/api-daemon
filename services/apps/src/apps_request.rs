@@ -382,21 +382,14 @@ impl AppsRequest {
         manifest_url_base: &Url,
         download_dir: &Path,
     ) -> Result<(), AppsServiceError> {
-        let mut icon_src = icon.get_src();
-        // If the icon src is a complete url remove the leading protocol for the download path.
-        if let Ok(url) = Url::parse(&icon_src) {
-            icon_src = format!("{}{}", url.host().unwrap_or(Domain("")), url.path());
-        }
-        // If the icon src is an absolute path remove the leading / for the download path.
-        // Then it won't end up trying to use a /some/invalid/path/icon.png.
-        if icon_src.starts_with('/') {
-            let _ = icon_src.remove(0);
-        }
+        let icon_url = match update_url_base
+            .join(&icon.get_src()) {
+            Ok(url) => url,
+            Err(_) => return Err(AppsServiceError::InvalidManifest)
+        };
+        let icon_src = format!("{}{}", icon_url.host().unwrap_or(Domain("")), icon_url.path());
         let icon_path = download_dir.join(&icon_src);
         let icon_dir = icon_path.parent().unwrap();
-        let icon_url = update_url_base
-            .join(&icon.get_src())
-            .map_err(|_| AppsServiceError::InvalidManifest)?;
         let _ = AppsStorage::ensure_dir(icon_dir);
         if let Err(err) = self.download(&icon_url, &icon_path) {
             error!(

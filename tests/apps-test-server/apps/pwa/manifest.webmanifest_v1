@@ -21,11 +21,11 @@
       "type": null
     }, {
       "sizes": "60x60",
-      "src": "icons/icon60x60.png",
+      "src": "http://127.0.0.1:8596/icons/icon60x60.png",
       "type": null
     }, {
       "sizes": "128x128",
-      "src": "icons/icon128x128.png",
+      "src": "//127.0.0.1:8596/icons/icon128x128.png",
       "type": null
     }],
     "b2g_features": {
