@@ -936,6 +936,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "binder"
+version = "0.1.0"
+dependencies = [
+ "binder_ndk_sys",
+ "downcast-rs",
+ "libc",
+]
+
+[[package]]
+name = "binder_ndk_sys"
+version = "0.1.0"
+
+[[package]]
+name = "binder_tokio"
+version = "0.1.0"
+dependencies = [
+ "binder",
+ "tokio",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.58.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3393,7 +3414,12 @@ dependencies = [
 name = "light"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "binder",
+ "cc",
  "hidl_utils",
+ "lazy_static",
+ "log",
 ]
 
 [[package]]

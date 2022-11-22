@@ -2,8 +2,10 @@
 use crate::generated::common::FactoryResetReason;
 use crate::PowerManagerSupport;
 use android_utils::AndroidProperties;
-use common::traits::SharedServiceState;
+use common::traits::{Shared, SharedServiceState};
 use geckobridge::service::*;
+use geckobridge::state::GeckoBridgeState;
+use light::{LightInterface, LightService, LightType};
 use log::{debug, error};
 use power::AndroidPower;
 use recovery::AndroidRecovery;
@@ -15,33 +17,42 @@ const ANDROID_RB_POWEROFF: u32 = 0xDEAD_0002;
 const ANDROID_RB_RESTART2: u32 = 0xDEAD_0003;
 const ANDROID_RB_THERMOFF: u32 = 0xDEAD_0004;
 
-// Flash mode
-const FLASH_NONE: i32 = 0;
-// const FLASH_TIMED: i32 = 1;
-// const FLASH_HARDWARE: i32 = 2;
-
-const BRIGHTNESS_USER: i32 = 0;
-// const BRIGHTNESS_SENSOR: i32 = 1;
-// const BRIGHTNESS_LOW_PERSISTENCE: i32 = 2;
-
-const TYPE_BACKLIGHT: i32 = 0;
-const TYPE_KEYBOARD: i32 = 1;
-const TYPE_BUTTONS: i32 = 2;
-// const TYPE_BATTERY: i32 = 3;
-// const TYPE_NOTIFICATIONS: i32 = 4;
-// const TYPE_ATTENTION: i32 = 5;
-// const TYPE_BLUETOOTH: i32 = 6;
-// const TYPE_WIFI: i32 = 7;
-
 // The cpu stays on, but the screen is off.
 const PARTIAL_WAKE_LOCK: i32 = 1;
 // The cpu and screen are on.
 // const FULL_WAKE_LOCK: i32 = 2;
 
-const SERVICE: &str = "default";
+struct BridgeImpl {
+    bridge: Shared<GeckoBridgeState>,
+}
+
+impl BridgeImpl {
+    fn get_service() -> Self {
+        debug!("ZZZ BridgeImpl::get_service start");
+        Self {
+            bridge: GeckoBridgeService::shared_state()
+        }
+    }
+}
+
+impl LightInterface for BridgeImpl {
+    fn is_alive(&self) -> bool {
+        self.bridge.lock().is_ready()
+    }
+
+    fn set_light_color(&self, light: LightType, _color: u32) -> Result<i32, ()> {
+        Err(())
+    }
+
+    fn set_backlight_brightness(&self, brightness: f32) -> Result<i32, ()> {
+        self.bridge.lock().powermanager_set_display_brightness(0, (brightness / 100.0) as _);
+        Ok(0)
+    }
+}
+
 #[derive(Default)]
 pub struct AndroidPowerManager {
-    light_service: Option<light::ILight>,
+    light_service: Option<Box<dyn LightInterface>>,
 }
 
 impl AndroidPowerManager {
@@ -101,15 +112,24 @@ impl AndroidPowerManager {
         let hundred_millis = Duration::from_millis(100);
         loop {
             count += 1;
-            self.light_service = light::ILight::get_service(SERVICE);
-            if self.light_service.is_some() {
+            if let Some(service) = LightService::get_service() {
+                self.light_service = Some(Box::new(service));
                 return true;
             }
-            error!("Failed to get service {} retry {}", SERVICE, count);
+            error!("Failed to get light service, retry {}", count);
             if count > 5 {
-                return false;
+                break;
             }
             thread::sleep(hundred_millis);
+        }
+
+        // Fallback to the bridged service if the bridge is ready.
+        if GeckoBridgeService::shared_state().lock().is_ready() {
+            self.light_service = Some(Box::new(BridgeImpl::get_service()));
+            true
+        } else {
+            error!("GeckoBridge is not ready!");
+            false
         }
     }
 }
@@ -122,25 +142,15 @@ impl PowerManagerSupport for AndroidPowerManager {
         );
 
         // Set the backlight for external screen.
-        let brightness = ((value as f32 * 255.0) / (100.0)).round() as u32;
         if screen_id == 1 {
+            let brightness = ((value as f32 * 255.0) / (100.0)).round() as u32;
             return android_utils::set_ext_screen_brightness(brightness);
         }
 
         // Set the backlight for main screen.
-        let color = 0xff00_0000 + (brightness << 16) + (brightness << 8) + brightness;
-
-        let light_state = light::LightState {
-            color,
-            flash_mode: FLASH_NONE,
-            flash_on_ms: 0,
-            flash_off_ms: 0,
-            brightness_mode: BRIGHTNESS_USER,
-        };
-
         if self.ensure_service() {
             let s = self.light_service.as_ref().expect("Invalid light service");
-            if s.set_light(TYPE_BACKLIGHT, &light_state).is_ok() {
+            if s.set_backlight_brightness(value as f32).is_ok() {
                 return true;
             }
         }
@@ -174,18 +184,10 @@ impl PowerManagerSupport for AndroidPowerManager {
         let val = ((value as f32 * 255.0) / (100.0)).round() as u32;
         let color = 0xff00_0000 + (val << 16) + (val << 8) + val;
 
-        let light_state = light::LightState {
-            color,
-            flash_mode: FLASH_NONE,
-            flash_on_ms: 0,
-            flash_off_ms: 0,
-            brightness_mode: BRIGHTNESS_USER,
-        };
-
         if self.ensure_service() {
             let s = &self.light_service.as_ref().unwrap();
-            let _ = s.set_light(TYPE_BUTTONS, &light_state);
-            let _ = s.set_light(TYPE_KEYBOARD, &light_state);
+            let _ = s.set_light_color(LightType::Buttons, color);
+            let _ = s.set_light_color(LightType::Keyboard, color);
         }
     }
 
@@ -193,18 +195,10 @@ impl PowerManagerSupport for AndroidPowerManager {
     fn set_key_light_enabled(&mut self, value: bool) {
         let color = if value { 0xffffffff } else { 0 };
 
-        let light_state = light::LightState {
-            color,
-            flash_mode: FLASH_NONE,
-            flash_on_ms: 0,
-            flash_off_ms: 0,
-            brightness_mode: BRIGHTNESS_USER,
-        };
-
         if self.ensure_service() {
             let s = &self.light_service.as_ref().unwrap();
-            let _ = s.set_light(TYPE_BUTTONS, &light_state);
-            let _ = s.set_light(TYPE_KEYBOARD, &light_state);
+            let _ = s.set_light_color(LightType::Buttons, color);
+            let _ = s.set_light_color(LightType::Keyboard, color);
         }
     }
 

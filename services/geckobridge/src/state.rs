@@ -287,6 +287,19 @@ impl GeckoBridgeState {
         }
     }
 
+    pub fn powermanager_set_display_brightness(
+        &mut self,
+        display: i64,
+        brightness: f64,
+    ) -> DelegateResponse<()> {
+        match self.powermanager.as_mut() {
+            None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
+            Some(powermanager) => DelegateResponse::from_receiver(
+                powermanager.set_display_brightness(display, brightness),
+            ),
+        }
+    }
+
     pub fn powermanager_request_wakelock(
         &mut self,
         topic: String,

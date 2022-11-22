@@ -32,6 +32,8 @@ callback Wakelock {
 callback PowerManagerDelegate {
   fn set_screen_enabled(enabled: bool, is_external_screen: bool)
 
+  fn set_display_brightness(display: int, brightness: float)
+
   // Request the wake lock for the resource specific by topic, eg, 'cpu', 'wifi' and 'screen'.
   fn request_wakelock(topic: str) -> Wakelock
 }

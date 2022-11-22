@@ -8,4 +8,11 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait = "0.1"
+binder = { path = "../aidl/src" }
 hidl_utils = { path = "../hidl-utils/" }
+lazy_static = "1.4"
+log = "0.4"
+
+[build-dependencies]
+cc = "1.0"

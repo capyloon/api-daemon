@@ -1,0 +1,13 @@
+[package]
+name = "binder_tokio"
+version = "0.1.0"
+authors = ["Fabrice Desré <fabrice@desre.org>"]
+edition = "2018"
+license = "Apache-2.0"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+binder = { path = "../src" }
+tokio = { version = "1.0", features = ["full"] }
