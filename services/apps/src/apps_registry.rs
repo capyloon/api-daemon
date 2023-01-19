@@ -224,7 +224,7 @@ impl AppsRegistry {
         let init_done = AndroidProperties::get(PERSIST_APPSINIT, "").unwrap_or_default();
 
         // Open the registry database.
-        let mut db = RegistryDb::new(db_dir.join(&"apps.sqlite"))?;
+        let mut db = RegistryDb::new(db_dir.join("apps.sqlite"))?;
 
         // Apps are not initialized yet, load the default ones from the json file.
         if init_done != "1" {
@@ -238,7 +238,7 @@ impl AppsRegistry {
                             app, &root_path, &data_path, vhost_port,
                         ) {
                             Ok(app) => {
-                                let _ = db.add(&app)?;
+                                db.add(&app)?;
                             }
                             Err(err) => {
                                 AppsStorage::log_warn(&format!(
@@ -442,7 +442,7 @@ impl AppsRegistry {
 
     pub fn get_package_path(&self, manifest_url: &Url) -> Result<PathBuf, AppsServiceError> {
         if let Some(app) = self.get_by_manifest_url(manifest_url) {
-            let app_path = self.data_path.join("vroot").join(&app.get_name());
+            let app_path = self.data_path.join("vroot").join(app.get_name());
             let package_path = app_path.join("application.zip");
 
             if File::open(&package_path).is_ok() {
@@ -533,7 +533,7 @@ impl AppsRegistry {
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
-        let _ = self.save_app(is_update, apps_item)?;
+        self.save_app(is_update, apps_item)?;
 
         // Relay the request to Gecko using the bridge.
         let bridge = GeckoBridgeService::shared_state();
@@ -561,7 +561,7 @@ impl AppsRegistry {
 
         // We can now replace the installed one with new version.
         let _ = fs::remove_dir_all(&cached_dir);
-        if let Err(err) = fs::rename(&download_dir, &cached_dir) {
+        if let Err(err) = fs::rename(download_dir, &cached_dir) {
             error!(
                 "Rename installed dir failed: {} -> {} : {:?}",
                 download_dir.display(),
@@ -575,8 +575,7 @@ impl AppsRegistry {
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
-        let _ = self
-            .register_app(apps_item)
+        self.register_app(apps_item)
             .map_err(|_| AppsServiceError::RegistrationError)?;
 
         // Relay the request to Gecko using the bridge.
@@ -937,24 +936,23 @@ impl AppsRegistry {
 
             status_changed = true;
             if let Some(ref mut db) = &mut self.db {
-                let _ = db
-                    .update_status(manifest_url, status)
+                db.update_status(manifest_url, status)
                     .map_err(|_| AppsServiceError::FilesystemFailure)?;
 
                 let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
                 let disabled_dir = self.data_path.join("disabled");
-                let app_disabled_dir = disabled_dir.join(&app.get_name());
+                let app_disabled_dir = disabled_dir.join(app.get_name());
 
                 match status {
                     AppsStatus::Disabled => {
                         if !AppsStorage::ensure_dir(&disabled_dir) {
                             return Err(AppsServiceError::FilesystemFailure);
                         }
-                        let _ = fs::rename(app_dir, app_disabled_dir)
+                        fs::rename(app_dir, app_disabled_dir)
                             .map_err(|_| AppsServiceError::FilesystemFailure)?;
                     }
                     AppsStatus::Enabled => {
-                        let _ = fs::rename(app_disabled_dir, app_dir)
+                        fs::rename(app_disabled_dir, app_dir)
                             .map_err(|_| AppsServiceError::FilesystemFailure)?;
                     }
                 }

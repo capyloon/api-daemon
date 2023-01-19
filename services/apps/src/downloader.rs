@@ -170,7 +170,7 @@ impl Downloader {
             debug!("single_download in loop, cnt is {:?}", cnt);
             buffer.truncate(bcount);
             if !buffer.is_empty() {
-                let _ = file.write_all(&buffer)?;
+                file.write_all(&buffer)?;
             } else {
                 break;
             }
@@ -185,7 +185,7 @@ impl Downloader {
             let _ = progress_sender.send(Ok(DownloaderInfo::Progress(100)));
         }
 
-        let _ = file.flush().map_err(DownloadError::Io)?;
+        file.flush().map_err(DownloadError::Io)?;
 
         fs::copy(&tmp_file_path, path).map_err(DownloadError::Io)?;
 

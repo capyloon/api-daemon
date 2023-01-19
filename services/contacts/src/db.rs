@@ -192,7 +192,7 @@ fn format_phone_number(number: &str) -> String {
         Err(_) => Id::US,
     };
 
-    if let Ok(phone_number) = phonenumber::parse(Some(countr_code), &number) {
+    if let Ok(phone_number) = phonenumber::parse(Some(countr_code), number) {
         let mut result = String::new();
         result.push_str(&phone_number.format().mode(Mode::International).to_string());
         result.push_str(&phone_number.format().mode(Mode::National).to_string());
@@ -404,7 +404,7 @@ fn save_vec_field(
 ) -> Result<(), Error> {
     if let Some(values) = datas {
         for value in values {
-            stmt.insert(&[&id as &dyn rusqlite::ToSql, &stype.to_string(), &value])?;
+            stmt.insert([&id as &dyn rusqlite::ToSql, &stype.to_string(), &value])?;
         }
     }
     Ok(())
@@ -417,7 +417,7 @@ fn save_str_field(
     data: &Option<String>,
 ) -> Result<(), Error> {
     if let Some(data) = data {
-        stmt.insert(&[&id as &dyn rusqlite::ToSql, &stype.to_string(), &data])?;
+        stmt.insert([&id as &dyn rusqlite::ToSql, &stype.to_string(), &data])?;
     }
     Ok(())
 }
@@ -501,14 +501,14 @@ impl ContactInfo {
                 self.updated = Some(SystemTime::from(time));
             }
 
-            let bday = row.bday as i64;
+            let bday = row.bday;
             if bday >= 0 {
                 if let Some(time) = UNIX_EPOCH.checked_add(Duration::from_secs(row.bday as u64)) {
                     self.bday = Some(SystemTime::from(time));
                 }
             }
 
-            let anniversary = row.anniversary as i64;
+            let anniversary = row.anniversary;
             if anniversary >= 0 {
                 if let Some(time) =
                     UNIX_EPOCH.checked_add(Duration::from_secs(row.anniversary as u64))
@@ -676,7 +676,7 @@ impl ContactInfo {
             -1
         };
 
-        stmt_ins.insert(&[
+        stmt_ins.insert([
             &self.id as &dyn rusqlite::ToSql,
             &self.name.clone().unwrap_or_default(),
             &self.family_name.clone().unwrap_or_default(),
@@ -701,12 +701,12 @@ impl ContactInfo {
             if categories.contains(&"SIM".to_string()) {
                 // Add or Update sim contact all need to update hash.
                 // So delete first and then insert.
-                tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&self.id])?;
+                tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", [&self.id])?;
                 let sim_info: SimContactInfo = self.into();
                 let hash = Some(hash(&sim_info).to_string());
                 tx.execute(
                     "INSERT INTO sim_contact_hash (id, hash) VALUES(?, ?)",
-                    &[&self.id, &hash],
+                    [&self.id, &hash],
                 )?;
             }
         }
@@ -816,11 +816,11 @@ impl ContactInfo {
 
         if let Some(groups) = &self.groups {
             for group in groups {
-                stmt.insert(&[&self.id, &Some("groups".into()), &Some(group.clone())])?;
+                stmt.insert([&self.id, &Some("groups".into()), &Some(group.clone())])?;
                 // Update the group_contacts when contact with group info.
                 let mut stmt_group =
                     tx.prepare("INSERT INTO group_contacts (group_id, contact_id) VALUES(?, ?)")?;
-                stmt_group.insert(&[group, &self.id.clone().unwrap_or_default()])?;
+                stmt_group.insert([group, &self.id.clone().unwrap_or_default()])?;
             }
         }
 
@@ -935,11 +935,11 @@ impl ContactsDb {
             for contact_id in contact_ids {
                 tx.execute(
                     "UPDATE speed_dials SET contact_id = '' WHERE contact_id = ?",
-                    &[&contact_id],
+                    [&contact_id],
                 )?;
                 tx.execute(
                     "DELETE FROM contact_main WHERE contact_id = ?",
-                    &[&contact_id],
+                    [&contact_id],
                 )?;
                 let contact = ContactInfo {
                     id: Some(contact_id.to_string()),
@@ -973,18 +973,18 @@ impl ContactsDb {
                         continue;
                     }
                     contact.updated = Some(SystemTime::from(std::time::SystemTime::now()));
-                    tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", &[&contact.id])?;
+                    tx.execute("DELETE FROM sim_contact_hash WHERE id = ?", [&contact.id])?;
                     tx.execute(
                         "DELETE FROM contact_additional WHERE contact_id = ?",
-                        &[&contact.id],
+                        [&contact.id],
                     )?;
                     tx.execute(
                         "DELETE FROM group_contacts WHERE contact_id = ?",
-                        &[&contact.id],
+                        [&contact.id],
                     )?;
                     tx.execute(
                         "DELETE FROM contact_main WHERE contact_id = ?",
-                        &[&contact.id],
+                        [&contact.id],
                     )?;
                     contact.updated = Some(SystemTime::from(std::time::SystemTime::now()));
                 } else {
@@ -1301,7 +1301,7 @@ impl ContactsDb {
         let contact_id_count: i32 = {
             let sql = String::from("SELECT COUNT(*) FROM contact_main WHERE contact_id = ?");
             let mut stmt = conn.prepare(&sql)?;
-            stmt.query_row(&[&contact_id], |r| Ok(r.get_unwrap(0)))?
+            stmt.query_row([&contact_id], |r| Ok(r.get_unwrap(0)))?
         };
 
         if contact_id_count != 1 {
@@ -1315,7 +1315,7 @@ impl ContactsDb {
                 "SELECT COUNT(*) FROM contact_additional WHERE data_type = 'ice_position' AND value = ?",
             );
             let mut stmt = conn.prepare(&sql)?;
-            stmt.query_row(&[&position], |r| Ok(r.get_unwrap(0)))?
+            stmt.query_row([&position], |r| Ok(r.get_unwrap(0)))?
         };
 
         if position_count != 0 {
@@ -1329,7 +1329,7 @@ impl ContactsDb {
                 "SELECT COUNT(*) FROM contact_additional WHERE data_type = 'ice_position' AND contact_id = ?",
             );
             let mut stmt = conn.prepare(&sql)?;
-            stmt.query_row(&[&contact_id], |r| Ok(r.get_unwrap(0)))?
+            stmt.query_row([&contact_id], |r| Ok(r.get_unwrap(0)))?
         };
 
         if item_count != 0 {
@@ -1354,7 +1354,7 @@ impl ContactsDb {
         let count: i32 = {
             let sql = String::from("SELECT COUNT(*) FROM contact_main WHERE contact_id = ?");
             let mut stmt = conn.prepare(&sql)?;
-            stmt.query_row(&[&contact_id], |r| Ok(r.get_unwrap(0)))?
+            stmt.query_row([&contact_id], |r| Ok(r.get_unwrap(0)))?
         };
 
         if count != 1 {
@@ -1365,7 +1365,7 @@ impl ContactsDb {
 
         conn.execute(
             "DELETE FROM contact_additional WHERE contact_id = ? AND data_type = 'ice_position'",
-            &[contact_id],
+            [contact_id],
         )?;
 
         Ok(())
@@ -1445,7 +1445,7 @@ impl ContactsDb {
         let match_key = format_phone_number(number);
         let mut stmt =
             conn.prepare("INSERT INTO blocked_numbers (number, match_key) VALUES (?, ?)")?;
-        let size = stmt.execute(&[number, &match_key])?;
+        let size = stmt.execute([number, &match_key])?;
         if size > 0 {
             let event = BlockedNumberChangeEvent {
                 reason: ChangeReason::Create,
@@ -1547,7 +1547,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt = conn
             .prepare("INSERT INTO speed_dials (dial_key, tel, contact_id) VALUES (?1, ?2, ?3)")?;
-        let size = stmt.execute(&[dial_key, tel, contact_id])?;
+        let size = stmt.execute([dial_key, tel, contact_id])?;
         if size > 0 {
             let event = SpeedDialChangeEvent {
                 reason: ChangeReason::Create,
@@ -1577,7 +1577,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt =
             conn.prepare("UPDATE speed_dials SET tel = ?1, contact_id = ?2 WHERE dial_key = ?3")?;
-        let size = stmt.execute(&[tel, contact_id, dial_key])?;
+        let size = stmt.execute([tel, contact_id, dial_key])?;
         if size > 0 {
             let event = SpeedDialChangeEvent {
                 reason: ChangeReason::Update,
@@ -1597,7 +1597,7 @@ impl ContactsDb {
         debug!("ContactsDb::remove_speed_dial");
         let conn = self.db.connection();
         let mut stmt = conn.prepare("DELETE FROM speed_dials WHERE dial_key = ?")?;
-        let size = stmt.execute(&[dial_key])?;
+        let size = stmt.execute([dial_key])?;
         if size > 0 {
             let event = SpeedDialChangeEvent {
                 reason: ChangeReason::Remove,
@@ -1617,12 +1617,12 @@ impl ContactsDb {
         debug!("ContactsDb::remove_group id:{}", id);
         let connection = self.db.mut_connection();
         let tx = connection.transaction()?;
-        tx.execute("DELETE FROM group_contacts WHERE group_id is ?", &[id])?;
+        tx.execute("DELETE FROM group_contacts WHERE group_id is ?", [id])?;
         tx.execute(
             "DELETE FROM contact_additional WHERE data_type = 'groups' AND value IS ?",
-            &[id],
+            [id],
         )?;
-        tx.execute("DELETE FROM groups WHERE id is ?", &[id])?;
+        tx.execute("DELETE FROM groups WHERE id is ?", [id])?;
         tx.commit()?;
         let event = GroupChangeEvent {
             reason: ChangeReason::Remove,
@@ -1640,7 +1640,7 @@ impl ContactsDb {
         debug!("ContactsDb::add_group  name = {}", name);
         let id = Uuid::new_v4().to_string();
         let conn = self.db.connection();
-        let size = conn.execute("INSERT INTO groups (id, name) VALUES(?, ?)", &[&id, name])?;
+        let size = conn.execute("INSERT INTO groups (id, name) VALUES(?, ?)", [&id, name])?;
         if size > 0 {
             let event = GroupChangeEvent {
                 reason: ChangeReason::Create,
@@ -1658,7 +1658,7 @@ impl ContactsDb {
     pub fn update_group(&mut self, id: &str, name: &str) -> Result<(), Error> {
         debug!("ContactsDb::update_group id ={}, name= {}", id, name);
         let conn = self.db.connection();
-        let size = conn.execute("UPDATE groups SET name = ? WHERE id = ?", &[name, id])?;
+        let size = conn.execute("UPDATE groups SET name = ? WHERE id = ?", [name, id])?;
         if size > 0 {
             let event = GroupChangeEvent {
                 reason: ChangeReason::Update,
@@ -1681,7 +1681,7 @@ impl ContactsDb {
         let conn = self.db.connection();
         let mut stmt =
             conn.prepare("SELECT contact_id FROM group_contacts WHERE group_id IS :group_id")?;
-        let rows = stmt.query_map(&[group_id], |row| row.get(0))?;
+        let rows = stmt.query_map([group_id], |row| row.get(0))?;
 
         Ok(rows_to_vec(rows))
     }
@@ -1851,7 +1851,7 @@ mod test {
             ..Default::default()
         };
 
-        db.save(&[bob, alice], false).unwrap();
+        db.save([bob, alice], false).unwrap();
 
         assert_eq!(db.count().unwrap(), 2);
 
@@ -1876,7 +1876,7 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts(&[sim_contact_1, sim_contact_2])
+        db.import_sim_contacts([sim_contact_1, sim_contact_2])
             .unwrap();
 
         assert_eq!(db.count().unwrap(), 2);
@@ -1903,7 +1903,7 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts(&[sim_contact_1_name_change])
+        db.import_sim_contacts([sim_contact_1_name_change])
             .unwrap();
 
         if let Ok(contact) = db.get(&"0001".to_string(), true) {
@@ -1939,7 +1939,7 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts(&[sim_contact_1_tel_change]).unwrap();
+        db.import_sim_contacts([sim_contact_1_tel_change]).unwrap();
 
         if let Ok(contact) = db.get(&"0001".to_string(), true) {
             // Verify sim_contact_1's tel update to "15229099710".
@@ -1956,7 +1956,7 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts(&[sim_contact_1_email_change])
+        db.import_sim_contacts([sim_contact_1_email_change])
             .unwrap();
 
         if let Ok(contact) = db.get(&"0001".to_string(), true) {
@@ -2014,7 +2014,7 @@ mod test {
             assert_eq!(contacts[i].name.clone().unwrap(), sim_contacts[i].name);
         }
 
-        db.import_sim_contacts(&[]).unwrap();
+        db.import_sim_contacts([]).unwrap();
 
         // Verify db is empty after import empty sim contacts.
         assert_eq!(db.count().unwrap(), 0);

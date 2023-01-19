@@ -141,7 +141,7 @@ impl AppsStorage {
         } else {
             app.set_manifest_url(AppsItem::new_manifest_url(&app_name, vhost_port));
             let dest = data_path.join("vroot").join(&app_name);
-            let _ = Self::safe_symlink(&source, &dest)?;
+            Self::safe_symlink(&source, &dest)?;
         }
         app.set_preloaded(true);
         // Get version from manifest for preloaded apps.
@@ -179,11 +179,11 @@ impl AppsStorage {
     // Out
     //   A result of ()  or error
     pub fn remove_app(app: &AppsItem, data_path: &Path) -> Result<(), AppsError> {
-        let installed_dir = data_path.join("installed").join(&app.get_name());
+        let installed_dir = data_path.join("installed").join(app.get_name());
         let webapp_dir = app.get_appdir(data_path).unwrap_or_default();
 
-        let _ = remove_dir_all(&webapp_dir);
-        let _ = remove_dir_all(&installed_dir);
+        let _ = remove_dir_all(webapp_dir);
+        let _ = remove_dir_all(installed_dir);
 
         Ok(())
     }

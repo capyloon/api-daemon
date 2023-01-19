@@ -118,9 +118,9 @@ pub fn start(run_context: &GlobalContext, telemetry: TelemetrySender) {
     let path = run_context.config.general.socket_path.as_ref().unwrap();
 
     // Make sure the listener doesn't already exist.
-    let _ = ::std::fs::remove_file(&path);
+    let _ = ::std::fs::remove_file(path);
 
-    match UnixListener::bind(&path) {
+    match UnixListener::bind(path) {
         Ok(listener) => {
             // Temporary fix for https://bugzilla.kaiostech.com/show_bug.cgi?id=98577
             // until we use a proper way to allow access to the uds socket from content

@@ -383,7 +383,7 @@ pub fn start(
     .disable_signals() // For now, since that's causing issues with Ctrl-C
     .run();
 
-    let _ = actix_rt::Runtime::new().unwrap().block_on(async {
+    actix_rt::Runtime::new().unwrap().block_on(async {
         let _ = server
             .await
             .map_err(|e| error!("api server exit with error: {:?}", e));
@@ -434,7 +434,7 @@ mod test {
         // Check that POST requests return a BadRequest status
         let client = reqwest::blocking::Client::new();
         let resp = client
-            .post(&format!("http://127.0.0.1:{}/test", port))
+            .post(format!("http://127.0.0.1:{}/test", port))
             .send()
             .unwrap();
 
@@ -447,7 +447,7 @@ mod test {
 
         // Check that GET requests return a NotFound status
         let resp =
-            reqwest::blocking::get(&format!("http://127.0.0.1:{}/test/not_here", port)).unwrap();
+            reqwest::blocking::get(format!("http://127.0.0.1:{}/test/not_here", port)).unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
@@ -458,7 +458,7 @@ mod test {
         // Check that GET requests return a ok status, do not auto gzip decompression.
         let client = reqwest::blocking::Client::builder().gzip(false).build().unwrap();
         let resp = client
-            .get(&format!("http://127.0.0.1:{}/core/index.js", port))
+            .get(format!("http://127.0.0.1:{}/core/index.js", port))
             .send()
             .unwrap();
 
@@ -479,7 +479,7 @@ mod test {
         // Check that GET requests return a ok status, do not auto gzip decompression.
         let client = reqwest::blocking::Client::builder().gzip(false).build().unwrap();
         let resp = client
-            .get(&format!("http://127.0.0.1:{}/core/data.dat", port))
+            .get(format!("http://127.0.0.1:{}/core/data.dat", port))
             .send()
             .unwrap();
 
@@ -500,7 +500,7 @@ mod test {
         let client = reqwest::blocking::Client::builder().gzip(false).build().unwrap();
 
         let resp = client
-            .get(&format!("http://127.0.0.1:{}/core/data.dat", port))
+            .get(format!("http://127.0.0.1:{}/core/data.dat", port))
             .header("Accept-Encoding", "gzip")
             .send()
             .unwrap();
@@ -533,7 +533,7 @@ mod test {
         let client = reqwest::blocking::Client::builder().build().unwrap();
 
         let resp = client
-            .get(&format!("http://127.0.0.1:{}/no/such/resource", port))
+            .get(format!("http://127.0.0.1:{}/no/such/resource", port))
             .send()
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);

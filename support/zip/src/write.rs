@@ -98,7 +98,7 @@ pub struct FileOptions {
 
 impl FileOptions {
     /// Construct a new FileOptions object
-    pub fn default() -> FileOptions {
+    pub fn new() -> FileOptions {
         FileOptions {
             #[cfg(any(
                 feature = "deflate",
@@ -162,7 +162,7 @@ impl FileOptions {
 
 impl Default for FileOptions {
     fn default() -> Self {
-        Self::default()
+        Self::new()
     }
 }
 
@@ -1162,7 +1162,7 @@ fn path_to_string(path: &std::path::Path) -> String {
             if !path_str.is_empty() {
                 path_str.push('/');
             }
-            path_str.push_str(&*os_str.to_string_lossy());
+            path_str.push_str(&os_str.to_string_lossy());
         }
     }
     path_str

@@ -104,7 +104,7 @@ impl PowerManagerState {
         }
 
         self.inner
-            .set_screen_state(state, if is_external { 1 } else { 0 })
+            .set_screen_state(state, u8::from(is_external))
     }
 }
 
@@ -257,13 +257,7 @@ impl PowermanagerMethods for PowerManager {
     fn set_key_light_brightness(&mut self, value: i64) {
         let mut shared = self.shared_obj.lock();
         shared.key_light_brightness = value;
-        let clamped = if value < 0 {
-            0
-        } else if value > 100 {
-            100
-        } else {
-            value
-        };
+        let clamped = value.clamp(0, 100);
         shared.inner.set_key_light_brightness(clamped as _);
     }
 

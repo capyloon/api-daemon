@@ -342,7 +342,7 @@ impl AppsRequest {
         }
 
         // Save the downloaded update manifest file in cached dir.
-        let cached_dir = webapp_path.join("cached").join(&app.get_name());
+        let cached_dir = webapp_path.join("cached").join(app.get_name());
         let _ = AppsStorage::ensure_dir(&cached_dir);
         let cached_manifest = cached_dir.join("update.webmanifest");
         if let Err(err) = fs::rename(&update_manifest_result.update_manifest, &cached_manifest) {
@@ -366,7 +366,7 @@ impl AppsRequest {
                     registry.get_vhost_port(),
                 ));
             }
-            let _ = registry.save_app(true, &app)?;
+            registry.save_app(true, &app)?;
         }
 
         let mut app_obj = AppsObject::from(&app);
@@ -382,12 +382,15 @@ impl AppsRequest {
         manifest_url_base: &Url,
         download_dir: &Path,
     ) -> Result<(), AppsServiceError> {
-        let icon_url = match update_url_base
-            .join(&icon.get_src()) {
+        let icon_url = match update_url_base.join(&icon.get_src()) {
             Ok(url) => url,
-            Err(_) => return Err(AppsServiceError::InvalidManifest)
+            Err(_) => return Err(AppsServiceError::InvalidManifest),
         };
-        let icon_src = format!("{}{}", icon_url.host().unwrap_or(Domain("")), icon_url.path());
+        let icon_src = format!(
+            "{}{}",
+            icon_url.host().unwrap_or(Domain("")),
+            icon_url.path()
+        );
         let icon_path = download_dir.join(&icon_src);
         let icon_dir = icon_path.parent().unwrap();
         let _ = AppsStorage::ensure_dir(icon_dir);
@@ -501,7 +504,7 @@ impl AppsRequest {
             restorer =
                 AppsStatusRestorer::new(self.shared_data.clone(), is_update, apps_item_restore);
 
-            let _ = registry.save_app(is_update, &apps_item)?;
+            registry.save_app(is_update, &apps_item)?;
 
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
             self.installing_apps_item = Some(apps_item.clone());
@@ -564,7 +567,7 @@ impl AppsRequest {
 
         // Here we can emit ready to apply download if we have sparate steps
         // asking user to apply download
-        let _ = registry.apply_download(&mut apps_item, &available_dir, &manifest, is_update)?;
+        registry.apply_download(&mut apps_item, &available_dir, &manifest, is_update)?;
 
         // Everything went fine, don't remove the available_dir directory.
         available_dir_remover.keep();
@@ -609,7 +612,7 @@ impl AppsRequest {
         manifest.process_scope(&update_url_base)?;
         let scope = Url::parse(&manifest.get_scope().unwrap_or_default())
             .map_err(|_| AppsServiceError::InvalidManifest)?;
-        let _ = is_same_origin_with(&scope, &manifest.get_start_url())?;
+        is_same_origin_with(&scope, &manifest.get_start_url())?;
 
         let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
@@ -686,7 +689,7 @@ impl AppsRequest {
             .map_err(|_| AppsServiceError::InvalidStartUrl)?;
         manifest.set_start_url(start_url.as_str());
         let cached_pwa_manifest = download_dir.join("manifest.webmanifest");
-        Manifest::write_to(&cached_pwa_manifest, &manifest)
+        Manifest::write_to(cached_pwa_manifest, &manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // 2-3: Process if shortcuts exist
