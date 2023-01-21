@@ -1,4 +1,4 @@
-/* Copyright 2018 The encode_unicode Developers
+/* Copyright 2018-2020 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -14,21 +14,18 @@
 //! well with other adaptors,
 //! while the slice iterators yield both to make more advanced use cases easy.
 
-use errors::{InvalidUtf8Slice, InvalidUtf16FirstUnit, Utf16PairError};
-use errors::InvalidUtf8Slice::*;
-use errors::InvalidUtf8::*;
-use errors::InvalidUtf8FirstByte::*;
-use errors::InvalidUtf16Slice::*;
-use errors::InvalidCodepoint::*;
-use errors::Utf16PairError::*;
-use utf8_char::Utf8Char;
-use utf16_char::Utf16Char;
-use traits::U16UtfExt;
+use crate::errors::{Utf16FirstUnitError, Utf16PairError, Utf8Error};
+use crate::errors::Utf16SliceError::*;
+use crate::errors::Utf16PairError::*;
+use crate::errors::Utf8ErrorKind::*;
+use crate::utf8_char::Utf8Char;
+use crate::utf16_char::Utf16Char;
+use crate::traits::U16UtfExt;
 extern crate core;
-use self::core::borrow::Borrow;
-use self::core::fmt::{self, Debug};
-use self::core::iter::Chain;
-use self::core::option;
+use core::borrow::Borrow;
+use core::fmt::{self, Debug};
+use core::iter::Chain;
+use core::option;
 
 
 /// Decodes UTF-8 characters from a byte iterator into `Utf8Char`s.
@@ -98,7 +95,7 @@ impl<B:Borrow<u8>, I:Iterator<Item=B>> Utf8CharMerger<B,I> {
         }
     }
     /// Reads len-1 bytes into bytes[1..]
-    fn extra(&mut self,  bytes: &mut[u8;4],  len: usize) -> Result<(),InvalidUtf8Slice> {
+    fn extra(&mut self,  bytes: &mut[u8;4],  len: usize) -> Result<(),Utf8Error> {
         // This is the only function that pushes onto after_err_stack,
         // and it checks that all bytes are continuation bytes before fetching the next one.
         // Therefore only the last byte retrieved can be a non-continuation byte.
@@ -117,18 +114,18 @@ impl<B:Borrow<u8>, I:Iterator<Item=B>> Utf8CharMerger<B,I> {
                 if extra & 0b1100_0000 != 0b1000_0000 {
                     // not a continuation byte
                     self.save(bytes, i+1);
-                    return Err(InvalidUtf8Slice::Utf8(NotAContinuationByte(i)))
+                    return Err(Utf8Error{ kind: InterruptedSequence })
                 }
             } else {
                 self.save(bytes, i);
-                return Err(TooShort(len));
+                return Err(Utf8Error{ kind: TooFewBytes });
             }
         }
         Ok(())
     }
 }
 impl<B:Borrow<u8>, I:Iterator<Item=B>> Iterator for Utf8CharMerger<B,I> {
-    type Item = Result<Utf8Char,InvalidUtf8Slice>;
+    type Item = Result<Utf8Char,Utf8Error>;
     fn next(&mut self) -> Option<Self::Item> {
         let first: u8;
         if self.after_err_leftover != 0 {
@@ -143,49 +140,48 @@ impl<B:Borrow<u8>, I:Iterator<Item=B>> Iterator for Utf8CharMerger<B,I> {
         unsafe {
             let mut bytes = [first, 0, 0, 0];
             let ok = match first {
-                0b0000_0000...0b0111_1111 => {/*1 and */Ok(())},
-                0b1100_0010...0b1101_1111 => {//2 and not overlong
+                0b0000_0000..=0b0111_1111 => {/*1 and */Ok(())},
+                0b1100_0010..=0b1101_1111 => {//2 and not overlong
                     self.extra(&mut bytes, 2) // no extra validation required
                 },
-                0b1110_0000...0b1110_1111 => {//3
+                0b1110_0000..=0b1110_1111 => {//3
                     if let Err(e) = self.extra(&mut bytes, 3) {
                         Err(e)
                     } else if bytes[0] == 0b1110_0000  &&  bytes[1] <= 0b10_011111 {
                         self.save(&bytes, 3);
-                        Err(Utf8(OverLong))
+                        Err(Utf8Error{ kind: OverlongEncoding })
                     } else if bytes[0] == 0b1110_1101  &&  bytes[1] & 0b11_100000 == 0b10_100000 {
                         self.save(&bytes, 3);
-                        Err(Codepoint(Utf16Reserved))
+                        Err(Utf8Error{ kind: Utf16ReservedCodepoint })
                     } else {
                         Ok(())
                     }
                 },
-                0b1111_0000...0b1111_0100 => {//4
+                0b1111_0000..=0b1111_0100 => {//4
                     if let Err(e) = self.extra(&mut bytes, 4) {
                         Err(e)
                     } else if bytes[0] == 0b11110_000  &&  bytes[1] <= 0b10_001111 {
                         self.save(&bytes, 4);
-                        Err(InvalidUtf8Slice::Utf8(OverLong))
+                        Err(Utf8Error{ kind: OverlongEncoding })
                     } else if bytes[0] == 0b11110_100  &&  bytes[1] > 0b10_001111 {
                         self.save(&bytes, 4);
-                        Err(InvalidUtf8Slice::Codepoint(TooHigh))
+                        Err(Utf8Error{ kind: TooHighCodepoint })
                     } else {
                         Ok(())
                     }
                 },
-                0b1000_0000...0b1011_1111 => {// continuation byte
-                    Err(Utf8(FirstByte(ContinuationByte)))
+                0b1000_0000..=0b1011_1111 => {// continuation byte
+                    Err(Utf8Error{ kind: UnexpectedContinuationByte })
                 },
-                0b1100_0000...0b1100_0001 => {// 2 and overlong
-                    Err(Utf8(OverLong))
+                0b1100_0000..=0b1100_0001 => {// 2 and overlong
+                    Err(Utf8Error{ kind: NonUtf8Byte })
                 },
-                0b1111_0101...0b1111_0111 => {// 4 and too high codepoint
-                    Err(Codepoint(TooHigh))
+                0b1111_0101..=0b1111_0111 => {// 4 and too high codepoint
+                    Err(Utf8Error{ kind: NonUtf8Byte })
                 },
-                0b1111_1000...0b1111_1111 => {
-                    Err(Utf8(FirstByte(TooLongSeqence)))
+                0b1111_1000..=0b1111_1111 => {
+                    Err(Utf8Error{ kind: NonUtf8Byte })
                 },
-                _ => unreachable!("all possible byte values should be covered")
             };
             Some(ok.map(|()| Utf8Char::from_array_unchecked(bytes) ))
         }
@@ -249,7 +245,7 @@ impl<'a> Utf8CharDecoder<'a> {
     }
 }
 impl<'a> Iterator for Utf8CharDecoder<'a> {
-    type Item = (usize, Result<Utf8Char,InvalidUtf8Slice>, usize);
+    type Item = (usize, Result<Utf8Char,Utf8Error>, usize);
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.index;
         match Utf8Char::from_slice_start(&self.slice[self.index..]) {
@@ -257,7 +253,7 @@ impl<'a> Iterator for Utf8CharDecoder<'a> {
                 self.index += len;
                 Some((start, Ok(u8c), len))
             },
-            Err(TooShort(1)) => None,
+            Err(_) if self.slice.len() <= self.index => None,
             Err(e) => {
                 self.index += 1;
                 Some((start, Err(e), 1))
@@ -295,7 +291,7 @@ impl<'a> DoubleEndedIterator for Utf8CharDecoder<'a> {
                 },
                 _ => {
                     self.slice = &self.slice[..self.slice.len()-1];
-                    Some((self.slice.len()-1, Err(Utf8(FirstByte(ContinuationByte))), 1))
+                    Some((self.slice.len()-1, Err(Utf8Error{ kind: UnexpectedContinuationByte }), 1))
                 },
             }
         } else {
@@ -385,7 +381,7 @@ impl<B:Borrow<u16>, I:Iterator<Item=B>> Iterator for Utf16CharMerger<B,I> {
                 Ok(false) => Ok(Utf16Char::from_array_unchecked([*first.borrow(), 0])),
                 Ok(true) => match self.iter.next() {
                     Some(second) => match second.borrow().utf16_needs_extra_unit() {
-                        Err(InvalidUtf16FirstUnit) => Ok(Utf16Char::from_tuple_unchecked((
+                        Err(Utf16FirstUnitError) => Ok(Utf16Char::from_tuple_unchecked((
                             *first.borrow(),
                             Some(*second.borrow())
                         ))),
@@ -396,7 +392,7 @@ impl<B:Borrow<u16>, I:Iterator<Item=B>> Iterator for Utf16CharMerger<B,I> {
                     },
                     None => Err(Utf16PairError::Incomplete)
                 },
-                Err(InvalidUtf16FirstUnit) => Err(Utf16PairError::UnexpectedTrailingSurrogate),
+                Err(Utf16FirstUnitError) => Err(Utf16PairError::UnexpectedTrailingSurrogate),
             }
         })
     }
@@ -464,11 +460,11 @@ impl<'a> Iterator for Utf16CharDecoder<'a> {
                 Some((start, Ok(u16c), len))
             },
             Err(EmptySlice) => None,
-            Err(FirstLowSurrogate) => {
+            Err(FirstIsTrailingSurrogate) => {
                 self.index += 1;
                 Some((start, Err(UnexpectedTrailingSurrogate), 1))
             },
-            Err(SecondNotLowSurrogate) => {
+            Err(SecondIsNotTrailingSurrogate) => {
                 self.index += 1;
                 Some((start, Err(UnmatchedLeadingSurrogate), 1))
             },

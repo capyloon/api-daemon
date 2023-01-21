@@ -10,13 +10,15 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 name = "sqlformat"
-version = "0.1.8"
+version = "0.2.1"
 authors = ["Josh Holmer <jholmer.in@gmail.com>"]
 description = "Formats whitespace in a SQL string to make it easier to read"
 homepage = "https://github.com/shssoichiro/sqlformat-rs"
 documentation = "https://docs.rs/sqlformat"
+readme = "README.md"
 keywords = ["sql"]
 categories = ["development-tools"]
 license = "MIT OR Apache-2.0"
@@ -25,6 +27,7 @@ repository = "https://github.com/shssoichiro/sqlformat-rs"
 [[bench]]
 name = "bench"
 harness = false
+
 [dependencies.itertools]
 version = "0.10"
 
@@ -33,6 +36,7 @@ version = "7.0.0"
 
 [dependencies.unicode_categories]
 version = "0.1.1"
+
 [dev-dependencies.criterion]
 version = "0.3"
 

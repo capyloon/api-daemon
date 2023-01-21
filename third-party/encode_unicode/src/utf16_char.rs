@@ -1,4 +1,4 @@
-/* Copyright 2016 The encode_unicode Developers
+/* Copyright 2016-2022 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -6,28 +6,25 @@
  * copied, modified, or distributed except according to those terms.
  */
 
-use utf16_iterators::Utf16Iterator;
-use traits::{CharExt, U16UtfExt};
-use utf8_char::Utf8Char;
-use errors::{InvalidUtf16Slice, InvalidUtf16Array, InvalidUtf16Tuple};
-use errors::{NonBMPError, EmptyStrError, FromStrError};
+use crate::utf16_iterators::Utf16Iterator;
+use crate::traits::{CharExt, U16UtfExt};
+use crate::utf8_char::Utf8Char;
+use crate::errors::{Utf16SliceError, Utf16ArrayError, Utf16TupleError};
+use crate::errors::{NonBmpError, EmptyStrError, FromStrError};
 extern crate core;
-use self::core::{hash,fmt};
-use self::core::cmp::Ordering;
-use self::core::borrow::Borrow;
-use self::core::ops::Deref;
-use self::core::str::FromStr;
+use core::{hash,fmt};
+use core::cmp::Ordering;
+use core::borrow::Borrow;
+use core::ops::Deref;
+use core::str::FromStr;
 #[cfg(feature="std")]
-use self::core::iter::FromIterator;
-#[cfg(feature="std")]
-#[allow(deprecated)]
-use std::ascii::AsciiExt;
+use core::iter::FromIterator;
 #[cfg(feature="ascii")]
-use self::core::char;
+use core::char;
 #[cfg(feature="ascii")]
 extern crate ascii;
 #[cfg(feature="ascii")]
-use self::ascii::{AsciiChar,ToAsciiChar,ToAsciiCharError};
+use ascii::{AsciiChar,ToAsciiChar,ToAsciiCharError};
 
 
 // I don't think there is any good default value for char, but char does.
@@ -158,7 +155,7 @@ impl<'a> FromIterator<&'a Utf16Char> for Vec<u16> {
 #[cfg(feature="std")]
 impl Extend<Utf16Char> for String {
     fn extend<I:IntoIterator<Item=Utf16Char>>(&mut self,  iter: I) {
-        self.extend(iter.into_iter().map(|u16c| Utf8Char::from(u16c) ));
+        self.extend(iter.into_iter().map(Utf8Char::from));
     }
 }
 #[cfg(feature="std")]
@@ -210,34 +207,6 @@ impl Deref for Utf16Char {
   ////////////////
  //ascii traits//
 ////////////////
-#[cfg(feature="std")]
-#[allow(deprecated)]
-impl AsciiExt for Utf16Char {
-    type Owned = Self;
-    fn is_ascii(&self) -> bool {
-        self.units[0] < 128
-    }
-    fn eq_ignore_ascii_case(&self,  other: &Self) -> bool {
-        self.to_ascii_lowercase() == other.to_ascii_lowercase()
-    }
-    fn to_ascii_uppercase(&self) -> Self {
-        let n = self.units[0].wrapping_sub(b'a' as u16);
-        if n < 26 {Utf16Char{ units: [n+b'A' as u16, 0] }}
-        else      {*self}
-    }
-    fn to_ascii_lowercase(&self) -> Self {
-        let n = self.units[0].wrapping_sub(b'A' as u16);
-        if n < 26 {Utf16Char{ units: [n+b'a' as u16, 0] }}
-        else      {*self}
-    }
-    fn make_ascii_uppercase(&mut self) {
-        *self = self.to_ascii_uppercase()
-    }
-    fn make_ascii_lowercase(&mut self) {
-        *self = self.to_ascii_lowercase();
-    }
-}
-
 #[cfg(feature="ascii")]
 /// Requires the feature "ascii".
 impl From<AsciiChar> for Utf16Char {
@@ -251,12 +220,11 @@ impl From<AsciiChar> for Utf16Char {
 impl ToAsciiChar for Utf16Char {
     #[inline]
     fn to_ascii_char(self) -> Result<AsciiChar, ToAsciiCharError> {
-        // ToAsciiCHar is not implemented for u16 in ascii 0.9.0
-        if self.is_ascii() {self.units[0] as u8} else {255}.to_ascii_char()
+        self.units[0].to_ascii_char()
     }
     #[inline]
     unsafe fn to_ascii_char_unchecked(self) -> AsciiChar {
-        (self.units[0] as u8).to_ascii_char_unchecked()
+        unsafe { self.units[0].to_ascii_char_unchecked() }
     }
 }
 
@@ -413,6 +381,24 @@ impl PartialOrd<Utf16Char> for AsciiChar {
  //pub impls that should be together for nicer rustdoc//
 ///////////////////////////////////////////////////////
 impl Utf16Char {
+    /// A `const fn` alternative to the trait-based `Utf16Char::from(char)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use encode_unicode::Utf16Char;
+    /// const REPLACEMENT_CHARACTER: Utf16Char = Utf16Char::new('\u{fffd}');
+    /// ```
+    pub const fn new(c: char) -> Self {
+        if c <= '\u{ffff}' {
+            Utf16Char{ units: [c as u16, 0] }
+        } else {
+            let c = (c as u32).wrapping_sub(0x01_00_00);
+            let first = 0xd8_00 | (c >> 10) as u16;
+            let second = 0xdc_00 | (c & 0x0_03_ff) as u16;
+            Utf16Char{ units: [first, second] }
+        }
+    }
     /// Create an `Utf16Char` from the first codepoint in a string slice,
     /// converting from UTF-8 to UTF-16.
     ///
@@ -432,23 +418,23 @@ impl Utf16Char {
     /// assert_eq!(Utf16Char::from_str_start("é"), Ok((Utf16Char::from('e'),1)));// 'e'+u301 combining mark
     /// assert!(Utf16Char::from_str_start("").is_err());
     /// ```
-    pub fn from_str_start(s: &str) -> Result<(Self,usize), EmptyStrError> {
+    pub const fn from_str_start(s: &str) -> Result<(Self,usize), EmptyStrError> {
         if s.is_empty() {
             return Err(EmptyStrError);
         }
         let b = s.as_bytes();
         // Read the last byte first to reduce the number of unnecesary length checks.
         match b[0] {
-            0...127 => {// 1 byte => 1 unit
+            0..=127 => {// 1 byte => 1 unit
                 let unit = b[0] as u16;// 0b0000_0000_0xxx_xxxx
                 Ok((Utf16Char{ units: [unit, 0] }, 1))
             },
-            0b1000_0000...0b1101_1111 => {// 2 bytes => 1 unit
+            0b1000_0000..=0b1101_1111 => {// 2 bytes => 1 unit
                 let unit = (((b[1] & 0x3f) as u16) << 0) // 0b0000_0000_00xx_xxxx
                          | (((b[0] & 0x1f) as u16) << 6);// 0b0000_0xxx_xx00_0000
                 Ok((Utf16Char{ units: [unit, 0] }, 2))
             },
-            0b1110_0000...0b1110_1111 => {// 3 bytes => 1 unit
+            0b1110_0000..=0b1110_1111 => {// 3 bytes => 1 unit
                 let unit = (((b[2] & 0x3f) as u16) <<  0) // 0b0000_0000_00xx_xxxx
                          | (((b[1] & 0x3f) as u16) <<  6) // 0b0000_xxxx_xx00_0000
                          | (((b[0] & 0x0f) as u16) << 12);// 0bxxxx_0000_0000_0000
@@ -468,7 +454,7 @@ impl Utf16Char {
     }
     /// Validate and store the first UTF-16 codepoint in the slice.
     /// Also return how many units were needed.
-    pub fn from_slice_start(src: &[u16]) -> Result<(Self,usize), InvalidUtf16Slice> {
+    pub fn from_slice_start(src: &[u16]) -> Result<(Self,usize), Utf16SliceError> {
         char::from_utf16_slice_start(src).map(|(_,len)| {
             let second = if len==2 {src[1]} else {0};
             (Utf16Char{ units: [src[0], second] }, len)
@@ -481,11 +467,13 @@ impl Utf16Char {
     /// The slice must be non-empty and start with a valid UTF-16 codepoint.  
     /// The length of the slice is never checked.
     pub unsafe fn from_slice_start_unchecked(src: &[u16]) -> (Self,usize) {
-        let first = *src.get_unchecked(0);
-        if first.is_utf16_leading_surrogate() {
-            (Utf16Char{ units: [first, *src.get_unchecked(1)] }, 2)
-        } else {
-            (Utf16Char{ units: [first, 0] }, 1)
+        unsafe {
+            let first = *src.get_unchecked(0);
+            if first.is_utf16_leading_surrogate() {
+                (Utf16Char{ units: [first, *src.get_unchecked(1)] }, 2)
+            } else {
+                (Utf16Char{ units: [first, 0] }, 1)
+            }
         }
     }
     /// Validate and store an UTF-16 array as returned from `char.to_utf16_array()`.
@@ -494,24 +482,24 @@ impl Utf16Char {
     ///
     /// ```
     /// use encode_unicode::Utf16Char;
-    /// use encode_unicode::error::InvalidUtf16Array;
+    /// use encode_unicode::error::Utf16ArrayError;
     ///
     /// assert_eq!(Utf16Char::from_array(['x' as u16, 'y' as u16]), Ok(Utf16Char::from('x')));
     /// assert_eq!(Utf16Char::from_array(['睷' as u16, 0]), Ok(Utf16Char::from('睷')));
     /// assert_eq!(Utf16Char::from_array([0xda6f, 0xdcde]), Ok(Utf16Char::from('\u{abcde}')));
     /// assert_eq!(Utf16Char::from_array([0xf111, 0xdbad]), Ok(Utf16Char::from('\u{f111}')));
-    /// assert_eq!(Utf16Char::from_array([0xdaaf, 0xdaaf]), Err(InvalidUtf16Array::SecondIsNotTrailingSurrogate));
-    /// assert_eq!(Utf16Char::from_array([0xdcac, 0x9000]), Err(InvalidUtf16Array::FirstIsTrailingSurrogate));
+    /// assert_eq!(Utf16Char::from_array([0xdaaf, 0xdaaf]), Err(Utf16ArrayError::SecondIsNotTrailingSurrogate));
+    /// assert_eq!(Utf16Char::from_array([0xdcac, 0x9000]), Err(Utf16ArrayError::FirstIsTrailingSurrogate));
     /// ```
-    pub fn from_array(units: [u16; 2]) -> Result<Self,InvalidUtf16Array> {
+    pub const fn from_array(units: [u16; 2]) -> Result<Self,Utf16ArrayError> {
         if (units[0] & 0xf8_00) != 0xd8_00 {
             Ok(Utf16Char { units: [units[0], 0] })
         } else if units[0] < 0xdc_00  &&  (units[1] & 0xfc_00) == 0xdc_00 {
-            Ok(Utf16Char { units: units })
+            Ok(Utf16Char { units })
         } else if units[0] < 0xdc_00 {
-            Err(InvalidUtf16Array::SecondIsNotTrailingSurrogate)
+            Err(Utf16ArrayError::SecondIsNotTrailingSurrogate)
         } else {
-            Err(InvalidUtf16Array::FirstIsTrailingSurrogate)
+            Err(Utf16ArrayError::FirstIsTrailingSurrogate)
         }
     }
     /// Create an `Utf16Char` from an array as returned from `char.to_utf16_array()`.
@@ -522,14 +510,29 @@ impl Utf16Char {
     /// when a surrogate pair is not required.
     /// Violating this can easily lead to undefined behavior, although unlike
     /// `char` bad `Utf16Char`s simply existing is not immediately UB.
-    pub unsafe fn from_array_unchecked(units: [u16; 2]) -> Self {
-        Utf16Char { units: units }
+    pub const unsafe fn from_array_unchecked(units: [u16; 2]) -> Self {
+        Utf16Char { units }
+    }
+    pub(crate) const fn validate_tuple(utf16: (u16,Option<u16>)) -> Result<(),Utf16TupleError> {
+        match utf16 {
+            (0x00_00..=0xd7_ff, None) | // single
+            (0xe0_00..=0xff_ff, None) | // single
+            (0xd8_00..=0xdb_ff, Some(0xdc_00..=0xdf_ff)) // correct surrogate
+                => Ok(()),
+            (0xd8_00..=0xdb_ff, Some(_)) => Err(Utf16TupleError::SecondIsNotTrailingSurrogate),
+            (0xd8_00..=0xdb_ff, None   ) => Err(Utf16TupleError::MissingSecond),
+            (0xdc_00..=0xdf_ff,    _   ) => Err(Utf16TupleError::FirstIsTrailingSurrogate),
+            (        _        , Some(_)) => Err(Utf16TupleError::SuperfluousSecond),
+        }
     }
     /// Validate and store a UTF-16 pair as returned from `char.to_utf16_tuple()`.
-    pub fn from_tuple(utf16: (u16,Option<u16>)) -> Result<Self,InvalidUtf16Tuple> {
-        unsafe {char::from_utf16_tuple(utf16).map(|_|
-            Self::from_tuple_unchecked(utf16)
-        )}
+    pub const fn from_tuple(utf16: (u16,Option<u16>)) -> Result<Self,Utf16TupleError> {
+        unsafe {
+            match Self::validate_tuple(utf16) {
+                Ok(()) => Ok(Self::from_tuple_unchecked(utf16)),
+                Err(e) => Err(e),
+            }
+        }
     }
     /// Create an `Utf16Char` from a tuple as returned from `char.to_utf16_tuple()`.
     ///
@@ -538,17 +541,22 @@ impl Utf16Char {
     /// The units must form a valid codepoint with the second being 0 when a
     /// surrogate pair is not required.
     /// Violating this can easily lead to undefined behavior.
-    pub unsafe fn from_tuple_unchecked(utf16: (u16,Option<u16>)) -> Self {
-        Utf16Char { units: [utf16.0, utf16.1.unwrap_or(0)] }
+    pub const unsafe fn from_tuple_unchecked(utf16: (u16,Option<u16>)) -> Self {
+        let second = match utf16.1 {
+            Some(extra) => extra,
+            None => 0,
+        };
+        Utf16Char { units: [utf16.0, second] }
     }
     /// Create an `Utf16Char` from a single unit.
     ///
-    /// Codepoints < '\u{1_0000}' (which fit in a `u16`) are part of the basic
-    /// multilingual plane unless they are reserved for surrogate pairs.
+    /// Codepoints less than `'\u{1_00_00}'` (which fit in an `u16`)
+    /// are part of the basic multilingual plane
+    /// unless they are reserved for surrogate pairs.
     ///
     /// # Errors
     ///
-    /// Returns `NonBMPError` if the unit is in the range `0xd800..0xe000`
+    /// Returns `NonBmpError` if the unit is in the range `0xd800..0xe000`
     /// (which means that it's part of a surrogat pair)
     ///
     /// # Examples
@@ -559,12 +567,10 @@ impl Utf16Char {
     /// assert_eq!(Utf16Char::from_bmp('ø' as u16).unwrap(), 'ø');
     /// assert!(Utf16Char::from_bmp(0xdddd).is_err());
     /// ```
-    pub fn from_bmp(bmp_codepoint: u16) -> Result<Self,NonBMPError> {
-        if bmp_codepoint & 0xf800 != 0xd800 {
-            Ok(Utf16Char{ units: [bmp_codepoint, 0] })
-        } else {
-            Err(NonBMPError)
-        }
+    pub const fn from_bmp(bmp_codepoint: u16) -> Result<Self,NonBmpError> {
+        let is_not_bmp = bmp_codepoint & 0xf800 == 0xd800;
+        let if_good = Utf16Char{ units: [bmp_codepoint, 0] };
+        [Ok(if_good), Err(NonBmpError)][is_not_bmp as usize]
     }
     /// Create an `Utf16Char` from a single unit without checking that it's a
     /// valid codepoint on its own.
@@ -575,7 +581,7 @@ impl Utf16Char {
     /// In other words, not part of a surrogate pair.  
     /// Violating this can easily lead to undefined behavior.
     #[inline]
-    pub unsafe fn from_bmp_unchecked(bmp_codepoint: u16) -> Self {
+    pub const unsafe fn from_bmp_unchecked(bmp_codepoint: u16) -> Self {
         Utf16Char{ units: [bmp_codepoint, 0] }
     }
     /// Checks that the codepoint is in the basic multilingual plane.
@@ -588,7 +594,7 @@ impl Utf16Char {
     /// assert_eq!(Utf16Char::from('𝔼').is_bmp(), false);
     /// ```
     #[inline]
-    pub fn is_bmp(&self) -> bool {
+    pub const fn is_bmp(self) -> bool {
         self.units[1] == 0
     }
 
@@ -597,48 +603,48 @@ impl Utf16Char {
     /// Is either 1 or 2 and identical to `.as_char().len_utf16()`
     /// or `.as_ref().len()`.
     #[inline]
-    pub fn len(self) -> usize {
+    pub const fn len(self) -> usize {
         1 + (self.units[1] as usize >> 15)
     }
     // There is no `.is_emty()` because it would always return false.
 
     /// Checks that the codepoint is an ASCII character.
     #[inline]
-    pub fn is_ascii(&self) -> bool {
+    pub const fn is_ascii(self) -> bool {
         self.units[0] <= 127
     }
     /// Checks that two characters are an ASCII case-insensitive match.
     ///
     /// Is equivalent to `a.to_ascii_lowercase() == b.to_ascii_lowercase()`.
-    #[cfg(feature="std")]
-    pub fn eq_ignore_ascii_case(&self,  other: &Self) -> bool {
-        self.to_ascii_lowercase() == other.to_ascii_lowercase()
+    pub const fn eq_ignore_ascii_case(&self,  other: &Self) -> bool {
+        if self.is_ascii() && other.is_ascii() {
+            (self.units[0] as u8).eq_ignore_ascii_case(&(other.units[0] as u8))
+        } else {
+            self.units[0] == other.units[0] && self.units[1] == other.units[1]
+        }
     }
     /// Converts the character to its ASCII upper case equivalent.
     ///
     /// ASCII letters 'a' to 'z' are mapped to 'A' to 'Z',
     /// but non-ASCII letters are unchanged.
-    #[cfg(feature="std")]
-    pub fn to_ascii_uppercase(&self) -> Self {
+    pub const fn to_ascii_uppercase(self) -> Self {
         let n = self.units[0].wrapping_sub(b'a' as u16);
         if n < 26 {Utf16Char{ units: [n+b'A' as u16, 0] }}
-        else      {*self}
+        else      {self}
     }
     /// Converts the character to its ASCII lower case equivalent.
     ///
     /// ASCII letters 'A' to 'Z' are mapped to 'a' to 'z',
     /// but non-ASCII letters are unchanged.
-    #[cfg(feature="std")]
-    pub fn to_ascii_lowercase(&self) -> Self {
+    pub const fn to_ascii_lowercase(self) -> Self {
         let n = self.units[0].wrapping_sub(b'A' as u16);
         if n < 26 {Utf16Char{ units: [n+b'a' as u16, 0] }}
-        else      {*self}
+        else      {self}
     }
     /// Converts the character to its ASCII upper case equivalent in-place.
     ///
     /// ASCII letters 'a' to 'z' are mapped to 'A' to 'Z',
     /// but non-ASCII letters are unchanged.
-    #[cfg(feature="std")]
     pub fn make_ascii_uppercase(&mut self) {
         *self = self.to_ascii_uppercase()
     }
@@ -646,7 +652,6 @@ impl Utf16Char {
     ///
     /// ASCII letters 'A' to 'Z' are mapped to 'a' to 'z',
     /// but non-ASCII letters are unchanged.
-    #[cfg(feature="std")]
     pub fn make_ascii_lowercase(&mut self) {
         *self = self.to_ascii_lowercase();
     }
@@ -676,12 +681,12 @@ impl Utf16Char {
     ///
     /// The second `u16` is zero for codepoints that fit in one unit.
     #[inline]
-    pub fn to_array(self) -> [u16;2] {
+    pub const fn to_array(self) -> [u16;2] {
         self.units
     }
     /// The second `u16` is used for surrogate pairs.
     #[inline]
-    pub fn to_tuple(self) -> (u16,Option<u16>) {
-        (self.units[0],  if self.units[1]==0 {None} else {Some(self.units[1])})
+    pub const fn to_tuple(self) -> (u16,Option<u16>) {
+        (self.units[0], [None, Some(self.units[1])][self.units[1] as usize >> 15])
     }
 }

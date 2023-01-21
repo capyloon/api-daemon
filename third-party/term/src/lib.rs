@@ -1,4 +1,4 @@
-// Copyright 2013-2015 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2019 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -24,7 +24,7 @@
 //! ```toml
 //! [dependencies]
 //!
-//! term = "0.4.6"
+//! term = "*"
 //! ```
 //!
 //! and this to your crate root:
@@ -64,13 +64,11 @@
 )]
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
-
-extern crate byteorder;
-extern crate dirs;
+#![allow(clippy::redundant_field_names)]
 
 use std::io::prelude::*;
 
-pub use terminfo::TerminfoTerminal;
+pub use crate::terminfo::TerminfoTerminal;
 #[cfg(windows)]
 pub use win::{WinConsole, WinConsoleInfo};
 
@@ -82,9 +80,9 @@ pub mod terminfo;
 mod win;
 
 /// Alias for stdout terminals.
-pub type StdoutTerminal = Terminal<Output = Stdout> + Send;
+pub type StdoutTerminal = dyn Terminal<Output = Stdout> + Send;
 /// Alias for stderr terminals.
-pub type StderrTerminal = Terminal<Output = Stderr> + Send;
+pub type StderrTerminal = dyn Terminal<Output = Stderr> + Send;
 
 #[cfg(not(windows))]
 /// Return a Terminal wrapping stdout, or None if a terminal couldn't be
@@ -211,7 +209,7 @@ pub enum Error {
 // manually implemented because std::io::Error does not implement Eq/PartialEq
 impl std::cmp::PartialEq for Error {
     fn eq(&self, other: &Error) -> bool {
-        use Error::*;
+        use crate::Error::*;
         match *self {
             Io(_) => false,
             TerminfoParsing(ref inner1) => match *other {
@@ -254,33 +252,28 @@ impl std::cmp::PartialEq for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use std::error::Error;
-        if let ::Error::Io(ref e) = *self {
-            write!(f, "{}", e)
-        } else {
-            f.write_str(self.description())
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::Error::*;
+        match *self {
+            Io(ref io) => io.fmt(f),
+            TerminfoParsing(ref e) => e.fmt(f),
+            ParameterizedExpansion(ref e) => e.fmt(f),
+            NotSupported => f.write_str("operation not supported by the terminal"),
+            TermUnset => {
+                f.write_str("TERM environment variable unset, unable to detect a terminal")
+            }
+            TerminfoEntryNotFound => {
+                f.write_str("could not find a terminfo entry for this terminal")
+            }
+            CursorDestinationInvalid => f.write_str("could not move cursor to requested position"),
+            ColorOutOfRange => f.write_str("color not supported by the terminal"),
+            __Nonexhaustive => f.write_str("placeholder variant that shouldn't be used"),
         }
     }
 }
 
 impl std::error::Error for Error {
-    fn description(&self) -> &str {
-        use Error::*;
-        match *self {
-            Io(ref io) => io.description(),
-            TerminfoParsing(ref e) => e.description(),
-            ParameterizedExpansion(ref e) => e.description(),
-            NotSupported => "operation not supported by the terminal",
-            TermUnset => "TERM environment variable unset, unable to detect a terminal",
-            TerminfoEntryNotFound => "could not find a terminfo entry for this terminal",
-            CursorDestinationInvalid => "could not move cursor to requested position",
-            ColorOutOfRange => "color not supported by the terminal",
-            __Nonexhaustive => "placeholder variant that shouldn't be used",
-        }
-    }
-
-    fn cause(&self) -> Option<&std::error::Error> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
             Error::Io(ref io) => Some(io),
             Error::TerminfoParsing(ref e) => Some(e),

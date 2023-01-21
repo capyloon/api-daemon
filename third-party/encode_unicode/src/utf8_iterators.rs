@@ -1,4 +1,4 @@
-/* Copyright 2016 The encode_unicode Developers
+/* Copyright 2018-2020 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -6,13 +6,13 @@
  * copied, modified, or distributed except according to those terms.
  */
 
-use utf8_char::Utf8Char;
-use errors::EmptyStrError;
+use crate::utf8_char::Utf8Char;
+use crate::errors::EmptyStrError;
 extern crate core;
-use self::core::{mem, u32, u64};
-use self::core::ops::Not;
-use self::core::fmt;
-use self::core::borrow::Borrow;
+use core::{u32, u64};
+use core::ops::Not;
+use core::fmt;
+use core::borrow::Borrow;
 #[cfg(feature="std")]
 use std::io::{Read, Error as ioError};
 
@@ -24,9 +24,9 @@ pub struct Utf8Iterator (u32);
 
 impl From<Utf8Char> for Utf8Iterator {
     fn from(uc: Utf8Char) -> Self {
-        let used = u32::from_le(unsafe{ mem::transmute(uc.to_array().0) });
+        let used = u32::from_le_bytes(uc.to_array().0);
         // uses u64 because shifting an u32 by 32 bits is a no-op.
-        let unused_set = (u64::MAX  <<  uc.len() as u64*8) as u32;
+        let unused_set = (u64::MAX  <<  (uc.len() as u64*8)) as u32;
         Utf8Iterator(used | unused_set)
     }
 }
@@ -85,8 +85,9 @@ impl fmt::Debug for Utf8Iterator {
 
 
 /// Converts an iterator of `Utf8Char` (or `&Utf8Char`)
-/// to an iterator of `u8`s.  
-/// Is equivalent to calling `.flat_map()` on the original iterator,
+/// to an iterator of `u8`s.
+///
+/// Is equivalent to calling `.flatten()` or `.flat_map()` on the original iterator,
 /// but the returned iterator is ~40% faster.
 ///
 /// The iterator also implements `Read` (if the `std` feature isn't disabled).
@@ -102,11 +103,11 @@ impl fmt::Debug for Utf8Iterator {
 /// From iterator of values:
 ///
 /// ```
-/// use encode_unicode::{iter_bytes, CharExt};
+/// use encode_unicode::{IterExt, CharExt};
 ///
 /// let iterator = "foo".chars().map(|c| c.to_utf8() );
 /// let mut bytes = [0; 4];
-/// for (u,dst) in iter_bytes(iterator).zip(&mut bytes) {*dst=u;}
+/// iterator.to_bytes().zip(&mut bytes).for_each(|(b,dst)| *dst = b );
 /// assert_eq!(&bytes, b"foo\0");
 /// ```
 ///
@@ -114,11 +115,11 @@ impl fmt::Debug for Utf8Iterator {
 ///
 #[cfg_attr(feature="std", doc=" ```")]
 #[cfg_attr(not(feature="std"), doc=" ```no_compile")]
-/// use encode_unicode::{iter_bytes, CharExt, Utf8Char};
+/// use encode_unicode::{IterExt, CharExt, Utf8Char};
 ///
 /// let chars: Vec<Utf8Char> = "💣 bomb 💣".chars().map(|c| c.to_utf8() ).collect();
-/// let bytes: Vec<u8> = iter_bytes(&chars).collect();
-/// let flat_map: Vec<u8> = chars.iter().flat_map(|u8c| *u8c ).collect();
+/// let bytes: Vec<u8> = chars.iter().to_bytes().collect();
+/// let flat_map: Vec<u8> = chars.iter().cloned().flatten().collect();
 /// assert_eq!(bytes, flat_map);
 /// ```
 ///
@@ -126,42 +127,34 @@ impl fmt::Debug for Utf8Iterator {
 ///
 #[cfg_attr(feature="std", doc=" ```")]
 #[cfg_attr(not(feature="std"), doc=" ```no_compile")]
-/// use encode_unicode::{iter_bytes, CharExt};
+/// use encode_unicode::{IterExt, CharExt};
 /// use std::io::Read;
 ///
 /// let s = "Ååh‽";
 /// assert_eq!(s.len(), 8);
 /// let mut buf = [b'E'; 9];
-/// let mut reader = iter_bytes(s.chars().map(|c| c.to_utf8() ));
+/// let mut reader = s.chars().map(|c| c.to_utf8() ).to_bytes();
 /// assert_eq!(reader.read(&mut buf[..]).unwrap(), 8);
 /// assert_eq!(reader.read(&mut buf[..]).unwrap(), 0);
 /// assert_eq!(&buf[..8], s.as_bytes());
 /// assert_eq!(buf[8], b'E');
 /// ```
-pub fn iter_bytes<U:Borrow<Utf8Char>, I:IntoIterator<Item=U>>
-(iterable: I) -> Utf8CharSplitter<U, I::IntoIter> {
-    Utf8CharSplitter{ inner: iterable.into_iter(),  prev: 0 }
-}
-
-/// The iterator type returned by `iter_bytes()`
-///
-/// See its documentation for details.
 #[derive(Clone)]
 pub struct Utf8CharSplitter<U:Borrow<Utf8Char>, I:Iterator<Item=U>> {
     inner: I,
     prev: u32,
 }
-impl<I:Iterator<Item=Utf8Char>> From<I> for Utf8CharSplitter<Utf8Char,I> {
-    /// A less generic constructor than `iter_bytes()`
-    fn from(iter: I) -> Self {
-        iter_bytes(iter)
+impl<U:Borrow<Utf8Char>, I:IntoIterator<Item=U>>
+From<I> for Utf8CharSplitter<U,I::IntoIter> {
+    fn from(iterable: I) -> Self {
+        Utf8CharSplitter { inner: iterable.into_iter(),  prev: 0 }
     }
 }
 impl<U:Borrow<Utf8Char>, I:Iterator<Item=U>> Utf8CharSplitter<U,I> {
     /// Extracts the source iterator.
     ///
-    /// Note that `iter_bytes(iter.into_inner())` is not a no-op:  
-    /// If the last returned byte from `next()` was not an ASCII by,
+    /// Note that `iter.into_inner().to_bytes()` is not a no-op:  
+    /// If the last returned byte from `next()` was not an ASCII character,
     /// the remaining bytes of that codepoint is lost.
     pub fn into_inner(self) -> I {
         self.inner
@@ -173,7 +166,7 @@ impl<U:Borrow<Utf8Char>, I:Iterator<Item=U>> Iterator for Utf8CharSplitter<U,I> 
         if self.prev == 0 {
             self.inner.next().map(|u8c| {
                 let array = u8c.borrow().to_array().0;
-                self.prev = unsafe{ u32::from_le(mem::transmute(array)) } >> 8;
+                self.prev = u32::from_le_bytes(array) >> 8;
                 array[0]
             })
         } else {
@@ -218,7 +211,7 @@ impl<U:Borrow<Utf8Char>, I:Iterator<Item=U>> Read for Utf8CharSplitter<U,I> {
                         i += 1;
                         written += 1;
                     } else {
-                        let bytes_as_u32 = unsafe{ u32::from_le(mem::transmute(bytes)) };
+                        let bytes_as_u32 = u32::from_le_bytes(bytes);
                         self.prev = bytes_as_u32 >> (8*written);
                         return Ok(i);
                     }
@@ -233,7 +226,8 @@ impl<U:Borrow<Utf8Char>, I:Iterator<Item=U>> Read for Utf8CharSplitter<U,I> {
 
 /// An iterator over the `Utf8Char` of a string slice, and their positions.
 ///
-/// This struct is created by the `utf8char_indices() method from [`StrExt`] trait. See its documentation for more.
+/// This struct is created by the `utf8char_indices()` method from [`StrExt`](../trait.StrExt.html)
+/// trait. See its documentation for more.
 #[derive(Clone)]
 pub struct Utf8CharIndices<'a>{
     str: &'a str,

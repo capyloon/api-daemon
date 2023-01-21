@@ -260,24 +260,26 @@ impl ContentManagerService {
     async fn top_by_frecency_task(
         state: Shared<State>,
         max_count: usize,
+        tag: Option<String>,
     ) -> Result<Vec<ResourceMetadata>, ResourceStoreError> {
         let _timer = Timer::start("top_by_frecency_task");
         let mut lock = state.lock();
         let manager = &mut lock.manager;
 
-        let all_ids = manager.top_by_frecency(max_count as _).await?;
+        let all_ids = manager.top_by_frecency(tag, max_count as _).await?;
         Ok(Self::meta_from_ids(manager, &all_ids, max_count).await)
     }
 
     async fn last_modified_task(
         state: Shared<State>,
         max_count: usize,
+        tag: Option<String>,
     ) -> Result<Vec<ResourceMetadata>, ResourceStoreError> {
         let _timer = Timer::start("last_modified_task");
         let mut lock = state.lock();
         let manager = &mut lock.manager;
 
-        let all_ids = manager.last_modified(max_count as _).await?;
+        let all_ids = manager.last_modified(tag, max_count as _).await?;
         Ok(Self::meta_from_ids(manager, &all_ids, max_count).await)
     }
 
@@ -805,7 +807,12 @@ impl ContentStoreMethods for ContentManagerService {
         });
     }
 
-    fn top_by_frecency(&mut self, responder: ContentStoreTopByFrecencyResponder, max_count: i64) {
+    fn top_by_frecency(
+        &mut self,
+        responder: ContentStoreTopByFrecencyResponder,
+        max_count: i64,
+        tag: Option<String>,
+    ) {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
@@ -814,7 +821,7 @@ impl ContentStoreMethods for ContentManagerService {
             return;
         }
         task::block_on(async {
-            match Self::top_by_frecency_task(state, max_count).await {
+            match Self::top_by_frecency_task(state, max_count, tag).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
                     responder.resolve(cursor);
@@ -827,7 +834,12 @@ impl ContentStoreMethods for ContentManagerService {
         });
     }
 
-    fn last_modified(&mut self, responder: ContentStoreLastModifiedResponder, max_count: i64) {
+    fn last_modified(
+        &mut self,
+        responder: ContentStoreLastModifiedResponder,
+        max_count: i64,
+        tag: Option<String>,
+    ) {
         let state = self.state.clone();
         let max_count = max_count as usize;
         let tracker = self.get_tracker();
@@ -836,7 +848,7 @@ impl ContentStoreMethods for ContentManagerService {
             return;
         }
         task::block_on(async {
-            match Self::last_modified_task(state, max_count).await {
+            match Self::last_modified_task(state, max_count, tag).await {
                 Ok(meta) => {
                     let cursor = Self::get_cursor(tracker, meta);
                     responder.resolve(cursor);

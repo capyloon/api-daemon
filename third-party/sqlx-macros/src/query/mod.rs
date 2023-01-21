@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 #[cfg(feature = "offline")]
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 use proc_macro2::TokenStream;
 use syn::Type;
-use url::Url;
 
 pub use input::QueryMacroInput;
 use quote::{format_ident, quote};
@@ -30,6 +30,8 @@ struct Metadata {
     manifest_dir: PathBuf,
     offline: bool,
     database_url: Option<String>,
+    #[cfg(feature = "offline")]
+    package_name: String,
     #[cfg(feature = "offline")]
     target_dir: PathBuf,
     #[cfg(feature = "offline")]
@@ -75,6 +77,11 @@ static METADATA: Lazy<Metadata> = Lazy::new(|| {
         .into();
 
     #[cfg(feature = "offline")]
+    let package_name: String = env("CARGO_PKG_NAME")
+        .expect("`CARGO_PKG_NAME` must be set")
+        .into();
+
+    #[cfg(feature = "offline")]
     let target_dir = env("CARGO_TARGET_DIR").map_or_else(|_| "target".into(), |dir| dir.into());
 
     // If a .env file exists at CARGO_MANIFEST_DIR, load environment variables from this,
@@ -83,14 +90,14 @@ static METADATA: Lazy<Metadata> = Lazy::new(|| {
 
     #[cfg_attr(not(procmacro2_semver_exempt), allow(unused_variables))]
     let env_path = if env_path.exists() {
-        let res = dotenv::from_path(&env_path);
+        let res = dotenvy::from_path(&env_path);
         if let Err(e) = res {
             panic!("failed to load environment from {:?}, {}", env_path, e);
         }
 
         Some(env_path)
     } else {
-        dotenv::dotenv().ok()
+        dotenvy::dotenv().ok()
     };
 
     // tell the compiler to watch the `.env` for changes, if applicable
@@ -109,6 +116,8 @@ static METADATA: Lazy<Metadata> = Lazy::new(|| {
         manifest_dir,
         offline,
         database_url,
+        #[cfg(feature = "offline")]
+        package_name,
         #[cfg(feature = "offline")]
         target_dir,
         #[cfg(feature = "offline")]
@@ -187,57 +196,50 @@ pub fn expand_input(input: QueryMacroInput) -> crate::Result<TokenStream> {
     feature = "sqlite"
 ))]
 fn expand_from_db(input: QueryMacroInput, db_url: &str) -> crate::Result<TokenStream> {
-    use sqlx_core::any::{AnyConnection, AnyConnectionKind};
+    use sqlx_core::any::{AnyConnectOptions, AnyConnection};
 
-    static CONNECTION_CACHE: Lazy<AsyncMutex<BTreeMap<String, AnyConnection>>> =
-        Lazy::new(|| AsyncMutex::new(BTreeMap::new()));
+    let connect_opts = AnyConnectOptions::from_str(db_url)?;
 
-    let maybe_expanded: crate::Result<TokenStream> = block_on(async {
+    // SQLite is not used in the connection cache due to issues with newly created
+    // databases seemingly being locked for several seconds when journaling is off. This
+    // isn't a huge issue since the intent of the connection cache was to make connections
+    // to remote databases much faster. Relevant links:
+    // - https://github.com/launchbadge/sqlx/pull/1782#issuecomment-1089226716
+    // - https://github.com/launchbadge/sqlx/issues/1929
+    #[cfg(feature = "sqlite")]
+    if let Some(sqlite_opts) = connect_opts.as_sqlite() {
+        // Since proc-macros don't benefit from async, we can make a describe call directly
+        // which also ensures that the database is closed afterwards, regardless of errors.
+        let describe = sqlx_core::sqlite::describe_blocking(sqlite_opts, &input.sql)?;
+        let data = QueryData::from_describe(&input.sql, describe);
+        return expand_with_data(input, data, false);
+    }
+
+    block_on(async {
+        static CONNECTION_CACHE: Lazy<AsyncMutex<BTreeMap<String, AnyConnection>>> =
+            Lazy::new(|| AsyncMutex::new(BTreeMap::new()));
+
         let mut cache = CONNECTION_CACHE.lock().await;
 
         if !cache.contains_key(db_url) {
-            let parsed_db_url = Url::parse(db_url)?;
-
-            let conn = match parsed_db_url.scheme() {
-                #[cfg(feature = "sqlite")]
-                "sqlite" => {
-                    use sqlx_core::connection::ConnectOptions;
-                    use sqlx_core::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-                    use std::str::FromStr;
-
-                    let sqlite_conn = SqliteConnectOptions::from_str(db_url)?
-                        // Connections in `CONNECTION_CACHE` won't get dropped so disable journaling
-                        // to avoid `.db-wal` and `.db-shm` files from lingering around
-                        .journal_mode(SqliteJournalMode::Off)
-                        .connect()
-                        .await?;
-                    AnyConnection::from(sqlite_conn)
-                }
-                _ => AnyConnection::connect(db_url).await?,
-            };
-
+            let conn = AnyConnection::connect_with(&connect_opts).await?;
             let _ = cache.insert(db_url.to_owned(), conn);
         }
 
         let conn_item = cache.get_mut(db_url).expect("Item was just inserted");
         match conn_item.private_get_mut() {
             #[cfg(feature = "postgres")]
-            AnyConnectionKind::Postgres(conn) => {
+            sqlx_core::any::AnyConnectionKind::Postgres(conn) => {
                 let data = QueryData::from_db(conn, &input.sql).await?;
                 expand_with_data(input, data, false)
             }
             #[cfg(feature = "mssql")]
-            AnyConnectionKind::Mssql(conn) => {
+            sqlx_core::any::AnyConnectionKind::Mssql(conn) => {
                 let data = QueryData::from_db(conn, &input.sql).await?;
                 expand_with_data(input, data, false)
             }
             #[cfg(feature = "mysql")]
-            AnyConnectionKind::MySql(conn) => {
-                let data = QueryData::from_db(conn, &input.sql).await?;
-                expand_with_data(input, data, false)
-            }
-            #[cfg(feature = "sqlite")]
-            AnyConnectionKind::Sqlite(conn) => {
+            sqlx_core::any::AnyConnectionKind::MySql(conn) => {
                 let data = QueryData::from_db(conn, &input.sql).await?;
                 expand_with_data(input, data, false)
             }
@@ -247,9 +249,7 @@ fn expand_from_db(input: QueryMacroInput, db_url: &str) -> crate::Result<TokenSt
                 return Err(format!("Missing expansion needed for: {:?}", item).into());
             }
         }
-    });
-
-    maybe_expanded.map_err(Into::into)
+    })
 }
 
 #[cfg(feature = "offline")]
@@ -411,7 +411,13 @@ where
     // If the build is offline, the cache is our input so it's pointless to also write data for it.
     #[cfg(feature = "offline")]
     if !offline {
-        let save_dir = METADATA.target_dir.join("sqlx");
+        // Use a separate sub-directory for each crate in a workspace. This avoids a race condition
+        // where `prepare` can pull in queries from multiple crates if they happen to be generated
+        // simultaneously (e.g. Rust Analyzer building in the background).
+        let save_dir = METADATA
+            .target_dir
+            .join("sqlx")
+            .join(&METADATA.package_name);
         std::fs::create_dir_all(&save_dir)?;
         data.save_in(save_dir, input.src_span)?;
     }

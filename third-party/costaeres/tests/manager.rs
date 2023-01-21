@@ -437,7 +437,7 @@ async fn top_frecency() {
     let root_meta = manager.get_metadata(&ROOT_ID).await.unwrap();
     assert_eq!(root_meta.scorer().frecency(), 100);
 
-    let results = manager.top_by_frecency(10).await.unwrap();
+    let results = manager.top_by_frecency(None, 10).await.unwrap();
     assert_eq!(results.len(), 10);
     assert_eq!(results[0], IdFrec::new(&ROOT_ID, 100));
 }
@@ -651,7 +651,7 @@ async fn unique_children_names() {
 #[async_std::test]
 
 async fn child_by_name() {
-    let (config, store) = prepare_test(16).await;
+    let (config, store) = prepare_test(17).await;
 
     let manager = Manager::<()>::new(config, Box::new(store)).await;
     assert!(manager.is_ok(), "Failed to create a manager");
@@ -691,8 +691,8 @@ async fn child_by_name() {
 #[async_std::test]
 
 async fn migration_check() {
-    let (config, store) = prepare_test(17).await;
-    let (_config, store2) = prepare_test(17).await;
+    let (config, store) = prepare_test(18).await;
+    let (_config, store2) = prepare_test(18).await;
 
     {
         let manager = Manager::<()>::new(config.clone(), Box::new(store)).await;
@@ -718,7 +718,7 @@ async fn migration_check() {
 
 #[async_std::test]
 async fn frecency_update() {
-    let (config, store) = prepare_test(18).await;
+    let (config, store) = prepare_test(19).await;
 
     let manager = Manager::<()>::new(config.clone(), Box::new(store)).await;
     assert!(manager.is_ok(), "Failed to create first manager");
@@ -739,7 +739,7 @@ async fn frecency_update() {
 
 #[async_std::test]
 async fn index_places_mdn() {
-    let (config, store) = prepare_test(19).await;
+    let (config, store) = prepare_test(20).await;
 
     let mut manager = Manager::<()>::new(config, Box::new(store)).await.unwrap();
     manager.add_indexer(Box::new(create_places_indexer()));
@@ -776,7 +776,7 @@ async fn index_places_mdn() {
 
 #[async_std::test]
 async fn import_from_path() {
-    let (config, store) = prepare_test(20).await;
+    let (config, store) = prepare_test(21).await;
 
     let mut manager = Manager::<()>::new(config, Box::new(store)).await.unwrap();
 
@@ -817,7 +817,7 @@ async fn import_from_path() {
 
 #[async_std::test]
 async fn container_size() {
-    let (config, store) = prepare_test(21).await;
+    let (config, store) = prepare_test(22).await;
 
     let mut manager = Manager::<()>::new(config, Box::new(store)).await.unwrap();
 
@@ -884,7 +884,7 @@ impl ModificationObserver for Observer {
 
 #[async_std::test]
 async fn observers() {
-    let (config, store) = prepare_test(22).await;
+    let (config, store) = prepare_test(23).await;
 
     let mut manager = Manager::new(config, Box::new(store)).await.unwrap();
 
@@ -995,7 +995,7 @@ async fn observers() {
 
 #[async_std::test]
 async fn add_remove_tags() {
-    let (config, store) = prepare_test(23).await;
+    let (config, store) = prepare_test(24).await;
 
     let mut manager = Manager::new(config, Box::new(store)).await.unwrap();
 
@@ -1129,7 +1129,7 @@ async fn add_remove_tags() {
 async fn copy_resource() {
     use async_std::io::ReadExt;
 
-    let (config, store) = prepare_test(24).await;
+    let (config, store) = prepare_test(25).await;
 
     let mut manager = Manager::new(config, Box::new(store)).await.unwrap();
 
@@ -1229,7 +1229,7 @@ async fn copy_resource() {
 
 #[async_std::test]
 async fn tags_persistence() {
-    let (config, store) = prepare_test(25).await;
+    let (config, store) = prepare_test(26).await;
 
     {
         let mut manager = Manager::<()>::new(config.clone(), Box::new(store))
@@ -1295,7 +1295,7 @@ async fn tags_persistence() {
 
 #[async_std::test]
 async fn move_resource() {
-    let (config, store) = prepare_test(26).await;
+    let (config, store) = prepare_test(27).await;
 
     {
         let mut manager = Manager::new(config.clone(), Box::new(store)).await.unwrap();
@@ -1377,7 +1377,7 @@ async fn move_resource() {
 
     // Verify persistence
     {
-        let path = format!("./test-content/{}", 26);
+        let path = format!("./test-content/{}", 27);
         let store = FileStore::new(
             &path,
             Box::new(DefaultResourceNameProvider),

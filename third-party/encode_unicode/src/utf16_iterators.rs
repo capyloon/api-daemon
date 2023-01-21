@@ -1,4 +1,4 @@
-/* Copyright 2016 The encode_unicode Developers
+/* Copyright 2018-2019 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -6,12 +6,12 @@
  * copied, modified, or distributed except according to those terms.
  */
 
-use traits::CharExt;
-use utf16_char::Utf16Char;
-use errors::EmptyStrError;
+use crate::traits::CharExt;
+use crate::utf16_char::Utf16Char;
+use crate::errors::EmptyStrError;
 extern crate core;
-use self::core::fmt;
-use self::core::borrow::Borrow;
+use core::fmt;
+use core::borrow::Borrow;
 
 // Invalid values that says the field is consumed or empty.
 const FIRST_USED: u16 = 0x_dc_00;
@@ -25,14 +25,14 @@ pub struct Utf16Iterator {
 }
 impl From<char> for Utf16Iterator {
     fn from(c: char) -> Self {
-        let (first, second) = c.to_utf16_tuple();
-        Utf16Iterator{ first: first,  second: second.unwrap_or(SECOND_USED) }
+        Self::from(c.to_utf16())
     }
 }
 impl From<Utf16Char> for Utf16Iterator {
     fn from(uc: Utf16Char) -> Self {
         let (first, second) = uc.to_tuple();
-        Utf16Iterator{ first: first,  second: second.unwrap_or(SECOND_USED) }
+        let second = second.unwrap_or(SECOND_USED);
+        Utf16Iterator{first, second}
     }
 }
 impl Iterator for Utf16Iterator {
@@ -68,8 +68,9 @@ impl fmt::Debug for Utf16Iterator {
 
 
 /// Converts an iterator of `Utf16Char` (or `&Utf16Char`)
-/// to an iterator of `u16`s.  
-/// Is equivalent to calling `.flat_map()` on the original iterator,
+/// to an iterator of `u16`s.
+///
+/// Is equivalent to calling `.flatten()` or `.flat_map()` on the original iterator,
 /// but the returned iterator is about twice as fast.
 ///
 /// The exact number of units cannot be known in advance, but `size_hint()`
@@ -80,11 +81,11 @@ impl fmt::Debug for Utf16Iterator {
 /// From iterator of values:
 ///
 /// ```
-/// use encode_unicode::{iter_units, CharExt};
+/// use encode_unicode::{IterExt, CharExt};
 ///
 /// let iterator = "foo".chars().map(|c| c.to_utf16() );
 /// let mut units = [0; 4];
-/// for (u,dst) in iter_units(iterator).zip(&mut units) {*dst=u;}
+/// iterator.to_units().zip(&mut units).for_each(|(u,dst)| *dst = u );
 /// assert_eq!(units, ['f' as u16, 'o' as u16, 'o' as u16, 0]);
 /// ```
 ///
@@ -92,35 +93,29 @@ impl fmt::Debug for Utf16Iterator {
 ///
 #[cfg_attr(feature="std", doc=" ```")]
 #[cfg_attr(not(feature="std"), doc=" ```no_compile")]
-/// use encode_unicode::{iter_units, CharExt, Utf16Char};
+/// use encode_unicode::{IterExt, CharExt, Utf16Char};
 ///
 /// // (💣 takes two units)
 /// let chars: Vec<Utf16Char> = "💣 bomb 💣".chars().map(|c| c.to_utf16() ).collect();
-/// let units: Vec<u16> = iter_units(&chars).collect();
-/// let flat_map: Vec<u16> = chars.iter().flat_map(|u16c| *u16c ).collect();
+/// let units: Vec<u16> = chars.iter().to_units().collect();
+/// let flat_map: Vec<u16> = chars.iter().cloned().flatten().collect();
 /// assert_eq!(units, flat_map);
 /// ```
-pub fn iter_units<U:Borrow<Utf16Char>, I:IntoIterator<Item=U>>
-(iterable: I) -> Utf16CharSplitter<U, I::IntoIter> {
-    Utf16CharSplitter{ inner: iterable.into_iter(),  prev_second: 0 }
-}
-
-/// The iterator type returned by `iter_units()`
 #[derive(Clone)]
 pub struct Utf16CharSplitter<U:Borrow<Utf16Char>, I:Iterator<Item=U>> {
     inner: I,
     prev_second: u16,
 }
-impl<I:Iterator<Item=Utf16Char>> From<I> for Utf16CharSplitter<Utf16Char,I> {
-    /// A less generic constructor than `iter_units()`
-    fn from(iter: I) -> Self {
-        iter_units(iter)
+impl<U:Borrow<Utf16Char>, I:IntoIterator<Item=U>>
+From<I> for Utf16CharSplitter<U, I::IntoIter> {
+    fn from(iterable: I) -> Self {
+        Utf16CharSplitter { inner: iterable.into_iter(),  prev_second: 0 }
     }
 }
 impl<U:Borrow<Utf16Char>, I:Iterator<Item=U>> Utf16CharSplitter<U,I> {
     /// Extracts the source iterator.
     ///
-    /// Note that `iter_units(iter.into_inner())` is not a no-op:  
+    /// Note that `iter.into_inner().to_units()` is not a no-op:  
     /// If the last returned unit from `next()` was a leading surrogate,
     /// the trailing surrogate is lost.
     pub fn into_inner(self) -> I {

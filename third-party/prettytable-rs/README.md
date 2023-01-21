@@ -10,7 +10,7 @@
 
 A formatted and aligned table printer library for [Rust](https://www.rust-lang.org).
 
-*Copyright &copy; 2018 Pierre-Henri Symoneaux*
+*Copyright &copy; 2022 Pierre-Henri Symoneaux*
 
 > THIS SOFTWARE IS DISTRIBUTED WITHOUT ANY WARRANTY <br>
 > Check LICENSE.txt file for more information. <br>
@@ -24,11 +24,12 @@ A formatted and aligned table printer library for [Rust](https://www.rust-lang.o
     * [List of style specifiers](#user-content-list-of-style-specifiers)
     * [List of color specifiers](#user-content-list-of-color-specifiers)
   * [Slicing](#user-content-slicing)
-  * [Customize your table look and feel](#user-content-customize-your-table-look-and-feel)
+  * [Customize look and feel of a table](#customize-look-and-feel-of-a-table)
   * [CSV import/export](#user-content-csv-importexport)
     * [Importing](#user-content-importing)
     * [Exporting](#user-content-exporting)
   * [Note on line endings](#user-content-note-on-line-endings)
+  * [Evcxr Integration](#evcxr-integration)
 
 ## Including
 
@@ -36,10 +37,18 @@ Include the library as a dependency to your project by adding the following line
 
 ```toml
 [dependencies]
-prettytable-rs = "^0.8"
+prettytable-rs = "^0.10"
 ```
 
-The library requires at least `rust v1.26.0`.
+The library requires at least `rust v1.56`.
+
+Any changes to the MSRV will be done with a minor version bump.
+
+## SemVer Policy
+
+* Pre-1.0.0 breaking changes will follow a minor version bump
+* Post-1.0.0 All default features of this library are covered by SemVer
+* MSRV is considered exempt from SemVer as noted above
 
 ## Basic usage
 
@@ -379,3 +388,19 @@ on any platform.
 This customization capability will probably move to Formatting API in a future release.
 
 Additional examples are provided in the documentation and in [examples](./examples/) directory.
+
+## Evcxr Integration
+
+[Evcxr][evcxr] is a Rust REPL and a [Jupyter notebook kernel][evcxr-jupyter].
+This crate integrates into Evcxr and the Jupyter notebooks using the `evcxr` feature flag, which enables native displays of tables.
+This includes support for displaying colors and various formattings.
+
+You can include prettytable as a dependency using this line:
+```
+:dep prettytable = { git = "https://github.com/phsym/prettytable-rs", package = "prettytable-rs", features = ["evcxr"] }
+```
+
+![prettytable being used in a Jupyter notebook with Evcxr Rust kernel.](./prettytable-evcxr.png)
+
+[evcxr]: https://github.com/google/evcxr/
+[evcxr-jupyter]: https://github.com/google/evcxr/blob/master/evcxr_jupyter/README.md
