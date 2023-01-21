@@ -50,7 +50,7 @@ impl RemoteServicesRegistrar {
     pub fn new<P: AsRef<Path>>(config_path: P, root_dir: P) -> Self {
         // Ensure the configuration directory exists.
         if let Some(config_dir) = config_path.as_ref().parent() {
-            if let Err(err) = std::fs::create_dir_all(&config_dir) {
+            if let Err(err) = std::fs::create_dir_all(config_dir) {
                 error!(
                     "Failed to create directory {:?} : {}",
                     root_dir.as_ref(),
@@ -155,7 +155,7 @@ impl RemoteServicesRegistrar {
         #[cfg(test)]
         let write_path = Path::new(&s);
 
-        if let Err(err) = write_as_toml_file(&write_path, &services) {
+        if let Err(err) = write_as_toml_file(write_path, &services) {
             error!(
                 "Failed to write update service file at {} : {}",
                 write_path.display(),

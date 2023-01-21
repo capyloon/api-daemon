@@ -21,8 +21,12 @@ function deeplinks_expected(installState, progress=0) {
   return {"name":"atestapp","installState":installState,"manifestUrl":new URL("http://atestapp.localhost:8081/manifest.webmanifest"),"removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/atestapp/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/deeplinks/kzLiaFQOTlGk8DJePIQA"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://atestapp.localhost:8081"};
 }
 
+// The app used in this test is a legacy app.
+// During the install the manifest url is http://{app}.localhost/manifest.webmanifest
+// After installed the manifest url is http://{app}.localhost/manifest.webapp
 function power_off_installing_expected(installState, progress=0) {
-  return {"name":"testpowerlost","installState":installState,"manifestUrl":new URL("http://testpowerlost.localhost:8081/manifest.webmanifest"),"removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/testpowerlost/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://testpowerlost.localhost:8081"};
+  let manifestUrl = (installState == 1) ? new URL("http://testpowerlost.localhost:8081/manifest.webmanifest") : new URL("http://testpowerlost.localhost:8081/manifest.webapp");
+  return {"name":"testpowerlost","installState":installState,"manifestUrl": manifestUrl, "removable":true,"status":0,"updateState":0,"updateManifestUrl":new URL("http://cached.localhost:8081/testpowerlost/update.webmanifest"),"updateUrl":new URL("http://127.0.0.1:8596/apps/testpowerlost/manifest.webmanifest"),"allowedAutoDownload":false,"preloaded":false,"progress":progress,"origin":"http://testpowerlost.localhost:8081"};
 }
 
 function update_expected(updateState, allowedAutoDownload=false) {
@@ -64,6 +68,13 @@ function same_origin_pwa_expected(installState) {
 
 function update_pwa_expected(updateState, allowedAutoDownload=false) {
   return {"name":"hellopwa","installState":0,"manifestUrl":new URL("http://cached.localhost:8081/hellopwa/manifest.webmanifest"),"removable":true,"status":0,"updateManifestUrl":new URL("http://cached.localhost:8081/hellopwa/update.webmanifest"),"updateState":updateState,"updateUrl":new URL("http://127.0.0.1:8596/apps/pwa/manifest.webmanifest"),"allowedAutoDownload":allowedAutoDownload,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
+}
+
+function gzip_pwa_expected(installState, status=0) {
+  let manifestUrl = new URL("http://cached.localhost:8081/hellogzip/manifest.webmanifest");
+  let updateManifestUrl = new URL("http://cached.localhost:8081/hellogzip/update.webmanifest");
+  let updateUrl = new URL("http://127.0.0.1:8596/apps/gzip/manifest.webmanifest");
+  return {"name":"hellogzip","installState":installState,"manifestUrl":manifestUrl,"removable":true,"status":status,"updateManifestUrl":updateManifestUrl,"updateState":0,"updateUrl":updateUrl,"allowedAutoDownload":false,"preloaded":false,"progress":0,"origin":"http://127.0.0.1:8596"};
 }
 
 // reason and updateUrl is accurate anytime

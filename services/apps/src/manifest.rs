@@ -32,7 +32,7 @@ pub enum ManifestError {
     Json(#[from] serde_json::Error),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct B2GFeatures {
     #[serde(default = "String::new")]
     role: String,
@@ -64,10 +64,12 @@ pub struct B2GFeatures {
     version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     focus_color: Option<String>,
-    #[serde(default = "B2GFeatures::default_hashmap")]
-    dependencies: HashMap<String, String>, // A list of hashMap<package_name, package_version>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependencies: Option<HashMap<String, String>>, // A list of hashMap<package_name, package_version>
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
+    #[serde(default = "default_as_false")]
+    from_legacy: bool,
 }
 
 pub trait ExtendUrl {
@@ -99,9 +101,6 @@ fn default_as_false() -> bool {
 }
 
 impl B2GFeatures {
-    fn default_hashmap() -> HashMap<String, String> {
-        HashMap::new()
-    }
     pub fn get_locales(&self) -> Option<Value> {
         self.locales.clone()
     }
@@ -126,12 +125,24 @@ impl B2GFeatures {
         self.version.clone()
     }
 
+    pub fn get_default_locale(&self) -> String {
+        self.default_locale.clone()
+    }
+
+    pub fn get_permissions(&self) -> Option<Value> {
+        self.permissions.clone()
+    }
+
     pub fn get_origin(&self) -> Option<String> {
         self.origin.clone()
     }
 
     pub fn set_deeplinks(&mut self, deeplinks: Option<DeepLinks>) {
         self.deeplinks = deeplinks;
+    }
+
+    pub fn is_from_legacy(&self) -> bool {
+        self.from_legacy
     }
 }
 
@@ -462,6 +473,73 @@ impl Manifest {
     ) -> Result<(), AppsMgmtError> {
         let file = File::create(manifest_file)?;
         serde_json::to_writer(file, manifest).map_err(|err| err.into())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct LegacyManifest {
+    name: String,
+    icons: Option<Value>,
+    #[serde(default = "default_as_start_url")]
+    start_url: String,
+    #[serde(default = "String::new")]
+    launch_path: String,
+    #[serde(default = "String::new")]
+    display: String,
+    #[serde(default = "String::new")]
+    short_name: String,
+    #[serde(default = "String::new")]
+    orientation: String,
+    #[serde(default = "String::new")]
+    theme_color: String,
+    #[serde(default = "String::new")]
+    default_locale: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    locales: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developer: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permissions: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    activities: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    messages: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependencies: Option<HashMap<String, String>>,
+}
+
+impl From<LegacyManifest> for Manifest {
+    fn from(s: LegacyManifest) -> Self {
+        let b2g_features = B2GFeatures {
+            default_locale: s.default_locale.clone(),
+            locales: s.locales.clone(),
+            developer: s.developer.clone(),
+            permissions: s.permissions.clone(),
+            activities: s.activities.clone(),
+            messages: s.messages.clone(),
+            version: s.version.clone(),
+            dependencies: s.dependencies.clone(),
+            from_legacy: true,
+            ..Default::default()
+        };
+        let start_url = match s.launch_path.is_empty() {
+            true => s.start_url.clone(),
+            false => s.launch_path.clone(),
+        };
+        Manifest {
+            name: s.name.clone(),
+            start_url,
+            icons: s.icons.clone(),
+            b2g_features: Some(b2g_features),
+            display: s.display.clone(),
+            lang: s.default_locale.clone(),
+            short_name: s.short_name.clone(),
+            orientation: s.orientation.clone(),
+            theme_color: s.theme_color,
+            ..Default::default()
+        }
     }
 }
 

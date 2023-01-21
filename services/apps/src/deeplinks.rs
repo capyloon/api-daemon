@@ -56,7 +56,7 @@ impl DeepLinks {
         update_url: Option<&Url>,
     ) -> Result<Value, AppsServiceError> {
         let config =
-            Self::read_from(&config_path).map_err(|_| AppsServiceError::InvalidDeeplinks)?;
+            Self::read_from(config_path).map_err(|_| AppsServiceError::InvalidDeeplinks)?;
 
         // The config must contain at least one entry.
         let apps_config = config.apps();

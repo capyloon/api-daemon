@@ -67,17 +67,17 @@ fn init_logger(_verbose: bool) {
             let ts = buf.timestamp();
             match record.module_path() {
                 Some(module_path) => {
-                    return writeln!(
+                    writeln!(
                         buf,
                         "{} {:<5} {} {}",
                         ts,
                         record.level(),
                         module_path,
                         record.args()
-                    );
+                    )
                 }
                 None => {
-                    return writeln!(buf, "{} {:<5} {}", ts, record.level(), record.args());
+                    writeln!(buf, "{} {:<5} {}", ts, record.level(), record.args())
                 }
             }
         })
@@ -112,7 +112,7 @@ fn log_daemon_status() {
 // Installs a signal handler for SIGUSR1 and display information about the
 // daemon state when the signal is handled.
 fn install_signal_handler() {
-    let mut signals = Signals::new(&[SIGUSR1]).expect("Failed to create SIGUSR1 signal handler");
+    let mut signals = Signals::new([SIGUSR1]).expect("Failed to create SIGUSR1 signal handler");
     let _thread = thread::spawn(move || {
         for signal in &mut signals {
             match signal {

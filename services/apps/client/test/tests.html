@@ -226,6 +226,25 @@
           true,
         );
 
+        // Test all icons are downloaded successfully in cached dir.
+        let icons = [
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/apps/pwa/icons/icon16x16.png",
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/apps/pwa/icons/icon48x48.png",
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/icons/icon60x60.png",
+          "http://cached.localhost:8081/hellopwa/127.0.0.1/icons/icon128x128.png"
+        ];
+        await Promise.all(icons.map( async (icon) => {
+          await tester.assert_eq(
+            "test get icons",
+            service => {
+              let req = new Request(icon);
+              return fetch(req)
+                .then(response => response.ok);
+            },
+            true,
+          );
+        }));
+
 // Install PWA with relative start URL case 2.
         await tester.assert_eq(
           "install pwa app relative start url case 2",
@@ -273,7 +292,7 @@
             return fetch(req)
               .then(response => response.json())
               .then(manifest =>
-                manifest.start_url == new URL("http://127.0.0.1:8596/apps/pwa/same-origin/index.html") &&
+                manifest.start_url == new URL("http://pwa-domain.com/apps/pwa/same-origin/index.html") &&
                 manifest.display == "browser" &&
                 manifest.short_name == "same origin pwa" &&
                 manifest.dir == "rtl" &&
@@ -292,7 +311,7 @@
         await tester.assert_rej_eq(
           "install different origin start url pwa app",
           service => service.installPwa(new URL("http://127.0.0.1:8596/apps/pwa/different-origin/manifest.webmanifest")),
-          AppsServiceError.INVALID_MANIFEST
+          AppsServiceError.INVALID_SCOPE
         );
 
         // finish all install test, stop event handler.

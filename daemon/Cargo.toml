@@ -12,7 +12,8 @@ path = "src/main.rs"
 [features]
 default = [
   "apps-service",
-  "audiovolumemanager-service", # "breakpad",
+  "audiovolumemanager-service",
+#  "breakpad",
   "contacts-service",
   "contentmanager-service",
   "devicecapability-service",

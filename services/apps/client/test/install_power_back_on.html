@@ -78,6 +78,38 @@
           "TestPowerLost",
         );
 
+// Install PWA with gzip manifest.
+        await tester.assert_eq(
+          "install a pwa app with gzip manifest.",
+          service => service.installPwa(new URL("http://127.0.0.1:8596/apps/gzip/manifest.webmanifest")),
+          gzip_pwa_expected(0)
+        );
+
+        // Fetch the localized manfiest with the full name.
+        await tester.assert_eq(
+          "get update manifest",
+          service => {
+            let req = new Request("http://testpowerlost.localhost:8081/manifest.en-US.webapp");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(app => app.name);
+          },
+          "TestPowerLost",
+        );
+
+        await tester.assert_eq(
+          "get update manifest",
+          service => {
+            let req = new Request("http://testpowerlost.localhost:8081/manifest.zh-TW.webapp");
+            req.responseType = "json";
+            return fetch(req)
+              .then(response => response.json())
+              .then(app => app.name);
+          },
+          "自動測試掉电",
+        );
+
         let reporter = new TestReporter([tester]);
         reporter.output();
 

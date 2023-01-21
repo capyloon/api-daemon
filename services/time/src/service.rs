@@ -40,7 +40,7 @@ impl StateLogger for SharedObj {
 }
 
 impl SharedObj {
-    pub fn default() -> Self {
+    pub fn new() -> Self {
         let setting_service = SettingsService::shared_state();
 
         // the life time of SharedObj is the same as the process. We don't need to remove_observer
@@ -96,7 +96,7 @@ impl SharedObj {
 
 impl From<&EmptyConfig> for SharedObj {
     fn from(_config: &EmptyConfig) -> Self {
-        Self::default()
+        Self::new()
     }
 }
 

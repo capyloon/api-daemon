@@ -389,7 +389,7 @@ pub fn install_package(
         .get_unique_name(&manifest.get_name(), manifest.get_origin(), None)
         .map_err(|_| AppsActorError::InvalidAppName)?;
 
-    let download_dir = path.join(&format!("downloading/{}", &app_name));
+    let download_dir = path.join(format!("downloading/{}", &app_name));
     let download_app = download_dir.join("application.zip");
 
     fs::create_dir_all(&download_dir)?;
@@ -458,7 +458,7 @@ pub fn install_package(
     }
 
     let mut shared = shared_data.lock();
-    let _ = shared
+    shared
         .registry
         .apply_download(&mut apps_item, &download_dir, &manifest, is_update)
         .map_err(|_| AppsActorError::WrongRegistration)?;
@@ -673,7 +673,6 @@ fn test_install_app() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
-    use common::traits::SharedServiceState;
     use config::Config;
     use std::env;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -808,7 +807,6 @@ fn test_get_all() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
     use crate::service::AppsService;
-    use common::traits::SharedServiceState;
     use config::Config;
     use std::env;
 
