@@ -620,32 +620,66 @@ impl<T> Manager<T> {
         self.fts.search(text, tag).await
     }
 
-    pub async fn top_by_frecency(&self, count: u32) -> Result<Vec<IdFrec>, ResourceStoreError> {
+    pub async fn top_by_frecency(
+        &self,
+        tag: Option<String>,
+        count: u32,
+    ) -> Result<Vec<IdFrec>, ResourceStoreError> {
         if count == 0 {
             return Err(ResourceStoreError::Custom("ZeroCountQuery".into()));
         }
 
-        let results: Vec<IdFrec> = sqlx::query_as(
-            "SELECT id, frecency(scorer) AS frecency FROM resources ORDER BY frecency DESC LIMIT ?",
-        )
-        .bind(count)
-        .fetch_all(&self.db_pool)
-        .await?;
+        let results: Vec<IdFrec> = match tag {
+            None => sqlx::query_as(
+                "SELECT id, frecency(scorer) AS frecency FROM resources ORDER BY frecency DESC LIMIT ?",
+            )
+            .bind(count)
+            .fetch_all(&self.db_pool)
+            .await?,
+            Some(tag) => sqlx::query_as(
+                r#"SELECT resources.id, frecency(scorer) AS frecency FROM resources
+                LEFT JOIN tags
+                WHERE tags.tag = ?
+                AND tags.id = resources.id
+                ORDER BY frecency DESC LIMIT ?"#,
+            )
+            .bind(tag)
+            .bind(count)
+            .fetch_all(&self.db_pool)
+            .await?,
+        };
 
         Ok(results)
     }
 
-    pub async fn last_modified(&self, count: u32) -> Result<Vec<IdFrec>, ResourceStoreError> {
+    pub async fn last_modified(
+        &self,
+        tag: Option<String>,
+        count: u32,
+    ) -> Result<Vec<IdFrec>, ResourceStoreError> {
         if count == 0 {
             return Err(ResourceStoreError::Custom("ZeroCountQuery".into()));
         }
 
-        let results: Vec<IdFrec> = sqlx::query_as(
-            "SELECT id, frecency(scorer) AS frecency FROM resources ORDER BY modified DESC LIMIT ?",
-        )
-        .bind(count)
-        .fetch_all(&self.db_pool)
-        .await?;
+        let results: Vec<IdFrec> = match tag {
+            None => sqlx::query_as(
+                "SELECT id, frecency(scorer) AS frecency FROM resources ORDER BY modified DESC LIMIT ?",
+            )
+            .bind(count)
+            .fetch_all(&self.db_pool)
+            .await?,
+            Some(tag) => sqlx::query_as(
+                r#"SELECT resources.id, frecency(scorer) AS frecency FROM resources
+                LEFT JOIN tags
+                WHERE tags.tag = ?
+                AND tags.id = resources.id
+                ORDER BY modified DESC LIMIT ?"#,
+            )
+            .bind(tag)
+            .bind(count)
+            .fetch_all(&self.db_pool)
+            .await?,
+        };
 
         log::info!("last_modified({}): {:?}", count, results);
         Ok(results)

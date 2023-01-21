@@ -1544,8 +1544,8 @@ dependencies = [
 
 [[package]]
 name = "costaeres"
-version = "0.1.2"
-source = "git+https://github.com/capyloon/costaeres.git#aae0cb58de5df5cd8548038dd035bcec6514e05a"
+version = "0.1.3"
+source = "git+https://github.com/capyloon/costaeres.git#535a583d17845b46f71d12610ea87fe32e328f20"
 dependencies = [
  "actix-rt",
  "actix-web",

@@ -128,10 +128,10 @@ interface ContentStore {
     fn visit_by_name(parent: str, name: str, visit: VisitPriority)
 
     // Get the most visited items.
-    fn top_by_frecency(max_count: int) -> MetadataCursor
+    fn top_by_frecency(max_count: int, tag: str?) -> MetadataCursor
 
     // Get the most recently modified items.
-    fn last_modified(max_count: int) -> MetadataCursor
+    fn last_modified(max_count: int, tag: str?) -> MetadataCursor
 
     // Get the full path from this object to the root.
     // This does not return a cursor since it's not expected to
