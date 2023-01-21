@@ -104,7 +104,7 @@ impl SignalContext {
     // Returns the registration id.
     pub fn get_registration_id(&self, extended_range: bool) -> Result<u32, SignalError> {
         let mut id: u32 = 0;
-        let ext: c_int = if extended_range { 1 } else { 0 };
+        let ext: c_int = i32::from(extended_range);
 
         if unsafe { signal_protocol_key_helper_generate_registration_id(&mut id, ext, self.native) }
             == 0

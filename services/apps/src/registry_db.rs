@@ -424,7 +424,7 @@ impl RegistryDb {
         let tx = connection.transaction()?;
         {
             let mut stmt = tx.prepare("UPDATE apps SET status = ?1 WHERE manifest_url = ?2")?;
-            stmt.execute(&[&status, manifest_url.as_str()])?;
+            stmt.execute([&status, manifest_url.as_str()])?;
         }
         tx.commit()?;
         Ok(())

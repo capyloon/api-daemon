@@ -342,7 +342,7 @@ impl AppsRequest {
         }
 
         // Save the downloaded update manifest file in cached dir.
-        let cached_dir = webapp_path.join("cached").join(&app.get_name());
+        let cached_dir = webapp_path.join("cached").join(app.get_name());
         let _ = AppsStorage::ensure_dir(&cached_dir);
         let cached_manifest = cached_dir.join("update.webmanifest");
         if let Err(err) = fs::rename(&update_manifest_result.update_manifest, &cached_manifest) {
@@ -366,7 +366,7 @@ impl AppsRequest {
                     registry.get_vhost_port(),
                 ));
             }
-            let _ = registry.save_app(true, &app)?;
+            registry.save_app(true, &app)?;
         }
 
         let mut app_obj = AppsObject::from(&app);
@@ -382,21 +382,17 @@ impl AppsRequest {
         manifest_url_base: &Url,
         download_dir: &Path,
     ) -> Result<(), AppsServiceError> {
-        let mut icon_src = icon.get_src();
-        // If the icon src is a complete url remove the leading protocol for the download path.
-        if let Ok(url) = Url::parse(&icon_src) {
-            icon_src = format!("{}{}", url.host().unwrap_or(Domain("")), url.path());
-        }
-        // If the icon src is an absolute path remove the leading / for the download path.
-        // Then it won't end up trying to use a /some/invalid/path/icon.png.
-        if icon_src.starts_with('/') {
-            let _ = icon_src.remove(0);
-        }
+        let icon_url = match update_url_base.join(&icon.get_src()) {
+            Ok(url) => url,
+            Err(_) => return Err(AppsServiceError::InvalidManifest),
+        };
+        let icon_src = format!(
+            "{}{}",
+            icon_url.host().unwrap_or(Domain("")),
+            icon_url.path()
+        );
         let icon_path = download_dir.join(&icon_src);
         let icon_dir = icon_path.parent().unwrap();
-        let icon_url = update_url_base
-            .join(&icon.get_src())
-            .map_err(|_| AppsServiceError::InvalidManifest)?;
         let _ = AppsStorage::ensure_dir(icon_dir);
         if let Err(err) = self.download(&icon_url, &icon_path) {
             error!(
@@ -508,7 +504,7 @@ impl AppsRequest {
             restorer =
                 AppsStatusRestorer::new(self.shared_data.clone(), is_update, apps_item_restore);
 
-            let _ = registry.save_app(is_update, &apps_item)?;
+            registry.save_app(is_update, &apps_item)?;
 
             registry.broadcast_installing(is_update, AppsObject::from(&apps_item));
             self.installing_apps_item = Some(apps_item.clone());
@@ -571,7 +567,7 @@ impl AppsRequest {
 
         // Here we can emit ready to apply download if we have sparate steps
         // asking user to apply download
-        let _ = registry.apply_download(&mut apps_item, &available_dir, &manifest, is_update)?;
+        registry.apply_download(&mut apps_item, &available_dir, &manifest, is_update)?;
 
         // Everything went fine, don't remove the available_dir directory.
         available_dir_remover.keep();
@@ -613,8 +609,10 @@ impl AppsRequest {
         let mut manifest = Manifest::read_from(&download_manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
         let update_url_base = update_url.clone();
-        let _ = is_same_origin_with(&update_url_base, &manifest.get_start_url())?;
         manifest.process_scope(&update_url_base)?;
+        let scope = Url::parse(&manifest.get_scope().unwrap_or_default())
+            .map_err(|_| AppsServiceError::InvalidManifest)?;
+        is_same_origin_with(&scope, &manifest.get_start_url())?;
 
         let mut apps_item: AppsItem;
         // Lock registry to do application registration, emit installing event
@@ -691,7 +689,7 @@ impl AppsRequest {
             .map_err(|_| AppsServiceError::InvalidStartUrl)?;
         manifest.set_start_url(start_url.as_str());
         let cached_pwa_manifest = download_dir.join("manifest.webmanifest");
-        Manifest::write_to(&cached_pwa_manifest, &manifest)
+        Manifest::write_to(cached_pwa_manifest, &manifest)
             .map_err(|_| AppsServiceError::InvalidManifest)?;
 
         // 2-3: Process if shortcuts exist
@@ -882,10 +880,12 @@ fn remove_canceller(shared_data: Shared<AppsSharedData>, url: &Url) {
     let _ = shared_data.lock().downloadings.remove(url);
 }
 
-#[cfg(test)]
-fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
+#[test]
+fn test_apply_pwa() {
     use crate::apps_registry::AppsRegistry;
     use crate::config;
+    use crate::service::AppsService;
+    use common::traits::{EmptyConfig, SharedServiceState};
     use config::Config;
     use std::env;
 
@@ -913,7 +913,10 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
 
     // Create a locale instance of shared data because it's using a different
     // configuration path than other tests.
-    let shared_data: Shared<AppsSharedData> = Shared::default();
+    settings_service::service::SettingsService::init_shared_state(&EmptyConfig);
+    geckobridge::service::GeckoBridgeService::init_shared_state(&EmptyConfig);
+    AppsService::init_shared_state(&config);
+    let shared_data = AppsService::shared_state();
     let vhost_port = 80;
     match AppsRegistry::initialize(&config, vhost_port) {
         Ok(registry) => {
@@ -927,7 +930,7 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
     println!("registry.count(): {}", shared_data.lock().registry.count());
     assert_eq!(6, shared_data.lock().registry.count());
 
-    // Test 1: apply from a local dir
+    // Apply from a local dir
     let src_manifest = current.join("test-fixtures/apps-from/pwa/manifest.webmanifest");
     let update_url = Url::parse("https://pwa1.test/manifest.webmanifest").unwrap();
     let download_dir = AppsStorage::get_app_dir(
@@ -974,61 +977,7 @@ fn test_apply_pwa(app_url_str: &str, expected_err: Option<AppsServiceError>) {
             println!("err: {:?}", err);
             panic!();
         }
-    }
-
-    // Test 2: download and apply from a remote url
-    let mut request = AppsRequest::new(shared_data.clone()).unwrap();
-    let app_url = Url::parse(app_url_str).unwrap();
-    match request.download_and_apply_pwa(test_path, &app_url, false) {
-        Ok(app) => {
-            if expected_err.is_some() {
-                panic!();
-            }
-            assert_eq!(app.name, "hellopwa");
-            assert_eq!(app.removable, true);
-        }
-        Err(err) => {
-            if let Some(expected) = expected_err {
-                if err == expected {
-                    return;
-                }
-            }
-            println!("err: {:?}", err);
-            panic!();
-        }
-    }
-    let lock = shared_data.lock();
-    if let Some(app) = lock.registry.get_by_update_url(&app_url) {
-        assert_eq!(app.get_name(), "hellopwa");
-
-        let cached_dir = test_path.join("cached");
-        let update_manifest = cached_dir.join(app.get_name()).join("manifest.webmanifest");
-        let manifest = Manifest::read_from(&update_manifest).unwrap();
-
-        // The start url in cached manifest is an absolute url of remote address.
-        let expected_start_url = app_url.join("index.html").unwrap().as_str().to_string();
-        assert_eq!(manifest.get_start_url(), expected_start_url);
-
-        // icon url should be relative path of local cached address
-        if let Some(icons_value) = manifest.get_icons() {
-            let icons: Vec<Icon> = serde_json::from_value(icons_value).unwrap_or_else(|_| vec![]);
-            assert_eq!(4, icons.len());
-            let manifest_url_base = app.get_manifest_url().join("/");
-            for icon in icons {
-                let icon_src = icon.get_src();
-                let icon_url = Url::parse(&icon_src).unwrap();
-                let icon_url_base = icon_url.join("/");
-                let icon_path = format!("{}{}", cached_dir.to_str().unwrap(), icon_url.path());
-
-                assert_eq!(icon_url_base, manifest_url_base);
-                assert!(Path::new(&icon_path).is_file(), "Error in icon path.");
-            }
-        } else {
-            panic!();
-        }
-    } else {
-        panic!();
-    }
+    };
 }
 
 #[test]

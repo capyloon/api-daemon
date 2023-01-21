@@ -1,6 +1,7 @@
 {
     "name": "same origin pwa",
-    "start_url": "http://127.0.0.1:8596/apps/pwa/same-origin/index.html",
+    "start_url": "http://pwa-domain.com/apps/pwa/same-origin/index.html",
+    "scope": "http://pwa-domain.com/",
     "version": "",
     "theme_color": "#008fff",
     "background_color": "#008fff",

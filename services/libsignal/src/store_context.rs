@@ -255,11 +255,7 @@ extern "C" fn session_store_contains_session(
     let _ = Rc::into_raw(ctxt);
 
     build_response_with_error(receiver, 0, "session_store.contains", |response| {
-        if response {
-            1
-        } else {
-            0
-        }
+        i32::from(response)
     })
 }
 
@@ -282,11 +278,7 @@ extern "C" fn session_store_delete_session(
     let _ = Rc::into_raw(ctxt);
 
     build_response(receiver, "session_store.delete", |response| {
-        if response {
-            1
-        } else {
-            0
-        }
+        i32::from(response)
     })
 }
 
@@ -442,11 +434,7 @@ extern "C" fn id_key_store_is_trusted_identity(
     let _ = Rc::into_raw(ctxt);
 
     build_response(receiver, "id_key_store.is_truster_identity", |result| {
-        if result {
-            1
-        } else {
-            0
-        }
+        i32::from(result)
     })
 }
 
@@ -511,11 +499,7 @@ extern "C" fn store_sender_key(
     let _ = Rc::into_raw(ctxt);
 
     build_response(receiver, "sender_key_store.store_sender_key", |result| {
-        if result {
-            0
-        } else {
-            SIGNAL_GENERIC_ERROR
-        }
+        i32::from(result)
     })
 }
 
@@ -643,11 +627,7 @@ extern "C" fn contains_pre_key(pre_key_id: u32, user_data: *mut c_void) -> c_int
     let _ = Rc::into_raw(ctxt);
 
     build_response_with_error(receiver, 0, "pre_key_store.contains", |result| {
-        if result {
-            1
-        } else {
-            0
-        }
+        i32::from(result)
     })
 }
 
@@ -723,11 +703,7 @@ extern "C" fn contains_signed_pre_key(pre_key_id: u32, user_data: *mut c_void) -
     let _ = Rc::into_raw(ctxt);
 
     build_response_with_error(receiver, 0, "signed_pre_key_store.contains", |result| {
-        if result {
-            1
-        } else {
-            0
-        }
+        i32::from(result)
     })
 }
 

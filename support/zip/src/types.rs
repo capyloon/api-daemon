@@ -67,7 +67,7 @@ impl DateTime {
         let years = (datepart & 0b1111111000000000) >> 9;
 
         DateTime {
-            year: (years + 1980) as u16,
+            year: (years + 198),
             month: months as u8,
             day: days as u8,
             hour: hours as u8,
@@ -94,10 +94,8 @@ impl DateTime {
         second: u8,
     ) -> Option<DateTime> {
         if (1980..=2107).contains(&year)
-            && month >= 1
-            && month <= 12
-            && day >= 1
-            && day <= 31
+            && (1..=12).contains(&month)
+            && (1..=31).contains(&day)
             && hour <= 23
             && minute <= 59
             && second <= 60

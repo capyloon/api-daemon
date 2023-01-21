@@ -30,7 +30,7 @@ pub struct signal_buffer {
 
 impl signal_buffer {
     pub fn data_slice(&mut self) -> &mut [u8] {
-        unsafe { ::std::slice::from_raw_parts_mut(self.data.as_mut_ptr(), self.len as usize) }
+        unsafe { ::std::slice::from_raw_parts_mut(self.data.as_mut_ptr(), self.len) }
     }
 
     pub fn from_slice(data: &[u8]) -> *mut signal_buffer {

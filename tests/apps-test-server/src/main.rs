@@ -3,7 +3,7 @@
 /// Under /apps. Hawk authentication is required and only GET method is supported.
 /// For test purpose, client uses fixed mock id and key to generate Hawk header.
 /// kid: "FGFYvY+/4XwTYIX9nVi+sXj5tPA=", mac_key: "p7cI80SwX+gmX0G+T938agWAV1eR9wrpCR9JgsoIIlk="
-use actix_web::http::header::{self, HeaderValue};
+use actix_web::http::header::{self, ContentEncoding, HeaderValue};
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer};
 use hawk::mac::Mac;
 use hawk::{Header, Key, RequestBuilder, SHA256};
@@ -64,7 +64,11 @@ fn response_from_file(req: HttpRequest, file: &str) -> HttpResponse {
             return HttpResponse::InternalServerError().finish();
         }
 
-        HttpResponse::Ok()
+        let mut response = HttpResponse::Ok();
+        if path.starts_with("apps/gzip") {
+            response.insert_header(ContentEncoding::Gzip);
+        }
+        response
             .insert_header(("ETag", etag.to_string()))
             .content_type(mime.as_ref())
             .body(buf)
@@ -156,7 +160,7 @@ async fn apps_responses(req: HttpRequest, params: web::Path<(String, String)>) -
         return HttpResponse::BadRequest().finish();
     }
     // Do not check the authorization header for pwa.
-    if app != "pwa" && app != "updatepwa" && !validate(&req) {
+    if app != "pwa" && app != "gzip" && app != "updatepwa" && !validate(&req) {
         return HttpResponse::Unauthorized().finish();
     }
     response_from_file(req, &format!("apps/{}/{}", app, name))

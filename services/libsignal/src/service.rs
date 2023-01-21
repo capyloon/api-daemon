@@ -44,7 +44,7 @@ impl LibSignalMethods for SignalService {
     ) {
         // If the public key length is 33 bytes, remove the first one.
         let mut pub_key = [0u8; 32];
-        let start = if public_key.len() == 33 { 1 } else { 0 };
+        let start = usize::from(public_key.len() == 33);
 
         pub_key[start..public_key.len()].copy_from_slice(&public_key[start..]);
 

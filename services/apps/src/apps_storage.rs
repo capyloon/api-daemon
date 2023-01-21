@@ -2,18 +2,21 @@
 
 use crate::apps_item::AppsItem;
 use crate::apps_registry::{AppsError, AppsMgmtError};
-use crate::manifest::{Manifest, ManifestError};
+use crate::manifest::{LegacyManifest, Manifest, ManifestError};
 use common::log_warning;
 use log::{debug, error, warn};
 use nix::sys::statvfs;
-use std::fs::{self, remove_dir_all, File};
-use std::io::BufReader;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::fs::{self, remove_dir_all, File, OpenOptions};
+use std::io::{BufReader, Write};
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use url::Url;
 use zip::result::ZipError;
-use zip::ZipArchive;
+use zip::write::FileOptions;
+use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 #[derive(Error, Debug)]
 pub enum PackageError {
@@ -43,15 +46,21 @@ impl AppsStorage {
     //   manifest_name: the filename of manifest file.
     // Out
     //   A result of the manifest object or error
-    fn read_zip_manifest<P: AsRef<Path>>(
+    fn read_zip_manifest<T, P: AsRef<Path>>(
         zip_file: P,
         manifest_name: &str,
-    ) -> Result<Manifest, AppsError> {
+    ) -> Result<Manifest, PackageError>
+    where
+        T: for<'de> Deserialize<'de>,
+        Manifest: From<T>,
+    {
         let file = File::open(zip_file)?;
         let mut archive = ZipArchive::new(file)?;
         let manifest = archive.by_name(manifest_name)?;
-        let value: Manifest = serde_json::from_reader(manifest)?;
-        Ok(value)
+        let manifest: T = serde_json::from_reader(manifest)
+            .map_err(|err| PackageError::WrongManifest(ManifestError::Json(err)))?;
+
+        Ok(manifest.into())
     }
 
     // Read the apps item list from a webapp json file.
@@ -70,15 +79,20 @@ impl AppsStorage {
     // and fallbacks to app_dir/manifest.webmanifest if needed.
     pub fn load_manifest(app_dir: &Path) -> Result<Manifest, AppsError> {
         let zipfile = app_dir.join("application.zip");
-        if let Ok(manifest) = AppsStorage::read_zip_manifest(&zipfile, "manifest.webmanifest") {
+        if let Ok(manifest) =
+            AppsStorage::read_zip_manifest::<Manifest, _>(&zipfile, "manifest.webmanifest")
+        {
             Ok(manifest)
-        } else if let Ok(manifest) = AppsStorage::read_zip_manifest(&zipfile, "manifest.webapp") {
+        } else if let Ok(manifest) =
+            AppsStorage::read_zip_manifest::<LegacyManifest, _>(&zipfile, "manifest.webapp")
+        {
             Ok(manifest)
         } else {
             let manifest = app_dir.join("manifest.webmanifest");
             let file = File::open(manifest)?;
             let reader = BufReader::new(file);
-            let value: Manifest = serde_json::from_reader(reader)?;
+            let value: Manifest = serde_json::from_reader(reader)
+                .map_err(|err| AppsError::WrongManifest(ManifestError::Json(err)))?;
             Ok(value)
         }
     }
@@ -127,7 +141,7 @@ impl AppsStorage {
         } else {
             app.set_manifest_url(AppsItem::new_manifest_url(&app_name, vhost_port));
             let dest = data_path.join("vroot").join(&app_name);
-            let _ = Self::safe_symlink(&source, &dest)?;
+            Self::safe_symlink(&source, &dest)?;
         }
         app.set_preloaded(true);
         // Get version from manifest for preloaded apps.
@@ -146,6 +160,12 @@ impl AppsStorage {
                         }
                     }
                 }
+                if b2g_features.is_from_legacy() {
+                    app.set_legacy_manifest_url();
+                    if let Err(err) = Self::write_localized_manifest(&app_dir) {
+                        error!("Failed to update localized manifest: {:?}", err);
+                    }
+                }
             }
         }
         // Return the app to be added to the database.
@@ -159,11 +179,11 @@ impl AppsStorage {
     // Out
     //   A result of ()  or error
     pub fn remove_app(app: &AppsItem, data_path: &Path) -> Result<(), AppsError> {
-        let installed_dir = data_path.join("installed").join(&app.get_name());
+        let installed_dir = data_path.join("installed").join(app.get_name());
         let webapp_dir = app.get_appdir(data_path).unwrap_or_default();
 
-        let _ = remove_dir_all(&webapp_dir);
-        let _ = remove_dir_all(&installed_dir);
+        let _ = remove_dir_all(webapp_dir);
+        let _ = remove_dir_all(installed_dir);
 
         Ok(())
     }
@@ -239,39 +259,76 @@ impl AppsStorage {
         let logfile = Path::new(APP_LOG_FILE);
         fs::read_to_string(logfile).unwrap_or_else(|_| "".into())
     }
-}
 
-// Validate application.zip at path.
-// Return Manifest for later use
-pub fn validate_package_with_name<P: AsRef<Path>>(
-    path: P,
-    manifest_name: &str,
-) -> Result<Manifest, PackageError> {
-    let package = File::open(path)?;
-    let mut archive = ZipArchive::new(package)?;
-    let manifest = archive.by_name(manifest_name)?;
+    // Write localized manifest file to application zip for legacy app.
+    // In
+    //   app_dir: the application dir.
+    // Out
+    //   Result Ok or Error.
+    pub fn write_localized_manifest(app_dir: &Path) -> Result<(), PackageError> {
+        let app_zip = app_dir.join("application.zip");
+        let zip_file = File::open(&app_zip)?;
+        let mut archive = ZipArchive::new(zip_file)?;
+        let manifest = archive.by_name("manifest.webapp")?;
+        let manifest: Value = serde_json::from_reader(manifest)
+            .map_err(|err| PackageError::WrongManifest(ManifestError::Json(err)))?;
 
-    let manifest: Manifest = match serde_json::from_reader(manifest) {
-        Ok(manifest) => manifest,
-        Err(err) => {
-            error!("validate_package WrongManifest json error: {:?}", err);
-            return Err(PackageError::WrongManifest(ManifestError::Json(err)));
+        if let Some(Value::Object(locales)) = manifest.get("locales") {
+            let file = OpenOptions::new()
+                .create(false)
+                .write(true)
+                .read(true)
+                .open(app_zip)?;
+            let mut zip = ZipWriter::new_append(file)?;
+            let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+            let mut localized_manifest = manifest.clone();
+            // Do not include the full locales in the localized manifest.
+            if let Some(v) = localized_manifest.get_mut("locales") {
+                *v = json!({});
+            }
+            for (locale_key, locale_value) in locales.iter() {
+                if let Value::Object(lang) = locale_value {
+                    let localized_file = format!("manifest.{}.webapp", locale_key);
+                    if archive.by_name(&localized_file).is_ok() {
+                        continue;
+                    }
+
+                    for (lang_key, lang_value) in lang.iter() {
+                        if let Some(v) = localized_manifest.get_mut(lang_key) {
+                            *v = lang_value.clone();
+                        }
+                    }
+                    zip.start_file(&localized_file, options)?;
+                    match serde_json::to_vec(&localized_manifest) {
+                        Ok(value) => {
+                            if let Err(err) = zip.write_all(&value) {
+                                error!("Faile to write {}, error: {:?}", localized_file, err);
+                            }
+                        }
+                        Err(err) => error!("Manifest {}, error: {:?}", localized_file, err),
+                    }
+                }
+            }
+            zip.finish()?;
         }
-    };
 
-    Ok(manifest)
+        Ok(())
+    }
 }
 
 // Validate application.zip at path.
 // Return Manifest for later use
 pub fn validate_package<P: AsRef<Path>>(path: P) -> Result<Manifest, PackageError> {
-    let manifest = match validate_package_with_name(&path, "manifest.webmanifest") {
-        Ok(manifest) => manifest,
-        Err(PackageError::WrongManifest(detail)) => {
-            return Err(PackageError::WrongManifest(detail))
-        }
-        Err(_) => validate_package_with_name(&path, "manifest.webapp")?,
-    };
+    let manifest =
+        match AppsStorage::read_zip_manifest::<Manifest, _>(&path, "manifest.webmanifest") {
+            Ok(manifest) => manifest,
+            Err(PackageError::WrongManifest(detail)) => {
+                return Err(PackageError::WrongManifest(detail))
+            }
+            Err(_) => {
+                AppsStorage::read_zip_manifest::<LegacyManifest, _>(&path, "manifest.webapp")?
+            }
+        };
 
     if let Err(err) = manifest.check_validity() {
         error!("validate_package WrongManifest error: {:?}", err);
@@ -279,4 +336,37 @@ pub fn validate_package<P: AsRef<Path>>(path: P) -> Result<Manifest, PackageErro
     }
 
     Ok(manifest)
+}
+
+#[test]
+fn test_read_legacy_manifest() {
+    use std::env;
+
+    let current = env::current_dir().unwrap();
+    // Test reading legacy manifest.
+    let app_zip = format!(
+        "{}/test-fixtures/apps-from/legacy/application.zip",
+        current.display()
+    );
+
+    match AppsStorage::read_zip_manifest::<LegacyManifest, _>(&app_zip, "manifest.webapp") {
+        Ok(manifest) => {
+            assert_eq!(manifest.get_name(), "LegacyApp");
+            if let Some(b2g_features) = manifest.get_b2g_features() {
+                assert!(b2g_features.get_default_locale() == "en-US");
+                assert!(b2g_features.get_locales().is_some());
+                assert!(b2g_features.get_developer().is_some());
+                assert!(b2g_features.get_activities().is_some());
+                assert!(b2g_features.get_messages().is_some());
+                assert!(b2g_features.get_permissions().is_some());
+                assert!(b2g_features.get_version().is_some());
+                assert!(b2g_features.get_dependencies().is_some());
+            } else {
+                panic!("Failed to get b2g_features");
+            }
+        }
+        Err(err) => {
+            panic!("Failed to read {} error: {:?}", app_zip, err);
+        }
+    }
 }
