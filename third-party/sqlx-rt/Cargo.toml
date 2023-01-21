@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "sqlx-rt"
-version = "0.6.0"
+version = "0.6.2"
 authors = [
     "Ryan Leckey <leckey.ryan@gmail.com>",
     "Austin Bonander <austin.bonander@gmail.com>",
@@ -21,11 +21,6 @@ description = "Runtime abstraction used by SQLx, the Rust SQL toolkit. Not inten
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/launchbadge/sqlx"
 resolver = "2"
-
-[dependencies.actix-rt]
-version = "2.0.0"
-optional = true
-default-features = false
 
 [dependencies.async-native-tls]
 version = "0.4.0"
@@ -70,11 +65,6 @@ version = "0.23.0"
 optional = true
 
 [features]
-_rt-actix = [
-    "actix-rt",
-    "tokio",
-    "once_cell",
-]
 _rt-async-std = ["async-std"]
 _rt-tokio = [
     "tokio",
@@ -82,16 +72,8 @@ _rt-tokio = [
 ]
 _tls-native-tls = ["native-tls"]
 _tls-rustls = []
-runtime-actix-native-tls = [
-    "_rt-actix",
-    "_tls-native-tls",
-    "tokio-native-tls",
-]
-runtime-actix-rustls = [
-    "_rt-actix",
-    "_tls-rustls",
-    "tokio-rustls",
-]
+runtime-actix-native-tls = ["runtime-tokio-native-tls"]
+runtime-actix-rustls = ["runtime-tokio-rustls"]
 runtime-async-std-native-tls = [
     "_rt-async-std",
     "_tls-native-tls",

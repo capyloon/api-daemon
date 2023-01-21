@@ -1,4 +1,5 @@
-/* Copyright 2016 The encode_unicode Developers
+/* Copyright 2016-2022 Torbjørn Birch Moltu
+ * Copyright 2018 Aljoscha Meyer
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -6,22 +7,21 @@
  * copied, modified, or distributed except according to those terms.
  */
 
-#![allow(unused_unsafe)]// explicit unsafe{} blocks in unsafe functions are a good thing.
-
-use utf8_char::Utf8Char;
-use utf16_char::Utf16Char;
-use utf8_iterators::*;
-use utf16_iterators::*;
-use decoding_iterators::*;
-use error::*;
+use crate::utf8_char::Utf8Char;
+use crate::utf16_char::Utf16Char;
+use crate::utf8_iterators::*;
+use crate::utf16_iterators::*;
+use crate::decoding_iterators::*;
+use crate::error::*;
+use crate::error::Utf8ErrorKind::*;
 extern crate core;
-use self::core::{char, u32, mem};
-use self::core::ops::{Not, Index, RangeFull};
-use self::core::borrow::Borrow;
+use core::{char, u32};
+use core::ops::{Not, Index, RangeFull};
+use core::borrow::Borrow;
 #[cfg(feature="ascii")]
 extern crate ascii;
 #[cfg(feature="ascii")]
-use self::ascii::AsciiStr;
+use ascii::AsciiStr;
 
 // TODO better docs and tests
 
@@ -34,33 +34,28 @@ pub trait U8UtfExt {
     /// An error is returned if the byte is not a valid start of an UTF-8
     /// codepoint:
     ///
-    /// * `128..192`: ContinuationByte
-    /// * `248..`: TooLongSequence
-    ///
-    /// Values in 244..248 represent a too high codepoint, but do not cause an
-    /// error.
-    fn extra_utf8_bytes(self) -> Result<usize,InvalidUtf8FirstByte>;
+    /// * `128..192`: [`UnexpectedContinuationByte`](error/enum.Utf8ErrorKind.html#variant.UnexpectedContinuationByte)
+    /// * `245..`, `192` and `193`: [`NonUtf8Byte`](error/enum.Utf8ErrorKind.html#variant.NonUtf8Byte)  
+    fn extra_utf8_bytes(self) -> Result<usize,Utf8Error>;
 
     /// How many more bytes will you need to complete this codepoint?
     ///
     /// This function assumes that the byte is a valid UTF-8 start, and might
-    /// return any value otherwise. (but the function is pure and safe to call
-    /// with any value).
+    /// return any value otherwise. (but the function is safe to call with any
+    /// value and will return a consistent result).
     fn extra_utf8_bytes_unchecked(self) -> usize;
 }
 
 impl U8UtfExt for u8 {
     #[inline]
-    fn extra_utf8_bytes(self) -> Result<usize,InvalidUtf8FirstByte> {
-        use error::InvalidUtf8FirstByte::{ContinuationByte,TooLongSeqence};
-        // the bit twiddling is explained in extra_utf8_bytes_unchecked()
-        if self < 128 {
-            return Ok(0);
-        }
-        match ((self as u32)<<25).not().leading_zeros() {
-            n @ 1...3 => Ok(n as usize),
-            0 => Err(ContinuationByte),
-            _ => Err(TooLongSeqence),
+    fn extra_utf8_bytes(self) -> Result<usize,Utf8Error> {
+        match self {
+            0x00..=0x7f => Ok(0),
+            0xc2..=0xdf => Ok(1),
+            0xe0..=0xef => Ok(2),
+            0xf0..=0xf4 => Ok(3),
+            0xc0..=0xc1 | 0xf5..=0xff => Err(Utf8Error{ kind: NonUtf8Byte }),// too big or overlong
+            0x80..=0xbf => Err(Utf8Error{ kind: UnexpectedContinuationByte }),// following byte
         }
     }
     #[inline]
@@ -75,7 +70,7 @@ impl U8UtfExt for u8 {
         //    0b1111_0000...0b1111_0100 => 3,
         //                _             => whatever()
         //}
-        // Using `unsafe{self::core::hint::unreachable_unchecked()}` for the
+        // Using `unsafe{core::hint::unreachable_unchecked()}` for the
         // "don't care" case is a terrible idea: while having the function
         // non-deterministically return whatever happens to be in a register
         // MIGHT be acceptable, it permits the function to not `ret`urn at all,
@@ -129,7 +124,7 @@ pub trait U16UtfExt {
     ///
     /// Returns `Err` for trailing surrogates, `Ok(true)` for leading surrogates,
     /// and `Ok(false)` for others.
-    fn utf16_needs_extra_unit(self) -> Result<bool,InvalidUtf16FirstUnit>;
+    fn utf16_needs_extra_unit(self) -> Result<bool,Utf16FirstUnitError>;
 
     /// Does this `u16` need another `u16` to complete a codepoint?
     /// Returns `(self & 0xfc00) == 0xd800`
@@ -139,12 +134,12 @@ pub trait U16UtfExt {
 }
 impl U16UtfExt for u16 {
     #[inline]
-    fn utf16_needs_extra_unit(self) -> Result<bool,InvalidUtf16FirstUnit> {
+    fn utf16_needs_extra_unit(self) -> Result<bool,Utf16FirstUnitError> {
         match self {
             // https://en.wikipedia.org/wiki/UTF-16#U.2B10000_to_U.2B10FFFF
-            0x00_00...0xd7_ff | 0xe0_00...0xff_ff => Ok(false),
-            0xd8_00...0xdb_ff => Ok(true),
-                    _         => Err(InvalidUtf16FirstUnit)
+            0x00_00..=0xd7_ff | 0xe0_00..=0xff_ff => Ok(false),
+            0xd8_00..=0xdb_ff => Ok(true),
+                    _         => Err(Utf16FirstUnitError)
         }
     }
     #[inline]
@@ -234,24 +229,23 @@ pub trait CharExt: Sized {
     ///
     /// ```
     /// use encode_unicode::CharExt;
-    /// use encode_unicode::error::InvalidUtf8Slice::*;
-    /// use encode_unicode::error::InvalidUtf8::*;
+    /// use encode_unicode::error::Utf8ErrorKind::*;
     ///
     /// assert_eq!(char::from_utf8_slice_start(&[b'A', b'B', b'C']), Ok(('A',1)));
     /// assert_eq!(char::from_utf8_slice_start(&[0xdd, 0xbb]), Ok(('\u{77b}',2)));
     ///
-    /// assert_eq!(char::from_utf8_slice_start(&[]), Err(TooShort(1)));
-    /// assert_eq!(char::from_utf8_slice_start(&[0xf0, 0x99]), Err(TooShort(4)));
-    /// assert_eq!(char::from_utf8_slice_start(&[0xee, b'F', 0x80]), Err(Utf8(NotAContinuationByte(1))));
-    /// assert_eq!(char::from_utf8_slice_start(&[0xee, 0x99, 0x0f]), Err(Utf8(NotAContinuationByte(2))));
+    /// assert_eq!(char::from_utf8_slice_start(&[]).unwrap_err(), TooFewBytes);
+    /// assert_eq!(char::from_utf8_slice_start(&[0xf0, 0x99]).unwrap_err(), TooFewBytes);
+    /// assert_eq!(char::from_utf8_slice_start(&[0xee, b'F', 0x80]).unwrap_err(), InterruptedSequence);
+    /// assert_eq!(char::from_utf8_slice_start(&[0xee, 0x99, 0x0f]).unwrap_err(), InterruptedSequence);
     /// ```
-    fn from_utf8_slice_start(src: &[u8]) -> Result<(Self,usize),InvalidUtf8Slice>;
+    fn from_utf8_slice_start(src: &[u8]) -> Result<(Self,usize),Utf8Error>;
 
     /// Create a `char` from the start of an UTF-16 slice,
     /// and also return how many units were used.
     ///
     /// If you want to continue after an error, continue with the next `u16` unit.
-    fn from_utf16_slice_start(src: &[u16]) -> Result<(Self,usize), InvalidUtf16Slice>;
+    fn from_utf16_slice_start(src: &[u16]) -> Result<(Self,usize), Utf16SliceError>;
 
 
     /// Convert an UTF-8 sequence as returned from `.to_utf8_array()` into a `char`
@@ -266,20 +260,19 @@ pub trait CharExt: Sized {
     ///
     /// ```
     /// use encode_unicode::CharExt;
-    /// use encode_unicode::error::InvalidUtf8Array::*;
-    /// use encode_unicode::error::InvalidUtf8::*;
-    /// use encode_unicode::error::InvalidCodepoint::*;
+    /// use encode_unicode::error::Utf8ErrorKind::*;
     ///
     /// assert_eq!(char::from_utf8_array([b'A', 0, 0, 0]), Ok('A'));
     /// assert_eq!(char::from_utf8_array([0xf4, 0x8b, 0xbb, 0xbb]), Ok('\u{10befb}'));
     /// assert_eq!(char::from_utf8_array([b'A', b'B', b'C', b'D']), Ok('A'));
     /// assert_eq!(char::from_utf8_array([0, 0, 0xcc, 0xbb]), Ok('\0'));
     ///
-    /// assert_eq!(char::from_utf8_array([0xef, b'F', 0x80, 0x80]), Err(Utf8(NotAContinuationByte(1))));
-    /// assert_eq!(char::from_utf8_array([0xc1, 0x80, 0, 0]), Err(Utf8(OverLong)));
-    /// assert_eq!(char::from_utf8_array([0xf7, 0xaa, 0x99, 0x88]), Err(Codepoint(TooHigh)));
+    /// assert_eq!(char::from_utf8_array([0xef, b'F', 0x80, 0x80]).unwrap_err(), InterruptedSequence);
+    /// assert_eq!(char::from_utf8_array([0xc1, 0x80, 0, 0]).unwrap_err().kind(), NonUtf8Byte);
+    /// assert_eq!(char::from_utf8_array([0xe0, 0x9a, 0xbf, 0]).unwrap_err().kind(), OverlongEncoding);
+    /// assert_eq!(char::from_utf8_array([0xf4, 0xaa, 0x99, 0x88]).unwrap_err(), TooHighCodepoint);
     /// ```
-    fn from_utf8_array(utf8: [u8; 4]) -> Result<Self,InvalidUtf8Array>;
+    fn from_utf8_array(utf8: [u8; 4]) -> Result<Self,Utf8Error>;
 
     /// Convert a UTF-16 pair as returned from `.to_utf16_array()` into a `char`.
     ///
@@ -289,19 +282,19 @@ pub trait CharExt: Sized {
     ///
     /// ```
     /// use encode_unicode::CharExt;
-    /// use encode_unicode::error::InvalidUtf16Array;
+    /// use encode_unicode::error::Utf16ArrayError;
     ///
     /// assert_eq!(char::from_utf16_array(['x' as u16, 'y' as u16]), Ok('x'));
     /// assert_eq!(char::from_utf16_array(['睷' as u16, 0]), Ok('睷'));
     /// assert_eq!(char::from_utf16_array([0xda6f, 0xdcde]), Ok('\u{abcde}'));
     /// assert_eq!(char::from_utf16_array([0xf111, 0xdbad]), Ok('\u{f111}'));
-    /// assert_eq!(char::from_utf16_array([0xdaaf, 0xdaaf]), Err(InvalidUtf16Array::SecondIsNotTrailingSurrogate));
-    /// assert_eq!(char::from_utf16_array([0xdcac, 0x9000]), Err(InvalidUtf16Array::FirstIsTrailingSurrogate));
+    /// assert_eq!(char::from_utf16_array([0xdaaf, 0xdaaf]), Err(Utf16ArrayError::SecondIsNotTrailingSurrogate));
+    /// assert_eq!(char::from_utf16_array([0xdcac, 0x9000]), Err(Utf16ArrayError::FirstIsTrailingSurrogate));
     /// ```
-    fn from_utf16_array(utf16: [u16; 2]) -> Result<Self, InvalidUtf16Array>;
+    fn from_utf16_array(utf16: [u16; 2]) -> Result<Self, Utf16ArrayError>;
 
     /// Convert a UTF-16 pair as returned from `.to_utf16_tuple()` into a `char`.
-    fn from_utf16_tuple(utf16: (u16, Option<u16>)) -> Result<Self, InvalidUtf16Tuple>;
+    fn from_utf16_tuple(utf16: (u16, Option<u16>)) -> Result<Self, Utf16TupleError>;
 
 
     /// Convert an UTF-8 sequence into a char.
@@ -342,6 +335,14 @@ pub trait CharExt: Sized {
     fn from_utf16_array_unchecked(utf16: [u16;2]) -> Self;
 
     /// Convert a UTF-16 tuple as returned from `.to_utf16_tuple()` into a `char`.
+    ///
+    /// # Safety
+    ///
+    /// If the second element is `None`, the first element must be a codepoint
+    /// in the basic multilingual pane.
+    /// (In other words, outside the range`0xd8_00..0xe0_00`.)  
+    /// Violating this results in an invalid `char` in that reserved range
+    /// being created, which is (or can easily lead to) undefined behavior.
     unsafe fn from_utf16_tuple_unchecked(utf16: (u16, Option<u16>)) -> Self;
 
 
@@ -358,16 +359,16 @@ pub trait CharExt: Sized {
     ///
     /// ```
     /// use encode_unicode::CharExt;
-    /// use encode_unicode::error::InvalidCodepoint;
+    /// use encode_unicode::error::CodepointError;
     ///
     /// assert_eq!(char::from_u32_detailed(0x41), Ok('A'));
-    /// assert_eq!(char::from_u32_detailed(0x40_00_00), Err(InvalidCodepoint::TooHigh));
-    /// assert_eq!(char::from_u32_detailed(0xd951), Err(InvalidCodepoint::Utf16Reserved));
-    /// assert_eq!(char::from_u32_detailed(0xdddd), Err(InvalidCodepoint::Utf16Reserved));
+    /// assert_eq!(char::from_u32_detailed(0x40_00_00), Err(CodepointError::TooHigh));
+    /// assert_eq!(char::from_u32_detailed(0xd951), Err(CodepointError::Utf16Reserved));
+    /// assert_eq!(char::from_u32_detailed(0xdddd), Err(CodepointError::Utf16Reserved));
     /// assert_eq!(char::from_u32_detailed(0xdd), Ok('Ý'));
     /// assert_eq!(char::from_u32_detailed(0x1f331), Ok('🌱'));
     /// ```
-    fn from_u32_detailed(c: u32) -> Result<Self,InvalidCodepoint>;
+    fn from_u32_detailed(c: u32) -> Result<Self,CodepointError>;
 }
 
 
@@ -402,63 +403,68 @@ impl CharExt for char {
 
             // set header on first byte
             parts |= (0xff_00u32 >> len)  &  0xff;// store length
-            parts &= Not::not(1u32 << 7-len);// clear the next bit after it
+            parts &= Not::not(1u32 << (7-len));// clear the next bit after it
 
-            let bytes: [u8; 4] = unsafe{ mem::transmute(u32::from_le(parts)) };
-            (bytes, len)
+            (parts.to_le_bytes(), len)
         }
     }
 
 
-    fn from_utf8_slice_start(src: &[u8]) -> Result<(Self,usize),InvalidUtf8Slice> {
-        use errors::InvalidUtf8::*;
-        use errors::InvalidUtf8Slice::*;
+    fn from_utf8_slice_start(src: &[u8]) -> Result<(Self,usize),Utf8Error> {
         let first = match src.first() {
             Some(first) => *first,
-            None => return Err(TooShort(1)),
+            None => return Err(Utf8Error{ kind: TooFewBytes }),
         };
         let bytes = match first.extra_utf8_bytes() {
-            Err(e)    => return Err(Utf8(FirstByte(e))),
+            Err(e)    => return Err(e),
             Ok(0)     => return Ok((first as char, 1)),
             Ok(extra) if extra >= src.len()
-                      => return Err(TooShort(extra+1)),
-            Ok(extra) => &src[..extra+1],
+                      => return Err(Utf8Error{ kind: TooFewBytes }),
+            Ok(extra) => &src[..=extra],
         };
-        if let Some(i) = bytes.iter().skip(1).position(|&b| (b >> 6) != 0b10 ) {
-            Err(Utf8(NotAContinuationByte(i+1)))
+        if bytes.iter().skip(1).any(|&b| (b >> 6) != 0b10 ) {
+            Err(Utf8Error{ kind: InterruptedSequence })
         } else if overlong(bytes[0], bytes[1]) {
-            Err(Utf8(OverLong))
+            Err(Utf8Error{ kind: OverlongEncoding })
         } else {
             match char::from_u32_detailed(merge_nonascii_unchecked_utf8(bytes)) {
                 Ok(c) => Ok((c, bytes.len())),
-                Err(e) => Err(Codepoint(e)),
+                Err(CodepointError::Utf16Reserved) => {
+                    Err(Utf8Error{ kind: Utf16ReservedCodepoint })
+                },
+                Err(CodepointError::TooHigh) => Err(Utf8Error{ kind: TooHighCodepoint }),
             }
         }
     }
 
-    fn from_utf8_array(utf8: [u8; 4]) -> Result<Self,InvalidUtf8Array> {
-        use errors::InvalidUtf8::*;
-        use errors::InvalidUtf8Array::*;
+    fn from_utf8_array(utf8: [u8; 4]) -> Result<Self,Utf8Error> {
         let src = match utf8[0].extra_utf8_bytes() {
-            Err(error) => return Err(Utf8(FirstByte(error))),
+            Err(error) => return Err(error),
             Ok(0)      => return Ok(utf8[0] as char),
-            Ok(extra)  => &utf8[..extra+1],
+            Ok(extra)  => &utf8[..=extra],
         };
-        if let Some(i) = src[1..].iter().position(|&b| (b >> 6) != 0b10 ) {
-            Err(Utf8(NotAContinuationByte(i+1)))
+        if src[1..].iter().any(|&b| (b >> 6) != 0b10 ) {
+            Err(Utf8Error{ kind: InterruptedSequence })
         } else if overlong(utf8[0], utf8[1]) {
-            Err(Utf8(OverLong))
+            Err(Utf8Error{ kind: OverlongEncoding })
         } else {
-            char::from_u32_detailed(merge_nonascii_unchecked_utf8(src))
-                 .map_err(|e| Codepoint(e) )
+            match char::from_u32_detailed(merge_nonascii_unchecked_utf8(src)) {
+                Ok(c) => Ok(c),
+                Err(CodepointError::Utf16Reserved) => {
+                    Err(Utf8Error{ kind: Utf16ReservedCodepoint })
+                },
+                Err(CodepointError::TooHigh) => Err(Utf8Error{ kind: TooHighCodepoint }),
+            }
         }
     }
 
     unsafe fn from_utf8_exact_slice_unchecked(src: &[u8]) -> Self {
-        if src.len() == 1 {
-            src[0] as char
-        } else {
-            char::from_u32_unchecked(merge_nonascii_unchecked_utf8(src))
+        unsafe {
+            if src.len() == 1 {
+                src[0] as char
+            } else {
+                char::from_u32_unchecked(merge_nonascii_unchecked_utf8(src))
+            }
         }
     }
 
@@ -491,24 +497,23 @@ impl CharExt for char {
     }
 
 
-    fn from_utf16_slice_start(src: &[u16]) -> Result<(Self,usize), InvalidUtf16Slice> {
-        use errors::InvalidUtf16Slice::*;
+    fn from_utf16_slice_start(src: &[u16]) -> Result<(Self,usize), Utf16SliceError> {
+        use crate::errors::Utf16SliceError::*;
         unsafe {match (src.get(0), src.get(1)) {
-            (Some(&u @ 0x00_00...0xd7_ff), _) |
-            (Some(&u @ 0xe0_00...0xff_ff), _)
+            (Some(&u @ 0x00_00..=0xd7_ff), _) |
+            (Some(&u @ 0xe0_00..=0xff_ff), _)
                 => Ok((char::from_u32_unchecked(u as u32), 1)),
-            (Some(&0xdc_00...0xdf_ff), _) => Err(FirstLowSurrogate),
+            (Some(0xdc_00..=0xdf_ff), _) => Err(FirstIsTrailingSurrogate),
             (None, _) => Err(EmptySlice),
-            (Some(&f @ 0xd8_00...0xdb_ff), Some(&s @ 0xdc_00...0xdf_ff))
+            (Some(&f @ 0xd8_00..=0xdb_ff), Some(&s @ 0xdc_00..=0xdf_ff))
                 => Ok((char::from_utf16_tuple_unchecked((f, Some(s))), 2)),
-            (Some(&0xd8_00...0xdb_ff), Some(_)) => Err(SecondNotLowSurrogate),
-            (Some(&0xd8_00...0xdb_ff), None) => Err(MissingSecond),
-            (Some(_), _) => unreachable!()
+            (Some(0xd8_00..=0xdb_ff), Some(_)) => Err(SecondIsNotTrailingSurrogate),
+            (Some(0xd8_00..=0xdb_ff), None) => Err(MissingSecond),
         }}
     }
 
-    fn from_utf16_array(utf16: [u16;2]) -> Result<Self, InvalidUtf16Array> {
-        use errors::InvalidUtf16Array::*;
+    fn from_utf16_array(utf16: [u16;2]) -> Result<Self, Utf16ArrayError> {
+        use crate::errors::Utf16ArrayError::*;
         if let Some(c) = char::from_u32(utf16[0] as u32) {
             Ok(c) // single
         } else if utf16[0] < 0xdc_00  &&  utf16[1] & 0xfc_00 == 0xdc_00 {
@@ -520,19 +525,13 @@ impl CharExt for char {
             Err(FirstIsTrailingSurrogate)
         }
     }
-    fn from_utf16_tuple(utf16: (u16, Option<u16>)) -> Result<Self, InvalidUtf16Tuple> {
-        use errors::InvalidUtf16Tuple::*;
-        unsafe{ match utf16 {
-            (0x00_00...0xd7_ff, None) | // single
-            (0xe0_00...0xff_ff, None) | // single
-            (0xd8_00...0xdb_ff, Some(0xdc_00...0xdf_ff)) // correct surrogate
-                => Ok(char::from_utf16_tuple_unchecked(utf16)),
-            (0xd8_00...0xdb_ff, Some(_)) => Err(InvalidSecond),
-            (0xd8_00...0xdb_ff, None   ) => Err(MissingSecond),
-            (0xdc_00...0xdf_ff,    _   ) => Err(FirstIsTrailingSurrogate),
-            (        _        , Some(_)) => Err(SuperfluousSecond),
-            (        _        , None   ) => unreachable!()
-        }}
+    fn from_utf16_tuple(utf16: (u16, Option<u16>)) -> Result<Self, Utf16TupleError> {
+        unsafe {
+            match Utf16Char::validate_tuple(utf16) {
+                Ok(()) => Ok(Self::from_utf16_tuple_unchecked(utf16)),
+                Err(e) => Err(e),
+            }
+        }
     }
 
     fn from_utf16_array_unchecked(utf16: [u16;2]) -> Self {
@@ -545,18 +544,20 @@ impl CharExt for char {
             .unwrap_or_else(|| combine_surrogates(utf16[0], utf16[1]) )
     }
     unsafe fn from_utf16_tuple_unchecked(utf16: (u16, Option<u16>)) -> Self {
-        match utf16.1 {
-            Some(second) => combine_surrogates(utf16.0, second),
-            None         => char::from_u32_unchecked(utf16.0 as u32)
+        unsafe {
+            match utf16.1 {
+                Some(second) => combine_surrogates(utf16.0, second),
+                None         => char::from_u32_unchecked(utf16.0 as u32)
+            }
         }
     }
 
 
-    fn from_u32_detailed(c: u32) -> Result<Self,InvalidCodepoint> {
+    fn from_u32_detailed(c: u32) -> Result<Self,CodepointError> {
         match char::from_u32(c) {
             Some(c) => Ok(c),
-            None if c > 0x10_ff_ff => Err(InvalidCodepoint::TooHigh),
-            None => Err(InvalidCodepoint::Utf16Reserved),
+            None if c > 0x10_ff_ff => Err(CodepointError::TooHigh),
+            None => Err(CodepointError::Utf16Reserved),
         }
     }
 }
@@ -589,7 +590,7 @@ fn merge_nonascii_unchecked_utf8(src: &[u8]) -> u32 {
 /// Create a `char` from a leading and a trailing surrogate.
 ///
 /// This function is safe because it ignores the six most significant bits of
-/// each arguments and always produces a codepoint in 0x01_00_00..=0x10_ff_ff.
+/// each argument and always produces a codepoint in `0x01_00_00..=0x10_ff_ff`.
 fn combine_surrogates(first: u16,  second: u16) -> char {
     unsafe {
         let high = (first & 0x_03_ff) as u32;
@@ -675,7 +676,7 @@ pub trait IterExt: Iterator+Sized {
     ///
     /// let iterator = "foo".utf8chars();
     /// let mut bytes = [0; 4];
-    /// for (u,dst) in iterator.to_bytes().zip(&mut bytes) {*dst=u;}
+    /// iterator.to_bytes().zip(&mut bytes).for_each(|(b,dst)| *dst = b );
     /// assert_eq!(&bytes, b"foo\0");
     /// ```
     ///
@@ -687,7 +688,7 @@ pub trait IterExt: Iterator+Sized {
     ///
     /// let chars: Vec<Utf8Char> = "💣 bomb 💣".utf8chars().collect();
     /// let bytes: Vec<u8> = chars.iter().to_bytes().collect();
-    /// let flat_map: Vec<u8> = chars.iter().flat_map(|u8c| *u8c ).collect();
+    /// let flat_map: Vec<u8> = chars.iter().cloned().flatten().collect();
     /// assert_eq!(bytes, flat_map);
     /// ```
     ///
@@ -727,7 +728,7 @@ pub trait IterExt: Iterator+Sized {
     ///
     /// let iterator = "foo".utf16chars();
     /// let mut units = [0; 4];
-    /// for (u,dst) in iterator.to_units().zip(&mut units) {*dst=u;}
+    /// iterator.to_units().zip(&mut units).for_each(|(u,dst)| *dst = u );
     ///
     /// assert_eq!(units, ['f' as u16, 'o' as u16, 'o' as u16, 0]);
     /// ```
@@ -765,7 +766,7 @@ pub trait IterExt: Iterator+Sized {
     /// let mut buf = [b'\0'; 255];
     /// let len = b"foo\xCFbar".iter()
     ///     .to_utf8chars()
-    ///     .flat_map(|r| r.unwrap_or(Utf8Char::from('\u{FFFD}')).into_iter() )
+    ///     .flat_map(|r| r.unwrap_or(Utf8Char::from('\u{FFFD}')) )
     ///     .zip(&mut buf[..])
     ///     .map(|(byte, dst)| *dst = byte )
     ///     .count();
@@ -792,13 +793,13 @@ pub trait IterExt: Iterator+Sized {
     #[cfg_attr(feature="std", doc=" ```")]
     #[cfg_attr(not(feature="std"), doc=" ```no_compile")]
     /// use encode_unicode::{IterExt, Utf8Char};
-    /// use encode_unicode::error::{InvalidUtf8Slice, InvalidUtf8};
+    /// use encode_unicode::error::{Utf8Error, Utf8ErrorKind};
     ///
     /// let result = b"ab\0\xe0\xbc\xa9 \xf3\x80\x77".iter()
     ///     .to_utf8chars()
-    ///     .collect::<Result<String,InvalidUtf8Slice>>();
+    ///     .collect::<Result<String,Utf8Error>>();
     ///
-    /// assert_eq!(result, Err(InvalidUtf8Slice::Utf8(InvalidUtf8::NotAContinuationByte(2))));
+    /// assert_eq!(result.unwrap_err().kind(), Utf8ErrorKind::InterruptedSequence);
     /// ```
     fn to_utf8chars(self) -> Utf8CharMerger<Self::Item,Self> where Self::Item: Borrow<u8>;
 
@@ -854,10 +855,10 @@ pub trait IterExt: Iterator+Sized {
 
 impl<I:Iterator> IterExt for I {
     fn to_bytes(self) -> Utf8CharSplitter<Self::Item,Self> where Self::Item: Borrow<Utf8Char> {
-        iter_bytes(self)
+        Utf8CharSplitter::from(self)
     }
     fn to_units(self) -> Utf16CharSplitter<Self::Item,Self> where Self::Item: Borrow<Utf16Char> {
-        iter_units(self)
+        Utf16CharSplitter::from(self)
     }
     fn to_utf8chars(self) -> Utf8CharMerger<Self::Item,Self> where Self::Item: Borrow<u8> {
         Utf8CharMerger::from(self)
@@ -881,15 +882,14 @@ pub trait SliceExt: Index<RangeFull> {
     /// Get the index and error type of the first error:
     #[cfg_attr(feature="std", doc=" ```")]
     #[cfg_attr(not(feature="std"), doc=" ```no_compile")]
-    /// use encode_unicode::{SliceExt, Utf8Char};
-    /// use encode_unicode::error::InvalidUtf8Slice;
+    /// use encode_unicode::{SliceExt, Utf8Char, error::Utf8ErrorKind};
     ///
     /// let slice = b"ab\0\xe0\xbc\xa9 \xf3\x80\x77";
     /// let result = slice.utf8char_indices()
-    ///     .map(|(offset,r,length)| r.map_err(|e| (offset,e,length) ) )
-    ///     .collect::<Result<String,(usize,InvalidUtf8Slice,usize)>>();
+    ///     .map(|(offset,r,length)| r.map_err(|e| (offset,e.kind(),length) ) )
+    ///     .collect::<Result<String,(usize,Utf8ErrorKind,usize)>>();
     ///
-    /// assert_eq!(result, Err((7, InvalidUtf8Slice::TooShort(4), 1)));
+    /// assert_eq!(result, Err((7, Utf8ErrorKind::TooFewBytes, 1)));
     /// ```
     ///
     /// ```
@@ -901,7 +901,7 @@ pub trait SliceExt: Index<RangeFull> {
     /// for (cp_i, (byte_index, r, _)) in slice.utf8char_indices().enumerate().take(8) {
     ///     match r {
     ///         Ok(u8c) => fixed_size[cp_i] = u8c,
-    ///         Err(e) => panic!("Invalid codepoint at index {} ({})", cp_i, e.description()),
+    ///         Err(e) => panic!("Invalid codepoint at index {} ({})", cp_i, e),
     ///     }
     /// }
     /// let chars = ['\u{3ffff}', 'X', 'Y', '\u{77b}', '\u{1019}', 'q', 'u', 'u'];
@@ -910,9 +910,7 @@ pub trait SliceExt: Index<RangeFull> {
     ///
     #[cfg_attr(feature="std", doc=" ```")]
     #[cfg_attr(not(feature="std"), doc=" ```no_compile")]
-    /// use encode_unicode::{SliceExt, Utf8Char};
-    /// use encode_unicode::error::InvalidUtf8Slice::*;
-    /// use encode_unicode::error::{InvalidUtf8, InvalidUtf8FirstByte, InvalidCodepoint};
+    /// use encode_unicode::{SliceExt, Utf8Char, error::Utf8ErrorKind};
     ///
     /// let bytes = b"\xfa-\xf4\x8f\xee\xa1\x8f-\xed\xa9\x87\xf0\xcc\xbb";
     /// let mut errors = Vec::new();
@@ -921,7 +919,7 @@ pub trait SliceExt: Index<RangeFull> {
     /// for (offset,result,length) in bytes.utf8char_indices() {
     ///     lengths.push((offset,length));
     ///     let c = result.unwrap_or_else(|error| {
-    ///         errors.push((offset,error));
+    ///         errors.push((offset, error.kind()));
     ///         Utf8Char::from('\u{fffd}') // replacement character
     ///     });
     ///     string.push_str(c.as_str());
@@ -931,13 +929,13 @@ pub trait SliceExt: Index<RangeFull> {
     /// assert_eq!(lengths, [(0,1), (1,1), (2,1), (3,1), (4,3), (7,1),
     ///                      (8,1), (9,1), (10,1), (11,1), (12,2)]);
     /// assert_eq!(errors, [
-    ///     ( 0, Utf8(InvalidUtf8::FirstByte(InvalidUtf8FirstByte::TooLongSeqence))),
-    ///     ( 2, Utf8(InvalidUtf8::NotAContinuationByte(2))),
-    ///     ( 3, Utf8(InvalidUtf8::FirstByte(InvalidUtf8FirstByte::ContinuationByte))),
-    ///     ( 8, Codepoint(InvalidCodepoint::Utf16Reserved)),
-    ///     ( 9, Utf8(InvalidUtf8::FirstByte(InvalidUtf8FirstByte::ContinuationByte))),
-    ///     (10, Utf8(InvalidUtf8::FirstByte(InvalidUtf8FirstByte::ContinuationByte))),
-    ///     (11, TooShort(4)), // (but it was not the last element returned!)
+    ///     ( 0, Utf8ErrorKind::NonUtf8Byte),
+    ///     ( 2, Utf8ErrorKind::InterruptedSequence),
+    ///     ( 3, Utf8ErrorKind::UnexpectedContinuationByte),
+    ///     ( 8, Utf8ErrorKind::Utf16ReservedCodepoint),
+    ///     ( 9, Utf8ErrorKind::UnexpectedContinuationByte),
+    ///     (10, Utf8ErrorKind::UnexpectedContinuationByte),
+    ///     (11, Utf8ErrorKind::TooFewBytes), // (but it was not the last element returned!)
     /// ]);
     /// ```
     fn utf8char_indices(&self) -> Utf8CharDecoder where Self::Output: Borrow<[u8]>;

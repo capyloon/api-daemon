@@ -547,7 +547,7 @@ async fn pool_smoke_test() -> anyhow::Result<()> {
         .acquire_timeout(Duration::from_secs(5))
         .min_connections(1)
         .max_connections(1)
-        .connect(&dotenv::var("DATABASE_URL")?)
+        .connect(&dotenvy::var("DATABASE_URL")?)
         .await?;
 
     // spin up more tasks than connections available, and ensure we don't deadlock
@@ -938,7 +938,7 @@ from (values (null)) vals(val)
 
 #[sqlx_macros::test]
 async fn test_listener_cleanup() -> anyhow::Result<()> {
-    #[cfg(any(feature = "_rt-tokio", feature = "_rt-actix"))]
+    #[cfg(feature = "_rt-tokio")]
     use tokio::time::timeout;
 
     #[cfg(feature = "_rt-async-std")]
@@ -1655,7 +1655,7 @@ CREATE TABLE issue_1254 (id INT4 PRIMARY KEY, pairs PAIR[]);
 async fn test_advisory_locks() -> anyhow::Result<()> {
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&dotenv::var("DATABASE_URL")?)
+        .connect(&dotenvy::var("DATABASE_URL")?)
         .await?;
 
     let lock1 = Arc::new(PgAdvisoryLock::new("sqlx-postgres-tests-1"));
@@ -1711,5 +1711,18 @@ async fn test_advisory_locks() -> anyhow::Result<()> {
 
     pool.close().await;
 
+    Ok(())
+}
+
+#[sqlx_macros::test]
+async fn test_postgres_bytea_hex_deserialization_errors() -> anyhow::Result<()> {
+    let mut conn = new::<Postgres>().await?;
+    conn.execute("SET bytea_output = 'escape';").await?;
+    for value in ["", "DEADBEEF"] {
+        let query = format!("SELECT '\\x{}'::bytea", value);
+        let res: sqlx::Result<Vec<u8>> = conn.fetch_one(query.as_str()).await?.try_get(0usize);
+        // Deserialization only supports hex format so this should error and definitely not panic.
+        res.unwrap_err();
+    }
     Ok(())
 }

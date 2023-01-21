@@ -11,30 +11,31 @@
 # will likely look very different (and much more reasonable)
 
 [package]
+edition = "2018"
 name = "term"
-version = "0.5.2"
+version = "0.7.0"
 authors = ["The Rust Project Developers", "Steven Allen"]
 exclude = ["/scripts/*", "/.travis.yml", "/appveyor.yml"]
 description = "A terminal formatting library\n"
 homepage = "https://github.com/Stebalien/term"
-documentation = "https://stebalien.github.io/doc/term/term/"
+documentation = "https://docs.rs/term/"
 readme = "README.md"
 categories = ["command-line-interface"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/Stebalien/term"
-[dependencies.byteorder]
-version = "1.2.1"
-
-[dependencies.dirs]
-version = "1.0.2"
+[dependencies.dirs-next]
+version = "2"
 
 [features]
 default = []
+[target."cfg(windows)".dependencies.rustversion]
+version = "1"
+
 [target."cfg(windows)".dependencies.winapi]
 version = "0.3"
 features = ["consoleapi", "wincon", "handleapi", "fileapi"]
 [badges.appveyor]
 repository = "Stebalien/term"
 
-[badges.travis-ci]
+[badges.circle-ci]
 repository = "Stebalien/term"

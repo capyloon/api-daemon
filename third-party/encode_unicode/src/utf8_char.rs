@@ -1,4 +1,4 @@
-/* Copyright 2016 The encode_unicode Developers
+/* Copyright 2016-2022 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -6,25 +6,21 @@
  * copied, modified, or distributed except according to those terms.
  */
 
-use errors::{FromStrError, EmptyStrError, NonAsciiError, InvalidUtf8Slice, InvalidUtf8Array};
-use utf8_iterators::Utf8Iterator;
-use traits::{CharExt, U8UtfExt};
-use utf16_char::Utf16Char;
+use crate::errors::{FromStrError, EmptyStrError, NonAsciiError, Utf8Error};
+use crate::utf8_iterators::Utf8Iterator;
+use crate::traits::{CharExt, U8UtfExt};
+use crate::utf16_char::Utf16Char;
 extern crate core;
-use self::core::{hash, fmt, str, ptr};
-use self::core::cmp::Ordering;
-use self::core::borrow::Borrow;
-use self::core::ops::Deref;
-use self::core::mem::transmute;
+use core::{hash, fmt, str, ptr};
+use core::cmp::Ordering;
+use core::borrow::Borrow;
+use core::ops::Deref;
 #[cfg(feature="std")]
-use self::core::iter::FromIterator;
-#[cfg(feature="std")]
-#[allow(deprecated)]
-use std::ascii::AsciiExt;
+use core::iter::FromIterator;
 #[cfg(feature="ascii")]
 extern crate ascii;
 #[cfg(feature="ascii")]
-use self::ascii::{AsciiChar,ToAsciiChar,ToAsciiCharError};
+use ascii::{AsciiChar,ToAsciiChar,ToAsciiCharError};
 
 
 // I don't think there is any good default value for char, but char does.
@@ -75,47 +71,47 @@ impl str::FromStr for Utf8Char {
         } else {
             let mut bytes = [0; 4];
             bytes[..s.len()].copy_from_slice(s.as_bytes());
-            Ok(Utf8Char{bytes: bytes})
+            Ok(Utf8Char{bytes})
         }
     }
 }
 impl From<Utf16Char> for Utf8Char {
     fn from(utf16: Utf16Char) -> Utf8Char {
         match utf16.to_tuple() {
-            (a @ 0...0x00_7f, _) => {
-                Utf8Char{ bytes: [a as u8, 0, 0, 0] }
+            (ascii @ 0..=0x00_7f, _) => {
+                Utf8Char{ bytes: [ascii as u8, 0, 0, 0] }
             },
-            (u @ 0...0x07_ff, _) => {
-                let b = 0x80 |  (u & 0x00_3f) as u8;
-                let a = 0xc0 | ((u & 0x07_c0) >> 6) as u8;
-                Utf8Char{ bytes: [a, b, 0, 0] }
+            (unit @ 0..=0x07_ff, _) => {
+                let byte2 = 0x80 |  (unit & 0x00_3f) as u8;
+                let byte1 = 0xc0 | ((unit & 0x07_c0) >> 6) as u8;
+                Utf8Char{ bytes: [byte1, byte2, 0, 0] }
             },
-            (u, None) => {
-                let c = 0x80 |  (u & 0x00_3f) as u8;
-                let b = 0x80 | ((u & 0x0f_c0) >> 6) as u8;
-                let a = 0xe0 | ((u & 0xf0_00) >> 12) as u8;
-                Utf8Char{ bytes: [a, b, c, 0] }
+            (unit, None) => {
+                let byte3 = 0x80 |  (unit & 0x00_3f) as u8;
+                let byte2 = 0x80 | ((unit & 0x0f_c0) >> 6) as u8;
+                let byte1 = 0xe0 | ((unit & 0xf0_00) >> 12) as u8;
+                Utf8Char{ bytes: [byte1, byte2, byte3, 0] }
             },
-            (f, Some(s)) => {
-                let f = f + (0x01_00_00u32 >> 10) as u16;
-                let d = 0x80 |  (s & 0x00_3f) as u8;
-                let c = 0x80 | ((s & 0x03_c0) >> 6) as u8
-                             | ((f & 0x00_03) << 4) as u8;
-                let b = 0x80 | ((f & 0x00_fc) >> 2) as u8;
-                let a = 0xf0 | ((f & 0x07_00) >> 8) as u8;
-                Utf8Char{ bytes: [a, b, c, d] }
+            (first, Some(second)) => {
+                let first = first + (0x01_00_00u32 >> 10) as u16;
+                let byte4 = 0x80 |  (second & 0x00_3f) as u8;
+                let byte3 = 0x80 | ((second & 0x03_c0) >> 6) as u8
+                                 | (( first & 0x00_03) << 4) as u8;
+                let byte2 = 0x80 | (( first & 0x00_fc) >> 2) as u8;
+                let byte1 = 0xf0 | (( first & 0x07_00) >> 8) as u8;
+                Utf8Char{ bytes: [byte1, byte2, byte3, byte4] }
             }
         }
     }
 }
 impl From<char> for Utf8Char {
     fn from(c: char) -> Self {
-        Utf8Char{ bytes: c.to_utf8_array().0 }
+        Utf8Char::new(c)
     }
 }
 impl From<Utf8Char> for char {
     fn from(uc: Utf8Char) -> char {
-        unsafe{ char::from_utf8_exact_slice_unchecked(&uc.bytes[..uc.len()]) }
+        uc.to_char()
     }
 }
 impl IntoIterator for Utf8Char {
@@ -223,35 +219,6 @@ impl Deref for Utf8Char {
   ////////////////
  //ascii traits//
 ////////////////
-#[cfg(feature="std")]
-#[allow(deprecated)]
-impl AsciiExt for Utf8Char {
-    type Owned = Utf8Char;
-    fn is_ascii(&self) -> bool {
-        self.bytes[0].is_ascii()
-    }
-    fn eq_ignore_ascii_case(&self,  other: &Self) -> bool {
-        if self.is_ascii() {self.bytes[0].eq_ignore_ascii_case(&other.bytes[0])}
-        else               {self == other}
-    }
-    fn to_ascii_uppercase(&self) -> Self::Owned {
-        let mut uc = *self;
-        uc.make_ascii_uppercase();
-        uc
-    }
-    fn to_ascii_lowercase(&self) -> Self::Owned {
-        let mut uc = *self;
-        uc.make_ascii_lowercase();
-        uc
-    }
-    fn make_ascii_uppercase(&mut self) {
-        self.bytes[0].make_ascii_uppercase()
-    }
-    fn make_ascii_lowercase(&mut self) {
-        self.bytes[0].make_ascii_lowercase();
-    }
-}
-
 #[cfg(feature="ascii")]
 /// Requires the feature "ascii".
 impl From<AsciiChar> for Utf8Char {
@@ -266,7 +233,7 @@ impl ToAsciiChar for Utf8Char {
         self.bytes[0].to_ascii_char()
     }
     unsafe fn to_ascii_char_unchecked(self) -> AsciiChar {
-        self.bytes[0].to_ascii_char_unchecked()
+        unsafe { self.bytes[0].to_ascii_char_unchecked() }
     }
 }
 
@@ -384,6 +351,48 @@ impl PartialOrd<Utf8Char> for AsciiChar {
  //pub impls that should be together for nicer rustdoc//
 ///////////////////////////////////////////////////////
 impl Utf8Char {
+    /// A `const fn` alternative to the trait-based `Utf8Char::from(char)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use encode_unicode::Utf8Char;
+    /// const REPLACEMENT_CHARACTER: Utf8Char = Utf8Char::new('\u{fffd}');
+    /// ```
+    pub const fn new(c: char) -> Self {
+        if c.is_ascii() {
+            Utf8Char{bytes: [c as u8, 0, 0, 0]}
+        } else {
+            // How many extra UTF-8 bytes that are needed to represent an
+            // UTF-32 codepoint with a number of bits.
+            // Stored as a bit-packed array using two bits per value.
+            // 0..=7 bits = no extra bytes
+            // +4 = 8..=11 bits = one xtra byte (5+6 bits)
+            // +5 = 12..=16 bits = two extra bytes (4+6+6 bits)
+            // +5 = 17..=21 bits = three extra bytes (3+6+6+6 bits)
+            const EXTRA_BYTES: u64 = 0b11_11_11_11_11__10_10_10_10_10__01_01_01_01__00_00_00_00_00_00_00__00;
+            let bits_used = 32 - (c as u32).leading_zeros();
+            let len = 1 + ((EXTRA_BYTES >> (bits_used*2)) & 0b11);
+            // copied from CharExt::to_utf8_array()
+            let mut c = c as u32;
+            let mut parts = 0;// convert to 6-bit bytes
+                        parts |= c & 0x3f;  c>>=6;
+            parts<<=8;  parts |= c & 0x3f;  c>>=6;
+            parts<<=8;  parts |= c & 0x3f;  c>>=6;
+            parts<<=8;  parts |= c & 0x3f;
+            parts |= 0x80_80_80_80;// set the most significant bit
+            parts >>= 8*(4-len);// right-align bytes
+            // Now, unused bytes are zero, (which matters for Utf8Char.eq())
+            // and the rest are 0b10xx_xxxx
+
+            // set header on first byte
+            parts |= (0xff_00u32 >> len)  &  0xff;// store length
+            parts &= !(1u32 << (7-len));// clear the next bit after it
+
+            Utf8Char {bytes: parts.to_le_bytes()}
+        }
+    }
+
     /// Create an `Utf8Char` from the first codepoint in a `str`.
     ///
     /// Returns an error if the `str` is empty.
@@ -422,22 +431,21 @@ impl Utf8Char {
     ///
     /// ```
     /// use encode_unicode::Utf8Char;
-    /// use encode_unicode::error::InvalidUtf8Slice::*;
-    /// use encode_unicode::error::InvalidUtf8::*;
+    /// use encode_unicode::error::Utf8ErrorKind::*;
     ///
     /// assert_eq!(Utf8Char::from_slice_start(&[b'A', b'B', b'C']), Ok((Utf8Char::from('A'),1)));
     /// assert_eq!(Utf8Char::from_slice_start(&[0xdd, 0xbb]), Ok((Utf8Char::from('\u{77b}'),2)));
     ///
-    /// assert_eq!(Utf8Char::from_slice_start(&[]), Err(TooShort(1)));
-    /// assert_eq!(Utf8Char::from_slice_start(&[0xf0, 0x99]), Err(TooShort(4)));
-    /// assert_eq!(Utf8Char::from_slice_start(&[0xee, b'F', 0x80]), Err(Utf8(NotAContinuationByte(1))));
-    /// assert_eq!(Utf8Char::from_slice_start(&[0xee, 0x99, 0x0f]), Err(Utf8(NotAContinuationByte(2))));
+    /// assert_eq!(Utf8Char::from_slice_start(&[]).unwrap_err().kind(), TooFewBytes);
+    /// assert_eq!(Utf8Char::from_slice_start(&[0xf0, 0x99]).unwrap_err().kind(), TooFewBytes);
+    /// assert_eq!(Utf8Char::from_slice_start(&[0xee, b'F', 0x80]).unwrap_err().kind(), InterruptedSequence);
+    /// assert_eq!(Utf8Char::from_slice_start(&[0xee, 0x99, 0x0f]).unwrap_err().kind(), InterruptedSequence);
     /// ```
-    pub fn from_slice_start(src: &[u8]) -> Result<(Self,usize),InvalidUtf8Slice> {
+    pub fn from_slice_start(src: &[u8]) -> Result<(Self,usize),Utf8Error> {
         char::from_utf8_slice_start(src).map(|(_,len)| {
             let mut bytes = [0; 4];
             bytes[..len].copy_from_slice(&src[..len]);
-            (Utf8Char{ bytes: bytes }, len)
+            (Utf8Char{bytes}, len)
         })
     }
     /// A `from_slice_start()` that doesn't validate the codepoint.
@@ -447,10 +455,12 @@ impl Utf8Char {
     /// The slice must be non-empty and start with a valid UTF-8 codepoint.  
     /// Invalid or incomplete values might cause reads of uninitalized memory.
     pub unsafe fn from_slice_start_unchecked(src: &[u8]) -> (Self,usize) {
-        let len = 1+src.get_unchecked(0).extra_utf8_bytes_unchecked();
-        let mut bytes = [0; 4];
-        ptr::copy_nonoverlapping(src.as_ptr(), &mut bytes[0] as *mut u8, len);
-        (Utf8Char{ bytes: bytes }, len)
+        unsafe {
+            let len = 1+src.get_unchecked(0).extra_utf8_bytes_unchecked();
+            let mut bytes = [0; 4];
+            ptr::copy_nonoverlapping(src.as_ptr(), bytes.as_mut_ptr() as *mut u8, len);
+            (Utf8Char{bytes}, len)
+        }
     }
     /// Create an `Utf8Char` from a byte array after validating it.
     ///
@@ -465,30 +475,27 @@ impl Utf8Char {
     ///
     /// ```
     /// use encode_unicode::Utf8Char;
-    /// use encode_unicode::error::InvalidUtf8Array::*;
-    /// use encode_unicode::error::InvalidUtf8::*;
-    /// use encode_unicode::error::InvalidCodepoint::*;
+    /// use encode_unicode::error::Utf8ErrorKind::*;
     ///
     /// assert_eq!(Utf8Char::from_array([b'A', 0, 0, 0]), Ok(Utf8Char::from('A')));
     /// assert_eq!(Utf8Char::from_array([0xf4, 0x8b, 0xbb, 0xbb]), Ok(Utf8Char::from('\u{10befb}')));
     /// assert_eq!(Utf8Char::from_array([b'A', b'B', b'C', b'D']), Ok(Utf8Char::from('A')));
     /// assert_eq!(Utf8Char::from_array([0, 0, 0xcc, 0xbb]), Ok(Utf8Char::from('\0')));
     ///
-    /// assert_eq!(Utf8Char::from_array([0xef, b'F', 0x80, 0x80]), Err(Utf8(NotAContinuationByte(1))));
-    /// assert_eq!(Utf8Char::from_array([0xc1, 0x80, 0, 0]), Err(Utf8(OverLong)));
-    /// assert_eq!(Utf8Char::from_array([0xf7, 0xaa, 0x99, 0x88]), Err(Codepoint(TooHigh)));
+    /// assert_eq!(Utf8Char::from_array([0xef, b'F', 0x80, 0x80]).unwrap_err().kind(), InterruptedSequence);
+    /// assert_eq!(Utf8Char::from_array([0xc1, 0x80, 0, 0]).unwrap_err().kind(), NonUtf8Byte);
+    /// assert_eq!(Utf8Char::from_array([0xe0, 0x9a, 0xbf, 0]).unwrap_err().kind(), OverlongEncoding);
+    /// assert_eq!(Utf8Char::from_array([0xf4, 0xaa, 0x99, 0x88]).unwrap_err().kind(), TooHighCodepoint);
     /// ```
-    pub fn from_array(utf8: [u8;4]) -> Result<Self,InvalidUtf8Array> {
-        unsafe {
-            // perform all validation
-            try!(char::from_utf8_array(utf8));
-            let extra = utf8[0].extra_utf8_bytes_unchecked() as u32;
-            // zero unused bytes in one operation by transmuting the arrary to
-            // u32, apply an endian-corrected mask and transmute back
-            let mask = u32::from_le(0xff_ff_ff_ff >> 8*(3-extra));
-            let unused_zeroed = mask  &  transmute::<_,u32>(utf8);
-            Ok(Utf8Char{ bytes: transmute(unused_zeroed) })
-        }
+    pub fn from_array(utf8: [u8;4]) -> Result<Self,Utf8Error> {
+        // perform all validation
+        char::from_utf8_array(utf8)?;
+        let extra = utf8[0].extra_utf8_bytes_unchecked() as u32;
+        // zero unused bytes in one operation by transmuting the arrary to
+        // u32, apply an endian-corrected mask and transmute back
+        let mask = u32::from_le(0xff_ff_ff_ff >> (8*(3-extra)));
+        let unused_zeroed = mask  &  u32::from_ne_bytes(utf8); // native endian
+        Ok(Utf8Char{ bytes: unused_zeroed.to_ne_bytes() })
     }
     /// Zero-cost constructor.
     ///
@@ -498,7 +505,7 @@ impl Utf8Char {
     /// unused bytes zeroed.  
     /// Bad values can easily lead to undefined behavior.
     #[inline]
-    pub unsafe fn from_array_unchecked(utf8: [u8;4]) -> Self {
+    pub const unsafe fn from_array_unchecked(utf8: [u8;4]) -> Self {
         Utf8Char{ bytes: utf8 }
     }
     /// Create an `Utf8Char` from a single byte.
@@ -516,12 +523,8 @@ impl Utf8Char {
     /// assert_eq!(Utf8Char::from_ascii(b'a').unwrap(), 'a');
     /// assert!(Utf8Char::from_ascii(128).is_err());
     /// ```
-    pub fn from_ascii(ascii: u8) -> Result<Self,NonAsciiError> {
-        if ascii as i8 >= 0 {
-            Ok(Utf8Char{ bytes: [ascii, 0, 0, 0] })
-        } else {
-            Err(NonAsciiError)
-        }
+    pub const fn from_ascii(ascii: u8) -> Result<Self,NonAsciiError> {
+        [Ok(Utf8Char{ bytes: [ascii, 0, 0, 0] }), Err(NonAsciiError)][(ascii >> 7) as usize]
     }
     /// Create an `Utf8Char` from a single byte without checking that it's a
     /// valid codepoint on its own, which is only true for ASCII characters.
@@ -530,7 +533,7 @@ impl Utf8Char {
     ///
     /// The byte must be less than 128.
     #[inline]
-    pub unsafe fn from_ascii_unchecked(ascii: u8) -> Self {
+    pub const unsafe fn from_ascii_unchecked(ascii: u8) -> Self {
         Utf8Char{ bytes: [ascii, 0, 0, 0] }
     }
 
@@ -539,7 +542,7 @@ impl Utf8Char {
     /// Is between 1 and 4 (inclusive) and identical to `.as_ref().len()` or
     /// `.as_char().len_utf8()`.
     #[inline]
-    pub fn len(self) -> usize {
+    pub const fn len(self) -> usize {
         // Invariants of the extra bytes enambles algorithms that
         // `u8.extra_utf8_bytes_unchecked()` cannot use.
         // Some of them turned out to require fewer x86 instructions:
@@ -550,14 +553,14 @@ impl Utf8Char {
         // 0 for '\0' (which has 32 leading zeros).
         // trailing and leading is swapped below to optimize for little-endian
         // architectures.
-        (4 - (u32::to_le(unsafe{transmute(self.bytes)})|1).leading_zeros()/8) as usize
+        (4 - (u32::from_le_bytes(self.bytes)|1).leading_zeros()/8) as usize
 
         // Exploits that the extra bytes have their most significant bit set if
         // in use.
         // Takes fewer instructions than the one above if popcnt can be used,
         // (which it cannot by default,
         //  set RUSTFLAGS='-C target-cpu=native' to enable)
-        //let all: u32 = unsafe{transmute(self.bytes)};
+        //let all = u32::from_ne_bytes(self.bytes);
         //let msb_mask = u32::from_be(0x00808080);
         //let add_one = u32::from_be(0x80000000);
         //((all & msb_mask) | add_one).count_ones() as usize
@@ -565,43 +568,41 @@ impl Utf8Char {
     // There is no .is_emty() because this type is never empty.
 
     /// Checks that the codepoint is an ASCII character.
-    pub fn is_ascii(&self) -> bool {
-        self.bytes[0] <= 127
+    pub const fn is_ascii(self) -> bool {
+        self.bytes[0].is_ascii()
     }
     /// Checks that two characters are an ASCII case-insensitive match.
     ///
     /// Is equivalent to `a.to_ascii_lowercase() == b.to_ascii_lowercase()`.
-    #[cfg(feature="std")]
-    pub fn eq_ignore_ascii_case(&self,  other: &Self) -> bool {
-        if self.is_ascii() {self.bytes[0].eq_ignore_ascii_case(&other.bytes[0])}
-        else               {self == other}
+    pub const fn eq_ignore_ascii_case(&self,  other: &Self) -> bool {
+        if self.is_ascii() {
+            self.bytes[0].eq_ignore_ascii_case(&other.bytes[0])
+        } else {
+            // [u8; 4] can't be const compared as of Rust 1.60, but u32 can
+            u32::from_le_bytes(self.bytes) == u32::from_le_bytes(other.bytes)
+        }
     }
     /// Converts the character to its ASCII upper case equivalent.
     ///
     /// ASCII letters 'a' to 'z' are mapped to 'A' to 'Z',
     /// but non-ASCII letters are unchanged.
-    #[cfg(feature="std")]
-    pub fn to_ascii_uppercase(&self) -> Self {
-        let mut uc = *self;
-        uc.make_ascii_uppercase();
-        uc
+    pub const fn to_ascii_uppercase(mut self) -> Self {
+        self.bytes[0] = self.bytes[0].to_ascii_uppercase();
+        self
     }
     /// Converts the character to its ASCII lower case equivalent.
     ///
     /// ASCII letters 'A' to 'Z' are mapped to 'a' to 'z',
     /// but non-ASCII letters are unchanged.
-    #[cfg(feature="std")]
-    pub fn to_ascii_lowercase(&self) -> Self {
-        let mut uc = *self;
-        uc.make_ascii_lowercase();
-        uc
+    pub const fn to_ascii_lowercase(mut self) -> Self {
+        self.bytes[0] = self.bytes[0].to_ascii_lowercase();
+        self
     }
     /// Converts the character to its ASCII upper case equivalent in-place.
     ///
     /// ASCII letters 'a' to 'z' are mapped to 'A' to 'Z',
     /// but non-ASCII letters are unchanged.
     #[inline]
-    #[cfg(feature="std")]
     pub fn make_ascii_uppercase(&mut self) {
         self.bytes[0].make_ascii_uppercase()
     }
@@ -610,14 +611,13 @@ impl Utf8Char {
     /// ASCII letters 'A' to 'Z' are mapped to 'a' to 'z',
     /// but non-ASCII letters are unchanged.
     #[inline]
-    #[cfg(feature="std")]
     pub fn make_ascii_lowercase(&mut self) {
         self.bytes[0].make_ascii_lowercase();
     }
 
     /// Convert from UTF-8 to UTF-32
     pub fn to_char(self) -> char {
-        self.into()
+        unsafe { char::from_utf8_exact_slice_unchecked(&self.bytes[..self.len()]) }
     }
     /// Write the internal representation to a slice,
     /// and then returns the number of bytes written.
@@ -635,7 +635,7 @@ impl Utf8Char {
         self.len()
     }
     /// Expose the internal array and the number of used bytes.
-    pub fn to_array(self) -> ([u8;4],usize) {
+    pub const fn to_array(self) -> ([u8;4],usize) {
         (self.bytes, self.len())
     }
     /// Return a `str` view of the array the codepoint is stored as.

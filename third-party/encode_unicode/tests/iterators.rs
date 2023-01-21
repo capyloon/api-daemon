@@ -1,4 +1,4 @@
-/* Copyright 2018 The encode_unicode Developers
+/* Copyright 2018-2022 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -10,14 +10,15 @@
 
 #![cfg(feature="std")]
 
+#![allow(
+    clippy::needless_collect,// test oee thing at a time
+)]
+
 extern crate encode_unicode;
 
-use encode_unicode::{IterExt, SliceExt, CharExt};
+use encode_unicode::{IterExt, SliceExt, CharExt, Utf8Char};
 use encode_unicode::iterator::Utf8CharSplitter;
-use encode_unicode::error::InvalidUtf8Slice::*;
-use encode_unicode::error::InvalidUtf8::*;
-use encode_unicode::error::InvalidUtf8FirstByte::*;
-use encode_unicode::error::InvalidCodepoint::*;
+use encode_unicode::error::Utf8ErrorKind::*;
 use encode_unicode::error::Utf16PairError::*;
 use std::io::Read;
 use std::cmp::min;
@@ -29,14 +30,14 @@ use std::cmp::min;
     assert_eq!(format!("{:?}", &iter),
                format!("Utf8CharMerger {{ buffered: [], inner: {:?} }}", slice.iter()));
 
-    assert_eq!(iter.next(), Some(Err(Utf8(NotAContinuationByte(3)))));
+    assert_eq!(iter.next().map(|v| v.map_err(|e| e.kind() ) ), Some(Err(InterruptedSequence)));
     assert_eq!(iter.size_hint(), (0, Some(5)));
     assert_eq!(
         format!("{:?}", &iter),
         format!("Utf8CharMerger {{ buffered: [161, 146, 88], inner: {:?} }}", slice[4..].iter())
     );
 
-    assert_eq!(iter.next(), Some(Err(Utf8(FirstByte(ContinuationByte)))));
+    assert_eq!(iter.next().map(|v| v.map_err(|e| e.kind() ) ), Some(Err(UnexpectedContinuationByte)));
     assert_eq!(iter.into_inner().next(), Some(&b'\xcc'));
 }
 
@@ -49,7 +50,10 @@ use std::cmp::min;
         format!("Utf8CharDecoder {{ bytes[0..]: {:?} }}", &slice)
     );
 
-    assert_eq!(iter.next(), Some((0, Err(Codepoint(TooHigh)), 1)));
+    match iter.next() {
+        Some((0, Err(e), 1)) => assert_eq!(e.kind(), TooHighCodepoint),
+        wrong => panic!("Expected Some((0, Err(TooHighCodepoint), 1), got {:?}", wrong),
+    }
     assert_eq!(
         format!("{:?}", &iter),
         format!("Utf8CharDecoder {{ bytes[1..]: {:?} }}", &slice[1..])
@@ -160,8 +164,8 @@ use std::cmp::min;
     for n in 0..2 {
         // need to collect to test size_hint()
         // because chars().size_hint() returns ((bytes+3)/4, Some(bytes))
-        let u8chars = s.chars().map(|c| c.to_utf8() ).collect::<Vec<_>>();
-        let mut iter: Utf8CharSplitter<_,_> = u8chars.into_iter().into();
+        let u8chars = s.chars().map(|c| c.to_utf8() ).collect::<Vec<Utf8Char>>();
+        let mut iter = Utf8CharSplitter::from(u8chars.into_iter());
         for (i, byte) in s.bytes().enumerate() {
             let until_next = s.as_bytes()[i..].iter().take_while(|&b| (b>>6)==0b10u8 ).count();
             let remaining_chars = s[i+until_next..].chars().count();

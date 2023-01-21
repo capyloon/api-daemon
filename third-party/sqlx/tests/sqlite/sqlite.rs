@@ -194,12 +194,27 @@ async fn it_executes_with_pool() -> anyhow::Result<()> {
         .min_connections(2)
         .max_connections(2)
         .test_before_acquire(false)
-        .connect(&dotenv::var("DATABASE_URL")?)
+        .connect(&dotenvy::var("DATABASE_URL")?)
         .await?;
 
     let rows = pool.fetch_all("SELECT 1; SElECT 2").await?;
 
     assert_eq!(rows.len(), 2);
+
+    Ok(())
+}
+
+#[cfg(sqlite_ipaddr)]
+#[sqlx_macros::test]
+async fn it_opens_with_extension() -> anyhow::Result<()> {
+    use std::str::FromStr;
+
+    let opts = SqliteConnectOptions::from_str(&dotenvy::var("DATABASE_URL")?)?.extension("ipaddr");
+
+    let mut conn = SqliteConnection::connect_with(&opts).await?;
+    conn.execute("SELECT ipmasklen('192.168.16.12/24');")
+        .await?;
+    conn.close().await?;
 
     Ok(())
 }
@@ -234,7 +249,7 @@ async fn it_fails_to_parse() -> anyhow::Result<()> {
     let err = res.unwrap_err().to_string();
 
     assert_eq!(
-        "error returned from database: near \"SEELCT\": syntax error",
+        "error returned from database: (code: 1) near \"SEELCT\": syntax error",
         err
     );
 
