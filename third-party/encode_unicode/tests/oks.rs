@@ -1,4 +1,4 @@
-/* Copyright 2016 The encode_unicode Developers
+/* Copyright 2016-2022 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -9,13 +9,16 @@
 //! Test that every method gives the correct result for valid values.
 //! Except iterators, which are stateful.
 
+#![cfg(feature="std")]
+#![allow(
+    clippy::eq_op, // testing the comparison
+)]
+
 use std::char;
 use std::str::{self,FromStr};
 use std::cmp::Ordering;
 use std::hash::{Hash,Hasher};
 use std::collections::hash_map::DefaultHasher;
-#[allow(deprecated,unused)]
-use std::ascii::AsciiExt;
 use std::iter::FromIterator;
 extern crate encode_unicode;
 use encode_unicode::*;
@@ -37,7 +40,7 @@ fn same_size_as_char() {
 #[test]
 fn utf16chars_to_string() {
     let s = "aå\u{10ffff}‽\u{100000}\u{fee1}";
-    let u16cs = s.chars().map(|c| Utf16Char::from(c) ).collect::<Vec<Utf16Char>>();
+    let u16cs = s.chars().map(Utf16Char::from).collect::<Vec<Utf16Char>>();
 
     let mut from_refs: String = u16cs.iter().collect();
     assert_eq!(&from_refs, s);
@@ -189,6 +192,7 @@ fn test(c: char) {
     let (arr,arrlen) = u8c.to_array();
     assert_eq!(arrlen, len);
     assert_eq!(Utf8Char::from_array(arr), Ok(u8c));
+    assert_eq!(Utf8Char::new(c), u8c);
     assert_eq!(c.to_utf8_array(),  (arr, len));
 
     let str_ = str::from_utf8(reference).unwrap();
@@ -212,7 +216,7 @@ fn test(c: char) {
         let mut boxed = Box::new([0xffu8; 16]);
         let start = boxed.len()-len; // reach the end
         boxed[start..].copy_from_slice(reference);
-        let slice = &boxed[start..start]; // length of slice should be ignored.
+        let slice = &boxed[start..];
         assert_eq!(Utf8Char::from_slice_start_unchecked(slice), (u8c,len));
     }
     assert_eq!(&Vec::<u8>::from_iter(Some(u8c))[..], reference);
@@ -231,6 +235,7 @@ fn test(c: char) {
     assert_eq!(reference[0].utf16_needs_extra_unit(), Ok(len==2));
     assert_eq!(reference[0].is_utf16_leading_surrogate(), len==2);
     assert_eq!(u16c.as_ref(), reference);
+    assert_eq!(Utf16Char::new(c), u16c);
     let mut longer = [0; 3];
     longer[..len].copy_from_slice(reference);
     assert_eq!(char::from_utf16_slice_start(reference), Ok((c,len)));
@@ -247,7 +252,7 @@ fn test(c: char) {
         let mut boxed = Box::new([0u16; 8]);
         let start = boxed.len()-len; // reach the end
         boxed[start..].copy_from_slice(reference);
-        let slice = &boxed[start..start]; // length of slice should be ignored.
+        let slice = &boxed[start..];
         assert_eq!(Utf16Char::from_slice_start_unchecked(slice), (u16c,len));
     }
     let array = c.to_utf16_array();
@@ -267,18 +272,40 @@ fn test(c: char) {
 
 
 #[test]
-fn edges_middle() {
+fn edges_and_middle() {
     for &c in &EDGES_AND_BETWEEN {
         test(c);
     }
 }
 
 
-#[test]
-#[ignore]
-fn all() {
-    for cp in std::iter::Iterator::chain(0..0xd800, 0xe000..0x110000) {
-        let c = char::from_u32(cp).expect("not a valid char");
-        test(c);
+// Test EVERY codepoint.
+// By splitting into multiple tests we get multithreading for free.
+macro_rules! test_codepoint_range {($name:ident, $range:expr) => {
+    #[test]
+    #[ignore]
+    fn $name() {
+        for cp in $range {
+            let c = char::from_u32(cp).expect("not a valid char");
+            test(c);
+        }
     }
-}
+}}
+test_codepoint_range!{all_0000_d800,     0x0000..0xd800}
+test_codepoint_range!{all_e000_10000,    0xe000..0x10000}
+test_codepoint_range!{all_10000_20000,   0x10000..0x20000}
+test_codepoint_range!{all_20000_30000,   0x20000..0x30000}
+test_codepoint_range!{all_30000_40000,   0x30000..0x40000}
+test_codepoint_range!{all_40000_50000,   0x40000..0x50000}
+test_codepoint_range!{all_50000_60000,   0x50000..0x60000}
+test_codepoint_range!{all_60000_70000,   0x60000..0x70000}
+test_codepoint_range!{all_70000_80000,   0x70000..0x80000}
+test_codepoint_range!{all_80000_90000,   0x80000..0x90000}
+test_codepoint_range!{all_90000_a0000,   0x90000..0xa0000}
+test_codepoint_range!{all_a0000_b0000,   0xa0000..0xb0000}
+test_codepoint_range!{all_b0000_c0000,   0xb0000..0xc0000}
+test_codepoint_range!{all_c0000_d0000,   0xc0000..0xd0000}
+test_codepoint_range!{all_d0000_e0000,   0xd0000..0xe0000}
+test_codepoint_range!{all_e0000_f0000,   0xe0000..0xf0000}
+test_codepoint_range!{all_f0000_100000,  0xf0000..0x100000}
+test_codepoint_range!{all_100000_110000, 0x100000..0x110000}

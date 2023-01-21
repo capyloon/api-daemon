@@ -1,12 +1,11 @@
 //! This module contains definition of table/row cells stuff
 
 use super::format::Alignment;
-use super::utils::display_width;
-use super::utils::print_align;
+use super::utils::{display_width, print_align, HtmlEscape};
 use super::{color, Attr, Terminal};
 use std::io::{Error, Write};
-use std::string::ToString;
 use std::str::FromStr;
+use std::string::ToString;
 
 /// Represent a table cell containing a string.
 ///
@@ -34,9 +33,9 @@ impl Cell {
             }
         }
         Cell {
-            content: content,
-            width: width,
-            align: align,
+            content,
+            width,
+            align,
             style: Vec::new(),
             hspan: 1,
         }
@@ -177,20 +176,20 @@ impl Cell {
     }
 
     /// Return the height of the cell
-    #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
-    pub fn get_height(&self) -> usize {
+    // #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
+    pub(crate) fn get_height(&self) -> usize {
         self.content.len()
     }
 
     /// Return the width of the cell
-    #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
-    pub fn get_width(&self) -> usize {
+    // #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
+    pub(crate) fn get_width(&self) -> usize {
         self.width
     }
 
     /// Set horizontal span for this cell (must be > 0)
     pub fn set_hspan(&mut self, hspan: usize) {
-        self.hspan = if hspan <= 0 {1} else {hspan};
+        self.hspan = if hspan == 0 { 1 } else { hspan };
     }
 
     /// Get horizontal span of this cell (> 0)
@@ -207,8 +206,8 @@ impl Cell {
     /// `idx` is the line index to print. `col_width` is the column width used to
     /// fill the cells with blanks so it fits in the table.
     /// If `ìdx` is higher than this cell's height, it will print empty content
-    #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
-    pub fn print<T: Write + ?Sized>(
+    // #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
+    pub(crate) fn print<T: Write + ?Sized>(
         &self,
         out: &mut T,
         idx: usize,
@@ -220,8 +219,8 @@ impl Cell {
     }
 
     /// Apply style then call `print` to print the cell into a terminal
-    #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
-    pub fn print_term<T: Terminal + ?Sized>(
+    // #[deprecated(since="0.8.0", note="Will become private in future release. See [issue #87](https://github.com/phsym/prettytable-rs/issues/87)")]
+    pub(crate) fn print_term<T: Terminal + ?Sized>(
         &self,
         out: &mut T,
         idx: usize,
@@ -231,8 +230,7 @@ impl Cell {
         for a in &self.style {
             match out.attr(*a) {
                 Ok(..) | Err(::term::Error::NotSupported) | Err(::term::Error::ColorOutOfRange) => {
-                    ()
-                } // Ignore unsupported atrributes
+                } // Ignore unsupported attributes
                 Err(e) => return Err(term_error_to_io_error(e)),
             };
         }
@@ -243,6 +241,79 @@ impl Cell {
             }
             Err(e) => Err(term_error_to_io_error(e)),
         }
+    }
+
+    /// Print the cell in HTML format to `out`.
+    pub fn print_html<T: Write + ?Sized>(&self, out: &mut T) -> Result<usize, Error> {
+        /// Convert the color to a hex value useful in CSS
+        fn color2hex(color: color::Color) -> &'static str {
+            match color {
+                color::BLACK => "#000000",
+                color::RED => "#aa0000",
+                color::GREEN => "#00aa00",
+                color::YELLOW => "#aa5500",
+                color::BLUE => "#0000aa",
+                color::MAGENTA => "#aa00aa",
+                color::CYAN => "#00aaaa",
+                color::WHITE => "#aaaaaa",
+                color::BRIGHT_BLACK => "#555555",
+                color::BRIGHT_RED => "#ff5555",
+                color::BRIGHT_GREEN => "#55ff55",
+                color::BRIGHT_YELLOW => "#ffff55",
+                color::BRIGHT_BLUE => "#5555ff",
+                color::BRIGHT_MAGENTA => "#ff55ff",
+                color::BRIGHT_CYAN => "#55ffff",
+                color::BRIGHT_WHITE => "#ffffff",
+
+                // Unknown colors, fallback to blakc
+                _ => "#000000",
+            }
+        }
+
+        let colspan = if self.hspan > 1 {
+            format!(" colspan=\"{}\"", self.hspan)
+        } else {
+            String::new()
+        };
+
+        // Process style properties like color
+        let mut styles = String::new();
+        for style in &self.style {
+            match style {
+                Attr::Bold => styles += "font-weight: bold;",
+                Attr::Italic(true) => styles += "font-style: italic;",
+                Attr::Underline(true) => styles += "text-decoration: underline;",
+                Attr::ForegroundColor(c) => {
+                    styles += "color: ";
+                    styles += color2hex(*c);
+                    styles += ";";
+                }
+                Attr::BackgroundColor(c) => {
+                    styles += "background-color: ";
+                    styles += color2hex(*c);
+                    styles += ";";
+                }
+                _ => {}
+            }
+        }
+        // Process alignment
+        match self.align {
+            Alignment::LEFT => styles += "text-align: left;",
+            Alignment::CENTER => styles += "text-align: center;",
+            Alignment::RIGHT => styles += "text-align: right;",
+        }
+
+        let content = self.content.join("<br />");
+        out.write_all(
+            format!(
+                "<td{1} style=\"{2}\">{0}</td>",
+                HtmlEscape(&content),
+                colspan,
+                styles
+            )
+            .as_bytes(),
+        )?;
+        Ok(self.hspan)
     }
 }
 
@@ -314,16 +385,16 @@ macro_rules! cell {
         $crate::Cell::new(&$value.to_string())
     };
     ($style:ident -> $value:expr) => {
-        cell!($value).style_spec(stringify!($style))
+        $crate::cell!($value).style_spec(stringify!($style))
     };
 }
 
 #[cfg(test)]
 mod tests {
-    use Cell;
-    use format::Alignment;
+    use super::Cell;
+    use crate::format::Alignment;
+    use crate::utils::StringWriter;
     use term::{color, Attr};
-    use utils::StringWriter;
 
     #[test]
     fn get_content() {
@@ -361,6 +432,31 @@ mod tests {
     }
 
     #[test]
+    fn print_ascii_html() {
+        let ascii_cell = Cell::new("hello");
+        assert_eq!(ascii_cell.get_width(), 5);
+
+        let mut out = StringWriter::new();
+        let _ = ascii_cell.print_html(&mut out);
+        assert_eq!(
+            out.as_string(),
+            r#"<td style="text-align: left;">hello</td>"#
+        );
+    }
+
+    #[test]
+    fn print_html_special_chars() {
+        let ascii_cell = Cell::new("<abc\">&'");
+
+        let mut out = StringWriter::new();
+        let _ = ascii_cell.print_html(&mut out);
+        assert_eq!(
+            out.as_string(),
+            r#"<td style="text-align: left;">&lt;abc&quot;&gt;&amp;&#39;</td>"#
+        );
+    }
+
+    #[test]
     fn align_left() {
         let cell = Cell::new_align("test", Alignment::LEFT);
         let mut out = StringWriter::new();
@@ -392,18 +488,16 @@ mod tests {
         assert!(cell.style.contains(&Attr::Italic(true)));
         assert!(cell.style.contains(&Attr::Bold));
         assert!(cell.style.contains(&Attr::ForegroundColor(color::RED)));
-        assert!(
-            cell.style
-                .contains(&Attr::BackgroundColor(color::BRIGHT_BLUE))
-        );
+        assert!(cell
+            .style
+            .contains(&Attr::BackgroundColor(color::BRIGHT_BLUE)));
         assert_eq!(cell.align, Alignment::CENTER);
 
         cell = cell.style_spec("FDBwr");
         assert_eq!(cell.style.len(), 2);
-        assert!(
-            cell.style
-                .contains(&Attr::ForegroundColor(color::BRIGHT_BLACK))
-        );
+        assert!(cell
+            .style
+            .contains(&Attr::ForegroundColor(color::BRIGHT_BLACK)));
         assert!(cell.style.contains(&Attr::BackgroundColor(color::WHITE)));
         assert_eq!(cell.align, Alignment::RIGHT);
 

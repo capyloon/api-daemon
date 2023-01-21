@@ -1,4 +1,4 @@
-/* Copyright 2018 The encode_unicode Developers
+/* Copyright 2018-2022 Torbjørn Birch Moltu
  *
  * Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
  * http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
@@ -9,7 +9,7 @@
 //! Tests that try all possible values for at least one parameter / byte / unit
 //! of the tested function.
 
-use std::char;
+use core::char;
 extern crate encode_unicode;
 use encode_unicode::*;
 
@@ -24,11 +24,12 @@ fn from_ascii() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn from_bmp() {
     for cp in 0u32..0x1_00_00 {
         assert_eq!(
             Utf16Char::from_bmp(cp as u16).ok(),
-            char::from_u32(cp).map(|u32c| Utf16Char::from(u32c) )
+            char::from_u32(cp).map(Utf16Char::from)
         );
     }
 }

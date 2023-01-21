@@ -1,9 +1,39 @@
+Version 1.0.0 (2022-08-07)
+==========================
+* Replace error types `InvalidUtf8Array`, `InvalidUtf8Slice`, `InvalidUtf8FirstByte` and `InvalidUtf8` with `Utf8Error` plus `Utf8ErrorKind`.  
+  Which of the new error kind variants is reported don't map 1:1 to the old enum variants:
+  For example `Utf8ErrorKind::NonUtf8Byte` is returned for sequences that would previously have been reported as too high codepoint or overlong encoding.  
+* Rename many other error types for consistency:
+  * `InvalidCodepoint` -> `CodepointError`
+  * `InvalidUtf16FirstUnit` -> `Utf16FirstUnitError`
+  * `InvalidUtf16Array` -> `Utf16ArrayError`
+  * `InvalidUtf16Slice` -> `Utf16SliceError`
+  * `1InvalidUtf16Tuple` -> `Utf16TupleError`
+* Change return type of `CodepointError::error_range()` to `RangeInclusive`.
+* Rename some errors variants:
+  * `Utf16SliceError::FirstLowSurrogate` -> `FirstIsTrailingSurrogate`
+  * `Utf16SliceError::SecondNotLowSurrogate` -> `SecondIsNotTrailingSurrogate`
+  * `Utf16TupleError::InvalidSecond` -> `SecondIsNotTrailingSurrogate`
+* Expose the error type of `Utf16Char::from_bmp()` and rename it to  `NonBmpError`.
+* Remove re-exports of `Utf8CharIterator` and `Utf16CharIterator` from the crate root.  
+  (They are still exposed via the `iterator` module.)
+* Remove impls of the deprecated `AsciiExt` trait,
+  and make the methods available in `#![no_std]`-mode.
+* Make many of the previously `AsciiExt` methods take self by value.
+* Drop support for pre-1.0 versions of the ascii crate.
+* Remove `iter_bytes()` and `iter_units()`.
+* Increase minimum Rust version to 1.56 and change the minimum Rust version policy.
+* Fix possible UB or panic in `Utf8Char::from_slice_start_unchecked()` when passed an empty slice.  
+  (relates to [#12](https://github.com/tormol/encode_unicode/issues/12).)
+* Make many methods `const fn`.
+* Add `const fn`s `Utf8Char::new()` and `Utf16Char::new()`.
+
 Version 0.3.6 (2019-08-23)
 ==========================
 * Fix pointless undefined behavior in `Utf16Char.to_ascii_char()` (which is part of ascii feature)
-* Widen ascii version requirement to include 1.*
-* Add `[u16; 2]` UTF-16 array alternatives to `(u16, Some(u16))` UTF-16 tuple methods
-* Add `Utf16Char.is_bmp()`
+* Widen ascii version requirement to include 1.\*.
+* Add `[u16; 2]` UTF-16 array alternatives to `(u16, Some(u16))` UTF-16 tuple methods.
+* Add `Utf16Char.is_bmp()`.
 
 Version 0.3.5 (2018-10-23)
 ==========================
@@ -11,10 +41,10 @@ Version 0.3.5 (2018-10-23)
 
 Version 0.3.4 (2018-10-23)
 ==========================
-* Fix UB in UTF-8 validation which lead to invalid codepoints being accepted in release mode
+* Fix UB in UTF-8 validation which lead to invalid codepoints being accepted in release mode.
 * Add fallible decoding iterator adapters `Utf8CharMerger` and `Utf16CharMerger`
   and slice-based iterators `Utf8CharDecoder` and `Utf16CharDecoder`
-* Widen ascii version requirement from 0.8.* to 0.8.0 - 0.10.*
+* Widen ascii version requirement from 0.8.\* to 0.8.0 - 0.10.\*
 * Implement creating / extending `String`s from `Utf16Char`-producing iterators
 
 Version 0.3.3 (2018-10-16)

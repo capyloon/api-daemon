@@ -11,7 +11,7 @@ dirs = "3.0"
 env_logger =  "0.8"
 log = "0.4"
 mozdevice = "0.5"
-prettytable-rs = "0.8"
+prettytable-rs = "0.10"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"

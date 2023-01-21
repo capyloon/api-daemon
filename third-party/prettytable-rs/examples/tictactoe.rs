@@ -1,8 +1,4 @@
-#[macro_use]
-extern crate prettytable;
-extern crate term;
-
-use prettytable::Table;
+use prettytable::{cell, table, Table};
 
 use std::io;
 use std::io::Write;
@@ -18,7 +14,7 @@ fn main() {
         [EMPTY, EMPTY, EMPTY],
         [EMPTY, EMPTY, EMPTY]
     ];
-    let mut height = table.printstd();
+    let mut height = table.print_tty(false).unwrap();
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut current = CROSS;
@@ -57,7 +53,7 @@ fn main() {
             terminal.cursor_up().unwrap();
             terminal.delete_line().unwrap();
         }
-        height = table.printstd();
+        height = table.print_tty(false).unwrap();
         if check(&table) {
             return;
         }
