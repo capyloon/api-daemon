@@ -47,8 +47,8 @@ use geckobridge::service::GeckoBridgeService;
 pub enum AppsError {
     #[error("Custom Error")]
     AppsConfigError,
-    #[error("AppsError")]
-    WrongManifest,
+    #[error("Manifest Error, {0}")]
+    WrongManifest(ManifestError),
     #[error("IO Error: {0}")]
     Io(#[from] io::Error),
     #[error("Json Error: {0}")]
@@ -224,7 +224,7 @@ impl AppsRegistry {
         let init_done = AndroidProperties::get(PERSIST_APPSINIT, "").unwrap_or_default();
 
         // Open the registry database.
-        let mut db = RegistryDb::new(db_dir.join(&"apps.sqlite"))?;
+        let mut db = RegistryDb::new(db_dir.join("apps.sqlite"))?;
 
         // Apps are not initialized yet, load the default ones from the json file.
         if init_done != "1" {
@@ -238,7 +238,7 @@ impl AppsRegistry {
                             app, &root_path, &data_path, vhost_port,
                         ) {
                             Ok(app) => {
-                                let _ = db.add(&app)?;
+                                db.add(&app)?;
                             }
                             Err(err) => {
                                 AppsStorage::log_warn(&format!(
@@ -367,8 +367,9 @@ impl AppsRegistry {
 
             if let Some(origin) = origin {
                 let origin = origin.to_lowercase();
-                if !Self::is_valid_hostname(&origin) ||
-                   (db.get_first_by_name(&origin).is_ok() && update_url.is_some()) {
+                if !Self::is_valid_hostname(&origin)
+                    || (db.get_first_by_name(&origin).is_ok() && update_url.is_some())
+                {
                     return Err(AppsServiceError::InvalidOrigin);
                 }
                 return Ok(origin);
@@ -441,7 +442,7 @@ impl AppsRegistry {
 
     pub fn get_package_path(&self, manifest_url: &Url) -> Result<PathBuf, AppsServiceError> {
         if let Some(app) = self.get_by_manifest_url(manifest_url) {
-            let app_path = self.data_path.join("vroot").join(&app.get_name());
+            let app_path = self.data_path.join("vroot").join(app.get_name());
             let package_path = app_path.join("application.zip");
 
             if File::open(&package_path).is_ok() {
@@ -458,6 +459,22 @@ impl AppsRegistry {
         self.pool.execute(move || {
             task.run();
         });
+    }
+
+    fn check_legacy_manifest(
+        &mut self,
+        apps_item: &mut AppsItem,
+        manifest: &Manifest,
+        app_dir: &Path,
+    ) {
+        if let Some(b2g_features) = manifest.get_b2g_features() {
+            if b2g_features.is_from_legacy() {
+                apps_item.set_legacy_manifest_url();
+                if let Err(err) = AppsStorage::write_localized_manifest(app_dir) {
+                    error!("Failed to update localized manifest: {:?}", err);
+                }
+            }
+        }
     }
 
     pub fn apply_download(
@@ -489,6 +506,7 @@ impl AppsRegistry {
             error!("Link installed app failed: {:?}", err);
             return Err(AppsServiceError::FilesystemFailure);
         }
+        self.check_legacy_manifest(apps_item, manifest, &installed_dir);
 
         // Cannot serve a flat file in the same dir as zip.
         // Save the downloaded update manifest file in cached dir.
@@ -515,7 +533,7 @@ impl AppsRegistry {
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
-        let _ = self.save_app(is_update, apps_item)?;
+        self.save_app(is_update, apps_item)?;
 
         // Relay the request to Gecko using the bridge.
         let bridge = GeckoBridgeService::shared_state();
@@ -543,7 +561,7 @@ impl AppsRegistry {
 
         // We can now replace the installed one with new version.
         let _ = fs::remove_dir_all(&cached_dir);
-        if let Err(err) = fs::rename(&download_dir, &cached_dir) {
+        if let Err(err) = fs::rename(download_dir, &cached_dir) {
             error!(
                 "Rename installed dir failed: {} -> {} : {:?}",
                 download_dir.display(),
@@ -557,8 +575,7 @@ impl AppsRegistry {
         if is_update {
             apps_item.set_update_state(AppsUpdateState::Idle);
         }
-        let _ = self
-            .register_app(apps_item)
+        self.register_app(apps_item)
             .map_err(|_| AppsServiceError::RegistrationError)?;
 
         // Relay the request to Gecko using the bridge.
@@ -919,24 +936,23 @@ impl AppsRegistry {
 
             status_changed = true;
             if let Some(ref mut db) = &mut self.db {
-                let _ = db
-                    .update_status(manifest_url, status)
+                db.update_status(manifest_url, status)
                     .map_err(|_| AppsServiceError::FilesystemFailure)?;
 
                 let app_dir = app.get_appdir(&self.data_path).unwrap_or_default();
                 let disabled_dir = self.data_path.join("disabled");
-                let app_disabled_dir = disabled_dir.join(&app.get_name());
+                let app_disabled_dir = disabled_dir.join(app.get_name());
 
                 match status {
                     AppsStatus::Disabled => {
                         if !AppsStorage::ensure_dir(&disabled_dir) {
                             return Err(AppsServiceError::FilesystemFailure);
                         }
-                        let _ = fs::rename(app_dir, app_disabled_dir)
+                        fs::rename(app_dir, app_disabled_dir)
                             .map_err(|_| AppsServiceError::FilesystemFailure)?;
                     }
                     AppsStatus::Enabled => {
-                        let _ = fs::rename(app_disabled_dir, app_dir)
+                        fs::rename(app_disabled_dir, app_dir)
                             .map_err(|_| AppsServiceError::FilesystemFailure)?;
                     }
                 }
@@ -1625,6 +1641,46 @@ fn test_apply_download() {
             None => panic!(),
         }
     }
+
+    // Test apply a legacy app.
+    let src_app = current.join("test-fixtures/apps-from/legacy/application.zip");
+    let available_dir = test_path.join("downloading/legacy");
+    let available_app = available_dir.join("application.zip");
+
+    if let Err(err) = fs::create_dir_all(&available_dir) {
+        println!("{:?}", err);
+    }
+    let _ = fs::copy(&src_app, &available_app).unwrap();
+    let manifest = validate_package(&available_app).unwrap();
+    let update_url = Url::parse("https://testz.helloworld/manifest.webmanifest").ok();
+
+    let app_name = registry
+        .get_unique_name(
+            &manifest.get_name(),
+            manifest.get_origin(),
+            update_url.clone(),
+        )
+        .unwrap();
+    let mut apps_item = AppsItem::default(&app_name, vhost_port);
+    if !manifest.get_version().is_empty() {
+        apps_item.set_version(&manifest.get_version());
+    }
+    apps_item.set_install_state(AppsInstallState::Installing);
+    apps_item.set_update_url(update_url.clone());
+
+    if registry
+        .apply_download(&mut apps_item, &available_dir, &manifest, false)
+        .is_ok()
+    {
+        assert_eq!(app_name, "legacyapp");
+    } else {
+        panic!("Failed to apply download.");
+    }
+
+    let expected_manfiest_url =
+        Url::parse(&format!("http://{}.localhost/manifest.webapp", &app_name)).unwrap();
+    let app = registry.get_by_update_url(&update_url.unwrap()).unwrap();
+    assert_eq!(app.get_manifest_url(), expected_manfiest_url);
 }
 
 #[test]

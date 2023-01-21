@@ -373,7 +373,7 @@ impl<R: Read + io::Seek> ZipArchive<R> {
             } else {
                 if let Some(p) = outpath.parent() {
                     if !p.exists() {
-                        fs::create_dir_all(&p)?;
+                        fs::create_dir_all(p)?;
                     }
                 }
                 let mut outfile = fs::File::create(&outpath)?;
@@ -609,11 +609,11 @@ pub(crate) fn central_header_to_zip_file<R: Read + io::Seek>(
     reader.read_exact(&mut file_comment_raw)?;
 
     let file_name = match is_utf8 {
-        true => String::from_utf8_lossy(&*file_name_raw).into_owned(),
+        true => String::from_utf8_lossy(&file_name_raw).into_owned(),
         false => file_name_raw.clone().convert_cp437(),
     };
     let file_comment = match is_utf8 {
-        true => String::from_utf8_lossy(&*file_comment_raw).into_owned(),
+        true => String::from_utf8_lossy(&file_comment_raw).into_owned(),
         false => file_comment_raw.convert_cp437(),
     };
 
@@ -967,7 +967,7 @@ pub fn read_zipfile_from_stream<'a, R: io::Read>(
     reader.read_exact(&mut extra_field)?;
 
     let file_name = match is_utf8 {
-        true => String::from_utf8_lossy(&*file_name_raw).into_owned(),
+        true => String::from_utf8_lossy(&file_name_raw).into_owned(),
         false => file_name_raw.clone().convert_cp437(),
     };
 
@@ -1009,7 +1009,7 @@ pub fn read_zipfile_from_stream<'a, R: io::Read>(
         return unsupported_zip_error("The file length is not available in the local header");
     }
 
-    let limit_reader = (reader as &'a mut dyn io::Read).take(result.compressed_size as u64);
+    let limit_reader = (reader as &'a mut dyn io::Read).take(result.compressed_size);
 
     let result_crc32 = result.crc32;
     let result_compression_method = result.compression_method;

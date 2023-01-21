@@ -75,6 +75,11 @@ impl AppsItem {
         app
     }
 
+    pub fn set_legacy_manifest_url(&mut self) {
+        let url = self.get_manifest_url();
+        self.set_manifest_url(url.join("manifest.webapp").unwrap_or(url));
+    }
+
     // Check if the app is a PWA app.
     //   Return:
     //     TRUE: If the manifest URL is http://cached.localhost/*

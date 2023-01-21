@@ -1,1 +1,2 @@
 cognitive-complexity-threshold = 40
+large-error-threshold = 256

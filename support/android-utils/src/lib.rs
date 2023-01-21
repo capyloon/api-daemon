@@ -144,7 +144,7 @@ impl PropertyGetter<bool, bool> for AndroidProperties {
         let c_key = property_string(key)?;
         // Bind pointers outside unsafe block to avoid unexpected deallocation.
         let p_key = c_key.as_ptr();
-        Ok(unsafe { ffi::property_get_bool(p_key, if default { 1 } else { 0 }) == 1 })
+        Ok(unsafe { ffi::property_get_bool(p_key, i8::from(default)) == 1 })
     }
 }
 

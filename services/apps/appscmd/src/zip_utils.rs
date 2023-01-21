@@ -4,7 +4,7 @@
 use log::debug;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
-use std::path::Path;
+use std::path::{Component, Path};
 use thiserror::Error;
 use walkdir::{DirEntry, WalkDir};
 use zip::result::ZipError;
@@ -41,17 +41,23 @@ where
         // Some unzip tools unzip files with directory paths correctly, some do not!
         if path.is_file() {
             debug!("adding file {:?} as {:?} ...", path, name);
-            zip.start_file(name.to_string_lossy(), options)?;
             let mut f = File::open(path)?;
+            let zip_paths: Vec<String> = name
+                .components()
+                .filter_map(|c| {
+                    if let Component::Normal(path) = c {
+                        Some(path.to_string_lossy().into_owned())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let zip_path = &zip_paths.join("/"); // Use the / separator on all platforms to be zip compatible.
+            zip.start_file(zip_path, options)?;
 
             f.read_to_end(&mut buffer)?;
             zip.write_all(&*buffer)?;
             buffer.clear();
-        } else if !name.as_os_str().is_empty() {
-            // Only if not root! Avoids path spec / warning
-            // and mapname conversion failed error on unzip
-            debug!("adding dir {:?} as {:?} ...", path, name);
-            zip.add_directory(name.to_string_lossy(), options)?;
         }
     }
     zip.finish()?;

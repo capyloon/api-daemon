@@ -82,13 +82,13 @@ impl CGroupsPhase {
 
 impl PartialOrd for CGroupsPhase {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some((&(*self as i32)).cmp(&(*other as i32)))
+        Some((*self as i32).cmp(&(*other as i32)))
     }
 }
 
 impl Ord for CGroupsPhase {
     fn cmp(&self, other: &Self) -> Ordering {
-        (&(*self as i32)).cmp(&(*other as i32))
+        (*self as i32).cmp(&(*other as i32))
     }
 }
 

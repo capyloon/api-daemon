@@ -135,8 +135,11 @@ impl SenderKeyDistributionMessage {
         }
     }
 
+    /// # Safety
+    ///
+    /// This function should not be called with a null SignalContextPtr.
     /// Creates a message from a serialized buffer.
-    pub fn deserialize(buffer: &[u8], global_context: SignalContextPtr) -> Option<Self> {
+    pub unsafe fn deserialize(buffer: &[u8], global_context: SignalContextPtr) -> Option<Self> {
         unsafe {
             type NativePtr = *mut sender_key_distribution_message;
             let mut native: NativePtr = null_mut();

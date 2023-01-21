@@ -31,6 +31,7 @@ LOCAL_MODULE_CLASS := EXECUTABLES
 LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libc libm libdl liblog libssl libcutils libc++_shared
 LOCAL_MODULE_PATH := $(TARGET_OUT)/api-daemon
+LOCAL_CHECK_ELF_FILES := false
 
 API_DAEMON_LIB_DEPS := \
 	libhwbinder.so \

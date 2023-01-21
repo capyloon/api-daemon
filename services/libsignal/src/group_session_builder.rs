@@ -83,8 +83,9 @@ impl GroupSessionBuilderMethods for GroupSessionBuilder {
         let ffi = self.ffi.clone();
         self.pool.execute(move || {
             let addr = sender_key_name.sender;
-
-            if ffi
+            // FfiSenderKeyDistributionMessage::deserialize is an unsafe function.
+            // See safety in the implementation.
+            if unsafe { ffi
                 .process_session(
                     &sender_key_name.group_id,
                     &addr.name,
@@ -96,7 +97,7 @@ impl GroupSessionBuilderMethods for GroupSessionBuilder {
                     .unwrap(),
                 )
                 .is_ok()
-            {
+            }{
                 responder.resolve();
             } else {
                 error!("ffi.processs_session failed");
