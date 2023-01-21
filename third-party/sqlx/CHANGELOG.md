@@ -5,7 +5,158 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 0.6.0 - 2022-06-16
+## 0.6.2 - 2022-09-14
+
+[25 pull requests][0.6.2-prs] were merged this release cycle.
+
+### Added
+* [[#1081]]: Add `try_from` attribute for `FromRow` derive [[@zzhengzhuo]]
+    * Exemplifies "out of sight, out of mind." It's surprisingly easy to forget about PRs when they get pushed onto
+      the second page. We'll be sure to clean out the backlog for 0.7.0.
+* [[#2014]]: Support additional SQLCipher options in SQLite driver. [[@szymek156]]
+* [[#2052]]: Add issue templates [[@abonander]]
+* [[#2053]]: Add documentation for `IpAddr` support in Postgres [[@rakshith-ravi]]
+* [[#2062]]: Add extension support for SQLite [[@bradfier]]
+* [[#2063]]: customizable db locking during migration [[@fuzzbuck]]
+
+### Changed
+* [[#2025]]: Bump sqlformat to 2.0 [[@NSMustache]]
+* [[#2056]]: chore: Switch to sha1 crate [[@stoically]]
+* [[#2071]]: Use cargo check consistently in `prepare` [[@cycraig]]
+
+### Fixed
+* [[#1991]]: Ensure migration progress is not lost for Postgres, MySQL and SQLite. [[@crepererum]]
+* [[#2023]]: Fix expansion of `#[sqlx(flatten)]` for `FromRow` derive [[@RustyYato]]
+* [[#2028]]: Use fully qualified path when forwarding to `#[test]` from `#[sqlx::test]` [[@alexander-jackson]]
+* [[#2040]]: Fix typo in `FromRow` docs [[@zlidner]]
+* [[#2046]]: added flag for PIPES_AS_CONCAT connection setting for MySQL to fix #2034 [[@marcustut]]
+* [[#2055]]: Use unlock notify also on `sqlite3_exec`  [[@madadam]]
+* [[#2057]]: Make begin,commit,rollback cancel-safe in sqlite  [[@madadam]]
+* [[#2058]]: fix typo in documentation [[@lovasoa]]
+* [[#2067]]: fix(docs): close code block in query_builder.rs [[@abonander]]
+* [[#2069]]: Fix `prepare` race condition in workspaces [[@cycraig]]
+* [[#2072]]: SqliteConnectOptions typo [[@fasterthanlime]]
+* [[#2074]]: fix: mssql uses unsigned for tinyint instead of signed [[@he4d]]
+* [[#2081]]: close unnamed portal after each executed extended query [[@DXist]]
+* [[#2086]]: PgHasArrayType for transparent types fix. [[@Wopple]]
+    * NOTE: this is a breaking change and has been postponed to 0.7.0.
+* [[#2089]]: fix: Remove default chrono dep on time for sqlx-cli [[@TravisWhitehead]]
+* [[#2091]]: Sqlite explain plan log efficiency [[@tyrelr]]
+
+[0.6.2-prs]: https://github.com/launchbadge/sqlx/pulls?q=is%3Apr+is%3Aclosed+merged%3A2022-08-04..2022-09-14+
+
+[#1081]: https://github.com/launchbadge/sqlx/pull/1081
+[#1991]: https://github.com/launchbadge/sqlx/pull/1991
+[#2014]: https://github.com/launchbadge/sqlx/pull/2014
+[#2023]: https://github.com/launchbadge/sqlx/pull/2023
+[#2025]: https://github.com/launchbadge/sqlx/pull/2025
+[#2028]: https://github.com/launchbadge/sqlx/pull/2028
+[#2040]: https://github.com/launchbadge/sqlx/pull/2040
+[#2046]: https://github.com/launchbadge/sqlx/pull/2046
+[#2052]: https://github.com/launchbadge/sqlx/pull/2052
+[#2053]: https://github.com/launchbadge/sqlx/pull/2053
+[#2055]: https://github.com/launchbadge/sqlx/pull/2055
+[#2056]: https://github.com/launchbadge/sqlx/pull/2056
+[#2057]: https://github.com/launchbadge/sqlx/pull/2057
+[#2058]: https://github.com/launchbadge/sqlx/pull/2058
+[#2062]: https://github.com/launchbadge/sqlx/pull/2062
+[#2063]: https://github.com/launchbadge/sqlx/pull/2063
+[#2067]: https://github.com/launchbadge/sqlx/pull/2067
+[#2069]: https://github.com/launchbadge/sqlx/pull/2069
+[#2071]: https://github.com/launchbadge/sqlx/pull/2071
+[#2072]: https://github.com/launchbadge/sqlx/pull/2072
+[#2074]: https://github.com/launchbadge/sqlx/pull/2074
+[#2081]: https://github.com/launchbadge/sqlx/pull/2081
+[#2086]: https://github.com/launchbadge/sqlx/pull/2086
+[#2089]: https://github.com/launchbadge/sqlx/pull/2089
+[#2091]: https://github.com/launchbadge/sqlx/pull/2091
+
+## 0.6.1 - 2022-08-02
+
+[33 pull requests][0.6.1-prs] were merged this release cycle.
+
+### Added
+* [[#1495]]: Add example for manual implementation of the `FromRow` trait [[@Erik1000]]
+* [[#1822]]: (Postgres) Add support for `std::net::IpAddr` [[@meh]]
+    * Decoding returns an error if the `INET` value in Postgres is a prefix and not a full address
+      (`/32` for IPv4, `/128` for IPv6).
+* [[#1865]]: Add SQLite support for the `time` crate [[@johnbcodes]]
+* [[#1902]]: Add an example of how to use `QueryBuilder::separated()` [[@sbeckeriv]]
+* [[#1917]]: Added docs for `sqlx::types::Json` [[@jayy-lmao]]
+* [[#1919]]: Implement `Clone` for `PoolOptions` [[@Thomasdezeeuw]]
+* [[#1953]]: Support Rust arrays in Postgres [[@e00E]]
+* [[#1954]]: Add `push_tuples` for `QueryBuilder` [[@0xdeafbeef]]
+* [[#1959]]: Support `#[sqlx(flatten)]` attribute in `FromRow` [[@TheoOiry]]
+* [[#1967]]: Add example with external query files [[@JoeyMckenzie]]
+* [[#1985]]: Add `query_builder::Separated::push_bind_unseparated()` [[@0xdeafbeef]]
+* [[#2001]]: Implement `#[sqlx::test]` for general use
+    * Includes automatic database management, migration and fixture application.
+    * Drops support for end-of-lifed database versions, see PR for details.
+* [[#2005]]: `QueryBuilder` improvements [[@abonander]]
+    * Raw SQL getters, new method to build `QueryAs` instead of `Query`.
+* [[#2013]]: (SQLite) Allow VFS to be set as URL query parameter [[@liningpan]] 
+
+### Changed
+* [[#1679]]: refactor: alias actix-* features to their equivalent tokio-* features [[@robjtede]]
+* [[#1906]]: replaced all uses of "uri" to "url" [[@RomainStorai]]
+* [[#1965]]: SQLite improvements [[@abonander]]
+* [[#1977]]: Docs: clarify relationship between `query_as!()` and `FromRow` [[@abonander]]
+* [[#2003]]: Replace `dotenv` with `dotenvy` [[@abonander]]
+
+### Fixed
+* [[#1802]]: Try avoiding a full clean in `cargo sqlx prepare --merged` [[@LovecraftianHorror]]
+* [[#1848]]: Fix type info access in `Any` database driver [[@raviqqe]]
+* [[#1910]]: Set `CARGO_TARGET_DIR` when compiling queries [[@sedrik]]
+* [[#1915]]: Pool: fix panic when using callbacks [[@abonander]]
+* [[#1930]]: Don't cache SQLite connection for macros [[@LovecraftianHorror]]
+* [[#1948]]: Fix panic in Postgres `BYTEA` decode [[@e00E]]
+* [[#1955]]: Fix typo in FAQ [[@kenkoooo]]
+* [[#1968]]: (Postgres) don't panic if `S` or `V` notice fields are not UTF-8 [[@abonander]]
+* [[#1969]]: Fix sqlx-cli build [[@ivan]]
+* [[#1974]]: Use the `rust-cache` action for CI [[@abonander]]
+* [[#1988]]: Agree on a single default runtime for the whole workspace [[@crepererum]]
+* [[#1989]]: Fix panics in `PgListener` [[@crepererum]]
+* [[#1990]]: Switch `master` to `main` in docs [[@crepererum]]
+    * The change had already been made in the repo, the docs were out of date.
+* [[#1993]]: Update versions in quickstart examples in README [[@UramnOIL]]
+
+[0.6.1-prs]: https://github.com/launchbadge/sqlx/pulls?page=1&q=is%3Apr+is%3Aclosed+merged%3A2022-06-17..2022-08-02
+
+[#1906]: https://github.com/launchbadge/sqlx/pull/1906
+[#1495]: https://github.com/launchbadge/sqlx/pull/1495
+[#1679]: https://github.com/launchbadge/sqlx/pull/1679
+[#1802]: https://github.com/launchbadge/sqlx/pull/1802
+[#1822]: https://github.com/launchbadge/sqlx/pull/1822
+[#1848]: https://github.com/launchbadge/sqlx/pull/1848
+[#1865]: https://github.com/launchbadge/sqlx/pull/1865
+[#1902]: https://github.com/launchbadge/sqlx/pull/1902
+[#1910]: https://github.com/launchbadge/sqlx/pull/1910
+[#1915]: https://github.com/launchbadge/sqlx/pull/1915
+[#1917]: https://github.com/launchbadge/sqlx/pull/1917
+[#1919]: https://github.com/launchbadge/sqlx/pull/1919
+[#1930]: https://github.com/launchbadge/sqlx/pull/1930
+[#1948]: https://github.com/launchbadge/sqlx/pull/1948
+[#1953]: https://github.com/launchbadge/sqlx/pull/1953
+[#1954]: https://github.com/launchbadge/sqlx/pull/1954
+[#1955]: https://github.com/launchbadge/sqlx/pull/1955
+[#1959]: https://github.com/launchbadge/sqlx/pull/1959
+[#1965]: https://github.com/launchbadge/sqlx/pull/1965
+[#1967]: https://github.com/launchbadge/sqlx/pull/1967
+[#1968]: https://github.com/launchbadge/sqlx/pull/1968
+[#1969]: https://github.com/launchbadge/sqlx/pull/1969
+[#1974]: https://github.com/launchbadge/sqlx/pull/1974
+[#1977]: https://github.com/launchbadge/sqlx/pull/1977
+[#1985]: https://github.com/launchbadge/sqlx/pull/1985
+[#1988]: https://github.com/launchbadge/sqlx/pull/1988
+[#1989]: https://github.com/launchbadge/sqlx/pull/1989
+[#1990]: https://github.com/launchbadge/sqlx/pull/1990
+[#1993]: https://github.com/launchbadge/sqlx/pull/1993
+[#2001]: https://github.com/launchbadge/sqlx/pull/2001
+[#2003]: https://github.com/launchbadge/sqlx/pull/2003
+[#2005]: https://github.com/launchbadge/sqlx/pull/2005
+[#2013]: https://github.com/launchbadge/sqlx/pull/2013
+
+## 0.6.0 - 2022-06-16
 
 This release marks the end of the 0.5.x series of releases and contains a number of breaking changes,
 mainly to do with backwards-incompatible dependency upgrades. 
@@ -47,6 +198,9 @@ As such, we expect the 0.6.x release series to be a shorter one.
         * Now eagerly starts the pool closing, `.await`ing is only necessary if you want to ensure a graceful shutdown.
     * Deleted `PoolConnection::release()` which was previously deprecated in favor of `PoolConnection::detach()`.
     * Fixed connections getting leaked even when calling `.close()`.
+* [[#1748]]: Derive `PgHasArrayType` for `#[sqlx(transparent)]` types [[@carols10cents]]
+    * This change was released with 0.5.12 but [we didn't realize it was a breaking change] at the time.  
+      It was reverted in 0.5.13 and postponed until this release.
 
 ### Added
 * [[#1843]]: Expose some useful methods on `PgValueRef` [[@mfreeborn]]
@@ -87,6 +241,7 @@ As such, we expect the 0.6.x release series to be a shorter one.
 [surveyed the community]: https://github.com/launchbadge/sqlx/issues/1796
 [0.6.0-prs]: https://github.com/launchbadge/sqlx/pulls?page=2&q=is%3Apr+is%3Amerged+merged%3A2022-04-14..2022-06-16
 [does not officially track an MSRV]: /FAQ.md#what-versions-of-rust-does-sqlx-support-what-is-sqlxs-msrv
+[we didn't realize it was a breaking change]: https://github.com/launchbadge/sqlx/pull/1800#issuecomment-1099898932
 
 [#1384]: https://github.com/launchbadge/sqlx/pull/1384
 [#1426]: https://github.com/launchbadge/sqlx/pull/1426
@@ -711,7 +866,7 @@ Fix docs.rs build by enabling a runtime feature in the docs.rs metadata in `Carg
 
 ### Added
 
--   [[#174]] Inroduce a builder to construct connections to bypass the URI parsing
+-   [[#174]] Inroduce a builder to construct connections to bypass the URL parsing
 
     ```rust
     // MSSQL
@@ -1406,3 +1561,36 @@ Fix docs.rs build by enabling a runtime feature in the docs.rs metadata in `Carg
 [@kianmeng]: https://github.com/kianmeng
 [@EthanYuan]: https://github.com/EthanYuan
 [@Nukesor]: https://github.com/Nukesor
+[@smonv]: https://github.com/smonv
+[@Erik1000]: https://github.com/Erik1000
+[@raviqqe]: https://github.com/raviqqe
+[@johnbcodes]: https://github.com/johnbcodes
+[@sbeckeriv]: https://github.com/sbeckeriv
+[@RomainStorai]: https://github.com/RomainStorai
+[@jayy-lmao]: https://github.com/jayy-lmao
+[@Thomasdezeeuw]: https://github.com/Thomasdezeeuw
+[@kenkoooo]: https://github.com/kenkoooo
+[@TheoOiry]: https://github.com/TheoOiry
+[@JoeyMckenzie]: https://github.com/JoeyMckenzie
+[@ivan]: https://github.com/ivan
+[@crepererum]: https://github.com/crepererum
+[@UramnOIL]: https://github.com/UramnOIL
+[@liningpan]: https://github.com/liningpan
+[@zzhengzhuo]: https://github.com/zzhengzhuo
+[@crepererum]: https://github.com/crepererum
+[@szymek156]: https://github.com/szymek156
+[@NSMustache]: https://github.com/NSMustache
+[@RustyYato]: https://github.com/RustyYato
+[@alexander-jackson]: https://github.com/alexander-jackson
+[@zlidner]: https://github.com/zlidner
+[@zlindner]: https://github.com/zlindner
+[@marcustut]: https://github.com/marcustut
+[@rakshith-ravi]: https://github.com/rakshith-ravi
+[@bradfier]: https://github.com/bradfier
+[@fuzzbuck]: https://github.com/fuzzbuck
+[@cycraig]: https://github.com/cycraig
+[@fasterthanlime]: https://github.com/fasterthanlime
+[@he4d]: https://github.com/he4d
+[@DXist]: https://github.com/DXist
+[@Wopple]: https://github.com/Wopple
+[@TravisWhitehead]: https://github.com/TravisWhitehead

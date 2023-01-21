@@ -7,7 +7,9 @@ use std::marker::PhantomData;
 use crate::arguments::Arguments;
 use crate::database::{Database, HasArguments};
 use crate::encode::Encode;
+use crate::from_row::FromRow;
 use crate::query::Query;
+use crate::query_as::QueryAs;
 use crate::types::Type;
 use crate::Either;
 
@@ -137,8 +139,30 @@ where
     ///
     /// The returned type exposes identical [`.push()`][Separated::push] and
     /// [`.push_bind()`][Separated::push_bind] methods which push `separator` to the query
-    /// before their normal behavior. [`.push_unseparated()`][Separated::push_unseparated] is also
+    /// before their normal behavior. [`.push_unseparated()`][Separated::push_unseparated] and [`.push_bind_unseparated()`][Separated::push_bind_unseparated] are also
     /// provided to push a SQL fragment without the separator.
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "mysql")] {
+    /// use sqlx::{Execute, MySql, QueryBuilder};
+    /// let foods = vec!["pizza".to_string(), "chips".to_string()];
+    /// let mut query_builder: QueryBuilder<MySql> = QueryBuilder::new(
+    ///     "SELECT * from food where name in ("
+    /// );
+    /// // One element vector is handled correctly but an empty vector
+    /// // would cause a sql syntax error
+    /// let mut separated = query_builder.separated(", ");
+    /// for value_type in foods.iter() {
+    ///   separated.push_bind(value_type);
+    /// }
+    /// separated.push_unseparated(") ");
+    ///
+    /// let mut query = query_builder.build();
+    /// let sql = query.sql();
+    /// assert!(sql.ends_with("in (?, ?) "));
+    /// # }
+    /// ```
+
     pub fn separated<'qb, Sep>(&'qb mut self, separator: Sep) -> Separated<'qb, 'args, DB, Sep>
     where
         'args: 'qb,
@@ -249,6 +273,7 @@ where
     /// // 16383 * 4 = 65532
     /// assert_eq!(arguments.len(), 65532);
     /// # }
+    /// ```
     pub fn push_values<I, F>(&mut self, tuples: I, mut push_tuple: F) -> &mut Self
     where
         I: IntoIterator,
@@ -268,6 +293,113 @@ where
 
             separated.push_unseparated(")");
         }
+
+        separated.query_builder
+    }
+
+    /// Creates `((a, b), (..)` statements, from `tuples`.
+    ///
+    /// This can be used to construct a bulk `SELECT` statement like this:
+    /// ```sql
+    /// SELECT * FROM users WHERE (id, username) IN ((1, "test_user_1"), (2, "test_user_2"))
+    /// ```
+    ///
+    /// Although keep in mind that all
+    /// databases have some practical limit on the number of bind arguments in a single query.
+    /// See [`.push_bind()`][Self::push_bind] for details.
+    ///
+    /// To be safe, you can do `tuples.into_iter().take(N)` where `N` is the limit for your database
+    /// divided by the number of fields in each tuple; since integer division always rounds down,
+    /// this will ensure that you don't exceed the limit.
+    ///
+    /// ### Notes
+    ///
+    /// If `tuples` is empty, this will likely produce a syntactically invalid query
+    ///
+    /// ### Example (MySQL)
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "mysql")]
+    /// # {
+    /// use sqlx::{Execute, MySql, QueryBuilder};
+    ///
+    /// struct User {
+    ///     id: i32,
+    ///     username: String,
+    ///     email: String,
+    ///     password: String,
+    /// }
+    ///
+    /// // The number of parameters in MySQL must fit in a `u16`.
+    /// const BIND_LIMIT: usize = 65535;
+    ///
+    /// // This would normally produce values forever!
+    /// let users = (0..).map(|i| User {
+    ///     id: i,
+    ///     username: format!("test_user_{}", i),
+    ///     email: format!("test-user-{}@example.com", i),
+    ///     password: format!("Test!User@Password#{}", i),
+    /// });
+    ///
+    /// let mut query_builder: QueryBuilder<MySql> = QueryBuilder::new(
+    ///     // Note the trailing space; most calls to `QueryBuilder` don't automatically insert
+    ///     // spaces as that might interfere with identifiers or quoted strings where exact
+    ///     // values may matter.
+    ///     "SELECT * FROM users WHERE (id, username, email, password) in"
+    /// );
+    ///
+    /// // Note that `.into_iter()` wasn't needed here since `users` is already an iterator.
+    /// query_builder.push_tuples(users.take(BIND_LIMIT / 4), |mut b, user| {
+    ///     // If you wanted to bind these by-reference instead of by-value,
+    ///     // you'd need an iterator that yields references that live as long as `query_builder`,
+    ///     // e.g. collect it to a `Vec` first.
+    ///     b.push_bind(user.id)
+    ///         .push_bind(user.username)
+    ///         .push_bind(user.email)
+    ///         .push_bind(user.password);
+    /// });
+    ///
+    /// let mut query = query_builder.build();
+    ///
+    /// // You can then call `query.execute()`, `.fetch_one()`, `.fetch_all()`, etc.
+    /// // For the sake of demonstration though, we're just going to assert the contents
+    /// // of the query.
+    ///
+    /// // These are methods of the `Execute` trait, not normally meant to be called in user code.
+    /// let sql = query.sql();
+    /// let arguments = query.take_arguments().unwrap();
+    ///
+    /// assert!(sql.starts_with(
+    ///     "SELECT * FROM users WHERE (id, username, email, password) in ((?, ?, ?, ?), (?, ?, ?, ?), "
+    /// ));
+    ///
+    /// assert!(sql.ends_with("(?, ?, ?, ?)) "));
+    ///
+    /// // Not a normally exposed function, only used for this doctest.
+    /// // 65535 / 4 = 16383 (rounded down)
+    /// // 16383 * 4 = 65532
+    /// assert_eq!(arguments.len(), 65532);
+    /// }
+    /// ```
+    pub fn push_tuples<I, F>(&mut self, tuples: I, mut push_tuple: F) -> &mut Self
+    where
+        I: IntoIterator,
+        F: FnMut(Separated<'_, 'args, DB, &'static str>, I::Item),
+    {
+        self.sanity_check();
+
+        self.push(" (");
+
+        let mut separated = self.separated(", ");
+
+        for tuple in tuples {
+            separated.push("(");
+
+            push_tuple(separated.query_builder.separated(", "), tuple);
+
+            separated.push_unseparated(")");
+        }
+        separated.push_unseparated(") ");
 
         separated.query_builder
     }
@@ -295,6 +427,27 @@ where
         }
     }
 
+    /// Produce an executable query from this builder.
+    ///
+    /// ### Note: Query is not Checked
+    /// It is your responsibility to ensure that you produce a syntactically correct query here,
+    /// this API has no way to check it for you.
+    ///
+    /// ### Note: Reuse
+    /// You can reuse this builder afterwards to amortize the allocation overhead of the query
+    /// string, however you must call [`.reset()`][Self::reset] first, which returns `Self`
+    /// to the state it was in immediately after [`new()`][Self::new].
+    ///
+    /// Calling any other method but `.reset()` after `.build()` will panic for sanity reasons.
+    pub fn build_query_as<'q, T: FromRow<'q, DB::Row>>(
+        &'q mut self,
+    ) -> QueryAs<'q, DB, T, <DB as HasArguments<'args>>::Arguments> {
+        QueryAs {
+            inner: self.build(),
+            output: PhantomData,
+        }
+    }
+
     /// Reset this `QueryBuilder` back to its initial state.
     ///
     /// The query is truncated to the initial fragment provided to [`new()`][Self::new] and
@@ -304,6 +457,16 @@ where
         self.arguments = Some(Default::default());
 
         self
+    }
+
+    /// Get the current build SQL; **note**: may not be syntactically correct.
+    pub fn sql(&self) -> &str {
+        &self.query
+    }
+
+    /// Deconstruct this `QueryBuilder`, returning the built SQL. May not be syntactically correct.
+    pub fn into_sql(self) -> String {
+        self.query
     }
 }
 
@@ -362,6 +525,18 @@ where
         self.query_builder.push_bind(value);
         self.push_separator = true;
 
+        self
+    }
+
+    /// Push a bind argument placeholder (`?` or `$N` for Postgres) and bind a value to it
+    /// without a separator.
+    ///
+    /// Simply calls [`QueryBuilder::push_bind()`] directly.
+    pub fn push_bind_unseparated<T>(&mut self, value: T) -> &mut Self
+    where
+        T: 'args + Encode<'args, DB> + Send + Type<DB>,
+    {
+        self.query_builder.push_bind(value);
         self
     }
 }

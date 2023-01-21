@@ -11,12 +11,17 @@ use std::borrow::Cow;
 use unicode_categories::UnicodeCategories;
 
 pub(crate) fn tokenize(mut input: &str) -> Vec<Token<'_>> {
-    let mut tokens = Vec::new();
-    let mut token = None;
+    let mut tokens: Vec<Token> = Vec::new();
 
     // Keep processing the string until it is empty
-    while let Ok(result) = get_next_token(input, token.as_ref()) {
-        token = Some(result.1.clone());
+    while let Ok(result) = get_next_token(
+        input,
+        tokens.last().cloned(),
+        tokens
+            .iter()
+            .rfind(|token| token.kind == TokenKind::Reserved)
+            .cloned(),
+    ) {
         input = result.0;
 
         tokens.push(result.1);
@@ -76,7 +81,8 @@ impl<'a> PlaceholderKind<'a> {
 
 fn get_next_token<'a>(
     input: &'a str,
-    previous_token: Option<&Token<'a>>,
+    previous_token: Option<Token<'a>>,
+    last_reserved_token: Option<Token<'a>>,
 ) -> IResult<&'a str, Token<'a>> {
     get_whitespace_token(input)
         .or_else(|_| get_comment_token(input))
@@ -85,7 +91,7 @@ fn get_next_token<'a>(
         .or_else(|_| get_close_paren_token(input))
         .or_else(|_| get_placeholder_token(input))
         .or_else(|_| get_number_token(input))
-        .or_else(|_| get_reserved_word_token(input, previous_token))
+        .or_else(|_| get_reserved_word_token(input, previous_token, last_reserved_token))
         .or_else(|_| get_word_token(input))
         .or_else(|_| get_operator_token(input))
 }
@@ -144,22 +150,22 @@ pub fn take_till_escaping<'a, Error: ParseError<&'a str>>(
 ) -> impl Fn(&'a str) -> IResult<&'a str, &'a str, Error> {
     move |input: &str| {
         let mut chars = input.chars().enumerate().peekable();
-        let mut last = None;
         loop {
             let item = chars.next();
             let next = chars.peek().map(|item| item.1);
             match item {
                 Some(item) => {
-                    if item.1 == desired
-                        && !last.map(|item| escapes.contains(&item)).unwrap_or(false)
-                        && !(escapes.contains(&item.1) && Some(desired) == next)
-                    {
+                    // escape?
+                    if escapes.contains(&item.1) && next.map(|n| n == desired).unwrap_or(false) {
+                        // consume this and next char
+                        chars.next();
+                        continue;
+                    }
+
+                    if item.1 == desired {
                         let byte_pos = input.chars().take(item.0).map(|c| c.len()).sum::<usize>();
                         return Ok((&input[byte_pos..], &input[..byte_pos]));
                     }
-
-                    last = Some(item.1);
-                    continue;
                 }
                 None => {
                     return Ok(("", input));
@@ -301,12 +307,16 @@ fn get_indexed_placeholder_token(input: &str) -> IResult<&str, Token<'_>> {
             Token {
                 kind: TokenKind::Placeholder,
                 value: token,
-                key: if token.starts_with('$') {
-                    let index = token[1..].parse::<usize>().unwrap();
-                    Some(PlaceholderKind::OneIndexed(index))
-                } else if token.len() > 1 {
-                    let index = token[1..].parse::<usize>().unwrap();
-                    Some(PlaceholderKind::ZeroIndexed(index))
+                key: if token.len() > 1 {
+                    if let Ok(index) = token[1..].parse::<usize>() {
+                        Some(if token.starts_with('$') {
+                            PlaceholderKind::OneIndexed(index)
+                        } else {
+                            PlaceholderKind::ZeroIndexed(index)
+                        })
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 },
@@ -359,7 +369,11 @@ fn get_escaped_placeholder_key<'a>(key: &'a str, quote_char: &str) -> Cow<'a, st
 }
 
 fn get_number_token(input: &str) -> IResult<&str, Token<'_>> {
-    recognize(tuple((opt(tag("-")), alt((decimal_number, digit1)))))(input).map(|(input, token)| {
+    recognize(tuple((
+        opt(tag("-")),
+        alt((scientific_notation, decimal_number, digit1)),
+    )))(input)
+    .map(|(input, token)| {
         (
             input,
             Token {
@@ -375,9 +389,19 @@ fn decimal_number(input: &str) -> IResult<&str, &str> {
     recognize(tuple((digit1, tag("."), digit0)))(input)
 }
 
+fn scientific_notation(input: &str) -> IResult<&str, &str> {
+    recognize(tuple((
+        alt((decimal_number, digit1)),
+        tag("e"),
+        alt((tag("-"), tag("+"))),
+        digit1,
+    )))(input)
+}
+
 fn get_reserved_word_token<'a>(
     input: &'a str,
-    previous_token: Option<&Token<'a>>,
+    previous_token: Option<Token<'a>>,
+    last_reserved_token: Option<Token<'a>>,
 ) -> IResult<&'a str, Token<'a>> {
     // A reserved word cannot be preceded by a "."
     // this makes it so in "my_table.from", "from" is not considered a reserved word
@@ -389,7 +413,7 @@ fn get_reserved_word_token<'a>(
 
     alt((
         get_top_level_reserved_token,
-        get_newline_reserved_token,
+        get_newline_reserved_token(last_reserved_token),
         get_top_level_reserved_token_no_indent,
         get_plain_reserved_token,
     ))(input)
@@ -436,8 +460,7 @@ fn get_top_level_reserved_token(input: &str) -> IResult<&str, Token<'_>> {
     ))(&uc_input);
     if let Ok((_, token)) = result {
         let final_word = token.split(' ').last().unwrap();
-        let input_end_pos =
-            input.to_ascii_uppercase().find(&final_word).unwrap() + final_word.len();
+        let input_end_pos = input.to_ascii_uppercase().find(final_word).unwrap() + final_word.len();
         let (token, input) = input.split_at(input_end_pos);
         Ok((
             input,
@@ -452,40 +475,53 @@ fn get_top_level_reserved_token(input: &str) -> IResult<&str, Token<'_>> {
     }
 }
 
-fn get_newline_reserved_token(input: &str) -> IResult<&str, Token<'_>> {
-    let uc_input = get_uc_words(input, 3);
-    let result: IResult<&str, &str> = alt((
-        terminated(tag("AND"), end_of_word),
-        terminated(tag("CROSS APPLY"), end_of_word),
-        terminated(tag("CROSS JOIN"), end_of_word),
-        terminated(tag("ELSE"), end_of_word),
-        terminated(tag("INNER JOIN"), end_of_word),
-        terminated(tag("JOIN"), end_of_word),
-        terminated(tag("LEFT JOIN"), end_of_word),
-        terminated(tag("LEFT OUTER JOIN"), end_of_word),
-        terminated(tag("OR"), end_of_word),
-        terminated(tag("OUTER APPLY"), end_of_word),
-        terminated(tag("OUTER JOIN"), end_of_word),
-        terminated(tag("RIGHT JOIN"), end_of_word),
-        terminated(tag("RIGHT OUTER JOIN"), end_of_word),
-        terminated(tag("WHEN"), end_of_word),
-        terminated(tag("XOR"), end_of_word),
-    ))(&uc_input);
-    if let Ok((_, token)) = result {
-        let final_word = token.split(' ').last().unwrap();
-        let input_end_pos =
-            input.to_ascii_uppercase().find(&final_word).unwrap() + final_word.len();
-        let (token, input) = input.split_at(input_end_pos);
-        Ok((
-            input,
-            Token {
-                kind: TokenKind::ReservedNewline,
-                value: token,
-                key: None,
-            },
-        ))
-    } else {
-        Err(Err::Error(Error::new(input, ErrorKind::Alt)))
+fn get_newline_reserved_token<'a>(
+    last_reserved_token: Option<Token<'a>>,
+) -> impl FnMut(&'a str) -> IResult<&'a str, Token<'a>> {
+    move |input: &'a str| {
+        let uc_input = get_uc_words(input, 3);
+        let result: IResult<&str, &str> = alt((
+            terminated(tag("AND"), end_of_word),
+            terminated(tag("CROSS APPLY"), end_of_word),
+            terminated(tag("CROSS JOIN"), end_of_word),
+            terminated(tag("ELSE"), end_of_word),
+            terminated(tag("INNER JOIN"), end_of_word),
+            terminated(tag("JOIN"), end_of_word),
+            terminated(tag("LEFT JOIN"), end_of_word),
+            terminated(tag("LEFT OUTER JOIN"), end_of_word),
+            terminated(tag("OR"), end_of_word),
+            terminated(tag("OUTER APPLY"), end_of_word),
+            terminated(tag("OUTER JOIN"), end_of_word),
+            terminated(tag("RIGHT JOIN"), end_of_word),
+            terminated(tag("RIGHT OUTER JOIN"), end_of_word),
+            terminated(tag("WHEN"), end_of_word),
+            terminated(tag("XOR"), end_of_word),
+        ))(&uc_input);
+        if let Ok((_, token)) = result {
+            let final_word = token.split(' ').last().unwrap();
+            let input_end_pos =
+                input.to_ascii_uppercase().find(final_word).unwrap() + final_word.len();
+            let (token, input) = input.split_at(input_end_pos);
+            let kind = if token == "AND"
+                && last_reserved_token.is_some()
+                && last_reserved_token.as_ref().unwrap().value == "BETWEEN"
+            {
+                // If the "AND" is part of a "BETWEEN" clause, we want to handle it as one clause by not adding a new line.
+                TokenKind::Reserved
+            } else {
+                TokenKind::ReservedNewline
+            };
+            Ok((
+                input,
+                Token {
+                    kind,
+                    value: token,
+                    key: None,
+                },
+            ))
+        } else {
+            Err(Err::Error(Error::new(input, ErrorKind::Alt)))
+        }
     }
 }
 
@@ -500,8 +536,7 @@ fn get_top_level_reserved_token_no_indent(input: &str) -> IResult<&str, Token<'_
     ))(&uc_input);
     if let Ok((_, token)) = result {
         let final_word = token.split(' ').last().unwrap();
-        let input_end_pos =
-            input.to_ascii_uppercase().find(&final_word).unwrap() + final_word.len();
+        let input_end_pos = input.to_ascii_uppercase().find(final_word).unwrap() + final_word.len();
         let (token, input) = input.split_at(input_end_pos);
         Ok((
             input,

@@ -74,8 +74,10 @@ mod tests {
     #[test]
     fn it_uses_given_indent_config_for_indentation() {
         let input = "SELECT count(*),Column1 FROM Table1;";
-        let mut options = FormatOptions::default();
-        options.indent = Indent::Spaces(4);
+        let options = FormatOptions {
+            indent: Indent::Spaces(4),
+            ..FormatOptions::default()
+        };
         let expected = indoc!(
             "
             SELECT
@@ -625,7 +627,8 @@ mod tests {
     #[test]
     fn it_formats_and_or_operators() {
         let strings = [
-            ("foo BETWEEN bar AND baz", "foo BETWEEN bar\nAND baz"),
+            ("foo BETWEEN bar AND baz", "foo BETWEEN bar AND baz"),
+            ("foo BETWEEN\nbar\nAND baz", "foo BETWEEN bar AND baz"),
             ("foo AND bar", "foo\nAND bar"),
             ("foo OR bar", "foo\nOR bar"),
         ];
@@ -647,9 +650,12 @@ mod tests {
     #[test]
     fn it_recognizes_escaped_strings() {
         let inputs = [
-            "\"foo \\\" JOIN bar\"",
-            "'foo \\' JOIN bar'",
-            "`foo `` JOIN bar`",
+            r#""foo \" JOIN bar""#,
+            r#"'foo \' JOIN bar'"#,
+            r#"`foo `` JOIN bar`"#,
+            r#"'foo '' JOIN bar'"#,
+            r#"'two households"'"#,
+            r#"'two households'''"#,
         ];
         let options = FormatOptions::default();
         for input in &inputs {
@@ -731,8 +737,10 @@ mod tests {
     #[test]
     fn it_converts_keywords_to_uppercase_when_option_passed_in() {
         let input = "select distinct * frOM foo left join bar WHERe cola > 1 and colb = 3";
-        let mut options = FormatOptions::default();
-        options.uppercase = true;
+        let options = FormatOptions {
+            uppercase: true,
+            ..FormatOptions::default()
+        };
         let expected = indoc!(
             "
             SELECT
@@ -751,8 +759,10 @@ mod tests {
     #[test]
     fn it_line_breaks_between_queries_with_config() {
         let input = "SELECT * FROM foo; SELECT * FROM bar;";
-        let mut options = FormatOptions::default();
-        options.lines_between_queries = 2;
+        let options = FormatOptions {
+            lines_between_queries: 2,
+            ..FormatOptions::default()
+        };
         let expected = indoc!(
             "
             SELECT
@@ -823,7 +833,7 @@ mod tests {
     #[test]
     fn it_formats_insert_without_into() {
         let input =
-      "INSERT Customers (ID, MoneyBalance, Address, City) VALUES (12,-123.4, 'Skagen 2111','Stv');";
+            "INSERT Customers (ID, MoneyBalance, Address, City) VALUES (12,-123.4, 'Skagen 2111','Stv');";
         let options = FormatOptions::default();
         let expected = indoc!(
             "
@@ -1016,6 +1026,8 @@ mod tests {
             format(input, &QueryParams::Indexed(params), options),
             expected
         );
+
+        format("?62666666121266666612", &QueryParams::None, options);
     }
 
     #[test]
@@ -1383,6 +1395,23 @@ mod tests {
         let input = "\nSELECT 'главная'";
         let options = FormatOptions::default();
         let expected = "SELECT\n  'главная'";
+
+        assert_eq!(format(input, &QueryParams::None, options), expected);
+    }
+
+    #[test]
+    fn it_recognizes_scientific_notation() {
+        let input = "SELECT *, 1e-7 as small, 1e+7 as large FROM t";
+        let options = FormatOptions::default();
+        let expected = indoc!(
+            "
+            SELECT
+              *,
+              1e-7 as small,
+              1e+7 as large
+            FROM
+              t"
+        );
 
         assert_eq!(format(input, &QueryParams::None, options), expected);
     }

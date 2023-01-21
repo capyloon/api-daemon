@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "sqlx-macros"
-version = "0.6.0"
+version = "0.6.2"
 authors = [
     "Ryan Leckey <leckey.ryan@gmail.com>",
     "Austin Bonander <austin.bonander@gmail.com>",
@@ -27,7 +27,7 @@ resolver = "2"
 [lib]
 proc-macro = true
 
-[dependencies.dotenv]
+[dependencies.dotenvy]
 version = "0.15.0"
 default-features = false
 
@@ -67,12 +67,12 @@ version = "0.10.0"
 optional = true
 
 [dependencies.sqlx-core]
-version = "0.6.0"
+version = "0.6.2"
 features = ["any"]
 default-features = false
 
 [dependencies.sqlx-rt]
-version = "0.6.0"
+version = "0.6.2"
 default-features = false
 
 [dependencies.syn]
@@ -85,7 +85,6 @@ version = "2.2.2"
 default-features = false
 
 [features]
-_rt-actix = []
 _rt-async-std = []
 _rt-tokio = []
 bigdecimal = ["sqlx-core/bigdecimal"]
@@ -93,7 +92,7 @@ bit-vec = ["sqlx-core/bit-vec"]
 chrono = ["sqlx-core/chrono"]
 decimal = ["sqlx-core/decimal"]
 default = [
-    "runtime-async-std-native-tls",
+    "runtime-tokio-native-tls",
     "migrate",
 ]
 ipnetwork = ["sqlx-core/ipnetwork"]
@@ -116,16 +115,8 @@ offline = [
     "sha2",
 ]
 postgres = ["sqlx-core/postgres"]
-runtime-actix-native-tls = [
-    "sqlx-core/runtime-actix-native-tls",
-    "sqlx-rt/runtime-actix-native-tls",
-    "_rt-actix",
-]
-runtime-actix-rustls = [
-    "sqlx-core/runtime-actix-rustls",
-    "sqlx-rt/runtime-actix-rustls",
-    "_rt-actix",
-]
+runtime-actix-native-tls = ["runtime-tokio-native-tls"]
+runtime-actix-rustls = ["runtime-tokio-rustls"]
 runtime-async-std-native-tls = [
     "sqlx-core/runtime-async-std-native-tls",
     "sqlx-rt/runtime-async-std-native-tls",
