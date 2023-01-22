@@ -146,7 +146,7 @@ mod test {
         .await;
 
         request(
-            "http://missing-zip.localhost:7443/with_param?v=1234",
+            "http://cached.localhost:7443/with_param?v=1234",
             StatusCode::OK,
             "application/octet-stream",
         )

@@ -343,8 +343,13 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                 data.zips.insert(host.clone(), archive);
             } else {
                 // No application.zip found, try a direct path mapping.
-                // Use the full url except the leading / as the filename, to keep the url parameters if any.
-                let filename = &req.uri().to_string()[1..];
+                let filename = if host == "cached" {
+                    // Use the full url except the leading / as the filename, to keep the url parameters if any.
+                    // cached resources can have parameters depending on their source.
+                    req.uri().to_string()[1..].to_owned()
+                } else {
+                    req.match_info().query("filename").to_owned()
+                };
 
                 let lang_checker = FileLangChecker {
                     root_path: root_path.clone(),
@@ -353,7 +358,7 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                     if_none_match: if_none_match.clone(),
                 };
 
-                return match check_lang_files(&languages, filename, lang_checker).await {
+                return match check_lang_files(&languages, &filename, lang_checker).await {
                     Ok(response) => response,
                     Err(_) => {
                         // Default fallback
