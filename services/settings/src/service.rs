@@ -12,6 +12,18 @@ use log::{error, info};
 use std::collections::HashMap;
 use threadpool::ThreadPool;
 
+fn can_access_setting(setting: &str, attributes: &OriginAttributes) -> bool {
+    if attributes.has_permission("settings:read") || attributes.has_permission("settings:write") {
+        return true;
+    }
+
+    if setting == "nutria.theme" && attributes.has_permission("themeable") {
+        return true;
+    }
+
+    false
+}
+
 pub struct SettingsSharedData {
     pub db: SettingsDb,
     pub pool: ThreadPool,
@@ -37,7 +49,7 @@ pub struct SettingsService {
     id: TrackerId,
     proxy_tracker: SettingsManagerProxyTracker,
     state: Shared<SettingsSharedData>,
-    dispatcher_id: DispatcherId,
+    dispatcher_id: Option<DispatcherId>,
     observers: HashMap<ObjectRef, Vec<(String, DispatcherId)>>,
     origin_attributes: OriginAttributes,
     pool: ThreadPool,
@@ -66,6 +78,16 @@ impl SettingsFactoryMethods for SettingsService {
     }
 
     fn get(&mut self, responder: SettingsFactoryGetResponder, name: String) {
+        if !can_access_setting(&name, &self.origin_attributes)
+            && responder.maybe_send_permission_error(
+                &self.origin_attributes,
+                "settings:read",
+                "get setting",
+            )
+        {
+            return;
+        }
+
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &shared.lock().db;
@@ -107,6 +129,14 @@ impl SettingsFactoryMethods for SettingsService {
     }
 
     fn get_batch(&mut self, responder: SettingsFactoryGetBatchResponder, names: Vec<String>) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "settings:read",
+            "get a batch of settings",
+        ) {
+            return;
+        }
+
         let shared = self.state.clone();
         self.pool.execute(move || {
             let db = &shared.lock().db;
@@ -124,6 +154,16 @@ impl SettingsFactoryMethods for SettingsService {
         observer: ObjectRef,
     ) {
         info!("Adding observer {:?}", observer);
+        if !can_access_setting(&name, &self.origin_attributes)
+            && responder.maybe_send_permission_error(
+                &self.origin_attributes,
+                "settings:read",
+                &format!("add setting observer for {}", name),
+            )
+        {
+            return;
+        }
+
         match self.proxy_tracker.get(&observer) {
             Some(SettingsManagerProxy::SettingObserver(proxy)) => {
                 let id = self
@@ -155,6 +195,16 @@ impl SettingsFactoryMethods for SettingsService {
         name: String,
         observer: ObjectRef,
     ) {
+        if !can_access_setting(&name, &self.origin_attributes)
+            && responder.maybe_send_permission_error(
+                &self.origin_attributes,
+                "settings:read",
+                &format!("remove setting observer for {}", name),
+            )
+        {
+            return;
+        }
+
         if self.proxy_tracker.contains_key(&observer) {
             if let Some(target) = self.observers.get_mut(&observer) {
                 if let Some(idx) = target.iter().position(|x| x.0 == name) {
@@ -185,9 +235,15 @@ impl Service<SettingsService> for SettingsService {
     ) -> Result<SettingsService, String> {
         info!("SettingsService::create");
         let service_id = helper.session_tracker_id().service();
-        let event_dispatcher = SettingsFactoryEventDispatcher::from(helper, 0 /* object id */);
         let state = Self::shared_state();
-        let dispatcher_id = state.lock().db.add_dispatcher(&event_dispatcher);
+        // Require settings:read permission to receive events.
+        let dispatcher_id = if origin_attributes.has_permission("settings:read") {
+            let event_dispatcher =
+                SettingsFactoryEventDispatcher::from(helper, 0 /* object id */);
+            Some(state.lock().db.add_dispatcher(&event_dispatcher))
+        } else {
+            None
+        };
         let pool = state.lock().pool.clone();
         Ok(SettingsService {
             id: service_id,
@@ -225,7 +281,9 @@ impl Drop for SettingsService {
     fn drop(&mut self) {
         info!("Dropping Settings Service #{}", self.id);
         let db = &mut self.state.lock().db;
-        db.remove_dispatcher(self.dispatcher_id);
+        if let Some(dispatcher_id) = self.dispatcher_id {
+            db.remove_dispatcher(dispatcher_id);
+        }
 
         // Unregister observers for this instance.
         for observer in self.observers.values() {

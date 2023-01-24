@@ -41,5 +41,4 @@ interface SettingsFactory {
   event change -> SettingInfo
 }
 
-#[permission=settings:read]
 service SettingsManager: SettingsFactory
