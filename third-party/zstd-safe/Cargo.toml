@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "zstd-safe"
-version = "5.0.2+zstd.1.5.2"
+version = "6.0.2+zstd.1.5.2"
 authors = ["Alexandre Bury <alexandre.bury@gmail.com>"]
 build = "build.rs"
 description = "Safe low-level bindings for the zstd compression library."

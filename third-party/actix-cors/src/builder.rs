@@ -101,7 +101,10 @@ impl Cors {
             preflight: true,
             send_wildcard: false,
             supports_credentials: true,
+            #[cfg(feature = "draft-private-network-access")]
+            allow_private_network_access: false,
             vary_header: true,
+            block_on_origin_mismatch: true,
         };
 
         Cors {
@@ -123,10 +126,10 @@ impl Cors {
 
     /// Add an origin that is allowed to make requests.
     ///
-    /// By default, requests from all origins are accepted by CORS logic. This method allows to
-    /// specify a finite set of origins to verify the value of the `Origin` request header.
+    /// This method allows specifying a finite set of origins to verify the value of the `Origin`
+    /// request header. These are `origin-or-null` types in the [Fetch Standard].
     ///
-    /// These are `origin-or-null` types in the [Fetch Standard].
+    /// By default, no origins are accepted.
     ///
     /// When this list is set, the client's `Origin` request header will be checked in a
     /// case-sensitive manner.
@@ -211,7 +214,7 @@ impl Cors {
     /// These will be sent in the `Access-Control-Allow-Methods` response header as specified in
     /// the [Fetch Standard CORS protocol].
     ///
-    /// Defaults to `[GET, HEAD, POST, OPTIONS, PUT, PATCH, DELETE]`
+    /// This defaults to an empty set.
     ///
     /// [Fetch Standard CORS protocol]: https://fetch.spec.whatwg.org/#http-cors-protocol
     pub fn allowed_methods<U, M>(mut self, methods: U) -> Cors
@@ -283,7 +286,7 @@ impl Cors {
     /// will be echoed back in the `Access-Control-Allow-Headers` header as specified in
     /// the [Fetch Standard CORS protocol].
     ///
-    /// Defaults to `All`.
+    /// This defaults to an empty set.
     ///
     /// [Fetch Standard CORS protocol]: https://fetch.spec.whatwg.org/#http-cors-protocol
     pub fn allowed_headers<U, H>(mut self, headers: U) -> Cors
@@ -315,7 +318,7 @@ impl Cors {
         self
     }
 
-    /// Resets exposed response header list to a state where any header is accepted.
+    /// Resets exposed response header list to a state where all headers are exposed.
     ///
     /// See [`Cors::expose_headers`] for more info on exposed response headers.
     pub fn expose_any_header(mut self) -> Cors {
@@ -369,7 +372,7 @@ impl Cors {
     /// [Fetch Standard CORS protocol]: https://fetch.spec.whatwg.org/#http-cors-protocol
     pub fn max_age(mut self, max_age: impl Into<Option<usize>>) -> Cors {
         if let Some(cors) = cors(&mut self.inner, &self.error) {
-            cors.max_age = max_age.into()
+            cors.max_age = max_age.into();
         }
 
         self
@@ -388,7 +391,7 @@ impl Cors {
     /// Defaults to `false`.
     pub fn send_wildcard(mut self) -> Cors {
         if let Some(cors) = cors(&mut self.inner, &self.error) {
-            cors.send_wildcard = true
+            cors.send_wildcard = true;
         }
 
         self
@@ -411,7 +414,27 @@ impl Cors {
     /// [Fetch Standard CORS protocol]: https://fetch.spec.whatwg.org/#http-cors-protocol
     pub fn supports_credentials(mut self) -> Cors {
         if let Some(cors) = cors(&mut self.inner, &self.error) {
-            cors.supports_credentials = true
+            cors.supports_credentials = true;
+        }
+
+        self
+    }
+
+    /// Allow private network access.
+    ///
+    /// If true, injects the `Access-Control-Allow-Private-Network: true` header in responses if the
+    /// request contained the `Access-Control-Request-Private-Network: true` header.
+    ///
+    /// For more information on this behavior, see the draft [Private Network Access] spec.
+    ///
+    /// Defaults to `false`.
+    ///
+    /// [Private Network Access]: https://wicg.github.io/private-network-access
+    #[cfg(feature = "draft-private-network-access")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "draft-private-network-access")))]
+    pub fn allow_private_network_access(mut self) -> Cors {
+        if let Some(cors) = cors(&mut self.inner, &self.error) {
+            cors.allow_private_network_access = true;
         }
 
         self
@@ -429,7 +452,7 @@ impl Cors {
     /// By default, `Vary` header support is enabled.
     pub fn disable_vary_header(mut self) -> Cors {
         if let Some(cors) = cors(&mut self.inner, &self.error) {
-            cors.vary_header = false
+            cors.vary_header = false;
         }
 
         self
@@ -443,7 +466,25 @@ impl Cors {
     /// By default *preflight* support is enabled.
     pub fn disable_preflight(mut self) -> Cors {
         if let Some(cors) = cors(&mut self.inner, &self.error) {
-            cors.preflight = false
+            cors.preflight = false;
+        }
+
+        self
+    }
+
+    /// Configures whether requests should be pre-emptively blocked on mismatched origin.
+    ///
+    /// If `true`, a 400 Bad Request is returned immediately when a request fails origin validation.
+    ///
+    /// If `false`, the request will be processed as normal but relevant CORS headers will not be
+    /// appended to the response. In this case, the browser is trusted to validate CORS headers and
+    /// and block requests based on pre-flight requests. Use this setting to allow cURL and other
+    /// non-browser HTTP clients to function as normal, no matter what `Origin` the request has.
+    ///
+    /// Defaults to `true`.
+    pub fn block_on_origin_mismatch(mut self, block: bool) -> Cors {
+        if let Some(cors) = cors(&mut self.inner, &self.error) {
+            cors.block_on_origin_mismatch = block;
         }
 
         self
@@ -473,7 +514,10 @@ impl Default for Cors {
             preflight: true,
             send_wildcard: false,
             supports_credentials: false,
+            #[cfg(feature = "draft-private-network-access")]
+            allow_private_network_access: false,
             vary_header: true,
+            block_on_origin_mismatch: true,
         };
 
         Cors {

@@ -69,6 +69,7 @@
 
 #![deny(rust_2018_idioms, nonstandard_style)]
 #![warn(future_incompatible)]
+#![allow(clippy::uninlined_format_args)]
 #![doc(html_logo_url = "https://actix.rs/img/logo.png")]
 #![doc(html_favicon_url = "https://actix.rs/favicon.ico")]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -86,6 +87,7 @@ mod helpers;
 pub mod http;
 mod info;
 pub mod middleware;
+mod redirect;
 mod request;
 mod request_data;
 mod resource;
@@ -132,6 +134,7 @@ macro_rules! codegen_reexport {
 codegen_reexport!(main);
 codegen_reexport!(test);
 codegen_reexport!(route);
+codegen_reexport!(routes);
 codegen_reexport!(head);
 codegen_reexport!(get);
 codegen_reexport!(post);

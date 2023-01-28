@@ -95,6 +95,18 @@ impl ServiceRequest {
         (&mut self.req, &mut self.payload)
     }
 
+    /// Returns immutable accessors to inner parts.
+    #[inline]
+    pub fn parts(&self) -> (&HttpRequest, &Payload) {
+        (&self.req, &self.payload)
+    }
+
+    /// Returns immutable accessor to inner [`HttpRequest`].
+    #[inline]
+    pub fn request(&self) -> &HttpRequest {
+        &self.req
+    }
+
     /// Derives a type from this request using an [extractor](crate::FromRequest).
     ///
     /// Returns the `T` extractor's `Future` type which can be `await`ed. This is particularly handy
@@ -315,9 +327,7 @@ impl ServiceRequest {
             .push(extensions);
     }
 
-    /// Creates a context object for use with a [guard](crate::guard).
-    ///
-    /// Useful if you are implementing
+    /// Creates a context object for use with a routing [guard](crate::guard).
     #[inline]
     pub fn guard_ctx(&self) -> GuardContext<'_> {
         GuardContext { req: self }

@@ -1,6 +1,48 @@
 # Changelog
 
-## Unreleased - 2021-xx-xx
+## Unreleased - 2022-xx-xx
+
+
+## 4.3.0 - 2023-01-21
+### Added
+- Add `ContentDisposition::attachment()` constructor. [#2867]
+- Add `ErrorHandlers::default_handler()` (as well as `default_handler_{server, client}()`) to make registering handlers for groups of response statuses easier. [#2784]
+- Add `Logger::custom_response_replace()`. [#2631]
+- Add rudimentary redirection service at `web::redirect()` / `web::Redirect`. [#1961]
+- Add `guard::Acceptable` for matching against `Accept` header MIME types. [#2265]
+- Add fallible versions of `test` helpers: `try_call_service()`, `try_call_and_read_body_json()`, `try_read_body()`, and `try_read_body_json()`. [#2961]
+
+### Fixed
+- Add `Allow` header to `Resource`'s default responses when no routes are matched. [#2949]
+
+[#1961]: https://github.com/actix/actix-web/pull/1961
+[#2265]: https://github.com/actix/actix-web/pull/2265
+[#2631]: https://github.com/actix/actix-web/pull/2631
+[#2784]: https://github.com/actix/actix-web/pull/2784
+[#2867]: https://github.com/actix/actix-web/pull/2867
+[#2949]: https://github.com/actix/actix-web/pull/2949
+[#2961]: https://github.com/actix/actix-web/pull/2961
+
+
+## 4.2.1 - 2022-09-12
+### Fixed
+- Bump minimum version of `actix-http` dependency to fix compatibility issue. [#2871]
+
+[#2871]: https://github.com/actix/actix-web/pull/2871
+
+
+## 4.2.0 - 2022-09-11
+### Added
+- Add `#[routes]` macro to support multiple paths for one handler. [#2718]
+- Add `ServiceRequest::{parts, request}()` getter methods. [#2786]
+- Add configuration options for TLS handshake timeout via `HttpServer::{rustls, openssl}_with_config` methods. [#2752]
+
+### Changed
+- Minimum supported Rust version (MSRV) is now 1.59 due to transitive `time` dependency.
+
+[#2718]: https://github.com/actix/actix-web/pull/2718
+[#2752]: https://github.com/actix/actix-web/pull/2752
+[#2786]: https://github.com/actix/actix-web/pull/2786
 
 
 ## 4.1.0 - 2022-06-11

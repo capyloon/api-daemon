@@ -12,10 +12,18 @@
 [package]
 edition = "2018"
 name = "actix-router"
-version = "0.5.0"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Ali MJ Al-Nasrawy <alimjalnasrawy@gmail.com>", "Rob Ede <robjtede@icloud.com>"]
+version = "0.5.1"
+authors = [
+    "Nikolay Kim <fafhrd91@gmail.com>",
+    "Ali MJ Al-Nasrawy <alimjalnasrawy@gmail.com>",
+    "Rob Ede <robjtede@icloud.com>",
+]
 description = "Resource path matching and router"
-keywords = ["actix", "router", "routing"]
+keywords = [
+    "actix",
+    "router",
+    "routing",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web.git"
 resolver = "2"
@@ -27,24 +35,28 @@ path = "src/lib.rs"
 [[bench]]
 name = "router"
 harness = false
+
+[[bench]]
+name = "quoter"
+harness = false
+
 [dependencies.bytestring]
 version = ">=0.1.5, <2"
 
-[dependencies.firestorm]
-version = "0.5"
-
 [dependencies.http]
-version = "0.2.3"
+version = "0.2.5"
 optional = true
-
-[dependencies.log]
-version = "0.4"
 
 [dependencies.regex]
 version = "1.5"
 
 [dependencies.serde]
 version = "1"
+
+[dependencies.tracing]
+version = "0.1.30"
+features = ["log"]
+default-features = false
 
 [features]
 default = ["http"]

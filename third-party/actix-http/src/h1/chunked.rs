@@ -15,7 +15,7 @@ macro_rules! byte (
     })
 );
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ChunkedState {
     Size,
     SizeLws,
@@ -71,7 +71,7 @@ impl ChunkedState {
 
         match size.checked_mul(radix) {
             Some(n) => {
-                *size = n as u64;
+                *size = n;
                 *size += rem as u64;
 
                 Poll::Ready(Ok(ChunkedState::Size))

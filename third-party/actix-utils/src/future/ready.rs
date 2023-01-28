@@ -1,4 +1,4 @@
-//! When MSRV is 1.48, replace with `core::future::Ready` and `core::future::ready()`.
+//! When `core::future::Ready` has a `into_inner()` method, this can be deprecated.
 
 use core::{
     future::Future,
@@ -6,7 +6,7 @@ use core::{
     task::{Context, Poll},
 };
 
-/// Future for the [`ready`](ready()) function.
+/// Future for the [`ready`] function.
 ///
 /// Panic will occur if polled more than once.
 ///
@@ -65,6 +65,7 @@ impl<T> Future for Ready<T> {
 /// let a = ready(1);
 /// assert_eq!(a.into_inner(), 1);
 /// ```
+#[inline]
 pub fn ready<T>(val: T) -> Ready<T> {
     Ready { val: Some(val) }
 }
@@ -80,6 +81,7 @@ pub fn ready<T>(val: T) -> Ready<T> {
 /// assert_eq!(a.await, Ok(1));
 /// # }
 /// ```
+#[inline]
 pub fn ok<T, E>(val: T) -> Ready<Result<T, E>> {
     Ready { val: Some(Ok(val)) }
 }
@@ -95,6 +97,7 @@ pub fn ok<T, E>(val: T) -> Ready<Result<T, E>> {
 /// assert_eq!(a.await, Err(1));
 /// # }
 /// ```
+#[inline]
 pub fn err<T, E>(err: E) -> Ready<Result<T, E>> {
     Ready {
         val: Some(Err(err)),
@@ -103,9 +106,16 @@ pub fn err<T, E>(err: E) -> Ready<Result<T, E>> {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use futures_util::task::noop_waker;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
 
     use super::*;
+
+    assert_impl_all!(Ready<()>: Send, Sync, Unpin, Clone);
+    assert_impl_all!(Ready<Rc<()>>: Unpin, Clone);
+    assert_not_impl_any!(Ready<Rc<()>>: Send, Sync);
 
     #[test]
     #[should_panic]
