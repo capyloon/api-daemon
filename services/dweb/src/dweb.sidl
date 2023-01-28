@@ -55,6 +55,55 @@ interface Ucan {
     blocked: bool
 }
 
+// The public representation of a peer.
+// This includes the user's did, a device id and label.
+dictionary Peer {
+    did: str
+    device_id: str
+    device_desc: str
+}
+
+enum ConnectErrorKind {
+    NotConnected
+    NotPaired
+    Denied
+    Other
+}
+
+dictionary ConnectError {
+    kind: ConnectErrorKind
+    detail: str
+}
+
+// Represents a paired session.
+dictionary Session {
+    id: str    // random session id.
+    peer: Peer // remote peer
+}
+
+enum SessionError {
+    Duplicate
+    InvalidId
+}
+
+enum PeerAction {
+    Setup
+    Text
+    Url
+    File
+    App
+    Activity
+}
+
+callback P2pProvider {
+    // Called when initiating the communication. Returns true if the 
+    // requestee accepts to move along.
+    fn hello(from: Peer) -> bool
+
+    // Called with the initiator offer, expected the requestee answer.
+    fn provide_answer(from: Peer, action: PeerAction, offer: str) -> str
+}
+
 #[rust:not-tracked]
 interface Dweb {
     // DID related features.
@@ -88,6 +137,51 @@ interface Dweb {
 
     // Retrieve the ucans granted for this origin as a base 64 encoded ucan.
     fn ucans_for(origin: str) -> Ucan*, UcanError
+
+    // Peer discovery features.
+
+    // Make ourselves discoverable, either only on the local network or globally.
+    fn enable_discovery(local_only: bool, peer: Peer)
+
+    // Turn off discovery. That will also stop all active peer discovery.
+    fn disable_discovery()
+
+    // Get the list of currently known peers.
+    fn known_peers() -> Peer*
+
+    // Add a peer to our followed list, using its DID.
+    // fn follow_peer(did: str)
+
+    // Remove a peer from our followed list.
+    // fn unfollow_peer(did: str)
+
+    // Event triggered when a new peer is discovered.
+    event peerfound -> Peer
+
+    // Event triggered when a known peer disappears.
+    event peerlost -> Peer
+
+    // Hook up the webrtc answer provider.
+    fn set_p2p_provider(provider: P2pProvider)
+
+    // Initiate the connection to a remote peer.
+    // When successful, a new session is created.
+    fn pair_with(peer: Peer) -> Session, ConnectError
+
+    // Setup a WebRTC datachannel.
+    // The return value is the remote peer webrtc answer.
+    fn setup_webrtc_for(session: Session, action: PeerAction, offer: str) -> str, ConnectError
+
+    // Session management: apis to keep track of active pairings.
+
+    // Get one existing session.
+    fn get_session(id: str) -> Session, SessionError
+
+    // Get all active sessions.
+    fn get_sessions() -> Session*
+
+    event sessionadded -> Session
+    event sessionremoved -> str
 }
 
 service DwebService: Dweb

@@ -8,6 +8,46 @@ const LONG_CONTENT: &str = include_str!("lib.rs");
 
 #[cfg(feature = "std")]
 #[test]
+fn test_writebuf() {
+    use zstd_safe::WriteBuf;
+
+    let mut data = Vec::with_capacity(10);
+    unsafe {
+        data.write_from(|ptr, n| {
+            assert!(n >= 4);
+            let ptr = ptr as *mut u8;
+            ptr.write(0);
+            ptr.add(1).write(1);
+            ptr.add(2).write(2);
+            ptr.add(3).write(3);
+            Ok(4)
+        })
+    }
+    .unwrap();
+    assert_eq!(data.as_slice(), &[0, 1, 2, 3]);
+
+    let mut cursor = std::io::Cursor::new(&mut data);
+    // Here we use a position larger than the actual data.
+    // So expect the data to be zero-filled.
+    cursor.set_position(6);
+    unsafe {
+        cursor.write_from(|ptr, n| {
+            assert!(n >= 4);
+            let ptr = ptr as *mut u8;
+            ptr.write(4);
+            ptr.add(1).write(5);
+            ptr.add(2).write(6);
+            ptr.add(3).write(7);
+            Ok(4)
+        })
+    }
+    .unwrap();
+
+    assert_eq!(data.as_slice(), &[0, 1, 2, 3, 0, 0, 4, 5, 6, 7]);
+}
+
+#[cfg(feature = "std")]
+#[test]
 fn test_simple_cycle() {
     let mut buffer = std::vec![0u8; 256];
     let written = zstd_safe::compress(&mut buffer, INPUT, 3).unwrap();
@@ -24,16 +64,12 @@ fn test_simple_cycle() {
 fn test_cctx_cycle() {
     let mut buffer = std::vec![0u8; 256];
     let mut cctx = zstd_safe::CCtx::default();
-    let written =
-        zstd_safe::compress_cctx(&mut cctx, &mut buffer[..], INPUT, 1)
-            .unwrap();
+    let written = cctx.compress(&mut buffer[..], INPUT, 1).unwrap();
     let compressed = &buffer[..written];
 
     let mut dctx = zstd_safe::DCtx::default();
     let mut buffer = std::vec![0u8; 256];
-    let written =
-        zstd_safe::decompress_dctx(&mut dctx, &mut buffer[..], compressed)
-            .unwrap();
+    let written = dctx.decompress(&mut buffer[..], compressed).unwrap();
     let decompressed = &buffer[..written];
 
     assert_eq!(INPUT, decompressed);
@@ -59,13 +95,14 @@ fn test_dictionary() {
 
     // Compress data
     let mut cctx = zstd_safe::CCtx::default();
-    zstd_safe::cctx_ref_cdict(&mut cctx, &cdict).unwrap();
+    cctx.ref_cdict(&cdict).unwrap();
 
     let mut buffer = std::vec![0u8; 1024 * 1024];
     // First, try to compress without a dict
     let big_written = zstd_safe::compress(&mut buffer[..], bytes, 3).unwrap();
 
-    let written = zstd_safe::compress2(&mut cctx, &mut buffer[..], bytes)
+    let written = cctx
+        .compress2(&mut buffer[..], bytes)
         .map_err(zstd_safe::get_error_name)
         .unwrap();
 
@@ -74,13 +111,13 @@ fn test_dictionary() {
 
     // Decompress data
     let mut dctx = zstd_safe::DCtx::default();
-    zstd_safe::dctx_ref_ddict(&mut dctx, &ddict).unwrap();
+    dctx.ref_ddict(&ddict).unwrap();
 
     let mut buffer = std::vec![0u8; 1024 * 1024];
-    let written =
-        zstd_safe::decompress_dctx(&mut dctx, &mut buffer[..], compressed)
-            .map_err(zstd_safe::get_error_name)
-            .unwrap();
+    let written = dctx
+        .decompress(&mut buffer[..], compressed)
+        .map_err(zstd_safe::get_error_name)
+        .unwrap();
     let decompressed = &buffer[..written];
 
     // Profit!
@@ -91,21 +128,17 @@ fn test_dictionary() {
 fn test_checksum() {
     let mut buffer = std::vec![0u8; 256];
     let mut cctx = zstd_safe::CCtx::default();
-    zstd_safe::cctx_set_parameter(
-        &mut cctx,
-        zstd_safe::CParameter::ChecksumFlag(true),
-    )
-    .unwrap();
-    let written =
-        zstd_safe::compress2(&mut cctx, &mut buffer[..], INPUT).unwrap();
+    cctx.set_parameter(zstd_safe::CParameter::ChecksumFlag(true))
+        .unwrap();
+    let written = cctx.compress2(&mut buffer[..], INPUT).unwrap();
     let compressed = &mut buffer[..written];
 
     let mut dctx = zstd_safe::DCtx::default();
     let mut buffer = std::vec![0u8; 1024*1024];
-    let written =
-        zstd_safe::decompress_dctx(&mut dctx, &mut buffer[..], compressed)
-            .map_err(zstd_safe::get_error_name)
-            .unwrap();
+    let written = dctx
+        .decompress(&mut buffer[..], compressed)
+        .map_err(zstd_safe::get_error_name)
+        .unwrap();
     let decompressed = &buffer[..written];
 
     assert_eq!(INPUT, decompressed);
@@ -116,16 +149,16 @@ fn test_checksum() {
     if let Some(last) = compressed.last_mut() {
         *last = last.saturating_sub(1);
     }
-    let err =
-        zstd_safe::decompress_dctx(&mut dctx, &mut buffer[..], compressed)
-            .map_err(zstd_safe::get_error_name)
-            .err()
-            .unwrap();
+    let err = dctx
+        .decompress(&mut buffer[..], compressed)
+        .map_err(zstd_safe::get_error_name)
+        .err()
+        .unwrap();
     // The error message will complain about the checksum.
     assert!(err.contains("checksum"));
 }
 
-#[cfg(feature="experimental")]
+#[cfg(all(feature = "experimental", feature = "std"))]
 #[test]
 fn test_upper_bound() {
     let mut buffer = std::vec![0u8; 256];
@@ -135,5 +168,8 @@ fn test_upper_bound() {
     let written = zstd_safe::compress(&mut buffer, INPUT, 3).unwrap();
     let compressed = &buffer[..written];
 
-    assert_eq!(zstd_safe::decompress_bound(&compressed), Ok(INPUT.len() as u64));
+    assert_eq!(
+        zstd_safe::decompress_bound(&compressed),
+        Ok(INPUT.len() as u64)
+    );
 }

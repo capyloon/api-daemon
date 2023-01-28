@@ -1,4 +1,9 @@
-use std::{collections::HashSet, convert::TryFrom, convert::TryInto, fmt, rc::Rc};
+use std::{
+    collections::HashSet,
+    convert::{TryFrom, TryInto},
+    fmt,
+    rc::Rc,
+};
 
 use actix_web::{
     dev::RequestHead,
@@ -15,6 +20,7 @@ use crate::{AllOrSome, CorsError};
 
 #[derive(Clone)]
 pub(crate) struct OriginFn {
+    #[allow(clippy::type_complexity)]
     pub(crate) boxed_fn: Rc<dyn Fn(&HeaderValue, &RequestHead) -> bool>,
 }
 
@@ -58,17 +64,22 @@ pub(crate) struct Inner {
     pub(crate) preflight: bool,
     pub(crate) send_wildcard: bool,
     pub(crate) supports_credentials: bool,
+    #[cfg(feature = "draft-private-network-access")]
+    pub(crate) allow_private_network_access: bool,
     pub(crate) vary_header: bool,
+    pub(crate) block_on_origin_mismatch: bool,
 }
 
 static EMPTY_ORIGIN_SET: Lazy<HashSet<HeaderValue>> = Lazy::new(HashSet::new);
 
 impl Inner {
-    pub(crate) fn validate_origin(&self, req: &RequestHead) -> Result<(), CorsError> {
+    /// The bool returned in Ok(_) position indicates whether the `Access-Control-Allow-Origin`
+    /// header should be added to the response or not.
+    pub(crate) fn validate_origin(&self, req: &RequestHead) -> Result<bool, CorsError> {
         // return early if all origins are allowed or get ref to allowed origins set
         #[allow(clippy::mutable_key_type)]
         let allowed_origins = match &self.allowed_origins {
-            AllOrSome::All if self.allowed_origins_fns.is_empty() => return Ok(()),
+            AllOrSome::All if self.allowed_origins_fns.is_empty() => return Ok(true),
             AllOrSome::Some(allowed_origins) => allowed_origins,
             // only function origin validators are defined
             _ => &EMPTY_ORIGIN_SET,
@@ -79,9 +90,11 @@ impl Inner {
             // origin header exists and is a string
             Some(origin) => {
                 if allowed_origins.contains(origin) || self.validate_origin_fns(origin, req) {
-                    Ok(())
-                } else {
+                    Ok(true)
+                } else if self.block_on_origin_mismatch {
                     Err(CorsError::OriginNotAllowed)
+                } else {
+                    Ok(false)
                 }
             }
 
@@ -208,8 +221,20 @@ pub(crate) fn add_vary_header(headers: &mut HeaderMap) {
             let mut val: Vec<u8> = Vec::with_capacity(hdr.len() + 71);
             val.extend(hdr.as_bytes());
             val.extend(b", Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+
+            #[cfg(feature = "draft-private-network-access")]
+            val.extend(b", Access-Control-Allow-Private-Network");
+
             val.try_into().unwrap()
         }
+
+        #[cfg(feature = "draft-private-network-access")]
+        None => HeaderValue::from_static(
+            "Origin, Access-Control-Request-Method, Access-Control-Request-Headers, \
+            Access-Control-Allow-Private-Network",
+        ),
+
+        #[cfg(not(feature = "draft-private-network-access"))]
         None => HeaderValue::from_static(
             "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
         ),
