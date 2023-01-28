@@ -14,10 +14,13 @@ chrono = "0.4"
 common = {path = "../../common"}
 did-key = {git = "https://github.com/capyloon/did-key.rs.git", rev = "0fd82e043d41e70104a395aec239db5b449f7a96"}
 ed25519-zebra = "3.0"
+hostname = "0.3"
+if-addrs = "0.7" # To match the version used in searchlight
 lazy_static = "1.4"
 log = "0.4"
 parking_lot = "0.12"
 rusqlite = {version = "0.27", features = ["bundled"]}
+searchlight = "0.3"
 serde = "1.0"
 serde_json = "1.0"
 sqlite-utils = {path = "../../support/sqlite-utils"}

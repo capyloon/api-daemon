@@ -2,7 +2,9 @@ use crate::config::Config;
 use crate::did::Did;
 use crate::generated::common::Did as SidlDid;
 use crate::generated::{common::*, service::*};
+use crate::mdns::MdnsDiscovery;
 use crate::storage::DwebStorage;
+use crate::DiscoveryMechanism;
 use async_std::path::Path;
 use common::core::BaseMessage;
 use common::traits::{
@@ -10,6 +12,7 @@ use common::traits::{
     Shared, SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{debug, error, info};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::SystemTime;
 use ucan::builder::UcanBuilder;
@@ -17,13 +20,48 @@ use ucan::capability::{Action, Capability as UCapability, Resource, Scope, With}
 use ucan::ucan::Ucan;
 use url::Url as StdUrl;
 
+// The internal representation of known peers needs to include
+// the endpoint used to communicate with them, and wether it is
+// a remote or local peer.
+
+pub struct KnownPeer {
+    pub peer: Peer,
+    pub is_local: bool,
+    pub endpoint: String,
+}
+
 pub struct State {
     pub dweb_store: DwebStorage,
     event_broadcaster: DwebEventBroadcaster,
     ui_provider: Option<UcanProviderProxy>,
+    webrtc_provider: Option<WebrtcProviderProxy>,
+    known_peers: BTreeMap<String, KnownPeer>, // The key is the device id.
+    mdns: Option<MdnsDiscovery>,
 }
 
 impl StateLogger for State {}
+
+impl State {
+    pub fn on_peer_found(&mut self, peer: KnownPeer) {
+        let key = peer.peer.device_id.clone();
+        if !self.known_peers.contains_key(&key) {
+            info!("Peer added: {}", key);
+            self.event_broadcaster
+                .broadcast_peerfound(peer.peer.clone());
+            self.known_peers.insert(key, peer);
+        }
+    }
+
+    pub fn on_peer_lost(&mut self, id: &str) {
+        info!("Removing peer: {}", id);
+
+        if let Some(peer) = self.known_peers.remove(id) {
+            self.event_broadcaster.broadcast_peerlost(peer.peer);
+        } else {
+            error!("Failed to remove peer {}", id);
+        }
+    }
+}
 
 #[allow(clippy::from_over_into)]
 impl Into<State> for &Config {
@@ -35,6 +73,9 @@ impl Into<State> for &Config {
             dweb_store: DwebStorage::new(store_path),
             event_broadcaster: DwebEventBroadcaster::default(),
             ui_provider: None,
+            webrtc_provider: None,
+            known_peers: BTreeMap::new(),
+            mdns: None,
         }
     }
 }
@@ -95,6 +136,7 @@ pub struct DWebServiceImpl {
     origin_attributes: OriginAttributes,
     proxy_tracker: DwebServiceProxyTracker,
     provides_ui: bool,
+    provides_webrtc: bool,
     tracker: DwebServiceTrackerType,
 }
 
@@ -344,6 +386,138 @@ impl DwebMethods for DWebServiceImpl {
             responder.reject(UcanError::InternalError);
         }
     }
+
+    // Peer discovery
+    fn enable_discovery(
+        &mut self,
+        responder: DwebEnableDiscoveryResponder,
+        local_only: bool,
+        did: String,
+        device_id: String,
+        device_desc: String,
+    ) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "enable discovery",
+        ) {
+            return;
+        }
+
+        let mut state = self.state.lock();
+
+        if state.mdns.is_none() {
+            let mdns =
+                MdnsDiscovery::with_state(self.state.clone(), &did, &device_id, &device_desc);
+            state.mdns = mdns;
+        }
+
+        if let Some(mdns) = &mut state.mdns {
+            if mdns.start().is_err() {
+                responder.reject();
+            }
+        } else {
+            responder.reject();
+        }
+
+        // Start the rendez-vous discovery client.
+        if !local_only {}
+
+        responder.resolve();
+    }
+
+    fn disable_discovery(&mut self, responder: DwebDisableDiscoveryResponder) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "disable discovery",
+        ) {
+            return;
+        }
+
+        if let Some(mdns) = &mut self.state.lock().mdns {
+            if mdns.stop().is_err() {
+                responder.reject();
+            }
+        }
+
+        responder.resolve();
+    }
+
+    fn known_peers(&mut self, responder: DwebKnownPeersResponder) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "known peers") {
+            return;
+        }
+
+        let peers: Vec<Peer> = {
+            self.state
+                .lock()
+                .known_peers
+                .values()
+                .map(|item| item.peer.clone())
+                .collect()
+        };
+        responder.resolve(Some(peers));
+    }
+
+    fn set_webrtc_provider(
+        &mut self,
+        responder: DwebSetWebrtcProviderResponder,
+        provider: ObjectRef,
+    ) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "set webrtc provider",
+        ) {
+            return;
+        }
+
+        // Check that we don't already have a UI provider setup.
+        let mut state = self.state.lock();
+        if state.webrtc_provider.is_some() {
+            error!(
+                "Trying to set a duplicate webrtc provider from {}",
+                self.origin_attributes.identity()
+            );
+            responder.reject();
+        }
+
+        // Register the new provider.
+        if let Some(DwebServiceProxy::WebrtcProvider(webrtc_proxy)) =
+            self.proxy_tracker.get(&provider)
+        {
+            state.webrtc_provider = Some(webrtc_proxy.clone());
+        } else {
+            responder.reject();
+        }
+
+        self.provides_webrtc = true;
+        responder.resolve();
+    }
+
+    fn connect(&mut self, responder: DwebConnectResponder, peer: Peer, offer: String) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "connect to peer")
+        {
+            return;
+        }
+
+        {
+            let state = self.state.lock();
+            // Check if this peer is in the current list of known peers.
+            if !state.known_peers.contains_key(&peer.device_id) {
+                responder.reject(SendError {
+                    kind: SendErrorKind::NotConnected,
+                    detail: "".into(),
+                });
+                return;
+            }
+
+            // Send a request to the peer with the offer, and wait for the answer.
+            let endpoint = &state.known_peers.get(&peer.device_id).unwrap().endpoint;
+            println!("XYZ Will send offer to {}", endpoint);
+        }
+    }
 }
 
 common::impl_shared_state!(DWebServiceImpl, State, Config);
@@ -370,6 +544,7 @@ impl Service<DWebServiceImpl> for DWebServiceImpl {
             origin_attributes: attrs.clone(),
             proxy_tracker: DwebServiceProxyTracker::default(),
             provides_ui: false,
+            provides_webrtc: false,
             tracker: DwebServiceTrackerType::default(),
         })
     }
@@ -413,6 +588,10 @@ impl Drop for DWebServiceImpl {
 
         if self.provides_ui {
             self.state.lock().ui_provider = None;
+        }
+
+        if self.provides_webrtc {
+            self.state.lock().webrtc_provider = None;
         }
 
         // TODO: when needed

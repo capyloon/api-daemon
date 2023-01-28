@@ -55,6 +55,28 @@ interface Ucan {
     blocked: bool
 }
 
+// The public representation of a peer.
+// This includes the user's did, a device id and label.
+dictionary Peer {
+    did: str
+    device_id: str
+    device_desc: str
+}
+
+enum SendErrorKind {
+    NotConnected
+    RemoteError
+}
+
+dictionary SendError {
+    kind: SendErrorKind
+    detail: str
+}
+
+callback WebrtcProvider {
+    fn answer(offer: str) -> str
+}
+
 #[rust:not-tracked]
 interface Dweb {
     // DID related features.
@@ -88,6 +110,36 @@ interface Dweb {
 
     // Retrieve the ucans granted for this origin as a base 64 encoded ucan.
     fn ucans_for(origin: str) -> Ucan*, UcanError
+
+    // Peer discovery features.
+
+    // Make ourselves discoverable, either only on the local network or globally.
+    fn enable_discovery(local_only: bool, did: str, device_id: str, device_desc: str)
+
+    // Turn off discovery. That will also stop all active peer discovery.
+    fn disable_discovery()
+
+    // Get the list of currently known peers.
+    fn known_peers() -> Peer*
+
+    // Add a peer to our followed list, using its DID.
+    // fn follow_peer(did: str)
+
+    // Remove a peer from our followed list.
+    // fn unfollow_peer(did: str)
+
+    // Event triggered when a new peer is discovered.
+    event peerfound -> Peer
+
+    // Event triggered when a known peer disappears.
+    event peerlost -> Peer
+
+    // Hook up the webrtc answer provider.
+    fn set_webrtc_provider(provider: WebrtcProvider)
+
+    // Initiate the connection to a peer, providing a webrtc offer.
+    // The response is the webrtc answer from the peer.
+    fn connect(peer: Peer, offer: str) -> str, SendError
 }
 
 service DwebService: Dweb

@@ -1,9 +1,10 @@
 pub mod config;
 pub mod did;
 pub mod generated;
+pub mod mdns;
 pub mod service;
-pub mod storage;
 pub mod sidl_ucan;
+pub mod storage;
 
 // Helpers that can be reused by multiple services.
 use anyhow::{anyhow, Result};
@@ -79,4 +80,19 @@ pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
         Err(())
     };
     res
+}
+
+// Trait to implement by peer discovery mechanisms.
+pub trait DiscoveryMechanism {
+    fn with_state(
+        state: common::traits::Shared<service::State>,
+        did: &str,
+        device_id: &str,
+        device_desc: &str,
+    ) -> Option<Self>
+    where
+        Self: Sized;
+
+    fn start(&mut self) -> Result<(), ()>;
+    fn stop(&mut self) -> Result<(), ()>;
 }
