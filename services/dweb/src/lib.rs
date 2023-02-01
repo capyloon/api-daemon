@@ -1,6 +1,7 @@
 pub mod config;
 pub mod did;
 pub mod generated;
+mod handshake;
 pub mod mdns;
 pub mod service;
 pub mod sidl_ucan;

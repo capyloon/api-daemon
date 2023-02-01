@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::did::Did;
 use crate::generated::common::Did as SidlDid;
 use crate::generated::{common::*, service::*};
+use crate::handshake::{HandshakeClient, Status};
 use crate::mdns::MdnsDiscovery;
 use crate::storage::DwebStorage;
 use crate::DiscoveryMechanism;
@@ -13,6 +14,7 @@ use common::traits::{
 };
 use log::{debug, error, info};
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::SystemTime;
 use ucan::builder::UcanBuilder;
@@ -27,7 +29,7 @@ use url::Url as StdUrl;
 pub struct KnownPeer {
     pub peer: Peer,
     pub is_local: bool,
-    pub endpoint: String,
+    pub endpoint: SocketAddr,
 }
 
 pub struct State {
@@ -60,6 +62,10 @@ impl State {
         } else {
             error!("Failed to remove peer {}", id);
         }
+    }
+
+    pub fn get_webrtc_provider(&self) -> &Option<WebrtcProviderProxy> {
+        &self.webrtc_provider
     }
 }
 
@@ -506,16 +512,64 @@ impl DwebMethods for DWebServiceImpl {
             let state = self.state.lock();
             // Check if this peer is in the current list of known peers.
             if !state.known_peers.contains_key(&peer.device_id) {
-                responder.reject(SendError {
-                    kind: SendErrorKind::NotConnected,
+                responder.reject(ConnectError {
+                    kind: ConnectErrorKind::NotConnected,
                     detail: "".into(),
                 });
                 return;
             }
 
             // Send a request to the peer with the offer, and wait for the answer.
-            let endpoint = &state.known_peers.get(&peer.device_id).unwrap().endpoint;
-            println!("XYZ Will send offer to {}", endpoint);
+            let peer = state.known_peers.get(&peer.device_id).unwrap();
+
+            if !peer.is_local {
+                error!("Remote peers are not supported yet!");
+                responder.reject(ConnectError {
+                    kind: ConnectErrorKind::NotConnected,
+                    detail: "Remote Peers not supported yet!".into(),
+                });
+                return;
+            }
+
+            if let Some(ref mdns) = state.mdns {
+                let endpoint = peer.endpoint;
+                println!("XYZ Will send offer to {:?}", endpoint);
+                let did = mdns.get_did();
+                let _ = std::thread::Builder::new()
+                    .name("mdns connect".into())
+                    .spawn(move || {
+                        let client = HandshakeClient::new(&endpoint, did);
+                        match client.connect(&offer) {
+                            Ok(answer) => {
+                                responder.resolve(answer);
+                            }
+                            Err(Status::Denied) => {
+                                responder.reject(ConnectError {
+                                    kind: ConnectErrorKind::Denied,
+                                    detail: "".into(),
+                                });
+                            }
+                            Err(Status::NotConnected) => {
+                                responder.reject(ConnectError {
+                                    kind: ConnectErrorKind::NotConnected,
+                                    detail: "".into(),
+                                });
+                            }
+                            Err(_) => {
+                                responder.reject(ConnectError {
+                                    kind: ConnectErrorKind::Other,
+                                    detail: "".into(),
+                                });
+                            }
+                        }
+                    });
+            } else {
+                error!("No mdns available, can't connect!");
+                responder.reject(ConnectError {
+                    kind: ConnectErrorKind::Other,
+                    detail: "No mDNS available".into(),
+                });
+            }
         }
     }
 }

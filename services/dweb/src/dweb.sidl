@@ -63,18 +63,24 @@ dictionary Peer {
     device_desc: str
 }
 
-enum SendErrorKind {
+enum ConnectErrorKind {
     NotConnected
-    RemoteError
+    Denied
+    Other
 }
 
-dictionary SendError {
-    kind: SendErrorKind
+dictionary ConnectError {
+    kind: ConnectErrorKind
     detail: str
 }
 
 callback WebrtcProvider {
-    fn answer(offer: str) -> str
+    // Called when initiating the communication. Returns true if the 
+    // requestee accepts to move along.
+    fn hello(desc: str) -> bool
+
+    // Called with the initiator offer, expected the requestee offer.
+    fn provide_answer(offer: str) -> str
 }
 
 #[rust:not-tracked]
@@ -139,7 +145,7 @@ interface Dweb {
 
     // Initiate the connection to a peer, providing a webrtc offer.
     // The response is the webrtc answer from the peer.
-    fn connect(peer: Peer, offer: str) -> str, SendError
+    fn connect(peer: Peer, offer: str) -> str, ConnectError
 }
 
 service DwebService: Dweb

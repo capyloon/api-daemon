@@ -1,6 +1,7 @@
 // mDNS discovery support.
 
 use crate::generated::common::Peer;
+use crate::handshake::HandshakeHandler;
 use crate::service::{KnownPeer, State};
 use common::traits::Shared;
 use log::{error, info};
@@ -11,7 +12,7 @@ use searchlight::{
     net::IpVersion,
 };
 use std::collections::BTreeMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::thread;
 
@@ -21,10 +22,12 @@ pub struct MdnsDiscovery {
     did: String,
     device_id: String,
     device_desc: String,
+    handshake_server: bool,
     state: Shared<State>,
 }
 
-const MDNS_DOMAIN: &str = "_capyloon._udp.local.";
+const MDNS_DOMAIN: &str = "_capyloon._tcp.local.";
+const MDNS_PORT: u16 = 4242;
 
 fn to_empty_err<E: std::error::Error>(err: E) -> () {
     log::error!("mdns error: {}", err);
@@ -91,7 +94,7 @@ fn peer_from_responder(responder: &Arc<Responder>) -> Option<KnownPeer> {
             device_desc: props.get("desc").cloned()?,
         },
         is_local: true,
-        endpoint: format!("{}:{}", responder.addr.ip(), port),
+        endpoint: SocketAddr::new(responder.addr.ip(), port),
     };
 
     Some(peer)
@@ -100,6 +103,10 @@ fn peer_from_responder(responder: &Arc<Responder>) -> Option<KnownPeer> {
 impl MdnsDiscovery {
     pub fn active(&self) -> bool {
         self.broadcaster.is_some()
+    }
+
+    pub fn get_did(&self) -> String {
+        self.did.clone()
     }
 
     fn on_peer_found(responder: Arc<Responder>, state: Shared<State>) {
@@ -122,7 +129,7 @@ impl MdnsDiscovery {
     }
 
     fn start_broadcaster(&mut self) -> Result<(), ()> {
-        let mut service_builder = ServiceBuilder::new(MDNS_DOMAIN, &self.device_id, 4242)
+        let mut service_builder = ServiceBuilder::new(MDNS_DOMAIN, &self.device_id, MDNS_PORT)
             .map_err(to_empty_err)?
             .ttl(30)
             .add_txt(format!("desc={}", self.device_desc))
@@ -159,6 +166,7 @@ impl crate::DiscoveryMechanism for MdnsDiscovery {
             did: did.to_owned(),
             device_desc: device_desc.to_owned(),
             device_id: device_id.to_owned(),
+            handshake_server: false,
             state,
         })
     }
@@ -207,8 +215,17 @@ impl crate::DiscoveryMechanism for MdnsDiscovery {
             });
 
         // Start the server that will be used for the offer/answer exchange.
-        let server_state = self.state.clone();
-        
+        if !self.handshake_server {
+            let server_state = self.state.clone();
+            let addr: SocketAddr = "0.0.0.0:4242".parse().unwrap();
+            let handler = HandshakeHandler::new(addr, server_state);
+            if handler.start().is_ok() {
+                self.handshake_server = true;
+                info!("Handshake handler started");
+            } else {
+                error!("Failed to start handshake handler");
+            }
+        }
 
         Ok(())
     }
