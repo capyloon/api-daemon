@@ -47,6 +47,7 @@ impl HandshakeHandler {
     }
 
     fn send_response(mut stream: TcpStream, response: Response) {
+        info!("Sending response {:?}", response);
         match bincode::serialize(&response) {
             Ok(data) => {
                 if let Err(err) = stream.write_all(&data) {
@@ -59,8 +60,11 @@ impl HandshakeHandler {
 
     // Handles a client request: calls the ui provider.
     fn handle_client(stream: TcpStream, state: Shared<State>) {
+        info!("start handle_client");
+
         let reader = BufReader::new(stream.try_clone().unwrap());
 
+        info!("Waiting for request");
         let request: Request = match bincode::deserialize_from(reader) {
             Ok(res) => res,
             Err(err) => {
@@ -68,6 +72,7 @@ impl HandshakeHandler {
                 return;
             }
         };
+        info!("Got request: {:?}", request);
 
         // Check that the provider is available.
         let mut provider = match state.lock().get_webrtc_provider() {
@@ -77,6 +82,7 @@ impl HandshakeHandler {
 
         // Process the call to hello()
         if let Ok(result) = provider.hello(request.did).recv() {
+            info!("hello() result: {:?}", result);
             match result {
                 Ok(false) => return Self::send_response(stream, Response::failed(Status::Denied)),
                 Ok(true) => {}
@@ -88,6 +94,7 @@ impl HandshakeHandler {
 
         // Process the call to provide_answer();
         if let Ok(result) = provider.provide_answer(request.offer).recv() {
+            info!("provide_answer(): {:?}", result);
             match result {
                 Ok(answer) => Self::send_response(
                     stream,
@@ -146,7 +153,10 @@ impl HandshakeClient {
 
     // Do a blocking call to send the offer.
     pub fn connect(&self, offer: &str) -> Result<String, Status> {
-        let mut stream = TcpStream::connect(self.addr).map_err(|_| Status::NotConnected)?;
+        let mut stream = TcpStream::connect(self.addr).map_err(|err| {
+            error!("Failed to connect to {:?} : {:?}", self.addr, err);
+            Status::NotConnected
+        })?;
 
         let request = Request {
             did: self.did.clone(),
@@ -157,6 +167,8 @@ impl HandshakeClient {
         stream
             .write_all(&encoded)
             .map_err(|_| Status::InternalError)?;
+
+        info!("Request sent ({} bytes)", encoded.len());
 
         let response: Result<Response, _> = bincode::deserialize_from(stream);
 

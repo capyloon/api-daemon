@@ -12,7 +12,7 @@ use searchlight::{
     net::IpVersion,
 };
 use std::collections::BTreeMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::thread;
 
@@ -83,9 +83,25 @@ fn get_device_id(dns_packet: &DnsResponse) -> Option<String> {
     })
 }
 
+// Return an IPV4 address usable as a remote endpoint.
+fn get_addr(dns_packet: &DnsResponse) -> Option<Ipv4Addr> {
+    dns_packet.additionals().iter().find_map(|record| {
+        if let Some(RData::A(addr)) = record.data() {
+            if addr.is_private() {
+                Some(addr.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    })
+}
+
 fn peer_from_responder(responder: &Arc<Responder>) -> Option<KnownPeer> {
     let (props, port) = get_device_props(&responder.last_response);
     let device_id = get_device_id(&responder.last_response)?;
+    let addr = get_addr(&responder.last_response)?;
 
     let peer = KnownPeer {
         peer: Peer {
@@ -94,7 +110,7 @@ fn peer_from_responder(responder: &Arc<Responder>) -> Option<KnownPeer> {
             device_desc: props.get("desc").cloned()?,
         },
         is_local: true,
-        endpoint: SocketAddr::new(responder.addr.ip(), port),
+        endpoint: SocketAddr::new(IpAddr::V4(addr), port),
     };
 
     Some(peer)
