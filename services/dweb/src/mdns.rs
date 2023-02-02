@@ -19,9 +19,7 @@ use std::thread;
 pub struct MdnsDiscovery {
     broadcaster: Option<BroadcasterHandle>,
     discovery: Option<DiscoveryHandle>,
-    did: String,
-    device_id: String,
-    device_desc: String,
+    peer: Peer, // Represents this device.
     handshake_server: bool,
     state: Shared<State>,
 }
@@ -121,8 +119,8 @@ impl MdnsDiscovery {
         self.broadcaster.is_some()
     }
 
-    pub fn get_did(&self) -> String {
-        self.did.clone()
+    pub fn get_peer(&self) -> Peer {
+        self.peer.clone()
     }
 
     fn on_peer_found(responder: Arc<Responder>, state: Shared<State>) {
@@ -145,11 +143,11 @@ impl MdnsDiscovery {
     }
 
     fn start_broadcaster(&mut self) -> Result<(), ()> {
-        let mut service_builder = ServiceBuilder::new(MDNS_DOMAIN, &self.device_id, MDNS_PORT)
+        let mut service_builder = ServiceBuilder::new(MDNS_DOMAIN, &self.peer.device_id, MDNS_PORT)
             .map_err(to_empty_err)?
             .ttl(30)
-            .add_txt(format!("desc={}", self.device_desc))
-            .add_txt(format!("did={}", self.did));
+            .add_txt(format!("desc={}", self.peer.device_desc))
+            .add_txt(format!("did={}", self.peer.did));
 
         for adr in get_ipaddrs() {
             service_builder = service_builder.add_ip_address(adr);
@@ -167,21 +165,14 @@ impl MdnsDiscovery {
 }
 
 impl crate::DiscoveryMechanism for MdnsDiscovery {
-    fn with_state(
-        state: Shared<State>,
-        did: &str,
-        device_id: &str,
-        device_desc: &str,
-    ) -> Option<Self>
+    fn with_state(state: Shared<State>, peer: &Peer) -> Option<Self>
     where
         Self: Sized,
     {
         Some(Self {
             broadcaster: None,
             discovery: None,
-            did: did.to_owned(),
-            device_desc: device_desc.to_owned(),
-            device_id: device_id.to_owned(),
+            peer: peer.clone(),
             handshake_server: false,
             state,
         })

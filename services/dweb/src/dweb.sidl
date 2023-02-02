@@ -77,10 +77,10 @@ dictionary ConnectError {
 callback WebrtcProvider {
     // Called when initiating the communication. Returns true if the 
     // requestee accepts to move along.
-    fn hello(desc: str) -> bool
+    fn hello(from: Peer) -> bool
 
     // Called with the initiator offer, expected the requestee offer.
-    fn provide_answer(offer: str) -> str
+    fn provide_answer(from: Peer, offer: str) -> str
 }
 
 #[rust:not-tracked]
@@ -120,7 +120,7 @@ interface Dweb {
     // Peer discovery features.
 
     // Make ourselves discoverable, either only on the local network or globally.
-    fn enable_discovery(local_only: bool, did: str, device_id: str, device_desc: str)
+    fn enable_discovery(local_only: bool, peer: Peer)
 
     // Turn off discovery. That will also stop all active peer discovery.
     fn disable_discovery()
@@ -145,7 +145,7 @@ interface Dweb {
 
     // Initiate the connection to a peer, providing a webrtc offer.
     // The response is the webrtc answer from the peer.
-    fn connect(peer: Peer, offer: str) -> str, ConnectError
+    fn pair_with(peer: Peer, offer: str) -> str, ConnectError
 }
 
 service DwebService: Dweb

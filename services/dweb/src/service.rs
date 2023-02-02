@@ -398,9 +398,7 @@ impl DwebMethods for DWebServiceImpl {
         &mut self,
         responder: DwebEnableDiscoveryResponder,
         local_only: bool,
-        did: String,
-        device_id: String,
-        device_desc: String,
+        peer: Peer,
     ) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
@@ -413,8 +411,7 @@ impl DwebMethods for DWebServiceImpl {
         let mut state = self.state.lock();
 
         if state.mdns.is_none() {
-            let mdns =
-                MdnsDiscovery::with_state(self.state.clone(), &did, &device_id, &device_desc);
+            let mdns = MdnsDiscovery::with_state(self.state.clone(), &peer);
             state.mdns = mdns;
         }
 
@@ -502,9 +499,8 @@ impl DwebMethods for DWebServiceImpl {
         responder.resolve();
     }
 
-    fn connect(&mut self, responder: DwebConnectResponder, peer: Peer, offer: String) {
-        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "connect to peer")
-        {
+    fn pair_with(&mut self, responder: DwebPairWithResponder, peer: Peer, offer: String) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "pair with") {
             return;
         }
 
@@ -534,11 +530,11 @@ impl DwebMethods for DWebServiceImpl {
             if let Some(ref mdns) = state.mdns {
                 let endpoint = peer.endpoint;
                 println!("XYZ Will send offer to {:?}", endpoint);
-                let did = mdns.get_did();
+                let peer = mdns.get_peer();
                 let _ = std::thread::Builder::new()
                     .name("mdns connect".into())
                     .spawn(move || {
-                        let client = HandshakeClient::new(&endpoint, did);
+                        let client = HandshakeClient::new(&endpoint, peer);
                         match client.connect(&offer) {
                             Ok(answer) => {
                                 responder.resolve(answer);

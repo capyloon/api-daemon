@@ -8,6 +8,7 @@ pub mod sidl_ucan;
 pub mod storage;
 
 // Helpers that can be reused by multiple services.
+use crate::generated::common::Peer;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::traits::SharedServiceState;
@@ -85,12 +86,7 @@ pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
 
 // Trait to implement by peer discovery mechanisms.
 pub trait DiscoveryMechanism {
-    fn with_state(
-        state: common::traits::Shared<service::State>,
-        did: &str,
-        device_id: &str,
-        device_desc: &str,
-    ) -> Option<Self>
+    fn with_state(state: common::traits::Shared<service::State>, peer: &Peer) -> Option<Self>
     where
         Self: Sized;
 

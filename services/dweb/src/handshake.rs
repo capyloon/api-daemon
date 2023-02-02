@@ -1,4 +1,5 @@
 /// Handshake messages
+use crate::generated::common::Peer;
 use crate::service::State;
 use common::traits::Shared;
 use log::{error, info};
@@ -9,7 +10,7 @@ use std::thread;
 
 #[derive(Deserialize, Serialize, Debug)]
 struct Request {
-    did: String,   // The initiator DID
+    peer: Peer,    // The initiator DID
     offer: String, // ICE offer
 }
 
@@ -76,7 +77,7 @@ impl HandshakeHandler {
         };
 
         // Process the call to hello()
-        if let Ok(result) = provider.hello(request.did).recv() {
+        if let Ok(result) = provider.hello(request.peer.clone()).recv() {
             match result {
                 Ok(false) => return Self::send_response(stream, Response::failed(Status::Denied)),
                 Ok(true) => {}
@@ -87,7 +88,7 @@ impl HandshakeHandler {
         }
 
         // Process the call to provide_answer();
-        if let Ok(result) = provider.provide_answer(request.offer).recv() {
+        if let Ok(result) = provider.provide_answer(request.peer, request.offer).recv() {
             match result {
                 Ok(answer) => Self::send_response(
                     stream,
@@ -133,14 +134,14 @@ impl HandshakeHandler {
 
 pub struct HandshakeClient {
     addr: SocketAddr,
-    did: String,
+    peer: Peer,
 }
 
 impl HandshakeClient {
-    pub fn new(addr: &SocketAddr, did: String) -> Self {
+    pub fn new(addr: &SocketAddr, peer: Peer) -> Self {
         Self {
             addr: addr.clone(),
-            did,
+            peer,
         }
     }
 
@@ -152,7 +153,7 @@ impl HandshakeClient {
         })?;
 
         let request = Request {
-            did: self.did.clone(),
+            peer: self.peer.clone(),
             offer: offer.to_owned(),
         };
 
