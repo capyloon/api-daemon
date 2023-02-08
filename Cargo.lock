@@ -2115,6 +2115,7 @@ dependencies = [
  "ucan",
  "ucan-key-support",
  "url",
+ "uuid 1.1.2",
 ]
 
 [[package]]

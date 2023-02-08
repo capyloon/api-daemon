@@ -1,20 +1,33 @@
 /// Handshake messages
-use crate::generated::common::Peer;
+use crate::generated::common::{Peer, PeerAction};
 use crate::service::State;
 use common::traits::Shared;
 use log::{error, info};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::io::{BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::thread;
 
 #[derive(Deserialize, Serialize, Debug)]
-struct Request {
-    peer: Peer,    // The initiator DID
-    offer: String, // ICE offer
+struct PairingRequest {
+    peer: Peer, // The initiator peer
 }
 
 #[derive(Deserialize, Serialize, Debug)]
+struct ActionRequest {
+    peer: Peer, // The initiator peer
+    action: PeerAction,
+    offer: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+enum Request {
+    Pairing(PairingRequest),
+    Action(ActionRequest),
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum Status {
     Granted,
     Denied,
@@ -22,19 +35,62 @@ pub enum Status {
     InternalError,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-struct Response {
-    status: Status,
-    answer: Option<String>,
+trait ResponseOut {
+    type Out;
+
+    fn status(&self) -> Status;
+    fn output(&self) -> Self::Out;
+    fn error(status: Status) -> Self;
 }
 
-impl Response {
-    fn failed(status: Status) -> Self {
+#[derive(Deserialize, Serialize, Debug)]
+struct PairingResponse {
+    status: Status,
+}
+
+impl ResponseOut for PairingResponse {
+    type Out = ();
+
+    fn status(&self) -> Status {
+        self.status.clone()
+    }
+
+    fn output(&self) -> Self::Out {}
+
+    fn error(status: Status) -> Self {
+        Self { status }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct ActionResponse {
+    status: Status,
+    answer: String,
+}
+
+impl ResponseOut for ActionResponse {
+    type Out = String;
+
+    fn status(&self) -> Status {
+        self.status.clone()
+    }
+
+    fn output(&self) -> Self::Out {
+        self.answer.clone()
+    }
+
+    fn error(status: Status) -> Self {
         Self {
             status,
-            answer: None,
+            answer: "".into(),
         }
     }
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+enum Response {
+    Pairing(PairingResponse),
+    Action(ActionResponse),
 }
 
 pub struct HandshakeHandler {
@@ -58,7 +114,7 @@ impl HandshakeHandler {
         }
     }
 
-    // Handles a client request: calls the ui provider.
+    // Handles a client request: calls the ui appropriate UI provider.
     fn handle_client(stream: TcpStream, state: Shared<State>) {
         let reader = BufReader::new(stream.try_clone().unwrap());
 
@@ -71,36 +127,74 @@ impl HandshakeHandler {
         };
 
         // Check that the provider is available.
-        let mut provider = match state.lock().get_webrtc_provider() {
+        let mut provider = match state.lock().get_p2p_provider() {
             Some(proxy) => proxy.clone(),
-            None => return Self::send_response(stream, Response::failed(Status::InternalError)),
+            None => {
+                let response = match request {
+                    Request::Pairing(_) => {
+                        Response::Pairing(PairingResponse::error(Status::InternalError))
+                    }
+                    Request::Action(_) => {
+                        Response::Action(ActionResponse::error(Status::InternalError))
+                    }
+                };
+                return Self::send_response(stream, response);
+            }
         };
 
-        // Process the call to hello()
-        if let Ok(result) = provider.hello(request.peer.clone()).recv() {
-            match result {
-                Ok(false) => return Self::send_response(stream, Response::failed(Status::Denied)),
-                Ok(true) => {}
-                Err(_) => return Self::send_response(stream, Response::failed(Status::Denied)),
+        match request {
+            Request::Pairing(PairingRequest { peer }) => {
+                // Process the call to pair
+                if let Ok(result) = provider.hello(peer.clone()).recv() {
+                    match result {
+                        Ok(false) => {
+                            return Self::send_response(
+                                stream,
+                                Response::Pairing(PairingResponse::error(Status::Denied)),
+                            )
+                        }
+                        Ok(true) => {}
+                        Err(_) => {
+                            return Self::send_response(
+                                stream,
+                                Response::Pairing(PairingResponse::error(Status::Denied)),
+                            )
+                        }
+                    }
+                } else {
+                    return Self::send_response(
+                        stream,
+                        Response::Pairing(PairingResponse::error(Status::InternalError)),
+                    );
+                }
             }
-        } else {
-            return Self::send_response(stream, Response::failed(Status::InternalError));
-        }
-
-        // Process the call to provide_answer();
-        if let Ok(result) = provider.provide_answer(request.peer, request.offer).recv() {
-            match result {
-                Ok(answer) => Self::send_response(
-                    stream,
-                    Response {
-                        status: Status::Granted,
-                        answer: Some(answer),
-                    },
-                ),
-                Err(_) => Self::send_response(stream, Response::failed(Status::Denied)),
+            Request::Action(ActionRequest {
+                peer,
+                action,
+                offer,
+            }) => {
+                // Process the call to provide_answer();
+                if let Ok(result) = provider.provide_answer(peer, action, offer).recv() {
+                    match result {
+                        Ok(answer) => Self::send_response(
+                            stream,
+                            Response::Action(ActionResponse {
+                                status: Status::Granted,
+                                answer,
+                            }),
+                        ),
+                        Err(_) => Self::send_response(
+                            stream,
+                            Response::Action(ActionResponse::error(Status::Denied)),
+                        ),
+                    }
+                } else {
+                    return Self::send_response(
+                        stream,
+                        Response::Action(ActionResponse::error(Status::InternalError)),
+                    );
+                }
             }
-        } else {
-            return Self::send_response(stream, Response::failed(Status::InternalError));
         }
     }
 
@@ -134,41 +228,35 @@ impl HandshakeHandler {
 
 pub struct HandshakeClient {
     addr: SocketAddr,
-    peer: Peer,
 }
 
 impl HandshakeClient {
-    pub fn new(addr: &SocketAddr, peer: Peer) -> Self {
-        Self {
-            addr: addr.clone(),
-            peer,
-        }
+    pub fn new(addr: &SocketAddr) -> Self {
+        Self { addr: addr.clone() }
     }
 
-    // Do a blocking call to send the offer.
-    pub fn connect(&self, offer: &str) -> Result<String, Status> {
+    // Manages a request / response flow.
+    fn request<I: Serialize, O: DeserializeOwned + ResponseOut>(
+        &self,
+        input: I,
+    ) -> Result<O::Out, Status> {
         let mut stream = TcpStream::connect(self.addr).map_err(|err| {
             error!("Failed to connect to {:?} : {:?}", self.addr, err);
             Status::NotConnected
         })?;
 
-        let request = Request {
-            peer: self.peer.clone(),
-            offer: offer.to_owned(),
-        };
-
-        let encoded = bincode::serialize(&request).map_err(|_| Status::InternalError)?;
+        let encoded = bincode::serialize(&input).map_err(|_| Status::InternalError)?;
         stream
             .write_all(&encoded)
             .map_err(|_| Status::InternalError)?;
 
-        let response: Result<Response, _> = bincode::deserialize_from(stream);
+        let response: Result<O, _> = bincode::deserialize_from(stream);
 
         match response {
-            Ok(response) => match response.status {
-                Status::Granted => Ok(response.answer.unwrap_or_default()),
+            Ok(response) => match response.status() {
+                Status::Granted => Ok(response.output()),
                 _ => {
-                    error!("No anwser to the offer: {:?}", response.status);
+                    error!("No anwser to the offer: {:?}", response.status());
                     Err(Status::Denied)
                 }
             },
@@ -177,5 +265,26 @@ impl HandshakeClient {
                 Err(Status::InternalError)
             }
         }
+    }
+
+    // Blocking call to send a pairing request.
+    pub fn pair_with(&self, peer: Peer) -> Result<(), Status> {
+        let request = PairingRequest { peer: peer.clone() };
+        self.request::<PairingRequest, PairingResponse>(request)
+    }
+
+    // Blocking call to send a webrtc request.
+    pub fn get_answer(
+        &self,
+        peer: Peer,
+        action: PeerAction,
+        offer: String,
+    ) -> Result<String, Status> {
+        let request = ActionRequest {
+            peer: peer.clone(),
+            action: action.clone(),
+            offer: offer.clone(),
+        };
+        self.request::<ActionRequest, ActionResponse>(request)
     }
 }

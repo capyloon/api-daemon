@@ -109,6 +109,7 @@ fn peer_from_responder(responder: &Arc<Responder>) -> Option<KnownPeer> {
         },
         is_local: true,
         endpoint: SocketAddr::new(IpAddr::V4(addr), port),
+        session_id: None,
     };
 
     Some(peer)
