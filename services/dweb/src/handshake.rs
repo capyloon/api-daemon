@@ -27,6 +27,22 @@ enum Request {
     Action(ActionRequest),
 }
 
+trait AsRequest {
+    fn as_request(self) -> Request;
+}
+
+impl AsRequest for PairingRequest {
+    fn as_request(self) -> Request {
+        Request::Pairing(self)
+    }
+}
+
+impl AsRequest for ActionRequest {
+    fn as_request(self) -> Request {
+        Request::Action(self)
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum Status {
     Granted,
@@ -40,7 +56,10 @@ trait ResponseOut {
 
     fn status(&self) -> Status;
     fn output(&self) -> Self::Out;
-    fn error(status: Status) -> Self;
+    fn with_status(status: Status) -> Self;
+    fn from_response(req: Response) -> Option<Self>
+    where
+        Self: Sized;
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -57,8 +76,16 @@ impl ResponseOut for PairingResponse {
 
     fn output(&self) -> Self::Out {}
 
-    fn error(status: Status) -> Self {
+    fn with_status(status: Status) -> Self {
         Self { status }
+    }
+
+    fn from_response(req: Response) -> Option<Self> {
+        if let Response::Pairing(pairing) = req {
+            Some(pairing)
+        } else {
+            None
+        }
     }
 }
 
@@ -79,10 +106,18 @@ impl ResponseOut for ActionResponse {
         self.answer.clone()
     }
 
-    fn error(status: Status) -> Self {
+    fn with_status(status: Status) -> Self {
         Self {
             status,
             answer: "".into(),
+        }
+    }
+
+    fn from_response(req: Response) -> Option<Self> {
+        if let Response::Action(action) = req {
+            Some(action)
+        } else {
+            None
         }
     }
 }
@@ -132,10 +167,10 @@ impl HandshakeHandler {
             None => {
                 let response = match request {
                     Request::Pairing(_) => {
-                        Response::Pairing(PairingResponse::error(Status::InternalError))
+                        Response::Pairing(PairingResponse::with_status(Status::InternalError))
                     }
                     Request::Action(_) => {
-                        Response::Action(ActionResponse::error(Status::InternalError))
+                        Response::Action(ActionResponse::with_status(Status::InternalError))
                     }
                 };
                 return Self::send_response(stream, response);
@@ -150,21 +185,26 @@ impl HandshakeHandler {
                         Ok(false) => {
                             return Self::send_response(
                                 stream,
-                                Response::Pairing(PairingResponse::error(Status::Denied)),
+                                Response::Pairing(PairingResponse::with_status(Status::Denied)),
                             )
                         }
-                        Ok(true) => {}
+                        Ok(true) => {
+                            return Self::send_response(
+                                stream,
+                                Response::Pairing(PairingResponse::with_status(Status::Granted)),
+                            )
+                        }
                         Err(_) => {
                             return Self::send_response(
                                 stream,
-                                Response::Pairing(PairingResponse::error(Status::Denied)),
+                                Response::Pairing(PairingResponse::with_status(Status::Denied)),
                             )
                         }
                     }
                 } else {
                     return Self::send_response(
                         stream,
-                        Response::Pairing(PairingResponse::error(Status::InternalError)),
+                        Response::Pairing(PairingResponse::with_status(Status::InternalError)),
                     );
                 }
             }
@@ -185,13 +225,13 @@ impl HandshakeHandler {
                         ),
                         Err(_) => Self::send_response(
                             stream,
-                            Response::Action(ActionResponse::error(Status::Denied)),
+                            Response::Action(ActionResponse::with_status(Status::Denied)),
                         ),
                     }
                 } else {
                     return Self::send_response(
                         stream,
-                        Response::Action(ActionResponse::error(Status::InternalError)),
+                        Response::Action(ActionResponse::with_status(Status::InternalError)),
                     );
                 }
             }
@@ -236,32 +276,40 @@ impl HandshakeClient {
     }
 
     // Manages a request / response flow.
-    fn request<I: Serialize, O: DeserializeOwned + ResponseOut>(
+    fn request<I: Serialize + AsRequest, O: DeserializeOwned + ResponseOut>(
         &self,
         input: I,
     ) -> Result<O::Out, Status> {
+        info!("Sending request to {:?}", self.addr);
         let mut stream = TcpStream::connect(self.addr).map_err(|err| {
             error!("Failed to connect to {:?} : {:?}", self.addr, err);
             Status::NotConnected
         })?;
 
-        let encoded = bincode::serialize(&input).map_err(|_| Status::InternalError)?;
+        let encoded = bincode::serialize(&input.as_request()).map_err(|_| Status::InternalError)?;
         stream
             .write_all(&encoded)
             .map_err(|_| Status::InternalError)?;
 
-        let response: Result<O, _> = bincode::deserialize_from(stream);
+        let response: Result<Response, _> = bincode::deserialize_from(stream);
 
         match response {
-            Ok(response) => match response.status() {
-                Status::Granted => Ok(response.output()),
-                _ => {
-                    error!("No anwser to the offer: {:?}", response.status());
-                    Err(Status::Denied)
+            Ok(response) => {
+                if let Some(resp) = O::from_response(response) {
+                    match resp.status() {
+                        Status::Granted => Ok(resp.output()),
+                        _ => {
+                            error!("Request denied: {:?}", resp.status());
+                            Err(Status::Denied)
+                        }
+                    }
+                } else {
+                    error!("Response is not the expected type");
+                    Err(Status::InternalError)
                 }
-            },
+            }
             Err(err) => {
-                error!("Error decoding request: {}", err);
+                error!("Error decoding response: {}", err);
                 Err(Status::InternalError)
             }
         }

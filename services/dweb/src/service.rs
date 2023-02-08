@@ -552,7 +552,7 @@ impl DwebMethods for DWebServiceImpl {
 
             if let Some(ref mdns) = state.mdns {
                 let endpoint = peer.endpoint;
-                println!("XYZ Will pair with {:?}", endpoint);
+                debug!("Will pair with {:?}", endpoint);
                 let this_peer = mdns.get_peer();
                 let remote_peer = peer.peer.clone();
                 let state2 = self.state.clone();
@@ -568,19 +568,19 @@ impl DwebMethods for DWebServiceImpl {
                             Err(Status::Denied) => {
                                 responder.reject(ConnectError {
                                     kind: ConnectErrorKind::Denied,
-                                    detail: "".into(),
+                                    detail: "ConnectError:Denied".into(),
                                 });
                             }
                             Err(Status::NotConnected) => {
                                 responder.reject(ConnectError {
                                     kind: ConnectErrorKind::NotConnected,
-                                    detail: "".into(),
+                                    detail: "ConnectError:NotConnected".into(),
                                 });
                             }
                             Err(_) => {
                                 responder.reject(ConnectError {
                                     kind: ConnectErrorKind::Other,
-                                    detail: "".into(),
+                                    detail: "ConnectError:Other".into(),
                                 });
                             }
                         }
