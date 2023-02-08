@@ -90,6 +90,7 @@ enum PeerAction {
     Setup
     Text
     Url
+    File
     App
     Activity
 }
