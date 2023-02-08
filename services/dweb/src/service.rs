@@ -76,11 +76,17 @@ impl State {
     }
 
     fn maybe_remove_session(&mut self, peer: Peer) {
-        if let Some(session) = self.sessions.values().find(|session_peer| {
-            session_peer.peer.did == peer.did && session_peer.peer.device_id == peer.device_id
-        }) {
-            self.event_broadcaster
-                .broadcast_sessionremoved(session.id.clone());
+        let mut session_id = None;
+        self.sessions.retain(|key, session| {
+            let found = session.peer.did == peer.did && session.peer.device_id == peer.device_id;
+            if found {
+                session_id = Some(session.id.clone());
+            }
+            !found
+        });
+
+        if let Some(id) = session_id {
+            self.event_broadcaster.broadcast_sessionremoved(id);
         }
     }
 
