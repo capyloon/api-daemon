@@ -120,7 +120,27 @@ pub trait MessageBody {
 }
 
 mod foreign_impls {
+    use std::{borrow::Cow, ops::DerefMut};
+
     use super::*;
+
+    impl<B> MessageBody for &mut B
+    where
+        B: MessageBody + Unpin + ?Sized,
+    {
+        type Error = B::Error;
+
+        fn size(&self) -> BodySize {
+            (**self).size()
+        }
+
+        fn poll_next(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Bytes, Self::Error>>> {
+            Pin::new(&mut **self).poll_next(cx)
+        }
+    }
 
     impl MessageBody for Infallible {
         type Error = Infallible;
@@ -179,8 +199,9 @@ mod foreign_impls {
         }
     }
 
-    impl<B> MessageBody for Pin<Box<B>>
+    impl<T, B> MessageBody for Pin<T>
     where
+        T: DerefMut<Target = B> + Unpin,
         B: MessageBody + ?Sized,
     {
         type Error = B::Error;
@@ -303,6 +324,39 @@ mod foreign_impls {
         }
     }
 
+    impl MessageBody for Cow<'static, [u8]> {
+        type Error = Infallible;
+
+        #[inline]
+        fn size(&self) -> BodySize {
+            BodySize::Sized(self.len() as u64)
+        }
+
+        #[inline]
+        fn poll_next(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Bytes, Self::Error>>> {
+            if self.is_empty() {
+                Poll::Ready(None)
+            } else {
+                let bytes = match mem::take(self.get_mut()) {
+                    Cow::Borrowed(b) => Bytes::from_static(b),
+                    Cow::Owned(b) => Bytes::from(b),
+                };
+                Poll::Ready(Some(Ok(bytes)))
+            }
+        }
+
+        #[inline]
+        fn try_into_bytes(self) -> Result<Bytes, Self> {
+            match self {
+                Cow::Borrowed(b) => Ok(Bytes::from_static(b)),
+                Cow::Owned(b) => Ok(Bytes::from(b)),
+            }
+        }
+    }
+
     impl MessageBody for &'static str {
         type Error = Infallible;
 
@@ -355,6 +409,39 @@ mod foreign_impls {
         #[inline]
         fn try_into_bytes(self) -> Result<Bytes, Self> {
             Ok(Bytes::from(self))
+        }
+    }
+
+    impl MessageBody for Cow<'static, str> {
+        type Error = Infallible;
+
+        #[inline]
+        fn size(&self) -> BodySize {
+            BodySize::Sized(self.len() as u64)
+        }
+
+        #[inline]
+        fn poll_next(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Bytes, Self::Error>>> {
+            if self.is_empty() {
+                Poll::Ready(None)
+            } else {
+                let bytes = match mem::take(self.get_mut()) {
+                    Cow::Borrowed(s) => Bytes::from_static(s.as_bytes()),
+                    Cow::Owned(s) => Bytes::from(s.into_bytes()),
+                };
+                Poll::Ready(Some(Ok(bytes)))
+            }
+        }
+
+        #[inline]
+        fn try_into_bytes(self) -> Result<Bytes, Self> {
+            match self {
+                Cow::Borrowed(s) => Ok(Bytes::from_static(s.as_bytes())),
+                Cow::Owned(s) => Ok(Bytes::from(s.into_bytes())),
+            }
         }
     }
 
@@ -445,6 +532,7 @@ mod tests {
     use actix_rt::pin;
     use actix_utils::future::poll_fn;
     use bytes::{Bytes, BytesMut};
+    use futures_util::stream;
 
     use super::*;
     use crate::body::{self, EitherBody};
@@ -481,6 +569,35 @@ mod tests {
         assert_poll_next_none!(pl);
     }
 
+    #[actix_rt::test]
+    async fn mut_equivalence() {
+        assert_eq!(().size(), BodySize::Sized(0));
+        assert_eq!(().size(), (&(&mut ())).size());
+
+        let pl = &mut ();
+        pin!(pl);
+        assert_poll_next_none!(pl);
+
+        let pl = &mut Box::new(());
+        pin!(pl);
+        assert_poll_next_none!(pl);
+
+        let mut body = body::SizedStream::new(
+            8,
+            stream::iter([
+                Ok::<_, std::io::Error>(Bytes::from("1234")),
+                Ok(Bytes::from("5678")),
+            ]),
+        );
+        let body = &mut body;
+        assert_eq!(body.size(), BodySize::Sized(8));
+        pin!(body);
+        assert_poll_next!(body, Bytes::from_static(b"1234"));
+        assert_poll_next!(body, Bytes::from_static(b"5678"));
+        assert_poll_next_none!(body);
+    }
+
+    #[allow(clippy::let_unit_value)]
     #[actix_rt::test]
     async fn test_unit() {
         let pl = ();
@@ -605,5 +722,19 @@ mod tests {
         assert_eq!(body, "hello cast!");
         let not_body = resp_body.downcast_ref::<()>();
         assert!(not_body.is_none());
+    }
+
+    #[actix_rt::test]
+    async fn non_owning_to_bytes() {
+        let mut body = BoxBody::new(());
+        let bytes = body::to_bytes(&mut body).await.unwrap();
+        assert_eq!(bytes, Bytes::new());
+
+        let mut body = body::BodyStream::new(stream::iter([
+            Ok::<_, std::io::Error>(Bytes::from("1234")),
+            Ok(Bytes::from("5678")),
+        ]));
+        let bytes = body::to_bytes(&mut body).await.unwrap();
+        assert_eq!(bytes, Bytes::from_static(b"12345678"));
     }
 }

@@ -2,7 +2,10 @@ use crate::config::Config;
 use crate::did::Did;
 use crate::generated::common::Did as SidlDid;
 use crate::generated::{common::*, service::*};
+use crate::handshake::{HandshakeClient, Status};
+use crate::mdns::MdnsDiscovery;
 use crate::storage::DwebStorage;
+use crate::DiscoveryMechanism;
 use async_std::path::Path;
 use common::core::BaseMessage;
 use common::traits::{
@@ -10,6 +13,8 @@ use common::traits::{
     Shared, SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
 use log::{debug, error, info};
+use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::SystemTime;
 use ucan::builder::UcanBuilder;
@@ -17,13 +22,87 @@ use ucan::capability::{Action, Capability as UCapability, Resource, Scope, With}
 use ucan::ucan::Ucan;
 use url::Url as StdUrl;
 
+// The internal representation of known peers needs to include
+// the endpoint used to communicate with them, and wether it is
+// a remote or local peer.
+
+pub struct KnownPeer {
+    pub peer: Peer,
+    pub is_local: bool,
+    pub endpoint: SocketAddr,
+    pub session_id: Option<String>,
+}
+
+fn new_session_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 pub struct State {
     pub dweb_store: DwebStorage,
     event_broadcaster: DwebEventBroadcaster,
     ui_provider: Option<UcanProviderProxy>,
+    p2p_provider: Option<P2pProviderProxy>,
+    known_peers: BTreeMap<String, KnownPeer>, // The key is the device id.
+    mdns: Option<MdnsDiscovery>,
+    sessions: BTreeMap<String, Session>, // The key is the session id.
 }
 
 impl StateLogger for State {}
+
+impl State {
+    pub fn on_peer_found(&mut self, peer: KnownPeer) {
+        let key = peer.peer.device_id.clone();
+        if !self.known_peers.contains_key(&key) {
+            info!("Peer added: {}", key);
+            self.event_broadcaster
+                .broadcast_peerfound(peer.peer.clone());
+            self.known_peers.insert(key, peer);
+        }
+    }
+
+    pub fn on_peer_lost(&mut self, id: &str) {
+        info!("Removing peer: {}", id);
+
+        if let Some(peer) = self.known_peers.remove(id) {
+            self.event_broadcaster.broadcast_peerlost(peer.peer.clone());
+            self.maybe_remove_session(peer.peer);
+        } else {
+            error!("Failed to remove peer {}", id);
+        }
+    }
+
+    pub fn get_p2p_provider(&self) -> &Option<P2pProviderProxy> {
+        &self.p2p_provider
+    }
+
+    fn maybe_remove_session(&mut self, peer: Peer) {
+        let mut session_id = None;
+        self.sessions.retain(|key, session| {
+            let found = session.peer.did == peer.did && session.peer.device_id == peer.device_id;
+            if found {
+                session_id = Some(session.id.clone());
+            }
+            !found
+        });
+
+        if let Some(id) = session_id {
+            self.event_broadcaster.broadcast_sessionremoved(id);
+        }
+    }
+
+    fn create_session(&mut self, peer: Peer) -> Session {
+        let session = Session {
+            id: new_session_id(),
+            peer,
+        };
+
+        self.sessions.insert(session.id.clone(), session.clone());
+        self.event_broadcaster
+            .broadcast_sessionadded(session.clone());
+
+        session
+    }
+}
 
 #[allow(clippy::from_over_into)]
 impl Into<State> for &Config {
@@ -35,6 +114,10 @@ impl Into<State> for &Config {
             dweb_store: DwebStorage::new(store_path),
             event_broadcaster: DwebEventBroadcaster::default(),
             ui_provider: None,
+            p2p_provider: None,
+            known_peers: BTreeMap::new(),
+            mdns: None,
+            sessions: BTreeMap::new(),
         }
     }
 }
@@ -95,6 +178,7 @@ pub struct DWebServiceImpl {
     origin_attributes: OriginAttributes,
     proxy_tracker: DwebServiceProxyTracker,
     provides_ui: bool,
+    provides_p2p: bool,
     tracker: DwebServiceTrackerType,
 }
 
@@ -344,6 +428,285 @@ impl DwebMethods for DWebServiceImpl {
             responder.reject(UcanError::InternalError);
         }
     }
+
+    // Peer discovery
+    fn enable_discovery(
+        &mut self,
+        responder: DwebEnableDiscoveryResponder,
+        local_only: bool,
+        peer: Peer,
+    ) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "enable discovery",
+        ) {
+            return;
+        }
+
+        let mut state = self.state.lock();
+
+        if state.mdns.is_none() {
+            let mdns = MdnsDiscovery::with_state(self.state.clone(), &peer);
+            state.mdns = mdns;
+        }
+
+        if let Some(mdns) = &mut state.mdns {
+            if mdns.start().is_err() {
+                responder.reject();
+            }
+        } else {
+            responder.reject();
+        }
+
+        // Start the rendez-vous discovery client.
+        if !local_only {}
+
+        responder.resolve();
+    }
+
+    fn disable_discovery(&mut self, responder: DwebDisableDiscoveryResponder) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "disable discovery",
+        ) {
+            return;
+        }
+
+        if let Some(mdns) = &mut self.state.lock().mdns {
+            if mdns.stop().is_err() {
+                responder.reject();
+            }
+        }
+
+        responder.resolve();
+    }
+
+    fn known_peers(&mut self, responder: DwebKnownPeersResponder) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "known peers") {
+            return;
+        }
+
+        let peers: Vec<Peer> = {
+            self.state
+                .lock()
+                .known_peers
+                .values()
+                .map(|item| item.peer.clone())
+                .collect()
+        };
+        responder.resolve(Some(peers));
+    }
+
+    fn set_p2p_provider(&mut self, responder: DwebSetP2pProviderResponder, provider: ObjectRef) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "set p2p provider",
+        ) {
+            return;
+        }
+
+        // Check that we don't already have a UI provider setup.
+        let mut state = self.state.lock();
+        if state.p2p_provider.is_some() {
+            error!(
+                "Trying to set a duplicate p2p provider from {}",
+                self.origin_attributes.identity()
+            );
+            responder.reject();
+        }
+
+        // Register the new provider.
+        if let Some(DwebServiceProxy::P2pProvider(p2p_proxy)) = self.proxy_tracker.get(&provider) {
+            state.p2p_provider = Some(p2p_proxy.clone());
+        } else {
+            responder.reject();
+        }
+
+        self.provides_p2p = true;
+        responder.resolve();
+    }
+
+    fn pair_with(&mut self, responder: DwebPairWithResponder, peer: Peer) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "pair with") {
+            return;
+        }
+
+        {
+            let state = self.state.lock();
+            // Check if this peer is in the current list of known peers.
+            if !state.known_peers.contains_key(&peer.device_id) {
+                responder.reject(ConnectError {
+                    kind: ConnectErrorKind::NotConnected,
+                    detail: "".into(),
+                });
+                return;
+            }
+
+            let peer = state.known_peers.get(&peer.device_id).unwrap();
+
+            if !peer.is_local {
+                error!("Remote peers are not supported yet!");
+                responder.reject(ConnectError {
+                    kind: ConnectErrorKind::NotConnected,
+                    detail: "Remote Peers not supported yet!".into(),
+                });
+                return;
+            }
+
+            if let Some(ref mdns) = state.mdns {
+                let endpoint = peer.endpoint;
+                debug!("Will pair with {:?}", endpoint);
+                let this_peer = mdns.get_peer();
+                let remote_peer = peer.peer.clone();
+                let state2 = self.state.clone();
+                let _ = std::thread::Builder::new()
+                    .name("mdns connect".into())
+                    .spawn(move || {
+                        let client = HandshakeClient::new(&endpoint);
+                        match client.pair_with(this_peer) {
+                            Ok(_) => {
+                                let session = state2.lock().create_session(remote_peer);
+                                responder.resolve(session);
+                            }
+                            Err(Status::Denied) => {
+                                responder.reject(ConnectError {
+                                    kind: ConnectErrorKind::Denied,
+                                    detail: "ConnectError:Denied".into(),
+                                });
+                            }
+                            Err(Status::NotConnected) => {
+                                responder.reject(ConnectError {
+                                    kind: ConnectErrorKind::NotConnected,
+                                    detail: "ConnectError:NotConnected".into(),
+                                });
+                            }
+                            Err(_) => {
+                                responder.reject(ConnectError {
+                                    kind: ConnectErrorKind::Other,
+                                    detail: "ConnectError:Other".into(),
+                                });
+                            }
+                        }
+                    });
+            } else {
+                error!("No mdns available, can't connect!");
+                responder.reject(ConnectError {
+                    kind: ConnectErrorKind::Other,
+                    detail: "No mDNS available".into(),
+                });
+            }
+        }
+    }
+
+    fn setup_webrtc_for(
+        &mut self,
+        responder: DwebSetupWebrtcForResponder,
+        session: Session,
+        action: PeerAction,
+        offer: String,
+    ) {
+        if responder.maybe_send_permission_error(
+            &self.origin_attributes,
+            "dweb",
+            "setup webrtc for",
+        ) {
+            return;
+        }
+
+        let state = self.state.lock();
+
+        // Find the peer for this session.
+        let peer = if let Some(session) = state.sessions.get(&session.id) {
+            session.peer.clone()
+        } else {
+            responder.reject(ConnectError {
+                kind: ConnectErrorKind::NotPaired,
+                detail: "No such session".into(),
+            });
+            return;
+        };
+
+        // Check if this peer is in the current list of known peers.
+        if !state.known_peers.contains_key(&peer.device_id) {
+            responder.reject(ConnectError {
+                kind: ConnectErrorKind::NotConnected,
+                detail: "".into(),
+            });
+            return;
+        }
+
+        let peer = state.known_peers.get(&peer.device_id).unwrap();
+
+        if !peer.is_local {
+            error!("Remote peers are not supported yet!");
+            responder.reject(ConnectError {
+                kind: ConnectErrorKind::NotConnected,
+                detail: "Remote Peers not supported yet!".into(),
+            });
+            return;
+        }
+
+        if let Some(ref mdns) = state.mdns {
+            let endpoint = peer.endpoint;
+            println!("XYZ Will send offer to {:?} for {:?}", endpoint, action);
+            let this_peer = mdns.get_peer();
+            let _ = std::thread::Builder::new()
+                .name("mdns connect".into())
+                .spawn(move || {
+                    let client = HandshakeClient::new(&endpoint);
+                    match client.get_answer(this_peer, action, offer) {
+                        Ok(answer) => responder.resolve(answer),
+                        Err(Status::Denied) => {
+                            responder.reject(ConnectError {
+                                kind: ConnectErrorKind::Denied,
+                                detail: "".into(),
+                            });
+                        }
+                        Err(Status::NotConnected) => {
+                            responder.reject(ConnectError {
+                                kind: ConnectErrorKind::NotConnected,
+                                detail: "".into(),
+                            });
+                        }
+                        Err(_) => {
+                            responder.reject(ConnectError {
+                                kind: ConnectErrorKind::Other,
+                                detail: "".into(),
+                            });
+                        }
+                    }
+                });
+        } else {
+            error!("No mdns available, can't connect!");
+            responder.reject(ConnectError {
+                kind: ConnectErrorKind::Other,
+                detail: "No mDNS available".into(),
+            });
+        }
+    }
+
+    fn get_session(&mut self, responder: DwebGetSessionResponder, id: String) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "get session") {
+            return;
+        }
+
+        match self.state.lock().sessions.get(&id) {
+            Some(session) => responder.resolve(session.clone()),
+            None => responder.reject(SessionError::InvalidId),
+        }
+    }
+
+    fn get_sessions(&mut self, responder: DwebGetSessionsResponder) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "get sessions") {
+            return;
+        }
+
+        let sessions = self.state.lock().sessions.values().cloned().collect();
+        responder.resolve(Some(sessions));
+    }
 }
 
 common::impl_shared_state!(DWebServiceImpl, State, Config);
@@ -370,6 +733,7 @@ impl Service<DWebServiceImpl> for DWebServiceImpl {
             origin_attributes: attrs.clone(),
             proxy_tracker: DwebServiceProxyTracker::default(),
             provides_ui: false,
+            provides_p2p: false,
             tracker: DwebServiceTrackerType::default(),
         })
     }
@@ -413,6 +777,10 @@ impl Drop for DWebServiceImpl {
 
         if self.provides_ui {
             self.state.lock().ui_provider = None;
+        }
+
+        if self.provides_p2p {
+            self.state.lock().p2p_provider = None;
         }
 
         // TODO: when needed

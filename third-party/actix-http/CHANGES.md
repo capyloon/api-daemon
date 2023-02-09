@@ -1,6 +1,68 @@
 # Changes
 
-## Unreleased - 2021-xx-xx
+## Unreleased - 2022-xx-xx
+
+
+## 3.3.0 - 2023-01-21
+### Added
+- Implement `MessageBody` for `Cow<'static, str>` and `Cow<'static, [u8]>`. [#2959]
+- Implement `MessageBody` for `&mut B` where `B: MessageBody + Unpin`. [#2868]
+- Implement `MessageBody` for `Pin<B>` where `B::Target: MessageBody`. [#2868]
+- Automatic h2c detection via new service finalizer `HttpService::tcp_auto_h2c()`. [#2957]
+- `HeaderMap::retain()` [#2955].
+- Header name constants in `header` module. [#2956] [#2968]
+  - `CACHE_STATUS`
+  - `CDN_CACHE_CONTROL`
+  - `CROSS_ORIGIN_EMBEDDER_POLICY`
+  - `CROSS_ORIGIN_OPENER_POLICY`
+  - `PERMISSIONS_POLICY`
+  - `X_FORWARDED_FOR`
+  - `X_FORWARDED_HOST`
+  - `X_FORWARDED_PROTO`
+
+### Fixed
+- Fix non-empty body of HTTP/2 HEAD responses. [#2920]
+
+### Performance
+- Improve overall performance of operations on `Extensions`. [#2890]
+
+[#2959]: https://github.com/actix/actix-web/pull/2959
+[#2868]: https://github.com/actix/actix-web/pull/2868
+[#2890]: https://github.com/actix/actix-web/pull/2890
+[#2920]: https://github.com/actix/actix-web/pull/2920
+[#2957]: https://github.com/actix/actix-web/pull/2957
+[#2955]: https://github.com/actix/actix-web/pull/2955
+[#2956]: https://github.com/actix/actix-web/pull/2956
+[#2968]: https://github.com/actix/actix-web/pull/2968
+
+
+## 3.2.2 - 2022-09-11
+### Changed
+- Minimum supported Rust version (MSRV) is now 1.59 due to transitive `time` dependency.
+
+### Fixed
+- Avoid possibility of dispatcher getting stuck while back-pressuring I/O. [#2369]
+
+[#2369]: https://github.com/actix/actix-web/pull/2369
+
+
+## 3.2.1 - 2022-07-02
+### Fixed
+- Fix parsing ambiguity in Transfer-Encoding and Content-Length headers for HTTP/1.0 requests. [#2794]
+
+[#2794]: https://github.com/actix/actix-web/pull/2794
+
+
+## 3.2.0 - 2022-06-30
+### Changed
+- Minimum supported Rust version (MSRV) is now 1.57 due to transitive `time` dependency.
+
+### Fixed
+- Websocket parser no longer throws endless overflow errors after receiving an oversized frame. [#2790]
+- Retain previously set Vary headers when using compression encoder. [#2798]
+
+[#2790]: https://github.com/actix/actix-web/pull/2790
+[#2798]: https://github.com/actix/actix-web/pull/2798
 
 
 ## 3.1.0 - 2022-06-11
@@ -10,9 +72,9 @@
 ### Fixed
 - Revert broken fix in [#2624] that caused erroneous 500 error responses. Temporarily re-introduces [#2357] bug. [#2779]
 
+[#2624]: https://github.com/actix/actix-web/pull/2624
 [#2357]: https://github.com/actix/actix-web/issues/2357
-[#2624]: https://github.com/actix/actix-web/issues/2624
-[#2779]: https://github.com/actix/actix-web/issues/2779
+[#2779]: https://github.com/actix/actix-web/pull/2779
 
 
 ## 3.0.4 - 2022-03-09
@@ -24,14 +86,14 @@
 ### Fixed
 - Allow spaces between header name and colon when parsing responses. [#2684]
 
-[#2684]: https://github.com/actix/actix-web/issues/2684
+[#2684]: https://github.com/actix/actix-web/pull/2684
 
 
 ## 3.0.2 - 2022-03-05
 ### Fixed
 - Fix encoding camel-case header names with more than one hyphen. [#2683]
 
-[#2683]: https://github.com/actix/actix-web/issues/2683
+[#2683]: https://github.com/actix/actix-web/pull/2683
 
 
 ## 3.0.1 - 2022-03-04

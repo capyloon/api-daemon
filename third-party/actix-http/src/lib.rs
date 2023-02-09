@@ -21,10 +21,12 @@
 #![allow(
     clippy::type_complexity,
     clippy::too_many_arguments,
-    clippy::borrow_interior_mutable_const
+    clippy::borrow_interior_mutable_const,
+    clippy::uninlined_format_args
 )]
 #![doc(html_logo_url = "https://actix.rs/img/logo.png")]
 #![doc(html_favicon_url = "https://actix.rs/favicon.ico")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use ::http::{uri, uri::Uri};
 pub use ::http::{Method, StatusCode, Version};
@@ -39,6 +41,7 @@ pub mod error;
 mod extensions;
 pub mod h1;
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 pub mod h2;
 pub mod header;
 mod helpers;
@@ -53,6 +56,7 @@ mod responses;
 mod service;
 pub mod test;
 #[cfg(feature = "ws")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ws")))]
 pub mod ws;
 
 pub use self::builder::HttpServiceBuilder;
@@ -69,6 +73,9 @@ pub use self::payload::{BoxedPayloadStream, Payload, PayloadStream};
 pub use self::requests::{Request, RequestHead, RequestHeadType};
 pub use self::responses::{Response, ResponseBuilder, ResponseHead};
 pub use self::service::HttpService;
+#[cfg(any(feature = "openssl", feature = "rustls"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "openssl", feature = "rustls"))))]
+pub use self::service::TlsAcceptorConfig;
 
 /// A major HTTP protocol version.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

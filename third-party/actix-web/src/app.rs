@@ -5,7 +5,7 @@ use actix_service::{
     apply, apply_fn_factory, boxed, IntoServiceFactory, ServiceFactory, ServiceFactoryExt,
     Transform,
 };
-use futures_util::future::FutureExt as _;
+use futures_util::FutureExt as _;
 
 use crate::{
     app_service::{AppEntry, AppInit, AppRoutingFactory},
@@ -60,7 +60,7 @@ where
     /// [`HttpRequest::app_data`](crate::HttpRequest::app_data) method at runtime.
     ///
     /// # [`Data<T>`]
-    /// Any [`Data<T>`] type added here can utilize it's extractor implementation in handlers.
+    /// Any [`Data<T>`] type added here can utilize its extractor implementation in handlers.
     /// Types not wrapped in `Data<T>` cannot use this extractor. See [its docs](Data<T>) for more
     /// about its usage and patterns.
     ///
@@ -682,7 +682,7 @@ mod tests {
                     "/test",
                     web::get().to(|req: HttpRequest| {
                         HttpResponse::Ok()
-                            .body(req.url_for("youtube", &["12345"]).unwrap().to_string())
+                            .body(req.url_for("youtube", ["12345"]).unwrap().to_string())
                     }),
                 ),
         )
@@ -712,6 +712,7 @@ mod tests {
                 .route("/", web::to(|| async { "hello" }))
         }
 
+        #[allow(clippy::let_underscore_future)]
         let _ = init_service(my_app());
     }
 }

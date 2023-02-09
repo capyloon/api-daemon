@@ -12,11 +12,18 @@
 [package]
 edition = "2018"
 name = "actix-web-actors"
-version = "4.1.0"
+version = "4.2.0"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
 description = "Actix actors support for Actix Web"
 homepage = "https://actix.rs"
-keywords = ["actix", "http", "web", "framework", "async"]
+readme = "README.md"
+keywords = [
+    "actix",
+    "http",
+    "web",
+    "framework",
+    "async",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web"
 resolver = "2"
@@ -24,6 +31,7 @@ resolver = "2"
 [lib]
 name = "actix_web_actors"
 path = "src/lib.rs"
+
 [dependencies.actix]
 version = ">=0.12, <0.14"
 default-features = false
@@ -45,12 +53,16 @@ version = "1"
 version = "1"
 
 [dependencies.futures-core]
-version = "0.3.7"
+version = "0.3.17"
 default-features = false
 
 [dependencies.pin-project-lite]
 version = "0.2"
 
 [dependencies.tokio]
-version = "1.13.1"
+version = "1.18.4"
 features = ["sync"]
+
+[dependencies.tokio-util]
+version = "0.7"
+features = ["codec"]

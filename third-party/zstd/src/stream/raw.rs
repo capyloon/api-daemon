@@ -141,7 +141,7 @@ impl Decoder<'static> {
     /// Creates a new decoder initialized with the given dictionary.
     pub fn with_dictionary(dictionary: &[u8]) -> io::Result<Self> {
         let mut context = zstd_safe::DCtx::create();
-        context.init();
+        context.init().map_err(map_error_code)?;
         context
             .load_dictionary(dictionary)
             .map_err(map_error_code)?;
@@ -184,8 +184,27 @@ impl Operation for Decoder<'_> {
             .map_err(map_error_code)
     }
 
+    fn flush<C: WriteBuf + ?Sized>(
+        &mut self,
+        output: &mut OutBuffer<'_, C>,
+    ) -> io::Result<usize> {
+        // To flush, we just offer no additional input.
+        self.run(&mut InBuffer::around(&[]), output)?;
+
+        // We don't _know_ how much (decompressed data) there is still in buffer.
+        if output.pos() < output.dst.capacity() {
+            // We only know when there's none (the output buffer is not full).
+            Ok(0)
+        } else {
+            // Otherwise, pretend there's still "1 byte" remaining.
+            Ok(1)
+        }
+    }
+
     fn reinit(&mut self) -> io::Result<()> {
-        self.context.reset().map_err(map_error_code)?;
+        self.context
+            .reset(zstd_safe::ResetDirective::SessionOnly)
+            .map_err(map_error_code)?;
         Ok(())
     }
 
@@ -261,9 +280,11 @@ impl<'a> Encoder<'a> {
     ///
     /// It is an error to give an incorrect size (an error _will_ be returned when closing the
     /// stream).
+    ///
+    /// If `None` is given, it assume the size is not known (default behaviour).
     pub fn set_pledged_src_size(
         &mut self,
-        pledged_src_size: u64,
+        pledged_src_size: Option<u64>,
     ) -> io::Result<()> {
         self.context
             .set_pledged_src_size(pledged_src_size)
@@ -300,7 +321,7 @@ impl<'a> Operation for Encoder<'a> {
 
     fn reinit(&mut self) -> io::Result<()> {
         self.context
-            .reset(zstd_safe::ResetDirective::ZSTD_reset_session_only)
+            .reset(zstd_safe::ResetDirective::SessionOnly)
             .map_err(map_error_code)?;
         Ok(())
     }

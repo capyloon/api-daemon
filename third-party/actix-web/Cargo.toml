@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "actix-web"
-version = "4.1.0"
+version = "4.3.0"
 authors = [
     "Nikolay Kim <fafhrd91@gmail.com>",
     "Rob Ede <robjtede@icloud.com>",
@@ -102,7 +102,7 @@ harness = false
 version = "0.5"
 
 [dependencies.actix-http]
-version = "3"
+version = "3.3"
 features = [
     "http2",
     "ws",
@@ -134,7 +134,7 @@ default-features = false
 version = "3"
 
 [dependencies.actix-web-codegen]
-version = "4"
+version = "4.1"
 optional = true
 
 [dependencies.ahash]
@@ -155,18 +155,21 @@ features = ["percent-encode"]
 optional = true
 
 [dependencies.derive_more]
-version = "0.99.5"
+version = "0.99.8"
 
 [dependencies.encoding_rs]
 version = "0.8"
 
 [dependencies.futures-core]
-version = "0.3.7"
+version = "0.3.17"
 default-features = false
 
 [dependencies.futures-util]
-version = "0.3.7"
+version = "0.3.17"
 default-features = false
+
+[dependencies.http]
+version = "0.2.8"
 
 [dependencies.itoa]
 version = "1"
@@ -211,75 +214,6 @@ default-features = false
 
 [dependencies.url]
 version = "2.1"
-
-[dev-dependencies.actix-files]
-version = "0.6"
-
-[dev-dependencies.actix-test]
-version = "0.1.0-beta.13"
-features = [
-    "openssl",
-    "rustls",
-]
-
-[dev-dependencies.awc]
-version = "3"
-features = ["openssl"]
-
-[dev-dependencies.brotli]
-version = "3.3.3"
-
-[dev-dependencies.const-str]
-version = "0.3"
-
-[dev-dependencies.criterion]
-version = "0.3"
-features = ["html_reports"]
-
-[dev-dependencies.env_logger]
-version = "0.9"
-
-[dev-dependencies.flate2]
-version = "1.0.13"
-
-[dev-dependencies.futures-util]
-version = "0.3.7"
-features = ["std"]
-default-features = false
-
-[dev-dependencies.rand]
-version = "0.8"
-
-[dev-dependencies.rcgen]
-version = "0.8"
-
-[dev-dependencies.rustls-pemfile]
-version = "0.2"
-
-[dev-dependencies.serde]
-version = "1.0"
-features = ["derive"]
-
-[dev-dependencies.static_assertions]
-version = "1"
-
-[dev-dependencies.tls-openssl]
-version = "0.10.9"
-package = "openssl"
-
-[dev-dependencies.tls-rustls]
-version = "0.20.0"
-package = "rustls"
-
-[dev-dependencies.tokio]
-version = "1.13.1"
-features = [
-    "rt-multi-thread",
-    "macros",
-]
-
-[dev-dependencies.zstd]
-version = "0.11"
 
 [features]
 __compress = []
