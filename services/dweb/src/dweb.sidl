@@ -86,13 +86,9 @@ enum SessionError {
     InvalidId
 }
 
-enum PeerAction {
-    Setup
-    Text
-    Url
-    File
-    App
-    Activity
+dictionary Param {
+    name: str
+    value: str
 }
 
 callback P2pProvider {
@@ -100,8 +96,8 @@ callback P2pProvider {
     // requestee accepts to move along.
     fn hello(from: Peer) -> bool
 
-    // Called with the initiator offer, expected the requestee answer.
-    fn provide_answer(from: Peer, action: PeerAction, offer: str) -> str
+    // Called with the initiator cid and password.
+    fn on_dialed(from: Peer, params: Param+) -> str
 }
 
 #[rust:not-tracked]
@@ -168,9 +164,10 @@ interface Dweb {
     // When successful, a new session is created.
     fn pair_with(peer: Peer) -> Session, ConnectError
 
-    // Setup a WebRTC datachannel.
-    // The return value is the remote peer webrtc answer.
-    fn setup_webrtc_for(session: Session, action: PeerAction, offer: str) -> str, ConnectError
+    // dials a peer, passing the cid to retrieve and the password
+    // to decrypt the payload.
+    // Returns a value that is dependent on the cid content.
+    fn dial(session: Session, params: Param+) -> str, ConnectError
 
     // Session management: apis to keep track of active pairings.
 
