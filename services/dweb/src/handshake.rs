@@ -1,7 +1,8 @@
 /// Handshake messages
-use crate::generated::common::{Param, Peer};
+use crate::generated::common::Peer;
 use crate::service::State;
 use common::traits::Shared;
+use common::JsonValue;
 use log::{error, info};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,7 @@ struct PairingRequest {
 #[derive(Deserialize, Serialize, Debug)]
 struct DialRequest {
     peer: Peer, // The initiator peer
-    params: Vec<Param>,
+    params: JsonValue,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -91,11 +92,11 @@ impl ResponseOut for PairingResponse {
 #[derive(Deserialize, Serialize, Debug)]
 struct DialResponse {
     status: Status,
-    result: String,
+    result: JsonValue,
 }
 
 impl ResponseOut for DialResponse {
-    type Out = String;
+    type Out = JsonValue;
 
     fn status(&self) -> Status {
         self.status.clone()
@@ -108,7 +109,7 @@ impl ResponseOut for DialResponse {
     fn with_status(status: Status) -> Self {
         Self {
             status,
-            result: "".into(),
+            result: serde_json::Value::Null.into(),
         }
     }
 
@@ -317,7 +318,7 @@ impl HandshakeClient {
     }
 
     // Blocking call to send a dial request.
-    pub fn dial(&self, peer: Peer, params: Vec<Param>) -> Result<String, Status> {
+    pub fn dial(&self, peer: Peer, params: JsonValue) -> Result<JsonValue, Status> {
         let request = DialRequest {
             peer: peer.clone(),
             params: params.clone(),
