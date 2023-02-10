@@ -86,18 +86,13 @@ enum SessionError {
     InvalidId
 }
 
-dictionary Param {
-    name: str
-    value: str
-}
-
 callback P2pProvider {
     // Called when initiating the communication. Returns true if the 
     // requestee accepts to move along.
     fn hello(from: Peer) -> bool
 
     // Called with the initiator cid and password.
-    fn on_dialed(from: Peer, params: Param+) -> str
+    fn on_dialed(from: Peer, params: json) -> json
 }
 
 #[rust:not-tracked]
@@ -167,7 +162,7 @@ interface Dweb {
     // dials a peer, passing the cid to retrieve and the password
     // to decrypt the payload.
     // Returns a value that is dependent on the cid content.
-    fn dial(session: Session, params: Param+) -> str, ConnectError
+    fn dial(session: Session, params: json) -> json, ConnectError
 
     // Session management: apis to keep track of active pairings.
 

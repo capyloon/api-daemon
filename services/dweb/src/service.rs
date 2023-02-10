@@ -12,6 +12,7 @@ use common::traits::{
     CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
     Shared, SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
+use common::JsonValue;
 use log::{debug, error, info};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -601,7 +602,7 @@ impl DwebMethods for DWebServiceImpl {
         }
     }
 
-    fn dial(&mut self, responder: DwebDialResponder, session: Session, params: Vec<Param>) {
+    fn dial(&mut self, responder: DwebDialResponder, session: Session, params: JsonValue) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "dweb",
