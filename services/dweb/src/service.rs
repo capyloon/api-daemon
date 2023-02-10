@@ -77,7 +77,7 @@ impl State {
 
     fn maybe_remove_session(&mut self, peer: Peer) {
         let mut session_id = None;
-        self.sessions.retain(|key, session| {
+        self.sessions.retain(|_key, session| {
             let found = session.peer.did == peer.did && session.peer.device_id == peer.device_id;
             if found {
                 session_id = Some(session.id.clone());
@@ -601,13 +601,7 @@ impl DwebMethods for DWebServiceImpl {
         }
     }
 
-    fn setup_webrtc_for(
-        &mut self,
-        responder: DwebSetupWebrtcForResponder,
-        session: Session,
-        action: PeerAction,
-        offer: String,
-    ) {
+    fn dial(&mut self, responder: DwebDialResponder, session: Session, params: Vec<Param>) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "dweb",
@@ -651,13 +645,13 @@ impl DwebMethods for DWebServiceImpl {
 
         if let Some(ref mdns) = state.mdns {
             let endpoint = peer.endpoint;
-            println!("XYZ Will send offer to {:?} for {:?}", endpoint, action);
+            info!("Will send params to {:?}", endpoint);
             let this_peer = mdns.get_peer();
             let _ = std::thread::Builder::new()
                 .name("mdns connect".into())
                 .spawn(move || {
                     let client = HandshakeClient::new(&endpoint);
-                    match client.get_answer(this_peer, action, offer) {
+                    match client.dial(this_peer, params) {
                         Ok(answer) => responder.resolve(answer),
                         Err(Status::Denied) => {
                             responder.reject(ConnectError {

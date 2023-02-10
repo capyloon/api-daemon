@@ -1,5 +1,5 @@
 /// Handshake messages
-use crate::generated::common::{Peer, PeerAction};
+use crate::generated::common::{Param, Peer};
 use crate::service::State;
 use common::traits::Shared;
 use log::{error, info};
@@ -15,16 +15,15 @@ struct PairingRequest {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-struct ActionRequest {
+struct DialRequest {
     peer: Peer, // The initiator peer
-    action: PeerAction,
-    offer: String,
+    params: Vec<Param>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 enum Request {
     Pairing(PairingRequest),
-    Action(ActionRequest),
+    Action(DialRequest),
 }
 
 trait AsRequest {
@@ -37,7 +36,7 @@ impl AsRequest for PairingRequest {
     }
 }
 
-impl AsRequest for ActionRequest {
+impl AsRequest for DialRequest {
     fn as_request(self) -> Request {
         Request::Action(self)
     }
@@ -90,12 +89,12 @@ impl ResponseOut for PairingResponse {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-struct ActionResponse {
+struct DialResponse {
     status: Status,
-    answer: String,
+    result: String,
 }
 
-impl ResponseOut for ActionResponse {
+impl ResponseOut for DialResponse {
     type Out = String;
 
     fn status(&self) -> Status {
@@ -103,13 +102,13 @@ impl ResponseOut for ActionResponse {
     }
 
     fn output(&self) -> Self::Out {
-        self.answer.clone()
+        self.result.clone()
     }
 
     fn with_status(status: Status) -> Self {
         Self {
             status,
-            answer: "".into(),
+            result: "".into(),
         }
     }
 
@@ -125,7 +124,7 @@ impl ResponseOut for ActionResponse {
 #[derive(Deserialize, Serialize, Debug)]
 enum Response {
     Pairing(PairingResponse),
-    Action(ActionResponse),
+    Action(DialResponse),
 }
 
 pub struct HandshakeHandler {
@@ -170,7 +169,7 @@ impl HandshakeHandler {
                         Response::Pairing(PairingResponse::with_status(Status::InternalError))
                     }
                     Request::Action(_) => {
-                        Response::Action(ActionResponse::with_status(Status::InternalError))
+                        Response::Action(DialResponse::with_status(Status::InternalError))
                     }
                 };
                 return Self::send_response(stream, response);
@@ -208,30 +207,26 @@ impl HandshakeHandler {
                     );
                 }
             }
-            Request::Action(ActionRequest {
-                peer,
-                action,
-                offer,
-            }) => {
+            Request::Action(DialRequest { peer, params }) => {
                 // Process the call to provide_answer();
-                if let Ok(result) = provider.provide_answer(peer, action, offer).recv() {
+                if let Ok(result) = provider.on_dialed(peer, params).recv() {
                     match result {
-                        Ok(answer) => Self::send_response(
+                        Ok(result) => Self::send_response(
                             stream,
-                            Response::Action(ActionResponse {
+                            Response::Action(DialResponse {
                                 status: Status::Granted,
-                                answer,
+                                result,
                             }),
                         ),
                         Err(_) => Self::send_response(
                             stream,
-                            Response::Action(ActionResponse::with_status(Status::Denied)),
+                            Response::Action(DialResponse::with_status(Status::Denied)),
                         ),
                     }
                 } else {
                     return Self::send_response(
                         stream,
-                        Response::Action(ActionResponse::with_status(Status::InternalError)),
+                        Response::Action(DialResponse::with_status(Status::InternalError)),
                     );
                 }
             }
@@ -321,18 +316,12 @@ impl HandshakeClient {
         self.request::<PairingRequest, PairingResponse>(request)
     }
 
-    // Blocking call to send a webrtc request.
-    pub fn get_answer(
-        &self,
-        peer: Peer,
-        action: PeerAction,
-        offer: String,
-    ) -> Result<String, Status> {
-        let request = ActionRequest {
+    // Blocking call to send a dial request.
+    pub fn dial(&self, peer: Peer, params: Vec<Param>) -> Result<String, Status> {
+        let request = DialRequest {
             peer: peer.clone(),
-            action: action.clone(),
-            offer: offer.clone(),
+            params: params.clone(),
         };
-        self.request::<ActionRequest, ActionResponse>(request)
+        self.request::<DialRequest, DialResponse>(request)
     }
 }
