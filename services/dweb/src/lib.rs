@@ -86,10 +86,10 @@ pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
 
 // Trait to implement by peer discovery mechanisms.
 pub trait DiscoveryMechanism {
-    fn with_state(state: common::traits::Shared<service::State>, peer: &Peer) -> Option<Self>
+    fn with_state(state: common::traits::Shared<service::State>) -> Option<Self>
     where
         Self: Sized;
 
-    fn start(&mut self) -> Result<(), ()>;
+    fn start(&mut self, peer: &Peer) -> Result<(), ()>;
     fn stop(&mut self) -> Result<(), ()>;
 }
