@@ -448,12 +448,11 @@ impl DwebMethods for DWebServiceImpl {
         let mut state = self.state.lock();
 
         if state.mdns.is_none() {
-            let mdns = MdnsDiscovery::with_state(self.state.clone(), &peer);
-            state.mdns = mdns;
+            state.mdns = MdnsDiscovery::with_state(self.state.clone());
         }
 
         if let Some(mdns) = &mut state.mdns {
-            if mdns.start().is_err() {
+            if mdns.start(&peer).is_err() {
                 responder.reject();
             }
         } else {
