@@ -189,6 +189,8 @@ impl HandshakeHandler {
                             )
                         }
                         Ok(true) => {
+                            // Create a session with this peer since we accepter the connection.
+                            state.lock().create_session(peer);
                             return Self::send_response(
                                 stream,
                                 Response::Pairing(PairingResponse::with_status(Status::Granted)),

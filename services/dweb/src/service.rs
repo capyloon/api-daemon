@@ -91,7 +91,7 @@ impl State {
         }
     }
 
-    fn create_session(&mut self, peer: Peer) -> Session {
+    pub fn create_session(&mut self, peer: Peer) -> Session {
         let session = Session {
             id: new_session_id(),
             peer,
