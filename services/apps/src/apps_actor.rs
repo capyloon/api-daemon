@@ -361,7 +361,7 @@ pub fn install_pwa(shared_data: &Shared<AppsSharedData>, url: &Url) -> Result<()
         .lock()
         .registry
         .event_broadcaster
-        .broadcast_app_installed(app);
+        .broadcast_app_installed(&app);
 
     Ok(())
 }
@@ -410,7 +410,7 @@ pub fn install_package(
         .lock()
         .registry
         .event_broadcaster
-        .broadcast_app_installing(AppsObject::from(&apps_item));
+        .broadcast_app_installing(&AppsObject::from(&apps_item));
 
     // This will allow install via appscmd to trigger the dependencies update.
     if let Some(b2g_features) = manifest.get_b2g_features() {
@@ -467,14 +467,14 @@ pub fn install_package(
         shared
             .registry
             .event_broadcaster
-            .broadcast_app_updated(AppsObject::from(&apps_item));
+            .broadcast_app_updated(&AppsObject::from(&apps_item));
 
         shared.vhost_api.app_updated(&app_name);
     } else {
         shared
             .registry
             .event_broadcaster
-            .broadcast_app_installed(AppsObject::from(&apps_item));
+            .broadcast_app_installed(&AppsObject::from(&apps_item));
 
         shared.vhost_api.app_installed(&app_name);
     }
@@ -498,7 +498,7 @@ pub fn uninstall(
     shared
         .registry
         .event_broadcaster
-        .broadcast_app_uninstalled(manifest_url.clone());
+        .broadcast_app_uninstalled(&manifest_url);
 
     shared.vhost_api.app_uninstalled(&app.name);
 

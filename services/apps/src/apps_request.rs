@@ -742,7 +742,7 @@ impl AppsRequest {
             .lock()
             .registry
             .event_broadcaster
-            .broadcast_app_download_failed(DownloadFailedReason {
+            .broadcast_app_download_failed(&DownloadFailedReason {
                 apps_object,
                 reason,
             });

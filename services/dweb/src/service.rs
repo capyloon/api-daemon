@@ -55,8 +55,7 @@ impl State {
         let key = peer.peer.device_id.clone();
         if !self.known_peers.contains_key(&key) {
             info!("Peer added: {}", key);
-            self.event_broadcaster
-                .broadcast_peerfound(peer.peer.clone());
+            self.event_broadcaster.broadcast_peerfound(&peer.peer);
             self.known_peers.insert(key, peer);
         }
     }
@@ -65,7 +64,7 @@ impl State {
         info!("Removing peer: {}", id);
 
         if let Some(peer) = self.known_peers.remove(id) {
-            self.event_broadcaster.broadcast_peerlost(peer.peer.clone());
+            self.event_broadcaster.broadcast_peerlost(&peer.peer);
             self.maybe_remove_session(peer.peer);
         } else {
             error!("Failed to remove peer {}", id);
@@ -87,7 +86,7 @@ impl State {
         });
 
         if let Some(id) = session_id {
-            self.event_broadcaster.broadcast_sessionremoved(id);
+            self.event_broadcaster.broadcast_sessionremoved(&id);
         }
     }
 
@@ -98,8 +97,7 @@ impl State {
         };
 
         self.sessions.insert(session.id.clone(), session.clone());
-        self.event_broadcaster
-            .broadcast_sessionadded(session.clone());
+        self.event_broadcaster.broadcast_sessionadded(&session);
 
         session
     }
@@ -245,7 +243,7 @@ impl DwebMethods for DWebServiceImpl {
         let mut state = self.state.lock();
         if let Ok(true) = state.dweb_store.add_did(&did) {
             let sdid: SidlDid = did.into();
-            state.event_broadcaster.broadcast_didcreated(sdid.clone());
+            state.event_broadcaster.broadcast_didcreated(&sdid);
             responder.resolve(sdid);
         } else {
             responder.reject(DidError::InternalError);
@@ -270,7 +268,7 @@ impl DwebMethods for DWebServiceImpl {
 
         let mut state = self.state.lock();
         if let Ok(true) = state.dweb_store.remove_did(&uri) {
-            state.event_broadcaster.broadcast_didremoved(uri);
+            state.event_broadcaster.broadcast_didremoved(&uri);
             responder.resolve();
         } else {
             responder.reject(DidError::UnknownDid);

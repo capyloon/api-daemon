@@ -897,7 +897,7 @@ impl ContactsDb {
                 reason: ChangeReason::Remove,
                 contacts: Some(contacts),
             };
-            self.event_broadcaster.broadcast_contacts_change(event);
+            self.event_broadcaster.broadcast_contacts_change(&event);
         }
 
         Ok(())
@@ -953,7 +953,7 @@ impl ContactsDb {
             contacts: Some(contacts),
         };
 
-        self.event_broadcaster.broadcast_contacts_change(event);
+        self.event_broadcaster.broadcast_contacts_change(&event);
         Ok(())
     }
 
@@ -1013,7 +1013,7 @@ impl ContactsDb {
             },
             contacts: Some(new_contacts),
         };
-        self.event_broadcaster.broadcast_contacts_change(event);
+        self.event_broadcaster.broadcast_contacts_change(&event);
         Ok(())
     }
 
@@ -1450,7 +1450,7 @@ impl ContactsDb {
                 reason: ChangeReason::Create,
                 number: number.to_string(),
             };
-            self.event_broadcaster.broadcast_blockednumber_change(event);
+            self.event_broadcaster.broadcast_blockednumber_change(&event);
         }
         debug!("ContactsDb::add_blocked_number OK {}", size);
         Ok(())
@@ -1467,7 +1467,7 @@ impl ContactsDb {
                 reason: ChangeReason::Remove,
                 number: number.to_string(),
             };
-            self.event_broadcaster.broadcast_blockednumber_change(event);
+            self.event_broadcaster.broadcast_blockednumber_change(&event);
         }
         debug!("ContactsDb::remove_blocked_number OK size:{}", size);
         Ok(())
@@ -1557,7 +1557,7 @@ impl ContactsDb {
                 },
             };
             debug!("ContactsDb::add_speed_dial event ={:?}", event);
-            self.event_broadcaster.broadcast_speeddial_change(event);
+            self.event_broadcaster.broadcast_speeddial_change(&event);
         }
         debug!("ContactsDb::add_speed_dial Ok {}", size);
         Ok(())
@@ -1586,7 +1586,7 @@ impl ContactsDb {
                     contact_id: contact_id.to_string(),
                 },
             };
-            self.event_broadcaster.broadcast_speeddial_change(event);
+            self.event_broadcaster.broadcast_speeddial_change(&event);
         }
         debug!("ContactsDb::update_speed_dial Ok {}", size);
         Ok(())
@@ -1606,7 +1606,7 @@ impl ContactsDb {
                     contact_id: String::new(),
                 },
             };
-            self.event_broadcaster.broadcast_speeddial_change(event);
+            self.event_broadcaster.broadcast_speeddial_change(&event);
         }
         debug!("ContactsDb::remove_speed_dial Ok {}", size);
         Ok(())
@@ -1630,7 +1630,7 @@ impl ContactsDb {
                 id: id.to_string(),
             },
         };
-        self.event_broadcaster.broadcast_group_change(event);
+        self.event_broadcaster.broadcast_group_change(&event);
         debug!("ContactsDb::remove_group OK ");
         Ok(())
     }
@@ -1648,7 +1648,7 @@ impl ContactsDb {
                     id,
                 },
             };
-            self.event_broadcaster.broadcast_group_change(event);
+            self.event_broadcaster.broadcast_group_change(&event);
         }
         debug!("ContactsDb::add_group OK size: {}", size);
         Ok(())
@@ -1666,7 +1666,7 @@ impl ContactsDb {
                     id: id.to_string(),
                 },
             };
-            self.event_broadcaster.broadcast_group_change(event);
+            self.event_broadcaster.broadcast_group_change(&event);
         }
         debug!("ContactsDb::update_group OK size: {}", size);
         Ok(())
@@ -1756,7 +1756,7 @@ impl ContactsDb {
             remove_count: removed_ids.len() as i64,
             update_count: updated_contacts.len() as i64,
         };
-        self.event_broadcaster.broadcast_sim_contact_loaded(event);
+        self.event_broadcaster.broadcast_sim_contact_loaded(&event);
 
         Ok(())
     }

@@ -296,12 +296,15 @@ impl Codegen {
                 let (rtype, _itype) = rust_type_with_reqresp(ctype);
 
                 if rtype != "()" {
+                    let do_clone = needs_clone(ctype);
                     writeln!(
                         sink,
-                        "pub fn broadcast_{}(&self, value: {}) {{",
-                        event_name, rtype,
+                        "pub fn broadcast_{}(&self, value: {}{}) {{",
+                        event_name,
+                        if do_clone { "&" } else { "" },
+                        rtype,
                     )?;
-                    if needs_clone(ctype) {
+                    if do_clone {
                         writeln!(
                             sink,
                             r#"for dispatcher in self.dispatchers.values() {{

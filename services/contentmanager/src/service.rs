@@ -1115,7 +1115,7 @@ impl ModificationObserver for Observer {
 
         self.inner
             .event_broadcaster
-            .broadcast_onresourcemodified(modification.into());
+            .broadcast_onresourcemodified(&modification.into());
         info!("Done broadcasting event {:?}", modification);
 
         // Get the id of the modified resource.
