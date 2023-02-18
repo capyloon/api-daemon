@@ -1132,7 +1132,7 @@ impl ModificationObserver for Observer {
         let inner = Rc::get_mut(&mut self.inner).unwrap();
         inner.resource_observers.for_each(&id, |proxy, id| {
             info!("Notifiying observer {}", id);
-            proxy.modified(modification.into());
+            proxy.modified(&modification.into());
         });
     }
 

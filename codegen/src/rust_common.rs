@@ -629,7 +629,8 @@ impl Codegen {
 
             for param in &method.params {
                 let stype = rust_type_for_param(&param.typ);
-                write!(sink, "{}: {},", param.name, stype)?;
+                let do_clone = needs_clone(&param.typ);
+                write!(sink, "{}: {}{},", param.name, if do_clone { "&" } else { "" }, stype)?;
             }
 
             // Get the return type to build the Sender/Receiver type.
@@ -663,7 +664,8 @@ impl Codegen {
             if !method.params.is_empty() {
                 writeln!(sink, "(")?;
                 for param in &method.params {
-                    writeln!(sink, "{},", param.name)?;
+                    let do_clone = needs_clone(&param.typ);
+                    write!(sink, "{}{},", param.name, if do_clone { ".clone()" } else { "" })?;
                 }
                 writeln!(sink, ")")?;
             }

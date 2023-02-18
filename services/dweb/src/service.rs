@@ -333,7 +333,7 @@ impl DwebMethods for DWebServiceImpl {
                 capabilities,
             };
 
-            if let Ok(result) = provider.grant_capabilities(requested).recv() {
+            if let Ok(result) = provider.grant_capabilities(&requested).recv() {
                 match result {
                     Ok(granted) => {
                         // Build the token.

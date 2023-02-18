@@ -292,7 +292,7 @@ impl GeckoBridgeState {
         topic: String,
     ) -> Result<ObjectRef, DelegateError> {
         if let Some(powermanager) = &mut self.powermanager {
-            let rx = powermanager.request_wakelock(topic);
+            let rx = powermanager.request_wakelock(&topic);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(obj_ref) => {
@@ -396,7 +396,7 @@ impl GeckoBridgeState {
     ) -> Result<(), DelegateError> {
         debug!("apps_service_on_clear: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let rx = service.on_clear(manifest_url.as_str().to_string(), data_type, value);
+            let rx = service.on_clear(&manifest_url.as_str().to_string(), &data_type, &value);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(_) => Ok(()),
@@ -419,7 +419,7 @@ impl GeckoBridgeState {
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_boot(manifest_url.as_str().to_string(), value);
+            let _ = service.on_boot(&manifest_url.as_str().to_string(), &value);
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -441,7 +441,7 @@ impl GeckoBridgeState {
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_install(manifest_url.as_str().to_string(), value);
+            let _ = service.on_install(&manifest_url.as_str().to_string(), &value);
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -454,7 +454,7 @@ impl GeckoBridgeState {
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_update(manifest_url.as_str().to_string(), value);
+            let _ = service.on_update(&manifest_url.as_str().to_string(), &value);
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -463,7 +463,7 @@ impl GeckoBridgeState {
     pub fn apps_service_on_uninstall(&mut self, manifest_url: &Url) {
         debug!("apps_service_on_uninstall: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_uninstall(manifest_url.as_str().to_string());
+            let _ = service.on_uninstall(&manifest_url.as_str().to_string());
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -472,7 +472,7 @@ impl GeckoBridgeState {
     pub fn apps_service_on_launch(&mut self, manifest_url: &Url) {
         debug!("apps_service_on_launch: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_launch(manifest_url.as_str().to_string());
+            let _ = service.on_launch(&manifest_url.as_str().to_string());
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -556,28 +556,28 @@ impl GeckoBridgeState {
     pub fn preference_get_int(&mut self, pref_name: String) -> DelegateResponse<i64> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.get_int(pref_name)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_int(&pref_name)),
         }
     }
 
     pub fn preference_get_char(&mut self, pref_name: String) -> DelegateResponse<String> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.get_char(pref_name)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_char(&pref_name)),
         }
     }
 
     pub fn preference_get_bool(&mut self, pref_name: String) -> DelegateResponse<bool> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.get_bool(pref_name)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_bool(&pref_name)),
         }
     }
 
     pub fn preference_set_int(&mut self, pref_name: String, value: i64) -> DelegateResponse<()> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.set_int(pref_name, value)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_int(&pref_name, value)),
         }
     }
 
@@ -588,14 +588,14 @@ impl GeckoBridgeState {
     ) -> DelegateResponse<()> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.set_char(pref_name, value)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_char(&pref_name, &value)),
         }
     }
 
     pub fn preference_set_bool(&mut self, pref_name: String, value: bool) -> DelegateResponse<()> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.set_bool(pref_name, value)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_bool(&pref_name, value)),
         }
     }
 

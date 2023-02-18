@@ -180,7 +180,7 @@ impl HandshakeHandler {
         match request {
             Request::Pairing(PairingRequest { peer }) => {
                 // Process the call to pair
-                if let Ok(result) = provider.hello(peer.clone()).recv() {
+                if let Ok(result) = provider.hello(&peer).recv() {
                     match result {
                         Ok(false) => {
                             return Self::send_response(
@@ -194,7 +194,7 @@ impl HandshakeHandler {
                             return Self::send_response(
                                 stream,
                                 Response::Pairing(PairingResponse::with_status(Status::Granted)),
-                            )
+                            );
                         }
                         Err(_) => {
                             return Self::send_response(
@@ -212,7 +212,7 @@ impl HandshakeHandler {
             }
             Request::Action(DialRequest { peer, params }) => {
                 // Process the call to provide_answer();
-                if let Ok(result) = provider.on_dialed(peer, params).recv() {
+                if let Ok(result) = provider.on_dialed(&peer, &params).recv() {
                     match result {
                         Ok(result) => Self::send_response(
                             stream,

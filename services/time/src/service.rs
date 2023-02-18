@@ -83,7 +83,7 @@ impl SharedObj {
         }
 
         self.observers.for_each(&info.reason, |proxy, _id| {
-            proxy.callback(info.clone());
+            proxy.callback(&info);
         });
 
         match info.reason {
