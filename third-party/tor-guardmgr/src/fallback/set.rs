@@ -3,6 +3,7 @@
 use crate::skew::SkewObservation;
 use rand::seq::IteratorRandom;
 use std::time::{Duration, Instant};
+use tor_linkspec::HasRelayIds;
 
 use super::{DirStatus, FallbackDir, FallbackDirBuilder};
 use crate::fallback::default_fallbacks;
@@ -73,10 +74,7 @@ pub(crate) struct FallbackState {
 #[derive(Debug, Clone)]
 pub(super) struct Entry {
     /// The inner fallback directory.
-    ///
-    /// (TODO: We represent this as a `FirstHop`, which could technically hold a
-    /// guard as well.  Ought to fix that.)
-    fallback: crate::FirstHop,
+    fallback: FallbackDir,
 
     /// Whether the directory is currently usable, and if not, when we can retry
     /// it.
@@ -93,7 +91,6 @@ const FALLBACK_RETRY_FLOOR: Duration = Duration::from_secs(150);
 
 impl From<FallbackDir> for Entry {
     fn from(fallback: FallbackDir) -> Self {
-        let fallback = fallback.as_guard();
         let status = DirStatus::new(FALLBACK_RETRY_FLOOR);
         Entry {
             fallback,
@@ -103,22 +100,20 @@ impl From<FallbackDir> for Entry {
     }
 }
 
-impl Entry {
-    /// Return the identity for this fallback entry.
-    fn id(&self) -> &FallbackId {
-        use crate::ids::FirstHopIdInner::*;
-        match &self.fallback.id().0 {
-            Fallback(id) => id,
-            _ => panic!("Somehow we constructed a fallback object with a non-fallback id!"),
-        }
+impl HasRelayIds for Entry {
+    fn identity(
+        &self,
+        key_type: tor_linkspec::RelayIdType,
+    ) -> Option<tor_linkspec::RelayIdRef<'_>> {
+        self.fallback.identity(key_type)
     }
 }
 
-impl From<FallbackList> for FallbackState {
-    fn from(list: FallbackList) -> Self {
-        let mut fallbacks: Vec<Entry> = list.fallbacks.into_iter().map(|fb| fb.into()).collect();
-        fallbacks.sort_by(|x, y| x.id().cmp(y.id()));
-        fallbacks.dedup_by(|x, y| x.id() == y.id());
+impl From<&FallbackList> for FallbackState {
+    fn from(list: &FallbackList) -> Self {
+        let mut fallbacks: Vec<Entry> = list.fallbacks.iter().map(|fb| fb.clone().into()).collect();
+        fallbacks.sort_by(|x, y| x.cmp_by_relay_ids(y));
+        fallbacks.dedup_by(|x, y| x.same_relay_ids(y));
         FallbackState { fallbacks }
     }
 }
@@ -130,7 +125,7 @@ impl FallbackState {
         rng: &mut R,
         now: Instant,
         filter: &crate::GuardFilter,
-    ) -> Result<&crate::FirstHop, PickGuardError> {
+    ) -> Result<&FallbackDir, PickGuardError> {
         if self.fallbacks.is_empty() {
             return Err(PickGuardError::NoCandidatesAvailable);
         }
@@ -163,7 +158,7 @@ impl FallbackState {
 
     /// Return a reference to the entry whose identity is `id`, if there is one.
     fn get(&self, id: &FallbackId) -> Option<&Entry> {
-        match self.fallbacks.binary_search_by(|e| e.id().cmp(id)) {
+        match self.fallbacks.binary_search_by(|e| e.cmp_by_relay_ids(id)) {
             Ok(idx) => Some(&self.fallbacks[idx]),
             Err(_) => None,
         }
@@ -171,7 +166,7 @@ impl FallbackState {
 
     /// Return a mutable reference to the entry whose identity is `id`, if there is one.
     fn get_mut(&mut self, id: &FallbackId) -> Option<&mut Entry> {
-        match self.fallbacks.binary_search_by(|e| e.id().cmp(id)) {
+        match self.fallbacks.binary_search_by(|e| e.cmp_by_relay_ids(id)) {
             Ok(idx) => Some(&mut self.fallbacks[idx]),
             Err(_) => None,
         }
@@ -208,11 +203,11 @@ impl FallbackState {
         itertools::merge_join_by(
             self.fallbacks.iter_mut(),
             other.fallbacks.into_iter(),
-            |a, b| a.fallback.id().cmp(b.fallback.id()),
+            |a, b| a.fallback.cmp_by_relay_ids(&b.fallback),
         )
         .for_each(|entry| {
             if let Both(entry, other) = entry {
-                debug_assert_eq!(entry.fallback.id(), other.fallback.id());
+                debug_assert!(entry.fallback.same_relay_ids(&other.fallback));
                 entry.status = other.status;
             }
         });
@@ -241,11 +236,12 @@ mod test {
     #![allow(clippy::dbg_macro)]
     #![allow(clippy::print_stderr)]
     #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
     use super::*;
-    use crate::FirstHopId;
     use rand::Rng;
     use tor_basic_utils::test_rng::testing_rng;
 
@@ -268,6 +264,7 @@ mod test {
     #[test]
     fn construct_fallback_set() {
         use rand::seq::SliceRandom;
+        use std::cmp::Ordering as O;
 
         // fabricate some fallbacks.
         let mut rng = testing_rng();
@@ -284,18 +281,27 @@ mod test {
         let list: FallbackList = fbs.clone().into();
         assert!(!list.is_empty());
         assert_eq!(list.len(), 4);
-        let mut set: FallbackState = list.clone().into();
+        let mut set: FallbackState = (&list).into();
 
         // inspect the generated set
         assert_eq!(set.fallbacks.len(), 4);
-        assert!(set.fallbacks[0].id() < set.fallbacks[1].id());
-        assert!(set.fallbacks[1].id() < set.fallbacks[2].id());
-        assert!(set.fallbacks[2].id() < set.fallbacks[3].id());
+        assert_eq!(
+            set.fallbacks[0].cmp_by_relay_ids(&set.fallbacks[1]),
+            O::Less
+        );
+        assert_eq!(
+            set.fallbacks[1].cmp_by_relay_ids(&set.fallbacks[2]),
+            O::Less
+        );
+        assert_eq!(
+            set.fallbacks[2].cmp_by_relay_ids(&set.fallbacks[3]),
+            O::Less
+        );
 
         // use the constructed set a little.
         for fb in fbs.iter() {
             let id = FallbackId::from_relay_ids(fb);
-            assert_eq!(set.get_mut(&id).unwrap().id(), &id);
+            assert_eq!(set.get_mut(&id).unwrap().cmp_by_relay_ids(&id), O::Equal);
         }
         assert!(set.get_mut(&id_other).is_none());
 
@@ -306,7 +312,7 @@ mod test {
         redundant_fbs[..].shuffle(&mut testing_rng());
         let list2 = redundant_fbs.into();
         assert_ne!(&list, &list2);
-        let set2: FallbackState = list2.into();
+        let set2: FallbackState = (&list2).into();
 
         // It should have the same elements, in the same order.
         assert_eq!(set.fallbacks.len(), set2.fallbacks.len());
@@ -314,7 +320,7 @@ mod test {
             .fallbacks
             .iter()
             .zip(set2.fallbacks.iter())
-            .all(|(ent1, ent2)| ent1.id() == ent2.id()));
+            .all(|(ent1, ent2)| ent1.same_relay_ids(ent2)));
     }
 
     #[test]
@@ -329,35 +335,37 @@ mod test {
             rand_fb(&mut rng),
         ];
         let list: FallbackList = fbs.into();
-        let mut set: FallbackState = list.into();
+        let mut set: FallbackState = (&list).into();
         let filter = crate::GuardFilter::unfiltered();
 
         let mut counts = [0_usize; 4];
         let now = Instant::now();
         dbg!("A");
-        fn lookup_idx(set: &FallbackState, id: &FirstHopId) -> Option<usize> {
-            if let FirstHopId(crate::ids::FirstHopIdInner::Fallback(id)) = id {
-                set.fallbacks.binary_search_by(|ent| ent.id().cmp(id)).ok()
-            } else {
-                None
-            }
+        fn lookup_idx(set: &FallbackState, id: &impl HasRelayIds) -> Option<usize> {
+            set.fallbacks
+                .binary_search_by(|ent| ent.fallback.cmp_by_relay_ids(id))
+                .ok()
         }
         // Basic case: everybody is up.
         for _ in 0..100 {
             let fb = set.choose(&mut rng, now, &filter).unwrap();
-            let idx = lookup_idx(&set, fb.id()).unwrap();
+            let idx = lookup_idx(&set, fb).unwrap();
             counts[idx] += 1;
         }
         dbg!("B");
         assert!(counts.iter().all(|v| *v > 0));
 
         // Mark somebody down and make sure they don't get chosen.
-        let ids: Vec<_> = set.fallbacks.iter().map(|fb| fb.id().clone()).collect();
+        let ids: Vec<_> = set
+            .fallbacks
+            .iter()
+            .map(|ent| FallbackId::from_relay_ids(&ent.fallback))
+            .collect();
         set.note_failure(&ids[2], now);
         counts = [0; 4];
         for _ in 0..100 {
             let fb = set.choose(&mut rng, now, &filter).unwrap();
-            let idx = lookup_idx(&set, fb.id()).unwrap();
+            let idx = lookup_idx(&set, fb).unwrap();
             counts[idx] += 1;
         }
         assert_eq!(counts.iter().filter(|v| **v > 0).count(), 3);
@@ -373,7 +381,7 @@ mod test {
         ));
 
         // Construct an empty set; make sure we get the right error.
-        let empty_set = FallbackState::from(FallbackList::from(vec![]));
+        let empty_set = FallbackState::from(&FallbackList::from(vec![]));
         assert!(matches!(
             empty_set.choose(&mut rng, now, &filter),
             Err(PickGuardError::NoCandidatesAvailable)
@@ -392,8 +400,12 @@ mod test {
             rand_fb(&mut rng),
         ];
         let list: FallbackList = fbs.clone().into();
-        let mut set: FallbackState = list.into();
-        let ids: Vec<_> = set.fallbacks.iter().map(|fb| fb.id().clone()).collect();
+        let mut set: FallbackState = (&list).into();
+        let ids: Vec<_> = set
+            .fallbacks
+            .iter()
+            .map(|ent| FallbackId::from_relay_ids(&ent.fallback))
+            .collect();
 
         let now = Instant::now();
 
@@ -423,10 +435,6 @@ mod test {
         assert!(set.fallbacks[0].status.next_retriable().is_none());
         assert!(set.fallbacks[0].status.usable_at(now));
 
-        for id in ids.iter() {
-            dbg!(id, set.get_mut(id).map(|e| e.id()));
-        }
-
         // Make a new set with slightly different members; make sure that we can copy stuff successfully.
         let mut fbs2: Vec<_> = fbs
             .into_iter()
@@ -437,7 +445,7 @@ mod test {
         let fbs_new = vec![rand_fb(&mut rng), rand_fb(&mut rng), rand_fb(&mut rng)];
         fbs2.extend(fbs_new.clone());
 
-        let mut set2 = FallbackState::from(FallbackList::from(fbs2.clone()));
+        let mut set2 = FallbackState::from(&FallbackList::from(fbs2.clone()));
         set2.take_status_from(set); // consumes set.
         assert_eq!(set2.fallbacks.len(), 6); // Started with 4, added 3, removed 1.
 

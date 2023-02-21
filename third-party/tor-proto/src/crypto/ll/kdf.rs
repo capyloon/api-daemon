@@ -71,7 +71,7 @@ impl Kdf for LegacyKdf {
         while result.len() < n_bytes {
             let mut d = Sha1::new();
             Digest::update(&mut d, seed);
-            Digest::update(&mut d, &[k]);
+            Digest::update(&mut d, [k]);
             d.finalize_into(&mut digest_output);
             result.extend_from_slice(&digest_output);
             k += 1;
@@ -119,7 +119,16 @@ impl Kdf for ShakeKdf {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
 

@@ -1,172 +1,137 @@
-//! Implement a concrete type to build channels.
+//! Implement a concrete type to build channels over a transport.
 
 use std::io;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
+use crate::factory::{BootstrapReporter, ChannelFactory};
+use crate::transport::TransportImplHelper;
 use crate::{event::ChanMgrEventSender, Error};
 
-use safelog::sensitive as sv;
 use std::time::Duration;
-use tor_error::{bad_api_usage, internal};
-use tor_linkspec::{HasAddrs, HasRelayIds, OwnedChanTarget};
-use tor_llcrypto::pk;
+use tor_error::internal;
+use tor_linkspec::{BridgeAddr, HasChanMethod, IntoOwnedChanTarget, OwnedChanTarget};
 use tor_proto::channel::params::ChannelPaddingInstructionsUpdates;
-use tor_rtcompat::{tls::TlsConnector, Runtime, TcpProvider, TlsProvider};
+use tor_rtcompat::{tls::TlsConnector, Runtime, TlsProvider};
 
 use async_trait::async_trait;
-use futures::stream::FuturesUnordered;
 use futures::task::SpawnExt;
-use futures::StreamExt;
-use futures::{FutureExt, TryFutureExt};
-
-/// Time to wait between starting parallel connections to the same relay.
-static CONNECTION_DELAY: Duration = Duration::from_millis(150);
 
 /// TLS-based channel builder.
 ///
-/// This is a separate type so that we can keep our channel management
-/// code network-agnostic.
-pub(crate) struct ChanBuilder<R: Runtime> {
+/// This is a separate type so that we can keep our channel management code
+/// network-agnostic.
+///
+/// It uses a provided `TransportHelper` type to make a connection (possibly
+/// directly over TCP, and possibly over some other protocol).  It then
+/// negotiates TLS over that connection, and negotiates a Tor channel over that
+/// TLS session.
+///
+/// This channel builder does not retry on failure, but it _does_ implement a
+/// time-out.
+pub struct ChanBuilder<R: Runtime, H: TransportImplHelper>
+where
+    R: tor_rtcompat::TlsProvider<H::Stream>,
+{
     /// Asynchronous runtime for TLS, TCP, spawning, and timeouts.
     runtime: R,
-    /// Used to update our bootstrap reporting status.
-    event_sender: Mutex<ChanMgrEventSender>,
+    /// The transport object that we use to construct streams.
+    transport: H,
     /// Object to build TLS connections.
-    tls_connector: <R as TlsProvider<R::TcpStream>>::Connector,
+    tls_connector: <R as TlsProvider<H::Stream>>::Connector,
 }
 
-impl<R: Runtime> ChanBuilder<R> {
+impl<R: Runtime, H: TransportImplHelper> ChanBuilder<R, H>
+where
+    R: TlsProvider<H::Stream>,
+{
     /// Construct a new ChanBuilder.
-    pub(crate) fn new(runtime: R, event_sender: ChanMgrEventSender) -> Self {
-        let tls_connector = runtime.tls_connector();
+    pub fn new(runtime: R, transport: H) -> Self {
+        let tls_connector = <R as TlsProvider<H::Stream>>::tls_connector(&runtime);
         ChanBuilder {
             runtime,
-            event_sender: Mutex::new(event_sender),
+            transport,
             tls_connector,
         }
     }
 }
-
 #[async_trait]
-impl<R: Runtime> crate::mgr::ChannelFactory for ChanBuilder<R> {
-    type Channel = tor_proto::channel::Channel;
-    type BuildSpec = OwnedChanTarget;
-
-    async fn build_channel(&self, target: &Self::BuildSpec) -> crate::Result<Self::Channel> {
+impl<R: Runtime, H: TransportImplHelper> ChannelFactory for ChanBuilder<R, H>
+where
+    R: tor_rtcompat::TlsProvider<H::Stream> + Send + Sync,
+    H: Send + Sync,
+{
+    async fn connect_via_transport(
+        &self,
+        target: &OwnedChanTarget,
+        reporter: BootstrapReporter,
+    ) -> crate::Result<tor_proto::channel::Channel> {
         use tor_rtcompat::SleepProviderExt;
 
         // TODO: make this an option.  And make a better value.
-        let five_seconds = std::time::Duration::new(5, 0);
+        let delay = if target.chan_method().is_direct() {
+            std::time::Duration::new(5, 0)
+        } else {
+            std::time::Duration::new(10, 0)
+        };
 
+        let connect_future = self.connect_no_timeout(target, reporter.0);
         self.runtime
-            .timeout(five_seconds, self.build_channel_notimeout(target))
+            .timeout(delay, connect_future)
             .await
             .map_err(|_| Error::ChanTimeout {
-                peer: target.clone(),
+                peer: target.to_logged(),
             })?
     }
 }
 
-/// Connect to one of the addresses in `addrs` by running connections in parallel until one works.
-///
-/// This implements a basic version of RFC 8305 "happy eyeballs".
-async fn connect_to_one<R: Runtime>(
-    rt: &R,
-    addrs: &[SocketAddr],
-) -> crate::Result<(<R as TcpProvider>::TcpStream, SocketAddr)> {
-    // We need *some* addresses to connect to.
-    if addrs.is_empty() {
-        return Err(Error::UnusableTarget(bad_api_usage!(
-            "No addresses for chosen relay"
-        )));
-    }
-
-    // Turn each address into a future that waits (i * CONNECTION_DELAY), then
-    // attempts to connect to the address using the runtime (where i is the
-    // array index). Shove all of these into a `FuturesUnordered`, polling them
-    // simultaneously and returning the results in completion order.
-    //
-    // This is basically the concurrent-connection stuff from RFC 8305, ish.
-    // TODO(eta): sort the addresses first?
-    let mut connections = addrs
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
-            let delay = rt.sleep(CONNECTION_DELAY * i as u32);
-            delay.then(move |_| {
-                tracing::debug!("Connecting to {}", a);
-                rt.connect(a)
-                    .map_ok(move |stream| (stream, *a))
-                    .map_err(move |e| (e, *a))
-            })
-        })
-        .collect::<FuturesUnordered<_>>();
-
-    let mut ret = None;
-    let mut errors = vec![];
-
-    while let Some(result) = connections.next().await {
-        match result {
-            Ok(s) => {
-                // We got a stream (and address).
-                ret = Some(s);
-                break;
-            }
-            Err((e, a)) => {
-                // We got a failure on one of the streams. Store the error.
-                // TODO(eta): ideally we'd start the next connection attempt immediately.
-                tracing::warn!("Connection to {} failed: {}", sv(a), e);
-                errors.push((e, a));
-            }
-        }
-    }
-
-    // Ensure we don't continue trying to make connections.
-    drop(connections);
-
-    ret.ok_or_else(|| Error::ChannelBuild {
-        addresses: errors.into_iter().map(|(e, a)| (a, Arc::new(e))).collect(),
-    })
-}
-
-impl<R: Runtime> ChanBuilder<R> {
-    /// As build_channel, but don't include a timeout.
-    async fn build_channel_notimeout(
+impl<R: Runtime, H: TransportImplHelper> ChanBuilder<R, H>
+where
+    R: tor_rtcompat::TlsProvider<H::Stream> + Send + Sync,
+    H: Send + Sync,
+{
+    /// Perform the work of `connect_via_transport`, but without enforcing a timeout.
+    async fn connect_no_timeout(
         &self,
         target: &OwnedChanTarget,
+        event_sender: Arc<Mutex<ChanMgrEventSender>>,
     ) -> crate::Result<tor_proto::channel::Channel> {
         use tor_proto::channel::ChannelBuilder;
         use tor_rtcompat::tls::CertifiedConn;
 
-        // 1. Negotiate the TLS connection.
         {
-            self.event_sender
-                .lock()
-                .expect("Lock poisoned")
-                .record_attempt();
+            event_sender.lock().expect("Lock poisoned").record_attempt();
         }
 
-        let (stream, addr) = connect_to_one(&self.runtime, target.addrs()).await?;
-        let using_target = match target.restrict_addr(&addr) {
-            Ok(v) => v,
-            Err(v) => v,
-        };
+        // 1a. Negotiate the TCP connection or other stream.
+
+        let (using_target, stream) = self.transport.connect(target).await?;
+        let using_method = using_target.chan_method();
+        let peer = using_target.chan_method().target_addr();
+        let peer_ref = &peer;
 
         let map_ioe = |action: &'static str| {
+            let peer: Option<BridgeAddr> = peer_ref.as_ref().and_then(|peer| {
+                let peer: Option<BridgeAddr> = peer.clone().into();
+                peer
+            });
             move |ioe: io::Error| Error::Io {
                 action,
-                peer: addr,
+                peer: peer.map(Into::into),
                 source: ioe.into(),
             }
         };
 
         {
-            self.event_sender
+            // TODO(nickm): At some point, it would be helpful to the
+            // bootstrapping logic if we could distinguish which
+            // transport just succeeded.
+            event_sender
                 .lock()
                 .expect("Lock poisoned")
                 .record_tcp_success();
         }
+
+        // 1b. Negotiate TLS.
 
         // TODO: add a random hostname here if it will be used for SNI?
         let tls = self
@@ -181,7 +146,7 @@ impl<R: Runtime> ChanBuilder<R> {
             .ok_or_else(|| Error::Internal(internal!("TLS connection with no peer certificate")))?;
 
         {
-            self.event_sender
+            event_sender
                 .lock()
                 .expect("Lock poisoned")
                 .record_tls_finished();
@@ -189,7 +154,7 @@ impl<R: Runtime> ChanBuilder<R> {
 
         // 2. Set up the channel.
         let mut builder = ChannelBuilder::new();
-        builder.set_declared_addr(addr);
+        builder.set_declared_method(using_method);
         let chan = builder
             .launch(
                 tls,
@@ -204,13 +169,13 @@ impl<R: Runtime> ChanBuilder<R> {
             .check(target, &peer_cert, Some(now))
             .map_err(|source| match &source {
                 tor_proto::Error::HandshakeCertsExpired { .. } => {
-                    self.event_sender
+                    event_sender
                         .lock()
                         .expect("Lock poisoned")
                         .record_handshake_done_with_skewed_clock();
                     Error::Proto {
                         source,
-                        peer: using_target,
+                        peer: using_target.to_logged(),
                         clock_skew,
                     }
                 }
@@ -218,12 +183,12 @@ impl<R: Runtime> ChanBuilder<R> {
             })?;
         let (chan, reactor) = chan.finish().await.map_err(|source| Error::Proto {
             source,
-            peer: target.clone(),
+            peer: target.to_logged(),
             clock_skew,
         })?;
 
         {
-            self.event_sender
+            event_sender
                 .lock()
                 .expect("Lock poisoned")
                 .record_handshake_done();
@@ -240,12 +205,6 @@ impl<R: Runtime> ChanBuilder<R> {
 }
 
 impl crate::mgr::AbstractChannel for tor_proto::channel::Channel {
-    type Ident = pk::ed25519::Ed25519Identity;
-    fn ident(&self) -> &Self::Ident {
-        self.target()
-            .ed_identity()
-            .expect("This channel had an Ed25519 identity when we created it, but now it doesn't!?")
-    }
     fn is_usable(&self) -> bool {
         !self.is_closing()
     }
@@ -253,10 +212,10 @@ impl crate::mgr::AbstractChannel for tor_proto::channel::Channel {
         self.duration_unused()
     }
     fn reparameterize(
-        &mut self,
+        &self,
         updates: Arc<ChannelPaddingInstructionsUpdates>,
     ) -> tor_proto::Result<()> {
-        self.reparameterize(updates)
+        tor_proto::channel::Channel::reparameterize(self, updates)
     }
     fn engage_padding_activities(&self) {
         self.engage_padding_activities();
@@ -265,18 +224,28 @@ impl crate::mgr::AbstractChannel for tor_proto::channel::Channel {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::{
-        mgr::{AbstractChannel, ChannelFactory},
+        mgr::{AbstractChannel, AbstractChannelFactory},
         Result,
     };
-    use pk::ed25519::Ed25519Identity;
-    use pk::rsa::RsaIdentity;
+    use std::net::SocketAddr;
     use std::time::{Duration, SystemTime};
-    use std::{net::SocketAddr, str::FromStr};
+    use tor_linkspec::{ChannelMethod, HasRelayIds, RelayIdType};
+    use tor_llcrypto::pk::ed25519::Ed25519Identity;
+    use tor_llcrypto::pk::rsa::RsaIdentity;
     use tor_proto::channel::Channel;
-    use tor_rtcompat::{test_with_one_runtime, SleepProviderExt, TcpListener};
+    use tor_rtcompat::{test_with_one_runtime, TcpListener};
     use tor_rtmock::{io::LocalStream, net::MockNetwork, MockSleepRuntime};
 
     // Make sure that the builder can build a real channel.  To test
@@ -291,7 +260,13 @@ mod test {
         let rsa: RsaIdentity = msgs::RSA_ID.into();
         let client_addr = "192.0.2.17".parse().unwrap();
         let tls_cert = msgs::X509_CERT.into();
-        let target = OwnedChanTarget::new(vec![orport], ed, rsa);
+        let target = OwnedChanTarget::builder()
+            .addrs(vec![orport])
+            .method(ChannelMethod::Direct(vec![orport]))
+            .ed_identity(ed)
+            .rsa_identity(rsa)
+            .build()
+            .unwrap();
         let now = SystemTime::UNIX_EPOCH + Duration::new(msgs::NOW, 0);
 
         test_with_one_runtime!(|rt| async move {
@@ -319,13 +294,15 @@ mod test {
             client_rt.jump_to(now);
 
             // Create the channel builder that we want to test.
-            let (snd, _rcv) = crate::event::channel();
-            let builder = ChanBuilder::new(client_rt, snd);
+            let transport = crate::transport::DefaultTransport::new(client_rt.clone());
+            let builder = ChanBuilder::new(client_rt, transport);
 
             let (r1, r2): (Result<Channel>, Result<LocalStream>) = futures::join!(
                 async {
                     // client-side: build a channel!
-                    builder.build_channel(&target).await
+                    builder
+                        .build_channel(&target, BootstrapReporter::fake())
+                        .await
                 },
                 async {
                     // relay-side: accept the channel
@@ -340,7 +317,7 @@ mod test {
             );
 
             let chan = r1.unwrap();
-            assert_eq!(chan.ident(), &ed);
+            assert_eq!(chan.identity(RelayIdType::Ed25519), Some((&ed).into()));
             assert!(chan.is_usable());
             // In theory, time could pass here, so we can't just use
             // "assert_eq!(dur_unused, dur_unused2)".
@@ -353,88 +330,6 @@ mod test {
             r2.unwrap();
             Ok(())
         })
-    }
-
-    #[test]
-    fn test_connect_one() {
-        let client_addr = "192.0.1.16".parse().unwrap();
-        // We'll put a "relay" at this address
-        let addr1 = SocketAddr::from_str("192.0.2.17:443").unwrap();
-        // We'll put nothing at this address, to generate errors.
-        let addr2 = SocketAddr::from_str("192.0.3.18:443").unwrap();
-        // Well put a black hole at this address, to generate timeouts.
-        let addr3 = SocketAddr::from_str("192.0.4.19:443").unwrap();
-        // We'll put a "relay" at this address too
-        let addr4 = SocketAddr::from_str("192.0.9.9:443").unwrap();
-
-        test_with_one_runtime!(|rt| async move {
-            // Stub out the internet so that this connection can work.
-            let network = MockNetwork::new();
-
-            // Set up a client and server runtime with a given IP
-            let client_rt = network
-                .builder()
-                .add_address(client_addr)
-                .runtime(rt.clone());
-            let server_rt = network
-                .builder()
-                .add_address(addr1.ip())
-                .add_address(addr4.ip())
-                .runtime(rt.clone());
-            let _listener = server_rt.mock_net().listen(&addr1).await.unwrap();
-            let _listener2 = server_rt.mock_net().listen(&addr4).await.unwrap();
-            // TODO: Because this test doesn't mock time, there will actually be
-            // delays as we wait for connections to this address to time out. It
-            // would be good to use MockSleepProvider instead, once we figure
-            // out how to make it both reliable and convenient.
-            network.add_blackhole(addr3).unwrap();
-
-            // No addresses? Can't succeed.
-            let failure = connect_to_one(&client_rt, &[]).await;
-            assert!(failure.is_err());
-
-            // Connect to a set of addresses including addr1? That's a success.
-            for addresses in [
-                &[addr1][..],
-                &[addr1, addr2][..],
-                &[addr2, addr1][..],
-                &[addr1, addr3][..],
-                &[addr3, addr1][..],
-                &[addr1, addr2, addr3][..],
-                &[addr3, addr2, addr1][..],
-            ] {
-                let (_conn, addr) = connect_to_one(&client_rt, addresses).await.unwrap();
-                assert_eq!(addr, addr1);
-            }
-
-            // Connect to a set of addresses including addr2 but not addr1?
-            // That's an error of one kind or another.
-            for addresses in [
-                &[addr2][..],
-                &[addr2, addr3][..],
-                &[addr3, addr2][..],
-                &[addr3][..],
-            ] {
-                let expect_timeout = addresses.contains(&addr3);
-                let failure = rt
-                    .timeout(
-                        Duration::from_millis(300),
-                        connect_to_one(&client_rt, addresses),
-                    )
-                    .await;
-                if expect_timeout {
-                    assert!(failure.is_err());
-                } else {
-                    assert!(failure.unwrap().is_err());
-                }
-            }
-
-            // Connect to addr1 and addr4?  The first one should win.
-            let (_conn, addr) = connect_to_one(&client_rt, &[addr1, addr4]).await.unwrap();
-            assert_eq!(addr, addr1);
-            let (_conn, addr) = connect_to_one(&client_rt, &[addr4, addr1]).await.unwrap();
-            assert_eq!(addr, addr4);
-        });
     }
 
     // TODO: Write tests for timeout logic, once there is smarter logic.

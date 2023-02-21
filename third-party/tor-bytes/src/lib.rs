@@ -1,53 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `tor-bytes`: Utilities to decode/encode things into bytes.
-//!
-//! # Overview
-//!
-//! The `tor-bytes` crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//! Other crates in Arti use it to build and handle all the byte-encoded
-//! objects from the Tor protocol.  For textual directory items, see
-//! the [`tor-netdoc`] crate.
-//!
-//! This crate is generally useful for encoding and decoding
-//! byte-oriented formats that are not regular enough to qualify for
-//! serde, and not complex enough to need a full meta-language.  It is
-//! probably not suitable for handling anything bigger than a few
-//! kilobytes in size.
-//!
-//! ## Alternatives
-//!
-//! The Reader/Writer traits in std::io are more appropriate for
-//! operations that can fail because of some IO problem.  This crate
-//! can't handle that: it is for handling things that are already in
-//! memory.
-//!
-//! TODO: Look into using the "bytes" crate more here.
-//!
-//! TODO: The "untrusted" crate has similar goals to our [`Reader`],
-//! but takes more steps to make sure it can never panic. Perhaps we
-//! should see if we can learn any tricks from it.
-//!
-//! TODO: Do we really want to keep `Reader` as a struct and
-//! `Writer` as a trait?
-//!
-//! # Contents and concepts
-//!
-//! This crate is structured around four key types:
-//!
-//! * [`Reader`]: A view of a byte slice, from which data can be decoded.
-//! * [`Writer`]: Trait to represent a growable buffer of bytes.
-//!   (Vec<u8> and [`bytes::BytesMut`] implement this.)
-//! * [`Writeable`]: Trait for an object that can be encoded onto a [`Writer`]
-//! * [`Readable`]: Trait for an object that can be decoded from a [`Reader`].
-//!
-//! Every object you want to encode or decode should implement
-//! [`Writeable`] or [`Readable`] respectively.
-//!
-//! Once you implement these traits, you can use Reader and Writer to
-//! handle your type, and other types that are built around it.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -81,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 mod err;
@@ -156,6 +110,12 @@ impl<W: Writeable + Sized> WriteableOnce for W {
     }
 }
 
+impl<W: Writeable + ?Sized> Writeable for &W {
+    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
+        (*self).write_onto(b)
+    }
+}
+
 // ----------------------------------------------------------------------
 
 /// Trait for an object that can be extracted from a Reader.
@@ -208,6 +168,16 @@ pub trait Readable: Sized {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]

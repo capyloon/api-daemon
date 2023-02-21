@@ -2,10 +2,8 @@
 
 use crate::{Error, Result};
 use core::cmp::Ordering;
-use der::{
-    asn1::{Any, ObjectIdentifier},
-    Decodable, Decoder, DerOrd, Encodable, Sequence, ValueOrd,
-};
+use der::asn1::{AnyRef, ObjectIdentifier};
+use der::{Decode, DecodeValue, DerOrd, Encode, Header, Reader, Sequence, ValueOrd};
 
 /// X.509 `AlgorithmIdentifier` as defined in [RFC 5280 Section 4.1.1.2].
 ///
@@ -16,14 +14,14 @@ use der::{
 /// ```
 ///
 /// [RFC 5280 Section 4.1.1.2]: https://tools.ietf.org/html/rfc5280#section-4.1.1.2
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct AlgorithmIdentifier<'a> {
     /// Algorithm OID, i.e. the `algorithm` field in the `AlgorithmIdentifier`
     /// ASN.1 schema.
     pub oid: ObjectIdentifier,
 
     /// Algorithm `parameters`.
-    pub parameters: Option<Any<'a>>,
+    pub parameters: Option<AnyRef<'a>>,
 }
 
 impl<'a> AlgorithmIdentifier<'a> {
@@ -61,10 +59,10 @@ impl<'a> AlgorithmIdentifier<'a> {
         Ok(())
     }
 
-    /// Get the `parameters` field as an [`Any`].
+    /// Get the `parameters` field as an [`AnyRef`].
     ///
     /// Returns an error if `parameters` are `None`.
-    pub fn parameters_any(&self) -> Result<Any<'a>> {
+    pub fn parameters_any(&self) -> Result<AnyRef<'a>> {
         self.parameters.ok_or(Error::AlgorithmParametersMissing)
     }
 
@@ -74,14 +72,35 @@ impl<'a> AlgorithmIdentifier<'a> {
     pub fn parameters_oid(&self) -> Result<ObjectIdentifier> {
         Ok(ObjectIdentifier::try_from(self.parameters_any()?)?)
     }
+
+    /// Convert to a pair of [`ObjectIdentifier`]s.
+    ///
+    /// This method is helpful for decomposing in match statements. Note in
+    /// particular that `NULL` parameters are treated the same as missing
+    /// parameters.
+    ///
+    /// Returns an error if parameters are present but not an OID.
+    pub fn oids(&self) -> der::Result<(ObjectIdentifier, Option<ObjectIdentifier>)> {
+        Ok((
+            self.oid,
+            match self.parameters {
+                None => None,
+                Some(p) => match p {
+                    AnyRef::NULL => None,
+                    _ => Some(p.oid()?),
+                },
+            },
+        ))
+    }
 }
 
-impl<'a> Decodable<'a> for AlgorithmIdentifier<'a> {
-    fn decode(decoder: &mut Decoder<'a>) -> der::Result<Self> {
-        decoder.sequence(|decoder| {
-            let oid = decoder.decode()?;
-            let parameters = decoder.decode()?;
-            Ok(Self { oid, parameters })
+impl<'a> DecodeValue<'a> for AlgorithmIdentifier<'a> {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> der::Result<Self> {
+        reader.read_nested(header.length, |reader| {
+            Ok(Self {
+                oid: reader.decode()?,
+                parameters: reader.decode()?,
+            })
         })
     }
 }
@@ -89,7 +108,7 @@ impl<'a> Decodable<'a> for AlgorithmIdentifier<'a> {
 impl<'a> Sequence<'a> for AlgorithmIdentifier<'a> {
     fn fields<F, T>(&self, f: F) -> der::Result<T>
     where
-        F: FnOnce(&[&dyn Encodable]) -> der::Result<T>,
+        F: FnOnce(&[&dyn Encode]) -> der::Result<T>,
     {
         f(&[&self.oid, &self.parameters])
     }

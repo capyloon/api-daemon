@@ -1,13 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `arti-config`: Removed crate.  (Tools for configuration management in Arti)
-//!
-//! This crate was part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//!
-//! The project continues, but this particular crate is now superseded.
-//! This empty crate is published as a tombstone.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -41,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 // EOF

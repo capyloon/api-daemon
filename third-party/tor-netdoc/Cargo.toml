@@ -1,9 +1,9 @@
 [package]
 name = "tor-netdoc"
-version = "0.5.1"
+version = "0.6.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
 description = "Network document formats used with the Tor protocols."
@@ -15,7 +15,7 @@ repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 default = []
 
 full = ["routerdesc", "ns_consensus"]
-experimental = ["build_docs", "experimental-api"]
+experimental = ["build_docs", "experimental-api", "onion-client", "onion-service"]
 
 # Enable code to build the objects that represent different network documents.
 build_docs = ["rand"]
@@ -26,6 +26,13 @@ routerdesc = []
 
 # Enable the "ns consensus" document type, which some relays cache and serve.
 ns_consensus = []
+
+# Client-side and service-side support for onion services. 
+# Experimental: not covered by semver guarantees.
+# TODO hs: mark these as part of "full" once they are done and stable.
+onion-client = ["onion-common"]
+onion-service = ["onion-common", "rand"]
+onion-common = ["tor-hscrypto", "tor-linkspec"]
 
 # Enable experimental APIs that are not yet officially supported.
 #
@@ -47,25 +54,28 @@ dangerous-expose-struct-fields = ["visible", "visibility"]
 [dependencies]
 base64ct = { version = "1.5.1", features = ["alloc"] }
 bitflags = "1"
-derive_more = "0.99"
+derive_more = "0.99.3"
 digest = "0.10.0"
 educe = "0.4.6"
 hex = "0.4"
+humantime = "2"
 once_cell = "1"
-phf = { version = "0.10.0", features = ["macros"] }
+phf = { version = "0.11.1", features = ["macros"] }
 rand = { version = "0.8", optional = true }
 serde = "1.0.103"
-serde_with = "1.14.0"
+serde_with = "2.0.1"
 signature = "1"
 thiserror = "1"
 time = { version = "0.3", features = ["std", "parsing", "macros"] }
-tinystr = "0.6.0"
-tor-bytes = { path = "../tor-bytes", version = "0.5.1" }
-tor-cert = { path = "../tor-cert", version = "0.5.0" }
-tor-checkable = { path = "../tor-checkable", version = "0.3.0" }
-tor-error = { path = "../tor-error", version = "0.3.2" }
-tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.4" }
-tor-protover = { path = "../tor-protover", version = "0.3.0" }
+tinystr = "0.7.0"
+tor-bytes = { path = "../tor-bytes", version = "0.6.1" }
+tor-cert = { path = "../tor-cert", version = "0.6.1" }
+tor-checkable = { path = "../tor-checkable", version = "0.4.0" }
+tor-error = { path = "../tor-error", version = "0.4.1" }
+tor-hscrypto = { path = "../tor-hscrypto", version = "0.1.0", optional = true } 
+tor-linkspec = { path = "../tor-linkspec", version = "0.6.0", optional = true }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.4.1" }
+tor-protover = { path = "../tor-protover", version = "0.4.0" }
 visibility = { version = "0.0.1", optional = true }
 visible = { version = "0.0.1", optional = true }
 weak-table = "0.3.0"

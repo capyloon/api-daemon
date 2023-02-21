@@ -1,21 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `tor-units` -- Safe wrappers for primitive numeric types.
-//!
-//! # Overview
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//! It provides safe wrappers for primitive numeric wrappers used in
-//! other parts of Arti.
-//! In particular, it provides:
-//!   * a bounded i32 with both checked and clamping constructors,
-//!   * an integer milliseconds wrapper with conversion to [`Duration`]
-//!   * an integer seconds wrapper with conversion to [`Duration`]
-//!   * a percentage wrapper, to prevent accidental failure
-//!     to divide by 100.
-//!   * a SendMeVersion which can be compared only.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -49,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use derive_more::{Add, Display, Div, From, FromStr, Mul};
@@ -306,14 +292,17 @@ impl<const H: i32, const L: i32> TryFrom<i32> for Percentage<BoundedInt32<H, L>>
     }
 }
 
+// TODO: There is a bunch of code duplication among these "IntegerTimeUnits"
+// section.
+
 #[derive(
     Add, Copy, Clone, Mul, Div, From, FromStr, Display, Debug, PartialEq, Eq, Ord, PartialOrd,
 )]
 /// This type represents an integer number of milliseconds.
 ///
-/// The underlying type should usually implement TryInto<u64>.
+/// The underlying type should usually implement `TryInto<u64>`.
 pub struct IntegerMilliseconds<T> {
-    /// Interior Value. Should Implement TryInto<u64> to be useful.
+    /// Interior Value. Should implement `TryInto<u64>` to be useful.
     value: T,
 }
 
@@ -369,9 +358,9 @@ impl<const H: i32, const L: i32> TryFrom<i32> for IntegerMilliseconds<BoundedInt
 )]
 /// This type represents an integer number of seconds.
 ///
-/// The underlying type should usually implement TryInto<u64>.
+/// The underlying type should usually implement `TryInto<u64>`.
 pub struct IntegerSeconds<T> {
-    /// Interior Value. Should Implement TryInto<u64> to be useful.
+    /// Interior Value. Should implement `TryInto<u64>` to be useful.
     value: T,
 }
 
@@ -421,11 +410,71 @@ impl<const H: i32, const L: i32> TryFrom<i32> for IntegerSeconds<BoundedInt32<H,
 }
 
 #[derive(Copy, Clone, From, FromStr, Display, Debug, PartialEq, Eq, Ord, PartialOrd)]
+/// This type represents an integer number of minutes.
+///
+/// The underlying type should usually implement `TryInto<u64>`.
+pub struct IntegerMinutes<T> {
+    /// Interior Value. Should Implement `TryInto<u64>` to be useful.
+    value: T,
+}
+
+impl<T> IntegerMinutes<T> {
+    /// Public Constructor
+    pub fn new(value: T) -> Self {
+        IntegerMinutes { value }
+    }
+
+    /// Deconstructor
+    ///
+    /// Use only in contexts where it's no longer possible to
+    /// use the Rust type system to ensure secs vs ms vs us correctness.
+    pub fn as_days(self) -> T {
+        self.value
+    }
+
+    /// Map the inner value (useful for conversion)
+    ///
+    /// ```
+    /// use tor_units::{BoundedInt32, IntegerMinutes};
+    ///
+    /// let value: IntegerMinutes<i32> = 42.into();
+    /// let value: IntegerMinutes<BoundedInt32<0,1000>>
+    ///     = value.try_map(TryInto::try_into).unwrap();
+    /// ```
+    pub fn try_map<U, F, E>(self, f: F) -> Result<IntegerMinutes<U>, E>
+    where
+        F: FnOnce(T) -> Result<U, E>,
+    {
+        Ok(IntegerMinutes::new(f(self.value)?))
+    }
+}
+
+impl<T: TryInto<u64>> TryFrom<IntegerMinutes<T>> for Duration {
+    type Error = Error;
+    fn try_from(val: IntegerMinutes<T>) -> Result<Self, Error> {
+        /// Number of seconds in a single minute.
+        const SECONDS_PER_MINUTE: u64 = 60;
+        let minutes: u64 = val.value.try_into().map_err(|_| Error::Overflow)?;
+        let seconds = minutes
+            .checked_mul(SECONDS_PER_MINUTE)
+            .ok_or(Error::Overflow)?;
+        Ok(Self::from_secs(seconds))
+    }
+}
+
+impl<const H: i32, const L: i32> TryFrom<i32> for IntegerMinutes<BoundedInt32<H, L>> {
+    type Error = Error;
+    fn try_from(v: i32) -> Result<Self, Error> {
+        Ok(IntegerMinutes::new(v.try_into()?))
+    }
+}
+
+#[derive(Copy, Clone, From, FromStr, Display, Debug, PartialEq, Eq, Ord, PartialOrd)]
 /// This type represents an integer number of days.
 ///
-/// The underlying type should usually implement TryInto<u64>.
+/// The underlying type should usually implement `TryInto<u64>`.
 pub struct IntegerDays<T> {
-    /// Interior Value. Should Implement TryInto<u64> to be useful.
+    /// Interior Value. Should Implement `TryInto<u64>` to be useful.
     value: T,
 }
 
@@ -741,6 +790,29 @@ mod tests {
         );
         assert!(BSec::try_from(9999).is_err());
         assert_eq!(half_hour.clone(), half_hour);
+    }
+
+    #[test]
+    fn minutes() {
+        type Min = IntegerMinutes<i32>;
+
+        let t = Min::new(500);
+        let d: Duration = t.try_into().unwrap();
+        assert_eq!(d, Duration::from_secs(500 * 60));
+
+        let t = Min::new(-100);
+        let d: Result<Duration, _> = t.try_into();
+        assert_eq!(d, Err(Error::Overflow));
+
+        let t = IntegerMinutes::<u64>::new(u64::MAX);
+        let d: Result<Duration, _> = t.try_into();
+        assert_eq!(d, Err(Error::Overflow));
+
+        type BMin = IntegerMinutes<BoundedInt32<10, 30>>;
+        assert_eq!(
+            BMin::new(17_i32.try_into().unwrap()),
+            BMin::try_from(17).unwrap()
+        );
     }
 
     #[test]

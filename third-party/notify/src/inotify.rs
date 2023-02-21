@@ -4,27 +4,21 @@
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
 //! will return events for the directory itself, and for files inside the directory.
 
-extern crate inotify as inotify_sys;
-extern crate libc;
-extern crate walkdir;
-
-use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
-use self::walkdir::WalkDir;
-use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
-use mio;
-use mio_extras;
+use super::event::*;
+use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watcher};
+use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
+use inotify as inotify_sys;
+use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use std::fs::metadata;
-use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Sender};
-use std::sync::Mutex;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use walkdir::WalkDir;
 
 const INOTIFY: mio::Token = mio::Token(0);
 const MESSAGE: mio::Token = mio::Token(1);
@@ -37,34 +31,38 @@ const MESSAGE: mio::Token = mio::Token(1);
 struct EventLoop {
     running: bool,
     poll: mio::Poll,
-    event_loop_tx: mio_extras::channel::Sender<EventLoopMsg>,
-    event_loop_rx: mio_extras::channel::Receiver<EventLoopMsg>,
+    event_loop_waker: Arc<mio::Waker>,
+    event_loop_tx: Sender<EventLoopMsg>,
+    event_loop_rx: Receiver<EventLoopMsg>,
     inotify: Option<Inotify>,
-    event_tx: EventTx,
+    event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
-    rename_event: Option<RawEvent>,
+    rename_event: Option<Event>,
 }
 
 /// Watcher implementation based on inotify
-pub struct INotifyWatcher(Mutex<mio_extras::channel::Sender<EventLoopMsg>>);
+#[derive(Debug)]
+pub struct INotifyWatcher {
+    channel: Sender<EventLoopMsg>,
+    waker: Arc<mio::Waker>,
+}
 
 enum EventLoopMsg {
     AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
-    RenameTimeout(u32),
+    RenameTimeout(usize),
+    Configure(Config, BoundSender<Result<bool>>),
 }
 
 #[inline]
-fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &mut EventTx) {
-    let event = mem::replace(rename_event, None);
-    if let Some(e) = event {
-        event_tx.send(RawEvent {
-            path: e.path,
-            op: Ok(op::Op::REMOVE),
-            cookie: None,
-        });
+fn send_pending_rename_event(
+    rename_event: &mut Option<Event>,
+    event_handler: &mut dyn EventHandler,
+) {
+    if let Some(e) = rename_event.take() {
+        event_handler.handle_event(Ok(e));
     }
 }
 
@@ -102,35 +100,25 @@ fn remove_watch_by_event(
 }
 
 impl EventLoop {
-    pub fn new(inotify: Inotify, event_tx: EventTx) -> Result<EventLoop> {
-        let (event_loop_tx, event_loop_rx) = mio_extras::channel::channel::<EventLoopMsg>();
+    pub fn new(inotify: Inotify, event_handler: Box<dyn EventHandler>) -> Result<Self> {
+        let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
-        poll.register(
-            &event_loop_rx,
-            MESSAGE,
-            mio::Ready::readable(),
-            mio::PollOpt::edge(),
-        )?;
+
+        let event_loop_waker = Arc::new(mio::Waker::new(poll.registry(), MESSAGE)?);
 
         let inotify_fd = inotify.as_raw_fd();
-        let evented_inotify = mio::unix::EventedFd(&inotify_fd);
-        poll.register(
-            &evented_inotify,
-            INOTIFY,
-            mio::Ready::readable(),
-            // Use level-sensitive polling (issue #267): `Inotify::read_events`
-            // only consumes one buffer's worth of events at a time, so events
-            // may remain in the inotify fd after calling handle_inotify.
-            mio::PollOpt::level(),
-        )?;
+        let mut evented_inotify = mio::unix::SourceFd(&inotify_fd);
+        poll.registry()
+            .register(&mut evented_inotify, INOTIFY, mio::Interest::READABLE)?;
 
         let event_loop = EventLoop {
             running: true,
             poll,
+            event_loop_waker,
             event_loop_tx,
             event_loop_rx,
             inotify: Some(inotify),
-            event_tx,
+            event_handler,
             watches: HashMap::new(),
             paths: HashMap::new(),
             rename_event: None,
@@ -138,24 +126,29 @@ impl EventLoop {
         Ok(event_loop)
     }
 
-    fn channel(&self) -> mio_extras::channel::Sender<EventLoopMsg> {
-        self.event_loop_tx.clone()
-    }
-
     // Run the event loop.
     pub fn run(self) {
-        thread::spawn(|| self.event_loop_thread());
+        let _ = thread::Builder::new()
+            .name("notify-rs inotify loop".to_string())
+            .spawn(|| self.event_loop_thread());
     }
 
     fn event_loop_thread(mut self) {
         let mut events = mio::Events::with_capacity(16);
         loop {
             // Wait for something to happen.
-            self.poll.poll(&mut events, None).expect("poll failed");
+            match self.poll.poll(&mut events, None) {
+                Err(ref e) if matches!(e.kind(), std::io::ErrorKind::Interrupted) => {
+                    // System call was interrupted, we will retry
+                    // TODO: Not covered by tests (to reproduce likely need to setup signal handlers)
+                }
+                Err(e) => panic!("poll failed: {}", e),
+                Ok(()) => {}
+            }
 
             // Process whatever happened.
             for event in &events {
-                self.handle_event(&event);
+                self.handle_event(event);
             }
 
             // Stop, if we're done.
@@ -166,7 +159,7 @@ impl EventLoop {
     }
 
     // Handle a single event.
-    fn handle_event(&mut self, event: &mio::Event) {
+    fn handle_event(&mut self, event: &mio::event::Event) {
         match event.token() {
             MESSAGE => {
                 // The channel is readable - handle messages.
@@ -198,140 +191,267 @@ impl EventLoop {
                     break;
                 }
                 EventLoopMsg::RenameTimeout(cookie) => {
-                    let current_cookie = self.rename_event.as_ref().and_then(|e| e.cookie);
+                    let current_cookie = self.rename_event.as_ref().and_then(|e| e.tracker());
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
-                        send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                        send_pending_rename_event(&mut self.rename_event, &mut *self.event_handler);
                     }
+                }
+                EventLoopMsg::Configure(config, tx) => {
+                    self.configure_raw_mode(config, tx);
                 }
             }
         }
     }
+
+    fn configure_raw_mode(&mut self, _config: Config, tx: BoundSender<Result<bool>>) {
+        tx.send(Ok(false))
+            .expect("configuration channel disconnected");
+    }
+
     fn handle_inotify(&mut self) {
         let mut add_watches = Vec::new();
         let mut remove_watches = Vec::new();
 
         if let Some(ref mut inotify) = self.inotify {
             let mut buffer = [0; 1024];
-            match inotify.read_events(&mut buffer) {
-                Ok(events) => {
-                    for event in events {
-                        if event.mask.contains(EventMask::Q_OVERFLOW) {
-                            self.event_tx.send(RawEvent {
-                                path: None,
-                                op: Ok(op::Op::RESCAN),
-                                cookie: None,
-                            });
-                        }
+            // Read all buffers available.
+            loop {
+                match inotify.read_events(&mut buffer) {
+                    Ok(events) => {
+                        let mut num_events = 0;
+                        for event in events {
+                            num_events += 1;
+                            if event.mask.contains(EventMask::Q_OVERFLOW) {
+                                let ev = Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan));
+                                self.event_handler.handle_event(ev);
+                            }
 
-                        let path = match event.name {
-                            Some(name) => self.paths.get(&event.wd).map(|root| root.join(&name)),
-                            None => self.paths.get(&event.wd).cloned(),
-                        };
-
-                        if event.mask.contains(EventMask::MOVED_FROM) {
-                            send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
-                            remove_watch_by_event(&path, &self.watches, &mut remove_watches);
-                            self.rename_event = Some(RawEvent {
-                                path: path,
-                                op: Ok(op::Op::RENAME),
-                                cookie: Some(event.cookie),
-                            });
-                        } else {
-                            let mut o = Op::empty();
-                            let mut c = None;
-                            if event.mask.contains(EventMask::MOVED_TO) {
-                                let rename_event = mem::replace(&mut self.rename_event, None);
-                                if let Some(e) = rename_event {
-                                    if e.cookie == Some(event.cookie) {
-                                        self.event_tx.send(e);
-                                        o.insert(op::Op::RENAME);
-                                        c = Some(event.cookie);
-                                    } else {
-                                        o.insert(op::Op::CREATE);
-                                    }
-                                } else {
-                                    o.insert(op::Op::CREATE);
+                            let path = match event.name {
+                                Some(name) => {
+                                    self.paths.get(&event.wd).map(|root| root.join(&name))
                                 }
-                                add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
-                            }
-                            if event.mask.contains(EventMask::MOVE_SELF) {
-                                o.insert(op::Op::RENAME);
-                            }
-                            if event.mask.contains(EventMask::CREATE) {
-                                o.insert(op::Op::CREATE);
-                                add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
-                            }
-                            if event.mask.contains(EventMask::DELETE_SELF)
-                                || event.mask.contains(EventMask::DELETE)
-                            {
-                                o.insert(op::Op::REMOVE);
-                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
-                            }
-                            if event.mask.contains(EventMask::MODIFY) {
-                                o.insert(op::Op::WRITE);
-                            }
-                            if event.mask.contains(EventMask::CLOSE_WRITE) {
-                                o.insert(op::Op::CLOSE_WRITE);
-                            }
-                            if event.mask.contains(EventMask::ATTRIB) {
-                                o.insert(op::Op::CHMOD);
-                            }
+                                None => self.paths.get(&event.wd).cloned(),
+                            };
 
-                            if !o.is_empty() {
+                            if event.mask.contains(EventMask::MOVED_FROM) {
                                 send_pending_rename_event(
                                     &mut self.rename_event,
-                                    &mut self.event_tx,
+                                    &mut *self.event_handler,
                                 );
+                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                self.rename_event = Some(
+                                    Event::new(EventKind::Modify(ModifyKind::Name(
+                                        RenameMode::From,
+                                    )))
+                                    .add_some_path(path.clone())
+                                    .set_tracker(event.cookie as usize),
+                                );
+                            } else {
+                                let mut evs = Vec::new();
+                                if event.mask.contains(EventMask::MOVED_TO) {
+                                    if let Some(e) = self.rename_event.take() {
+                                        if e.tracker() == Some(event.cookie as usize) {
+                                            self.event_handler.handle_event(Ok(e.clone()));
+                                            evs.push(
+                                                Event::new(EventKind::Modify(ModifyKind::Name(
+                                                    RenameMode::To,
+                                                )))
+                                                .set_tracker(event.cookie as usize)
+                                                .add_some_path(path.clone()),
+                                            );
+                                            evs.push(
+                                                Event::new(EventKind::Modify(ModifyKind::Name(
+                                                    RenameMode::Both,
+                                                )))
+                                                .set_tracker(event.cookie as usize)
+                                                .add_some_path(e.paths.first().cloned())
+                                                .add_some_path(path.clone()),
+                                            );
+                                        } else {
+                                            // TODO should it be rename?
+                                            evs.push(
+                                                Event::new(EventKind::Create(
+                                                    if event.mask.contains(EventMask::ISDIR) {
+                                                        CreateKind::Folder
+                                                    } else {
+                                                        CreateKind::File
+                                                    },
+                                                ))
+                                                .add_some_path(path.clone()),
+                                            );
+                                        }
+                                    } else {
+                                        // TODO should it be rename?
+                                        evs.push(
+                                            Event::new(EventKind::Create(
+                                                if event.mask.contains(EventMask::ISDIR) {
+                                                    CreateKind::Folder
+                                                } else {
+                                                    CreateKind::File
+                                                },
+                                            ))
+                                            .add_some_path(path.clone()),
+                                        );
+                                    }
+                                    add_watch_by_event(
+                                        &path,
+                                        &event,
+                                        &self.watches,
+                                        &mut add_watches,
+                                    );
+                                }
+                                if event.mask.contains(EventMask::MOVE_SELF) {
+                                    evs.push(
+                                        Event::new(EventKind::Modify(ModifyKind::Name(
+                                            RenameMode::From,
+                                        )))
+                                        .add_some_path(path.clone()),
+                                    );
+                                    // TODO stat the path and get to new path
+                                    // - emit To and Both events
+                                    // - change prefix for further events
+                                }
+                                if event.mask.contains(EventMask::CREATE) {
+                                    evs.push(
+                                        Event::new(EventKind::Create(
+                                            if event.mask.contains(EventMask::ISDIR) {
+                                                CreateKind::Folder
+                                            } else {
+                                                CreateKind::File
+                                            },
+                                        ))
+                                        .add_some_path(path.clone()),
+                                    );
+                                    add_watch_by_event(
+                                        &path,
+                                        &event,
+                                        &self.watches,
+                                        &mut add_watches,
+                                    );
+                                }
+                                if event.mask.contains(EventMask::DELETE_SELF)
+                                    || event.mask.contains(EventMask::DELETE)
+                                {
+                                    evs.push(
+                                        Event::new(EventKind::Remove(
+                                            if event.mask.contains(EventMask::ISDIR) {
+                                                RemoveKind::Folder
+                                            } else {
+                                                RemoveKind::File
+                                            },
+                                        ))
+                                        .add_some_path(path.clone()),
+                                    );
+                                    remove_watch_by_event(
+                                        &path,
+                                        &self.watches,
+                                        &mut remove_watches,
+                                    );
+                                }
+                                if event.mask.contains(EventMask::MODIFY) {
+                                    evs.push(
+                                        Event::new(EventKind::Modify(ModifyKind::Data(
+                                            DataChange::Any,
+                                        )))
+                                        .add_some_path(path.clone()),
+                                    );
+                                }
+                                if event.mask.contains(EventMask::CLOSE_WRITE) {
+                                    evs.push(
+                                        Event::new(EventKind::Access(AccessKind::Close(
+                                            AccessMode::Write,
+                                        )))
+                                        .add_some_path(path.clone()),
+                                    );
+                                }
+                                if event.mask.contains(EventMask::CLOSE_NOWRITE) {
+                                    evs.push(
+                                        Event::new(EventKind::Access(AccessKind::Close(
+                                            AccessMode::Read,
+                                        )))
+                                        .add_some_path(path.clone()),
+                                    );
+                                }
+                                if event.mask.contains(EventMask::ATTRIB) {
+                                    evs.push(
+                                        Event::new(EventKind::Modify(ModifyKind::Metadata(
+                                            MetadataKind::Any,
+                                        )))
+                                        .add_some_path(path.clone()),
+                                    );
+                                }
+                                if event.mask.contains(EventMask::OPEN) {
+                                    evs.push(
+                                        Event::new(EventKind::Access(AccessKind::Open(
+                                            AccessMode::Any,
+                                        )))
+                                        .add_some_path(path.clone()),
+                                    );
+                                }
 
-                                self.event_tx.send(RawEvent {
-                                    path: path,
-                                    op: Ok(o),
-                                    cookie: c,
-                                });
+                                if !evs.is_empty() {
+                                    send_pending_rename_event(
+                                        &mut self.rename_event,
+                                        &mut *self.event_handler,
+                                    );
+                                }
+
+                                for ev in evs {
+                                    self.event_handler.handle_event(Ok(ev));
+                                }
                             }
                         }
-                    }
 
-                    // When receiving only the first part of a move event (IN_MOVED_FROM) it is unclear
-                    // whether the second part (IN_MOVED_TO) will arrive because the file or directory
-                    // could just have been moved out of the watched directory. So it's necessary to wait
-                    // for possible subsequent events in case it's a complete move event but also to make sure
-                    // that the first part of the event is handled in a timely manner in case no subsequent events arrive.
-                    if let Some(ref rename_event) = self.rename_event {
-                        let event_loop_tx = self.event_loop_tx.clone();
-                        let cookie = rename_event.cookie.unwrap(); // unwrap is safe because rename_event is always set with some cookie
-                        thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
-                            event_loop_tx
-                                .send(EventLoopMsg::RenameTimeout(cookie))
-                                .unwrap();
-                        });
+                        // All events read. Break out.
+                        if num_events == 0 {
+                            break;
+                        }
+
+                        // When receiving only the first part of a move event (IN_MOVED_FROM) it is unclear
+                        // whether the second part (IN_MOVED_TO) will arrive because the file or directory
+                        // could just have been moved out of the watched directory. So it's necessary to wait
+                        // for possible subsequent events in case it's a complete move event but also to make sure
+                        // that the first part of the event is handled in a timely manner in case no subsequent events arrive.
+                        // TODO: don't do this here, instead leave it entirely to the debounce
+                        // -> related to some rename events being reported as creates.
+
+                        if let Some(ref rename_event) = self.rename_event {
+                            let event_loop_tx = self.event_loop_tx.clone();
+                            let waker = self.event_loop_waker.clone();
+                            let cookie = rename_event.tracker().unwrap(); // unwrap is safe because rename_event is always set with some cookie
+                            let _ = thread::Builder::new()
+                                .name("notify-rs inotify rename".to_string())
+                                .spawn(move || {
+                                    thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
+
+                                    // An error here means the other end of the channel was closed, a thing that can
+                                    // happen normally.
+                                    let _ = event_loop_tx.send(EventLoopMsg::RenameTimeout(cookie));
+                                    let _ = waker.wake();
+                                });
+                        }
                     }
-                }
-                Err(e) => {
-                    self.event_tx.send(RawEvent {
-                        path: None,
-                        op: Err(Error::Io(e)),
-                        cookie: None,
-                    });
+                    Err(e) => {
+                        self.event_handler.handle_event(Err(Error::io(e)));
+                    }
                 }
             }
         }
 
         for path in remove_watches {
-            let _ = self.remove_watch(path, true);
+            self.remove_watch(path, true).ok();
         }
 
         for path in add_watches {
-            let _ = self.add_watch(path, true, false);
+            self.add_watch(path, true, false).ok();
         }
     }
 
     fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
-        let metadata = try!(metadata(&path).map_err(Error::Io));
-
-        if !metadata.is_dir() || !is_recursive {
+        // If the watch is not recursive, or if we determine (by stat'ing the path to get its
+        // metadata) that the watched path is not a directory, add a single path watch.
+        if !is_recursive || !metadata(&path).map_err(Error::io)?.is_dir() {
             return self.add_single_watch(path, false, true);
         }
 
@@ -340,7 +460,7 @@ impl EventLoop {
             .into_iter()
             .filter_map(filter_dir)
         {
-            try!(self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self));
+            self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self)?;
             watch_self = false;
         }
 
@@ -373,7 +493,15 @@ impl EventLoop {
 
         if let Some(ref mut inotify) = self.inotify {
             match inotify.add_watch(&path, watchmask) {
-                Err(e) => Err(Error::Io(e)),
+                Err(e) => {
+                    Err(if e.raw_os_error() == Some(libc::ENOSPC) {
+                        // do not report inotify limits as "no more space" on linux #266
+                        Error::new(ErrorKind::MaxFilesWatch)
+                    } else {
+                        Error::io(e)
+                    }
+                    .add_path(path))
+                }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
                     self.watches
@@ -389,17 +517,21 @@ impl EventLoop {
 
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
-            None => return Err(Error::WatchNotFound),
+            None => return Err(Error::watch_not_found().add_path(path)),
             Some((w, _, is_recursive)) => {
                 if let Some(ref mut inotify) = self.inotify {
-                    try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                    inotify
+                        .rm_watch(w.clone())
+                        .map_err(|e| Error::io(e).add_path(path.clone()))?;
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                                inotify
+                                    .rm_watch(w.clone())
+                                    .map_err(|e| Error::io(e).add_path(p.into()))?;
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -416,8 +548,10 @@ impl EventLoop {
 
     fn remove_all_watches(&mut self) -> Result<()> {
         if let Some(ref mut inotify) = self.inotify {
-            for w in self.paths.keys() {
-                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+            for (w, p) in &self.paths {
+                inotify
+                    .rm_watch(w.clone())
+                    .map_err(|e| Error::io(e).add_path(p.into()))?;
             }
             self.watches.clear();
             self.paths.clear();
@@ -438,62 +572,85 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
     None
 }
 
-impl Watcher for INotifyWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
+impl INotifyWatcher {
+    fn from_event_handler(event_handler: Box<dyn EventHandler>) -> Result<Self> {
         let inotify = Inotify::init()?;
-        let event_tx = EventTx::Raw { tx };
-        let event_loop = EventLoop::new(inotify, event_tx)?;
-        let channel = event_loop.channel();
+        let event_loop = EventLoop::new(inotify, event_handler)?;
+        let channel = event_loop.event_loop_tx.clone();
+        let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
-        Ok(INotifyWatcher(Mutex::new(channel)))
+        Ok(INotifyWatcher { channel, waker })
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
-        let inotify = Inotify::init()?;
-        let event_tx = EventTx::Debounced {
-            tx: tx.clone(),
-            debounce: Debounce::new(delay, tx),
-        };
-        let event_loop = EventLoop::new(inotify, event_tx)?;
-        let channel = event_loop.channel();
-        event_loop.run();
-        Ok(INotifyWatcher(Mutex::new(channel)))
-    }
-
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
+    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        let pb = if path.is_absolute() {
+            path.to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
-        self.0.lock().unwrap().send(msg).unwrap();
+        self.channel.send(msg).unwrap();
+        self.waker.wake().unwrap();
         rx.recv().unwrap()
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
+    fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
+        let pb = if path.is_absolute() {
+            path.to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
-        self.0.lock().unwrap().send(msg).unwrap();
+        self.channel.send(msg).unwrap();
+        self.waker.wake().unwrap();
         rx.recv().unwrap()
+    }
+}
+
+impl Watcher for INotifyWatcher {
+    /// Create a new watcher.
+    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
+        Self::from_event_handler(Box::new(event_handler))
+    }
+
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
+    }
+
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
+    }
+
+    fn configure(&mut self, config: Config) -> Result<bool> {
+        let (tx, rx) = bounded(1);
+        self.channel.send(EventLoopMsg::Configure(config, tx))?;
+        self.waker.wake()?;
+        rx.recv()?
+    }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::Inotify
     }
 }
 
 impl Drop for INotifyWatcher {
     fn drop(&mut self) {
         // we expect the event loop to live => unwrap must not panic
-        self.0.lock().unwrap().send(EventLoopMsg::Shutdown).unwrap();
+        self.channel.send(EventLoopMsg::Shutdown).unwrap();
+        self.waker.wake().unwrap();
     }
+}
+
+#[test]
+fn inotify_watcher_is_send_and_sync() {
+    fn check<T: Send + Sync>() {}
+    check::<INotifyWatcher>();
 }

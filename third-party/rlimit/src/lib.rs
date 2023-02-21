@@ -1,7 +1,5 @@
 //! rlimit - Resource limits.
 //!
-//! # Examples
-//!
 //! ## Set resource limit
 //! ```no_run
 //! # #[cfg(unix)]
@@ -29,16 +27,6 @@
 //! # }
 //! ```
 //!
-//! ## Increase NOFILE limit
-//! See the example [nofile](https://github.com/Nugine/rlimit/tree/v0.8.3/examples/nofile.rs).
-//!
-//! You can also use the tool function showed below:
-//!
-//! ```no_run
-//! rlimit::increase_nofile_limit(10240).unwrap();
-//! rlimit::increase_nofile_limit(u64::MAX).unwrap();
-//! ```
-//!
 //! ## Windows
 //!
 //! Windows does not have Unix-like resource limits.
@@ -56,6 +44,16 @@
 //! rlimit::setmaxstdio(2048).unwrap();
 //! println!("{}", rlimit::getmaxstdio()); // 2048
 //! # }
+//! ```
+//!
+//! ## Increase NOFILE limit
+//! See the example [nofile](https://github.com/Nugine/rlimit/tree/v0.9.1/examples/nofile.rs).
+//!
+//! You can also use the tool function [`rlimit::increase_nofile_limit`][`crate::increase_nofile_limit`]
+//!
+//! ```no_run
+//! rlimit::increase_nofile_limit(10240).unwrap();
+//! rlimit::increase_nofile_limit(u64::MAX).unwrap();
 //! ```
 //!
 //! # Troubleshoot
@@ -78,6 +76,9 @@
     clippy::pedantic,
     clippy::nursery,
     clippy::cargo
+)]
+#![allow(
+    clippy::option_if_let_else,  // I don't like it. The match expression is more readable.
 )]
 
 #[allow(unused_macros)]
@@ -109,7 +110,7 @@ group! {
     pub use self::resource::Resource;
 }
 
-#[cfg(any(doc, target_os = "linux"))]
+#[cfg(any(doc, target_os = "linux", target_os = "android"))]
 group! {
     mod proc_limits;
 

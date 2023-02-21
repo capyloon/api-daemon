@@ -1,6 +1,6 @@
 //! Tests for the [`DateTime`] type.
 
-use der::{asn1::UtcTime, DateTime, Decodable, Encodable};
+use der::{asn1::UtcTime, DateTime, Decode, Encode};
 use proptest::prelude::*;
 
 proptest! {
@@ -31,7 +31,7 @@ proptest! {
         let utc_time1 = UtcTime::try_from(datetime).unwrap();
 
         let mut buf = [0u8; 128];
-        let mut encoder = der::Encoder::new(&mut buf);
+        let mut encoder = der::SliceWriter::new(&mut buf);
         utc_time1.encode(&mut encoder).unwrap();
         let der_bytes = encoder.finish().unwrap();
 

@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use hex_literal::hex;
 use tor_llcrypto as ll;
 
@@ -61,6 +63,26 @@ fn test_wrong_hex_rsa_ids() {
     assert!(RsaIdentity::from_hex("5696ab38cb3852afa476a5c07b2d4788963d5567AB").is_none());
     assert!(RsaIdentity::from_hex("").is_none());
     assert!(RsaIdentity::from_hex("listen carefully, spider of destiny  -FZ").is_none());
+}
+
+#[test]
+fn test_rsa_is_zero() {
+    use ll::pk::rsa::RsaIdentity;
+    assert!(
+        RsaIdentity::from_hex("0000000000000000000000000000000000000000")
+            .unwrap()
+            .is_zero()
+    );
+    assert!(
+        !RsaIdentity::from_hex("000000000000000000000000000000000000000F")
+            .unwrap()
+            .is_zero()
+    );
+    assert!(
+        !RsaIdentity::from_hex("F000000000000000000000000000000000000000")
+            .unwrap()
+            .is_zero()
+    );
 }
 
 // TODO: Proper tests for RSA keys

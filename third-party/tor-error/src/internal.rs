@@ -245,9 +245,18 @@ impl HasKind for Bug {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     // We test this on "important" and "reliable" platforms only.
@@ -266,6 +275,7 @@ mod test {
     //   https://gitlab.torproject.org/tpo/core/arti/-/merge_requests/509#note_2803085
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     #[test]
+    #[inline(never)]
     fn internal_macro_test() {
         let start_of_func = line!();
 
@@ -276,11 +286,23 @@ mod test {
         assert!(e.0.source.is_none());
 
         let s = e.to_string();
+        dbg!(&s);
 
         assert!(s.starts_with("internal error (bug) at "));
         assert!(s.contains("Couldn't wobble the wobbling device."));
         #[cfg(feature = "backtrace")]
         assert!(s.contains("internal_macro_test"));
+
+        #[derive(thiserror::Error, Debug)]
+        enum Wrap {
+            #[error("Internal error")]
+            Internal(#[from] Bug),
+        }
+
+        let w: Wrap = e.into();
+        let s = format!("Got: {}", w.report());
+        dbg!(&s);
+        assert!(s.contains("Couldn't wobble the wobbling device."));
     }
 
     #[test]

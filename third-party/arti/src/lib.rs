@@ -1,126 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! A minimal command line program for connecting to the tor network
-//!
-//! (If you want a more general Tor client library interface, use
-//! [`arti_client`].)
-//!
-//! This crate is the primary command-line interface for
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to implement
-//! [Tor](https://www.torproject.org/) in Rust. Many other crates in Arti depend
-//! on it.
-//!
-//! Note that Arti is a work in progress; although we've tried to write all the
-//! critical security components, you probably shouldn't use Arti in production
-//! until it's a bit more mature.
-//!
-//! More documentation will follow as this program improves.  For now, just know
-//! that it can run as a simple SOCKS proxy over the Tor network. It will listen
-//! on port 9150 by default, but you can override this in the configuration.
-//!
-//! # Command-line interface
-//!
-//! (This is not stable; future versions will break this.)
-//!
-//! `arti` uses the [`clap`](https://docs.rs/clap/) crate for command-line
-//! argument parsing; run `arti help` to get it to print its documentation.
-//!
-//! The only currently implemented subcommand is `arti proxy`; try `arti help
-//! proxy` for a list of options you can pass to it.
-//!
-//! # Configuration
-//!
-//! By default, `arti` looks for its configuration files in a platform-dependent
-//! location.
-//!
-//! | OS      | Configuration File                                 |
-//! |---------|----------------------------------------------------|
-//! | Unix    | `~/.config/arti/arti.toml`                         |
-//! | macOS   | `~/Library/Application Support/arti/arti.toml`     |
-//! | Windows | `\Users\<USERNAME>\AppData\Roaming\arti\arti.toml` |
-//!
-//! The configuration file is TOML.  (We do not guarantee its stability.) For an
-//! example see [`arti_defaults.toml`](./arti_defaults.toml).
-//!
-//! # Compile-time features
-//!
-//! ## Additive features
-//!
-//! * `tokio` (default): Use the tokio runtime library as our backend.
-//! * `async-std`: Use the async-std runtime library as our backend. This
-//!   feature has no effect unless building with `--no-default-features` to
-//!   disable tokio.
-//! * `native-tls` -- Build with support for the `native_tls` TLS backend.
-//!   (default)
-//! * `journald` -- Build with support for logging to the `journald` logging
-//!   backend (available as part of systemd.)
-//! * `dns-proxy` (default) -- Build with support for proxying certain simple
-//!   DNS queries over the Tor network.  
-//! * `harden` (default) -- Build with support for hardening the Arti process by
-//!   disabling debugger attachment and other local memory-inspection vectors.
-//!
-//! * `full` -- Build with all features above, along with all stable additive
-//!   features from other arti crates.  (This does not include experimental
-//!   features. It also does not include features that select a particular
-//!   implementation to the exclusion of another, or those that set a build
-//!   flag.)
-//!
-//! * `rustls` -- build with the [rustls](https://github.com/rustls/rustls)
-//!   TLS backend.  This is not included in `full`, since it uses the
-//!   `ring` crate, which uses the old (3BSD/SSLEay) OpenSSL license, which may
-//!   introduce licensing compatibility issues.
-//!
-//! ## Build-flag related features
-//!
-//! * `static` -- Link with static versions of your system dependencies,
-//!   including sqlite and/or openssl.  (⚠ Warning ⚠: this feature will include
-//!   a dependency on native-tls, even if you weren't planning to use
-//!   native-tls.  If you only want to build with a static sqlite library,
-//!   enable the `static-sqlite` feature.  We'll look for better solutions here
-//!   in the future.)
-//! * `static-sqlite` -- Link with a static version of sqlite.
-//! * `static-native-tls` -- Link with a static version of `native-tls`. Enables
-//!   `native-tls`.
-//!
-//! ## Cryptographic acceleration features
-//!
-//! Libraries should not enable these by default, since they replace one
-//! implementation with another.
-//!
-//! * `accel-sha1-asm` -- Accelerate cryptography by using an assembly
-//!   implementation of SHA1, if one is available.
-//! * `accel-openssl` -- Accelerate cryptography by using openssl as a backend.
-//!
-//! ## Experimental features
-//!
-//!  Note that the APIs enabled by these features are NOT covered by semantic
-//!  versioning[^1] guarantees: we might break them or remove them between patch
-//!  versions.
-//!
-//! * `experimental-api` -- build with experimental, unstable API support.
-//!    (Right now, most APIs in the `arti` crate are experimental, since this
-//!    crate was originally written to run as a binary only.)
-//! * `experimental` -- Build with all experimental features above, along with
-//!   all experimental features from other arti crates.
-//!
-//! [^1]: Remember, semantic versioning is what makes various `cargo` features
-//! work reliably. To be explicit, if you want `cargo update` to _only_ make
-//! correct changes, then you cannot enable these features.
-//!
-//! # Limitations
-//!
-//! There are many missing features.  Among them: there's no onion service
-//! support yet. There's no anti-censorship support.  You can't be a relay.
-//! There isn't any kind of proxy besides SOCKS.
-//!
-//! See the [README
-//! file](https://gitlab.torproject.org/tpo/core/arti/-/blob/main/README.md) for
-//! a more complete list of missing features.
-//!
-//! # Library for building command-line client
-//!
-//! This library crate contains code useful for making a command line program
-//! similar to `arti`. The API should not be considered stable.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -154,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 // Overrides specific to this crate:
@@ -186,6 +67,7 @@ mod reload_cfg;
 #[cfg(not(feature = "experimental-api"))]
 mod socks;
 
+use std::ffi::OsString;
 use std::fmt::Write;
 
 pub use cfg::{
@@ -201,7 +83,8 @@ use tor_config::ConfigurationSources;
 use tor_rtcompat::{BlockOn, Runtime};
 
 use anyhow::{Context, Error, Result};
-use clap::{App, AppSettings, Arg, SubCommand};
+use clap::{value_parser, Arg, ArgAction, Command};
+#[allow(unused_imports)]
 use tracing::{error, info, warn};
 
 /// Shorthand for a boxed and pinned Future.
@@ -356,7 +239,7 @@ where
     );
 
     let clap_app =
-        App::new("Arti")
+        Command::new("Arti")
             .version(env!("CARGO_PKG_VERSION"))
             .long_version(&long_version as &str)
             .author("The Tor Project Developers")
@@ -366,64 +249,66 @@ where
             //            before the subcommand.
             //            We just declare all options as `global` and then require them to be
             //            put after the subcommand, hence this new usage string.
-            .usage("arti <SUBCOMMAND> [OPTIONS]")
+            .override_usage("arti <SUBCOMMAND> [OPTIONS]")
             .arg(
-                Arg::with_name("config-files")
+                Arg::new("config-files")
                     .short('c')
                     .long("config")
-                    .takes_value(true)
+                    .action(ArgAction::Set)
                     .value_name("FILE")
-                    .multiple(true)
+                    .value_parser(value_parser!(OsString))
+                    .action(ArgAction::Append)
                     // NOTE: don't forget the `global` flag on all arguments declared at this level!
                     .global(true)
-                    .help(&*config_file_help),
+                    .help(config_file_help.as_str()),
             )
             .arg(
-                Arg::with_name("option")
+                Arg::new("option")
                     .short('o')
-                    .takes_value(true)
+                    .action(ArgAction::Set)
                     .value_name("KEY=VALUE")
-                    .multiple(true)
+                    .action(ArgAction::Append)
                     .global(true)
                     .help("Override config file parameters, using TOML-like syntax."),
             )
             .arg(
-                Arg::with_name("loglevel")
+                Arg::new("loglevel")
                     .short('l')
                     .long("log-level")
                     .global(true)
-                    .takes_value(true)
+                    .action(ArgAction::Set)
                     .value_name("LEVEL")
                     .help("Override the log level (usually one of 'trace', 'debug', 'info', 'warn', 'error')."),
             )
             .arg(
-                Arg::with_name("disable-fs-permission-checks")
+                Arg::new("disable-fs-permission-checks")
                     .long("disable-fs-permission-checks")
-                    .takes_value(false)
                     .global(true)
+                    .action(ArgAction::SetTrue)
                     .help("Don't check permissions on the files we use."),
             )
             .subcommand(
-                SubCommand::with_name("proxy")
+                Command::new("proxy")
                     .about(
                         "Run Arti in SOCKS proxy mode, proxying connections through the Tor network.",
                     )
                     .arg(
-                        Arg::with_name("socks-port")
+                        Arg::new("socks-port")
                             .short('p')
-                            .takes_value(true)
+                            .action(ArgAction::Set)
                             .value_name("PORT")
                             .help("Port to listen on for SOCKS connections (overrides the port in the config if specified).")
                     )
                     .arg(
-                        Arg::with_name("dns-port")
+                        Arg::new("dns-port")
                             .short('d')
-                            .takes_value(true)
+                            .action(ArgAction::Set)
                             .value_name("PORT")
                             .help("Port to listen on for DNS request (overrides the port in the config if specified).")
                     )
             )
-            .setting(AppSettings::SubcommandRequiredElseHelp);
+            .subcommand_required(true)
+            .arg_required_else_help(true);
 
     // Tracing doesn't log anything when there is no subscriber set.  But we want to see
     // logging messages from config parsing etc.  We can't set the global default subscriber
@@ -444,9 +329,9 @@ where
         .finish();
     let pre_config_logging = tracing::Dispatch::new(pre_config_logging);
     let pre_config_logging_ret = tracing::dispatcher::with_default(&pre_config_logging, || {
-        let matches = clap_app.get_matches_from_safe(cli_args)?;
+        let matches = clap_app.try_get_matches_from(cli_args)?;
 
-        let fs_mistrust_disabled = matches.is_present("disable-fs-permission-checks");
+        let fs_mistrust_disabled = matches.get_flag("disable-fs-permission-checks");
 
         // A Mistrust object to use for loading our configuration.  Elsewhere, we
         // use the value _from_ the configuration.
@@ -459,16 +344,21 @@ where
                 .expect("Could not construct default fs-mistrust")
         };
 
-        let mut override_options: Vec<&str> =
-            matches.values_of("option").unwrap_or_default().collect();
+        let mut override_options: Vec<String> = matches
+            .get_many::<String>("option")
+            .unwrap_or_default()
+            .cloned()
+            .collect();
         if fs_mistrust_disabled {
-            override_options.push("storage.permissions.dangerously_trust_everyone=true");
+            override_options.push("storage.permissions.dangerously_trust_everyone=true".to_owned());
         }
 
         let cfg_sources = {
             let mut cfg_sources = ConfigurationSources::from_cmdline(
                 default_config_files()?,
-                matches.values_of_os("config-files").unwrap_or_default(),
+                matches
+                    .get_many::<OsString>("config-files")
+                    .unwrap_or_default(),
                 override_options,
             );
             cfg_sources.set_mistrust(cfg_mistrust);
@@ -490,7 +380,7 @@ where
     let _log_guards = logging::setup_logging(
         config.logging(),
         &log_mistrust,
-        matches.value_of("loglevel"),
+        matches.get_one::<String>("loglevel").map(|s| s.as_str()),
     )?;
 
     if !config.application().allow_running_as_root {
@@ -507,7 +397,7 @@ where
 
     if let Some(proxy_matches) = matches.subcommand_matches("proxy") {
         let socks_port = match (
-            proxy_matches.value_of("socks-port"),
+            proxy_matches.get_one::<String>("socks-port"),
             config.proxy().socks_listen.localhost_port_legacy()?,
         ) {
             (Some(p), _) => p.parse().expect("Invalid port specified"),
@@ -516,7 +406,7 @@ where
         };
 
         let dns_port = match (
-            proxy_matches.value_of("dns-port"),
+            proxy_matches.get_one::<String>("dns-port"),
             config.proxy().dns_listen.localhost_port_legacy()?,
         ) {
             (Some(p), _) => p.parse().expect("Invalid port specified"),

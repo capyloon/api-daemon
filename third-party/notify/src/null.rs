@@ -2,30 +2,38 @@
 
 #![allow(unused_variables)]
 
-use super::{DebouncedEvent, RawEvent, RecursiveMode, Result, Watcher};
+use crate::Config;
+
+use super::{RecursiveMode, Result, Watcher};
 use std::path::Path;
-use std::sync::mpsc::Sender;
-use std::time::Duration;
 
 /// Stub `Watcher` implementation
 ///
 /// Events are never delivered from this watcher.
+#[derive(Debug)]
 pub struct NullWatcher;
 
 impl Watcher for NullWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<NullWatcher> {
-        Ok(NullWatcher)
-    }
-
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<NullWatcher> {
-        Ok(NullWatcher)
-    }
-
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         Ok(())
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
         Ok(())
+    }
+
+    fn new<F: crate::EventHandler>(event_handler: F, config: Config) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        Ok(NullWatcher)
+    }
+
+    fn configure(&mut self, config: Config) -> Result<bool> {
+        Ok(false)
+    }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::NullWatcher
     }
 }

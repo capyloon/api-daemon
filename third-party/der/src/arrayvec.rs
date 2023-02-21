@@ -29,7 +29,7 @@ impl<T, const N: usize> ArrayVec<T, N> {
     /// impl on `T`.
     pub fn add(&mut self, element: T) -> Result<()> {
         match self.length.checked_add(1) {
-            Some(n) if n < N => {
+            Some(n) if n <= N => {
                 self.elements[self.length] = Some(element);
                 self.length = n;
                 Ok(())
@@ -66,22 +66,21 @@ impl<T, const N: usize> ArrayVec<T, N> {
         self.length.checked_sub(1).and_then(|n| self.get(n))
     }
 
-    /// Try to convert this [`ArrayVec`] into a `[T; N]`.
-    ///
-    /// Returns `None` if the [`ArrayVec`] does not contain `N` elements.
-    pub fn try_into_array(self) -> Result<[T; N]> {
-        if self.length != N {
-            return Err(ErrorKind::Incomplete {
-                expected_len: N.try_into()?,
-                actual_len: self.length.try_into()?,
-            }
-            .into());
-        }
+    /// Extract the inner array.
+    pub fn into_array(self) -> [Option<T>; N] {
+        self.elements
+    }
+}
 
-        Ok(self.elements.map(|elem| match elem {
-            Some(e) => e,
-            None => unreachable!(),
-        }))
+impl<T, const N: usize> AsRef<[Option<T>]> for ArrayVec<T, N> {
+    fn as_ref(&self) -> &[Option<T>] {
+        &self.elements[..self.length]
+    }
+}
+
+impl<T, const N: usize> AsMut<[Option<T>]> for ArrayVec<T, N> {
+    fn as_mut(&mut self) -> &mut [Option<T>] {
+        &mut self.elements[..self.length]
     }
 }
 
@@ -114,11 +113,36 @@ impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<&'a T> {
-        if let Some(Some(res)) = self.elements.get(self.position) {
-            self.position = self.position.checked_add(1)?;
-            Some(res)
-        } else {
-            None
+        match self.elements.get(self.position) {
+            Some(Some(res)) => {
+                self.position = self.position.checked_add(1)?;
+                Some(res)
+            }
+            _ => None,
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.elements.len().saturating_sub(self.position);
+        (len, Some(len))
+    }
+}
+
+impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::ArrayVec;
+    use crate::ErrorKind;
+
+    #[test]
+    fn add() {
+        let mut vec = ArrayVec::<u8, 3>::new();
+        vec.add(1).unwrap();
+        vec.add(2).unwrap();
+        vec.add(3).unwrap();
+
+        assert_eq!(vec.add(4).err().unwrap(), ErrorKind::Overlength.into());
+        assert_eq!(vec.len(), 3);
     }
 }

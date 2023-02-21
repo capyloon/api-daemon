@@ -1,39 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! Implementation of Tor's "subprotocol versioning" feature.
-//!
-//! # Overview
-//!
-//! The Tor system is built out of numerous "subprotocols" that are
-//! versioned more or less independently. The `tor-protover` crate
-//! implements parsing and handling for these subprotocol versions, so
-//! that different Tor instances know which parts of the protocol
-//! they support.
-//!
-//! Subprotocol versions are also used to determine which versions of
-//! the protocol are required to connect to the network (or just
-//! recommended).
-//!
-//! For more details, see [tor-spec.txt](https://spec.torproject.org/tor-spec)
-//! section 9.
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//! It's unlikely to be of general interest
-//! unless you are writing a Tor implementation, or a program that
-//! needs to examine fine-grained details of the Tor network.
-//!
-//! ## Design notes
-//!
-//! We're giving `tor-protover` its own crate within arti because it
-//! needs to be used to multiple higher level crates that do not
-//! themselves depend on one another.  (For example, [`tor-proto`]
-//! needs to know which variant of a subprotocol can be used with a
-//! given relay, whereas [`tor-netdoc`] needs to parse lists of
-//! subprotocol versions from directory documents.  Eventually,
-//! [`arti-client`] will need to check its own list of supported
-//! protocols against the required list in the consensus.)
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -67,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 #![allow(non_upper_case_globals)]
@@ -496,7 +464,16 @@ impl std::fmt::Display for Protocols {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]

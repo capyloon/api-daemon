@@ -1,55 +1,119 @@
 //! PEM encoder.
 
 use crate::{
-    grammar::{self, CHAR_CR, CHAR_LF},
-    Error, Result, BASE64_WRAP_WIDTH, ENCAPSULATION_BOUNDARY_DELIMITER,
-    POST_ENCAPSULATION_BOUNDARY, PRE_ENCAPSULATION_BOUNDARY,
+    grammar, Base64Encoder, Error, LineEnding, Result, BASE64_WRAP_WIDTH,
+    ENCAPSULATION_BOUNDARY_DELIMITER, POST_ENCAPSULATION_BOUNDARY, PRE_ENCAPSULATION_BOUNDARY,
 };
 use base64ct::{Base64, Encoding};
+use core::str;
 
 #[cfg(feature = "alloc")]
 use alloc::string::String;
 
-/// Encode a PEM document according to RFC 7468's "Strict" grammar.
-pub fn encode<'a>(
+#[cfg(feature = "std")]
+use std::io;
+
+/// Compute the length of a PEM encoded document which encapsulates a
+/// Base64-encoded body including line endings every 64 characters.
+///
+/// The `input_len` parameter specifies the length of the raw input
+/// bytes prior to Base64 encoding.
+///
+/// Note that the current implementation of this function computes an upper
+/// bound of the length and the actual encoded document may be slightly shorter
+/// (typically 1-byte). Downstream consumers of this function should check the
+/// actual encoded length and potentially truncate buffers allocated using this
+/// function to estimate the encapsulated size.
+///
+/// Use [`encoded_len`] (when possible) to obtain a precise length.
+///
+/// ## Returns
+/// - `Ok(len)` on success
+/// - `Err(Error::Length)` on length overflow
+pub fn encapsulated_len(label: &str, line_ending: LineEnding, input_len: usize) -> Result<usize> {
+    encapsulated_len_wrapped(label, BASE64_WRAP_WIDTH, line_ending, input_len)
+}
+
+/// Compute the length of a PEM encoded document with the Base64 body
+/// line wrapped at the specified `width`.
+///
+/// This is the same as [`encapsulated_len`], which defaults to a width of 64.
+///
+/// Note that per [RFC7468 § 2] encoding PEM with any other wrap width besides
+/// 64 is technically non-compliant:
+///
+/// > Generators MUST wrap the base64-encoded lines so that each line
+/// > consists of exactly 64 characters except for the final line, which
+/// > will encode the remainder of the data (within the 64-character line
+/// > boundary)
+///
+/// [RFC7468 § 2]: https://datatracker.ietf.org/doc/html/rfc7468#section-2
+pub fn encapsulated_len_wrapped(
     label: &str,
+    line_width: usize,
     line_ending: LineEnding,
-    input: &[u8],
-    buf: &'a mut [u8],
-) -> Result<&'a [u8]> {
-    grammar::validate_label(label.as_bytes())?;
-
-    let mut buf = Buffer::new(buf, line_ending);
-    buf.write(PRE_ENCAPSULATION_BOUNDARY)?;
-    buf.write(label.as_bytes())?;
-    buf.writeln(ENCAPSULATION_BOUNDARY_DELIMITER)?;
-
-    for chunk in input.chunks((BASE64_WRAP_WIDTH * 3) / 4) {
-        buf.write_base64ln(chunk)?;
+    input_len: usize,
+) -> Result<usize> {
+    if line_width < 4 {
+        return Err(Error::Length);
     }
 
-    buf.write(POST_ENCAPSULATION_BOUNDARY)?;
-    buf.write(label.as_bytes())?;
-    buf.writeln(ENCAPSULATION_BOUNDARY_DELIMITER)?;
-    buf.finish()
+    let base64_len = input_len
+        .checked_mul(4)
+        .and_then(|n| n.checked_div(3))
+        .and_then(|n| n.checked_add(3))
+        .ok_or(Error::Length)?
+        & !3;
+
+    let base64_len_wrapped = base64_len_wrapped(base64_len, line_width, line_ending)?;
+    encapsulated_len_inner(label, line_ending, base64_len_wrapped)
 }
 
 /// Get the length of a PEM encoded document with the given bytes and label.
-pub fn encoded_len(label: &str, line_ending: LineEnding, input: &[u8]) -> usize {
-    // TODO(tarcieri): use checked arithmetic
-    PRE_ENCAPSULATION_BOUNDARY.len()
-        + label.as_bytes().len()
-        + ENCAPSULATION_BOUNDARY_DELIMITER.len()
-        + line_ending.len()
-        + input
-            .chunks((BASE64_WRAP_WIDTH * 3) / 4)
-            .fold(0, |acc, chunk| {
-                acc + Base64::encoded_len(chunk) + line_ending.len()
-            })
-        + POST_ENCAPSULATION_BOUNDARY.len()
-        + label.as_bytes().len()
-        + ENCAPSULATION_BOUNDARY_DELIMITER.len()
-        + line_ending.len()
+///
+/// This function computes a precise length of the PEM encoding of the given
+/// `input` data.
+///
+/// ## Returns
+/// - `Ok(len)` on success
+/// - `Err(Error::Length)` on length overflow
+pub fn encoded_len(label: &str, line_ending: LineEnding, input: &[u8]) -> Result<usize> {
+    let base64_len = Base64::encoded_len(input);
+    let base64_len_wrapped = base64_len_wrapped(base64_len, BASE64_WRAP_WIDTH, line_ending)?;
+    encapsulated_len_inner(label, line_ending, base64_len_wrapped)
+}
+
+/// Encode a PEM document according to RFC 7468's "Strict" grammar.
+pub fn encode<'o>(
+    type_label: &str,
+    line_ending: LineEnding,
+    input: &[u8],
+    buf: &'o mut [u8],
+) -> Result<&'o str> {
+    let mut encoder = Encoder::new(type_label, line_ending, buf)?;
+    encoder.encode(input)?;
+    let encoded_len = encoder.finish()?;
+    let output = &buf[..encoded_len];
+
+    // Sanity check
+    debug_assert!(str::from_utf8(output).is_ok());
+
+    // Ensure `output` contains characters from the lower 7-bit ASCII set
+    if output.iter().fold(0u8, |acc, &byte| acc | (byte & 0x80)) == 0 {
+        // Use unchecked conversion to avoid applying UTF-8 checks to potentially
+        // secret PEM documents (and therefore introducing a potential timing
+        // sidechannel)
+        //
+        // SAFETY: contents of this buffer are controlled entirely by the encoder,
+        // which ensures the contents are always a valid (ASCII) subset of UTF-8.
+        // It's also additionally sanity checked by two assertions above to ensure
+        // the validity (with the always-on runtime check implemented in a
+        // constant time-ish manner.
+        #[allow(unsafe_code)]
+        Ok(unsafe { str::from_utf8_unchecked(output) })
+    } else {
+        Err(Error::CharacterEncoding)
+    }
 }
 
 /// Encode a PEM document according to RFC 7468's "Strict" grammar, returning
@@ -57,117 +121,181 @@ pub fn encoded_len(label: &str, line_ending: LineEnding, input: &[u8]) -> usize 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub fn encode_string(label: &str, line_ending: LineEnding, input: &[u8]) -> Result<String> {
-    let mut buf = vec![0u8; encoded_len(label, line_ending, input)];
-    encode(label, line_ending, input, &mut buf)?;
+    let expected_len = encoded_len(label, line_ending, input)?;
+    let mut buf = vec![0u8; expected_len];
+    let actual_len = encode(label, line_ending, input, &mut buf)?.len();
+    debug_assert_eq!(expected_len, actual_len);
     String::from_utf8(buf).map_err(|_| Error::CharacterEncoding)
 }
 
-/// Line endings.
-///
-/// Use [`LineEnding::default`] to get an appropriate line ending for the
-/// current operating system.
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub enum LineEnding {
-    /// Carriage return: `\r` (Pre-OS X Macintosh)
-    CR,
-
-    /// Line feed: `\n` (Unix OSes)
-    LF,
-
-    /// Carriage return + line feed: `\r\n` (Windows)
-    CRLF,
-}
-
-impl Default for LineEnding {
-    /// Use the line ending for the current OS
-    #[cfg(windows)]
-    fn default() -> LineEnding {
-        LineEnding::CRLF
-    }
-    #[cfg(not(windows))]
-    fn default() -> LineEnding {
-        LineEnding::LF
-    }
-}
-
-#[allow(clippy::len_without_is_empty)]
-impl LineEnding {
-    /// Get the byte serialization of this [`LineEnding`].
-    pub fn as_bytes(self) -> &'static [u8] {
-        match self {
-            LineEnding::CR => &[CHAR_CR],
-            LineEnding::LF => &[CHAR_LF],
-            LineEnding::CRLF => &[CHAR_CR, CHAR_LF],
-        }
-    }
-
-    /// Get the encoded length of this [`LineEnding`].
-    pub fn len(self) -> usize {
-        self.as_bytes().len()
-    }
-}
-
-/// Output buffer for writing encoded PEM output.
-struct Buffer<'a> {
-    /// Backing byte slice where PEM output is being written.
-    bytes: &'a mut [u8],
-
-    /// Total number of bytes written into the buffer so far.
-    position: usize,
-
-    /// Line ending to use
+/// Compute the encapsulated length of Base64 data of the given length.
+fn encapsulated_len_inner(
+    label: &str,
     line_ending: LineEnding,
+    base64_len: usize,
+) -> Result<usize> {
+    [
+        PRE_ENCAPSULATION_BOUNDARY.len(),
+        label.as_bytes().len(),
+        ENCAPSULATION_BOUNDARY_DELIMITER.len(),
+        line_ending.len(),
+        base64_len,
+        line_ending.len(),
+        POST_ENCAPSULATION_BOUNDARY.len(),
+        label.as_bytes().len(),
+        ENCAPSULATION_BOUNDARY_DELIMITER.len(),
+        line_ending.len(),
+    ]
+    .into_iter()
+    .try_fold(0usize, |acc, len| acc.checked_add(len))
+    .ok_or(Error::Length)
 }
 
-impl<'a> Buffer<'a> {
-    /// Initialize buffer.
-    pub fn new(bytes: &'a mut [u8], line_ending: LineEnding) -> Self {
-        Self {
-            bytes,
-            position: 0,
-            line_ending,
-        }
+/// Compute Base64 length line-wrapped at the specified width with the given
+/// line ending.
+fn base64_len_wrapped(
+    base64_len: usize,
+    line_width: usize,
+    line_ending: LineEnding,
+) -> Result<usize> {
+    base64_len
+        .saturating_sub(1)
+        .checked_div(line_width)
+        .and_then(|lines| lines.checked_mul(line_ending.len()))
+        .and_then(|len| len.checked_add(base64_len))
+        .ok_or(Error::Length)
+}
+
+/// Buffered PEM encoder.
+///
+/// Stateful buffered encoder type which encodes an input PEM document according
+/// to RFC 7468's "Strict" grammar.
+pub struct Encoder<'l, 'o> {
+    /// PEM type label.
+    type_label: &'l str,
+
+    /// Line ending used to wrap Base64.
+    line_ending: LineEnding,
+
+    /// Buffered Base64 encoder.
+    base64: Base64Encoder<'o>,
+}
+
+impl<'l, 'o> Encoder<'l, 'o> {
+    /// Create a new PEM [`Encoder`] with the default options which
+    /// writes output into the provided buffer.
+    ///
+    /// Uses the default 64-character line wrapping.
+    pub fn new(type_label: &'l str, line_ending: LineEnding, out: &'o mut [u8]) -> Result<Self> {
+        Self::new_wrapped(type_label, BASE64_WRAP_WIDTH, line_ending, out)
     }
 
-    /// Write a byte slice to the buffer.
-    pub fn write(&mut self, slice: &[u8]) -> Result<()> {
-        let reserved = self.reserve(slice.len())?;
-        reserved.copy_from_slice(slice);
+    /// Create a new PEM [`Encoder`] which wraps at the given line width.
+    ///
+    /// Note that per [RFC7468 § 2] encoding PEM with any other wrap width besides
+    /// 64 is technically non-compliant:
+    ///
+    /// > Generators MUST wrap the base64-encoded lines so that each line
+    /// > consists of exactly 64 characters except for the final line, which
+    /// > will encode the remainder of the data (within the 64-character line
+    /// > boundary)
+    ///
+    /// This method is provided with the intended purpose of implementing the
+    /// OpenSSH private key format, which uses a non-standard wrap width of 70.
+    ///
+    /// [RFC7468 § 2]: https://datatracker.ietf.org/doc/html/rfc7468#section-2
+    pub fn new_wrapped(
+        type_label: &'l str,
+        line_width: usize,
+        line_ending: LineEnding,
+        mut out: &'o mut [u8],
+    ) -> Result<Self> {
+        grammar::validate_label(type_label.as_bytes())?;
+
+        for boundary_part in [
+            PRE_ENCAPSULATION_BOUNDARY,
+            type_label.as_bytes(),
+            ENCAPSULATION_BOUNDARY_DELIMITER,
+            line_ending.as_bytes(),
+        ] {
+            if out.len() < boundary_part.len() {
+                return Err(Error::Length);
+            }
+
+            let (part, rest) = out.split_at_mut(boundary_part.len());
+            out = rest;
+
+            part.copy_from_slice(boundary_part);
+        }
+
+        let base64 = Base64Encoder::new_wrapped(out, line_width, line_ending)?;
+
+        Ok(Self {
+            type_label,
+            line_ending,
+            base64,
+        })
+    }
+
+    /// Get the PEM type label used for this document.
+    pub fn type_label(&self) -> &'l str {
+        self.type_label
+    }
+
+    /// Encode the provided input data.
+    ///
+    /// This method can be called as many times as needed with any sized input
+    /// to write data encoded data into the output buffer, so long as there is
+    /// sufficient space in the buffer to handle the resulting Base64 encoded
+    /// data.
+    pub fn encode(&mut self, input: &[u8]) -> Result<()> {
+        self.base64.encode(input)?;
         Ok(())
     }
 
-    /// Write a byte slice to the buffer with a newline at the end.
-    pub fn writeln(&mut self, slice: &[u8]) -> Result<()> {
-        self.write(slice)?;
-        self.write(self.line_ending.as_bytes())
+    /// Borrow the inner [`Base64Encoder`].
+    pub fn base64_encoder(&mut self) -> &mut Base64Encoder<'o> {
+        &mut self.base64
     }
 
-    /// Write Base64-encoded data to the buffer.
+    /// Finish encoding PEM, writing the post-encapsulation boundary.
     ///
-    /// Automatically adds a newline at the end.
-    pub fn write_base64ln(&mut self, bytes: &[u8]) -> Result<()> {
-        let reserved = self.reserve(Base64::encoded_len(bytes))?;
-        Base64::encode(bytes, reserved)?;
-        self.write(self.line_ending.as_bytes())
+    /// On success, returns the total number of bytes written to the output
+    /// buffer.
+    pub fn finish(self) -> Result<usize> {
+        let (base64, mut out) = self.base64.finish_with_remaining()?;
+
+        for boundary_part in [
+            self.line_ending.as_bytes(),
+            POST_ENCAPSULATION_BOUNDARY,
+            self.type_label.as_bytes(),
+            ENCAPSULATION_BOUNDARY_DELIMITER,
+            self.line_ending.as_bytes(),
+        ] {
+            if out.len() < boundary_part.len() {
+                return Err(Error::Length);
+            }
+
+            let (part, rest) = out.split_at_mut(boundary_part.len());
+            out = rest;
+
+            part.copy_from_slice(boundary_part);
+        }
+
+        encapsulated_len_inner(self.type_label, self.line_ending, base64.len())
+    }
+}
+
+#[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+impl<'l, 'o> io::Write for Encoder<'l, 'o> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.encode(buf)?;
+        Ok(buf.len())
     }
 
-    /// Finish writing to the buffer, returning the portion that has been
-    /// written to.
-    pub fn finish(self) -> Result<&'a [u8]> {
-        self.bytes.get(..self.position).ok_or(Error::Length)
-    }
-
-    /// Reserve space in the encoding buffer, returning a mutable slice.
-    fn reserve(&mut self, nbytes: usize) -> Result<&mut [u8]> {
-        let new_position = self.position.checked_add(nbytes).ok_or(Error::Length)?;
-
-        let reserved = self
-            .bytes
-            .get_mut(self.position..new_position)
-            .ok_or(Error::Length)?;
-
-        self.position = new_position;
-        Ok(reserved)
+    fn flush(&mut self) -> io::Result<()> {
+        // TODO(tarcieri): return an error if there's still data remaining in the buffer?
+        Ok(())
     }
 }

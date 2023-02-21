@@ -2,9 +2,11 @@
 
 use derive_more::AsRef;
 use serde::{Deserialize, Serialize};
-use tor_linkspec::RelayIds;
+use tor_linkspec::{HasRelayIds, RelayIds};
 #[cfg(test)]
 use tor_llcrypto::pk;
+
+use crate::GuardSetSelector;
 
 /// An identifier for a fallback directory cache.
 ///
@@ -24,6 +26,15 @@ impl FallbackId {
     }
 }
 
+impl HasRelayIds for FallbackId {
+    fn identity(
+        &self,
+        key_type: tor_linkspec::RelayIdType,
+    ) -> Option<tor_linkspec::RelayIdRef<'_>> {
+        self.0.identity(key_type)
+    }
+}
+
 /// An identifier for a sampled guard.
 ///
 /// This is a separate type from GuardId and FirstHopId to avoid confusion
@@ -36,7 +47,13 @@ impl GuardId {
     /// Return a new, manually constructed `GuardId`
     #[cfg(test)]
     pub(crate) fn new(ed25519: pk::ed25519::Ed25519Identity, rsa: pk::rsa::RsaIdentity) -> Self {
-        Self(RelayIds::new(ed25519, rsa))
+        Self(
+            RelayIds::builder()
+                .ed_identity(ed25519)
+                .rsa_identity(rsa)
+                .build()
+                .expect("Couldn't build RelayIds"),
+        )
     }
     /// Extract a `GuardId` from a ChanTarget object.
     pub(crate) fn from_relay_ids<T>(target: &T) -> Self
@@ -47,13 +64,22 @@ impl GuardId {
     }
 }
 
+impl HasRelayIds for GuardId {
+    fn identity(
+        &self,
+        key_type: tor_linkspec::RelayIdType,
+    ) -> Option<tor_linkspec::RelayIdRef<'_>> {
+        self.0.identity(key_type)
+    }
+}
+
 /// Implementation type held inside of FirstHopId.
 ///
 /// This exists as a separate type from FirstHopId because Rust requires that a pub enum's variants are all public.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum FirstHopIdInner {
     /// Identifies a guard.
-    Guard(GuardId),
+    Guard(GuardSetSelector, GuardId),
     /// Identifies a fallback.
     Fallback(FallbackId),
 }
@@ -62,19 +88,9 @@ pub(crate) enum FirstHopIdInner {
 /// directory.
 ///
 /// (This is implemented internally using all of the guard's known identities.)
-///
-/// TODO(nickm): we may want a fuzzier match for this type in the future in our
-/// maps, if we ever learn about more identity types.  Right now we don't
-/// recognize two `FirstHopId`s as "the same" if one has more IDs than the
-/// other, even if all the IDs that they do have are the same.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FirstHopId(pub(crate) FirstHopIdInner);
 
-impl From<GuardId> for FirstHopId {
-    fn from(id: GuardId) -> Self {
-        Self(FirstHopIdInner::Guard(id))
-    }
-}
 impl From<FallbackId> for FirstHopId {
     fn from(id: FallbackId) -> Self {
         Self(FirstHopIdInner::Fallback(id))
@@ -87,7 +103,7 @@ impl AsRef<RelayIds> for FirstHopId {
     /// whether this identifies a guard or a fallback.
     fn as_ref(&self) -> &RelayIds {
         match &self.0 {
-            FirstHopIdInner::Guard(id) => id.as_ref(),
+            FirstHopIdInner::Guard(_, id) => id.as_ref(),
             FirstHopIdInner::Fallback(id) => id.as_ref(),
         }
     }
@@ -108,5 +124,10 @@ impl FirstHopId {
     // We have to define this function so it'll be public.
     pub fn get_relay<'a>(&self, netdir: &'a tor_netdir::NetDir) -> Option<tor_netdir::Relay<'a>> {
         netdir.by_ids(self)
+    }
+
+    /// Construct a FirstHopId for a guard in a given sample.
+    pub(crate) fn in_sample(sample: GuardSetSelector, id: GuardId) -> Self {
+        Self(FirstHopIdInner::Guard(sample, id))
     }
 }

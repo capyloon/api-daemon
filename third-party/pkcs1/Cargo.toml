@@ -11,37 +11,78 @@
 
 [package]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.57"
 name = "pkcs1"
-version = "0.3.3"
+version = "0.4.1"
 authors = ["RustCrypto Developers"]
-description = "Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #1:\nRSA Cryptography Specifications Version 2.2 (RFC 8017)\n"
+description = """
+Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #1:
+RSA Cryptography Specifications Version 2.2 (RFC 8017)
+"""
 readme = "README.md"
-keywords = ["crypto", "key", "pem", "pkcs", "rsa"]
-categories = ["cryptography", "data-structures", "encoding", "no-std", "parser-implementations"]
+keywords = [
+    "crypto",
+    "key",
+    "pem",
+    "pkcs",
+    "rsa",
+]
+categories = [
+    "cryptography",
+    "data-structures",
+    "encoding",
+    "no-std",
+    "parser-implementations",
+]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/pkcs1"
-resolver = "2"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
 [dependencies.der]
-version = "0.5"
-features = ["bigint", "oid"]
+version = "0.6"
+features = ["oid"]
 
 [dependencies.pkcs8]
-version = "0.8"
+version = "0.9"
 optional = true
 default-features = false
+
+[dependencies.spki]
+version = "0.6"
 
 [dependencies.zeroize]
 version = "1"
 optional = true
 default-features = false
+
+[dev-dependencies.const-oid]
+version = "0.9"
+features = ["db"]
+
 [dev-dependencies.hex-literal]
 version = "0.3"
 
+[dev-dependencies.tempfile]
+version = "3"
+
 [features]
-alloc = ["der/alloc", "pkcs8/alloc", "zeroize/alloc"]
-pem = ["alloc", "der/pem", "pkcs8/pem"]
-std = ["der/std"]
+alloc = [
+    "der/alloc",
+    "pkcs8/alloc",
+    "zeroize/alloc",
+]
+pem = [
+    "alloc",
+    "der/pem",
+    "pkcs8/pem",
+]
+std = [
+    "der/std",
+    "alloc",
+]

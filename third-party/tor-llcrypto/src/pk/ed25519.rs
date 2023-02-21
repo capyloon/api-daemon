@@ -10,27 +10,33 @@
 //! protocol to uniquely identify a relay.
 
 use arrayref::array_ref;
+use base64ct::{Base64Unpadded, Encoding as _};
 use std::fmt::{self, Debug, Display, Formatter};
 use subtle::{Choice, ConstantTimeEq};
 
 pub use ed25519_dalek::{ExpandedSecretKey, Keypair, PublicKey, SecretKey, Signature, Signer};
 
+use crate::util::ct::CtByteArray;
+
 /// The length of an ED25519 identity, in bytes.
 pub const ED25519_ID_LEN: usize = 32;
 
-/// A relay's identity, as an unchecked, unvalidated Ed25519 key.
+/// An unchecked, unvalidated Ed25519 key.
+///
+/// This key is an "identity" in the sense that it identifies (up to) one
+/// Ed25519 key.  It may also represent the identity for a particular entity,
+/// such as a relay or an onion service.
 ///
 /// This type is distinct from an Ed25519 [`PublicKey`] for several reasons:
 ///  * We're storing it in a compact format, whereas the public key
 ///    implementation might want an expanded form for more efficient key
 ///    validation.
-///  * This type hasn't checked whether the bytes here actually _are_ a
-///    valid Ed25519 public key.
-#[derive(Clone, Copy, Hash, PartialOrd, Ord)]
-#[allow(clippy::derive_hash_xor_eq)]
+///  * This type hasn't checked whether the bytes here actually _are_ a valid
+///    Ed25519 public key.
+#[derive(Clone, Copy, Hash, PartialOrd, Ord, Eq, PartialEq)]
 pub struct Ed25519Identity {
     /// A raw unchecked Ed25519 public key.
-    id: [u8; ED25519_ID_LEN],
+    id: CtByteArray<ED25519_ID_LEN>,
 }
 
 impl Ed25519Identity {
@@ -52,7 +58,7 @@ impl Ed25519Identity {
     /// assert!(pk.is_err());
     /// ```
     pub fn new(id: [u8; 32]) -> Self {
-        Ed25519Identity { id }
+        Ed25519Identity { id: id.into() }
     }
     /// If `id` is of the correct length, wrap it in an Ed25519Identity.
     pub fn from_bytes(id: &[u8]) -> Option<Self> {
@@ -64,7 +70,7 @@ impl Ed25519Identity {
     }
     /// Return a reference to the bytes in this key.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.id[..]
+        &self.id.as_ref()[..]
     }
 }
 
@@ -91,7 +97,7 @@ impl From<&PublicKey> for Ed25519Identity {
 impl TryFrom<&Ed25519Identity> for PublicKey {
     type Error = ed25519_dalek::SignatureError;
     fn try_from(id: &Ed25519Identity) -> Result<PublicKey, Self::Error> {
-        PublicKey::from_bytes(&id.id[..])
+        PublicKey::from_bytes(&id.id.as_ref()[..])
     }
 }
 
@@ -108,21 +114,9 @@ impl ConstantTimeEq for Ed25519Identity {
     }
 }
 
-impl PartialEq<Ed25519Identity> for Ed25519Identity {
-    fn eq(&self, rhs: &Ed25519Identity) -> bool {
-        self.ct_eq(rhs).unwrap_u8() == 1
-    }
-}
-
-impl Eq for Ed25519Identity {}
-
 impl Display for Ed25519Identity {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            base64::encode_config(self.id, base64::STANDARD_NO_PAD)
-        )
+        write!(f, "{}", Base64Unpadded::encode_string(self.id.as_ref()))
     }
 }
 
@@ -132,15 +126,31 @@ impl Debug for Ed25519Identity {
     }
 }
 
+impl safelog::Redactable for Ed25519Identity {
+    /// Warning: This displays 12 bits of the ed25519 identity, which is
+    /// enough to narrow down a public relay by a great deal.
+    fn display_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}…",
+            &Base64Unpadded::encode_string(self.id.as_ref())[..2]
+        )
+    }
+
+    fn debug_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ed25519Identity {{ {} }}", self.redacted())
+    }
+}
+
 impl serde::Serialize for Ed25519Identity {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         if serializer.is_human_readable() {
-            serializer.serialize_str(&base64::encode_config(self.id, base64::STANDARD_NO_PAD))
+            serializer.serialize_str(&Base64Unpadded::encode_string(self.id.as_ref()))
         } else {
-            serializer.serialize_bytes(&self.id[..])
+            serializer.serialize_bytes(&self.id.as_ref()[..])
         }
     }
 }
@@ -162,8 +172,7 @@ impl<'de> serde::Deserialize<'de> for Ed25519Identity {
                 where
                     E: serde::de::Error,
                 {
-                    let bytes =
-                        base64::decode_config(s, base64::STANDARD_NO_PAD).map_err(E::custom)?;
+                    let bytes = Base64Unpadded::decode_vec(s).map_err(E::custom)?;
                     Ed25519Identity::from_bytes(&bytes)
                         .ok_or_else(|| E::custom("wrong length for Ed25519 public key"))
                 }

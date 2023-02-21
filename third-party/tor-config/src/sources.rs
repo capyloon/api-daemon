@@ -255,7 +255,7 @@ impl ConfigurationSources {
             use ConfigurationSource as CS;
             match &source {
                 CS::Dir(found) => {
-                    let dir = match fs::read_dir(&found) {
+                    let dir = match fs::read_dir(found) {
                         Ok(y) => y,
                         Err(e) => {
                             handle_io_error(e)?;
@@ -406,7 +406,9 @@ mod test {
     #![allow(clippy::dbg_macro)]
     #![allow(clippy::print_stderr)]
     #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
     use super::*;
@@ -481,7 +483,7 @@ world = \"nonsense\"
         let xd = td.path().join("nonexistent.d/");
         std::fs::create_dir(&d).unwrap();
         std::fs::write(&cf, EX_TOML).unwrap();
-        std::fs::write(&df, EX2_TOML).unwrap();
+        std::fs::write(df, EX2_TOML).unwrap();
         std::fs::write(d.join("not-toml"), "SYNTAX ERROR").unwrap();
 
         let files = vec![

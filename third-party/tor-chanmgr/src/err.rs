@@ -6,9 +6,18 @@ use std::sync::Arc;
 use futures::task::SpawnError;
 use thiserror::Error;
 
+use crate::factory::AbstractPtError;
 use tor_error::{internal, ErrorKind};
-use tor_linkspec::{ChanTarget, OwnedChanTarget};
+use tor_linkspec::{BridgeAddr, ChanTarget, IntoOwnedChanTarget, LoggedChanTarget};
 use tor_proto::ClockSkew;
+
+// We use "ChanSensitive" for values which are sensitive because they relate to
+// channel-layer trouble, rather than circuit-layer or higher.  This will let us find these later:
+// if we want to change `LoggedChanTarget` to `Redacted` (say), we should change these too.
+// (`Redacted` like https://gitlab.torproject.org/tpo/core/arti/-/merge_requests/882)
+use safelog::{BoxSensitive as BoxChanSensitive, Sensitive as ChanSensitive};
+
+use crate::transport::proxied::ProxyError;
 
 /// An error returned by a channel manager.
 #[derive(Debug, Error, Clone)]
@@ -22,14 +31,14 @@ pub enum Error {
     #[error("Pending channel for {peer} failed to launch")]
     PendingFailed {
         /// Who we were talking to
-        peer: OwnedChanTarget,
+        peer: LoggedChanTarget,
     },
 
     /// It took too long for us to establish this connection.
     #[error("Channel for {peer} timed out")]
     ChanTimeout {
         /// Who we were trying to talk to
-        peer: OwnedChanTarget,
+        peer: LoggedChanTarget,
     },
 
     /// A protocol error while making a channel
@@ -39,17 +48,17 @@ pub enum Error {
         #[source]
         source: tor_proto::Error,
         /// Who we were trying to talk to
-        peer: OwnedChanTarget,
+        peer: LoggedChanTarget,
         /// An authenticated ClockSkew (if available) that we received from the
         /// peer.
         clock_skew: Option<ClockSkew>,
     },
 
     /// Network IO error or TLS error
-    #[error("Network IO error, or TLS error, in {action}, talking to {peer}")]
+    #[error("Network IO error, or TLS error, in {action}, talking to {peer:?}")]
     Io {
         /// Who we were talking to
-        peer: SocketAddr,
+        peer: Option<BoxChanSensitive<BridgeAddr>>,
 
         /// What we were doing
         action: &'static str,
@@ -64,7 +73,7 @@ pub enum Error {
     ChannelBuild {
         /// The list of addresses we tried to connect to, coupled with
         /// the error we encountered connecting to each one.
-        addresses: Vec<(SocketAddr, Arc<std::io::Error>)>,
+        addresses: Vec<(ChanSensitive<SocketAddr>, Arc<std::io::Error>)>,
     },
 
     /// Unable to spawn task
@@ -79,10 +88,40 @@ pub enum Error {
 
     /// A relay did not have the set of identity keys that we expected.
     ///
-    /// (Currently, `tor-chanmgr` only works to manage channels with a known
-    /// expected Ed25519 identity.)
+    /// (Currently, `tor-chanmgr` only works on relays that have at least
+    /// one recognized identity key.)
     #[error("Could not identify relay by identity key")]
     MissingId,
+
+    /// A successful relay channel had one of the identity keys we wanted,
+    /// but not the other(s).
+    ///
+    /// This means that (assuming the relay is well behaved), we will not
+    /// find the ID combination we want.
+    #[error("Relay identity keys were only a partial match for what we wanted.")]
+    IdentityConflict,
+
+    /// Tried to connect via a transport that we don't support.
+    #[error("No plugin available for the transport {0}")]
+    NoSuchTransport(tor_linkspec::TransportId),
+
+    /// An attempt to open a channel failed because it was cancelled or
+    /// superseded by another request or configuration change.
+    #[error("Channel request cancelled or superseded")]
+    RequestCancelled,
+
+    /// We tried to create a channel through a proxy, and encountered an error.
+    #[error("Problem while connecting to Tor via a proxy")]
+    Proxy(#[from] ProxyError),
+
+    /// An error occurred in a pluggable transport manager.
+    ///
+    /// We can't know the type, because any pluggable transport manager implementing
+    /// `AbstractPtMgr` can be used.
+    /// However, if you're using Arti in the standard configuration, this will be
+    /// `tor-ptmgr`'s `PtError`.
+    #[error("Pluggable transport error: {0}")]
+    Pt(#[source] Arc<dyn AbstractPtError>),
 
     /// An internal error of some kind that should never occur.
     #[error("Internal error")]
@@ -92,6 +131,12 @@ pub enum Error {
 impl<T> From<std::sync::PoisonError<T>> for Error {
     fn from(_: std::sync::PoisonError<T>) -> Error {
         Error::Internal(internal!("Thread failed while holding lock"))
+    }
+}
+
+impl From<tor_linkspec::ByRelayIdsError> for Error {
+    fn from(_: tor_linkspec::ByRelayIdsError) -> Self {
+        Error::MissingId
     }
 }
 
@@ -110,9 +155,14 @@ impl tor_error::HasKind for Error {
             E::Spawn { cause, .. } => cause.kind(),
             E::Proto { source, .. } => source.kind(),
             E::PendingFailed { .. } => EK::TorAccessFailed,
+            E::NoSuchTransport(_) => EK::InvalidConfig,
             E::UnusableTarget(_) | E::Internal(_) => EK::Internal,
             E::MissingId => EK::BadApiUsage,
-            Error::ChannelBuild { .. } => EK::TorAccessFailed,
+            E::IdentityConflict => EK::TorAccessFailed,
+            E::ChannelBuild { .. } => EK::TorAccessFailed,
+            E::RequestCancelled => EK::TransientFailure,
+            E::Proxy(e) => e.kind(),
+            E::Pt(e) => e.kind(),
         }
     }
 }
@@ -131,6 +181,10 @@ impl tor_error::HasRetryTime for Error {
             // errors.
             E::PendingFailed { .. } | E::Proto { .. } | E::Io { .. } => RT::AfterWaiting,
 
+            // Delegate.
+            E::Proxy(e) => e.retry_time(),
+            E::Pt(e) => e.retry_time(),
+
             // This error reflects multiple attempts, but every failure is an IO
             // error, so we can also retry this after a delay.
             //
@@ -141,6 +195,15 @@ impl tor_error::HasRetryTime for Error {
             // This one can't succeed: if the ChanTarget have addresses to begin with,
             // it won't have addresses in the future.
             E::UnusableTarget(_) => RT::Never,
+
+            // This can't succeed until the relay is reconfigured.
+            E::IdentityConflict => RT::Never,
+
+            // This one can't succeed until the bridge, or our set of
+            // transports, is reconfigured.
+            E::NoSuchTransport(_) => RT::Never,
+
+            E::RequestCancelled => RT::Never,
 
             // These aren't recoverable at all.
             E::Spawn { .. } | E::MissingId | E::Internal(_) => RT::Never,
@@ -168,7 +231,7 @@ impl Error {
     ) -> Self {
         Error::Proto {
             source,
-            peer: OwnedChanTarget::from_chan_target(peer),
+            peer: peer.to_logged(),
             clock_skew: None,
         }
     }

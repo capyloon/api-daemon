@@ -4,6 +4,7 @@ use crate::resource::Resource;
 use std::{io, mem};
 
 /// A value indicating no limit.
+#[allow(clippy::unnecessary_cast)]
 pub const INFINITY: u64 = C::RLIM_INFINITY as u64;
 
 fn check_supported(resource: Resource) -> io::Result<()> {
@@ -42,6 +43,8 @@ pub fn getrlimit(resource: Resource) -> io::Result<(u64, u64)> {
     let mut rlim = unsafe { mem::zeroed() };
     #[allow(clippy::cast_lossless)]
     let ret = unsafe { C::getrlimit(resource.as_raw() as _, &mut rlim) };
+
+    #[allow(clippy::unnecessary_cast)]
     if ret == 0 {
         let soft = (rlim.rlim_cur as u64).min(INFINITY);
         let hard = (rlim.rlim_max as u64).min(INFINITY);
@@ -53,11 +56,11 @@ pub fn getrlimit(resource: Resource) -> io::Result<(u64, u64)> {
 
 /// The type of a process ID
 #[allow(non_camel_case_types)]
-#[cfg(any(doc, target_os = "linux"))]
-#[cfg_attr(docsrs, doc(cfg(target_os = "linux")))]
+#[cfg(any(doc, target_os = "linux", target_os = "android"))]
+#[cfg_attr(docsrs, doc(cfg(any(target_os = "linux", target_os = "android"))))]
 pub type pid_t = i32;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 extern "C" {
     fn prlimit64(
         pid: pid_t,
@@ -71,8 +74,8 @@ extern "C" {
 /// # Errors
 /// See <https://man7.org/linux/man-pages/man2/prlimit.2.html>
 #[inline]
-#[cfg(any(doc, target_os = "linux"))]
-#[cfg_attr(docsrs, doc(cfg(target_os = "linux")))]
+#[cfg(any(doc, target_os = "linux", target_os = "android"))]
+#[cfg_attr(docsrs, doc(cfg(any(target_os = "linux", target_os = "android"))))]
 pub fn prlimit(
     pid: pid_t,
     resource: Resource,
@@ -103,6 +106,7 @@ pub fn prlimit(
     let ret = unsafe { prlimit64(pid, resource.as_raw() as _, new_rlimit_ptr, old_rlimit_ptr) };
 
     if ret == 0 {
+        #[allow(clippy::unnecessary_cast)]
         if let Some((soft, hard)) = old_limit {
             *soft = (old_rlim.rlim_cur as u64).min(INFINITY);
             *hard = (old_rlim.rlim_max as u64).min(INFINITY);

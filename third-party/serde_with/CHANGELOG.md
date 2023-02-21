@@ -7,6 +7,243 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [2.2.0] - 2023-01-09
+
+### Added
+
+* Add new `Map` and `Seq` types for converting between maps and tuple lists. (#527)
+
+    The behavior is not new, but already present using `BTreeMap`/`HashMap` or `Vec`.
+    However, the new types `Map` and `Seq` are also available on `no_std`, even without the `alloc` feature.
+
+### Changed
+
+* Pin the `serde_with_macros` dependency to the same version as the main crate.
+    This simplifies publishing and ensures that always a compatible version is picked.
+
+### Fixed
+
+* `serde_with::apply` had an issue matching types when invisible token groups where in use (#538)
+    The token groups can stem from macro_rules expansion, but should be treated mostly transparent.
+    The old code required a group to match a group, while now groups are silently removed when checking for type patterns.
+
+## [2.1.0] - 2022-11-16
+
+### Added
+
+* Add new `apply` attribute to simplify repetitive attributes over many fields.
+    Multiple rules and multiple attributes can be provided each.
+
+    ```rust
+    #[serde_with::apply(
+        Option => #[serde(default)] #[serde(skip_serializing_if = "Option::is_none")],
+        Option<bool> => #[serde(rename = "bool")],
+    )]
+    #[derive(serde::Serialize)]
+    struct Data {
+        a: Option<String>,
+        b: Option<u64>,
+        c: Option<String>,
+        d: Option<bool>,
+    }
+    ```
+
+    The `apply` attribute will expand into this, applying the attributs to the matching fields:
+
+    ```rust
+    #[derive(serde::Serialize)]
+    struct Data {
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        a: Option<String>,
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        b: Option<u64>,
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        c: Option<String>,
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "bool")]
+        d: Option<bool>,
+    }
+    ```
+
+    The attribute supports field matching using many rules, such as `_` to apply to all fields and partial generics like `Option` to match any `Option` be it `Option<String>`, `Option<bool>`, or `Option<T>`.
+
+### Fixed
+
+* The derive macros `SerializeDisplay` and `DeserializeFromStr` now take better care not to use conflicting names for generic values. (#526)
+    All used generics now start with `__` to make conflicts with manually written code unlikely.
+
+    Thanks to @Elrendio for submitting a PR fixing the issue.
+
+## [2.0.1] - 2022-09-09
+
+### Added
+
+* `time` added support for the well-known `Iso8601` format.
+    This extends the existing support of `Rfc2822` and `Rfc3339`.
+
+### Changed
+
+* Warn if `serde_as` is used on an enum variant.
+    Attributes on enum variants were never supported.
+    But `#[serde(with = "...")]` can be added on variants, such that some confusion can occur when migration ([#499](https://github.com/jonasbb/serde_with/issues/499)).
+
+### Note
+
+A cargo bug ([cargo#10801](https://github.com/rust-lang/cargo/issues/10801)) means that upgrading from v1 to v2 may add unnecessary crates to the `Cargo.lock` file.
+A diff of the lock-file makes it seem that `serde_with` depends on new crates, even though these crates are unused and will not get compiled or linked.
+However, tools consuming `Cargo.lock` or `cargo metadata` might give wrong results.
+
+## [2.0.0] - 2022-07-17
+
+### Added
+
+* Make `JsonString<T>` smarter by allowing nesting `serde_as` definitions.
+    This allows applying custom serialization logic, before the value gets converted into a JSON string.
+
+    ```rust
+    // Rust
+    #[serde_as(as = "JsonString<Vec<(JsonString, _)>>")]
+    value: BTreeMap<[u8; 2], u32>,
+
+    // JSON
+    {"value":"[[\"[1,2]\",3],[\"[4,5]\",6]]"}
+    ```
+
+### Changed
+
+* Make `#[serde_as]` behave more intuitive on `Option<T>` fields.
+
+    The `#[serde_as]` macro now detects if a `#[serde_as(as = "Option<S>")]` is used on a field of type `Option<T>` and applies `#[serde(default)]` to the field.
+    This restores the ability to deserialize with missing fields and fixes a common annoyance (#183, #185, #311, #417).
+    This is a breaking change, since now deserialization will pass where it did not before and this might be undesired.
+
+    The `Option` field and transformation are detected by directly matching on the type name.
+    These variants are detected as `Option`.
+    * `Option`
+    * `std::option::Option`, with or without leading `::`
+    * `core::option::Option`, with or without leading `::`
+
+    If an existing `default` attribute is detected, the attribute is not applied again.
+    This behavior can be suppressed by using `#[serde_as(no_default)]` or `#[serde_as(as = "Option<S>", no_default)]`.
+* `NoneAsEmptyString` and `string_empty_as_none` use a different serialization bound (#388).
+
+    Both types used `AsRef<str>` as the serialization bound.
+    This is limiting for non-string types like `Option<i32>`.
+    The deserialization often was already more flexible, due to the `FromStr` bound.
+
+    For most std types this should have little impact, as the types implementing `AsRef<str>` mostly implement `Display`, too, such as `String`, `Cow<str>`, or `Rc<str>`.
+* Bump MSRV to 1.60. This is required for the optional dependency feature syntax in cargo.
+
+### Removed
+
+* Remove old module based conversions.
+
+    The newer `serde_as` based conversions are preferred.
+
+    * `seq_display_fromstr`: Use `DisplayFromStr` in combination with your container type:
+
+        ```rust
+        #[serde_as(as = "BTreeSet<DisplayFromStr>")]
+        addresses: BTreeSet<Ipv4Addr>,
+        #[serde_as(as = "Vec<DisplayFromStr>")]
+        bools: Vec<bool>,
+        ```
+
+    * `tuple_list_as_map`: Use `BTreeMap` on a `Vec` of tuples:
+
+        ```rust
+        #[serde_as(as = "BTreeMap<_, _>")] // HashMap will also work
+        s: Vec<(i32, String)>,
+        ```
+
+    * `map_as_tuple_list` can be replaced with `#[serde_as(as = "Vec<(_, _)>")]`.
+    * `display_fromstr` can be replaced with `#[serde_as(as = "DisplayFromStr")]`.
+    * `bytes_or_string` can be replaced with `#[serde_as(as = "BytesOrString")]`.
+    * `default_on_error` can be replaced with `#[serde_as(as = "DefaultOnError")]`.
+    * `default_on_null` can be replaced with `#[serde_as(as = "DefaultOnNull")]`.
+    * `string_empty_as_none` can be replaced with `#[serde_as(as = "NoneAsEmptyString")]`.
+    * `StringWithSeparator` can now only be used in `serde_as`.
+        The definition of the `Separator` trait and its implementations have been moved to the `formats` module.
+    * `json::nested` can be replaced with `#[serde_as(as = "json::JsonString")]`.
+
+* Remove previously deprecated modules.
+
+    * `sets_first_value_wins`
+    * `btreemap_as_tuple_list` and `hashmap_as_tuple_list` can be replaced with `#[serde_as(as = "Vec<(_, _)>")]`.
+
+### Note
+
+A cargo bug ([cargo#10801](https://github.com/rust-lang/cargo/issues/10801)) means that upgrading from v1 to v2 may add unnecessary crates to the `Cargo.lock` file.
+A diff of the lock-file makes it seem that `serde_with` depends on new crates, even though these crates are unused and will not get compiled or linked.
+
+## [2.0.0-rc.0] - 2022-06-29
+
+### Changed
+
+* Make `#[serde_as]` behave more intuitive on `Option<T>` fields.
+
+    The `#[serde_as]` macro now detects if a `#[serde_as(as = "Option<S>")]` is used on a field of type `Option<T>` and applies `#[serde(default)]` to the field.
+    This restores the ability to deserialize with missing fields and fixes a common annoyance (#183, #185, #311, #417).
+    This is a breaking change, since now deserialization will pass where it did not before and this might be undesired.
+
+    The `Option` field and transformation are detected by directly matching on the type name.
+    These variants are detected as `Option`.
+    * `Option`
+    * `std::option::Option`, with or without leading `::`
+    * `core::option::Option`, with or without leading `::`
+
+    If an existing `default` attribute is detected, the attribute is not applied again.
+    This behavior can be suppressed by using `#[serde_as(no_default)]` or `#[serde_as(as = "Option<S>", no_default)]`.
+* `NoneAsEmptyString` and `string_empty_as_none` use a different serialization bound (#388).
+
+    Both types used `AsRef<str>` as the serialization bound.
+    This is limiting for non-string types like `Option<i32>`.
+    The deserialization often was already more flexible, due to the `FromStr` bound.
+
+    For most std types this should have little impact, as the types implementing `AsRef<str>` mostly implement `Display`, too, such as `String`, `Cow<str>`, or `Rc<str>`.
+* Bump MSRV to 1.60. This is required for the optional dependency feature syntax in cargo.
+
+### Removed
+
+* Remove old module based conversions.
+
+    The newer `serde_as` based conversions are preferred.
+
+    * `seq_display_fromstr`: Use `DisplayFromStr` in combination with your container type:
+
+        ```rust
+        #[serde_as(as = "BTreeSet<DisplayFromStr>")]
+        addresses: BTreeSet<Ipv4Addr>,
+        #[serde_as(as = "Vec<DisplayFromStr>")]
+        bools: Vec<bool>,
+        ```
+
+    * `tuple_list_as_map`: Use `BTreeMap` on a `Vec` of tuples:
+
+        ```rust
+        #[serde_as(as = "BTreeMap<_, _>")] // HashMap will also work
+        s: Vec<(i32, String)>,
+        ```
+
+    * `map_as_tuple_list` can be replaced with `#[serde_as(as = "Vec<(_, _)>")]`.
+    * `display_fromstr` can be replaced with `#[serde_as(as = "DisplayFromStr")]`.
+    * `bytes_or_string` can be replaced with `#[serde_as(as = "BytesOrString")]`.
+    * `default_on_error` can be replaced with `#[serde_as(as = "DefaultOnError")]`.
+    * `default_on_null` can be replaced with `#[serde_as(as = "DefaultOnNull")]`.
+    * `string_empty_as_none` can be replaced with `#[serde_as(as = "NoneAsEmptyString")]`.
+    * `StringWithSeparator` can now only be used in `serde_as`.
+        The definition of the `Separator` trait and its implementations have been moved to the `formats` module.
+    * `json::nested` can be replaced with `#[serde_as(as = "json::JsonString")]`.
+
+* Remove previously deprecated modules.
+
+    * `sets_first_value_wins`
+    * `btreemap_as_tuple_list` and `hashmap_as_tuple_list` can be replaced with `#[serde_as(as = "Vec<(_, _)>")]`.
+
 ## [1.14.0] - 2022-05-29
 
 ### Added
@@ -95,7 +332,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 * Depend on a newer `serde_with_macros` version to pull in some fixes.
     * Account for generics when deriving implementations with `SerializeDisplay` and `DeserializeFromStr` #413
     * Provide better error messages when parsing types fails #423
-
 
 ## [1.12.0] - 2022-02-07
 

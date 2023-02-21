@@ -1,11 +1,12 @@
-use alloc::vec;
-use digest::DynDigest;
+//! Useful algorithms related to RSA.
+
+use digest::{Digest, DynDigest, FixedOutputReset};
 use num_bigint::traits::ModInverse;
 use num_bigint::{BigUint, RandPrime};
 #[allow(unused_imports)]
 use num_traits::Float;
 use num_traits::{FromPrimitive, One, Zero};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use crate::errors::{Error, Result};
 use crate::key::RsaPrivateKey;
@@ -28,7 +29,7 @@ const EXP: u64 = 65537;
 ///
 /// [1]: https://patents.google.com/patent/US4405829A/en
 /// [2]: https://cacr.uwaterloo.ca/techreports/2006/cacr2006-16.pdf
-pub fn generate_multi_prime_key<R: RngCore + CryptoRng>(
+pub fn generate_multi_prime_key<R: CryptoRngCore + ?Sized>(
     rng: &mut R,
     nprimes: usize,
     bit_size: usize,
@@ -48,7 +49,7 @@ pub fn generate_multi_prime_key<R: RngCore + CryptoRng>(
 ///
 /// [1]: https://patents.google.com/patent/US4405829A/en
 /// [2]: http://www.cacr.math.uwaterloo.ca/techreports/2006/cacr2006-16.pdf
-pub fn generate_multi_prime_key_with_exp<R: RngCore + CryptoRng>(
+pub fn generate_multi_prime_key_with_exp<R: CryptoRngCore + ?Sized>(
     rng: &mut R,
     nprimes: usize,
     bit_size: usize,
@@ -65,7 +66,7 @@ pub fn generate_multi_prime_key_with_exp<R: RngCore + CryptoRng>(
         let mut pi = prime_limit / (prime_limit.ln() - 1f64);
         // Generated primes start with 0b11, so we can only use a quarter of them.
         pi /= 4f64;
-        // Use a factor of two to ensure taht key generation terminates in a
+        // Use a factor of two to ensure that key generation terminates in a
         // reasonable amount of time.
         pi /= 2f64;
 
@@ -131,12 +132,7 @@ pub fn generate_multi_prime_key_with_exp<R: RngCore + CryptoRng>(
         }
     }
 
-    Ok(RsaPrivateKey::from_components(
-        n_final,
-        exp.clone(),
-        d_final,
-        primes,
-    ))
+    RsaPrivateKey::from_components(n_final, exp.clone(), d_final, primes)
 }
 
 /// Mask generation function.
@@ -170,6 +166,37 @@ pub fn mgf1_xor(out: &mut [u8], digest: &mut dyn DynDigest, seed: &[u8]) {
     }
 }
 
+/// Mask generation function.
+///
+/// Panics if out is larger than 2**32. This is in accordance with RFC 8017 - PKCS #1 B.2.1
+pub fn mgf1_xor_digest<D>(out: &mut [u8], digest: &mut D, seed: &[u8])
+where
+    D: Digest + FixedOutputReset,
+{
+    let mut counter = [0u8; 4];
+    let mut i = 0;
+
+    const MAX_LEN: u64 = core::u32::MAX as u64 + 1;
+    assert!(out.len() as u64 <= MAX_LEN);
+
+    while i < out.len() {
+        Digest::update(digest, seed);
+        Digest::update(digest, counter);
+
+        let digest_output = digest.finalize_reset();
+        let mut j = 0;
+        loop {
+            if j >= digest_output.len() || i >= out.len() {
+                break;
+            }
+
+            out[i] ^= digest_output[j];
+            j += 1;
+            i += 1;
+        }
+        inc_counter(&mut counter);
+    }
+}
 fn inc_counter(counter: &mut [u8; 4]) {
     for i in (0..4).rev() {
         counter[i] = counter[i].wrapping_add(1);

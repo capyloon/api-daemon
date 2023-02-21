@@ -1,6 +1,6 @@
 # safelog
 
-## `safelog`: Mark data as sensitive for logging purposes.
+Mark data as sensitive for logging purposes.
 
 Some information is too sensitive to routinely write to system logs, but
 must nonetheless sometimes be displayed.  This crate provides a way to mark
@@ -35,6 +35,9 @@ You can disable safe-logging globally (across all threads) or locally
 (across a single thread).
 
 ```rust
+# let debug_mode = true;
+# let log_encrypted_data = |_|();
+# let big_secret = ();
 use safelog::{disable_safe_logging, with_safe_logging_suppressed};
 
 // If we're running in debug mode, turn off safe logging

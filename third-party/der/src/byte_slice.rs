@@ -2,7 +2,8 @@
 //! library-level length limitation i.e. `Length::max()`.
 
 use crate::{
-    str_slice::StrSlice, DecodeValue, Decoder, DerOrd, EncodeValue, Encoder, Error, Length, Result,
+    str_slice::StrSlice, DecodeValue, DerOrd, EncodeValue, Error, Header, Length, Reader, Result,
+    Writer,
 };
 use core::cmp::Ordering;
 
@@ -33,7 +34,7 @@ impl<'a> ByteSlice<'a> {
     }
 
     /// Borrow the inner byte slice
-    pub fn as_bytes(&self) -> &'a [u8] {
+    pub fn as_slice(&self) -> &'a [u8] {
         self.inner
     }
 
@@ -50,13 +51,13 @@ impl<'a> ByteSlice<'a> {
 
 impl AsRef<[u8]> for ByteSlice<'_> {
     fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
+        self.as_slice()
     }
 }
 
 impl<'a> DecodeValue<'a> for ByteSlice<'a> {
-    fn decode_value(decoder: &mut Decoder<'a>, length: Length) -> Result<Self> {
-        decoder.bytes(length).and_then(Self::new)
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        reader.read_slice(header.length).and_then(Self::new)
     }
 }
 
@@ -65,8 +66,8 @@ impl EncodeValue for ByteSlice<'_> {
         Ok(self.length)
     }
 
-    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        encoder.bytes(self.as_ref())
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        writer.write(self.as_ref())
     }
 }
 
@@ -81,7 +82,7 @@ impl Default for ByteSlice<'_> {
 
 impl DerOrd for ByteSlice<'_> {
     fn der_cmp(&self, other: &Self) -> Result<Ordering> {
-        Ok(self.as_bytes().cmp(other.as_bytes()))
+        Ok(self.as_slice().cmp(other.as_slice()))
     }
 }
 

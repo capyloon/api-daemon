@@ -3,13 +3,14 @@ use std::{
         Hash,
         Hasher,
     },
+    cmp::Ordering,
     os::raw::c_int,
     sync::Weak,
 };
 
 use inotify_sys as ffi;
 
-use fd_guard::FdGuard;
+use crate::fd_guard::FdGuard;
 
 
 bitflags! {
@@ -297,6 +298,18 @@ impl PartialEq for WatchDescriptor {
         let other_fd = other.fd.upgrade();
 
         self.id == other.id && self_fd.is_some() && self_fd == other_fd
+    }
+}
+
+impl Ord for WatchDescriptor {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl PartialOrd for WatchDescriptor {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 

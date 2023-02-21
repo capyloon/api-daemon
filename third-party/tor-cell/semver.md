@@ -1,2 +1,2 @@
-ADDED: PaddingNegotiateCmd caret_int
-BREAKING: PaddingNegotiate constructors changed
+BREAKING: Deprecated CreateFast::body(), CreatedFast::into_body() methods
+MODIFIED: Added CreateFast::handshake(), CreatedFast::into_handshake() methods

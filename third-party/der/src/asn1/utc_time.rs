@@ -1,10 +1,11 @@
 //! ASN.1 `UTCTime` support.
 
 use crate::{
-    asn1::Any,
+    asn1::AnyRef,
     datetime::{self, DateTime},
-    ByteSlice, DecodeValue, Decoder, EncodeValue, Encoder, Error, FixedTag, Length, OrdIsValueOrd,
-    Result, Tag,
+    ord::OrdIsValueOrd,
+    DecodeValue, EncodeValue, Error, ErrorKind, FixedTag, Header, Length, Reader, Result, Tag,
+    Writer,
 };
 use core::time::Duration;
 
@@ -34,7 +35,7 @@ pub struct UtcTime(DateTime);
 
 impl UtcTime {
     /// Length of an RFC 5280-flavored ASN.1 DER-encoded [`UtcTime`].
-    pub const LENGTH: Length = Length::new(13);
+    pub const LENGTH: usize = 13;
 
     /// Create a [`UtcTime`] from a [`DateTime`].
     pub fn from_date_time(datetime: DateTime) -> Result<Self> {
@@ -78,12 +79,19 @@ impl UtcTime {
     }
 }
 
-impl DecodeValue<'_> for UtcTime {
-    fn decode_value(decoder: &mut Decoder<'_>, length: Length) -> Result<Self> {
-        match *ByteSlice::decode_value(decoder, length)?.as_bytes() {
+impl<'a> DecodeValue<'a> for UtcTime {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        if Self::LENGTH != usize::try_from(header.length)? {
+            return Err(Self::TAG.value_error());
+        }
+
+        let mut bytes = [0u8; Self::LENGTH];
+        reader.read_into(&mut bytes)?;
+
+        match bytes {
             // RFC 5280 requires mandatory seconds and Z-normalized time zone
             [year1, year2, mon1, mon2, day1, day2, hour1, hour2, min1, min2, sec1, sec2, b'Z'] => {
-                let year = datetime::decode_decimal(Self::TAG, year1, year2)?;
+                let year = u16::from(datetime::decode_decimal(Self::TAG, year1, year2)?);
                 let month = datetime::decode_decimal(Self::TAG, mon1, mon2)?;
                 let day = datetime::decode_decimal(Self::TAG, day1, day2)?;
                 let hour = datetime::decode_decimal(Self::TAG, hour1, hour2)?;
@@ -92,10 +100,11 @@ impl DecodeValue<'_> for UtcTime {
 
                 // RFC 5280 rules for interpreting the year
                 let year = if year >= 50 {
-                    year as u16 + 1900
+                    year.checked_add(1900)
                 } else {
-                    year as u16 + 2000
-                };
+                    year.checked_add(2000)
+                }
+                .ok_or(ErrorKind::DateTime)?;
 
                 DateTime::new(year, month, day, hour, minute, second)
                     .map_err(|_| Self::TAG.value_error())
@@ -108,23 +117,25 @@ impl DecodeValue<'_> for UtcTime {
 
 impl EncodeValue for UtcTime {
     fn value_len(&self) -> Result<Length> {
-        Ok(Self::LENGTH)
+        Self::LENGTH.try_into()
     }
 
-    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
         let year = match self.0.year() {
-            y @ 1950..=1999 => y - 1900,
-            y @ 2000..=2049 => y - 2000,
+            y @ 1950..=1999 => y.checked_sub(1900),
+            y @ 2000..=2049 => y.checked_sub(2000),
             _ => return Err(Self::TAG.value_error()),
-        } as u8;
+        }
+        .and_then(|y| u8::try_from(y).ok())
+        .ok_or(ErrorKind::DateTime)?;
 
-        datetime::encode_decimal(encoder, Self::TAG, year)?;
-        datetime::encode_decimal(encoder, Self::TAG, self.0.month())?;
-        datetime::encode_decimal(encoder, Self::TAG, self.0.day())?;
-        datetime::encode_decimal(encoder, Self::TAG, self.0.hour())?;
-        datetime::encode_decimal(encoder, Self::TAG, self.0.minutes())?;
-        datetime::encode_decimal(encoder, Self::TAG, self.0.seconds())?;
-        encoder.byte(b'Z')
+        datetime::encode_decimal(writer, Self::TAG, year)?;
+        datetime::encode_decimal(writer, Self::TAG, self.0.month())?;
+        datetime::encode_decimal(writer, Self::TAG, self.0.day())?;
+        datetime::encode_decimal(writer, Self::TAG, self.0.hour())?;
+        datetime::encode_decimal(writer, Self::TAG, self.0.minutes())?;
+        datetime::encode_decimal(writer, Self::TAG, self.0.seconds())?;
+        writer.write_byte(b'Z')
     }
 }
 
@@ -176,10 +187,10 @@ impl From<UtcTime> for SystemTime {
     }
 }
 
-impl TryFrom<Any<'_>> for UtcTime {
+impl TryFrom<AnyRef<'_>> for UtcTime {
     type Error = Error;
 
-    fn try_from(any: Any<'_>) -> Result<UtcTime> {
+    fn try_from(any: AnyRef<'_>) -> Result<UtcTime> {
         any.decode_into()
     }
 }
@@ -187,7 +198,7 @@ impl TryFrom<Any<'_>> for UtcTime {
 #[cfg(test)]
 mod tests {
     use super::UtcTime;
-    use crate::{Decodable, Encodable, Encoder};
+    use crate::{Decode, Encode, SliceWriter};
     use hex_literal::hex;
 
     #[test]
@@ -197,7 +208,7 @@ mod tests {
         assert_eq!(utc_time.to_unix_duration().as_secs(), 673573540);
 
         let mut buf = [0u8; 128];
-        let mut encoder = Encoder::new(&mut buf);
+        let mut encoder = SliceWriter::new(&mut buf);
         utc_time.encode(&mut encoder).unwrap();
         assert_eq!(example_bytes, encoder.finish().unwrap());
     }

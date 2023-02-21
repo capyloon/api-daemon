@@ -12,10 +12,11 @@
 
 mod set;
 
-use crate::ids::FallbackId;
+use base64ct::{Base64Unpadded, Encoding as _};
 use derive_builder::Builder;
 use tor_config::ConfigBuildError;
 use tor_config::{define_list_builder_accessors, impl_standard_builder, list_builder::VecBuilder};
+use tor_linkspec::{DirectChanMethodsHelper, OwnedChanTarget};
 use tor_llcrypto::pk::ed25519::Ed25519Identity;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 
@@ -58,8 +59,8 @@ impl FallbackDir {
     /// Return a copy of this FallbackDir as a [`FirstHop`](crate::FirstHop)
     pub fn as_guard(&self) -> crate::FirstHop {
         crate::FirstHop {
-            id: FallbackId::from_relay_ids(self).into(),
-            orports: self.orports.clone(),
+            sample: None,
+            inner: crate::FirstHopInner::Chan(OwnedChanTarget::from_chan_target(self)),
         }
     }
 }
@@ -96,8 +97,7 @@ pub(crate) fn default_fallbacks() -> Vec<FallbackDirBuilder> {
     /// Build a fallback directory; panic if input is bad.
     fn fallback(rsa: &str, ed: &str, ports: &[&str]) -> FallbackDirBuilder {
         let rsa = RsaIdentity::from_hex(rsa).expect("Bad hex in built-in fallback list");
-        let ed = base64::decode_config(ed, base64::STANDARD_NO_PAD)
-            .expect("Bad hex in built-in fallback list");
+        let ed = Base64Unpadded::decode_vec(ed).expect("Bad hex in built-in fallback list");
         let ed = Ed25519Identity::from_bytes(&ed).expect("Wrong length in built-in fallback list");
         let mut bld = FallbackDir::builder();
         bld.rsa_identity(rsa).ed_identity(ed);
@@ -127,5 +127,7 @@ impl tor_linkspec::HasRelayIdsLegacy for FallbackDir {
         &self.rsa_identity
     }
 }
+
+impl DirectChanMethodsHelper for FallbackDir {}
 
 impl tor_linkspec::ChanTarget for FallbackDir {}

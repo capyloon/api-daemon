@@ -60,11 +60,10 @@ pub(crate) fn default_authorities() -> Vec<AuthorityBuilder> {
         auth("bastet", "27102BC123E7AF1D4741AE047E160C91ADC76B21"),
         auth("dannenberg", "0232AF901C31A04EE9848595AF9BB7620D4C5B2E"),
         auth("dizum", "E8A9C45EDE6D711294FADF8E7951F4DE6CA56B58"),
-        auth("Faravahar", "EFCBE720AB3A82B99F9E953CD5BF50F7EEFC7B97"),
         auth("gabelmoo", "ED03BB616EB2F60BEC80151114BB25CEF515B226"),
         auth("longclaw", "23D15D965BC35114467363C165C4F724B64B4F66"),
         auth("maatuska", "49015F787433103580E3B66A1707A00E60F2D15B"),
-        auth("moria1", "D586D18309DED4CD6D57C18FDB97EFA96D330566"),
+        auth("moria1", "F533C81CEF0BC0267857C99B2F471ADF249FA232"),
         auth("tor26", "14C131DFC5C6F93646BE72FA1401C02A8DF2E8B4"),
     ]
 }
@@ -78,7 +77,16 @@ impl AuthorityBuilder {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use tor_netdoc::doc::authcert::AuthCertKeyIds;
 

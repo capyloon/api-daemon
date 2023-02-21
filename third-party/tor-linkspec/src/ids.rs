@@ -6,11 +6,13 @@
 //! over those types, and over other new types that may exist in the future.
 
 use derive_more::{Display, From};
+use safelog::Redactable;
 use tor_llcrypto::pk::{
     ed25519::{Ed25519Identity, ED25519_ID_LEN},
     rsa::{RsaIdentity, RSA_ID_LEN},
 };
 
+pub(crate) mod by_id;
 pub(crate) mod set;
 
 /// The type of a relay identity.
@@ -47,7 +49,7 @@ pub enum RelayIdType {
 }
 
 /// A single relay identity.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Display, From, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Display, From, Hash)]
 #[non_exhaustive]
 pub enum RelayId {
     /// An Ed25519 identity.
@@ -59,7 +61,9 @@ pub enum RelayId {
 }
 
 /// A reference to a single relay identity.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Display, From, derive_more::TryInto)]
+#[derive(
+    Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display, From, derive_more::TryInto,
+)]
 #[non_exhaustive]
 pub enum RelayIdRef<'a> {
     /// An Ed25519 identity.
@@ -192,6 +196,34 @@ impl<'a> From<&'a RelayId> for RelayIdRef<'a> {
     }
 }
 
+impl Redactable for RelayId {
+    fn display_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_ref().display_redacted(f)
+    }
+
+    fn debug_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_ref().debug_redacted(f)
+    }
+}
+
+impl<'a> Redactable for RelayIdRef<'a> {
+    fn display_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Display as _;
+        match self {
+            RelayIdRef::Ed25519(k) => k.redacted().fmt(f),
+            RelayIdRef::Rsa(k) => k.redacted().fmt(f),
+        }
+    }
+
+    fn debug_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Debug as _;
+        match self {
+            RelayIdRef::Ed25519(k) => k.redacted().fmt(f),
+            RelayIdRef::Rsa(k) => k.redacted().fmt(f),
+        }
+    }
+}
+
 /// Expand to an implementation for PartialEq for a given key type.
 macro_rules! impl_eq_variant {
     { $var:ident($type:ty) } => {
@@ -283,7 +315,7 @@ impl<'de> serde::Deserialize<'de> for RelayId {
         // TODO(nickm): maybe allow bytes when dealing with non-human-readable
         // formats.
         use serde::de::Error as _;
-        let s = <&str as serde::Deserialize>::deserialize(deserializer)?;
+        let s = <std::borrow::Cow<'_, str> as serde::Deserialize>::deserialize(deserializer)?;
         s.parse()
             .map_err(|e: RelayIdError| D::Error::custom(e.to_string()))
     }
@@ -320,7 +352,20 @@ impl From<base64ct::Error> for RelayIdError {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
+    use hex_literal::hex;
+    use serde_test::{assert_tokens, Token};
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -382,5 +427,139 @@ mod test {
 
         let e = RelayId::from_str("ed25519:🤨🤨🤨🤨🤨").unwrap_err();
         assert!(matches!(e, RelayIdError::BadBase64));
+    }
+
+    #[test]
+    fn types() {
+        assert_eq!(
+            RelayId::from_str("$1234567812345678123456781234567812345678")
+                .unwrap()
+                .id_type(),
+            RelayIdType::Rsa,
+        );
+        assert_eq!(
+            RelayId::from_str("$1234567812345678123456781234567812345678")
+                .unwrap()
+                .as_ref()
+                .id_type(),
+            RelayIdType::Rsa,
+        );
+
+        assert_eq!(
+            RelayId::from_str("ed25519:dGhpcyBpcyBpbmNyZWRpYmx5IHNpbGx5ISEhISEhISE")
+                .unwrap()
+                .id_type(),
+            RelayIdType::Ed25519,
+        );
+
+        assert_eq!(
+            RelayId::from_str("ed25519:dGhpcyBpcyBpbmNyZWRpYmx5IHNpbGx5ISEhISEhISE")
+                .unwrap()
+                .as_ref()
+                .id_type(),
+            RelayIdType::Ed25519,
+        );
+    }
+
+    #[test]
+    fn equals_other() {
+        let rsa1 = RsaIdentity::from(*b"You just have to kno");
+        let rsa2 = RsaIdentity::from(*b"w who you are and st");
+        let ed1 = Ed25519Identity::from(*b"ay true to that. So I'm going to");
+        let ed2 = Ed25519Identity::from(*b"keep fighting for people the onl");
+
+        assert_eq!(RelayId::from(rsa1), rsa1);
+        assert_ne!(RelayId::from(rsa1), rsa2);
+        assert_ne!(RelayId::from(rsa1), ed1);
+
+        assert_eq!(RelayId::from(ed1), ed1);
+        assert_ne!(RelayId::from(ed1), ed2);
+        assert_ne!(RelayId::from(ed1), rsa1);
+
+        assert_eq!(RelayIdRef::from(&rsa1), rsa1);
+        assert_ne!(RelayIdRef::from(&rsa1), rsa2);
+        assert_ne!(RelayIdRef::from(&rsa1), ed1);
+
+        assert_eq!(RelayIdRef::from(&ed1), ed1);
+        assert_ne!(RelayIdRef::from(&ed1), ed2);
+        assert_ne!(RelayIdRef::from(&ed1), rsa1);
+    }
+    #[test]
+    fn as_bytes() {
+        assert_eq!(
+            RelayId::from_str("$1234567812345678123456781234567812345678")
+                .unwrap()
+                .as_bytes(),
+            hex!("1234567812345678123456781234567812345678"),
+        );
+        assert_eq!(
+            RelayId::from_str("$1234567812345678123456781234567812345678")
+                .unwrap()
+                .as_ref()
+                .as_bytes(),
+            hex!("1234567812345678123456781234567812345678"),
+        );
+
+        assert_eq!(
+            RelayId::from_str("ed25519:dGhpcyBpcyBpbmNyZWRpYmx5IHNpbGx5ISEhISEhISE")
+                .unwrap()
+                .as_bytes(),
+            b"this is incredibly silly!!!!!!!!"
+        );
+        assert_eq!(
+            RelayId::from_str("ed25519:dGhpcyBpcyBpbmNyZWRpYmx5IHNpbGx5ISEhISEhISE")
+                .unwrap()
+                .as_ref()
+                .as_bytes(),
+            b"this is incredibly silly!!!!!!!!"
+        );
+    }
+
+    #[test]
+    fn unwrap_ok() {
+        let rsa = RelayId::from_str("$1234567812345678123456781234567812345678").unwrap();
+        assert_eq!(
+            rsa.as_ref().unwrap_rsa(),
+            &RsaIdentity::from_bytes(&hex!("1234567812345678123456781234567812345678")).unwrap()
+        );
+
+        let ed = RelayId::from_str("ed25519:dGhpcyBpcyBpbmNyZWRpYmx5IHNpbGx5ISEhISEhISE").unwrap();
+        assert_eq!(
+            ed.as_ref().unwrap_ed25519(),
+            &Ed25519Identity::from_bytes(b"this is incredibly silly!!!!!!!!").unwrap()
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn unwrap_rsa_panic() {
+        if let Ok(ed) = RelayId::from_str("ed25519:dGhpcyBpcyBpbmNyZWRpYmx5IHNpbGx5ISEhISEhISE") {
+            let _nope = RelayIdRef::from(&ed).unwrap_rsa();
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn unwrap_ed_panic() {
+        if let Ok(ed) = RelayId::from_str("$1234567812345678123456781234567812345678") {
+            let _nope = RelayIdRef::from(&ed).unwrap_ed25519();
+        }
+    }
+
+    #[test]
+    fn serde_owned() {
+        let rsa1 = RsaIdentity::from(*b"You just have to kno");
+        let ed1 = Ed25519Identity::from(*b"ay true to that. So I'm going to");
+        let keys = vec![RelayId::from(rsa1), RelayId::from(ed1)];
+
+        assert_tokens(
+            &keys,
+            &[
+                Token::Seq { len: Some(2) },
+                Token::String("$596f75206a757374206861766520746f206b6e6f"),
+                Token::String("ed25519:YXkgdHJ1ZSB0byB0aGF0LiBTbyBJJ20gZ29pbmcgdG8"),
+                Token::SeqEnd,
+            ],
+        );
     }
 }

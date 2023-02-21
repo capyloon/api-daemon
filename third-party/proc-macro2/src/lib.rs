@@ -86,8 +86,11 @@
 //! a different thread.
 
 // Proc-macro2 types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/proc-macro2/1.0.40")]
-#![cfg_attr(any(proc_macro_span, super_unstable), feature(proc_macro_span))]
+#![doc(html_root_url = "https://docs.rs/proc-macro2/1.0.51")]
+#![cfg_attr(
+    any(proc_macro_span, super_unstable),
+    feature(proc_macro_span, proc_macro_span_shrink)
+)]
 #![cfg_attr(super_unstable, feature(proc_macro_def_site))]
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![allow(
@@ -120,6 +123,7 @@ extern crate proc_macro;
 
 mod marker;
 mod parse;
+mod rcvec;
 
 #[cfg(wrap_proc_macro)]
 mod detection;
@@ -135,16 +139,22 @@ use crate::fallback as imp;
 #[cfg(wrap_proc_macro)]
 mod imp;
 
+#[cfg(span_locations)]
+mod location;
+
 use crate::marker::Marker;
-use std::cmp::Ordering;
+use core::cmp::Ordering;
+use core::fmt::{self, Debug, Display};
+use core::hash::{Hash, Hasher};
+use core::iter::FromIterator;
+use core::ops::RangeBounds;
+use core::str::FromStr;
 use std::error::Error;
-use std::fmt::{self, Debug, Display};
-use std::hash::{Hash, Hasher};
-use std::iter::FromIterator;
-use std::ops::RangeBounds;
 #[cfg(procmacro2_semver_exempt)]
 use std::path::PathBuf;
-use std::str::FromStr;
+
+#[cfg(span_locations)]
+pub use crate::location::LineColumn;
 
 /// An abstract stream of tokens, or more concretely a sequence of token trees.
 ///
@@ -221,14 +231,14 @@ impl FromStr for TokenStream {
 
 #[cfg(use_proc_macro)]
 impl From<proc_macro::TokenStream> for TokenStream {
-    fn from(inner: proc_macro::TokenStream) -> TokenStream {
+    fn from(inner: proc_macro::TokenStream) -> Self {
         TokenStream::_new(inner.into())
     }
 }
 
 #[cfg(use_proc_macro)]
 impl From<TokenStream> for proc_macro::TokenStream {
-    fn from(inner: TokenStream) -> proc_macro::TokenStream {
+    fn from(inner: TokenStream) -> Self {
         inner.inner.into()
     }
 }
@@ -352,37 +362,6 @@ impl Debug for SourceFile {
     }
 }
 
-/// A line-column pair representing the start or end of a `Span`.
-///
-/// This type is semver exempt and not exposed by default.
-#[cfg(span_locations)]
-#[cfg_attr(doc_cfg, doc(cfg(feature = "span-locations")))]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct LineColumn {
-    /// The 1-indexed line in the source file on which the span starts or ends
-    /// (inclusive).
-    pub line: usize,
-    /// The 0-indexed column (in UTF-8 characters) in the source file on which
-    /// the span starts or ends (inclusive).
-    pub column: usize,
-}
-
-#[cfg(span_locations)]
-impl Ord for LineColumn {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.line
-            .cmp(&other.line)
-            .then(self.column.cmp(&other.column))
-    }
-}
-
-#[cfg(span_locations)]
-impl PartialOrd for LineColumn {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 /// A region of source code, along with macro expansion information.
 #[derive(Copy, Clone)]
 pub struct Span {
@@ -488,8 +467,7 @@ impl Span {
     #[cfg(span_locations)]
     #[cfg_attr(doc_cfg, doc(cfg(feature = "span-locations")))]
     pub fn start(&self) -> LineColumn {
-        let imp::LineColumn { line, column } = self.inner.start();
-        LineColumn { line, column }
+        self.inner.start()
     }
 
     /// Get the ending line/column in the source file for this span.
@@ -504,8 +482,25 @@ impl Span {
     #[cfg(span_locations)]
     #[cfg_attr(doc_cfg, doc(cfg(feature = "span-locations")))]
     pub fn end(&self) -> LineColumn {
-        let imp::LineColumn { line, column } = self.inner.end();
-        LineColumn { line, column }
+        self.inner.end()
+    }
+
+    /// Creates an empty span pointing to directly before this span.
+    ///
+    /// This method is semver exempt and not exposed by default.
+    #[cfg(all(procmacro2_semver_exempt, any(not(wrap_proc_macro), super_unstable)))]
+    #[cfg_attr(doc_cfg, doc(cfg(procmacro2_semver_exempt)))]
+    pub fn before(&self) -> Span {
+        Span::_new(self.inner.before())
+    }
+
+    /// Creates an empty span pointing to directly after this span.
+    ///
+    /// This method is semver exempt and not exposed by default.
+    #[cfg(all(procmacro2_semver_exempt, any(not(wrap_proc_macro), super_unstable)))]
+    #[cfg_attr(doc_cfg, doc(cfg(procmacro2_semver_exempt)))]
+    pub fn after(&self) -> Span {
+        Span::_new(self.inner.after())
     }
 
     /// Create a new span encompassing `self` and `other`.
@@ -579,25 +574,25 @@ impl TokenTree {
 }
 
 impl From<Group> for TokenTree {
-    fn from(g: Group) -> TokenTree {
+    fn from(g: Group) -> Self {
         TokenTree::Group(g)
     }
 }
 
 impl From<Ident> for TokenTree {
-    fn from(g: Ident) -> TokenTree {
+    fn from(g: Ident) -> Self {
         TokenTree::Ident(g)
     }
 }
 
 impl From<Punct> for TokenTree {
-    fn from(g: Punct) -> TokenTree {
+    fn from(g: Punct) -> Self {
         TokenTree::Punct(g)
     }
 }
 
 impl From<Literal> for TokenTree {
-    fn from(g: Literal) -> TokenTree {
+    fn from(g: Literal) -> Self {
         TokenTree::Literal(g)
     }
 }
@@ -1128,9 +1123,9 @@ impl Literal {
     /// This constructor is similar to those like `Literal::i8_unsuffixed` where
     /// the float's value is emitted directly into the token but no suffix is
     /// used, so it may be inferred to be a `f64` later in the compiler.
-    /// Literals created from negative numbers may not survive rountrips through
-    /// `TokenStream` or strings and may be broken into two tokens (`-` and
-    /// positive literal).
+    /// Literals created from negative numbers may not survive round-trips
+    /// through `TokenStream` or strings and may be broken into two tokens (`-`
+    /// and positive literal).
     ///
     /// # Panics
     ///
@@ -1147,7 +1142,7 @@ impl Literal {
     /// specified is the preceding part of the token and `f64` is the suffix of
     /// the token. This token will always be inferred to be an `f64` in the
     /// compiler. Literals created from negative numbers may not survive
-    /// rountrips through `TokenStream` or strings and may be broken into two
+    /// round-trips through `TokenStream` or strings and may be broken into two
     /// tokens (`-` and positive literal).
     ///
     /// # Panics
@@ -1164,9 +1159,9 @@ impl Literal {
     /// This constructor is similar to those like `Literal::i8_unsuffixed` where
     /// the float's value is emitted directly into the token but no suffix is
     /// used, so it may be inferred to be a `f64` later in the compiler.
-    /// Literals created from negative numbers may not survive rountrips through
-    /// `TokenStream` or strings and may be broken into two tokens (`-` and
-    /// positive literal).
+    /// Literals created from negative numbers may not survive round-trips
+    /// through `TokenStream` or strings and may be broken into two tokens (`-`
+    /// and positive literal).
     ///
     /// # Panics
     ///
@@ -1183,7 +1178,7 @@ impl Literal {
     /// specified is the preceding part of the token and `f32` is the suffix of
     /// the token. This token will always be inferred to be an `f32` in the
     /// compiler. Literals created from negative numbers may not survive
-    /// rountrips through `TokenStream` or strings and may be broken into two
+    /// round-trips through `TokenStream` or strings and may be broken into two
     /// tokens (`-` and positive literal).
     ///
     /// # Panics
@@ -1270,7 +1265,7 @@ impl Display for Literal {
 pub mod token_stream {
     use crate::marker::Marker;
     use crate::{imp, TokenTree};
-    use std::fmt::{self, Debug};
+    use core::fmt::{self, Debug};
 
     pub use crate::TokenStream;
 
@@ -1290,11 +1285,16 @@ pub mod token_stream {
         fn next(&mut self) -> Option<TokenTree> {
             self.inner.next()
         }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            self.inner.size_hint()
+        }
     }
 
     impl Debug for IntoIter {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            Debug::fmt(&self.inner, f)
+            f.write_str("TokenStream ")?;
+            f.debug_list().entries(self.clone()).finish()
         }
     }
 

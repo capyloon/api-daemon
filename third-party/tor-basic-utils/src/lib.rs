@@ -1,15 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `tor-basic-utils`: Utilities (low-level) for Tor
-//!
-//! Miscellaneous utilities for `tor-*` and `arti-*`.
-//!
-//! This crate lives at the *bottom* of the Tor crate stack.
-//! So it contains only utilities which have no `tor-*` (or `arti-*`) dependencies.
-//!
-//! There is no particular theme.
-//! More substantial sets of functionality with particular themes
-//! are to be found in other `tor-*` crates.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -43,15 +33,22 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
+use std::collections::BinaryHeap;
 use std::fmt;
+use std::mem;
 
 pub mod futures;
 pub mod iter;
+pub mod n_key_set;
 pub mod retry;
 pub mod test_rng;
+
+pub use paste::paste;
 
 // ----------------------------------------------------------------------
 
@@ -110,6 +107,26 @@ impl IoErrorExt for std::io::Error {
 
 // ----------------------------------------------------------------------
 
+/// Implementation of `BinaryHeap::retain` that doesn't require Nightly
+pub trait BinaryHeapExt<T> {
+    /// Remove all elements for which `f` returns `false`
+    ///
+    /// Performance is not great right now - the algorithm is `O(n*log(n))`
+    /// where `n` is the number of elements in the heap (not the number removed).
+    ///
+    /// The name is `retain_ext` to avoid a name collision with the unstable function,
+    /// which would require the use of UFCS and make this unergonomic.
+    fn retain_ext<F: FnMut(&T) -> bool>(&mut self, f: F);
+}
+impl<T: Ord> BinaryHeapExt<T> for BinaryHeap<T> {
+    fn retain_ext<F: FnMut(&T) -> bool>(&mut self, f: F) {
+        let items = mem::take(self).into_iter();
+        *self = items.filter(f).collect();
+    }
+}
+
+// ----------------------------------------------------------------------
+
 /// Define an "accessor trait", which describes structs that have fields of certain types
 ///
 /// This can be useful if a large struct, living high up in the dependency graph,
@@ -118,11 +135,15 @@ impl IoErrorExt for std::io::Error {
 ///
 /// ```
 /// // imagine this in the lower-level module
+/// pub trait Supertrait {}
 /// use tor_basic_utils::define_accessor_trait;
 /// define_accessor_trait! {
-///     pub trait View {
+///     pub trait View: Supertrait {
 ///         lorem: String,
 ///         ipsum: usize,
+///         +
+///         fn other_accessor(&self) -> bool;
+///         // any other trait items can go here
 ///    }
 /// }
 ///
@@ -139,7 +160,10 @@ impl IoErrorExt for std::io::Error {
 ///     #[as_ref] ipsum: usize,
 ///     dolor: Vec<()>,
 /// }
-/// impl View for Everything { }
+/// impl Supertrait for Everything { }
+/// impl View for Everything {
+///     fn other_accessor(&self) -> bool { false }
+/// }
 ///
 /// let everything = Everything {
 ///     lorem: "sit".into(),
@@ -153,7 +177,8 @@ impl IoErrorExt for std::io::Error {
 /// ### Generated code
 ///
 /// ```
-/// pub trait View: AsRef<String> + AsRef<usize> {
+/// # pub trait Supertrait { }
+/// pub trait View: AsRef<String> + AsRef<usize> + Supertrait {
 ///     fn lorem(&self) -> &String { self.as_ref() }
 ///     fn ipsum(&self) -> &usize { self.as_ref() }
 /// }
@@ -162,16 +187,21 @@ impl IoErrorExt for std::io::Error {
 macro_rules! define_accessor_trait {
     {
         $( #[ $attr:meta ])*
-        $vis:vis trait $Trait:ident {
+        $vis:vis trait $Trait:ident $( : $( $Super:path )* )? {
             $( $accessor:ident: $type:ty, )*
+            $( + $( $rest:tt )* )?
         }
     } => {
         $( #[ $attr ])*
-        $vis trait $Trait: $( core::convert::AsRef<$type> + )* {
+        $vis trait $Trait: $( core::convert::AsRef<$type> + )* $( $( $Super + )* )?
+        {
             $(
                 /// Access the field
                 fn $accessor(&self) -> &$type { core::convert::AsRef::as_ref(self) }
             )*
+            $(
+                $( $rest )*
+            )?
         }
     }
 }
@@ -207,3 +237,90 @@ macro_rules! macro_first_nonempty {
 }
 
 // ----------------------------------------------------------------------
+
+/// Helper for defining a struct which can be (de)serialized several ways, including "natively"
+///
+/// Ideally we would have
+/// ```rust ignore
+/// #[derive(Deserialize)]
+/// #[serde(try_from=Possibilities)]
+/// struct Main { /* principal definition */ }
+///
+/// #[derive(Deserialize)]
+/// #[serde(untagged)]
+/// enum Possibilities { Main(Main), Other(OtherRepr) }
+///
+/// #[derive(Deserialize)]
+/// struct OtherRepr { /* other representation we still want to read */ }
+///
+/// impl TryFrom<Possibilities> for Main { /* ... */ }
+/// ```
+///
+/// But the impl for `Possibilities` ends up honouring the `try_from` on `Main`
+/// so is recursive.
+///
+/// We solve that (ab)using serde's remote feature,
+/// on a second copy of the struct definition.
+///
+/// See the Example for instructions.
+/// It is important to **add test cases**
+/// for all the representations you expect to parse and serialise,
+/// since there are easy-to-write bugs,
+/// for example omitting some of the necessary attributes.
+///
+/// # Generated output:
+///
+///  * The original struct definition, unmodified
+///  * `#[derive(Serialize, Deserialize)] struct $main_Raw { }`
+///
+/// The `$main_Raw` struct ought not normally be to constructed anywhere,
+/// and *isn't* convertible to or from the near-identical `$main` struct.
+/// It exists only as a thing to feed to the serde remove derive,
+/// and name in `with=`.
+///
+/// # Example
+///
+/// ```
+/// use serde::{Deserialize, Serialize};
+/// use tor_basic_utils::derive_serde_raw;
+///
+/// derive_serde_raw! {
+///     #[derive(Deserialize, Serialize, Default, Clone, Debug)]
+///     #[serde(try_from="BridgeConfigBuilderSerde", into="BridgeConfigBuilderSerde")]
+///     pub struct BridgeConfigBuilder = "BridgeConfigBuilder" {
+///         transport: Option<String>,
+///         //...
+///     }
+/// }
+///
+/// #[derive(Serialize,Deserialize)]
+/// #[serde(untagged)]
+/// enum BridgeConfigBuilderSerde {
+///     BridgeLine(String),
+///     Dict(#[serde(with="BridgeConfigBuilder_Raw")] BridgeConfigBuilder),
+/// }
+///
+/// impl TryFrom<BridgeConfigBuilderSerde> for BridgeConfigBuilder { //...
+/// #    type Error = std::io::Error;
+/// #    fn try_from(_: BridgeConfigBuilderSerde) -> Result<Self, Self::Error> { todo!() } }
+/// impl From<BridgeConfigBuilder> for BridgeConfigBuilderSerde { //...
+/// #    fn from(_: BridgeConfigBuilder) -> BridgeConfigBuilderSerde { todo!() } }
+/// ```
+#[macro_export]
+macro_rules! derive_serde_raw { {
+    $( #[ $($attrs:meta)* ] )*
+    $vis:vis struct $main:ident=$main_s:literal
+    $($body:tt)*
+} => {
+    $(#[ $($attrs)* ])*
+    $vis struct $main
+    $($body)*
+
+    $crate::paste! {
+        #[allow(non_camel_case_types)]
+        #[derive(Serialize, Deserialize)]
+        #[serde(remote=$main_s)]
+        struct [< $main _Raw >]
+        $($body)*
+    }
+} }

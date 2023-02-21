@@ -2,7 +2,7 @@
 //! state machines in the `states` module.
 
 use std::num::NonZeroUsize;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::{
     collections::HashMap,
     sync::{Arc, Weak},
@@ -86,7 +86,7 @@ fn note_request_outcome<R: Runtime>(
     circmgr: &CircMgr<R>,
     outcome: &tor_dirclient::Result<tor_dirclient::DirResponse>,
 ) {
-    use tor_dirclient::Error::RequestFailed;
+    use tor_dirclient::{Error::RequestFailed, RequestFailedError};
     // Extract an error and a source from this outcome, if there is one.
     //
     // This is complicated because DirResponse can encapsulate the notion of
@@ -96,25 +96,22 @@ fn note_request_outcome<R: Runtime>(
         Ok(req) => {
             if let (Some(e), Some(source)) = (req.error(), req.source()) {
                 (
-                    RequestFailed {
+                    RequestFailed(RequestFailedError {
                         error: e.clone(),
                         source: Some(source.clone()),
-                    },
+                    }),
                     source,
                 )
             } else {
                 return;
             }
         }
-        Err(RequestFailed {
-            source: Some(source),
-            ..
-        }) => (
-            // TODO: Use an @ binding in the pattern once we are on MSRV >=
-            // 1.56.
-            outcome.as_ref().unwrap_err().clone(),
-            source,
-        ),
+        Err(
+            error @ RequestFailed(RequestFailedError {
+                source: Some(source),
+                ..
+            }),
+        ) => (error.clone(), source),
         _ => return,
     };
 
@@ -288,12 +285,7 @@ async fn fetch_multiple<R: Runtime>(
 ) -> Result<Vec<(ClientRequest, DirResponse)>> {
     let requests = {
         let store = dirmgr.store.lock().expect("store lock poisoned");
-        make_requests_for_documents(
-            &dirmgr.runtime,
-            missing,
-            store.deref(),
-            &dirmgr.config.get(),
-        )?
+        make_requests_for_documents(&dirmgr.runtime, missing, &**store, &dirmgr.config.get())?
     };
 
     #[cfg(test)]
@@ -360,7 +352,7 @@ async fn load_once<R: Runtime>(
 
         let documents = {
             let store = dirmgr.store.lock().expect("store lock poisoned");
-            load_documents_from_store(&missing, store.deref())?
+            load_documents_from_store(&missing, &**store)?
         };
 
         state.add_from_cache(documents, &mut changed)
@@ -393,7 +385,7 @@ pub(crate) async fn load<R: Runtime>(
         let outcome = load_once(&dirmgr, &mut state, attempt_id, &mut changed).await;
         {
             let mut store = dirmgr.store.lock().expect("store lock poisoned");
-            dirmgr.apply_netdir_changes(&mut state, store.deref_mut())?;
+            dirmgr.apply_netdir_changes(&mut state, &mut **store)?;
         }
 
         if let Err(e) = outcome {
@@ -443,7 +435,7 @@ async fn download_attempt<R: Runtime>(
     let mut n_errors = 0;
     for (client_req, dir_response) in fetched {
         let source = dir_response.source().map(Clone::clone);
-        let text = match String::from_utf8(dir_response.into_output())
+        let text = match String::from_utf8(dir_response.into_output_unchecked())
             .map_err(Error::BadUtf8FromDirectory)
         {
             Ok(t) => t,
@@ -557,7 +549,7 @@ pub(crate) async fn download<R: Runtime>(
         {
             let dirmgr = upgrade_weak_ref(&dirmgr)?;
             let mut store = dirmgr.store.lock().expect("store lock poisoned");
-            dirmgr.apply_netdir_changes(state, store.deref_mut())?;
+            dirmgr.apply_netdir_changes(state, &mut **store)?;
         }
         if state.is_ready(Readiness::Complete) {
             return Ok(());
@@ -583,7 +575,7 @@ pub(crate) async fn download<R: Runtime>(
                         .duration_since(now)
                         .unwrap_or(Duration::from_secs(0))
                 };
-                schedule.sleep(delay.min(time_until_reset)).await;
+                schedule.sleep(delay.min(time_until_reset)).await?;
 
                 now = upgrade_weak_ref(&dirmgr)?.runtime.wallclock();
                 if now >= reset_time {
@@ -623,7 +615,7 @@ pub(crate) async fn download<R: Runtime>(
             {
                 let dirmgr = upgrade_weak_ref(&dirmgr)?;
                 let mut store = dirmgr.store.lock().expect("store lock poisoned");
-                let outcome = dirmgr.apply_netdir_changes(state, store.deref_mut());
+                let outcome = dirmgr.apply_netdir_changes(state, &mut **store);
                 propagate_fatal_errors!(outcome);
             }
 
@@ -682,7 +674,16 @@ fn no_more_than_a_week_from(now: SystemTime, v: Option<SystemTime>) -> SystemTim
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::storage::DynStore;
     use crate::test::new_mgr;

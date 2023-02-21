@@ -34,24 +34,17 @@ impl DirPathBuilder {
         guards: Option<&GuardMgr<RT>>,
     ) -> Result<(TorPath<'a>, Option<GuardMonitor>, Option<GuardUsable>)> {
         match (netdir, guards) {
-            (dirinfo, Some(guardmgr)) => {
+            (_, Some(guardmgr)) => {
                 // We use a guardmgr whenever we have one, regardless of whether
                 // there's a netdir.
                 //
                 // That way, we prefer our guards (if they're up) before we default to the fallback directories.
-                let netdir = match dirinfo {
-                    DirInfo::Directory(netdir) => {
-                        guardmgr.update_network(netdir); // possibly unnecessary.
-                        Some(netdir)
-                    }
-                    _ => None,
-                };
 
                 let guard_usage = tor_guardmgr::GuardUsageBuilder::default()
                     .kind(tor_guardmgr::GuardUsageKind::OneHopDirectory)
                     .build()
                     .expect("Unable to build directory guard usage");
-                let (guard, mon, usable) = guardmgr.select_guard(guard_usage, netdir)?;
+                let (guard, mon, usable) = guardmgr.select_guard(guard_usage)?;
                 Ok((TorPath::new_one_hop_owned(&guard), Some(mon), Some(usable)))
             }
 
@@ -91,7 +84,9 @@ mod test {
     #![allow(clippy::dbg_macro)]
     #![allow(clippy::print_stderr)]
     #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
     use super::*;
@@ -100,6 +95,7 @@ mod test {
     use std::collections::HashSet;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_guardmgr::fallback::{FallbackDir, FallbackList};
+    use tor_guardmgr::TestConfig;
     use tor_linkspec::RelayIds;
     use tor_netdir::testnet;
 
@@ -188,8 +184,9 @@ mod test {
             let mut rng = testing_rng();
             let dirinfo = (&netdir).into();
             let statemgr = tor_persist::TestingStateMgr::new();
-            let guards = tor_guardmgr::GuardMgr::new(rt.clone(), statemgr, [].into()).unwrap();
-            guards.update_network(&netdir);
+            let guards =
+                tor_guardmgr::GuardMgr::new(rt.clone(), statemgr, &TestConfig::default()).unwrap();
+            guards.install_test_netdir(&netdir);
 
             let mut distinct_guards = HashSet::new();
 

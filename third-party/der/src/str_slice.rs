@@ -1,12 +1,12 @@
 //! Common handling for types backed by `str` slices with enforcement of a
 //! library-level length limitation i.e. `Length::max()`.
 
-use crate::{ByteSlice, DecodeValue, Decoder, EncodeValue, Encoder, Length, Result};
+use crate::{ByteSlice, DecodeValue, EncodeValue, Header, Length, Reader, Result, Writer};
 use core::str;
 
 /// String slice newtype which respects the [`Length::max`] limit.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub(crate) struct StrSlice<'a> {
+pub struct StrSlice<'a> {
     /// Inner value
     pub(crate) inner: &'a str,
 
@@ -63,8 +63,8 @@ impl AsRef<[u8]> for StrSlice<'_> {
 }
 
 impl<'a> DecodeValue<'a> for StrSlice<'a> {
-    fn decode_value(decoder: &mut Decoder<'a>, length: Length) -> Result<Self> {
-        Self::from_bytes(ByteSlice::decode_value(decoder, length)?.as_bytes())
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        Self::from_bytes(ByteSlice::decode_value(reader, header)?.as_slice())
     }
 }
 
@@ -73,7 +73,7 @@ impl<'a> EncodeValue for StrSlice<'a> {
         Ok(self.length)
     }
 
-    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        encoder.bytes(self.as_ref())
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        writer.write(self.as_ref())
     }
 }

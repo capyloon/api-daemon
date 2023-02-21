@@ -11,52 +11,80 @@
 
 [package]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.57"
 name = "der"
-version = "0.5.1"
+version = "0.6.1"
 authors = ["RustCrypto Developers"]
-description = "Pure Rust embedded-friendly implementation of the Distinguished Encoding Rules\n(DER) for Abstract Syntax Notation One (ASN.1) as described in ITU X.690 with\nfull support for heapless no_std targets\n"
+description = """
+Pure Rust embedded-friendly implementation of the Distinguished Encoding Rules
+(DER) for Abstract Syntax Notation One (ASN.1) as described in ITU X.690 with
+full support for heapless no_std targets
+"""
 readme = "README.md"
-keywords = ["asn1", "crypto", "itu", "pkcs"]
-categories = ["cryptography", "data-structures", "encoding", "no-std", "parsing"]
+keywords = [
+    "asn1",
+    "crypto",
+    "itu",
+    "pkcs",
+]
+categories = [
+    "cryptography",
+    "data-structures",
+    "encoding",
+    "no-std",
+    "parser-implementations",
+]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/der"
-resolver = "2"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
-[dependencies.const-oid]
-version = "0.7"
-optional = true
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
 
-[dependencies.crypto-bigint]
-version = "0.3"
-features = ["generic-array"]
+[dependencies.const-oid]
+version = "0.9"
 optional = true
-default-features = false
 
 [dependencies.der_derive]
-version = "0.5"
+version = "0.6"
+optional = true
+
+[dependencies.flagset]
+version = "0.4.3"
 optional = true
 
 [dependencies.pem-rfc7468]
-version = "0.3"
+version = "0.6"
 optional = true
 
 [dependencies.time]
-version = "0.3"
+version = "0.3.4"
 optional = true
 default-features = false
+
+[dependencies.zeroize]
+version = "1.5"
+features = ["alloc"]
+optional = true
+default-features = false
+
 [dev-dependencies.hex-literal]
-version = "0.3"
+version = "0.3.3"
 
 [dev-dependencies.proptest]
 version = "1"
 
 [features]
 alloc = []
-bigint = ["crypto-bigint"]
 derive = ["der_derive"]
 oid = ["const-oid"]
-pem = ["alloc", "pem-rfc7468/alloc"]
+pem = [
+    "alloc",
+    "pem-rfc7468/alloc",
+    "zeroize",
+]
+real = []
 std = ["alloc"]

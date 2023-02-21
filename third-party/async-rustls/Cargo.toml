@@ -3,46 +3,69 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
 name = "async-rustls"
-version = "0.2.0"
-authors = ["Alex Crichton <alex@alexcrichton.com>", "quininer kel <quininer@live.com>", "Stjepan Glavina <stjepang@gmail.com>"]
-description = "Async TLS/SSL streams using rustls"
-homepage = "https://github.com/stjepang/async-rustls"
+version = "0.3.0"
+authors = [
+    "Alex Crichton <alex@alexcrichton.com>",
+    "quininer kel <quininer@live.com>",
+    "Stjepan Glavina <stjepang@gmail.com>",
+    "John Nunley <jtnunley01@gmail.com>",
+]
+description = "Asynchronous TLS/SSL streams using Rustls."
+homepage = "https://github.com/smol-rs/async-rustls"
 documentation = "https://docs.rs/async-rustls"
 readme = "README.md"
-keywords = ["rustls", "tls", "ssl", "synchronization"]
-categories = ["asynchronous", "cryptography", "network-programming"]
+categories = [
+    "asynchronous",
+    "cryptography",
+    "network-programming",
+]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/stjepang/async-rustls"
-[dependencies.futures-lite]
-version = "1.10.1"
+repository = "https://github.com/smol-rs/async-rustls"
+
+[dependencies.futures-io]
+version = "0.3.24"
 
 [dependencies.rustls]
-version = "0.19"
+version = "0.20"
 default-features = false
 
 [dependencies.webpki]
-version = "0.21"
+version = "0.22"
+
+[dev-dependencies.futures-util]
+version = "0.3.1"
+
 [dev-dependencies.lazy_static]
 version = "1"
 
+[dev-dependencies.once_cell]
+version = "1.14"
+
+[dev-dependencies.rustls-pemfile]
+version = "1"
+
 [dev-dependencies.smol]
-version = "1.2.3"
+version = "1.0"
 
 [dev-dependencies.webpki-roots]
-version = "0.20"
+version = "0.22"
 
 [features]
 dangerous_configuration = ["rustls/dangerous_configuration"]
-default = ["logging"]
+default = [
+    "logging",
+    "tls12",
+]
+early-data = []
 logging = ["rustls/logging"]
 quic = ["rustls/quic"]
+tls12 = ["rustls/tls12"]

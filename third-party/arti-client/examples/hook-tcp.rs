@@ -4,7 +4,9 @@
 #![allow(clippy::dbg_macro)]
 #![allow(clippy::print_stderr)]
 #![allow(clippy::print_stdout)]
+#![allow(clippy::single_char_pattern)]
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::unchecked_duration_subtraction)]
 //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
 //! This example showcases using a custom [`TcpProvider`] to do custom actions before Arti initiates
@@ -131,7 +133,7 @@ where
     {
         // Use the underlying TCP provider implementation to do the connection, and
         // return our wrapper around it once done.
-        println!("tcp connect to {}", addr);
+        println!("tcp connect to {addr}");
         self.inner
             .connect(addr)
             .map(move |r| {
@@ -156,7 +158,7 @@ where
     {
         // Use the underlying TCP provider implementation to make the listener, and
         // return our wrapper around it once done.
-        println!("tcp listen on {}", addr);
+        println!("tcp listen on {addr}");
         self.inner
             .listen(addr)
             .map(|l| l.map(|listener| CustomTcpListener { inner: listener }))
@@ -299,7 +301,7 @@ where
             .accept()
             .inspect(|r| {
                 if let Ok((_, addr)) = r {
-                    println!("accepted connection from {}", addr)
+                    println!("accepted connection from {addr}");
                 }
             })
             .map(|r| {

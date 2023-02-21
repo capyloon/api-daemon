@@ -230,7 +230,16 @@ fn mean_and_standard_deviation(values: &[f64]) -> (f64, f64) {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use float_eq::assert_float_eq;
 
@@ -363,11 +372,12 @@ mod test {
         // The quartiles here are -22 and -10.  The IQR is therefore 12, so we
         // won't discard anything.
         //
-        // The mean is -17.125: That's more than 15 minutes from zero, so we'll say
-        // we're slow.
+        // The mean is -17.125: That's more than 15 minutes from zero, so we'll
+        // say we're slow.
         //
         // The standard deviation is 7.67: that puts the mean between 2 and 3
-        // stddevs from zero, so we'll say we're skewed with "low" confidence.
+        // standard deviations from zero, so we'll say we're skewed with "low"
+        // confidence.
         let obs = from_minutes(&[-20.0, -10.0, -20.0, -25.0, 0.0, -18.0, -22.0, -22.0]);
 
         let est = SkewEstimate::estimate_skew(obs.iter(), Instant::now()).unwrap();

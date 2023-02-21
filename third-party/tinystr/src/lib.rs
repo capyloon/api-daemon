@@ -15,22 +15,23 @@
 //! ```rust
 //! use tinystr::TinyAsciiStr;
 //!
-//! let s1: TinyAsciiStr::<4> = "tEsT".parse().expect("Failed to parse.");
+//! let s1: TinyAsciiStr<4> = "tEsT".parse().expect("Failed to parse.");
 //!
 //! assert_eq!(s1, "tEsT");
 //! assert_eq!(s1.to_ascii_uppercase(), "TEST");
 //! assert_eq!(s1.to_ascii_lowercase(), "test");
 //! assert_eq!(s1.to_ascii_titlecase(), "Test");
-//! assert_eq!(s1.is_ascii_alphanumeric(), true);
-//! assert_eq!(s1.is_ascii_numeric(), false);
+//! assert!(s1.is_ascii_alphanumeric());
+//! assert!(!s1.is_ascii_numeric());
 //!
-//! let s2 = TinyAsciiStr::<8>::try_from_raw(*b"New York").expect("Failed to parse.");
+//! let s2 = TinyAsciiStr::<8>::try_from_raw(*b"New York")
+//!     .expect("Failed to parse.");
 //!
 //! assert_eq!(s2, "New York");
 //! assert_eq!(s2.to_ascii_uppercase(), "NEW YORK");
 //! assert_eq!(s2.to_ascii_lowercase(), "new york");
 //! assert_eq!(s2.to_ascii_titlecase(), "New york");
-//! assert_eq!(s2.is_ascii_alphanumeric(), false);
+//! assert!(!s2.is_ascii_alphanumeric());
 //! ```
 //!
 //! # Details
@@ -51,25 +52,32 @@
 //! [`ICU4X`]: ../icu/index.html
 
 // https://github.com/unicode-org/icu4x/blob/main/docs/process/boilerplate.md#library-annotations
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![cfg_attr(
     not(test),
     deny(
         clippy::indexing_slicing,
         clippy::unwrap_used,
         clippy::expect_used,
-        clippy::panic
+        clippy::panic,
+        clippy::exhaustive_structs,
+        clippy::exhaustive_enums,
+        missing_debug_implementations,
     )
 )]
 
 mod macros;
 
 mod ascii;
+mod asciibyte;
 mod error;
 mod int_ops;
 
 #[cfg(feature = "serde")]
 mod serde;
+
+#[cfg(feature = "databake")]
+mod databake;
 
 #[cfg(feature = "zerovec")]
 mod ule;
@@ -90,6 +98,17 @@ pub type TinyStr8 = TinyAsciiStr<8>;
 /// in a future version.
 pub type TinyStr16 = TinyAsciiStr<16>;
 
+#[test]
+fn test_size() {
+    assert_eq!(
+        core::mem::size_of::<TinyStr4>(),
+        core::mem::size_of::<Option<TinyStr4>>()
+    );
+    assert_eq!(
+        core::mem::size_of::<TinyStr8>(),
+        core::mem::size_of::<Option<TinyStr8>>()
+    );
+}
 // /// Allows unit tests to use the macro
 // #[cfg(test)]
 // mod tinystr {

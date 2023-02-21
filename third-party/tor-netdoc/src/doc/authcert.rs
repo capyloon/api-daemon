@@ -30,7 +30,7 @@ mod build;
 pub use build::AuthCertBuilder;
 
 decl_keyword! {
-    AuthCertKwd {
+    pub(crate) AuthCertKwd {
         "dir-key-certificate-version" => DIR_KEY_CERTIFICATE_VERSION,
         "dir-address" => DIR_ADDRESS,
         "fingerprint" => FINGERPRINT,
@@ -414,7 +414,16 @@ impl<'a> Iterator for AuthCertIterator<'a> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::{Error, Pos};
     const TESTDATA: &str = include_str!("../../testdata/authcert1.txt");

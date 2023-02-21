@@ -1,26 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `tor-circmgr`: circuits through the Tor network on demand.
-//!
-//! # Overview
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//!
-//! In Tor, a circuit is an encrypted multi-hop tunnel over multiple
-//! relays.  This crate's purpose, long-term, is to manage a set of
-//! circuits for a client.  It should construct circuits in response
-//! to a client's needs, and preemptively construct circuits so as to
-//! anticipate those needs.  If a client request can be satisfied with
-//! an existing circuit, it should return that circuit instead of
-//! constructing a new one.
-//!
-//! # Limitations
-//!
-//! But for now, this `tor-circmgr` code is extremely preliminary; its
-//! data structures are all pretty bad, and it's likely that the API
-//! is wrong too.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -54,15 +33,21 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use tor_basic_utils::retry::RetryDelay;
 use tor_chanmgr::ChanMgr;
+use tor_error::ErrorReport;
 use tor_linkspec::ChanTarget;
 use tor_netdir::{DirEvent, NetDir, NetDirProvider, Timeliness};
 use tor_proto::circuit::{CircParameters, ClientCirc, UniqId};
 use tor_rtcompat::Runtime;
+
+#[cfg(feature = "specific-relay")]
+use tor_linkspec::IntoOwnedChanTarget;
 
 use futures::task::SpawnExt;
 use futures::StreamExt;
@@ -76,6 +61,8 @@ mod err;
 mod impls;
 pub mod isolation;
 mod mgr;
+#[cfg(feature = "onion-client")]
+mod onion_connector;
 pub mod path;
 mod preemptive;
 mod timeouts;
@@ -83,8 +70,11 @@ mod usage;
 
 pub use err::Error;
 pub use isolation::IsolationToken;
+#[cfg(feature = "onion-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "onion-client")))]
+pub use onion_connector::{OnionConnectError, OnionServiceConnector};
 use tor_guardmgr::fallback::FallbackList;
-pub use tor_guardmgr::{ClockSkewEvents, SkewEstimate};
+pub use tor_guardmgr::{ClockSkewEvents, GuardMgrConfig, SkewEstimate};
 pub use usage::{TargetPort, TargetPorts};
 
 pub use config::{
@@ -171,6 +161,8 @@ impl<'a> DirInfo<'a> {
 /// believes in two kinds of circuits: Exit circuits, and directory
 /// circuits.  Exit circuits are ones that were created to connect to
 /// a set of ports; directory circuits were made to talk to directory caches.
+///
+/// This is a "handle"; clones of it share state.
 #[derive(Clone)]
 pub struct CircMgr<R: Runtime> {
     /// The underlying circuit manager object that implements our behavior.
@@ -190,6 +182,7 @@ impl<R: Runtime> CircMgr<R> {
         storage: SM,
         runtime: &R,
         chanmgr: Arc<ChanMgr<R>>,
+        guardmgr: tor_guardmgr::GuardMgr<R>,
     ) -> Result<Arc<Self>>
     where
         SM: tor_persist::StateMgr + Send + Sync + 'static,
@@ -198,12 +191,7 @@ impl<R: Runtime> CircMgr<R> {
             config.preemptive_circuits().clone(),
         )));
 
-        let guardmgr = tor_guardmgr::GuardMgr::new(
-            runtime.clone(),
-            storage.clone(),
-            config.fallbacks().clone(),
-        )?;
-        guardmgr.set_filter(config.path_rules().build_guard_filter(), None);
+        guardmgr.set_filter(config.path_rules().build_guard_filter());
 
         let storage_handle = storage.create_handle(PARETO_TIMEOUT_DATA_KEY);
 
@@ -222,6 +210,20 @@ impl<R: Runtime> CircMgr<R> {
         });
 
         Ok(circmgr)
+    }
+
+    /// Install a given [`OnionServiceConnector`] object to be used when making
+    /// connections to an onion service.
+    ///
+    /// (This cannot be done at construction time, since the
+    /// OnionServiceConnector will have to keep a reference to this `CircMgr`.)
+    #[cfg(feature = "onion-client")]
+    #[allow(unused_variables, clippy::missing_panics_doc)]
+    pub fn install_onion_service_connector(
+        &self,
+        connector: &Arc<dyn OnionServiceConnector>,
+    ) -> Result<()> {
+        todo!() // TODO hs
     }
 
     /// Launch the periodic daemon tasks required by the manager to function properly.
@@ -311,20 +313,19 @@ impl<R: Runtime> CircMgr<R> {
             return Ok(());
         }
 
-        self.mgr
-            .peek_builder()
-            .guardmgr()
-            .replace_fallback_list(new_config.fallbacks().clone());
+        let retire_because_of_guardmgr =
+            self.mgr.peek_builder().guardmgr().reconfigure(new_config)?;
 
         let new_reachable = &new_config.path_rules().reachable_addrs;
         if new_reachable != &old_path_rules.reachable_addrs {
             let filter = new_config.path_rules().build_guard_filter();
-            self.mgr.peek_builder().guardmgr().set_filter(filter, None);
+            self.mgr.peek_builder().guardmgr().set_filter(filter);
         }
 
-        let discard_circuits = !new_config
+        let discard_all_circuits = !new_config
             .path_rules()
-            .at_least_as_permissive_as(&old_path_rules);
+            .at_least_as_permissive_as(&old_path_rules)
+            || retire_because_of_guardmgr != tor_guardmgr::RetireCircuits::None;
 
         self.mgr
             .peek_builder()
@@ -333,9 +334,10 @@ impl<R: Runtime> CircMgr<R> {
             .set_circuit_timing(new_config.circuit_timing().clone());
         predictor.set_config(new_config.preemptive_circuits().clone());
 
-        if discard_circuits {
+        if discard_all_circuits {
             // TODO(nickm): Someday, we might want to take a more lenient approach, and only
-            // retire those circuits that do not conform to the new path rules.
+            // retire those circuits that do not conform to the new path rules,
+            // or do not conform to the new guard configuration.
             info!("Path configuration has become more restrictive: retiring existing circuits.");
             self.retire_all_circuits();
         }
@@ -392,16 +394,6 @@ impl<R: Runtime> CircMgr<R> {
             .netdir_is_sufficient(netdir)
     }
 
-    /// Reconfigure this circuit manager using the latest network directory.
-    ///
-    /// This function is deprecated: `launch_background_tasks` now makes sure that this happens as needed.
-    #[deprecated(
-        note = "There is no need to call this function if you have used launch_background_tasks"
-    )]
-    pub fn update_network(&self, netdir: &NetDir) {
-        self.mgr.peek_builder().guardmgr().update_network(netdir);
-    }
-
     /// Return a circuit suitable for sending one-hop BEGINDIR streams,
     /// launching it if necessary.
     pub async fn get_or_launch_dir(&self, netdir: DirInfo<'_>) -> Result<ClientCirc> {
@@ -436,6 +428,73 @@ impl<R: Runtime> CircMgr<R> {
         let ports = ports.iter().map(Clone::clone).collect();
         let usage = TargetCircUsage::Exit { ports, isolation };
         self.mgr.get_or_launch(&usage, netdir).await.map(|(c, _)| c)
+    }
+
+    /// Try to connect to an onion service via this circuit manager.
+    ///
+    /// If `using_keys` is provided, then we will use those keys, in addition to
+    /// any configured in our `OnionServiceConnector`, to connect to the
+    /// service.
+    ///
+    /// If we already have an existing circuit with the appropriate isolation,
+    /// we will return that circuit regardless of the content of `using_keys`.
+    ///
+    /// Requires that an `OnionServiceConnector` has been installed.  If it
+    /// hasn't, then we return an error.
+    #[cfg(feature = "onion-client")]
+    #[allow(clippy::missing_panics_doc, unused_variables)]
+    pub async fn get_or_launch_onion_client(
+        &self,
+        service_id: tor_hscrypto::pk::OnionId,
+        using_keys: Option<tor_hscrypto::pk::ClientSecretKeys>,
+        isolation: StreamIsolation,
+    ) -> Result<ClientCirc> {
+        todo!() // TODO hs
+
+        // The implementation should look up whether we have an appropriate
+        // connected rendezvous circuit built or in progress in our CircMgr.  If
+        // we do, we should return it or wait for it.  Otherwise we should
+        // delegate to our OnionServiceConnector to build it.
+    }
+
+    /// Return a circuit to a specific relay, suitable for using for direct
+    /// (one-hop) directory downloads.
+    ///
+    /// This could be used, for example, to download a descriptor for a bridge.
+    #[cfg_attr(docsrs, doc(cfg(feature = "specific-relay")))]
+    #[cfg(feature = "specific-relay")]
+    pub async fn get_or_launch_dir_specific<T: IntoOwnedChanTarget>(
+        &self,
+        target: T,
+    ) -> Result<ClientCirc> {
+        self.expire_circuits();
+        let usage = TargetCircUsage::DirSpecificTarget(target.to_owned());
+        self.mgr
+            .get_or_launch(&usage, DirInfo::Nothing)
+            .await
+            .map(|(c, _)| c)
+    }
+
+    /// Create and return a new (typically anonymous) circuit whose last hop is
+    /// `target`.
+    ///
+    /// This circuit is guaranteed not to have been used for any traffic
+    /// previously, and it will not be given out for any other requests in the
+    /// future unless explicitly re-registered with a circuit manager.
+    ///
+    /// Used to implement onion service clients and services.
+    #[cfg(feature = "onion-common")]
+    #[allow(unused_variables, clippy::missing_panics_doc)]
+    pub async fn launch_specific_isolated(
+        &self,
+        target: tor_linkspec::OwnedCircTarget,
+        // TODO hs: this should at least be an enum to define what kind of
+        // circuit we want, in case we have different rules for different types.
+        // It might also need to include a "anonymous?" flag for supporting
+        // single onion services.
+        preferences: (),
+    ) -> Result<ClientCirc> {
+        todo!() // TODO hs implement.
     }
 
     /// Launch circuits preemptively, using the preemptive circuit predictor's
@@ -498,6 +557,14 @@ impl<R: Runtime> CircMgr<R> {
         }
     }
 
+    /// Return a reference to the associated CircuitBuilder that this CircMgr
+    /// will use to create its circuits.
+    #[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
+    #[cfg(feature = "experimental-api")]
+    pub fn builder(&self) -> &build::CircuitBuilder<R> {
+        self.mgr.peek_builder()
+    }
+
     /// If `circ_id` is the unique identifier for a circuit that we're
     /// keeping track of, don't give it out for any future requests.
     pub fn retire_circ(&self, circ_id: &UniqId) {
@@ -554,7 +621,10 @@ impl<R: Runtime> CircMgr<R> {
             let dirinfo = netdir.into();
             let mgr = Arc::clone(&self.mgr);
             debug!("Launching a circuit to test build times.");
-            let _ = mgr.launch_by_usage(&usage, dirinfo)?;
+            let receiver = mgr.launch_by_usage(&usage, dirinfo)?;
+            // We don't actually care when this circuit is done,
+            // so it's okay to drop the Receiver without awaiting it.
+            drop(receiver);
         }
 
         Ok(())
@@ -646,7 +716,7 @@ impl<R: Runtime> CircMgr<R> {
 
                 match statemgr.try_lock() {
                     Err(e) => {
-                        error!("Problem with state lock file: {}", e);
+                        error!("Problem with state lock file: {}", e.report());
                         break;
                     }
                     Ok(NewlyAcquired) => {
@@ -785,7 +855,16 @@ impl<R: Runtime> Drop for CircMgr<R> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     /// Helper type used to help type inference.

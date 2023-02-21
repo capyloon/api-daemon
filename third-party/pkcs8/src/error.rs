@@ -2,6 +2,9 @@
 
 use core::fmt;
 
+#[cfg(feature = "pem")]
+use der::pem;
+
 /// Result type
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -59,6 +62,13 @@ impl From<der::ErrorKind> for Error {
     }
 }
 
+#[cfg(feature = "pem")]
+impl From<pem::Error> for Error {
+    fn from(err: pem::Error) -> Error {
+        der::Error::from(err).into()
+    }
+}
+
 #[cfg(feature = "pkcs5")]
 impl From<pkcs5::Error> for Error {
     fn from(err: pkcs5::Error) -> Error {
@@ -69,5 +79,15 @@ impl From<pkcs5::Error> for Error {
 impl From<spki::Error> for Error {
     fn from(err: spki::Error) -> Error {
         Error::PublicKey(err)
+    }
+}
+
+impl From<Error> for spki::Error {
+    fn from(err: Error) -> spki::Error {
+        match err {
+            Error::Asn1(e) => spki::Error::Asn1(e),
+            Error::PublicKey(e) => e,
+            _ => spki::Error::KeyMalformed,
+        }
     }
 }

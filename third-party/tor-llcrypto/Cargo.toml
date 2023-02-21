@@ -1,9 +1,9 @@
 [package]
 name = "tor-llcrypto"
-version = "0.3.4"
+version = "0.4.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
 description = "Low level cryptography wrappers used by Tor"
@@ -14,18 +14,20 @@ repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 [features]
 default = []
 with-openssl = ["openssl", "typenum", "cipher"]
-with-sha1-asm = ["sha-1/asm"]
+with-sha1-asm = ["sha1/asm"]
 
 # Enable support for cryptography needed to be a Tor relay.
 relay = []
 
 # Enable support for cryptography needed to be an onion service v3 client.
 hsv3-client = []
+# Enable support for cryptography needed to be an onion service v3 service.
+hsv3-service = []
 
 [dependencies]
 aes = { version = "0.8", features = ["zeroize"] }
 arrayref = "0.3"
-base64 = "0.13.0"
+base64ct = "1.5.1"
 cipher = { version = "0.4.3", optional = true, features = ["zeroize"] }
 ctr = { version = "0.9", features = ["zeroize"] }
 curve25519-dalek = "3.2"
@@ -35,9 +37,10 @@ hex = "0.4"
 old_rand_core = { package = "rand_core", version = "0.5.1" }
 openssl = { version = "0.10.30", optional = true }
 rand_core = "0.6.2"
-rsa = "0.6.0"
+rsa = "0.8.0"
+safelog = { version = "0.2.1", path = "../safelog" }
 serde = "1.0.103"
-sha-1 = "0.10.0"
+sha1 = "0.10.0"
 sha2 = "0.10.0"
 sha3 = "0.10.0"
 signature = "1"
@@ -53,7 +56,7 @@ cipher = "0.4.1"
 hex-literal = "0.3"
 rand = "0.8"
 serde_test = "1.0.124"
-tor-basic-utils = { path = "../tor-basic-utils", version = "0.4.0" }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.5.0" }
 
 [target.wasm32-unknown-unknown.dependencies]
 getrandom = { version = "0.2.3", features = ["js"] }

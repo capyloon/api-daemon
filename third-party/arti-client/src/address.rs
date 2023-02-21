@@ -179,6 +179,7 @@ impl TorAddr {
                 return Err(ErrorDetail::InvalidHostname);
             }
             if addr.to_lowercase().ends_with(".onion") {
+                // TODO hs: Allow this in some cases instead.
                 return Err(ErrorDetail::OnionAddressNotSupported);
             }
         }
@@ -219,6 +220,15 @@ enum Host {
     Hostname(String),
     /// An IP address.
     Ip(IpAddr),
+    // /// The address of an onion service.
+    //
+    // TODO hs possibly we should just have this be another type of "hostname".
+    //
+    // TODO hs possibly the contents of this enum should be a String rather than
+    // an OnionId.
+    //
+    // #[cfg(feature = "onion-client")]
+    // OnionService(OnionId),
 }
 
 impl FromStr for Host {
@@ -363,30 +373,22 @@ impl DangerouslyIntoTorAddr for SocketAddrV6 {
 /// Check whether `hostname` is a valid hostname or not.
 ///
 /// (Note that IPv6 addresses don't follow these rules.)
-///
-/// TODO: Check whether the rules given here are in fact the same rules
-/// as Tor follows, and whether they conform to anything.
 fn is_valid_hostname(hostname: &str) -> bool {
-    /// Check if we have the valid characters for a hostname
-    fn is_valid_char(byte: u8) -> bool {
-        ((b'a'..=b'z').contains(&byte))
-            || ((b'A'..=b'Z').contains(&byte))
-            || ((b'0'..=b'9').contains(&byte))
-            || byte == b'-'
-            || byte == b'.'
-    }
-
-    !(hostname.bytes().any(|byte| !is_valid_char(byte))
-        || hostname.ends_with('-')
-        || hostname.starts_with('-')
-        || hostname.ends_with('.')
-        || hostname.starts_with('.')
-        || hostname.is_empty())
+    hostname_validator::is_valid(hostname)
 }
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]
@@ -507,7 +509,7 @@ mod test {
             "www.example.com:8000",
         );
         check(
-            &TorAddr::from(("www.example.com", 8000)).unwrap(),
+            TorAddr::from(("www.example.com", 8000)).unwrap(),
             "www.example.com:8000",
         );
         check("[2001:db8::0042]:9001".to_owned(), "[2001:db8::42]:9001");
@@ -530,6 +532,8 @@ mod test {
         let sa4: SocketAddrV4 = "203.0.133.8:81".parse().unwrap();
         let sa6: SocketAddrV6 = "[2001:db8::43]:82".parse().unwrap();
 
+        // This tests impl DangerouslyIntoTorAddr for &T
+        #[allow(clippy::needless_borrow)]
         check(&(ip, 443), "203.0.133.6:443");
         check((ip, 443), "203.0.133.6:443");
         check((ip4, 444), "203.0.133.7:444");

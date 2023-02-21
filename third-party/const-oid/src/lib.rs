@@ -2,31 +2,65 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc = include_str!("../README.md")]
 #![doc(
-    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_root_url = "https://docs.rs/const-oid/0.7.1"
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg"
 )]
-#![forbid(unsafe_code, clippy::unwrap_used)]
-#![warn(missing_docs, rust_2018_idioms)]
+#![forbid(unsafe_code)]
+#![warn(
+    clippy::integer_arithmetic,
+    clippy::panic,
+    clippy::panic_in_result_fn,
+    clippy::unwrap_used,
+    missing_docs,
+    rust_2018_idioms,
+    unused_lifetimes,
+    unused_qualifications
+)]
 
 #[cfg(feature = "std")]
 extern crate std;
 
 #[macro_use]
-mod macros;
+mod checked;
 
 mod arcs;
 mod encoder;
 mod error;
 mod parser;
 
+#[cfg(feature = "db")]
+#[cfg_attr(docsrs, doc(cfg(feature = "db")))]
+pub mod db;
+
 pub use crate::{
     arcs::{Arc, Arcs},
     error::{Error, Result},
 };
 
-use crate::arcs::{RootArcs, ARC_MAX_BYTES, ARC_MAX_LAST_OCTET};
+use crate::encoder::Encoder;
 use core::{fmt, str::FromStr};
+
+/// A trait which associates an OID with a type.
+pub trait AssociatedOid {
+    /// The OID associated with this type.
+    const OID: ObjectIdentifier;
+}
+
+/// A trait which associates a dynamic, `&self`-dependent OID with a type,
+/// which may change depending on the type's value.
+///
+/// This trait is object safe and auto-impl'd for any types which impl
+/// [`AssociatedOid`].
+pub trait DynAssociatedOid {
+    /// Get the OID associated with this value.
+    fn oid(&self) -> ObjectIdentifier;
+}
+
+impl<T: AssociatedOid> DynAssociatedOid for T {
+    fn oid(&self) -> ObjectIdentifier {
+        T::OID
+    }
+}
 
 /// Object identifier (OID).
 ///
@@ -55,101 +89,75 @@ pub struct ObjectIdentifier {
 #[allow(clippy::len_without_is_empty)]
 impl ObjectIdentifier {
     /// Maximum size of a BER/DER-encoded OID in bytes.
-    pub const MAX_SIZE: usize = 39; // 32-bytes total w\ 1-byte length
+    pub const MAX_SIZE: usize = 39; // makes `ObjectIdentifier` 40-bytes total w\ 1-byte length
 
-    /// Parse an [`ObjectIdentifier`] from the dot-delimited string form, e.g.:
+    /// Parse an [`ObjectIdentifier`] from the dot-delimited string form,
+    /// panicking on parse errors.
+    ///
+    /// This function exists as a workaround for `unwrap` not yet being
+    /// stable in `const fn` contexts, and is intended to allow the result to
+    /// be bound to a constant value:
     ///
     /// ```
     /// use const_oid::ObjectIdentifier;
     ///
-    /// pub const MY_OID: ObjectIdentifier = ObjectIdentifier::new("1.2.840.113549.1.1.1");
+    /// pub const MY_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
     /// ```
     ///
-    /// # Panics
+    /// In future versions of Rust it should be possible to replace this with
+    /// `ObjectIdentifier::new(...).unwrap()`.
     ///
-    /// This method panics in the event the OID is malformed according to the
-    /// "Validity" rules given in the toplevel documentation for this type.
-    ///
-    /// For that reason this method is *ONLY* recommended for use in constants
-    /// (where it will generate a compiler error instead).
-    ///
-    /// To parse an OID from a `&str` slice fallibly and without panicking,
-    /// use the [`FromStr`][1] impl instead (or via `str`'s [`parse`][2]
-    /// method).
-    ///
-    /// [1]: ./struct.ObjectIdentifier.html#impl-FromStr
-    /// [2]: https://doc.rust-lang.org/nightly/std/primitive.str.html#method.parse
-    pub const fn new(s: &str) -> Self {
-        parser::Parser::parse(s).finish()
+    /// Use [`ObjectIdentifier::new`] for fallible parsing.
+    // TODO(tarcieri): remove this when `Result::unwrap` is `const fn`
+    pub const fn new_unwrap(s: &str) -> Self {
+        match Self::new(s) {
+            Ok(oid) => oid,
+            Err(err) => err.panic(),
+        }
+    }
+
+    /// Parse an [`ObjectIdentifier`] from the dot-delimited string form.
+    pub const fn new(s: &str) -> Result<Self> {
+        // TODO(tarcieri): use `?` when stable in `const fn`
+        match parser::Parser::parse(s) {
+            Ok(parser) => parser.finish(),
+            Err(err) => Err(err),
+        }
     }
 
     /// Parse an OID from a slice of [`Arc`] values (i.e. integers).
-    pub fn from_arcs(arcs: &[Arc]) -> Result<Self> {
-        let mut bytes = [0u8; Self::MAX_SIZE];
+    pub fn from_arcs(arcs: impl IntoIterator<Item = Arc>) -> Result<Self> {
+        let mut encoder = Encoder::new();
 
-        bytes[0] = match *arcs {
-            [first, second, _, ..] => RootArcs::new(first, second)?.into(),
-            _ => return Err(Error),
-        };
-
-        let mut offset = 1;
-
-        for &arc in &arcs[2..] {
-            offset += encoder::write_base128(&mut bytes[offset..], arc)?;
+        for arc in arcs {
+            encoder = encoder.arc(arc)?;
         }
 
-        Ok(Self {
-            bytes,
-            length: offset as u8,
-        })
+        encoder.finish()
     }
 
     /// Parse an OID from from its BER/DER encoding.
     pub fn from_bytes(ber_bytes: &[u8]) -> Result<Self> {
         let len = ber_bytes.len();
 
-        if !(2..=Self::MAX_SIZE).contains(&len) {
-            return Err(Error);
+        match len {
+            0 => return Err(Error::Empty),
+            3..=Self::MAX_SIZE => (),
+            _ => return Err(Error::NotEnoughArcs),
         }
-
-        // Validate root arcs are in range
-        ber_bytes
-            .get(0)
-            .cloned()
-            .ok_or(Error)
-            .and_then(RootArcs::try_from)?;
-
-        // Validate lower arcs are well-formed
-        let mut arc_offset = 1;
-        let mut arc_bytes = 0;
-
-        // TODO(tarcieri): consolidate this with `Arcs::next`?
-        while arc_offset < len {
-            match ber_bytes.get(arc_offset + arc_bytes).cloned() {
-                Some(byte) => {
-                    if (arc_bytes == ARC_MAX_BYTES) && (byte & ARC_MAX_LAST_OCTET != 0) {
-                        // Overflowed `Arc` (u32)
-                        return Err(Error);
-                    }
-
-                    arc_bytes += 1;
-
-                    if byte & 0b10000000 == 0 {
-                        arc_offset += arc_bytes;
-                        arc_bytes = 0;
-                    }
-                }
-                None => return Err(Error), // truncated OID
-            }
-        }
-
         let mut bytes = [0u8; Self::MAX_SIZE];
         bytes[..len].copy_from_slice(ber_bytes);
 
-        Ok(Self {
+        let oid = Self {
             bytes,
             length: len as u8,
-        })
+        };
+
+        // Ensure arcs are well-formed
+        let mut arcs = oid.arcs();
+        while arcs.try_next()?.is_some() {}
+
+        Ok(oid)
     }
 
     /// Get the BER/DER serialization of this OID as bytes.
@@ -167,10 +175,29 @@ impl ObjectIdentifier {
 
     /// Iterate over the arcs (a.k.a. nodes) of an [`ObjectIdentifier`].
     ///
-    /// Returns [`Arcs`], an iterator over `Arc` values representing the value
-    /// of each arc/node.
+    /// Returns [`Arcs`], an iterator over [`Arc`] values.
     pub fn arcs(&self) -> Arcs<'_> {
         Arcs::new(self)
+    }
+
+    /// Get the length of this [`ObjectIdentifier`] in arcs.
+    pub fn len(&self) -> usize {
+        self.arcs().count()
+    }
+
+    /// Get the parent OID of this one (if applicable).
+    pub fn parent(&self) -> Option<Self> {
+        let num_arcs = self.len().checked_sub(1)?;
+        Self::from_arcs(self.arcs().take(num_arcs)).ok()
+    }
+
+    /// Push an additional arc onto this OID, returning the child OID.
+    pub const fn push_arc(self, arc: Arc) -> Result<Self> {
+        // TODO(tarcieri): use `?` when stable in `const fn`
+        match Encoder::extend(self).arc(arc) {
+            Ok(encoder) => encoder.finish(),
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -184,29 +211,7 @@ impl FromStr for ObjectIdentifier {
     type Err = Error;
 
     fn from_str(string: &str) -> Result<Self> {
-        let mut split = string.split('.');
-        let first_arc = split.next().and_then(|s| s.parse().ok()).ok_or(Error)?;
-        let second_arc = split.next().and_then(|s| s.parse().ok()).ok_or(Error)?;
-
-        let mut bytes = [0u8; Self::MAX_SIZE];
-        bytes[0] = RootArcs::new(first_arc, second_arc)?.into();
-
-        let mut offset = 1;
-
-        for s in split {
-            let arc = s.parse().map_err(|_| Error)?;
-            offset += encoder::write_base128(&mut bytes[offset..], arc)?;
-        }
-
-        if offset > 1 {
-            Ok(Self {
-                bytes,
-                length: offset as u8,
-            })
-        } else {
-            // Minimum 3 arcs
-            Err(Error)
-        }
+        Self::new(string)
     }
 }
 
@@ -237,8 +242,10 @@ impl fmt::Display for ObjectIdentifier {
         for (i, arc) in self.arcs().enumerate() {
             write!(f, "{}", arc)?;
 
-            if i < len - 1 {
-                write!(f, ".")?;
+            if let Some(j) = i.checked_add(1) {
+                if j < len {
+                    write!(f, ".")?;
+                }
             }
         }
 
