@@ -8,6 +8,7 @@ use std::time::SystemTime;
 use tracing::debug;
 
 use crate::path::{dirpath::DirPathBuilder, exitpath::ExitPathBuilder, TorPath};
+use tor_chanmgr::ChannelUsage;
 use tor_guardmgr::{GuardMgr, GuardMonitor, GuardUsable};
 use tor_netdir::Relay;
 use tor_netdoc::types::policy::PortPolicy;
@@ -355,6 +356,16 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
             _ => abstract_spec_find_supported(list, usage),
         }
     }
+
+    fn channel_usage(&self) -> ChannelUsage {
+        use ChannelUsage as CU;
+        use SupportedCircUsage as SCU;
+        match self {
+            SCU::Dir => CU::Dir,
+            SCU::Exit { .. } => CU::UserTraffic,
+            SCU::NoUsage => CU::UselessCircuit,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -366,7 +377,7 @@ pub(crate) mod test {
     use crate::path::OwnedPath;
     use crate::test::OptDummyGuardMgr;
     use tor_basic_utils::test_rng::testing_rng;
-    use tor_linkspec::ChanTarget;
+    use tor_llcrypto::pk::ed25519::Ed25519Identity;
     use tor_netdir::testnet;
 
     impl IsolationTokenEq for TargetCircUsage {
@@ -439,10 +450,10 @@ pub(crate) mod test {
         // exits.  Odd-numbered ones allow only ports 80 and 443;
         // even-numbered ones allow all ports.  Nodes with ID 0x21
         // through 0x27 are bad exits.
-        let id_noexit = [0x05; 32].into();
-        let id_webexit = [0x11; 32].into();
-        let id_fullexit = [0x20; 32].into();
-        let id_badexit = [0x25; 32].into();
+        let id_noexit: Ed25519Identity = [0x05; 32].into();
+        let id_webexit: Ed25519Identity = [0x11; 32].into();
+        let id_fullexit: Ed25519Identity = [0x20; 32].into();
+        let id_badexit: Ed25519Identity = [0x25; 32].into();
 
         let not_exit = network.by_id(&id_noexit).unwrap();
         let web_exit = network.by_id(&id_webexit).unwrap();
@@ -714,7 +725,7 @@ pub(crate) mod test {
         assert_eq!(path.len(), 3);
 
         // Make sure that the usage is correct.
-        let last_relay = netdir.by_id(path[2].ed_identity()).unwrap();
+        let last_relay = netdir.by_ids(&path[2]).unwrap();
         let policy = ExitPolicy::from_relay(&last_relay);
         // We'll always get exits for these, since we try to build
         // paths with an exit if there are any exits.

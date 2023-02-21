@@ -13,7 +13,7 @@
 [package]
 edition = "2018"
 name = "elliptic-curve"
-version = "0.10.6"
+version = "0.10.4"
 authors = ["RustCrypto Developers"]
 description = "General purpose Elliptic Curve Cryptography (ECC) support, including types\nand traits for representing various elliptic curve forms, scalars, points,\nand public/secret keys composed thereof.\n"
 readme = "README.md"
@@ -30,7 +30,7 @@ optional = true
 default-features = false
 
 [dependencies.crypto-bigint]
-version = "0.2.4"
+version = "0.2.2"
 features = ["generic-array"]
 
 [dependencies.ff]
@@ -71,11 +71,11 @@ optional = true
 default-features = false
 
 [dependencies.subtle]
-version = "=2.4"
+version = "2.4"
 default-features = false
 
 [dependencies.zeroize]
-version = ">=1, <1.5"
+version = "1"
 optional = true
 default-features = false
 [dev-dependencies.hex-literal]

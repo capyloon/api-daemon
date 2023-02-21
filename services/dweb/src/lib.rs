@@ -19,7 +19,7 @@ use ucan::ucan::Ucan;
 
 pub const SUPPORTED_UCAN_KEYS: &KeyConstructorSlice = &[
     // https://github.com/multiformats/multicodec/blob/e9ecf587558964715054a0afcc01f7ace220952c/table.csv#L94
-    ([0xed, 0x01], bytes_to_ed25519_key),
+    (&[0xed, 0x01], bytes_to_ed25519_key),
 ];
 
 struct UcanKeyPair {

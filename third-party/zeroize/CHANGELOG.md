@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.5.7 (2022-07-20)
+### Added
+- Optional `serde` support ([#780])
+
+[#780]: https://github.com/RustCrypto/utils/pull/780
+
+## 1.5.6 (2022-06-29)
+### Added
+- `#[inline(always)]` annotations ([#772])
+- `#[ignore]` attribute on flaky CString test ([#776])
+
+### Changed
+- Factor integration tests into `tests/` ([#771])
+
+[#771]: https://github.com/RustCrypto/utils/pull/771
+[#772]: https://github.com/RustCrypto/utils/pull/772
+[#776]: https://github.com/RustCrypto/utils/pull/776
+
+## 1.5.5 (2022-04-30)
+### Added
+- Impl `Zeroize` for std::ffi::CString ([#759])
+- `AsRef<T>` and `AsMut<T>` impls for `Zeroizing` ([#761])
+
+[#759]: https://github.com/RustCrypto/utils/pull/759
+[#761]: https://github.com/RustCrypto/utils/pull/761
+
+## 1.5.4 (2022-03-16)
+### Added
+- Nightly-only upport for zeroizing ARM64 SIMD registers ([#749])
+
+[#749]: https://github.com/RustCrypto/utils/pull/749
+
+## 1.5.3 (2022-02-25)
+### Fixed
+- Deriving `ZeroizeOnDrop` on `DerefMut` ([#739])
+
+[#739]: https://github.com/RustCrypto/utils/pull/739
+
+## 1.5.2 (2022-01-31) [YANKED]
+### Fixed
+- Ambiguous method for `AssertZeroizeOnDrop` ([#725])
+
+[#725]: https://github.com/RustCrypto/utils/pull/725
+
+## 1.5.1 (2022-01-27) [YANKED]
+### Fixed
+- Double `mut` on `AssertZeroizeOnDrop` ([#719])
+
+[#719]: https://github.com/RustCrypto/utils/pull/719
+
+## 1.5.0 (2022-01-14) [YANKED]
+### Added
+- `Zeroize` impls for `PhantomData`, `PhantomPinned`, and tuples with 0-10 elements ([#660])
+- `#[zeroize(bound = "T: MyTrait")]` ([#663])
+- `ZeroizeOnDrop` trait and custom derive ([#699], [#700], [#703])
+
+[#660]: https://github.com/RustCrypto/utils/pull/660
+[#663]: https://github.com/RustCrypto/utils/pull/663
+[#699]: https://github.com/RustCrypto/utils/pull/699
+[#700]: https://github.com/RustCrypto/utils/pull/700
+[#703]: https://github.com/RustCrypto/utils/pull/703
+
 ## 1.4.3 (2021-11-04)
 ### Added
 - Implement `Zeroize` for `NonZeroX`

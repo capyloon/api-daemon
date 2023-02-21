@@ -8,6 +8,7 @@ use crate::FirstHop;
 use crate::{
     ids::GuardId, ExternalActivity, GuardParams, GuardUsage, GuardUsageKind, PickGuardError,
 };
+use tor_basic_utils::iter::{FilterCount, IteratorExt as _};
 use tor_netdir::{NetDir, Relay};
 
 use itertools::Itertools;
@@ -244,7 +245,7 @@ impl GuardSet {
                 len_pre, len_post
             );
         }
-        info!(
+        debug!(
             n_guards = len_post.0,
             n_confirmed = len_post.2,
             "Guard set loaded."
@@ -257,7 +258,7 @@ impl GuardSet {
     fn contains_relay(&self, relay: &Relay<'_>) -> bool {
         // Note: Could implement Borrow instead, but I don't think it'll
         // matter.
-        let id = GuardId::from_chan_target(relay);
+        let id = GuardId::from_relay_ids(relay);
         self.contains(&id)
     }
 
@@ -403,7 +404,7 @@ impl GuardSet {
     ///
     /// Does nothing if it is already a guard.
     fn add_guard(&mut self, relay: &Relay<'_>, now: SystemTime, params: &GuardParams) {
-        let id = GuardId::from_chan_target(relay);
+        let id = GuardId::from_relay_ids(relay);
         if self.guards.contains_key(&id) {
             return;
         }
@@ -783,28 +784,34 @@ impl GuardSet {
             GuardUsageKind::Data => params.data_parallelism,
         };
 
-        // count whether any guards are actually "running" (not waiting for
-        // retry) separately from whether they are usable for this purpose.
-        let mut any_running = false;
+        // Counts of how many elements were rejected by which of the filters
+        // below.
+        //
+        // Note that since we use `Iterator::take`, these counts won't cover the
+        // whole guard sample on the successful case: only in the failing case,
+        // when we fail to find any candidates.
+        let mut running = FilterCount::default();
+        let mut pending = FilterCount::default();
+        let mut suitable = FilterCount::default();
+        let mut filtered = FilterCount::default();
 
         let mut options: Vec<_> = self
             .preference_order()
             // Discard the guards that are down or unusable, and see if any
             // are left.
-            .filter(|(_, g)| {
+            .filter_cnt(&mut running, |(_, g)| {
                 g.usable()
                     && g.reachable() != Reachable::Unreachable
                     && g.ready_for_usage(usage, now)
             })
-            .inspect(|_| any_running = true)
             // Now remove those that are excluded because we're already trying
-            // them on an exploratory basis, or because they don't support the
-            // operation we're attempting.
-            .filter(|(_, g)| {
-                !g.exploratory_circ_pending()
-                    && self.active_filter.permits(*g)
-                    && g.conforms_to_usage(usage)
-            })
+            // them on an exploratory basis.
+            .filter_cnt(&mut pending, |(_, g)| !g.exploratory_circ_pending())
+            // ...or because they don't support the operation we're
+            // attempting...
+            .filter_cnt(&mut suitable, |(_, g)| g.conforms_to_usage(usage))
+            // ... or because we specifically filtered them out.
+            .filter_cnt(&mut filtered, |(_, g)| self.active_filter.permits(*g))
             // We only consider the first n_options such guards.
             .take(n_options)
             .collect();
@@ -820,12 +827,18 @@ impl GuardSet {
         match options.choose(&mut rand::thread_rng()) {
             Some((src, g)) => Ok((*src, g.guard_id().clone())),
             None => {
-                if !any_running {
-                    let retry_at = self.next_retry(usage);
-                    Err(PickGuardError::AllGuardsDown { retry_at })
+                let retry_at = if running.n_accepted == 0 {
+                    self.next_retry(usage)
                 } else {
-                    Err(PickGuardError::NoGuardsUsable)
-                }
+                    None
+                };
+                Err(PickGuardError::AllGuardsDown {
+                    retry_at,
+                    running,
+                    pending,
+                    suitable,
+                    filtered,
+                })
             }
         }
     }
@@ -870,6 +883,7 @@ impl<'a> From<GuardSample<'a>> for GuardSet {
 #[cfg(test)]
 mod test {
     #![allow(clippy::unwrap_used)]
+    use tor_linkspec::{HasRelayIds, RelayIdType};
     use tor_netdoc::doc::netstatus::{RelayFlags, RelayWeight};
 
     use super::*;
@@ -1302,8 +1316,9 @@ mod test {
         assert_eq!(guards.missing_primary_microdescriptors(&netdir), 0);
 
         use tor_netdir::testnet;
-        let netdir2 = testnet::construct_custom_netdir(|idx, bld| {
-            if idx == p_id1.0.ed25519.as_bytes()[0] as usize {
+        let netdir2 = testnet::construct_custom_netdir(|_idx, bld| {
+            let md_so_far = bld.md.testing_md().expect("Couldn't build md?");
+            if &p_id1.0.identity(RelayIdType::Ed25519).unwrap() == md_so_far.ed25519_id() {
                 bld.omit_md = true;
             }
         })

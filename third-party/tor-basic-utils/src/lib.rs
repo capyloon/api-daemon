@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! `tor-basic-utils`: Utilities (low-level) for Tor
 //!
 //! Miscellaneous utilities for `tor-*` and `arti-*`.
@@ -48,6 +49,7 @@
 use std::fmt;
 
 pub mod futures;
+pub mod iter;
 pub mod retry;
 pub mod test_rng;
 
@@ -77,6 +79,33 @@ pub fn skip_fmt<T>(_: &T, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "..")
     }
     inner(f)
+}
+
+// ----------------------------------------------------------------------
+
+/// Implementation of `ErrorKind::NotADirectory` that doesn't require Nightly
+pub trait IoErrorExt {
+    /// Is this `io::ErrorKind::NotADirectory` ?
+    fn is_not_a_directory(&self) -> bool;
+}
+impl IoErrorExt for std::io::Error {
+    fn is_not_a_directory(&self) -> bool {
+        self.raw_os_error()
+            == Some(
+                #[cfg(target_family = "unix")]
+                libc::ENOTDIR,
+                #[cfg(target_family = "windows")]
+                {
+                    /// Obtained from Rust stdlib source code
+                    /// See also:
+                    ///   <https://docs.microsoft.com/en-us/windows/win32/debug/system-error-codes--0-499->
+                    /// (although the documentation is anaemic) and
+                    /// <https://github.com/rust-lang/rust/pull/79965>
+                    const ERROR_DIRECTORY: i32 = 267;
+                    ERROR_DIRECTORY
+                },
+            )
+    }
 }
 
 // ----------------------------------------------------------------------

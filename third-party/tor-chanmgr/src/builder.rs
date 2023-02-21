@@ -6,12 +6,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::{event::ChanMgrEventSender, Error};
 
-use std::result::Result as StdResult;
+use safelog::sensitive as sv;
 use std::time::Duration;
 use tor_error::{bad_api_usage, internal};
-use tor_linkspec::{ChanTarget, OwnedChanTarget};
+use tor_linkspec::{HasAddrs, HasRelayIds, OwnedChanTarget};
 use tor_llcrypto::pk;
-use tor_proto::channel::params::ChannelsParamsUpdates;
+use tor_proto::channel::params::ChannelPaddingInstructionsUpdates;
 use tor_rtcompat::{tls::TlsConnector, Runtime, TcpProvider, TlsProvider};
 
 use async_trait::async_trait;
@@ -61,7 +61,10 @@ impl<R: Runtime> crate::mgr::ChannelFactory for ChanBuilder<R> {
 
         self.runtime
             .timeout(five_seconds, self.build_channel_notimeout(target))
-            .await?
+            .await
+            .map_err(|_| Error::ChanTimeout {
+                peer: target.clone(),
+            })?
     }
 }
 
@@ -92,7 +95,7 @@ async fn connect_to_one<R: Runtime>(
         .map(|(i, a)| {
             let delay = rt.sleep(CONNECTION_DELAY * i as u32);
             delay.then(move |_| {
-                tracing::info!("Connecting to {}", a);
+                tracing::debug!("Connecting to {}", a);
                 rt.connect(a)
                     .map_ok(move |stream| (stream, *a))
                     .map_err(move |e| (e, *a))
@@ -113,7 +116,7 @@ async fn connect_to_one<R: Runtime>(
             Err((e, a)) => {
                 // We got a failure on one of the streams. Store the error.
                 // TODO(eta): ideally we'd start the next connection attempt immediately.
-                tracing::warn!("Connection to {} failed: {}", a, e);
+                tracing::warn!("Connection to {} failed: {}", sv(a), e);
                 errors.push((e, a));
             }
         }
@@ -145,6 +148,10 @@ impl<R: Runtime> ChanBuilder<R> {
         }
 
         let (stream, addr) = connect_to_one(&self.runtime, target.addrs()).await?;
+        let using_target = match target.restrict_addr(&addr) {
+            Ok(v) => v,
+            Err(v) => v,
+        };
 
         let map_ioe = |action: &'static str| {
             move |ioe: io::Error| Error::Io {
@@ -190,7 +197,7 @@ impl<R: Runtime> ChanBuilder<R> {
             )
             .connect(|| self.runtime.wallclock())
             .await
-            .map_err(Error::from_proto_no_skew)?;
+            .map_err(|e| Error::from_proto_no_skew(e, &using_target))?;
         let clock_skew = Some(chan.clock_skew()); // Not yet authenticated; can't use it till `check` is done.
         let now = self.runtime.wallclock();
         let chan = chan
@@ -201,14 +208,19 @@ impl<R: Runtime> ChanBuilder<R> {
                         .lock()
                         .expect("Lock poisoned")
                         .record_handshake_done_with_skewed_clock();
-                    Error::Proto { source, clock_skew }
+                    Error::Proto {
+                        source,
+                        peer: using_target,
+                        clock_skew,
+                    }
                 }
-                _ => Error::from_proto_no_skew(source),
+                _ => Error::from_proto_no_skew(source, &using_target),
             })?;
-        let (chan, reactor) = chan
-            .finish()
-            .await
-            .map_err(|source| Error::Proto { source, clock_skew })?;
+        let (chan, reactor) = chan.finish().await.map_err(|source| Error::Proto {
+            source,
+            peer: target.clone(),
+            clock_skew,
+        })?;
 
         {
             self.event_sender
@@ -230,7 +242,9 @@ impl<R: Runtime> ChanBuilder<R> {
 impl crate::mgr::AbstractChannel for tor_proto::channel::Channel {
     type Ident = pk::ed25519::Ed25519Identity;
     fn ident(&self) -> &Self::Ident {
-        self.peer_ed25519_id()
+        self.target()
+            .ed_identity()
+            .expect("This channel had an Ed25519 identity when we created it, but now it doesn't!?")
     }
     fn is_usable(&self) -> bool {
         !self.is_closing()
@@ -238,8 +252,14 @@ impl crate::mgr::AbstractChannel for tor_proto::channel::Channel {
     fn duration_unused(&self) -> Option<Duration> {
         self.duration_unused()
     }
-    fn reparameterize(&mut self, updates: Arc<ChannelsParamsUpdates>) -> StdResult<(), ()> {
-        self.reparameterize(updates).map_err(|_| ())
+    fn reparameterize(
+        &mut self,
+        updates: Arc<ChannelPaddingInstructionsUpdates>,
+    ) -> tor_proto::Result<()> {
+        self.reparameterize(updates)
+    }
+    fn engage_padding_activities(&self) {
+        self.engage_padding_activities();
     }
 }
 

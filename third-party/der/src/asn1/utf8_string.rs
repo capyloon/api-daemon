@@ -1,9 +1,10 @@
 //! ASN.1 `UTF8String` support.
 
 use crate::{
-    asn1::Any, str_slice::StrSlice, Encodable, Encoder, Error, Length, Result, Tag, Tagged,
+    asn1::Any, ByteSlice, DecodeValue, Decoder, EncodeValue, Encoder, Error, FixedTag, Length,
+    OrdIsValueOrd, Result, StrSlice, Tag,
 };
-use core::{convert::TryFrom, fmt, str};
+use core::{fmt, str};
 
 #[cfg(feature = "alloc")]
 use alloc::{borrow::ToOwned, string::String};
@@ -12,9 +13,9 @@ use alloc::{borrow::ToOwned, string::String};
 ///
 /// Supports the full UTF-8 encoding.
 ///
-/// Note that the [`Decodable`][`crate::Decodable`] and [`Encodable`] traits
-/// are impl'd for Rust's [`str`][`prim@str`] primitive, which decodes/encodes
-/// as a [`Utf8String`].
+/// Note that the [`Decodable`][`crate::Decodable`] and
+/// [`Encodable`][`crate::Encodable`] traits are impl'd for Rust's
+/// [`str`][`prim@str`] primitive, which decodes/encodes as a [`Utf8String`].
 ///
 /// You are free to use [`str`][`prim@str`] instead of this type, however it's
 /// still provided for explicitness in cases where it might be ambiguous with
@@ -68,6 +69,28 @@ impl AsRef<[u8]> for Utf8String<'_> {
     }
 }
 
+impl<'a> DecodeValue<'a> for Utf8String<'a> {
+    fn decode_value(decoder: &mut Decoder<'a>, length: Length) -> Result<Self> {
+        Self::new(ByteSlice::decode_value(decoder, length)?.as_bytes())
+    }
+}
+
+impl EncodeValue for Utf8String<'_> {
+    fn value_len(&self) -> Result<Length> {
+        self.inner.value_len()
+    }
+
+    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+        self.inner.encode_value(encoder)
+    }
+}
+
+impl FixedTag for Utf8String<'_> {
+    const TAG: Tag = Tag::Utf8String;
+}
+
+impl OrdIsValueOrd for Utf8String<'_> {}
+
 impl<'a> From<&Utf8String<'a>> for Utf8String<'a> {
     fn from(value: &Utf8String<'a>) -> Utf8String<'a> {
         *value
@@ -78,8 +101,7 @@ impl<'a> TryFrom<Any<'a>> for Utf8String<'a> {
     type Error = Error;
 
     fn try_from(any: Any<'a>) -> Result<Utf8String<'a>> {
-        any.tag().assert_eq(Tag::Utf8String)?;
-        Self::new(any.as_bytes())
+        any.decode_into()
     }
 }
 
@@ -93,20 +115,6 @@ impl<'a> From<Utf8String<'a>> for &'a [u8] {
     fn from(utf8_string: Utf8String<'a>) -> &'a [u8] {
         utf8_string.as_bytes()
     }
-}
-
-impl<'a> Encodable for Utf8String<'a> {
-    fn encoded_len(&self) -> Result<Length> {
-        Any::from(*self).encoded_len()
-    }
-
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Any::from(*self).encode(encoder)
-    }
-}
-
-impl<'a> Tagged for Utf8String<'a> {
-    const TAG: Tag = Tag::Utf8String;
 }
 
 impl<'a> fmt::Display for Utf8String<'a> {
@@ -129,18 +137,28 @@ impl<'a> TryFrom<Any<'a>> for &'a str {
     }
 }
 
-impl Encodable for str {
-    fn encoded_len(&self) -> Result<Length> {
-        Utf8String::new(self)?.encoded_len()
+impl EncodeValue for str {
+    fn value_len(&self) -> Result<Length> {
+        Utf8String::new(self)?.value_len()
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Utf8String::new(self)?.encode(encoder)
+    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+        Utf8String::new(self)?.encode_value(encoder)
     }
 }
 
-impl Tagged for str {
+impl FixedTag for str {
     const TAG: Tag = Tag::Utf8String;
+}
+
+impl OrdIsValueOrd for str {}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<'a> From<Utf8String<'a>> for String {
+    fn from(s: Utf8String<'a>) -> String {
+        s.as_str().to_owned()
+    }
 }
 
 #[cfg(feature = "alloc")]
@@ -155,21 +173,25 @@ impl<'a> TryFrom<Any<'a>> for String {
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-impl Encodable for String {
-    fn encoded_len(&self) -> Result<Length> {
-        Utf8String::new(self)?.encoded_len()
+impl EncodeValue for String {
+    fn value_len(&self) -> Result<Length> {
+        Utf8String::new(self)?.value_len()
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Utf8String::new(self)?.encode(encoder)
+    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+        Utf8String::new(self)?.encode_value(encoder)
     }
 }
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-impl Tagged for String {
+impl FixedTag for String {
     const TAG: Tag = Tag::Utf8String;
 }
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl OrdIsValueOrd for String {}
 
 #[cfg(test)]
 mod tests {

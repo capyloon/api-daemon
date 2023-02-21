@@ -100,52 +100,70 @@ pub struct RouterDesc {
     /// Human-readable nickname for this relay.
     ///
     /// This is not secure, and not guaranteed to be unique.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     nickname: Nickname,
     /// IPv4 address for this relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv4addr: Option<net::Ipv4Addr>,
     /// IPv4 ORPort for this relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     orport: u16,
     /// IPv6 address and port for this relay.
     // TODO: we don't use a socketaddrv6 because we don't care about
     // the flow and scope fields.  We should decide whether that's a
     // good idea.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv6addr: Option<(net::Ipv6Addr, u16)>,
     /// Directory port for contacting this relay for direct HTTP
     /// directory downloads.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     dirport: u16,
     /// Declared uptime for this relay, in seconds.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     uptime: Option<u64>,
     /// Time when this router descriptor was published.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     published: time::SystemTime,
     /// Ed25519 identity certificate (identity key authenticating a
     /// signing key)
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     identity_cert: tor_cert::Ed25519Cert,
     /// RSA identity for this relay. (Deprecated; never use this without
     /// the ed25519 identity as well).
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     rsa_identity: ll::pk::rsa::PublicKey,
     /// Key for extending a circuit to this relay using the ntor protocol.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ntor_onion_key: ll::pk::curve25519::PublicKey,
     /// Key for extending a circuit to this relay using the
     /// (deprecated) TAP protocol.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     tap_onion_key: ll::pk::rsa::PublicKey,
     /// List of subprotocol versions supported by this relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     proto: Arc<tor_protover::Protocols>,
     /// True if this relay says it's a directory cache.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     is_dircache: bool,
     /// True if this relay says that it caches extrainfo documents.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     is_extrainfo_cache: bool,
     /// Declared family members for this relay.  If two relays are in the
     /// same family, they shouldn't be used in the same circuit.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     family: Arc<RelayFamily>,
     /// Software and version that this relay says it's running.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     platform: Option<RelayPlatform>,
     /// A complete address-level policy for which IPv4 addresses this relay
     /// says it supports.
     // TODO: these polices can get bulky too. Perhaps we should
     // de-duplicate them too.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv4_policy: AddrPolicy,
     /// A summary of which ports this relay is willing to connect to
     /// on IPv6.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv6_policy: Arc<PortPolicy>,
 }
 
@@ -405,14 +423,18 @@ impl RouterDesc {
                 .parse_obj::<UnvalidatedEdCert>("ED25519 CERT")?
                 .check_cert_type(tor_cert::CertType::IDENTITY_V_SIGNING)?
                 .into_unchecked()
-                .check_key(&None)
+                .check_key(None)
                 .map_err(|err| EK::BadSignature.err().with_source(err))?;
-            let sk = cert.peek_subject_key().as_ed25519().ok_or_else(|| {
+            let sk = *cert.peek_subject_key().as_ed25519().ok_or_else(|| {
                 EK::BadObjectVal
                     .at_pos(cert_tok.pos())
                     .with_msg("no ed25519 signing key")
             })?;
-            let sk = *sk;
+            let sk: ll::pk::ed25519::PublicKey = sk.try_into().map_err(|_| {
+                EK::BadObjectVal
+                    .at_pos(cert_tok.pos())
+                    .with_msg("invalid ed25519 signing key")
+            })?;
             (cert, sk)
         };
 
@@ -421,7 +443,7 @@ impl RouterDesc {
             let master_key_tok = body.required(MASTER_KEY_ED25519)?;
             let ed_id: Ed25519Public = master_key_tok.parse_arg(0)?;
             let ed_id: ll::pk::ed25519::Ed25519Identity = ed_id.into();
-            if ed_id != identity_cert.peek_signing_key().into() {
+            if ed_id != *identity_cert.peek_signing_key() {
                 #[cfg(not(fuzzing))]
                 return Err(EK::BadObjectVal
                     .at_pos(master_key_tok.pos())
@@ -522,7 +544,7 @@ impl RouterDesc {
                 .check_cert_type(tor_cert::CertType::NTOR_CC_IDENTITY)?
                 .check_subject_key_is(identity_cert.peek_signing_key())?
                 .into_unchecked()
-                .check_key(&Some(ntor_as_ed))
+                .check_key(Some(&ntor_as_ed.into()))
                 .map_err(|err| EK::BadSignature.err().with_source(err))?
         };
 

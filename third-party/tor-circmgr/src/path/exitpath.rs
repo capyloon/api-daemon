@@ -3,9 +3,11 @@
 use super::TorPath;
 use crate::{DirInfo, Error, PathConfig, Result, TargetPort};
 use rand::Rng;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
+use tor_basic_utils::iter::FilterCount;
 use tor_error::{bad_api_usage, internal};
 use tor_guardmgr::{GuardMgr, GuardMonitor, GuardUsable};
+use tor_linkspec::RelayIdSet;
 use tor_netdir::{NetDir, Relay, SubnetConfig, WeightRole};
 use tor_rtcompat::Runtime;
 
@@ -78,14 +80,22 @@ impl<'a> ExitPathBuilder<'a> {
         guard: Option<&Relay<'a>>,
         config: SubnetConfig,
     ) -> Result<Relay<'a>> {
+        let mut can_share = FilterCount::default();
+        let mut correct_ports = FilterCount::default();
         match &self.inner {
             ExitPathBuilderInner::AnyExit { strict } => {
                 let exit = netdir.pick_relay(rng, WeightRole::Exit, |r| {
-                    r.policies_allow_some_port() && relays_can_share_circuit_opt(r, guard, config)
+                    can_share.count(r.policies_allow_some_port())
+                        && correct_ports.count(relays_can_share_circuit_opt(r, guard, config))
                 });
                 match (exit, strict) {
                     (Some(exit), _) => return Ok(exit),
-                    (None, true) => return Err(Error::NoExit("No exit relay found".into())),
+                    (None, true) => {
+                        return Err(Error::NoExit {
+                            can_share,
+                            correct_ports,
+                        })
+                    }
                     (None, false) => {}
                 }
 
@@ -93,17 +103,23 @@ impl<'a> ExitPathBuilder<'a> {
                 // ExitPathBuilder.
                 netdir
                     .pick_relay(rng, WeightRole::Exit, |r| {
-                        relays_can_share_circuit_opt(r, guard, config)
+                        can_share.count(relays_can_share_circuit_opt(r, guard, config))
                     })
-                    .ok_or_else(|| Error::NoExit("No relay found".into()))
+                    .ok_or(Error::NoExit {
+                        can_share,
+                        correct_ports,
+                    })
             }
 
             ExitPathBuilderInner::WantsPorts(wantports) => Ok(netdir
                 .pick_relay(rng, WeightRole::Exit, |r| {
-                    relays_can_share_circuit_opt(r, guard, config)
-                        && wantports.iter().all(|p| p.is_supported_by(r))
+                    can_share.count(relays_can_share_circuit_opt(r, guard, config))
+                        && correct_ports.count(wantports.iter().all(|p| p.is_supported_by(r)))
                 })
-                .ok_or_else(|| Error::NoExit("No exit relay found".into()))?),
+                .ok_or(Error::NoExit {
+                    can_share,
+                    correct_ports,
+                })?),
 
             ExitPathBuilderInner::ChosenExit(exit_relay) => {
                 // NOTE that this doesn't check
@@ -122,7 +138,7 @@ impl<'a> ExitPathBuilder<'a> {
         netdir: DirInfo<'a>,
         guards: Option<&GuardMgr<RT>>,
         config: &PathConfig,
-        now: SystemTime,
+        _now: SystemTime,
     ) -> Result<(TorPath<'a>, Option<GuardMonitor>, Option<GuardUsable>)> {
         let netdir = match netdir {
             DirInfo::Directory(d) => d,
@@ -134,18 +150,6 @@ impl<'a> ExitPathBuilder<'a> {
             }
         };
         let subnet_config = config.subnet_config();
-        let lifetime = netdir.lifetime();
-
-        // Check if the consensus isn't expired by > 72 hours
-        //
-        // TODO(nickm): Now that #412 is implemented, we should refactor our
-        // code so that the directory manager has an API that only hands out
-        // _usable_ directories, and _that_ code can take this 72-hour offset
-        // into account.  This might take corresponding changes in
-        // NetDirProvider, however.
-        if now > lifetime.valid_until() + Duration::new(72 * 60 * 60, 0) {
-            return Err(Error::ExpiredConsensus);
-        }
 
         let chosen_exit = if let ExitPathBuilderInner::ChosenExit(e) = &self.inner {
             Some(e)
@@ -162,7 +166,14 @@ impl<'a> ExitPathBuilder<'a> {
                 b.kind(tor_guardmgr::GuardUsageKind::Data);
                 guardmgr.update_network(netdir); // possibly unnecessary.
                 if let Some(exit_relay) = chosen_exit {
-                    let mut family = std::collections::HashSet::new();
+                    // TODO(nickm): Our way of building a family here is
+                    // somewhat questionable. We're only adding the ed25519
+                    // identities of the exit relay and its family to the
+                    // RelayId set.  That's fine for now, since we will only use
+                    // relays at this point if they have a known Ed25519
+                    // identity.  But if in the future the ed25519 identity
+                    // becomes optional, this will need to change.
+                    let mut family = RelayIdSet::new();
                     family.insert(*exit_relay.id());
                     // TODO(nickm): See "limitations" note on `known_family_members`.
                     family.extend(netdir.known_family_members(exit_relay).map(|r| *r.id()));
@@ -189,24 +200,38 @@ impl<'a> ExitPathBuilder<'a> {
                 (guard, Some(mon), Some(usable))
             }
             None => {
+                let mut can_share = FilterCount::default();
+                let mut correct_usage = FilterCount::default();
                 let entry = netdir
                     .pick_relay(rng, WeightRole::Guard, |r| {
-                        r.is_flagged_guard()
-                            && relays_can_share_circuit_opt(r, chosen_exit, subnet_config)
+                        can_share.count(relays_can_share_circuit_opt(r, chosen_exit, subnet_config))
+                            && correct_usage.count(r.is_flagged_guard())
                     })
-                    .ok_or_else(|| Error::NoPath("No suitable  entry relay found".into()))?;
+                    .ok_or(Error::NoPath {
+                        role: "entry relay",
+                        can_share,
+                        correct_usage,
+                    })?;
                 (entry, None, None)
             }
         };
 
         let exit = self.pick_exit(rng, netdir, Some(&guard), subnet_config)?;
 
+        let mut can_share = FilterCount::default();
+        let mut correct_usage = FilterCount::default();
         let middle = netdir
             .pick_relay(rng, WeightRole::Middle, |r| {
-                relays_can_share_circuit(r, &exit, subnet_config)
-                    && relays_can_share_circuit(r, &guard, subnet_config)
+                can_share.count(
+                    relays_can_share_circuit(r, &exit, subnet_config)
+                        && relays_can_share_circuit(r, &guard, subnet_config),
+                ) && correct_usage.count(true)
             })
-            .ok_or_else(|| Error::NoPath("No suitable middle relay found".into()))?;
+            .ok_or(Error::NoPath {
+                role: "middle relay",
+                can_share,
+                correct_usage,
+            })?;
 
         Ok((
             TorPath::new_multihop(vec![guard, middle, exit]),
@@ -238,7 +263,8 @@ mod test {
     use crate::test::OptDummyGuardMgr;
     use std::collections::HashSet;
     use tor_basic_utils::test_rng::testing_rng;
-    use tor_linkspec::ChanTarget;
+    use tor_linkspec::{HasRelayIds, RelayIds};
+    use tor_llcrypto::pk::ed25519::Ed25519Identity;
     use tor_netdir::testnet;
     use tor_rtcompat::SleepProvider;
 
@@ -251,9 +277,9 @@ mod test {
         let r2 = &relays[1];
         let r3 = &relays[2];
 
-        assert!(r1.ed_identity() != r2.ed_identity());
-        assert!(r1.ed_identity() != r3.ed_identity());
-        assert!(r2.ed_identity() != r3.ed_identity());
+        assert!(!r1.same_relay_ids(r2));
+        assert!(!r1.same_relay_ids(r3));
+        assert!(!r2.same_relay_ids(r3));
 
         let subnet_config = SubnetConfig::default();
         assert!(relays_can_share_circuit(r1, r2, subnet_config));
@@ -287,7 +313,7 @@ mod test {
             }
         }
 
-        let chosen = netdir.by_id(&[0x20; 32].into()).unwrap();
+        let chosen = netdir.by_id(&Ed25519Identity::from([0x20; 32])).unwrap();
 
         let config = PathConfig::default();
         for _ in 0..1000 {
@@ -298,7 +324,7 @@ mod test {
             if let TorPathInner::Path(p) = path.inner {
                 assert_exit_path_ok(&p[..]);
                 let exit = &p[2];
-                assert_eq!(exit.ed_identity(), chosen.ed_identity());
+                assert!(exit.same_relay_ids(&chosen));
             } else {
                 panic!("Generated the wrong kind of path");
             }
@@ -364,13 +390,13 @@ mod test {
         let outcome = ExitPathBuilder::from_target_ports(vec![TargetPort::ipv4(80)])
             .pick_path(&mut rng, dirinfo, guards, &config, now);
         assert!(outcome.is_err());
-        assert!(matches!(outcome, Err(Error::NoExit(_))));
+        assert!(matches!(outcome, Err(Error::NoExit { .. })));
 
         // For any exit
         let outcome =
             ExitPathBuilder::for_any_exit().pick_path(&mut rng, dirinfo, guards, &config, now);
         assert!(outcome.is_err());
-        assert!(matches!(outcome, Err(Error::NoExit(_))));
+        assert!(matches!(outcome, Err(Error::NoExit { .. })));
 
         // For any exit (non-strict, so this will work).
         let outcome = ExitPathBuilder::for_timeout_testing()
@@ -406,9 +432,9 @@ mod test {
                 assert_same_path_when_owned(&path);
                 if let TorPathInner::Path(p) = path.inner {
                     assert_exit_path_ok(&p[..]);
-                    distinct_guards.insert(p[0].ed_identity().clone());
-                    distinct_mid.insert(p[1].ed_identity().clone());
-                    distinct_exit.insert(p[2].ed_identity().clone());
+                    distinct_guards.insert(RelayIds::from_relay_ids(&p[0]));
+                    distinct_mid.insert(RelayIds::from_relay_ids(&p[1]));
+                    distinct_exit.insert(RelayIds::from_relay_ids(&p[2]));
                 } else {
                     panic!("Wrong kind of path");
                 }
@@ -425,9 +451,9 @@ mod test {
             assert_ne!(distinct_exit.len(), 1);
 
             let guard_relay = netdir
-                .by_id(distinct_guards.iter().next().unwrap())
+                .by_ids(distinct_guards.iter().next().unwrap())
                 .unwrap();
-            let exit_relay = netdir.by_id(distinct_exit.iter().next().unwrap()).unwrap();
+            let exit_relay = netdir.by_ids(distinct_exit.iter().next().unwrap()).unwrap();
 
             // Now we'll try a forced exit that is not the same as our
             // actual guard.

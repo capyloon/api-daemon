@@ -1,5 +1,6 @@
 //! Wrapping arithmetic.
 
+use crate::Zero;
 use core::fmt;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
@@ -7,8 +8,12 @@ use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 ///
 /// This is analogous to [`core::num::Wrapping`] but allows this crate to
 /// define trait impls for this type.
-#[derive(Copy, Clone, Default, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Wrapping<T>(pub T);
+
+impl<T: Zero> Zero for Wrapping<T> {
+    const ZERO: Self = Self(T::ZERO);
+}
 
 impl<T: fmt::Display> fmt::Display for Wrapping<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -5,7 +5,7 @@ use num_bigint::{BigUint, RandPrime};
 #[allow(unused_imports)]
 use num_traits::Float;
 use num_traits::{FromPrimitive, One, Zero};
-use rand::Rng;
+use rand_core::{CryptoRng, RngCore};
 
 use crate::errors::{Error, Result};
 use crate::key::RsaPrivateKey;
@@ -26,9 +26,9 @@ const EXP: u64 = 65537;
 ///
 /// Table 1 in [2] suggests maximum numbers of primes for a given size.
 ///
-/// [1] US patent 4405829 (1972, expired)
-/// [2] http://www.cacr.math.uwaterloo.ca/techreports/2006/cacr2006-16.pdf
-pub fn generate_multi_prime_key<R: Rng>(
+/// [1]: https://patents.google.com/patent/US4405829A/en
+/// [2]: https://cacr.uwaterloo.ca/techreports/2006/cacr2006-16.pdf
+pub fn generate_multi_prime_key<R: RngCore + CryptoRng>(
     rng: &mut R,
     nprimes: usize,
     bit_size: usize,
@@ -46,9 +46,9 @@ pub fn generate_multi_prime_key<R: Rng>(
 ///
 /// Table 1 in [2] suggests maximum numbers of primes for a given size.
 ///
-/// [1] US patent 4405829 (1972, expired)
-/// [2] http://www.cacr.math.uwaterloo.ca/techreports/2006/cacr2006-16.pdf
-pub fn generate_multi_prime_key_with_exp<R: Rng>(
+/// [1]: https://patents.google.com/patent/US4405829A/en
+/// [2]: http://www.cacr.math.uwaterloo.ca/techreports/2006/cacr2006-16.pdf
+pub fn generate_multi_prime_key_with_exp<R: RngCore + CryptoRng>(
     rng: &mut R,
     nprimes: usize,
     bit_size: usize,

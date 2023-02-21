@@ -32,7 +32,7 @@ async fn default_content() -> Variant {
 async fn prepare_test(index: u32) -> (Config, FileStore) {
     let _ = env_logger::try_init();
 
-    let path = format!("./test-content/{}", index);
+    let path = format!("./test-content/{index}");
 
     let _ = fs::remove_dir_all(&path).await;
     let _ = fs::create_dir_all(&path).await;
@@ -82,7 +82,7 @@ async fn create_hierarchy<T>(manager: &mut Manager<T>) {
             } else {
                 ResourceKind::Leaf
             },
-            &format!("child #{}", i),
+            &format!("child #{i}"),
             vec![],
             vec![default_variant()],
         );
@@ -98,7 +98,7 @@ async fn create_hierarchy<T>(manager: &mut Manager<T>) {
             &i.into(),
             &10.into(),
             ResourceKind::Leaf,
-            &format!("child #{}", i),
+            &format!("child #{i}"),
             vec!["sub-child".into()],
             vec![default_variant()],
         );
@@ -160,7 +160,7 @@ async fn rehydrate_single() {
     let (config, store) = prepare_test(2).await;
 
     // Adding an object to the file store
-    let mut meta = ResourceMetadata::new(
+    let meta = ResourceMetadata::new(
         &1.into(),
         &ROOT_ID,
         ResourceKind::Leaf,
@@ -169,18 +169,18 @@ async fn rehydrate_single() {
         vec![default_variant()],
     );
     store
-        .create(&mut meta, Some(default_content().await))
+        .create(&meta, Some(default_content().await))
         .await
         .unwrap();
 
     let mut manager = Manager::<()>::new(config, Box::new(store)).await.unwrap();
 
-    assert_eq!(manager.has_object(&meta.id()).await.unwrap(), false);
+    assert!(!manager.has_object(&meta.id()).await.unwrap());
 
     let res = manager.get_metadata(&meta.id()).await.unwrap();
     assert_eq!(res, meta);
 
-    assert_eq!(manager.has_object(&meta.id()).await.unwrap(), true);
+    assert!(manager.has_object(&meta.id()).await.unwrap());
 }
 
 #[async_std::test]
@@ -264,16 +264,16 @@ async fn delete_hierarchy() {
     // Delete a single child.
     manager.delete(&12.into()).await.unwrap();
     // Child 12 disappears
-    assert_eq!(manager.has_object(&12.into()).await.unwrap(), false);
+    assert!(!manager.has_object(&12.into()).await.unwrap());
 
     // Child 10 exists now.
-    assert_eq!(manager.has_object(&10.into()).await.unwrap(), true);
+    assert!(manager.has_object(&10.into()).await.unwrap());
 
     // Delete the container.
     manager.delete(&1.into()).await.unwrap();
     // Child 10 disappears, but not the root.
-    assert_eq!(manager.has_object(&10.into()).await.unwrap(), false);
-    assert_eq!(manager.has_object(&ROOT_ID).await.unwrap(), true);
+    assert!(!manager.has_object(&10.into()).await.unwrap());
+    assert!(manager.has_object(&ROOT_ID).await.unwrap());
 }
 
 #[async_std::test]
@@ -710,7 +710,7 @@ async fn migration_check() {
         let manager = manager.unwrap();
 
         let has_root = manager.has_object(&ROOT_ID).await.unwrap();
-        assert_eq!(has_root, true);
+        assert!(has_root);
 
         manager.close().await;
     }
@@ -877,7 +877,7 @@ impl ModificationObserver for Observer {
         }
     }
 
-    fn get_inner<'a>(&'a mut self) -> &'a mut Self::Inner {
+    fn get_inner(&mut self) -> &mut Self::Inner {
         &mut self.tracker
     }
 }
@@ -888,7 +888,7 @@ async fn observers() {
 
     let mut manager = Manager::new(config, Box::new(store)).await.unwrap();
 
-    let observer_id = manager.add_observer(Box::new(Observer::default()));
+    let observer_id = manager.add_observer(Box::<Observer>::default());
 
     manager.create_root().await.unwrap();
 
@@ -1001,7 +1001,7 @@ async fn add_remove_tags() {
 
     manager.create_root().await.unwrap();
 
-    let observer_id = manager.add_observer(Box::new(Observer::default()));
+    let observer_id = manager.add_observer(Box::<Observer>::default());
 
     let meta = manager.get_metadata(&ROOT_ID).await.unwrap();
 
@@ -1205,7 +1205,7 @@ async fn copy_resource() {
         Err(ResourceStoreError::ResourceAlreadyExists)
     );
 
-    let observer_id = manager.add_observer(Box::new(Observer::default()));
+    let observer_id = manager.add_observer(Box::<Observer>::default());
 
     let new_meta = manager
         .copy_resource(&source_meta.id(), &target_meta2.id())
@@ -1300,7 +1300,7 @@ async fn move_resource() {
     {
         let mut manager = Manager::new(config.clone(), Box::new(store)).await.unwrap();
 
-        let observer_id = manager.add_observer(Box::new(Observer::default()));
+        let observer_id = manager.add_observer(Box::<Observer>::default());
 
         manager.create_root().await.unwrap();
 

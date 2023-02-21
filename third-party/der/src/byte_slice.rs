@@ -1,26 +1,34 @@
 //! Common handling for types backed by byte slices with enforcement of a
 //! library-level length limitation i.e. `Length::max()`.
 
-use crate::{str_slice::StrSlice, Error, Length, Result};
-use core::convert::TryFrom;
+use crate::{
+    str_slice::StrSlice, DecodeValue, Decoder, DerOrd, EncodeValue, Encoder, Error, Length, Result,
+};
+use core::cmp::Ordering;
 
 /// Byte slice newtype which respects the `Length::max()` limit.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub(crate) struct ByteSlice<'a> {
-    /// Inner value
-    inner: &'a [u8],
-
     /// Precomputed `Length` (avoids possible panicking conversions)
     length: Length,
+
+    /// Inner value
+    inner: &'a [u8],
 }
 
 impl<'a> ByteSlice<'a> {
+    /// Constant value representing an empty byte slice.
+    pub const EMPTY: Self = Self {
+        length: Length::ZERO,
+        inner: &[],
+    };
+
     /// Create a new [`ByteSlice`], ensuring that the provided `slice` value
     /// is shorter than `Length::max()`.
     pub fn new(slice: &'a [u8]) -> Result<Self> {
         Ok(Self {
-            inner: slice,
             length: Length::try_from(slice.len())?,
+            inner: slice,
         })
     }
 
@@ -46,20 +54,43 @@ impl AsRef<[u8]> for ByteSlice<'_> {
     }
 }
 
+impl<'a> DecodeValue<'a> for ByteSlice<'a> {
+    fn decode_value(decoder: &mut Decoder<'a>, length: Length) -> Result<Self> {
+        decoder.bytes(length).and_then(Self::new)
+    }
+}
+
+impl EncodeValue for ByteSlice<'_> {
+    fn value_len(&self) -> Result<Length> {
+        Ok(self.length)
+    }
+
+    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+        encoder.bytes(self.as_ref())
+    }
+}
+
 impl Default for ByteSlice<'_> {
     fn default() -> Self {
         Self {
-            inner: &[],
             length: Length::ZERO,
+            inner: &[],
         }
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for ByteSlice<'a> {
-    type Error = Error;
+impl DerOrd for ByteSlice<'_> {
+    fn der_cmp(&self, other: &Self) -> Result<Ordering> {
+        Ok(self.as_bytes().cmp(other.as_bytes()))
+    }
+}
 
-    fn try_from(slice: &'a [u8]) -> Result<Self> {
-        Self::new(slice)
+impl<'a> From<&'a [u8; 1]> for ByteSlice<'a> {
+    fn from(byte: &'a [u8; 1]) -> ByteSlice<'a> {
+        Self {
+            length: Length::ONE,
+            inner: byte,
+        }
     }
 }
 
@@ -72,5 +103,13 @@ impl<'a> From<StrSlice<'a>> for ByteSlice<'a> {
             inner: bytes,
             length: s.length,
         }
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for ByteSlice<'a> {
+    type Error = Error;
+
+    fn try_from(slice: &'a [u8]) -> Result<Self> {
+        Self::new(slice)
     }
 }

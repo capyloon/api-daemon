@@ -10,9 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 name = "crypto-bigint"
-version = "0.2.11"
+version = "0.3.2"
 authors = ["RustCrypto Developers"]
 description = "Pure Rust implementation of a big integer library which has been designed from\nthe ground-up for use in cryptographic applications. Provides constant-time,\nno_std-friendly implementations of modern formulas using const generics.\n"
 readme = "README.md"
@@ -42,7 +43,7 @@ version = "2.4"
 default-features = false
 
 [dependencies.zeroize]
-version = ">=1, <1.5"
+version = "1"
 optional = true
 default-features = false
 [dev-dependencies.hex-literal]
@@ -60,7 +61,11 @@ version = "1"
 [dev-dependencies.rand_chacha]
 version = "0.3"
 
+[dev-dependencies.rand_core]
+version = "0.6"
+features = ["std"]
+
 [features]
 alloc = []
 default = ["rand"]
-rand = ["rand_core"]
+rand = ["rand_core/std"]

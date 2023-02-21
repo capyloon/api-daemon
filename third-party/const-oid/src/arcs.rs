@@ -1,7 +1,7 @@
 //! Arcs are integer values which exist within an OID's hierarchy.
 
 use crate::{Error, ObjectIdentifier, Result};
-use core::{convert::TryFrom, mem};
+use core::mem;
 
 /// Type used to represent an "arc" (i.e. integer identifier value).
 pub type Arc = u32;
@@ -62,7 +62,7 @@ impl<'a> Iterator for Arcs<'a> {
                         Some(byte) => {
                             arc_bytes += 1;
                             debug_assert!(
-                                arc_bytes < ARC_MAX_BYTES || byte & ARC_MAX_LAST_OCTET == 0,
+                                arc_bytes <= ARC_MAX_BYTES || byte & ARC_MAX_LAST_OCTET == 0,
                                 "OID arc overflowed"
                             );
                             result = result << 7 | (byte & 0b1111111) as Arc;

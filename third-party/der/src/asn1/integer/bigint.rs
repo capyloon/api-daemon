@@ -2,15 +2,12 @@
 
 use super::uint;
 use crate::{
-    asn1::Any, ByteSlice, Encodable, Encoder, Error, ErrorKind, Header, Length, Result, Tag, Tagged,
+    asn1::Any, ByteSlice, DecodeValue, Decoder, EncodeValue, Encoder, Error, ErrorKind, FixedTag,
+    Length, Result, Tag,
 };
-use core::convert::TryFrom;
 
 #[cfg(feature = "bigint")]
-use {
-    core::convert::TryInto,
-    crypto_bigint::{generic_array::GenericArray, ArrayEncoding, UInt},
-};
+use crypto_bigint::{generic_array::GenericArray, ArrayEncoding, UInt};
 
 /// "Big" unsigned ASN.1 `INTEGER` type.
 ///
@@ -49,10 +46,34 @@ impl<'a> UIntBytes<'a> {
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
+}
 
-    /// Get the length of the inner integer value when encoded.
-    fn inner_len(self) -> Result<Length> {
+impl<'a> DecodeValue<'a> for UIntBytes<'a> {
+    fn decode_value(decoder: &mut Decoder<'a>, length: Length) -> Result<Self> {
+        let bytes = ByteSlice::decode_value(decoder, length)?.as_bytes();
+        let result = Self::new(uint::decode_to_slice(bytes)?)?;
+
+        // Ensure we compute the same encoded length as the original any value.
+        if result.value_len()? != length {
+            return Err(Self::TAG.non_canonical_error());
+        }
+
+        Ok(result)
+    }
+}
+
+impl<'a> EncodeValue for UIntBytes<'a> {
+    fn value_len(&self) -> Result<Length> {
         uint::encoded_len(self.inner.as_bytes())
+    }
+
+    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+        // Add leading `0x00` byte if required
+        if self.value_len()? > self.len() {
+            encoder.byte(0)?;
+        }
+
+        encoder.bytes(self.as_bytes())
     }
 }
 
@@ -66,28 +87,11 @@ impl<'a> TryFrom<Any<'a>> for UIntBytes<'a> {
     type Error = Error;
 
     fn try_from(any: Any<'a>) -> Result<UIntBytes<'a>> {
-        Self::new(uint::decode_slice(any)?)
+        any.decode_into()
     }
 }
 
-impl<'a> Encodable for UIntBytes<'a> {
-    fn encoded_len(&self) -> Result<Length> {
-        self.inner_len()?.for_tlv()
-    }
-
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Header::new(Self::TAG, self.inner_len()?)?.encode(encoder)?;
-
-        // Add leading `0x00` byte if required
-        if self.inner_len()? > self.len() {
-            encoder.byte(0)?;
-        }
-
-        encoder.bytes(self.as_bytes())
-    }
-}
-
-impl<'a> Tagged for UIntBytes<'a> {
+impl<'a> FixedTag for UIntBytes<'a> {
     const TAG: Tag = Tag::Integer;
 }
 
@@ -122,25 +126,25 @@ where
 
 #[cfg(feature = "bigint")]
 #[cfg_attr(docsrs, doc(cfg(feature = "bigint")))]
-impl<'a, const LIMBS: usize> Encodable for UInt<LIMBS>
+impl<const LIMBS: usize> EncodeValue for UInt<LIMBS>
 where
     UInt<LIMBS>: ArrayEncoding,
 {
-    fn encoded_len(&self) -> Result<Length> {
+    fn value_len(&self) -> Result<Length> {
         // TODO(tarcieri): more efficient length calculation
         let array = self.to_be_byte_array();
-        UIntBytes::new(&array)?.encoded_len()
+        UIntBytes::new(&array)?.value_len()
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
         let array = self.to_be_byte_array();
-        UIntBytes::new(&array)?.encode(encoder)
+        UIntBytes::new(&array)?.encode_value(encoder)
     }
 }
 
 #[cfg(feature = "bigint")]
 #[cfg_attr(docsrs, doc(cfg(feature = "bigint")))]
-impl<'a, const LIMBS: usize> Tagged for UInt<LIMBS>
+impl<const LIMBS: usize> FixedTag for UInt<LIMBS>
 where
     UInt<LIMBS>: ArrayEncoding,
 {
@@ -154,7 +158,6 @@ mod tests {
         asn1::{integer::tests::*, Any},
         Decodable, Encodable, Encoder, ErrorKind, Tag,
     };
-    use core::convert::TryFrom;
 
     #[test]
     fn decode_uint_bytes() {

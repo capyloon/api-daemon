@@ -3,9 +3,9 @@ extern crate num_integer;
 extern crate num_traits;
 extern crate smallvec;
 
-use num_bigint::Sign::Plus;
-use num_bigint::{BigInt, ToBigInt};
-use num_bigint::{BigUint, ToBigUint};
+use crate::num_bigint::Sign::Plus;
+use crate::num_bigint::{BigInt, ToBigInt};
+use crate::num_bigint::{BigUint, ToBigUint};
 use num_integer::Integer;
 
 use std::cmp::Ordering::{Equal, Greater, Less};
@@ -20,14 +20,13 @@ use std::{i128, u128};
 use std::{u16, u32, u64, u8, usize};
 
 use num_traits::{
-    CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, Num, One, Pow,
-    ToPrimitive, Zero,
+    CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, Num, One, Pow, ToPrimitive, Zero,
 };
 
 use num_traits::float::FloatCore;
 
 mod consts;
-use consts::*;
+use crate::consts::*;
 
 #[macro_use]
 mod macros;
@@ -143,7 +142,7 @@ fn hash<T: Hash>(x: &T) -> u64 {
 
 #[test]
 fn test_hash() {
-    use hash;
+    use crate::hash;
 
     let a = BigUint::new(vec![]);
     let b = BigUint::new(vec![0]);

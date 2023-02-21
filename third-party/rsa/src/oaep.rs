@@ -1,10 +1,11 @@
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use rand::Rng;
+use rand_core::{CryptoRng, RngCore};
 
 use digest::DynDigest;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
+use zeroize::Zeroizing;
 
 use crate::algorithms::mgf1_xor;
 use crate::errors::{Error, Result};
@@ -18,7 +19,7 @@ const MAX_LABEL_LEN: u64 = 2_305_843_009_213_693_951;
 /// scheme from [PKCS#1 OAEP](https://datatracker.ietf.org/doc/html/rfc3447#section-7.1.1).  The message must be no longer than the
 /// length of the public modulus minus (2+ 2*hash.size()).
 #[inline]
-pub fn encrypt<R: Rng, K: PublicKey>(
+pub fn encrypt<R: RngCore + CryptoRng, K: PublicKey>(
     rng: &mut R,
     pub_key: &K,
     msg: &[u8],
@@ -41,11 +42,11 @@ pub fn encrypt<R: Rng, K: PublicKey>(
         return Err(Error::LabelTooLong);
     }
 
-    let mut em = vec![0u8; k];
+    let mut em = Zeroizing::new(vec![0u8; k]);
 
     let (_, payload) = em.split_at_mut(1);
     let (seed, db) = payload.split_at_mut(h_size);
-    rng.fill(seed);
+    rng.fill_bytes(seed);
 
     // Data block DB =  pHash || PS || 01 || M
     let db_len = k - h_size - 1;
@@ -71,7 +72,7 @@ pub fn encrypt<R: Rng, K: PublicKey>(
 /// forge signatures as if they had the private key. See
 /// `decrypt_session_key` for a way of solving this problem.
 #[inline]
-pub fn decrypt<R: Rng, SK: PrivateKey>(
+pub fn decrypt<R: RngCore + CryptoRng, SK: PrivateKey>(
     rng: Option<&mut R>,
     priv_key: &SK,
     ciphertext: &[u8],
@@ -95,7 +96,7 @@ pub fn decrypt<R: Rng, SK: PrivateKey>(
 /// `rng` is given. It returns one or zero in valid that indicates whether the
 /// plaintext was correctly structured.
 #[inline]
-fn decrypt_inner<R: Rng, SK: PrivateKey>(
+fn decrypt_inner<R: RngCore + CryptoRng, SK: PrivateKey>(
     rng: Option<&mut R>,
     priv_key: &SK,
     ciphertext: &[u8],

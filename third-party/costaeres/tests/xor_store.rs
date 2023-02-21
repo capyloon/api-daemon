@@ -110,7 +110,7 @@ async fn xor_store() {
     );
 
     // Now delete this object.
-    let _ = store.delete(&ROOT_ID).await.ok().unwrap();
+    store.delete(&ROOT_ID).await.ok().unwrap();
 
     // And check we can't get it anymore.
     let res = store.get_full(&ROOT_ID, "default").await.err();

@@ -1,6 +1,6 @@
 [package]
 name = "tor-error"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Ian Jackson <iwj@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
@@ -23,3 +23,6 @@ strum = { version = "0.24", features = ["derive"] }
 thiserror = "1"
 
 [dev-dependencies]
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

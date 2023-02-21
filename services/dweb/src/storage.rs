@@ -190,7 +190,7 @@ impl DwebStorage {
 
         let size = stmt.execute(&[
             &signature,
-            &issuer.as_str(),
+            issuer,
             origin,
             &encoded,
             if blocked { &"1" } else { &"0" },

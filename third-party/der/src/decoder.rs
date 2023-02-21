@@ -1,19 +1,18 @@
 //! DER decoder.
 
-use crate::{asn1::*, Choice, Decodable, Error, ErrorKind, Length, Result, Tag, TagNumber};
-use core::{
-    cmp::Ordering,
-    convert::{TryFrom, TryInto},
+use crate::{
+    asn1::*, ByteSlice, Choice, Decodable, DecodeValue, Error, ErrorKind, FixedTag, Header, Length,
+    Result, Tag, TagMode, TagNumber,
 };
 
 /// DER decoder.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Decoder<'a> {
     /// Byte slice being decoded.
     ///
     /// In the event an error was previously encountered this will be set to
     /// `None` to prevent further decoding while in a bad state.
-    bytes: Option<&'a [u8]>,
+    bytes: Option<ByteSlice<'a>>,
 
     /// Position within the decoded slice.
     position: Length,
@@ -21,11 +20,11 @@ pub struct Decoder<'a> {
 
 impl<'a> Decoder<'a> {
     /// Create a new decoder for the given byte slice.
-    pub fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            bytes: Some(bytes),
+    pub fn new(bytes: &'a [u8]) -> Result<Self> {
+        Ok(Self {
+            bytes: Some(ByteSlice::new(bytes)?),
             position: Length::ZERO,
-        }
+        })
     }
 
     /// Decode a value which impls the [`Decodable`] trait.
@@ -55,6 +54,45 @@ impl<'a> Decoder<'a> {
     /// Did the decoding operation fail due to an error?
     pub fn is_failed(&self) -> bool {
         self.bytes.is_none()
+    }
+
+    /// Get the position within the buffer.
+    pub fn position(&self) -> Length {
+        self.position
+    }
+
+    /// Peek at the next byte in the decoder without modifying the cursor.
+    pub fn peek_byte(&self) -> Option<u8> {
+        self.remaining()
+            .ok()
+            .and_then(|bytes| bytes.get(0).cloned())
+    }
+
+    /// Peek at the next byte in the decoder and attempt to decode it as a
+    /// [`Tag`] value.
+    ///
+    /// Does not modify the decoder's state.
+    pub fn peek_tag(&self) -> Result<Tag> {
+        match self.peek_byte() {
+            Some(byte) => byte.try_into(),
+            None => {
+                let actual_len = self.input_len()?;
+                let expected_len = (actual_len + Length::ONE)?;
+                Err(ErrorKind::Incomplete {
+                    expected_len,
+                    actual_len,
+                }
+                .into())
+            }
+        }
+    }
+
+    /// Peek forward in the decoder, attempting to decode a [`Header`] from
+    /// the data at the current position in the decoder.
+    ///
+    /// Does not modify the decoder's state.
+    pub fn peek_header(&self) -> Result<Header> {
+        Header::decode(&mut self.clone())
     }
 
     /// Finish decoding, returning the given value if there is no
@@ -125,40 +163,19 @@ impl<'a> Decoder<'a> {
 
     /// Attempt to decode an ASN.1 `CONTEXT-SPECIFIC` field with the
     /// provided [`TagNumber`].
-    ///
-    /// This method has the following behavior which is designed to simplify
-    /// handling of extension fields, which are denoted in an ASN.1 schema
-    /// using the `...` ellipsis extension marker:
-    ///
-    /// - Skips over [`ContextSpecific`] fields with a tag number lower than
-    ///   the current one, consuming and ignoring them.
-    /// - Returns `Ok(None)` if a [`ContextSpecific`] field with a higher tag
-    ///   number is encountered. These fields are not consumed in this case,
-    ///   allowing a field with a lower tag number to be omitted, then the
-    ///   higher numbered field consumed as a follow-up.
-    /// - Returns `Ok(None)` if anything other than a [`ContextSpecific`] field
-    ///   is encountered.
-    pub fn context_specific(&mut self, tag: TagNumber) -> Result<Option<Any<'a>>> {
-        loop {
-            match self.peek().map(Tag::try_from).transpose()? {
-                Some(Tag::ContextSpecific(actual_tag)) => {
-                    match actual_tag.cmp(&tag) {
-                        Ordering::Less => {
-                            // Decode and ignore lower-numbered fields if
-                            // they parse correctly.
-                            self.decode::<ContextSpecific<'_>>()?;
-                        }
-                        Ordering::Equal => {
-                            return self
-                                .decode::<ContextSpecific<'_>>()
-                                .map(|cs| Some(cs.value))
-                        }
-                        Ordering::Greater => return Ok(None),
-                    }
-                }
-                _ => return Ok(None),
-            }
+    pub fn context_specific<T>(
+        &mut self,
+        tag_number: TagNumber,
+        tag_mode: TagMode,
+    ) -> Result<Option<T>>
+    where
+        T: DecodeValue<'a> + FixedTag,
+    {
+        Ok(match tag_mode {
+            TagMode::Explicit => ContextSpecific::<T>::decode_explicit(self, tag_number)?,
+            TagMode::Implicit => ContextSpecific::<T>::decode_implicit(self, tag_number)?,
         }
+        .map(|field| field.value))
     }
 
     /// Attempt to decode an ASN.1 `GeneralizedTime`.
@@ -214,17 +231,23 @@ impl<'a> Decoder<'a> {
     where
         F: FnOnce(&mut Decoder<'a>) -> Result<T>,
     {
-        Sequence::decode(self)?.decode_nested(f).map_err(|e| {
-            self.bytes.take();
-            e.nested(self.position)
-        })
+        Tag::try_from(self.byte()?)?.assert_eq(Tag::Sequence)?;
+        let len = Length::decode(self)?;
+        self.decode_nested(len, f)
     }
 
     /// Decode a single byte, updating the internal cursor.
     pub(crate) fn byte(&mut self) -> Result<u8> {
         match self.bytes(1u8)? {
             [byte] => Ok(*byte),
-            _ => Err(self.error(ErrorKind::Truncated)),
+            _ => {
+                let actual_len = self.input_len()?;
+                let expected_len = (actual_len + Length::ONE)?;
+                Err(self.error(ErrorKind::Incomplete {
+                    expected_len,
+                    actual_len,
+                }))
+            }
         }
     }
 
@@ -239,20 +262,63 @@ impl<'a> Decoder<'a> {
             .try_into()
             .map_err(|_| self.error(ErrorKind::Overflow))?;
 
-        let result = self
-            .remaining()?
-            .get(..len.try_into()?)
-            .ok_or(ErrorKind::Truncated)?;
-
-        self.position = (self.position + len)?;
-        Ok(result)
+        match self.remaining()?.get(..len.try_into()?) {
+            Some(result) => {
+                self.position = (self.position + len)?;
+                Ok(result)
+            }
+            None => {
+                let actual_len = self.input_len()?;
+                let expected_len = (actual_len + len)?;
+                Err(self.error(ErrorKind::Incomplete {
+                    expected_len,
+                    actual_len,
+                }))
+            }
+        }
     }
 
-    /// Peek at the next byte in the decoder without modifying the cursor.
-    pub(crate) fn peek(&self) -> Option<u8> {
-        self.remaining()
-            .ok()
-            .and_then(|bytes| bytes.get(0).cloned())
+    /// Get the length of the input, if decoding hasn't failed.
+    pub(crate) fn input_len(&self) -> Result<Length> {
+        Ok(self.bytes.ok_or(ErrorKind::Failed)?.len())
+    }
+
+    /// Get the number of bytes still remaining in the buffer.
+    pub(crate) fn remaining_len(&self) -> Result<Length> {
+        self.remaining()?.len().try_into()
+    }
+
+    /// Create a nested decoder which operates over the provided [`Length`].
+    ///
+    /// The nested decoder is passed to the provided callback function which is
+    /// expected to decode a value of type `T` with it.
+    fn decode_nested<F, T>(&mut self, length: Length, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut Self) -> Result<T>,
+    {
+        let start_pos = self.position();
+        let end_pos = (start_pos + length)?;
+        let bytes = match self.bytes {
+            Some(slice) => {
+                slice
+                    .as_bytes()
+                    .get(..end_pos.try_into()?)
+                    .ok_or(ErrorKind::Incomplete {
+                        expected_len: end_pos,
+                        actual_len: self.input_len()?,
+                    })?
+            }
+            None => return Err(self.error(ErrorKind::Failed)),
+        };
+
+        let mut nested_decoder = Self {
+            bytes: Some(ByteSlice::new(bytes)?),
+            position: start_pos,
+        };
+
+        self.position = end_pos;
+        let result = f(&mut nested_decoder)?;
+        nested_decoder.finish(result)
     }
 
     /// Obtain the remaining bytes in this decoder from the current cursor
@@ -260,86 +326,75 @@ impl<'a> Decoder<'a> {
     fn remaining(&self) -> Result<&'a [u8]> {
         let pos = usize::try_from(self.position)?;
 
-        self.bytes
-            .and_then(|b| b.get(pos..))
-            .ok_or_else(|| ErrorKind::Truncated.at(self.position))
-    }
-
-    /// Get the number of bytes still remaining in the buffer.
-    fn remaining_len(&self) -> Result<Length> {
-        self.remaining()?.len().try_into()
-    }
-}
-
-impl<'a> From<&'a [u8]> for Decoder<'a> {
-    fn from(bytes: &'a [u8]) -> Decoder<'a> {
-        Decoder::new(bytes)
+        match self.bytes.and_then(|slice| slice.as_bytes().get(pos..)) {
+            Some(result) => Ok(result),
+            None => {
+                let actual_len = self.input_len()?;
+                let expected_len = (actual_len + Length::ONE)?;
+                Err(ErrorKind::Incomplete {
+                    expected_len,
+                    actual_len,
+                }
+                .at(self.position))
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Decoder;
-    use crate::{Decodable, ErrorKind, Length, Tag, TagNumber};
-    use core::convert::TryFrom;
+    use crate::{Decodable, ErrorKind, Length, Tag};
     use hex_literal::hex;
 
-    #[test]
-    fn context_specific_with_expected_field() {
-        let tag = TagNumber::new(0);
-
-        // Empty message
-        let mut decoder = Decoder::new(&[]);
-        assert_eq!(decoder.context_specific(tag).unwrap(), None);
-
-        // Message containing a non-context-specific type
-        let mut decoder = Decoder::new(&hex!("020100"));
-        assert_eq!(decoder.context_specific(tag).unwrap(), None);
-
-        //
-        let mut decoder = Decoder::new(&hex!("A003020100"));
-        let field = decoder.context_specific(tag).unwrap().unwrap();
-        assert_eq!(u8::try_from(field).unwrap(), 0);
-    }
+    // INTEGER: 42
+    const EXAMPLE_MSG: &[u8] = &hex!("02012A00");
 
     #[test]
-    fn context_specific_skipping_unknown_field() {
-        let tag = TagNumber::new(1);
-        let mut decoder = Decoder::new(&hex!("A003020100A103020101"));
-        let field = decoder.context_specific(tag).unwrap().unwrap();
-        assert_eq!(u8::try_from(field).unwrap(), 1);
-    }
-
-    #[test]
-    fn context_specific_returns_none_on_greater_tag_number() {
-        let tag = TagNumber::new(0);
-        let mut decoder = Decoder::new(&hex!("A103020101"));
-        assert_eq!(decoder.context_specific(tag).unwrap(), None);
-    }
-
-    #[test]
-    fn truncated_message() {
-        let mut decoder = Decoder::new(&[]);
+    fn empty_message() {
+        let mut decoder = Decoder::new(&[]).unwrap();
         let err = bool::decode(&mut decoder).err().unwrap();
-        assert_eq!(ErrorKind::Truncated, err.kind());
         assert_eq!(Some(Length::ZERO), err.position());
+
+        match err.kind() {
+            ErrorKind::Incomplete {
+                expected_len,
+                actual_len,
+            } => {
+                assert_eq!(expected_len, 1u8.into());
+                assert_eq!(actual_len, 0u8.into());
+            }
+            other => panic!("unexpected error kind: {:?}", other),
+        }
     }
 
     #[test]
     fn invalid_field_length() {
-        let mut decoder = Decoder::new(&[0x02, 0x01]);
+        let mut decoder = Decoder::new(&EXAMPLE_MSG[..2]).unwrap();
         let err = i8::decode(&mut decoder).err().unwrap();
-        assert_eq!(ErrorKind::Length { tag: Tag::Integer }, err.kind());
         assert_eq!(Some(Length::from(2u8)), err.position());
+
+        match err.kind() {
+            ErrorKind::Incomplete {
+                expected_len,
+                actual_len,
+            } => {
+                assert_eq!(expected_len, 3u8.into());
+                assert_eq!(actual_len, 2u8.into());
+            }
+            other => panic!("unexpected error kind: {:?}", other),
+        }
     }
 
     #[test]
     fn trailing_data() {
-        let mut decoder = Decoder::new(&[0x02, 0x01, 0x2A, 0x00]);
+        let mut decoder = Decoder::new(EXAMPLE_MSG).unwrap();
         let x = decoder.decode().unwrap();
         assert_eq!(42i8, x);
 
         let err = decoder.finish(x).err().unwrap();
+        assert_eq!(Some(Length::from(3u8)), err.position());
+
         assert_eq!(
             ErrorKind::TrailingData {
                 decoded: 3u8.into(),
@@ -347,6 +402,24 @@ mod tests {
             },
             err.kind()
         );
-        assert_eq!(Some(Length::from(3u8)), err.position());
+    }
+
+    #[test]
+    fn peek_tag() {
+        let decoder = Decoder::new(EXAMPLE_MSG).unwrap();
+        assert_eq!(decoder.position(), Length::ZERO);
+        assert_eq!(decoder.peek_tag().unwrap(), Tag::Integer);
+        assert_eq!(decoder.position(), Length::ZERO); // Position unchanged
+    }
+
+    #[test]
+    fn peek_header() {
+        let decoder = Decoder::new(EXAMPLE_MSG).unwrap();
+        assert_eq!(decoder.position(), Length::ZERO);
+
+        let header = decoder.peek_header().unwrap();
+        assert_eq!(header.tag, Tag::Integer);
+        assert_eq!(header.length, Length::ONE);
+        assert_eq!(decoder.position(), Length::ZERO); // Position unchanged
     }
 }

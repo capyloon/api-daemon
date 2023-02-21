@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "ucan-key-support"
-version = "0.4.0-alpha.1"
+version = "0.7.0-alpha.1"
 description = "Ready to use SigningKey implementations for the ucan crate"
 homepage = "https://github.com/cdata/rs-ucan"
 documentation = "https://docs.rs/ucan"
@@ -31,6 +31,7 @@ categories = [
 ]
 license = "Apache-2.0"
 repository = "https://github.com/cdata/rs-ucan/"
+resolver = "1"
 
 [dependencies.anyhow]
 version = "1.0.52"
@@ -48,59 +49,47 @@ version = "^3"
 version = "0.4"
 
 [dependencies.rsa]
-version = "0.5"
-features = ["alloc"]
+version = "0.6"
 
 [dependencies.sha2]
 version = "0.10"
 
 [dependencies.ucan]
-version = "0.6.0-alpha.1"
+version = "0.7.0-alpha.1"
 
 [dev-dependencies.getrandom]
-version = "0.2.5"
+version = "~0.2"
 features = ["js"]
 
 [dev-dependencies.rand]
-version = "0.8"
-
-[dev-dependencies.tokio]
-version = "^1"
-features = [
-    "macros",
-    "rt",
-]
+version = "~0.8"
 
 [dev-dependencies.wasm-bindgen-test]
-version = "0.3"
+version = "~0.3"
 
 [build-dependencies.npm_rs]
 version = "0.2.1"
 
 [features]
 default = []
-web = [
-    "wasm-bindgen",
-    "wasm-bindgen-futures",
-    "js-sys",
-    "web-sys",
-    "ucan/web",
-    "getrandom/js",
+
+[target."cfg(not(target_arch = \"wasm32\"))".dev-dependencies.tokio]
+version = "^1"
+features = [
+    "macros",
+    "rt",
 ]
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.js-sys]
 version = "0.3"
-optional = true
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.wasm-bindgen]
 version = "0.2"
-optional = true
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.wasm-bindgen-futures]
 version = "0.4"
-optional = true
 
-[target."cfg(target_arch=\"wasm32\")".dependencies.web-sys]
+[target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]
 version = "0.3"
 features = [
     "Window",
@@ -110,7 +99,6 @@ features = [
     "CryptoKeyPair",
     "DedicatedWorkerGlobalScope",
 ]
-optional = true
 
-[target."cfg(target_arch=\"wasm32\")".dev-dependencies.pollster]
+[target."cfg(target_arch = \"wasm32\")".dev-dependencies.pollster]
 version = "0.2.5"

@@ -2,18 +2,25 @@
 
 use crate::{Limb, NonZero};
 use core::fmt::Debug;
-use core::ops::{Div, Rem};
+use core::ops::{BitAnd, BitOr, BitXor, Div, Not, Rem, Shl, Shr};
 use subtle::{
     Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess,
+    CtOption,
 };
 
-#[cfg(feature = "rand")]
+#[cfg(feature = "rand_core")]
 use rand_core::{CryptoRng, RngCore};
 
 /// Integer type.
 pub trait Integer:
     'static
     + AsRef<[Limb]>
+    + BitAnd<Output = Self>
+    + BitOr<Output = Self>
+    + BitXor<Output = Self>
+    + for<'a> CheckedAdd<&'a Self, Output = Self>
+    + for<'a> CheckedSub<&'a Self, Output = Self>
+    + for<'a> CheckedMul<&'a Self, Output = Self>
     + Copy
     + ConditionallySelectable
     + ConstantTimeEq
@@ -22,50 +29,68 @@ pub trait Integer:
     + Debug
     + Default
     + Div<NonZero<Self>, Output = Self>
-    + Encoding
     + Eq
     + From<u64>
+    + Not
     + Ord
     + Rem<NonZero<Self>, Output = Self>
     + Send
     + Sized
+    + Shl<usize, Output = Self>
+    + Shr<usize, Output = Self>
     + Sync
+    + Zero
 {
-    /// The value `0`.
-    const ZERO: Self;
-
     /// The value `1`.
     const ONE: Self;
 
     /// Maximum value this integer can express.
     const MAX: Self;
 
-    /// Is this integer value equal to zero?
-    fn is_zero(&self) -> Choice {
-        self.ct_eq(&Self::ZERO)
-    }
-
     /// Is this integer value an odd number?
+    ///
+    /// # Returns
+    ///
+    /// If odd, returns `Choice(1)`. Otherwise, returns `Choice(0)`.
     fn is_odd(&self) -> Choice;
 
     /// Is this integer value an even number?
+    ///
+    /// # Returns
+    ///
+    /// If even, returns `Choice(1)`. Otherwise, returns `Choice(0)`.
     fn is_even(&self) -> Choice {
         !self.is_odd()
     }
 }
 
+/// Zero values.
+pub trait Zero: ConstantTimeEq + Sized {
+    /// The value `0`.
+    const ZERO: Self;
+
+    /// Determine if this value is equal to zero.
+    ///
+    /// # Returns
+    ///
+    /// If zero, returns `Choice(1)`. Otherwise, returns `Choice(0)`.
+    fn is_zero(&self) -> Choice {
+        self.ct_eq(&Self::ZERO)
+    }
+}
+
 /// Random number generation support.
-#[cfg(feature = "rand")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+#[cfg(feature = "rand_core")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
 pub trait Random: Sized {
     /// Generate a cryptographically secure random value.
     fn random(rng: impl CryptoRng + RngCore) -> Self;
 }
 
 /// Modular random number generation support.
-#[cfg(feature = "rand")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
-pub trait RandomMod: Sized {
+#[cfg(feature = "rand_core")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand_core")))]
+pub trait RandomMod: Sized + Zero {
     /// Generate a cryptographically secure random number which is less than
     /// a given `modulus`.
     ///
@@ -77,7 +102,7 @@ pub trait RandomMod: Sized {
     /// issue so long as the underlying random number generator is truly a
     /// [`CryptoRng`], where previous outputs are unrelated to subsequent
     /// outputs and do not reveal information about the RNG's internal state.
-    fn random_mod(rng: impl CryptoRng + RngCore, modulus: &Self) -> Self;
+    fn random_mod(rng: impl CryptoRng + RngCore, modulus: &NonZero<Self>) -> Self;
 }
 
 /// Compute `self + rhs mod p`.
@@ -123,6 +148,36 @@ pub trait MulMod<Rhs = Self> {
     ///
     /// Requires `p_inv = -(p^{-1} mod 2^{BITS}) mod 2^{BITS}` to be provided for efficiency.
     fn mul_mod(&self, rhs: &Rhs, p: &Self, p_inv: Limb) -> Self::Output;
+}
+
+/// Checked addition.
+pub trait CheckedAdd<Rhs = Self>: Sized {
+    /// Output type.
+    type Output;
+
+    /// Perform checked subtraction, returning a [`CtOption`] which `is_some`
+    /// only if the operation did not overflow.
+    fn checked_add(&self, rhs: Rhs) -> CtOption<Self>;
+}
+
+/// Checked multiplication.
+pub trait CheckedMul<Rhs = Self>: Sized {
+    /// Output type.
+    type Output;
+
+    /// Perform checked multiplication, returning a [`CtOption`] which `is_some`
+    /// only if the operation did not overflow.
+    fn checked_mul(&self, rhs: Rhs) -> CtOption<Self>;
+}
+
+/// Checked substraction.
+pub trait CheckedSub<Rhs = Self>: Sized {
+    /// Output type.
+    type Output;
+
+    /// Perform checked subtraction, returning a [`CtOption`] which `is_some`
+    /// only if the operation did not underflow.
+    fn checked_sub(&self, rhs: Rhs) -> CtOption<Self>;
 }
 
 /// Concatenate two numbers into a "wide" twice-width value, using the `rhs`
