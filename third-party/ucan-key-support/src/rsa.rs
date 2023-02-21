@@ -1,9 +1,10 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
-use rsa::pkcs1::der::{Document, Encodable};
-use rsa::pkcs1::{DecodeRsaPublicKey, EncodeRsaPublicKey};
-use rsa::{Hash, PaddingScheme, PublicKey, RsaPrivateKey, RsaPublicKey};
+use rsa::{
+    pkcs1::{der::Encode, DecodeRsaPublicKey, EncodeRsaPublicKey},
+    PaddingScheme, PublicKey, RsaPrivateKey, RsaPublicKey,
+};
 
 use sha2::{Digest, Sha256};
 use ucan::crypto::{JwtSignatureAlgorithm, KeyMaterial};
@@ -31,7 +32,7 @@ impl KeyMaterial for RsaKeyMaterial {
 
     async fn get_did(&self) -> Result<String> {
         let bytes = match self.0.to_pkcs1_der() {
-            Ok(document) => [RSA_MAGIC_BYTES, document.as_der()].concat(),
+            Ok(document) => [RSA_MAGIC_BYTES, document.as_bytes()].concat(),
             Err(error) => {
                 // TODO: Probably shouldn't swallow this error...
                 warn!("Could not get RSA public key bytes for DID: {:?}", error);
@@ -49,9 +50,7 @@ impl KeyMaterial for RsaKeyMaterial {
         match &self.1 {
             Some(private_key) => {
                 let signature = private_key.sign(
-                    PaddingScheme::PKCS1v15Sign {
-                        hash: Some(Hash::SHA2_256),
-                    },
+                    PaddingScheme::new_pkcs1v15_sign::<Sha256>(),
                     hashed.as_ref(),
                 )?;
                 info!("SIGNED!");
@@ -68,9 +67,7 @@ impl KeyMaterial for RsaKeyMaterial {
 
         self.0
             .verify(
-                PaddingScheme::PKCS1v15Sign {
-                    hash: Some(Hash::SHA2_256),
-                },
+                PaddingScheme::new_pkcs1v15_sign::<Sha256>(),
                 hashed.as_ref(),
                 signature,
             )
@@ -80,17 +77,14 @@ impl KeyMaterial for RsaKeyMaterial {
 
 #[cfg(test)]
 mod tests {
-    use super::bytes_to_rsa_key;
-    use super::RsaKeyMaterial;
-    use super::RSA_MAGIC_BYTES;
+    use super::{bytes_to_rsa_key, RsaKeyMaterial, RSA_MAGIC_BYTES};
 
-    use rsa::pkcs8::DecodePrivateKey;
-    use rsa::RsaPrivateKey;
-    use rsa::RsaPublicKey;
-    use ucan::builder::UcanBuilder;
-    use ucan::crypto::did::DidParser;
-    use ucan::crypto::KeyMaterial;
-    use ucan::ucan::Ucan;
+    use rsa::{pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPublicKey};
+    use ucan::{
+        builder::UcanBuilder,
+        crypto::{did::DidParser, KeyMaterial},
+        ucan::Ucan,
+    };
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
@@ -120,7 +114,7 @@ mod tests {
 
         let mut did_parser = DidParser::new(&[(RSA_MAGIC_BYTES, bytes_to_rsa_key)]);
 
-        let ucan = Ucan::try_from_token_string(token_string.as_str()).unwrap();
+        let ucan = Ucan::try_from(token_string).unwrap();
         ucan.check_signature(&mut did_parser).await.unwrap();
     }
 }

@@ -1,5 +1,3 @@
-use std::{collections::HashMap, io::Cursor, sync::Arc};
-
 use anyhow::{anyhow, Result};
 use async_std::sync::Mutex;
 use async_trait::async_trait;
@@ -12,6 +10,7 @@ use libipld_core::{
     ipld::Ipld,
     raw::RawCodec,
 };
+use std::{collections::HashMap, io::Cursor, sync::Arc};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub trait UcanStoreConditionalSend: Send {}
@@ -121,7 +120,7 @@ impl UcanStore<RawCodec> for MemoryStore {
         let cid = Cid::new_v1(codec.into(), Code::Blake2b256.digest(&block));
 
         let mut dags = self.dags.lock().await;
-        dags.insert(cid.clone(), block);
+        dags.insert(cid, block);
 
         Ok(cid)
     }

@@ -1,15 +1,14 @@
+use crate::{
+    capability::CapabilityIpld,
+    crypto::JwtSignatureAlgorithm,
+    ipld::{Principle, Signature},
+    serde::Base64Encode,
+    ucan::{Ucan, UcanHeader, UcanPayload, UCAN_VERSION},
+};
 use cid::Cid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{convert::TryFrom, str::FromStr};
-
-use crate::crypto::JwtSignatureAlgorithm;
-use crate::serde::Base64Encode;
-use crate::{capability::CapabilityIpld, ucan::Ucan};
-
-use crate::ipld::{Principle, Signature};
-use crate::ucan::UcanPayload;
-use crate::ucan::{UcanHeader, UCAN_VERSION};
 
 #[derive(Serialize, Deserialize)]
 pub struct UcanIpld {
@@ -47,10 +46,10 @@ impl TryFrom<&Ucan> for UcanIpld {
             ))?,
             att: ucan.attenuation().clone(),
             prf,
-            exp: ucan.expires_at().clone(),
+            exp: *ucan.expires_at(),
             fct: ucan.facts().clone(),
             nnc: ucan.nonce().as_ref().cloned(),
-            nbf: ucan.not_before().clone(),
+            nbf: *ucan.not_before(),
         })
     }
 }
@@ -168,7 +167,7 @@ mod tests {
             .encode()
             .unwrap();
 
-        let ucan = Ucan::try_from_token_string(&jwt).unwrap();
+        let ucan = Ucan::try_from(jwt.as_str()).unwrap();
         let ucan_ipld = UcanIpld::try_from(&ucan).unwrap();
 
         let decoded_ucan_ipld = dag_cbor_roundtrip(&ucan_ipld).unwrap();

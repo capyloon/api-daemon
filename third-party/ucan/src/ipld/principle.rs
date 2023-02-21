@@ -1,10 +1,7 @@
-use anyhow::anyhow;
-
-use serde::{Deserialize, Serialize};
-
-use std::{fmt::Display, str::FromStr};
-
 use crate::crypto::did::{DID_KEY_PREFIX, DID_PREFIX};
+use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
+use std::{fmt::Display, str::FromStr};
 
 // Note: varint encoding of 0x0d1d
 pub const DID_IPLD_PREFIX: &[u8] = &[0x9d, 0x1a];
@@ -17,14 +14,10 @@ impl FromStr for Principle {
     type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        if input.starts_with(DID_KEY_PREFIX) {
-            Ok(Principle(
-                bs58::decode(&input[DID_KEY_PREFIX.len()..]).into_vec()?,
-            ))
-        } else if input.starts_with(DID_PREFIX) {
-            Ok(Principle(
-                [DID_IPLD_PREFIX, input[DID_PREFIX.len()..].as_bytes()].concat(),
-            ))
+        if let Some(stripped) = input.strip_prefix(DID_KEY_PREFIX) {
+            Ok(Principle(bs58::decode(stripped).into_vec()?))
+        } else if let Some(stripped) = input.strip_prefix(DID_PREFIX) {
+            Ok(Principle([DID_IPLD_PREFIX, stripped.as_bytes()].concat()))
         } else {
             Err(anyhow!("This is not a DID: {}", input))
         }
@@ -37,13 +30,13 @@ impl Display for Principle {
         let did_content = match &bytes[0..2] {
             DID_IPLD_PREFIX => [
                 DID_PREFIX,
-                &std::str::from_utf8(&bytes[2..]).map_err(|_| std::fmt::Error)?,
+                std::str::from_utf8(&bytes[2..]).map_err(|_| std::fmt::Error)?,
             ]
             .concat(),
             _ => [DID_KEY_PREFIX, &bs58::encode(bytes).into_string()].concat(),
         };
 
-        write!(f, "{}", did_content)
+        write!(f, "{did_content}")
     }
 }
 

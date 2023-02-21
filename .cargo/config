@@ -13,11 +13,6 @@ replace-with = "vendored-sources"
 git = "https://github.com/capyloon/costaeres.git"
 replace-with = "vendored-sources"
 
-[source."https://github.com/capyloon/did-key.rs.git"]
-git = "https://github.com/capyloon/did-key.rs.git"
-rev = "0fd82e043d41e70104a395aec239db5b449f7a96"
-replace-with = "vendored-sources"
-
 [source."https://github.com/capyloon/wspty.git"]
 git = "https://github.com/capyloon/wspty.git"
 replace-with = "vendored-sources"

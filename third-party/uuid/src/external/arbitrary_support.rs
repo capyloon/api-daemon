@@ -11,6 +11,10 @@ impl Arbitrary<'_> for Uuid {
 
         Ok(Builder::from_random_bytes(b).into_uuid())
     }
+
+    fn size_hint(depth: usize) -> (usize, Option<usize>) {
+        (16, Some(16))
+    }
 }
 
 #[cfg(test)]
@@ -21,9 +25,7 @@ mod tests {
 
     #[test]
     fn test_arbitrary() {
-        let mut bytes = Unstructured::new(&[
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ]);
+        let mut bytes = Unstructured::new(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
         let uuid = Uuid::arbitrary(&mut bytes).unwrap();
 

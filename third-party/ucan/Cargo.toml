@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "ucan"
-version = "0.7.0-alpha.1"
+version = "0.1.0"
 description = "Implement UCAN-based authorization with conciseness and ease!"
 homepage = "https://github.com/cdata/rs-ucan"
 documentation = "https://docs.rs/ucan"
@@ -34,25 +34,28 @@ repository = "https://github.com/cdata/rs-ucan/"
 resolver = "1"
 
 [dependencies.anyhow]
-version = "^1"
+version = "1.0"
 
 [dependencies.async-recursion]
-version = "^1"
+version = "1.0"
 
 [dependencies.async-std]
-version = "^1"
+version = "1.0"
 
 [dependencies.async-trait]
-version = "~0.1"
+version = "0.1"
 
 [dependencies.base64]
-version = "~0.13"
+version = "0.13"
 
 [dependencies.bs58]
-version = "~0.4"
+version = "0.4"
 
 [dependencies.cid]
-version = "~0.8"
+version = "0.9"
+
+[dependencies.futures]
+version = "0.3"
 
 [dependencies.instant]
 version = "0.1"
@@ -62,48 +65,48 @@ features = [
 ]
 
 [dependencies.libipld-core]
-version = "~0.14"
+version = "0.15"
 features = [
     "serde-codec",
     "serde",
 ]
 
 [dependencies.libipld-json]
-version = "~0.14"
+version = "0.15"
 
 [dependencies.log]
-version = "~0.4"
+version = "0.4"
 
 [dependencies.rand]
-version = "~0.8"
+version = "0.8"
 
 [dependencies.serde]
-version = "^1"
+version = "1.0"
 features = ["derive"]
 
 [dependencies.serde_json]
-version = "^1"
+version = "1.0"
 
 [dependencies.strum]
-version = "~0.24"
+version = "0.24"
 
 [dependencies.strum_macros]
-version = "~0.24"
+version = "0.24"
 
 [dependencies.unsigned-varint]
-version = "~0.7"
+version = "0.7"
 
 [dependencies.url]
-version = "^2"
+version = "2.0"
 
 [dev-dependencies.did-key]
-version = "0.1"
+version = "0.2"
 
 [dev-dependencies.serde_ipld_dagcbor]
-version = "~0.2"
+version = "0.2"
 
 [dev-dependencies.wasm-bindgen-test]
-version = "~0.3"
+version = "0.3"
 
 [features]
 default = []

@@ -40,6 +40,7 @@ use sqlx::{
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -139,7 +140,10 @@ impl<T> Manager<T> {
             store,
             fts,
             indexers: Vec::new(),
-            cache: LruCache::new(config.metadata_cache_capacity),
+            cache: LruCache::new(
+                NonZeroUsize::new(config.metadata_cache_capacity)
+                    .unwrap_or(unsafe { NonZeroUsize::new_unchecked(128) }),
+            ),
             observers: HashMap::new(),
             current_observer: 0,
         })

@@ -1,7 +1,6 @@
+use super::{Action, CapabilitySemantics, Scope};
 use anyhow::{anyhow, Result};
 use url::Url;
-
-use super::{Action, CapabilitySemantics, Scope};
 
 #[derive(Ord, Eq, PartialEq, PartialOrd, Clone)]
 pub enum ProofAction {
@@ -32,7 +31,7 @@ impl ToString for ProofAction {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone)]
 pub enum ProofSelection {
     Index(usize),
     All,
@@ -69,7 +68,7 @@ impl TryFrom<String> for ProofSelection {
 impl ToString for ProofSelection {
     fn to_string(&self) -> String {
         match self {
-            ProofSelection::Index(usize) => format!("prf:{}", usize),
+            ProofSelection::Index(usize) => format!("prf:{usize}"),
             ProofSelection::All => "prf:*".to_string(),
         }
     }
