@@ -14,6 +14,9 @@ use tor_netdir::Relay;
 use tor_netdoc::types::policy::PortPolicy;
 use tor_rtcompat::Runtime;
 
+#[cfg(feature = "specific-relay")]
+use tor_linkspec::{HasChanMethod, HasRelayIds, OwnedChanTarget};
+
 use crate::isolation::{IsolationHelper, StreamIsolation};
 use crate::mgr::{abstract_spec_find_supported, AbstractCirc, OpenEntry, RestrictionFailed};
 use crate::Result;
@@ -157,6 +160,10 @@ pub(crate) enum TargetCircUsage {
         /// The number of exit circuits needed for a port
         circs: usize,
     },
+    /// Use for BEGINDIR-based non-anonymous directory connections to a particular target,
+    /// and therefore to a specific relay (which need not be in any netdir).
+    #[cfg(feature = "specific-relay")]
+    DirSpecificTarget(OwnedChanTarget),
 }
 
 /// The purposes for which a circuit is usable.
@@ -177,6 +184,10 @@ pub(crate) enum SupportedCircUsage {
     },
     /// This circuit is not suitable for any usage.
     NoUsage,
+    /// Use only for BEGINDIR-based non-anonymous directory connections
+    /// to a particular target (which may not be in the netdir).
+    #[cfg(feature = "specific-relay")]
+    DirSpecificTarget(OwnedChanTarget),
 }
 
 impl TargetCircUsage {
@@ -250,8 +261,24 @@ impl TargetCircUsage {
 
                 Ok((path, usage, mon, usable))
             }
+            #[cfg(feature = "specific-relay")]
+            TargetCircUsage::DirSpecificTarget(target) => {
+                let path = TorPath::new_one_hop_owned(target);
+                let usage = SupportedCircUsage::DirSpecificTarget(target.clone());
+                Ok((path, usage, None, None))
+            }
         }
     }
+}
+
+/// Return true if `a` and `b` count as the same target for the purpose of
+/// comparing `DirSpecificTarget` values.
+#[cfg(feature = "specific-relay")]
+fn owned_targets_equivalent(a: &OwnedChanTarget, b: &OwnedChanTarget) -> bool {
+    // We ignore `addresses` here, since they can be different if one of our
+    // arguments comes from only a bridge line, and the other comes from a
+    // bridge line and a descriptor.
+    a.same_relay_ids(b) && a.chan_method() == b.chan_method()
 }
 
 impl crate::mgr::AbstractSpec for SupportedCircUsage {
@@ -289,6 +316,10 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
                 }
             }
             (Exit { .. } | NoUsage, TargetCircUsage::TimeoutTesting) => true,
+            #[cfg(feature = "specific-relay")]
+            (DirSpecificTarget(a), TargetCircUsage::DirSpecificTarget(b)) => {
+                owned_targets_equivalent(a, b)
+            }
             (_, _) => false,
         }
     }
@@ -298,7 +329,6 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
         usage: &TargetCircUsage,
     ) -> std::result::Result<(), RestrictionFailed> {
         use SupportedCircUsage::*;
-
         match (self, usage) {
             (Dir, TargetCircUsage::Dir) => Ok(()),
             // This usage is only used to create circuits preemptively, and doesn't actually
@@ -328,6 +358,12 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
                 }
             }
             (Exit { .. } | NoUsage, TargetCircUsage::TimeoutTesting) => Ok(()),
+            #[cfg(feature = "specific-relay")]
+            (DirSpecificTarget(a), TargetCircUsage::DirSpecificTarget(b))
+                if owned_targets_equivalent(a, b) =>
+            {
+                Ok(())
+            }
             (_, _) => Err(RestrictionFailed::NotSupported),
         }
     }
@@ -362,6 +398,8 @@ impl crate::mgr::AbstractSpec for SupportedCircUsage {
         use SupportedCircUsage as SCU;
         match self {
             SCU::Dir => CU::Dir,
+            #[cfg(feature = "specific-relay")]
+            SCU::DirSpecificTarget(_) => CU::Dir,
             SCU::Exit { .. } => CU::UserTraffic,
             SCU::NoUsage => CU::UselessCircuit,
         }

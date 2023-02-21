@@ -2,6 +2,7 @@
 // called LICENSE at the top level of the ICU4X source tree
 // (online at: https://github.com/unicode-org/icu4x/blob/main/LICENSE ).
 
+use crate::asciibyte::AsciiByte;
 use crate::int_ops::{Aligned4, Aligned8};
 use crate::TinyStrError;
 use core::fmt;
@@ -11,7 +12,7 @@ use core::str::{self, FromStr};
 #[repr(transparent)]
 #[derive(PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash)]
 pub struct TinyAsciiStr<const N: usize> {
-    bytes: [u8; N],
+    bytes: [AsciiByte; N],
 }
 
 impl<const N: usize> TinyAsciiStr<N> {
@@ -28,18 +29,18 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// # Example
     ///
     /// ```
-    /// use tinystr::TinyAsciiStr;
     /// use tinystr::tinystr;
+    /// use tinystr::TinyAsciiStr;
     ///
     /// assert_eq!(
     ///     TinyAsciiStr::<3>::try_from_raw(*b"GB\0"),
-    ///     Ok(tinystr!(3, "GB")));
+    ///     Ok(tinystr!(3, "GB"))
+    /// );
     /// assert_eq!(
     ///     TinyAsciiStr::<3>::try_from_raw(*b"USD"),
-    ///     Ok(tinystr!(3, "USD")));
-    /// assert!(matches!(
-    ///     TinyAsciiStr::<3>::try_from_raw(*b"\0A\0"),
-    ///     Err(_)));
+    ///     Ok(tinystr!(3, "USD"))
+    /// );
+    /// assert!(matches!(TinyAsciiStr::<3>::try_from_raw(*b"\0A\0"), Err(_)));
     /// ```
     pub const fn try_from_raw(raw: [u8; N]) -> Result<Self, TinyStrError> {
         Self::from_bytes_inner(&raw, 0, N, true)
@@ -93,47 +94,60 @@ impl<const N: usize> TinyAsciiStr<N> {
             return Err(TinyStrError::ContainsNull);
         }
 
-        Ok(Self { bytes: out })
+        Ok(Self {
+            // SAFETY: `out` only contains ASCII bytes and has same size as `self.bytes`
+            bytes: unsafe { AsciiByte::to_ascii_byte_array(&out) },
+        })
     }
 
+    // TODO: This function shadows the FromStr trait. Rename?
     #[inline]
     pub const fn from_str(s: &str) -> Result<Self, TinyStrError> {
         Self::from_bytes_inner(s.as_bytes(), 0, s.len(), false)
     }
 
     #[inline]
-    pub fn as_str(&self) -> &str {
-        &*self
+    pub const fn as_str(&self) -> &str {
+        // as_bytes is valid utf8
+        unsafe { str::from_utf8_unchecked(self.as_bytes()) }
     }
 
     #[inline]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         if N <= 4 {
-            Aligned4::from_bytes(&self.bytes).len()
+            Aligned4::from_ascii_bytes(&self.bytes).len()
         } else if N <= 8 {
-            Aligned8::from_bytes(&self.bytes).len()
+            Aligned8::from_ascii_bytes(&self.bytes).len()
         } else {
-            self.bytes.iter().position(|x| *x == 0).unwrap_or(N)
+            let mut i = 0;
+            #[allow(clippy::indexing_slicing)] // < N is safe
+            while i < N && self.bytes[i] as u8 != AsciiByte::B0 as u8 {
+                i += 1
+            }
+            i
         }
     }
 
     #[inline]
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.bytes[0] == 0
+        self.bytes[0] as u8 == AsciiByte::B0 as u8
     }
 
     #[inline]
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes[0..self.len()]
+    pub const fn as_bytes(&self) -> &[u8] {
+        // Safe because `self.bytes.as_slice()` pointer-casts to `&[u8]`,
+        // and changing the length of that slice to self.len() < N is safe.
+        unsafe { core::mem::transmute((self.bytes.as_slice().as_ptr(), self.len())) }
     }
 
     #[inline]
     #[must_use]
     pub const fn all_bytes(&self) -> &[u8; N] {
-        &self.bytes
+        // SAFETY: `self.bytes` has same size as [u8; N]
+        unsafe { core::mem::transmute(&self.bytes) }
     }
 
     #[inline]
@@ -148,7 +162,7 @@ impl<const N: usize> TinyAsciiStr<N> {
         // Indexing is protected by the loop guard
         #[allow(clippy::indexing_slicing)]
         while i < M && i < N {
-            bytes[i] = self.bytes[i];
+            bytes[i] = self.bytes[i] as u8;
             i += 1;
         }
         // `self.bytes` only contains ASCII bytes, with no null bytes between
@@ -161,22 +175,24 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// between ASCII characters
     #[must_use]
     pub const unsafe fn from_bytes_unchecked(bytes: [u8; N]) -> Self {
-        Self { bytes }
+        Self {
+            bytes: AsciiByte::to_ascii_byte_array(&bytes),
+        }
     }
 }
 
 macro_rules! check_is {
     ($self:ident, $check_int:ident, $check_u8:ident) => {
         if N <= 4 {
-            Aligned4::from_bytes(&$self.bytes).$check_int()
+            Aligned4::from_ascii_bytes(&$self.bytes).$check_int()
         } else if N <= 8 {
-            Aligned8::from_bytes(&$self.bytes).$check_int()
+            Aligned8::from_ascii_bytes(&$self.bytes).$check_int()
         } else {
             let mut i = 0;
             // Won't panic because self.bytes has length N
             #[allow(clippy::indexing_slicing)]
-            while i < N && $self.bytes[i] != 0 {
-                if !$self.bytes[i].$check_u8() {
+            while i < N && $self.bytes[i] as u8 != AsciiByte::B0 as u8 {
+                if !($self.bytes[i] as u8).$check_u8() {
                     return false;
                 }
                 i += 1;
@@ -186,19 +202,19 @@ macro_rules! check_is {
     };
     ($self:ident, $check_int:ident, !$check_u8_0_inv:ident, !$check_u8_1_inv:ident) => {
         if N <= 4 {
-            Aligned4::from_bytes(&$self.bytes).$check_int()
+            Aligned4::from_ascii_bytes(&$self.bytes).$check_int()
         } else if N <= 8 {
-            Aligned8::from_bytes(&$self.bytes).$check_int()
+            Aligned8::from_ascii_bytes(&$self.bytes).$check_int()
         } else {
             // Won't panic because N is > 8
-            if $self.bytes[0].$check_u8_0_inv() {
+            if ($self.bytes[0] as u8).$check_u8_0_inv() {
                 return false;
             }
             let mut i = 1;
             // Won't panic because self.bytes has length N
             #[allow(clippy::indexing_slicing)]
-            while i < N && $self.bytes[i] != 0 {
-                if $self.bytes[i].$check_u8_1_inv() {
+            while i < N && $self.bytes[i] as u8 != AsciiByte::B0 as u8 {
+                if ($self.bytes[i] as u8).$check_u8_1_inv() {
                     return false;
                 }
                 i += 1;
@@ -206,23 +222,21 @@ macro_rules! check_is {
             true
         }
     };
-    ($self:ident, $check_int:ident, $check_u8_comp:ident, !$check_u8_0_inv:ident, !$check_u8_1_inv:ident) => {
+    ($self:ident, $check_int:ident, $check_u8_0_inv:ident, $check_u8_1_inv:ident) => {
         if N <= 4 {
-            Aligned4::from_bytes(&$self.bytes).$check_int()
+            Aligned4::from_ascii_bytes(&$self.bytes).$check_int()
         } else if N <= 8 {
-            Aligned8::from_bytes(&$self.bytes).$check_int()
+            Aligned8::from_ascii_bytes(&$self.bytes).$check_int()
         } else {
-            // For cases of needing to check case AND composition
             // Won't panic because N is > 8
-            if $self.bytes[0].$check_u8_0_inv() || !$self.bytes[0].$check_u8_comp() {
-                // Checking first character. Necessary for titlecase
+            if !($self.bytes[0] as u8).$check_u8_0_inv() {
                 return false;
             }
             let mut i = 1;
             // Won't panic because self.bytes has length N
             #[allow(clippy::indexing_slicing)]
-            while i < N && $self.bytes[i] != 0 {
-                if $self.bytes[i].$check_u8_1_inv() || !$self.bytes[i].$check_u8_comp() {
+            while i < N && $self.bytes[i] as u8 != AsciiByte::B0 as u8 {
+                if !($self.bytes[i] as u8).$check_u8_1_inv() {
                     return false;
                 }
                 i += 1;
@@ -243,10 +257,8 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "Test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "Te3t".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "Test".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "Te3t".parse().expect("Failed to parse.");
     ///
     /// assert!(s1.is_ascii_alphabetic());
     /// assert!(!s2.is_ascii_alphabetic());
@@ -268,10 +280,8 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "A15b".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "[3@w".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "A15b".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "[3@w".parse().expect("Failed to parse.");
     ///
     /// assert!(s1.is_ascii_alphanumeric());
     /// assert!(!s2.is_ascii_alphanumeric());
@@ -291,10 +301,8 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "312".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "3d".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "312".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "3d".parse().expect("Failed to parse.");
     ///
     /// assert!(s1.is_ascii_numeric());
     /// assert!(!s2.is_ascii_numeric());
@@ -314,12 +322,9 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "teSt".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s3: TinyAsciiStr<4> = "001z".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "teSt".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "test".parse().expect("Failed to parse.");
+    /// let s3: TinyAsciiStr<4> = "001z".parse().expect("Failed to parse.");
     ///
     /// assert!(!s1.is_ascii_lowercase());
     /// assert!(s2.is_ascii_lowercase());
@@ -346,12 +351,9 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "teSt".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "Test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s3: TinyAsciiStr<4> = "001z".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "teSt".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "Test".parse().expect("Failed to parse.");
+    /// let s3: TinyAsciiStr<4> = "001z".parse().expect("Failed to parse.");
     ///
     /// assert!(!s1.is_ascii_titlecase());
     /// assert!(s2.is_ascii_titlecase());
@@ -377,12 +379,9 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "teSt".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "TEST".parse()
-    ///     .expect("Failed to parse.");
-    /// let s3: TinyAsciiStr<4> = "001z".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "teSt".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "TEST".parse().expect("Failed to parse.");
+    /// let s3: TinyAsciiStr<4> = "001z".parse().expect("Failed to parse.");
     ///
     /// assert!(!s1.is_ascii_uppercase());
     /// assert!(s2.is_ascii_uppercase());
@@ -408,16 +407,11 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "Test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "Te3t".parse()
-    ///     .expect("Failed to parse.");
-    /// let s3: TinyAsciiStr<4> = "teSt".parse()
-    ///     .expect("Failed to parse.");
-    /// let s4: TinyAsciiStr<4> = "test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s5: TinyAsciiStr<4> = "001z".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "Test".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "Te3t".parse().expect("Failed to parse.");
+    /// let s3: TinyAsciiStr<4> = "teSt".parse().expect("Failed to parse.");
+    /// let s4: TinyAsciiStr<4> = "test".parse().expect("Failed to parse.");
+    /// let s5: TinyAsciiStr<4> = "001z".parse().expect("Failed to parse.");
     ///
     /// assert!(!s1.is_ascii_alphabetic_lowercase());
     /// assert!(!s2.is_ascii_alphabetic_lowercase());
@@ -431,9 +425,8 @@ impl<const N: usize> TinyAsciiStr<N> {
         check_is!(
             self,
             is_ascii_alphabetic_lowercase,
-            is_ascii_alphabetic,
-            !is_ascii_uppercase,
-            !is_ascii_uppercase
+            is_ascii_lowercase,
+            is_ascii_lowercase
         )
     }
 
@@ -444,16 +437,11 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "Test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "Te3t".parse()
-    ///     .expect("Failed to parse.");
-    /// let s3: TinyAsciiStr<4> = "teSt".parse()
-    ///     .expect("Failed to parse.");
-    /// let s4: TinyAsciiStr<4> = "test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s5: TinyAsciiStr<4> = "001z".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "Test".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "Te3t".parse().expect("Failed to parse.");
+    /// let s3: TinyAsciiStr<4> = "teSt".parse().expect("Failed to parse.");
+    /// let s4: TinyAsciiStr<4> = "test".parse().expect("Failed to parse.");
+    /// let s5: TinyAsciiStr<4> = "001z".parse().expect("Failed to parse.");
     ///
     /// assert!(s1.is_ascii_alphabetic_titlecase());
     /// assert!(!s2.is_ascii_alphabetic_titlecase());
@@ -467,9 +455,8 @@ impl<const N: usize> TinyAsciiStr<N> {
         check_is!(
             self,
             is_ascii_alphabetic_titlecase,
-            is_ascii_alphabetic,
-            !is_ascii_lowercase,
-            !is_ascii_uppercase
+            is_ascii_uppercase,
+            is_ascii_lowercase
         )
     }
 
@@ -482,16 +469,11 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "Test".parse()
-    ///     .expect("Failed to parse.");
-    /// let s2: TinyAsciiStr<4> = "Te3t".parse()
-    ///     .expect("Failed to parse.");
-    /// let s3: TinyAsciiStr<4> = "teSt".parse()
-    ///     .expect("Failed to parse.");
-    /// let s4: TinyAsciiStr<4> = "TEST".parse()
-    ///     .expect("Failed to parse.");
-    /// let s5: TinyAsciiStr<4> = "001z".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "Test".parse().expect("Failed to parse.");
+    /// let s2: TinyAsciiStr<4> = "Te3t".parse().expect("Failed to parse.");
+    /// let s3: TinyAsciiStr<4> = "teSt".parse().expect("Failed to parse.");
+    /// let s4: TinyAsciiStr<4> = "TEST".parse().expect("Failed to parse.");
+    /// let s5: TinyAsciiStr<4> = "001z".parse().expect("Failed to parse.");
     ///
     /// assert!(!s1.is_ascii_alphabetic_uppercase());
     /// assert!(!s2.is_ascii_alphabetic_uppercase());
@@ -505,9 +487,8 @@ impl<const N: usize> TinyAsciiStr<N> {
         check_is!(
             self,
             is_ascii_alphabetic_uppercase,
-            is_ascii_alphabetic,
-            !is_ascii_lowercase,
-            !is_ascii_lowercase
+            is_ascii_uppercase,
+            is_ascii_uppercase
         )
     }
 }
@@ -516,7 +497,7 @@ macro_rules! to {
     ($self:ident, $to:ident, $later_char_to:ident $(,$first_char_to:ident)?) => {{
         let mut i = 0;
         if N <= 4 {
-            let aligned = Aligned4::from_bytes(&$self.bytes).$to().to_bytes();
+            let aligned = Aligned4::from_ascii_bytes(&$self.bytes).$to().to_ascii_bytes();
             // Won't panic because self.bytes has length N and aligned has length >= N
             #[allow(clippy::indexing_slicing)]
             while i < N {
@@ -524,7 +505,7 @@ macro_rules! to {
                 i += 1;
             }
         } else if N <= 8 {
-            let aligned = Aligned8::from_bytes(&$self.bytes).$to().to_bytes();
+            let aligned = Aligned8::from_ascii_bytes(&$self.bytes).$to().to_ascii_bytes();
             // Won't panic because self.bytes has length N and aligned has length >= N
             #[allow(clippy::indexing_slicing)]
             while i < N {
@@ -534,11 +515,21 @@ macro_rules! to {
         } else {
             // Won't panic because self.bytes has length N
             #[allow(clippy::indexing_slicing)]
-            while i < N && $self.bytes[i] != 0 {
-                $self.bytes[i] = $self.bytes[i].$later_char_to();
+            while i < N && $self.bytes[i] as u8 != AsciiByte::B0 as u8 {
+                // SAFETY: AsciiByte is repr(u8) and has same size as u8
+                unsafe {
+                    $self.bytes[i] = core::mem::transmute(
+                        ($self.bytes[i] as u8).$later_char_to()
+                    );
+                }
                 i += 1;
             }
-            $($self.bytes[0] = $self.bytes[0].$first_char_to())?
+            // SAFETY: AsciiByte is repr(u8) and has same size as u8
+            $(
+                $self.bytes[0] = unsafe {
+                    core::mem::transmute(($self.bytes[0] as u8).$first_char_to())
+                };
+            )?
         }
         $self
     }};
@@ -554,8 +545,7 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "TeS3".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "TeS3".parse().expect("Failed to parse.");
     ///
     /// assert_eq!(&*s1.to_ascii_lowercase(), "tes3");
     /// ```
@@ -575,8 +565,7 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "teSt".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "teSt".parse().expect("Failed to parse.");
     ///
     /// assert_eq!(&*s1.to_ascii_titlecase(), "Test");
     /// ```
@@ -600,8 +589,7 @@ impl<const N: usize> TinyAsciiStr<N> {
     /// ```
     /// use tinystr::TinyAsciiStr;
     ///
-    /// let s1: TinyAsciiStr<4> = "Tes3".parse()
-    ///     .expect("Failed to parse.");
+    /// let s1: TinyAsciiStr<4> = "Tes3".parse().expect("Failed to parse.");
     ///
     /// assert_eq!(&*s1.to_ascii_uppercase(), "TES3");
     /// ```
@@ -628,7 +616,7 @@ impl<const N: usize> Deref for TinyAsciiStr<N> {
     type Target = str;
     #[inline]
     fn deref(&self) -> &str {
-        unsafe { str::from_utf8_unchecked(self.as_bytes()) }
+        self.as_str()
     }
 }
 
@@ -675,7 +663,7 @@ mod test {
     use rand::seq::SliceRandom;
     use rand::SeedableRng;
 
-    const STRINGS: &[&str] = &[
+    const STRINGS: [&str; 26] = [
         "Latn",
         "laTn",
         "windows",
@@ -730,8 +718,8 @@ mod test {
         T: core::fmt::Debug + core::cmp::PartialEq,
     {
         for s in STRINGS
-            .iter()
-            .map(|s| s.to_string())
+            .into_iter()
+            .map(str::to_owned)
             .chain(gen_strings(100, &[3, 4, 5, 8, 12]))
         {
             let t = match TinyAsciiStr::<N>::from_str(&s) {
@@ -937,7 +925,7 @@ mod test {
                         .map(|c| c.to_ascii_lowercase())
                         .collect::<String>()
                 },
-                |t: TinyAsciiStr<N>| TinyAsciiStr::to_ascii_lowercase(t).to_string(),
+                |t: TinyAsciiStr<N>| TinyAsciiStr::to_ascii_lowercase(t).as_str().to_owned(),
             )
         }
         check::<2>();
@@ -961,7 +949,7 @@ mod test {
                     unsafe { r.as_bytes_mut()[0].make_ascii_uppercase() };
                     r
                 },
-                |t: TinyAsciiStr<N>| TinyAsciiStr::to_ascii_titlecase(t).to_string(),
+                |t: TinyAsciiStr<N>| TinyAsciiStr::to_ascii_titlecase(t).as_str().to_owned(),
             )
         }
         check::<2>();
@@ -981,7 +969,7 @@ mod test {
                         .map(|c| c.to_ascii_uppercase())
                         .collect::<String>()
                 },
-                |t: TinyAsciiStr<N>| TinyAsciiStr::to_ascii_uppercase(t).to_string(),
+                |t: TinyAsciiStr<N>| TinyAsciiStr::to_ascii_uppercase(t).as_str().to_owned(),
             )
         }
         check::<2>();

@@ -1,5 +1,6 @@
 //! Declare an error type for the tor-dirmgr crate.
 
+use std::error::Error as StdError;
 use std::sync::Arc;
 
 use crate::DocSource;
@@ -142,6 +143,22 @@ pub enum Error {
 impl From<signature::Error> for Error {
     fn from(err: signature::Error) -> Self {
         Self::SignatureError(Arc::new(err))
+    }
+}
+
+impl From<tor_rtcompat::scheduler::SleepError> for Error {
+    fn from(err: tor_rtcompat::scheduler::SleepError) -> Self {
+        use tor_rtcompat::scheduler::SleepError::*;
+        match err {
+            ScheduleDropped => Error::ManagerDropped,
+            e => tor_error::into_internal!("Unexpected sleep error")(e).into(),
+        }
+    }
+}
+
+impl AsRef<dyn StdError + 'static> for Error {
+    fn as_ref(&self) -> &(dyn StdError + 'static) {
+        self
     }
 }
 

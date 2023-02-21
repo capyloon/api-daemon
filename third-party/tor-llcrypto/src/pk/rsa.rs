@@ -20,22 +20,28 @@ use rsa::pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey};
 use std::fmt;
 use subtle::{Choice, ConstantTimeEq};
 
+use crate::util::ct::CtByteArray;
+
 /// How many bytes are in an "RSA ID"?  (This is a legacy tor
 /// concept, and refers to identifying a relay by a SHA1 digest
 /// of its RSA public identity key.)
 pub const RSA_ID_LEN: usize = 20;
 
-/// An identifier for a Tor relay, based on its legacy RSA identity
-/// key.  These are used all over the Tor protocol.
+/// An identifier for an RSA key, based on SHA1 and DER.
 ///
-/// Note that for modern purposes, you should almost always identify a
-/// relay by its [`Ed25519Identity`](crate::pk::ed25519::Ed25519Identity)
-/// instead of by this kind of identity key.
-#[derive(Clone, Copy, Hash, Ord, PartialOrd)]
-#[allow(clippy::derive_hash_xor_eq)]
+/// These are used (for legacy purposes) all over the Tor protocol.
+///
+/// This object is an "identity" in the sense that it identifies (up to) one RSA
+/// key.  It may also represent the identity for a particular entity, such as a
+/// relay or a directory authority.
+///
+/// Note that for modern purposes, you should almost always identify a relay by
+/// its [`Ed25519Identity`](crate::pk::ed25519::Ed25519Identity) instead of by
+/// this kind of identity key.
+#[derive(Clone, Copy, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub struct RsaIdentity {
     /// SHA1 digest of a DER encoded public key.
-    id: [u8; RSA_ID_LEN],
+    id: CtByteArray<RSA_ID_LEN>,
 }
 
 impl ConstantTimeEq for RsaIdentity {
@@ -44,22 +50,26 @@ impl ConstantTimeEq for RsaIdentity {
     }
 }
 
-impl PartialEq<RsaIdentity> for RsaIdentity {
-    fn eq(&self, rhs: &RsaIdentity) -> bool {
-        self.ct_eq(rhs).unwrap_u8() == 1
-    }
-}
-
-impl Eq for RsaIdentity {}
-
 impl fmt::Display for RsaIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "${}", hex::encode(&self.id[..]))
+        write!(f, "${}", hex::encode(&self.id.as_ref()[..]))
     }
 }
 impl fmt::Debug for RsaIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "RsaIdentity {{ {} }}", self)
+    }
+}
+
+impl safelog::Redactable for RsaIdentity {
+    /// Warning: This displays 16 bits of the RSA identity, which is
+    /// enough to narrow down a public relay by a great deal.
+    fn display_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "${}…", hex::encode(&self.id.as_ref()[..1]))
+    }
+
+    fn debug_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RsaIdentity {{ {} }}", self.redacted())
     }
 }
 
@@ -69,9 +79,9 @@ impl serde::Serialize for RsaIdentity {
         S: serde::Serializer,
     {
         if serializer.is_human_readable() {
-            serializer.serialize_str(&hex::encode(&self.id[..]))
+            serializer.serialize_str(&hex::encode(&self.id.as_ref()[..]))
         } else {
-            serializer.serialize_bytes(&self.id[..])
+            serializer.serialize_bytes(&self.id.as_ref()[..])
         }
     }
 }
@@ -123,7 +133,7 @@ impl<'de> serde::Deserialize<'de> for RsaIdentity {
 impl RsaIdentity {
     /// Expose an RsaIdentity as a slice of bytes.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.id[..]
+        &self.id.as_ref()[..]
     }
     /// Construct an RsaIdentity from a slice of bytes.
     ///
@@ -143,7 +153,7 @@ impl RsaIdentity {
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() == RSA_ID_LEN {
             Some(RsaIdentity {
-                id: *array_ref![bytes, 0, RSA_ID_LEN],
+                id: CtByteArray::from(*array_ref![bytes, 0, RSA_ID_LEN]),
             })
         } else {
             None
@@ -159,11 +169,22 @@ impl RsaIdentity {
             Ok(()) => Some(RsaIdentity::from(array)),
         }
     }
+
+    /// Return true if this `RsaIdentity` is composed entirely of zero-valued
+    /// bytes.
+    ///
+    /// Such all-zero values should not be used internally, since they are not
+    /// the ID of any valid key.  Instead, they are used in some places in the
+    /// Tor protocols.
+    pub fn is_zero(&self) -> bool {
+        // We do a constant-time comparison to avoid side-channels.
+        self.id.ct_eq(&[0; RSA_ID_LEN].into()).into()
+    }
 }
 
 impl From<[u8; 20]> for RsaIdentity {
     fn from(id: [u8; 20]) -> RsaIdentity {
-        RsaIdentity { id }
+        RsaIdentity { id: id.into() }
     }
 }
 
@@ -211,7 +232,7 @@ impl PublicKey {
     /// omitted.
     pub fn verify(&self, hashed: &[u8], sig: &[u8]) -> Result<(), signature::Error> {
         use rsa::PublicKey;
-        let padding = rsa::PaddingScheme::new_pkcs1v15_sign(None);
+        let padding = rsa::pkcs1v15::Pkcs1v15Sign::new_raw();
         self.0
             .verify(padding, hashed, sig)
             .map_err(|_| signature::Error::new())
@@ -256,8 +277,8 @@ impl PublicKey {
     pub fn to_rsa_identity(&self) -> RsaIdentity {
         use crate::d::Sha1;
         use digest::Digest;
-        let id = Sha1::digest(&self.to_der()).into();
-        RsaIdentity { id }
+        let id: [u8; RSA_ID_LEN] = Sha1::digest(self.to_der()).into();
+        RsaIdentity { id: id.into() }
     }
 }
 

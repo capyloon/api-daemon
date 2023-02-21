@@ -115,10 +115,20 @@ enum ErrorDetail {
     #[error("Error setting up the channel manager")]
     ChanMgrSetup(#[source] tor_chanmgr::Error),
 
+    /// Error setting up the guard manager
+    // TODO: should "guardmgr setup error" be its own type in tor-guardmgr?
+    #[error("Error setting up the circuit manager")]
+    GuardMgrSetup(#[source] tor_guardmgr::GuardMgrError),
+
     /// Error setting up the circuit manager
     // TODO: should "circmgr setup error" be its own type in tor-circmgr?
     #[error("Error setting up the circuit manager")]
     CircMgrSetup(#[source] tor_circmgr::Error),
+
+    /// Error setting up the bridge descriptor manager
+    #[error("Error setting up the bridge descriptor manager")]
+    #[cfg(feature = "bridge-client")]
+    BridgeDescMgrSetup(#[from] tor_dirmgr::bridgedesc::StartupError),
 
     /// Error setting up the directory manager
     // TODO: should "dirmgr setup error" be its own type in tor-dirmgr?
@@ -187,6 +197,15 @@ enum ErrorDetail {
     /// Unable to change configuration.
     #[error("Unable to change configuration")]
     Reconfigure(#[from] tor_config::ReconfigureError),
+
+    /// Problem creating or launching a pluggable transport.
+    #[cfg(feature="pt-client")]
+    #[error("Problem with a pluggable transport")]
+    PluggableTransport(#[from] tor_ptmgr::err::PtError),
+
+    /// We encountered a problem while inspecting or creating a directory.
+    #[error("Filesystem permissions problem")]
+    FsMistrust(#[from] fs_mistrust::Error),
 
     /// Unable to spawn task
     #[error("Unable to spawn {spawning}")]
@@ -283,10 +302,15 @@ impl tor_error::HasKind for ErrorDetail {
             E::ObtainExitCircuit { cause, .. } => cause.kind(),
             E::ExitTimeout => EK::RemoteNetworkTimeout,
             E::BootstrapRequired { .. } => EK::BootstrapRequired,
+            E::GuardMgrSetup(e) => e.kind(),
+            #[cfg(feature = "bridge-client")]
+            E::BridgeDescMgrSetup(e) => e.kind(),
             E::CircMgrSetup(e) => e.kind(),
             E::DirMgrSetup(e) => e.kind(),
             E::StateMgrSetup(e) => e.kind(),
             E::DirMgrBootstrap(e) => e.kind(),
+            #[cfg(feature = "pt-client")]
+            E::PluggableTransport(e) => e.kind(),
             E::StreamFailed { cause, .. } => cause.kind(),
             E::StateAccess(e) => e.kind(),
             E::Configuration(e) => e.kind(),
@@ -297,6 +321,7 @@ impl tor_error::HasKind for ErrorDetail {
             E::LocalAddress => EK::ForbiddenStreamTarget,
             E::ChanMgrSetup(e) => e.kind(),
             E::NoDir { error, .. } => error.kind(),
+            E::FsMistrust(_) => EK::FsPermissions,
             E::Bug(e) => e.kind(),
         }
     }
@@ -310,6 +335,16 @@ impl From<TorAddrError> for Error {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     /// This code makes sure that our errors implement all the traits we want.

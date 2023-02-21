@@ -13,19 +13,18 @@
 //! but the conversion keeps the valid value valid and the invalid value invalid
 //! so that the user-facing `NaiveDate` can validate the input as late as possible.
 
-#![allow(dead_code)] // some internal methods have been left for consistency
 #![cfg_attr(feature = "__internal_bench", allow(missing_docs))]
 
+use crate::Weekday;
 use core::{fmt, i32};
-use div::{div_rem, mod_floor};
+use num_integer::{div_rem, mod_floor};
 use num_traits::FromPrimitive;
-use Weekday;
 
 /// The internal date representation. This also includes the packed `Mdf` value.
-pub type DateImpl = i32;
+pub(super) type DateImpl = i32;
 
-pub const MAX_YEAR: DateImpl = i32::MAX >> 13;
-pub const MIN_YEAR: DateImpl = i32::MIN >> 13;
+pub(super) const MAX_YEAR: DateImpl = i32::MAX >> 13;
+pub(super) const MIN_YEAR: DateImpl = i32::MIN >> 13;
 
 /// The year flags (aka the dominical letter).
 ///
@@ -35,23 +34,24 @@ pub const MIN_YEAR: DateImpl = i32::MIN >> 13;
 /// where `a` is `1` for the common year (simplifies the `Of` validation)
 /// and `bbb` is a non-zero `Weekday` (mapping `Mon` to 7) of the last day in the past year
 /// (simplifies the day of week calculation from the 1-based ordinal).
+#[allow(unreachable_pub)] // public as an alias for benchmarks only
 #[derive(PartialEq, Eq, Copy, Clone)]
-pub struct YearFlags(pub u8);
+pub struct YearFlags(pub(super) u8);
 
-pub const A: YearFlags = YearFlags(0o15);
-pub const AG: YearFlags = YearFlags(0o05);
-pub const B: YearFlags = YearFlags(0o14);
-pub const BA: YearFlags = YearFlags(0o04);
-pub const C: YearFlags = YearFlags(0o13);
-pub const CB: YearFlags = YearFlags(0o03);
-pub const D: YearFlags = YearFlags(0o12);
-pub const DC: YearFlags = YearFlags(0o02);
-pub const E: YearFlags = YearFlags(0o11);
-pub const ED: YearFlags = YearFlags(0o01);
-pub const F: YearFlags = YearFlags(0o17);
-pub const FE: YearFlags = YearFlags(0o07);
-pub const G: YearFlags = YearFlags(0o16);
-pub const GF: YearFlags = YearFlags(0o06);
+pub(super) const A: YearFlags = YearFlags(0o15);
+pub(super) const AG: YearFlags = YearFlags(0o05);
+pub(super) const B: YearFlags = YearFlags(0o14);
+pub(super) const BA: YearFlags = YearFlags(0o04);
+pub(super) const C: YearFlags = YearFlags(0o13);
+pub(super) const CB: YearFlags = YearFlags(0o03);
+pub(super) const D: YearFlags = YearFlags(0o12);
+pub(super) const DC: YearFlags = YearFlags(0o02);
+pub(super) const E: YearFlags = YearFlags(0o11);
+pub(super) const ED: YearFlags = YearFlags(0o01);
+pub(super) const F: YearFlags = YearFlags(0o17);
+pub(super) const FE: YearFlags = YearFlags(0o07);
+pub(super) const G: YearFlags = YearFlags(0o16);
+pub(super) const GF: YearFlags = YearFlags(0o06);
 
 static YEAR_TO_FLAGS: [YearFlags; 400] = [
     BA, G, F, E, DC, B, A, G, FE, D, C, B, AG, F, E, D, CB, A, G, F, ED, C, B, A, GF, E, D, C, BA,
@@ -94,7 +94,7 @@ static YEAR_DELTAS: [u8; 401] = [
     96, 97, 97, 97, 97, // 400+1
 ];
 
-pub fn cycle_to_yo(cycle: u32) -> (u32, u32) {
+pub(super) fn cycle_to_yo(cycle: u32) -> (u32, u32) {
     let (mut year_mod_400, mut ordinal0) = div_rem(cycle, 365);
     let delta = u32::from(YEAR_DELTAS[year_mod_400 as usize]);
     if ordinal0 < delta {
@@ -106,11 +106,13 @@ pub fn cycle_to_yo(cycle: u32) -> (u32, u32) {
     (year_mod_400, ordinal0 + 1)
 }
 
-pub fn yo_to_cycle(year_mod_400: u32, ordinal: u32) -> u32 {
+pub(super) fn yo_to_cycle(year_mod_400: u32, ordinal: u32) -> u32 {
     year_mod_400 * 365 + u32::from(YEAR_DELTAS[year_mod_400 as usize]) + ordinal - 1
 }
 
 impl YearFlags {
+    #[allow(unreachable_pub)] // public as an alias for benchmarks only
+    #[doc(hidden)] // for benchmarks only
     #[inline]
     pub fn from_year(year: i32) -> YearFlags {
         let year = mod_floor(year, 400);
@@ -118,18 +120,18 @@ impl YearFlags {
     }
 
     #[inline]
-    pub fn from_year_mod_400(year: i32) -> YearFlags {
+    pub(super) fn from_year_mod_400(year: i32) -> YearFlags {
         YEAR_TO_FLAGS[year as usize]
     }
 
     #[inline]
-    pub fn ndays(&self) -> u32 {
+    pub(super) fn ndays(&self) -> u32 {
         let YearFlags(flags) = *self;
         366 - u32::from(flags >> 3)
     }
 
     #[inline]
-    pub fn isoweek_delta(&self) -> u32 {
+    pub(super) fn isoweek_delta(&self) -> u32 {
         let YearFlags(flags) = *self;
         let mut delta = u32::from(flags) & 0b0111;
         if delta < 3 {
@@ -139,7 +141,7 @@ impl YearFlags {
     }
 
     #[inline]
-    pub fn nisoweeks(&self) -> u32 {
+    pub(super) fn nisoweeks(&self) -> u32 {
         let YearFlags(flags) = *self;
         52 + ((0b0000_0100_0000_0110 >> flags as usize) & 1)
     }
@@ -170,10 +172,9 @@ impl fmt::Debug for YearFlags {
     }
 }
 
-pub const MIN_OL: u32 = 1 << 1;
-pub const MAX_OL: u32 = 366 << 1; // larger than the non-leap last day `(365 << 1) | 1`
-pub const MIN_MDL: u32 = (1 << 6) | (1 << 1);
-pub const MAX_MDL: u32 = (12 << 6) | (31 << 1) | 1;
+pub(super) const MIN_OL: u32 = 1 << 1;
+pub(super) const MAX_OL: u32 = 366 << 1; // larger than the non-leap last day `(365 << 1) | 1`
+pub(super) const MAX_MDL: u32 = (12 << 6) | (31 << 1) | 1;
 
 const XX: i8 = -128;
 static MDL_TO_OL: [i8; MAX_MDL as usize + 1] = [
@@ -265,26 +266,19 @@ static OL_TO_MDL: [u8; MAX_OL as usize + 1] = [
 /// The whole bits except for the least 3 bits are referred as `Ol` (ordinal and leap flag),
 /// which is an index to the `OL_TO_MDL` lookup table.
 #[derive(PartialEq, PartialOrd, Copy, Clone)]
-pub struct Of(pub u32);
+pub(super) struct Of(pub(crate) u32);
 
 impl Of {
     #[inline]
-    fn clamp_ordinal(ordinal: u32) -> u32 {
-        if ordinal > 366 {
-            0
-        } else {
-            ordinal
+    pub(super) fn new(ordinal: u32, YearFlags(flags): YearFlags) -> Option<Of> {
+        match ordinal <= 366 {
+            true => Some(Of((ordinal << 4) | u32::from(flags))),
+            false => None,
         }
     }
 
     #[inline]
-    pub fn new(ordinal: u32, YearFlags(flags): YearFlags) -> Of {
-        let ordinal = Of::clamp_ordinal(ordinal);
-        Of((ordinal << 4) | u32::from(flags))
-    }
-
-    #[inline]
-    pub fn from_mdf(Mdf(mdf): Mdf) -> Of {
+    pub(super) fn from_mdf(Mdf(mdf): Mdf) -> Of {
         let mdl = mdf >> 3;
         match MDL_TO_OL.get(mdl as usize) {
             Some(&v) => Of(mdf.wrapping_sub((i32::from(v) as u32 & 0x3ff) << 3)),
@@ -293,64 +287,62 @@ impl Of {
     }
 
     #[inline]
-    pub fn valid(&self) -> bool {
+    pub(super) fn valid(&self) -> bool {
         let Of(of) = *self;
         let ol = of >> 3;
-        MIN_OL <= ol && ol <= MAX_OL
+        (MIN_OL..=MAX_OL).contains(&ol)
     }
 
     #[inline]
-    pub fn ordinal(&self) -> u32 {
+    pub(super) fn ordinal(&self) -> u32 {
         let Of(of) = *self;
         of >> 4
     }
 
     #[inline]
-    pub fn with_ordinal(&self, ordinal: u32) -> Of {
-        let ordinal = Of::clamp_ordinal(ordinal);
+    pub(super) fn with_ordinal(&self, ordinal: u32) -> Option<Of> {
+        if ordinal > 366 {
+            return None;
+        }
+
         let Of(of) = *self;
-        Of((of & 0b1111) | (ordinal << 4))
+        Some(Of((of & 0b1111) | (ordinal << 4)))
     }
 
     #[inline]
-    pub fn flags(&self) -> YearFlags {
+    pub(super) fn flags(&self) -> YearFlags {
         let Of(of) = *self;
         YearFlags((of & 0b1111) as u8)
     }
 
     #[inline]
-    pub fn with_flags(&self, YearFlags(flags): YearFlags) -> Of {
-        let Of(of) = *self;
-        Of((of & !0b1111) | u32::from(flags))
-    }
-
-    #[inline]
-    pub fn weekday(&self) -> Weekday {
+    pub(super) fn weekday(&self) -> Weekday {
         let Of(of) = *self;
         Weekday::from_u32(((of >> 4) + (of & 0b111)) % 7).unwrap()
     }
 
     #[inline]
-    pub fn isoweekdate_raw(&self) -> (u32, Weekday) {
+    pub(super) fn isoweekdate_raw(&self) -> (u32, Weekday) {
         // week ordinal = ordinal + delta
         let Of(of) = *self;
         let weekord = (of >> 4).wrapping_add(self.flags().isoweek_delta());
         (weekord / 7, Weekday::from_u32(weekord % 7).unwrap())
     }
 
+    #[cfg_attr(feature = "cargo-clippy", allow(clippy::wrong_self_convention))]
     #[inline]
-    pub fn to_mdf(&self) -> Mdf {
+    pub(super) fn to_mdf(&self) -> Mdf {
         Mdf::from_of(*self)
     }
 
     #[inline]
-    pub fn succ(&self) -> Of {
+    pub(super) fn succ(&self) -> Of {
         let Of(of) = *self;
         Of(of + (1 << 4))
     }
 
     #[inline]
-    pub fn pred(&self) -> Of {
+    pub(super) fn pred(&self) -> Of {
         let Of(of) = *self;
         Of(of - (1 << 4))
     }
@@ -375,36 +367,19 @@ impl fmt::Debug for Of {
 /// (month, day of month and leap flag),
 /// which is an index to the `MDL_TO_OL` lookup table.
 #[derive(PartialEq, PartialOrd, Copy, Clone)]
-pub struct Mdf(pub u32);
+pub(super) struct Mdf(pub(super) u32);
 
 impl Mdf {
     #[inline]
-    fn clamp_month(month: u32) -> u32 {
-        if month > 12 {
-            0
-        } else {
-            month
+    pub(super) fn new(month: u32, day: u32, YearFlags(flags): YearFlags) -> Option<Mdf> {
+        match month <= 12 && day <= 31 {
+            true => Some(Mdf((month << 9) | (day << 4) | u32::from(flags))),
+            false => None,
         }
     }
 
     #[inline]
-    fn clamp_day(day: u32) -> u32 {
-        if day > 31 {
-            0
-        } else {
-            day
-        }
-    }
-
-    #[inline]
-    pub fn new(month: u32, day: u32, YearFlags(flags): YearFlags) -> Mdf {
-        let month = Mdf::clamp_month(month);
-        let day = Mdf::clamp_day(day);
-        Mdf((month << 9) | (day << 4) | u32::from(flags))
-    }
-
-    #[inline]
-    pub fn from_of(Of(of): Of) -> Mdf {
+    pub(super) fn from_of(Of(of): Of) -> Mdf {
         let ol = of >> 3;
         match OL_TO_MDL.get(ol as usize) {
             Some(&v) => Mdf(of + (u32::from(v) << 3)),
@@ -412,8 +387,8 @@ impl Mdf {
         }
     }
 
-    #[inline]
-    pub fn valid(&self) -> bool {
+    #[cfg(test)]
+    pub(super) fn valid(&self) -> bool {
         let Mdf(mdf) = *self;
         let mdl = mdf >> 3;
         match MDL_TO_OL.get(mdl as usize) {
@@ -423,45 +398,46 @@ impl Mdf {
     }
 
     #[inline]
-    pub fn month(&self) -> u32 {
+    pub(super) fn month(&self) -> u32 {
         let Mdf(mdf) = *self;
         mdf >> 9
     }
 
     #[inline]
-    pub fn with_month(&self, month: u32) -> Mdf {
-        let month = Mdf::clamp_month(month);
+    pub(super) fn with_month(&self, month: u32) -> Option<Mdf> {
+        if month > 12 {
+            return None;
+        }
+
         let Mdf(mdf) = *self;
-        Mdf((mdf & 0b1_1111_1111) | (month << 9))
+        Some(Mdf((mdf & 0b1_1111_1111) | (month << 9)))
     }
 
     #[inline]
-    pub fn day(&self) -> u32 {
+    pub(super) fn day(&self) -> u32 {
         let Mdf(mdf) = *self;
         (mdf >> 4) & 0b1_1111
     }
 
     #[inline]
-    pub fn with_day(&self, day: u32) -> Mdf {
-        let day = Mdf::clamp_day(day);
+    pub(super) fn with_day(&self, day: u32) -> Option<Mdf> {
+        if day > 31 {
+            return None;
+        }
+
         let Mdf(mdf) = *self;
-        Mdf((mdf & !0b1_1111_0000) | (day << 4))
+        Some(Mdf((mdf & !0b1_1111_0000) | (day << 4)))
     }
 
     #[inline]
-    pub fn flags(&self) -> YearFlags {
-        let Mdf(mdf) = *self;
-        YearFlags((mdf & 0b1111) as u8)
-    }
-
-    #[inline]
-    pub fn with_flags(&self, YearFlags(flags): YearFlags) -> Mdf {
+    pub(super) fn with_flags(&self, YearFlags(flags): YearFlags) -> Mdf {
         let Mdf(mdf) = *self;
         Mdf((mdf & !0b1111) | u32::from(flags))
     }
 
+    #[cfg_attr(feature = "cargo-clippy", allow(clippy::wrong_self_convention))]
     #[inline]
-    pub fn to_of(&self) -> Of {
+    pub(super) fn to_of(&self) -> Of {
         Of::from_mdf(*self)
     }
 }
@@ -482,14 +458,12 @@ impl fmt::Debug for Mdf {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(test)]
-    extern crate num_iter;
+    use num_iter::range_inclusive;
+    use std::u32;
 
-    use self::num_iter::range_inclusive;
     use super::{Mdf, Of};
     use super::{YearFlags, A, AG, B, BA, C, CB, D, DC, E, ED, F, FE, G, GF};
-    use std::u32;
-    use Weekday;
+    use crate::Weekday;
 
     const NONLEAP_FLAGS: [YearFlags; 7] = [A, B, C, D, E, F, G];
     const LEAP_FLAGS: [YearFlags; 7] = [AG, BA, CB, DC, ED, FE, GF];
@@ -534,7 +508,12 @@ mod tests {
     fn test_of() {
         fn check(expected: bool, flags: YearFlags, ordinal1: u32, ordinal2: u32) {
             for ordinal in range_inclusive(ordinal1, ordinal2) {
-                let of = Of::new(ordinal, flags);
+                let of = match Of::new(ordinal, flags) {
+                    Some(of) => of,
+                    None if !expected => continue,
+                    None => panic!("Of::new({}, {:?}) returned None", ordinal, flags),
+                };
+
                 assert!(
                     of.valid() == expected,
                     "ordinal {} = {:?} should be {} for dominical year {:?}",
@@ -566,7 +545,12 @@ mod tests {
         fn check(expected: bool, flags: YearFlags, month1: u32, day1: u32, month2: u32, day2: u32) {
             for month in range_inclusive(month1, month2) {
                 for day in range_inclusive(day1, day2) {
-                    let mdf = Mdf::new(month, day, flags);
+                    let mdf = match Mdf::new(month, day, flags) {
+                        Some(mdf) => mdf,
+                        None if !expected => continue,
+                        None => panic!("Mdf::new({}, {}, {:?}) returned None", month, day, flags),
+                    };
+
                     assert!(
                         mdf.valid() == expected,
                         "month {} day {} = {:?} should be {} for dominical year {:?}",
@@ -651,7 +635,7 @@ mod tests {
     fn test_of_fields() {
         for &flags in FLAGS.iter() {
             for ordinal in range_inclusive(1u32, 366) {
-                let of = Of::new(ordinal, flags);
+                let of = Of::new(ordinal, flags).unwrap();
                 if of.valid() {
                     assert_eq!(of.ordinal(), ordinal);
                 }
@@ -662,11 +646,16 @@ mod tests {
     #[test]
     fn test_of_with_fields() {
         fn check(flags: YearFlags, ordinal: u32) {
-            let of = Of::new(ordinal, flags);
+            let of = Of::new(ordinal, flags).unwrap();
 
             for ordinal in range_inclusive(0u32, 1024) {
-                let of = of.with_ordinal(ordinal);
-                assert_eq!(of.valid(), Of::new(ordinal, flags).valid());
+                let of = match of.with_ordinal(ordinal) {
+                    Some(of) => of,
+                    None if ordinal > 366 => continue,
+                    None => panic!("failed to create Of with ordinal {}", ordinal),
+                };
+
+                assert_eq!(of.valid(), Of::new(ordinal, flags).unwrap().valid());
                 if of.valid() {
                     assert_eq!(of.ordinal(), ordinal);
                 }
@@ -685,25 +674,25 @@ mod tests {
 
     #[test]
     fn test_of_weekday() {
-        assert_eq!(Of::new(1, A).weekday(), Weekday::Sun);
-        assert_eq!(Of::new(1, B).weekday(), Weekday::Sat);
-        assert_eq!(Of::new(1, C).weekday(), Weekday::Fri);
-        assert_eq!(Of::new(1, D).weekday(), Weekday::Thu);
-        assert_eq!(Of::new(1, E).weekday(), Weekday::Wed);
-        assert_eq!(Of::new(1, F).weekday(), Weekday::Tue);
-        assert_eq!(Of::new(1, G).weekday(), Weekday::Mon);
-        assert_eq!(Of::new(1, AG).weekday(), Weekday::Sun);
-        assert_eq!(Of::new(1, BA).weekday(), Weekday::Sat);
-        assert_eq!(Of::new(1, CB).weekday(), Weekday::Fri);
-        assert_eq!(Of::new(1, DC).weekday(), Weekday::Thu);
-        assert_eq!(Of::new(1, ED).weekday(), Weekday::Wed);
-        assert_eq!(Of::new(1, FE).weekday(), Weekday::Tue);
-        assert_eq!(Of::new(1, GF).weekday(), Weekday::Mon);
+        assert_eq!(Of::new(1, A).unwrap().weekday(), Weekday::Sun);
+        assert_eq!(Of::new(1, B).unwrap().weekday(), Weekday::Sat);
+        assert_eq!(Of::new(1, C).unwrap().weekday(), Weekday::Fri);
+        assert_eq!(Of::new(1, D).unwrap().weekday(), Weekday::Thu);
+        assert_eq!(Of::new(1, E).unwrap().weekday(), Weekday::Wed);
+        assert_eq!(Of::new(1, F).unwrap().weekday(), Weekday::Tue);
+        assert_eq!(Of::new(1, G).unwrap().weekday(), Weekday::Mon);
+        assert_eq!(Of::new(1, AG).unwrap().weekday(), Weekday::Sun);
+        assert_eq!(Of::new(1, BA).unwrap().weekday(), Weekday::Sat);
+        assert_eq!(Of::new(1, CB).unwrap().weekday(), Weekday::Fri);
+        assert_eq!(Of::new(1, DC).unwrap().weekday(), Weekday::Thu);
+        assert_eq!(Of::new(1, ED).unwrap().weekday(), Weekday::Wed);
+        assert_eq!(Of::new(1, FE).unwrap().weekday(), Weekday::Tue);
+        assert_eq!(Of::new(1, GF).unwrap().weekday(), Weekday::Mon);
 
         for &flags in FLAGS.iter() {
-            let mut prev = Of::new(1, flags).weekday();
+            let mut prev = Of::new(1, flags).unwrap().weekday();
             for ordinal in range_inclusive(2u32, flags.ndays()) {
-                let of = Of::new(ordinal, flags);
+                let of = Of::new(ordinal, flags).unwrap();
                 let expected = prev.succ();
                 assert_eq!(of.weekday(), expected);
                 prev = expected;
@@ -716,7 +705,11 @@ mod tests {
         for &flags in FLAGS.iter() {
             for month in range_inclusive(1u32, 12) {
                 for day in range_inclusive(1u32, 31) {
-                    let mdf = Mdf::new(month, day, flags);
+                    let mdf = match Mdf::new(month, day, flags) {
+                        Some(mdf) => mdf,
+                        None => continue,
+                    };
+
                     if mdf.valid() {
                         assert_eq!(mdf.month(), month);
                         assert_eq!(mdf.day(), day);
@@ -729,11 +722,15 @@ mod tests {
     #[test]
     fn test_mdf_with_fields() {
         fn check(flags: YearFlags, month: u32, day: u32) {
-            let mdf = Mdf::new(month, day, flags);
+            let mdf = Mdf::new(month, day, flags).unwrap();
 
             for month in range_inclusive(0u32, 16) {
-                let mdf = mdf.with_month(month);
-                assert_eq!(mdf.valid(), Mdf::new(month, day, flags).valid());
+                let mdf = match mdf.with_month(month) {
+                    Some(mdf) => mdf,
+                    None if month > 12 => continue,
+                    None => panic!("failed to create Mdf with month {}", month),
+                };
+
                 if mdf.valid() {
                     assert_eq!(mdf.month(), month);
                     assert_eq!(mdf.day(), day);
@@ -741,8 +738,12 @@ mod tests {
             }
 
             for day in range_inclusive(0u32, 1024) {
-                let mdf = mdf.with_day(day);
-                assert_eq!(mdf.valid(), Mdf::new(month, day, flags).valid());
+                let mdf = match mdf.with_day(day) {
+                    Some(mdf) => mdf,
+                    None if day > 31 => continue,
+                    None => panic!("failed to create Mdf with month {}", month),
+                };
+
                 if mdf.valid() {
                     assert_eq!(mdf.month(), month);
                     assert_eq!(mdf.day(), day);
@@ -772,7 +773,7 @@ mod tests {
     fn test_of_isoweekdate_raw() {
         for &flags in FLAGS.iter() {
             // January 4 should be in the first week
-            let (week, _) = Of::new(4 /* January 4 */, flags).isoweekdate_raw();
+            let (week, _) = Of::new(4 /* January 4 */, flags).unwrap().isoweekdate_raw();
             assert_eq!(week, 1);
         }
     }

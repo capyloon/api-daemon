@@ -454,7 +454,16 @@ impl<'a> Iterator for MicrodescReader<'a> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
     const TESTDATA: &str = include_str!("../../testdata/microdesc1.txt");
@@ -479,7 +488,7 @@ mod test {
 
     #[test]
     fn parse_multi() -> Result<()> {
-        use std::time::{Duration, SystemTime};
+        use humantime::parse_rfc3339;
         let mds: Result<Vec<_>> =
             MicrodescReader::new(TESTDATA2, &AllowAnnotations::AnnotationsAllowed).collect();
         let mds = mds?;
@@ -487,7 +496,7 @@ mod test {
 
         assert_eq!(
             mds[0].ann.last_listed.unwrap(),
-            SystemTime::UNIX_EPOCH + Duration::new(1580151129, 0)
+            parse_rfc3339("2020-01-27T18:52:09Z").unwrap()
         );
         assert_eq!(
             mds[0].md().digest(),

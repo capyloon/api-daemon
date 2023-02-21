@@ -13,13 +13,15 @@ use tor_netdoc::doc::netstatus::ConsensusFlavor;
 #[cfg(feature = "routerdesc")]
 use tor_netdoc::doc::routerdesc::RdDigest;
 
+#[cfg(feature = "bridge-client")]
+pub(crate) use tor_guardmgr::bridge::BridgeConfig;
+
 use crate::docmeta::{AuthCertMeta, ConsensusMeta};
 use crate::{Error, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Result as IoResult;
-use std::ops::{Deref, DerefMut};
 use std::str::Utf8Error;
 use std::time::SystemTime;
 use time::Duration;
@@ -29,7 +31,7 @@ pub(crate) mod sqlite;
 pub(crate) use sqlite::SqliteStore;
 
 /// Convenient Sized & dynamic [`Store`]
-pub(crate) type DynStore = Box<dyn Store + Send>;
+pub(crate) type DynStore = Box<dyn Store>;
 
 /// A document returned by a directory manager.
 ///
@@ -232,7 +234,7 @@ pub(crate) const EXPIRATION_DEFAULTS: ExpirationConfig = {
 ///
 /// When creating an instance of this [`Store`], it should try to grab the lock during
 /// initialization (`is_readonly() iff some other implementation grabbed it`).
-pub(crate) trait Store {
+pub(crate) trait Store: Send + 'static {
     /// Return true if this [`Store`] is opened in read-only mode.
     fn is_readonly(&self) -> bool;
     /// Try to upgrade from a read-only connection to a read-write connection.
@@ -304,98 +306,54 @@ pub(crate) trait Store {
     #[cfg(feature = "routerdesc")]
     #[allow(unused)]
     fn store_routerdescs(&mut self, digests: &[(&str, SystemTime, &RdDigest)]) -> Result<()>;
+
+    /// Look up a cached bridge descriptor.
+    #[cfg(feature = "bridge-client")]
+    fn lookup_bridgedesc(&self, bridge: &BridgeConfig) -> Result<Option<CachedBridgeDescriptor>>;
+
+    /// Store a cached bridge descriptor.
+    ///
+    /// This entry will be deleted some time after `until`
+    /// (but the caller is not allowed to rely on either timely deletion,
+    /// or retention until that time).
+    #[cfg(feature = "bridge-client")]
+    fn store_bridgedesc(
+        &mut self,
+        bridge: &BridgeConfig,
+        entry: CachedBridgeDescriptor,
+        until: SystemTime,
+    ) -> Result<()>;
+
+    /// Delete a cached bridge descriptor for this bridge.
+    ///
+    /// It's not an error if it's not present.
+    #[cfg(feature = "bridge-client")]
+    fn delete_bridgedesc(&mut self, bridge: &BridgeConfig) -> Result<()>;
 }
 
-// TODO(eta): maybe use something like the `delegate` crate to autogenerate this?
-impl Store for DynStore {
-    fn is_readonly(&self) -> bool {
-        self.deref().is_readonly()
-    }
+/// Value in the bridge descriptor cache
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "bridge_client"), allow(dead_code))]
+pub(crate) struct CachedBridgeDescriptor {
+    /// When we fetched this
+    pub(crate) fetched: SystemTime,
 
-    fn upgrade_to_readwrite(&mut self) -> Result<bool> {
-        self.deref_mut().upgrade_to_readwrite()
-    }
-
-    fn expire_all(&mut self, expiration: &ExpirationConfig) -> Result<()> {
-        self.deref_mut().expire_all(expiration)
-    }
-
-    fn latest_consensus(
-        &self,
-        flavor: ConsensusFlavor,
-        pending: Option<bool>,
-    ) -> Result<Option<InputString>> {
-        self.deref().latest_consensus(flavor, pending)
-    }
-
-    fn latest_consensus_meta(&self, flavor: ConsensusFlavor) -> Result<Option<ConsensusMeta>> {
-        self.deref().latest_consensus_meta(flavor)
-    }
-
-    fn consensus_by_meta(&self, cmeta: &ConsensusMeta) -> Result<InputString> {
-        self.deref().consensus_by_meta(cmeta)
-    }
-
-    fn consensus_by_sha3_digest_of_signed_part(
-        &self,
-        d: &[u8; 32],
-    ) -> Result<Option<(InputString, ConsensusMeta)>> {
-        self.deref().consensus_by_sha3_digest_of_signed_part(d)
-    }
-
-    fn store_consensus(
-        &mut self,
-        cmeta: &ConsensusMeta,
-        flavor: ConsensusFlavor,
-        pending: bool,
-        contents: &str,
-    ) -> Result<()> {
-        self.deref_mut()
-            .store_consensus(cmeta, flavor, pending, contents)
-    }
-
-    fn mark_consensus_usable(&mut self, cmeta: &ConsensusMeta) -> Result<()> {
-        self.deref_mut().mark_consensus_usable(cmeta)
-    }
-
-    fn delete_consensus(&mut self, cmeta: &ConsensusMeta) -> Result<()> {
-        self.deref_mut().delete_consensus(cmeta)
-    }
-
-    fn authcerts(&self, certs: &[AuthCertKeyIds]) -> Result<HashMap<AuthCertKeyIds, String>> {
-        self.deref().authcerts(certs)
-    }
-
-    fn store_authcerts(&mut self, certs: &[(AuthCertMeta, &str)]) -> Result<()> {
-        self.deref_mut().store_authcerts(certs)
-    }
-
-    fn microdescs(&self, digests: &[MdDigest]) -> Result<HashMap<MdDigest, String>> {
-        self.deref().microdescs(digests)
-    }
-
-    fn store_microdescs(&mut self, digests: &[(&str, &MdDigest)], when: SystemTime) -> Result<()> {
-        self.deref_mut().store_microdescs(digests, when)
-    }
-
-    fn update_microdescs_listed(&mut self, digests: &[MdDigest], when: SystemTime) -> Result<()> {
-        self.deref_mut().update_microdescs_listed(digests, when)
-    }
-
-    #[cfg(feature = "routerdesc")]
-    fn routerdescs(&self, digests: &[RdDigest]) -> Result<HashMap<RdDigest, String>> {
-        self.deref().routerdescs(digests)
-    }
-
-    #[cfg(feature = "routerdesc")]
-    fn store_routerdescs(&mut self, digests: &[(&str, SystemTime, &RdDigest)]) -> Result<()> {
-        self.deref_mut().store_routerdescs(digests)
-    }
+    /// The document text, as we fetched it
+    pub(crate) document: String,
 }
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use tempfile::tempdir;
 

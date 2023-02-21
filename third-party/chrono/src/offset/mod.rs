@@ -20,10 +20,22 @@
 
 use core::fmt;
 
-use format::{parse, ParseResult, Parsed, StrftimeItems};
-use naive::{NaiveDate, NaiveDateTime, NaiveTime};
-use Weekday;
-use {Date, DateTime};
+use crate::format::{parse, ParseResult, Parsed, StrftimeItems};
+use crate::naive::{NaiveDate, NaiveDateTime, NaiveTime};
+use crate::Weekday;
+#[allow(deprecated)]
+use crate::{Date, DateTime};
+
+mod fixed;
+pub use self::fixed::FixedOffset;
+
+#[cfg(feature = "clock")]
+mod local;
+#[cfg(feature = "clock")]
+pub use self::local::Local;
+
+mod utc;
+pub use self::utc::Utc;
 
 /// The conversion result from the local time to the timezone-aware datetime types.
 #[derive(Clone, PartialEq, Debug, Copy, Eq, Hash)]
@@ -73,6 +85,7 @@ impl<T> LocalResult<T> {
     }
 }
 
+#[allow(deprecated)]
 impl<Tz: TimeZone> LocalResult<Date<Tz>> {
     /// Makes a new `DateTime` from the current date and given `NaiveTime`.
     /// The offset in the current date is preserved.
@@ -195,6 +208,27 @@ pub trait TimeZone: Sized + Clone {
     /// The original `TimeZone` value can be recovered via `TimeZone::from_offset`.
     type Offset: Offset;
 
+    /// Make a new `DateTime` from year, month, day, time components and current time zone.
+    ///
+    /// This assumes the proleptic Gregorian calendar, with the year 0 being 1 BCE.
+    ///
+    /// Returns `LocalResult::None` on invalid input data.
+    fn with_ymd_and_hms(
+        &self,
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        min: u32,
+        sec: u32,
+    ) -> LocalResult<DateTime<Self>> {
+        match NaiveDate::from_ymd_opt(year, month, day).and_then(|d| d.and_hms_opt(hour, min, sec))
+        {
+            Some(dt) => self.from_local_datetime(&dt),
+            None => LocalResult::None,
+        }
+    }
+
     /// Makes a new `Date` from year, month, day and the current time zone.
     /// This assumes the proleptic Gregorian calendar, with the year 0 being 1 BCE.
     ///
@@ -202,14 +236,8 @@ pub trait TimeZone: Sized + Clone {
     /// but it will propagate to the `DateTime` values constructed via this date.
     ///
     /// Panics on the out-of-range date, invalid month and/or day.
-    ///
-    /// # Example
-    ///
-    /// ~~~~
-    /// use chrono::{Utc, TimeZone};
-    ///
-    /// assert_eq!(Utc.ymd(2015, 5, 15).to_string(), "2015-05-15UTC");
-    /// ~~~~
+    #[deprecated(since = "0.4.23", note = "use `with_ymd_and_hms()` instead")]
+    #[allow(deprecated)]
     fn ymd(&self, year: i32, month: u32, day: u32) -> Date<Self> {
         self.ymd_opt(year, month, day).unwrap()
     }
@@ -221,15 +249,8 @@ pub trait TimeZone: Sized + Clone {
     /// but it will propagate to the `DateTime` values constructed via this date.
     ///
     /// Returns `None` on the out-of-range date, invalid month and/or day.
-    ///
-    /// # Example
-    ///
-    /// ~~~~
-    /// use chrono::{Utc, LocalResult, TimeZone};
-    ///
-    /// assert_eq!(Utc.ymd_opt(2015, 5, 15).unwrap().to_string(), "2015-05-15UTC");
-    /// assert_eq!(Utc.ymd_opt(2000, 0, 0), LocalResult::None);
-    /// ~~~~
+    #[deprecated(since = "0.4.23", note = "use `with_ymd_and_hms()` instead")]
+    #[allow(deprecated)]
     fn ymd_opt(&self, year: i32, month: u32, day: u32) -> LocalResult<Date<Self>> {
         match NaiveDate::from_ymd_opt(year, month, day) {
             Some(d) => self.from_local_date(&d),
@@ -244,14 +265,11 @@ pub trait TimeZone: Sized + Clone {
     /// but it will propagate to the `DateTime` values constructed via this date.
     ///
     /// Panics on the out-of-range date and/or invalid DOY.
-    ///
-    /// # Example
-    ///
-    /// ~~~~
-    /// use chrono::{Utc, TimeZone};
-    ///
-    /// assert_eq!(Utc.yo(2015, 135).to_string(), "2015-05-15UTC");
-    /// ~~~~
+    #[deprecated(
+        since = "0.4.23",
+        note = "use `from_local_datetime()` with a `NaiveDateTime` instead"
+    )]
+    #[allow(deprecated)]
     fn yo(&self, year: i32, ordinal: u32) -> Date<Self> {
         self.yo_opt(year, ordinal).unwrap()
     }
@@ -263,6 +281,11 @@ pub trait TimeZone: Sized + Clone {
     /// but it will propagate to the `DateTime` values constructed via this date.
     ///
     /// Returns `None` on the out-of-range date and/or invalid DOY.
+    #[deprecated(
+        since = "0.4.23",
+        note = "use `from_local_datetime()` with a `NaiveDateTime` instead"
+    )]
+    #[allow(deprecated)]
     fn yo_opt(&self, year: i32, ordinal: u32) -> LocalResult<Date<Self>> {
         match NaiveDate::from_yo_opt(year, ordinal) {
             Some(d) => self.from_local_date(&d),
@@ -279,14 +302,11 @@ pub trait TimeZone: Sized + Clone {
     /// but it will propagate to the `DateTime` values constructed via this date.
     ///
     /// Panics on the out-of-range date and/or invalid week number.
-    ///
-    /// # Example
-    ///
-    /// ~~~~
-    /// use chrono::{Utc, Weekday, TimeZone};
-    ///
-    /// assert_eq!(Utc.isoywd(2015, 20, Weekday::Fri).to_string(), "2015-05-15UTC");
-    /// ~~~~
+    #[deprecated(
+        since = "0.4.23",
+        note = "use `from_local_datetime()` with a `NaiveDateTime` instead"
+    )]
+    #[allow(deprecated)]
     fn isoywd(&self, year: i32, week: u32, weekday: Weekday) -> Date<Self> {
         self.isoywd_opt(year, week, weekday).unwrap()
     }
@@ -300,6 +320,11 @@ pub trait TimeZone: Sized + Clone {
     /// but it will propagate to the `DateTime` values constructed via this date.
     ///
     /// Returns `None` on the out-of-range date and/or invalid week number.
+    #[deprecated(
+        since = "0.4.23",
+        note = "use `from_local_datetime()` with a `NaiveDateTime` instead"
+    )]
+    #[allow(deprecated)]
     fn isoywd_opt(&self, year: i32, week: u32, weekday: Weekday) -> LocalResult<Date<Self>> {
         match NaiveDate::from_isoywd_opt(year, week, weekday) {
             Some(d) => self.from_local_date(&d),
@@ -313,14 +338,7 @@ pub trait TimeZone: Sized + Clone {
     ///
     /// Panics on the out-of-range number of seconds and/or invalid nanosecond,
     /// for a non-panicking version see [`timestamp_opt`](#method.timestamp_opt).
-    ///
-    /// # Example
-    ///
-    /// ~~~~
-    /// use chrono::{Utc, TimeZone};
-    ///
-    /// assert_eq!(Utc.timestamp(1431648000, 0).to_string(), "2015-05-15 00:00:00 UTC");
-    /// ~~~~
+    #[deprecated(since = "0.4.23", note = "use `timestamp_opt()` instead")]
     fn timestamp(&self, secs: i64, nsecs: u32) -> DateTime<Self> {
         self.timestamp_opt(secs, nsecs).unwrap()
     }
@@ -331,6 +349,14 @@ pub trait TimeZone: Sized + Clone {
     ///
     /// Returns `LocalResult::None` on out-of-range number of seconds and/or
     /// invalid nanosecond, otherwise always returns `LocalResult::Single`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use chrono::{Utc, TimeZone};
+    ///
+    /// assert_eq!(Utc.timestamp_opt(1431648000, 0).unwrap().to_string(), "2015-05-15 00:00:00 UTC");
+    /// ```
     fn timestamp_opt(&self, secs: i64, nsecs: u32) -> LocalResult<DateTime<Self>> {
         match NaiveDateTime::from_timestamp_opt(secs, nsecs) {
             Some(dt) => LocalResult::Single(self.from_utc_datetime(&dt)),
@@ -343,14 +369,7 @@ pub trait TimeZone: Sized + Clone {
     ///
     /// Panics on out-of-range number of milliseconds for a non-panicking
     /// version see [`timestamp_millis_opt`](#method.timestamp_millis_opt).
-    ///
-    /// # Example
-    ///
-    /// ~~~~
-    /// use chrono::{Utc, TimeZone};
-    ///
-    /// assert_eq!(Utc.timestamp_millis(1431648000).timestamp(), 1431648);
-    /// ~~~~
+    #[deprecated(since = "0.4.23", note = "use `timestamp_millis_opt()` instead")]
     fn timestamp_millis(&self, millis: i64) -> DateTime<Self> {
         self.timestamp_millis_opt(millis).unwrap()
     }
@@ -365,13 +384,13 @@ pub trait TimeZone: Sized + Clone {
     ///
     /// # Example
     ///
-    /// ~~~~
+    /// ```
     /// use chrono::{Utc, TimeZone, LocalResult};
     /// match Utc.timestamp_millis_opt(1431648000) {
     ///     LocalResult::Single(dt) => assert_eq!(dt.timestamp(), 1431648),
     ///     _ => panic!("Incorrect timestamp_millis"),
     /// };
-    /// ~~~~
+    /// ```
     fn timestamp_millis_opt(&self, millis: i64) -> LocalResult<DateTime<Self>> {
         let (mut secs, mut millis) = (millis / 1000, millis % 1000);
         if millis < 0 {
@@ -389,11 +408,11 @@ pub trait TimeZone: Sized + Clone {
     ///
     /// # Example
     ///
-    /// ~~~~
+    /// ```
     /// use chrono::{Utc, TimeZone};
     ///
     /// assert_eq!(Utc.timestamp_nanos(1431648000000000).timestamp(), 1431648);
-    /// ~~~~
+    /// ```
     fn timestamp_nanos(&self, nanos: i64) -> DateTime<Self> {
         let (mut secs, mut nanos) = (nanos / 1_000_000_000, nanos % 1_000_000_000);
         if nanos < 0 {
@@ -403,16 +422,17 @@ pub trait TimeZone: Sized + Clone {
         self.timestamp_opt(secs, nanos as u32).unwrap()
     }
 
-    /// Parses a string with the specified format string and
-    /// returns a `DateTime` with the current offset.
-    /// See the [`format::strftime` module](../format/strftime/index.html)
-    /// on the supported escape sequences.
+    /// Parses a string with the specified format string and returns a
+    /// `DateTime` with the current offset.
     ///
-    /// If the format does not include offsets, the current offset is assumed;
-    /// otherwise the input should have a matching UTC offset.
+    /// See the [`crate::format::strftime`] module on the
+    /// supported escape sequences.
     ///
-    /// See also `DateTime::parse_from_str` which gives a local `DateTime`
-    /// with parsed `FixedOffset`.
+    /// If the to-be-parsed string includes an offset, it *must* match the
+    /// offset of the TimeZone, otherwise an error will be returned.
+    ///
+    /// See also [`DateTime::parse_from_str`] which gives a [`DateTime`] with
+    /// parsed [`FixedOffset`].
     fn datetime_from_str(&self, s: &str, fmt: &str) -> ParseResult<DateTime<Self>> {
         let mut parsed = Parsed::new();
         parse(&mut parsed, s, StrftimeItems::new(fmt))?;
@@ -429,6 +449,9 @@ pub trait TimeZone: Sized + Clone {
     fn offset_from_local_datetime(&self, local: &NaiveDateTime) -> LocalResult<Self::Offset>;
 
     /// Converts the local `NaiveDate` to the timezone-aware `Date` if possible.
+    #[allow(clippy::wrong_self_convention)]
+    #[deprecated(since = "0.4.23", note = "use `from_local_datetime()` instead")]
+    #[allow(deprecated)]
     fn from_local_date(&self, local: &NaiveDate) -> LocalResult<Date<Self>> {
         self.offset_from_local_date(local).map(|offset| {
             // since FixedOffset is within +/- 1 day, the date is never affected
@@ -437,6 +460,7 @@ pub trait TimeZone: Sized + Clone {
     }
 
     /// Converts the local `NaiveDateTime` to the timezone-aware `DateTime` if possible.
+    #[allow(clippy::wrong_self_convention)]
     fn from_local_datetime(&self, local: &NaiveDateTime) -> LocalResult<DateTime<Self>> {
         self.offset_from_local_datetime(local)
             .map(|offset| DateTime::from_utc(*local - offset.fix(), offset))
@@ -450,26 +474,20 @@ pub trait TimeZone: Sized + Clone {
 
     /// Converts the UTC `NaiveDate` to the local time.
     /// The UTC is continuous and thus this cannot fail (but can give the duplicate local time).
+    #[allow(clippy::wrong_self_convention)]
+    #[deprecated(since = "0.4.23", note = "use `from_utc_datetime()` instead")]
+    #[allow(deprecated)]
     fn from_utc_date(&self, utc: &NaiveDate) -> Date<Self> {
         Date::from_utc(*utc, self.offset_from_utc_date(utc))
     }
 
     /// Converts the UTC `NaiveDateTime` to the local time.
     /// The UTC is continuous and thus this cannot fail (but can give the duplicate local time).
+    #[allow(clippy::wrong_self_convention)]
     fn from_utc_datetime(&self, utc: &NaiveDateTime) -> DateTime<Self> {
         DateTime::from_utc(*utc, self.offset_from_utc_datetime(utc))
     }
 }
-
-mod fixed;
-#[cfg(feature = "clock")]
-mod local;
-mod utc;
-
-pub use self::fixed::FixedOffset;
-#[cfg(feature = "clock")]
-pub use self::local::Local;
-pub use self::utc::Utc;
 
 #[cfg(test)]
 mod tests {
@@ -477,21 +495,21 @@ mod tests {
 
     #[test]
     fn test_negative_millis() {
-        let dt = Utc.timestamp_millis(-1000);
+        let dt = Utc.timestamp_millis_opt(-1000).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:59:59 UTC");
-        let dt = Utc.timestamp_millis(-7000);
+        let dt = Utc.timestamp_millis_opt(-7000).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:59:53 UTC");
-        let dt = Utc.timestamp_millis(-7001);
+        let dt = Utc.timestamp_millis_opt(-7001).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:59:52.999 UTC");
-        let dt = Utc.timestamp_millis(-7003);
+        let dt = Utc.timestamp_millis_opt(-7003).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:59:52.997 UTC");
-        let dt = Utc.timestamp_millis(-999);
+        let dt = Utc.timestamp_millis_opt(-999).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:59:59.001 UTC");
-        let dt = Utc.timestamp_millis(-1);
+        let dt = Utc.timestamp_millis_opt(-1).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:59:59.999 UTC");
-        let dt = Utc.timestamp_millis(-60000);
+        let dt = Utc.timestamp_millis_opt(-60000).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:59:00 UTC");
-        let dt = Utc.timestamp_millis(-3600000);
+        let dt = Utc.timestamp_millis_opt(-3600000).unwrap();
         assert_eq!(dt.to_string(), "1969-12-31 23:00:00 UTC");
 
         for (millis, expected) in &[

@@ -315,8 +315,8 @@ VecEnumValues(vec![
 
 ```ignore
 // Rust
-#[serde_as(as = "Vec<(_, _)>")]
-value: HashMap<String, u32>, // also works with BTreeMap
+#[serde_as(as = "Seq<(_, _)>")] // also works with Vec
+value: HashMap<String, u32>, // also works with other maps like BTreeMap or IndexMap
 
 // JSON
 "value": [
@@ -425,7 +425,7 @@ value: SystemTime,
 
 The same conversions are also implemented for [`chrono::DateTime<Utc>`], [`chrono::DateTime<Local>`], and [`chrono::NaiveDateTime`] with the `chrono` feature.
 
-The conversions are availble for [`time::OffsetDateTime`] and [`time::PrimitiveDateTime`] with the `time_0_3` feature enabled.
+The conversions are available for [`time::OffsetDateTime`] and [`time::PrimitiveDateTime`] with the `time_0_3` feature enabled.
 
 ## Value into JSON String
 
@@ -449,11 +449,19 @@ value: OtherStruct,
 "value": "{\"value\":5}",
 ```
 
+```ignore
+#[serde_as(as = "JsonString<Vec<(JsonString, _)>>")]
+value: BTreeMap<[u8; 2], u32>,
+
+// JSON
+{"value":"[[\"[1,2]\",3],[\"[4,5]\",6]]"}
+```
+
 ## `Vec` of tuples to `Maps`
 
 ```ignore
 // Rust
-#[serde_as(as = "HashMap<_, _>")] // also works with BTreeMap
+#[serde_as(as = "Map<_, _>")] // also works with BTreeMap and HashMap
 value: Vec<(String, u32)>,
 
 // JSON
@@ -471,7 +479,7 @@ The [inverse operation](#maps-to-vec-of-tuples) is also available.
 ## Well-known time formats for `OffsetDateTime`
 
 [`time::OffsetDateTime`] can be serialized in string format in different well-known formats.
-Two formats are supported, [`time::format_description::well_known::Rfc2822`] and [`time::format_description::well_known::Rfc3339`].
+Three formats are supported, [`time::format_description::well_known::Rfc2822`], [`time::format_description::well_known::Rfc3339`], and [`time::format_description::well_known::Iso8601`].
 
 ```ignore
 // Rust
@@ -479,22 +487,25 @@ Two formats are supported, [`time::format_description::well_known::Rfc2822`] and
 rfc_2822: OffsetDateTime,
 #[serde_as(as = "time::format_description::well_known::Rfc3339")]
 rfc_3339: OffsetDateTime,
+#[serde_as(as = "time::format_description::well_known::Iso8601<Config>")]
+iso_8601: OffsetDateTime,
 
 // JSON
 "rfc_2822": "Fri, 21 Nov 1997 09:55:06 -0600",
 "rfc_3339": "1997-11-21T09:55:06-06:00",
+"iso_8061": "1997-11-21T09:55:06-06:00",
 ```
 
-These conversions are availble with the `time_0_3` feature flag.
+These conversions are available with the `time_0_3` feature flag.
 
 [`Base64`]: crate::base64::Base64
 [`BoolFromInt<Flexible>`]: crate::BoolFromInt
 [`BoolFromInt<Strict>`]: crate::BoolFromInt
 [`Bytes`]: crate::Bytes
-[`chrono::DateTime<Local>`]: chrono_crate::DateTime
-[`chrono::DateTime<Utc>`]: chrono_crate::DateTime
-[`chrono::Duration`]: https://docs.rs/chrono/latest/chrono/struct.Duration.html
-[`chrono::NaiveDateTime`]: chrono_crate::NaiveDateTime
+[`chrono::DateTime<Local>`]: chrono::DateTime
+[`chrono::DateTime<Utc>`]: chrono::DateTime
+[`chrono::Duration`]: chrono::Duration
+[`chrono::NaiveDateTime`]: chrono::NaiveDateTime
 [`DefaultOnError`]: crate::DefaultOnError
 [`DefaultOnNull`]: crate::DefaultOnNull
 [`DisplayFromStr`]: crate::DisplayFromStr
@@ -508,6 +519,7 @@ These conversions are availble with the `time_0_3` feature flag.
 [`OneOrMany`]: crate::OneOrMany
 [`PickFirst`]: crate::PickFirst
 [`time::Duration`]: time_0_3::Duration
+[`time::format_description::well_known::Iso8601`]: time_0_3::format_description::well_known::Iso8601
 [`time::format_description::well_known::Rfc2822`]: time_0_3::format_description::well_known::Rfc2822
 [`time::format_description::well_known::Rfc3339`]: time_0_3::format_description::well_known::Rfc3339
 [`time::OffsetDateTime`]: time_0_3::OffsetDateTime

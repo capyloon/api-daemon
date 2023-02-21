@@ -1,8 +1,8 @@
 //! Context-specific field.
 
 use crate::{
-    asn1::Any, Choice, Decodable, DecodeValue, Decoder, DerOrd, Encodable, EncodeValue, Encoder,
-    Error, Header, Length, Result, Tag, TagMode, TagNumber, Tagged, ValueOrd,
+    asn1::AnyRef, Choice, Decode, DecodeValue, DerOrd, Encode, EncodeValue, EncodeValueRef, Error,
+    Header, Length, Reader, Result, Tag, TagMode, TagNumber, Tagged, ValueOrd, Writer,
 };
 use core::cmp::Ordering;
 
@@ -39,22 +39,14 @@ impl<T> ContextSpecific<T> {
     ///   higher numbered field consumed as a follow-up.
     /// - Returns `Ok(None)` if anything other than a [`ContextSpecific`] field
     ///   is encountered.
-    pub fn decode_explicit<'a>(
-        decoder: &mut Decoder<'a>,
+    pub fn decode_explicit<'a, R: Reader<'a>>(
+        reader: &mut R,
         tag_number: TagNumber,
     ) -> Result<Option<Self>>
     where
-        T: Decodable<'a>,
+        T: Decode<'a>,
     {
-        Self::decode_with(decoder, tag_number, |decoder| {
-            let any = Any::decode(decoder)?;
-
-            if !any.tag().is_constructed() {
-                return Err(any.tag().non_canonical_error());
-            }
-
-            Self::try_from(any)
-        })
+        Self::decode_with(reader, tag_number, |reader| Self::decode(reader))
     }
 
     /// Attempt to decode an `IMPLICIT` ASN.1 `CONTEXT-SPECIFIC` field with the
@@ -63,16 +55,16 @@ impl<T> ContextSpecific<T> {
     /// This method otherwise behaves the same as `decode_explicit`,
     /// but should be used in cases where the particular fields are `IMPLICIT`
     /// as opposed to `EXPLICIT`.
-    pub fn decode_implicit<'a>(
-        decoder: &mut Decoder<'a>,
+    pub fn decode_implicit<'a, R: Reader<'a>>(
+        reader: &mut R,
         tag_number: TagNumber,
     ) -> Result<Option<Self>>
     where
         T: DecodeValue<'a> + Tagged,
     {
-        Self::decode_with(decoder, tag_number, |decoder| {
-            let header = Header::decode(decoder)?;
-            let value = T::decode_value(decoder, header.length)?;
+        Self::decode_with(reader, tag_number, |reader| {
+            let header = Header::decode(reader)?;
+            let value = T::decode_value(reader, header)?;
 
             if header.tag.is_constructed() != value.tag().is_constructed() {
                 return Err(header.tag.non_canonical_error());
@@ -88,54 +80,57 @@ impl<T> ContextSpecific<T> {
 
     /// Attempt to decode a context-specific field with the given
     /// helper callback.
-    fn decode_with<'a, F>(
-        decoder: &mut Decoder<'a>,
+    fn decode_with<'a, F, R: Reader<'a>>(
+        reader: &mut R,
         tag_number: TagNumber,
         f: F,
     ) -> Result<Option<Self>>
     where
-        F: FnOnce(&mut Decoder<'a>) -> Result<Self>,
+        F: FnOnce(&mut R) -> Result<Self>,
     {
-        while let Some(octet) = decoder.peek_byte() {
+        while let Some(octet) = reader.peek_byte() {
             let tag = Tag::try_from(octet)?;
 
             if !tag.is_context_specific() || (tag.number() > tag_number) {
                 break;
             } else if tag.number() == tag_number {
-                return Some(f(decoder)).transpose();
+                return Some(f(reader)).transpose();
             } else {
-                decoder.any()?;
+                AnyRef::decode(reader)?;
             }
         }
 
         Ok(None)
     }
-
-    /// Get a [`ContextSpecificRef`] for this field.
-    pub fn to_ref(&self) -> ContextSpecificRef<'_, T> {
-        ContextSpecificRef {
-            tag_number: self.tag_number,
-            tag_mode: self.tag_mode,
-            value: &self.value,
-        }
-    }
 }
 
 impl<'a, T> Choice<'a> for ContextSpecific<T>
 where
-    T: Decodable<'a> + Tagged,
+    T: Decode<'a> + Tagged,
 {
     fn can_decode(tag: Tag) -> bool {
         tag.is_context_specific()
     }
 }
 
-impl<'a, T> Decodable<'a> for ContextSpecific<T>
+impl<'a, T> Decode<'a> for ContextSpecific<T>
 where
-    T: Decodable<'a>,
+    T: Decode<'a>,
 {
-    fn decode(decoder: &mut Decoder<'a>) -> Result<Self> {
-        Any::decode(decoder)?.try_into()
+    fn decode<R: Reader<'a>>(reader: &mut R) -> Result<Self> {
+        let header = Header::decode(reader)?;
+
+        match header.tag {
+            Tag::ContextSpecific {
+                number,
+                constructed: true,
+            } => Ok(Self {
+                tag_number: number,
+                tag_mode: TagMode::default(),
+                value: reader.read_nested(header.length, |reader| T::decode(reader))?,
+            }),
+            tag => Err(tag.unexpected_error(None)),
+        }
     }
 }
 
@@ -144,11 +139,17 @@ where
     T: EncodeValue + Tagged,
 {
     fn value_len(&self) -> Result<Length> {
-        self.to_ref().value_len()
+        match self.tag_mode {
+            TagMode::Explicit => self.value.encoded_len(),
+            TagMode::Implicit => self.value.value_len(),
+        }
     }
 
-    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        self.to_ref().encode_value(encoder)
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        match self.tag_mode {
+            TagMode::Explicit => self.value.encode(writer),
+            TagMode::Implicit => self.value.encode_value(writer),
+        }
     }
 }
 
@@ -157,26 +158,25 @@ where
     T: Tagged,
 {
     fn tag(&self) -> Tag {
-        self.to_ref().tag()
+        let constructed = match self.tag_mode {
+            TagMode::Explicit => true,
+            TagMode::Implicit => self.value.tag().is_constructed(),
+        };
+
+        Tag::ContextSpecific {
+            number: self.tag_number,
+            constructed,
+        }
     }
 }
 
-impl<T> ValueOrd for ContextSpecific<T>
+impl<'a, T> TryFrom<AnyRef<'a>> for ContextSpecific<T>
 where
-    T: EncodeValue + ValueOrd + Tagged,
-{
-    fn value_cmp(&self, other: &Self) -> Result<Ordering> {
-        self.to_ref().value_cmp(&other.to_ref())
-    }
-}
-
-impl<'a, T> TryFrom<Any<'a>> for ContextSpecific<T>
-where
-    T: Decodable<'a>,
+    T: Decode<'a>,
 {
     type Error = Error;
 
-    fn try_from(any: Any<'a>) -> Result<ContextSpecific<T>> {
+    fn try_from(any: AnyRef<'a>) -> Result<ContextSpecific<T>> {
         match any.tag() {
             Tag::ContextSpecific {
                 number,
@@ -187,6 +187,18 @@ where
                 value: T::from_der(any.value())?,
             }),
             tag => Err(tag.unexpected_error(None)),
+        }
+    }
+}
+
+impl<T> ValueOrd for ContextSpecific<T>
+where
+    T: EncodeValue + ValueOrd + Tagged,
+{
+    fn value_cmp(&self, other: &Self) -> Result<Ordering> {
+        match self.tag_mode {
+            TagMode::Explicit => self.der_cmp(other),
+            TagMode::Implicit => self.value_cmp(other),
         }
     }
 }
@@ -208,58 +220,43 @@ pub struct ContextSpecificRef<'a, T> {
     pub value: &'a T,
 }
 
-impl<T> EncodeValue for ContextSpecificRef<'_, T>
+impl<'a, T> ContextSpecificRef<'a, T> {
+    /// Convert to a [`ContextSpecific`].
+    fn encoder(&self) -> ContextSpecific<EncodeValueRef<'a, T>> {
+        ContextSpecific {
+            tag_number: self.tag_number,
+            tag_mode: self.tag_mode,
+            value: EncodeValueRef(self.value),
+        }
+    }
+}
+
+impl<'a, T> EncodeValue for ContextSpecificRef<'a, T>
 where
     T: EncodeValue + Tagged,
 {
     fn value_len(&self) -> Result<Length> {
-        match self.tag_mode {
-            TagMode::Explicit => self.value.encoded_len(),
-            TagMode::Implicit => self.value.value_len(),
-        }
+        self.encoder().value_len()
     }
 
-    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        match self.tag_mode {
-            TagMode::Explicit => self.value.encode(encoder),
-            TagMode::Implicit => self.value.encode_value(encoder),
-        }
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        self.encoder().encode_value(writer)
     }
 }
 
-impl<T> Tagged for ContextSpecificRef<'_, T>
+impl<'a, T> Tagged for ContextSpecificRef<'a, T>
 where
     T: Tagged,
 {
     fn tag(&self) -> Tag {
-        let constructed = match self.tag_mode {
-            TagMode::Explicit => true,
-            TagMode::Implicit => self.value.tag().is_constructed(),
-        };
-
-        Tag::ContextSpecific {
-            number: self.tag_number,
-            constructed,
-        }
-    }
-}
-
-impl<T> ValueOrd for ContextSpecificRef<'_, T>
-where
-    T: EncodeValue + ValueOrd + Tagged,
-{
-    fn value_cmp(&self, other: &Self) -> Result<Ordering> {
-        match self.tag_mode {
-            TagMode::Explicit => self.der_cmp(other),
-            TagMode::Implicit => self.value_cmp(other),
-        }
+        self.encoder().tag()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::ContextSpecific;
-    use crate::{asn1::BitString, Decodable, Decoder, Encodable, TagMode, TagNumber};
+    use crate::{asn1::BitStringRef, Decode, Encode, SliceReader, TagMode, TagNumber};
     use hex_literal::hex;
 
     // Public key data from `pkcs8` crate's `ed25519-pkcs8-v2.der`
@@ -268,11 +265,11 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let field = ContextSpecific::<BitString<'_>>::from_der(EXAMPLE_BYTES).unwrap();
+        let field = ContextSpecific::<BitStringRef<'_>>::from_der(EXAMPLE_BYTES).unwrap();
         assert_eq!(field.tag_number.value(), 1);
         assert_eq!(
             field.value,
-            BitString::from_bytes(&EXAMPLE_BYTES[5..]).unwrap()
+            BitStringRef::from_bytes(&EXAMPLE_BYTES[5..]).unwrap()
         );
 
         let mut buf = [0u8; 128];
@@ -285,22 +282,22 @@ mod tests {
         let tag_number = TagNumber::new(0);
 
         // Empty message
-        let mut decoder = Decoder::new(&[]).unwrap();
+        let mut reader = SliceReader::new(&[]).unwrap();
         assert_eq!(
-            ContextSpecific::<u8>::decode_explicit(&mut decoder, tag_number).unwrap(),
+            ContextSpecific::<u8>::decode_explicit(&mut reader, tag_number).unwrap(),
             None
         );
 
         // Message containing a non-context-specific type
-        let mut decoder = Decoder::new(&hex!("020100")).unwrap();
+        let mut reader = SliceReader::new(&hex!("020100")).unwrap();
         assert_eq!(
-            ContextSpecific::<u8>::decode_explicit(&mut decoder, tag_number).unwrap(),
+            ContextSpecific::<u8>::decode_explicit(&mut reader, tag_number).unwrap(),
             None
         );
 
         // Message containing an EXPLICIT context-specific field
-        let mut decoder = Decoder::new(&hex!("A003020100")).unwrap();
-        let field = ContextSpecific::<u8>::decode_explicit(&mut decoder, tag_number)
+        let mut reader = SliceReader::new(&hex!("A003020100")).unwrap();
+        let field = ContextSpecific::<u8>::decode_explicit(&mut reader, tag_number)
             .unwrap()
             .unwrap();
 
@@ -322,8 +319,8 @@ mod tests {
 
         let tag_number = TagNumber::new(1);
 
-        let mut decoder = Decoder::new(&context_specific_implicit_bytes).unwrap();
-        let field = ContextSpecific::<BitString<'_>>::decode_implicit(&mut decoder, tag_number)
+        let mut reader = SliceReader::new(&context_specific_implicit_bytes).unwrap();
+        let field = ContextSpecific::<BitStringRef<'_>>::decode_implicit(&mut reader, tag_number)
             .unwrap()
             .unwrap();
 
@@ -338,8 +335,8 @@ mod tests {
     #[test]
     fn context_specific_skipping_unknown_field() {
         let tag = TagNumber::new(1);
-        let mut decoder = Decoder::new(&hex!("A003020100A103020101")).unwrap();
-        let field = ContextSpecific::<u8>::decode_explicit(&mut decoder, tag)
+        let mut reader = SliceReader::new(&hex!("A003020100A103020101")).unwrap();
+        let field = ContextSpecific::<u8>::decode_explicit(&mut reader, tag)
             .unwrap()
             .unwrap();
         assert_eq!(field.value, 1);
@@ -348,9 +345,9 @@ mod tests {
     #[test]
     fn context_specific_returns_none_on_greater_tag_number() {
         let tag = TagNumber::new(0);
-        let mut decoder = Decoder::new(&hex!("A103020101")).unwrap();
+        let mut reader = SliceReader::new(&hex!("A103020101")).unwrap();
         assert_eq!(
-            ContextSpecific::<u8>::decode_explicit(&mut decoder, tag).unwrap(),
+            ContextSpecific::<u8>::decode_explicit(&mut reader, tag).unwrap(),
             None
         );
     }

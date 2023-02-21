@@ -37,6 +37,16 @@ pub enum ConfigBuildError {
         /// The problem that makes them inconsistent
         problem: String,
     },
+    /// The requested configuration is not supported in this build
+    #[error("Field {field:?} specifies a configuration not supported in this build: {problem}")]
+    // TODO should we report the cargo feature, if applicable?  And if so, of `arti`
+    // or of the underlying crate?  This seems like a can of worms.
+    NoCompileTimeSupport {
+        /// The names of the (primary) field requesting the unsupported configuration
+        field: String,
+        /// The description of the problem
+        problem: String,
+    },
 }
 
 impl From<derive_builder::UninitializedFieldError> for ConfigBuildError {
@@ -60,16 +70,21 @@ impl ConfigBuildError {
     #[must_use]
     pub fn within(&self, prefix: &str) -> Self {
         use ConfigBuildError::*;
+        let addprefix = |field: &str| format!("{}.{}", prefix, field);
         match self {
             MissingField { field } => MissingField {
-                field: format!("{}.{}", prefix, field),
+                field: addprefix(field),
             },
             Invalid { field, problem } => Invalid {
-                field: format!("{}.{}", prefix, field),
+                field: addprefix(field),
                 problem: problem.clone(),
             },
             Inconsistent { fields, problem } => Inconsistent {
-                fields: fields.iter().map(|f| format!("{}.{}", prefix, f)).collect(),
+                fields: fields.iter().map(|f| addprefix(f)).collect(),
+                problem: problem.clone(),
+            },
+            NoCompileTimeSupport { field, problem } => Invalid {
+                field: addprefix(field),
                 problem: problem.clone(),
             },
         }
@@ -92,6 +107,17 @@ pub enum ReconfigureError {
         /// The field (or fields) that we tried to change.
         field: String,
     },
+
+    /// The requested configuration is not supported in this situation
+    ///
+    /// Something, probably discovered at runtime, is not compatible with
+    /// the specified configuration.
+    ///
+    /// This ought *not* to be returned when the configuration is simply not supported
+    /// by this build of arti -
+    /// that should be reported at config build type as `ConfigBuildError::Unsupported`.
+    #[error("Configuration not supported in this situation: {0}")]
+    UnsupportedSituation(String),
 
     /// There was a programming error somewhere in our code, or the calling code.
     #[error("Programming error")]
@@ -140,7 +166,16 @@ impl ConfigError {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]

@@ -2,11 +2,11 @@ use std::fmt;
 
 use crate::anchors::{OwnedTrustAnchor, RootCertStore};
 use crate::client::ServerName;
+use crate::enums::SignatureScheme;
 use crate::error::Error;
 use crate::key::Certificate;
 #[cfg(feature = "logging")]
 use crate::log::{debug, trace, warn};
-use crate::msgs::enums::SignatureScheme;
 use crate::msgs::handshake::{DigitallySignedStruct, DistinguishedNames};
 
 use ring::digest::Digest;
@@ -46,6 +46,7 @@ static SUPPORTED_SIG_ALGS: SignatureAlgorithms = &[
 
 /// Zero-sized marker type representing verification of a signature.
 #[derive(Debug)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub struct HandshakeSignatureValid(());
 
 impl HandshakeSignatureValid {
@@ -67,6 +68,7 @@ impl FinishedMessageVerified {
 /// Zero-sized marker type representing verification of a server cert chain.
 #[allow(unreachable_pub)]
 #[derive(Debug)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub struct ServerCertVerified(());
 
 #[allow(unreachable_pub)]
@@ -79,6 +81,7 @@ impl ServerCertVerified {
 
 /// Zero-sized marker type representing verification of a client cert chain.
 #[derive(Debug)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub struct ClientCertVerified(());
 
 impl ClientCertVerified {
@@ -91,16 +94,23 @@ impl ClientCertVerified {
 /// Something that can verify a server certificate chain, and verify
 /// signatures made by certificates.
 #[allow(unreachable_pub)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub trait ServerCertVerifier: Send + Sync {
     /// Verify the end-entity certificate `end_entity` is valid for the
     /// hostname `dns_name` and chains to at least one trust anchor.
     ///
-    /// `intermediates` contains the intermediate certificates the client sent
-    /// along with the end-entity certificate; it is in the same order that the
-    /// peer sent them and may be empty.
+    /// `intermediates` contains all certificates other than `end_entity` that
+    /// were sent as part of the server's [Certificate] message. It is in the
+    /// same order that the server sent them and may be empty.
+    ///
+    /// Note that none of the certificates have been parsed yet, so it is the responsibility of
+    /// the implementor to handle invalid data. It is recommended that the implementor returns
+    /// [`Error::InvalidCertificateEncoding`] when these cases are encountered.
     ///
     /// `scts` contains the Signed Certificate Timestamps (SCTs) the server
-    /// sent with the certificate, if any.
+    /// sent with the end-entity certificate, if any.
+    ///
+    /// [Certificate]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2
     fn verify_server_cert(
         &self,
         end_entity: &Certificate,
@@ -117,10 +127,9 @@ pub trait ServerCertVerifier: Send + Sync {
     /// The signature and algorithm are within `dss`.  `cert` contains the
     /// public key to use.
     ///
-    /// `cert` is the same certificate that was previously validated by a
-    /// call to `verify_server_cert`.
+    /// `cert` has already been validated by [`ServerCertVerifier::verify_server_cert`].
     ///
-    /// If and only if the signature is valid, return HandshakeSignatureValid.
+    /// If and only if the signature is valid, return `Ok(HandshakeSignatureValid)`.
     /// Otherwise, return an error -- rustls will send an alert and abort the
     /// connection.
     ///
@@ -147,6 +156,12 @@ pub trait ServerCertVerifier: Send + Sync {
     /// tighter ECDSA SignatureScheme semantics -- e.g. `SignatureScheme::ECDSA_NISTP256_SHA256`
     /// must only validate signatures using public keys on the right curve --
     /// rustls does not enforce this requirement for you.
+    ///
+    /// `cert` has already been validated by [`ServerCertVerifier::verify_server_cert`].
+    ///
+    /// If and only if the signature is valid, return `Ok(HandshakeSignatureValid)`.
+    /// Otherwise, return an error -- rustls will send an alert and abort the
+    /// connection.
     ///
     /// This trait method has a default implementation that uses webpki to verify
     /// the signature.
@@ -188,7 +203,8 @@ impl fmt::Debug for dyn ServerCertVerifier {
 }
 
 /// A type which encapsulates a string that is a syntactically valid DNS name.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub struct DnsName(pub(crate) webpki::DnsName);
 
 impl AsRef<str> for DnsName {
@@ -199,6 +215,7 @@ impl AsRef<str> for DnsName {
 
 /// Something that can verify a client certificate chain
 #[allow(unreachable_pub)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub trait ClientCertVerifier: Send + Sync {
     /// Returns `true` to enable the server to request a client certificate and
     /// `false` to skip requesting a client certificate. Defaults to `true`.
@@ -213,19 +230,32 @@ pub trait ClientCertVerifier: Send + Sync {
         Some(self.offer_client_auth())
     }
 
-    /// Returns the subject names of the client authentication trust anchors to
+    /// Returns the [Subjects] of the client authentication trust anchors to
     /// share with the client when requesting client authentication.
     ///
+    /// These must be DER-encoded X.500 distinguished names, per RFC 5280.
+    /// They are sent in the [`certificate_authorities`] extension of a
+    /// [`CertificateRequest`] message.
+    ///
+    /// [Subjects]: https://datatracker.ietf.org/doc/html/rfc5280#section-4.1.2.6
+    /// [`CertificateRequest`]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.2
+    /// [`certificate_authorities`]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.4
+    ///
     /// Return `None` to abort the connection. Return an empty `Vec` to continue
-    /// the handshake without passing a list of CA DNs.
+    /// the handshake without sending a CertificateRequest message.
     fn client_auth_root_subjects(&self) -> Option<DistinguishedNames>;
 
-    /// Verify the end-entity certificate `end_entity` is valid for the
-    /// and chains to at least one of the trust anchors in `roots`.
+    /// Verify the end-entity certificate `end_entity` is valid, acceptable,
+    /// and chains to at least one of the trust anchors trusted by
+    /// this verifier.
     ///
     /// `intermediates` contains the intermediate certificates the
     /// client sent along with the end-entity certificate; it is in the same
     /// order that the peer sent them and may be empty.
+    ///
+    /// Note that none of the certificates have been parsed yet, so it is the responsibility of
+    /// the implementor to handle invalid data. It is recommended that the implementor returns
+    /// [`Error::InvalidCertificateEncoding`] when these cases are encountered.
     fn verify_client_cert(
         &self,
         end_entity: &Certificate,
@@ -233,16 +263,15 @@ pub trait ClientCertVerifier: Send + Sync {
         now: SystemTime,
     ) -> Result<ClientCertVerified, Error>;
 
-    /// Verify a signature allegedly by the given server certificate.
+    /// Verify a signature allegedly by the given client certificate.
     ///
     /// `message` is not hashed, and needs hashing during the verification.
     /// The signature and algorithm are within `dss`.  `cert` contains the
     /// public key to use.
     ///
-    /// `cert` is the same certificate that was previously validated by a
-    /// call to `verify_server_cert`.
+    /// `cert` has already been validated by [`ClientCertVerifier::verify_client_cert`].
     ///
-    /// If and only if the signature is valid, return HandshakeSignatureValid.
+    /// If and only if the signature is valid, return `Ok(HandshakeSignatureValid)`.
     /// Otherwise, return an error -- rustls will send an alert and abort the
     /// connection.
     ///
@@ -261,12 +290,13 @@ pub trait ClientCertVerifier: Send + Sync {
         verify_signed_struct(message, cert, dss)
     }
 
-    /// Verify a signature allegedly by the given server certificate.
+    /// Verify a signature allegedly by the given client certificate.
     ///
     /// This method is only called for TLS1.3 handshakes.
     ///
-    /// This method is very similar to `verify_tls12_signature`: but note the
-    /// tighter ECDSA SignatureScheme semantics -- e.g. `SignatureScheme::ECDSA_NISTP256_SHA256`
+    /// This method is very similar to `verify_tls12_signature`, but note the
+    /// tighter ECDSA SignatureScheme semantics in TLS 1.3. For example,
+    /// `SignatureScheme::ECDSA_NISTP256_SHA256`
     /// must only validate signatures using public keys on the right curve --
     /// rustls does not enforce this requirement for you.
     ///
@@ -349,6 +379,7 @@ impl ServerCertVerifier for WebPkiVerifier {
 
 /// Default `ServerCertVerifier`, see the trait impl for more information.
 #[allow(unreachable_pub)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub struct WebPkiVerifier {
     roots: RootCertStore,
     ct_policy: Option<CertificateTransparencyPolicy>,
@@ -392,6 +423,7 @@ impl WebPkiVerifier {
 /// certificates will no longer be validated, and a warning message will be logged. The deadline
 /// may vary depending on how often you deploy builds with updated dependencies.
 #[allow(unreachable_pub)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous_configuration")))]
 pub struct CertificateTransparencyPolicy {
     logs: &'static [&'static sct::Log<'static>],
     validation_deadline: SystemTime,
@@ -508,6 +540,7 @@ impl ClientCertVerifier for AllowAnyAuthenticatedClient {
         true
     }
 
+    #[allow(deprecated)]
     fn client_auth_root_subjects(&self) -> Option<DistinguishedNames> {
         Some(self.roots.subjects())
     }
@@ -594,7 +627,7 @@ pub struct NoClientAuth;
 impl NoClientAuth {
     /// Constructs a `NoClientAuth` and wraps it in an `Arc`.
     pub fn new() -> Arc<dyn ClientCertVerifier> {
-        Arc::new(NoClientAuth)
+        Arc::new(Self)
     }
 }
 
@@ -681,7 +714,7 @@ fn verify_signed_struct(
     let possible_algs = convert_scheme(dss.scheme)?;
     let cert = webpki::EndEntityCert::try_from(cert.0.as_ref()).map_err(pki_error)?;
 
-    verify_sig_using_any_alg(&cert, possible_algs, message, &dss.sig.0)
+    verify_sig_using_any_alg(&cert, possible_algs, message, dss.signature())
         .map_err(pki_error)
         .map(|_| HandshakeSignatureValid::assertion())
 }
@@ -689,7 +722,7 @@ fn verify_signed_struct(
 fn convert_alg_tls13(
     scheme: SignatureScheme,
 ) -> Result<&'static webpki::SignatureAlgorithm, Error> {
-    use crate::msgs::enums::SignatureScheme::*;
+    use crate::enums::SignatureScheme::*;
 
     match scheme {
         ECDSA_NISTP256_SHA256 => Ok(&webpki::ECDSA_P256_SHA256),
@@ -735,7 +768,7 @@ fn verify_tls13(
 
     let cert = webpki::EndEntityCert::try_from(cert.0.as_ref()).map_err(pki_error)?;
 
-    cert.verify_signature(alg, msg, &dss.sig.0)
+    cert.verify_signature(alg, msg, dss.signature())
         .map_err(pki_error)
         .map(|_| HandshakeSignatureValid::assertion())
 }

@@ -1,15 +1,17 @@
 //! Logic for manipulating a sampled set of guards, along with various
 //! orderings on that sample.
 
+mod candidate;
+
 use crate::filter::GuardFilter;
 use crate::guard::{Guard, NewlyConfirmed, Reachable};
 use crate::skew::SkewObservation;
-use crate::FirstHop;
 use crate::{
     ids::GuardId, ExternalActivity, GuardParams, GuardUsage, GuardUsageKind, PickGuardError,
 };
+use crate::{FirstHop, GuardSetSelector};
 use tor_basic_utils::iter::{FilterCount, IteratorExt as _};
-use tor_netdir::{NetDir, Relay};
+use tor_linkspec::{ByRelayIds, HasRelayIds};
 
 use itertools::Itertools;
 use rand::seq::SliceRandom;
@@ -18,6 +20,9 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::time::{Instant, SystemTime};
 use tracing::{debug, info};
+
+#[allow(unused_imports)]
+pub(crate) use candidate::{Candidate, CandidateStatus, Universe, UniverseRef, WeightThreshold};
 
 /// A set of sampled guards, along with various orderings on subsets
 /// of the sample.
@@ -39,25 +44,82 @@ use tracing::{debug, info};
 /// guards come first in preference order.  Then come the non-primary
 /// confirmed guards, in their confirmed order.  Finally come the
 /// non-primary, non-confirmed guards, in their sampled order.
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(from = "GuardSample")]
 pub(crate) struct GuardSet {
     /// Map from identities to guards, for every guard in this sample.
-    guards: HashMap<GuardId, Guard>,
+    ///
+    /// The key for each entry is a set of identities which we have
+    /// good (trustworthy-enough) reason to link together.
+    ///
+    /// When we connect to a guard we require it to demonstrate
+    /// that it has *all* of these identities;
+    /// and we do pinning, so that we note down the other identities we discover it has,
+    /// with the intent that we will require them in future.
+    ///
+    /// ### Sources of linkage:
+    ///
+    ///  * If we connect to a relay and it proves a set of identities,
+    ///    that necessarily will include at least the ones we have already.
+    ///    We can add any other identities we have discovered.
+    ///    Justification: the owners of the old ids have made a statement
+    ///    (via the connection protocols) that these other ids are also theirs,
+    ///    and should be required in future.
+    ///
+    ///  * If we obtain a (full) descriptor for a relay, and check the
+    ///    self-signatures by all the identities we have already,
+    ///    we can add any other identities listed in the descriptor.
+    ///    Justification: the owners of the old ids have made an explicit statement
+    ///    that these other ids are also theirs,
+    ///    and should be required in future.
+    ///
+    ///  * For a relay in the netdir, if the netdir links some ids together,
+    ///    we can combine the entries.
+    ///    Justification: the netdir is authoritative for netdir-based relays.
+    ///
+    ///  * For a configured bridge, if our configuration links some identities,
+    ///    we must insist on all those identities.
+    ///    So we combine them.
+    ///
+    /// ### Handling of conflicting entries:
+    ///
+    /// `ByRelayIds` will implicitly delete conflicting entries,
+    /// simply forgetting about them.
+    /// This is OK for netdir relays, since we do not expect this to occur in practice.
+    ///
+    /// For bridges, conflicts may in fact occur,
+    /// since bridge lines are not issued by a single authority,
+    /// and should be afforded limited trust.
+    ///
+    ///  * If the configuration contains bridge lines that mutually conflict,
+    ///    affected bridge lines should be disregarded,
+    ///    or the configuration rejected.
+    ///
+    ///  * If the configuration contains information which is inconsistent with
+    ///    our past experience, we should discard the past experiences which
+    ///    aren't reconcilable with the configuration.
+    ///
+    ///  * We may discover a linkage which demonstrates that the configuration
+    ///    is wrong: for example, two bridge lines for identities X and Y,
+    ///    but in fact there is only one bridge with both identities.
+    ///    In this situation it is OK to effectively disregard some the configuration
+    ///    entries which are at variance with reality, maybe with a warning,
+    ///    but keeping at least one of every usable id set (actually existing bridge)
+    ///    would be good.
+    guards: ByRelayIds<Guard>,
     /// Identities of all the guards in the sample, in sample order.
     ///
-    /// This contains the same elements as `self.guards.keys()`, and
-    /// only exists to define an ordering on the guards.
+    /// This contains the same elements as the keys of `guards`
     sample: Vec<GuardId>,
     /// Identities of all the confirmed guards in the sample, in
     /// confirmed order.
     ///
-    /// This contains a subset of the values in `self.guards.keys()`.
+    /// This contains a subset of the values in `sample`.
     confirmed: Vec<GuardId>,
     /// Identities of all the primary guards, in preference order
     /// (from best to worst).
     ///
-    /// This contains a subset of the values in `self.guards.keys()`.
+    /// This contains a subset of the values in `sample`.
     primary: Vec<GuardId>,
     /// Currently active filter that restricts which guards we can use.
     ///
@@ -122,21 +184,34 @@ impl GuardSet {
         )
     }
 
-    /// Remove all elements from this `GuardSet` that ought to be
-    /// referenced by another element, but which are not.
+    /// Remove all elements from this `GuardSet` that ought to be referenced by
+    /// another element, but which are not.
     ///
-    /// This method only removes corrupted elements; it doesn't add or
-    /// fix anything.  It won't do anything if the `GuardSet` is
-    /// well-formed.
+    /// This method only removes corrupted elements and updates IDs in the ID
+    /// list (possibly adding new IDs); it doesn't add guards or other data.
+    /// It won't do anything if the `GuardSet` is well-formed.
     fn fix_consistency(&mut self) {
+        /// Remove every element of `id_list` that does not belong to some guard
+        /// in `guards`, and update the others to have any extra identities
+        /// listed in `guards`.
+        fn fix_id_list(guards: &ByRelayIds<Guard>, id_list: &mut Vec<GuardId>) {
+            // TODO: Use Vec::retain_mut when our MSRV >= 1.61
+            #![allow(deprecated)]
+            use retain_mut::RetainMut;
+            RetainMut::retain_mut(id_list, |id| match guards.by_all_ids(id) {
+                Some(guard) => {
+                    *id = guard.guard_id().clone();
+                    true
+                }
+                None => false,
+            });
+        }
+
         let sample_set: HashSet<_> = self.sample.iter().collect();
-        self.guards
-            .retain(|id, g| g.guard_id() == id && sample_set.contains(id));
-        let guards = &self.guards; // avoid borrow issues
-                                   // TODO: We should potentially de-duplicate these.
-        self.sample.retain(|id| guards.contains_key(id));
-        self.confirmed.retain(|id| guards.contains_key(id));
-        self.primary.retain(|id| guards.contains_key(id));
+        self.guards.retain(|g| sample_set.contains(g.guard_id()));
+        fix_id_list(&self.guards, &mut self.sample);
+        fix_id_list(&self.guards, &mut self.confirmed);
+        fix_id_list(&self.guards, &mut self.primary);
     }
 
     /// Assert that this `GuardSet` is internally consistent.
@@ -149,9 +224,9 @@ impl GuardSet {
         assert_eq!(len_pre, len_post);
     }
 
-    /// Return the guard whose id is `id`, if any.
+    /// Return the guard that has every identity in `id`, if any.
     pub(crate) fn get(&self, id: &GuardId) -> Option<&Guard> {
-        self.guards.get(id)
+        self.guards.by_all_ids(id)
     }
 
     /// Replace the filter used by this `GuardSet` with `filter`.
@@ -169,7 +244,7 @@ impl GuardSet {
         let filt = &self.active_filter;
         self.primary.retain(|id| {
             guards
-                .get(id)
+                .by_all_ids(id)
                 .map(|g| g.usable() && filt.permits(g))
                 .unwrap_or(false)
         });
@@ -183,16 +258,23 @@ impl GuardSet {
     }
 
     /// Copy non-persistent status from every guard shared with `other`.
-    pub(crate) fn copy_status_from(&mut self, mut other: GuardSet) {
-        let mut old_guards = HashMap::new();
-        std::mem::swap(&mut old_guards, &mut self.guards);
+    ///
+    /// This is used as part of our reload process when we don't own our state
+    /// files, and we're reloading in order to find out what the other Arti
+    /// instance thinks the guards are. At that point, `self` is the set of
+    /// guards that we just loaded from state, and `other` is our old guards,
+    /// which we are using only for their status information.
+    pub(crate) fn copy_ephemeral_status_into_newly_loaded_state(&mut self, mut other: GuardSet) {
+        let old_guards = std::mem::take(&mut self.guards);
         self.guards = old_guards
-            .into_iter()
-            .map(|(id, guard)| {
-                if let Some(other_guard) = other.guards.remove(&id) {
-                    (id, guard.copy_status_from(other_guard))
+            .into_values()
+            .map(|guard| {
+                let id = guard.guard_id();
+
+                if let Some(other_guard) = other.guards.remove_exact(id) {
+                    guard.copy_ephemeral_status_into_newly_loaded_state(other_guard)
                 } else {
-                    (id, guard)
+                    guard
                 }
             })
             .collect();
@@ -204,7 +286,7 @@ impl GuardSet {
         let guards = self
             .sample
             .iter()
-            .map(|id| Cow::Borrowed(self.guards.get(id).expect("Inconsistent state")))
+            .map(|id| Cow::Borrowed(self.guards.by_all_ids(id).expect("Inconsistent state")))
             .collect();
 
         GuardSample {
@@ -216,11 +298,11 @@ impl GuardSet {
 
     /// Reconstruct a guard state from its serialized representation.
     fn from_state(state: GuardSample<'_>) -> Self {
-        let mut guards = HashMap::new();
+        let mut guards = ByRelayIds::new();
         let mut sample = Vec::new();
         for guard in state.guards {
             sample.push(guard.guard_id().clone());
-            guards.insert(guard.guard_id().clone(), guard.into_owned());
+            guards.insert(guard.into_owned());
         }
         let confirmed = state.confirmed.into_owned();
         let primary = Vec::new();
@@ -254,17 +336,24 @@ impl GuardSet {
         guard_set
     }
 
-    /// Return true if `relay` is a member of this set.
-    fn contains_relay(&self, relay: &Relay<'_>) -> bool {
-        // Note: Could implement Borrow instead, but I don't think it'll
-        // matter.
-        let id = GuardId::from_relay_ids(relay);
-        self.contains(&id)
-    }
-
-    /// Return true if `id` is a member of this set.
-    pub(crate) fn contains(&self, id: &GuardId) -> bool {
-        self.guards.contains_key(id)
+    /// Return `Ok(true)` if `id` is definitely a member of this set, and
+    /// `Ok(false)` if it is definitely not a member.  
+    ///
+    /// If we cannot tell, it's because there is a guard in this sample that has
+    /// a _subset_ of the IDs in `id`. In that case, we return
+    /// `Err(guard_ident)`, where `guard_ident`  is the identity of that guard.
+    pub(crate) fn contains(&self, id: &GuardId) -> Result<bool, &GuardId> {
+        let overlapping = self.guards.all_overlapping(id);
+        match &overlapping[..] {
+            [singleton] => {
+                if singleton.has_all_relay_ids_from(id) {
+                    Ok(true)
+                } else {
+                    Err(singleton.guard_id())
+                }
+            }
+            _ => Ok(false),
+        }
     }
 
     /// If there are not enough filter-permitted usable guards in this
@@ -276,15 +365,15 @@ impl GuardSet {
     /// Guards always start out un-confirmed.
     ///
     /// Return true if any guards were added.
-    pub(crate) fn extend_sample_as_needed(
+    pub(crate) fn extend_sample_as_needed<U: Universe>(
         &mut self,
         now: SystemTime,
         params: &GuardParams,
-        dir: &NetDir,
-    ) -> bool {
-        let mut any_added = false;
+        dir: &U,
+    ) -> crate::ExtendedStatus {
+        let mut any_added = crate::ExtendedStatus::No;
         while self.extend_sample_inner(now, params, dir) {
-            any_added = true;
+            any_added = crate::ExtendedStatus::Yes;
         }
         any_added
     }
@@ -298,7 +387,12 @@ impl GuardSet {
     /// this function will add fewer filter-permitted guards than we had wanted.
     /// Because of that, this is a separate function, and
     /// extend_sample_as_needed runs it in a loop until it returns false.
-    fn extend_sample_inner(&mut self, now: SystemTime, params: &GuardParams, dir: &NetDir) -> bool {
+    fn extend_sample_inner<U: Universe>(
+        &mut self,
+        now: SystemTime,
+        params: &GuardParams,
+        dir: &U,
+    ) -> bool {
         self.assert_consistency();
         let n_filtered_usable = self
             .guards
@@ -321,62 +415,33 @@ impl GuardSet {
         let want_to_add = params.min_filtered_sample_size - n_filtered_usable;
         let n_to_add = std::cmp::min(max_to_add, want_to_add);
 
-        // What's the most weight we're willing to have in the sample?
-        let target_weight = {
-            let total_weight = dir.total_weight(tor_netdir::WeightRole::Guard, |r| {
-                r.is_flagged_guard() && r.is_dir_cache()
-            });
-            total_weight
-                .ratio(params.max_sample_bw_fraction)
-                .unwrap_or(total_weight)
-        };
-        let mut current_weight: tor_netdir::RelayWeight = self
-            .guards
-            .values()
-            .filter_map(|guard| guard.get_weight(dir))
-            .sum();
-        if current_weight >= target_weight {
-            return false; // Can't add any more weight.
-        }
+        let WeightThreshold {
+            mut current_weight,
+            maximum_weight,
+        } = dir.weight_threshold(&self.guards, params);
 
         // Ask the netdir for a set of guards we could use.
-        let n_candidates = if self.filter_is_restrictive || self.active_filter.is_unfiltered() {
-            n_to_add
-        } else {
-            // The filter will probably reject a bunch of guards, but we sample
-            // before filtering, so we make this larger on an ad-hoc basis.
-            n_to_add * 3
-        };
-        let candidates = dir.pick_n_relays(
-            &mut rand::thread_rng(),
-            n_candidates,
-            tor_netdir::WeightRole::Guard,
-            |relay| {
-                let filter_ok = if self.filter_is_restrictive {
-                    // If we have a very restrictive filter, we only add
-                    // relays permitted by that filter.
-                    self.active_filter.permits(relay)
-                } else {
-                    // Otherwise we add any relay to the sample.
-                    true
-                };
-                filter_ok
-                    && relay.is_flagged_guard()
-                    && relay.is_dir_cache()
-                    && !self.contains_relay(relay)
-            },
-        );
+        let no_filter = GuardFilter::unfiltered();
+        let (n_candidates, pre_filter) =
+            if self.filter_is_restrictive || self.active_filter.is_unfiltered() {
+                (n_to_add, &self.active_filter)
+            } else {
+                // The filter will probably reject a bunch of guards, but we sample
+                // before filtering, so we make this larger on an ad-hoc basis.
+                (n_to_add * 3, &no_filter)
+            };
 
-        // Add those candidates to the sample, up to our maximum weight.
+        let candidates = dir.sample(&self.guards, pre_filter, n_candidates);
+
+        // Add those candidates to the sample.
         let mut any_added = false;
         let mut n_filtered_usable = n_filtered_usable;
-        for candidate in candidates {
-            if current_weight >= target_weight
+        for (candidate, weight) in candidates {
+            // Don't add any more if we have met the minimal sample size, and we
+            // have added too much weight.
+            if current_weight >= maximum_weight
                 && self.guards.len() >= params.min_filtered_sample_size
             {
-                // Can't add any more weight.  (We only enforce target_weight
-                // if we have at least 'min_filtered_sample_size' in
-                // our total sample.)
                 break;
             }
             if self.guards.len() >= params.max_sample_size {
@@ -387,15 +452,13 @@ impl GuardSet {
                 // We've reached our target; no need to add more.
                 break;
             }
-            let candidate_weight = dir.relay_weight(&candidate, tor_netdir::WeightRole::Guard);
-            if self.active_filter.permits(&candidate) {
+            if self.active_filter.permits(&candidate.owned_target) {
                 n_filtered_usable += 1;
             }
-            current_weight += candidate_weight;
-            self.add_guard(&candidate, now, params);
+            current_weight += weight;
+            self.add_guard(candidate, now, params);
             any_added = true;
         }
-
         self.assert_consistency();
         any_added
     }
@@ -403,36 +466,50 @@ impl GuardSet {
     /// Add `relay` as a new guard.
     ///
     /// Does nothing if it is already a guard.
-    fn add_guard(&mut self, relay: &Relay<'_>, now: SystemTime, params: &GuardParams) {
-        let id = GuardId::from_relay_ids(relay);
-        if self.guards.contains_key(&id) {
+    fn add_guard(&mut self, relay: Candidate, now: SystemTime, params: &GuardParams) {
+        let id = GuardId::from_relay_ids(&relay.owned_target);
+        if self.guards.by_all_ids(&id).is_some() {
             return;
         }
         debug!(guard_id=?id, "Adding guard to sample.");
-        let guard = Guard::from_relay(relay, now, params);
-        self.guards.insert(id.clone(), guard);
+        let guard = Guard::from_candidate(relay, now, params);
+        self.guards.insert(guard);
         self.sample.push(id);
         self.primary_guards_invalidated = true;
     }
 
-    /// Return the number of our primary guards are missing their
-    /// microdescriptors in `dir`.
-    pub(crate) fn missing_primary_microdescriptors(&mut self, dir: &NetDir) -> usize {
+    /// Return the number of our primary guards that are missing directory
+    /// information in `universe`.
+    ///
+    /// Note that "missing directory information" is not the same as "absent":
+    /// in this case, we  are counting the primary guards where we cannot tell
+    /// whether they appear in the universe or not because we have not yet
+    /// downloaded their descriptors.
+    pub(crate) fn n_primary_without_id_info_in<U: Universe>(&mut self, universe: &U) -> usize {
         self.primary
             .iter()
             .filter(|id| {
-                let g = self.guards.get(id).expect("Inconsistent guard state");
-                g.listed_in(dir).is_none()
+                let g = self
+                    .guards
+                    .by_all_ids(*id)
+                    .expect("Inconsistent guard state");
+                g.listed_in(universe).is_none()
             })
             .count()
     }
 
-    /// Update the status of every guard  in this sample from a network
-    /// directory.
-    pub(crate) fn update_status_from_netdir(&mut self, dir: &NetDir) {
-        for g in self.guards.values_mut() {
-            g.update_from_netdir(dir);
-        }
+    /// Update the status of every guard  in this sample from a given source.
+    pub(crate) fn update_status_from_dir<U: Universe>(&mut self, dir: &U) {
+        let old_guards = std::mem::take(&mut self.guards);
+        self.guards = old_guards
+            .into_values()
+            .map(|mut guard| {
+                guard.update_from_universe(dir);
+                guard
+            })
+            .collect();
+        // Call "fix consistency", in case any guards got a new ID.
+        self.fix_consistency();
     }
 
     /// Re-build the list of primary guards.
@@ -465,7 +542,10 @@ impl GuardSet {
             .unique()
             // We only consider usable guards that the filter allows.
             .filter_map(|id| {
-                let g = self.guards.get(id).expect("Inconsistent guard state");
+                let g = self
+                    .guards
+                    .by_all_ids(id)
+                    .expect("Inconsistent guard state");
                 if g.usable() && self.active_filter.permits(g) {
                     Some(id.clone())
                 } else {
@@ -482,9 +562,9 @@ impl GuardSet {
 
         // Clear exploratory_circ_pending for all primary guards.
         for id in &self.primary {
-            if let Some(guard) = self.guards.get_mut(id) {
+            self.guards.modify_by_all_ids(id, |guard| {
                 guard.note_exploratory_circ(false);
-            }
+            });
         }
 
         // TODO: Recalculate retry times, perhaps, since we may have changed
@@ -499,11 +579,11 @@ impl GuardSet {
     pub(crate) fn expire_old_guards(&mut self, params: &GuardParams, now: SystemTime) {
         self.assert_consistency();
         let n_pre = self.guards.len();
-        self.guards.retain(|_, g| !g.is_expired(params, now));
-        let guards = &self.guards; // to avoid borrowing issue
-        self.sample.retain(|id| guards.contains_key(id));
-        self.confirmed.retain(|id| guards.contains_key(id));
-        self.primary.retain(|id| guards.contains_key(id));
+        self.guards.retain(|g| !g.is_expired(params, now));
+        let guards = &self.guards;
+        self.sample.retain(|id| guards.by_all_ids(id).is_some());
+        self.confirmed.retain(|id| guards.by_all_ids(id).is_some());
+        self.primary.retain(|id| guards.by_all_ids(id).is_some());
         self.assert_consistency();
 
         if self.guards.len() < n_pre {
@@ -517,7 +597,10 @@ impl GuardSet {
     /// is not known to be Unreachable.
     fn reachable_sample_ids(&self) -> impl Iterator<Item = &GuardId> {
         self.sample.iter().filter(move |id| {
-            let g = self.guards.get(id).expect("Inconsistent guard state");
+            let g = self
+                .guards
+                .by_all_ids(*id)
+                .expect("Inconsistent guard state");
             g.reachable() != Reachable::Unreachable
         })
     }
@@ -543,21 +626,30 @@ impl GuardSet {
     /// Like `preference_order_ids`, but yields `&Guard` instead of `&GuardId`.
     fn preference_order(&self) -> impl Iterator<Item = (ListKind, &Guard)> + '_ {
         self.preference_order_ids()
-            .filter_map(move |(p, id)| self.guards.get(id).map(|g| (p, g)))
+            .filter_map(move |(p, id)| self.guards.by_all_ids(id).map(|g| (p, g)))
     }
 
-    /// Return true if `guard_id` is the identity for a primary guard.
+    /// Return true if `guard_id` is an identity subset for any primary guard in this set.
     fn guard_is_primary(&self, guard_id: &GuardId) -> bool {
+        // (This could be yes/no/maybe.)
+
         // This is O(n), but the list is short.
-        self.primary.contains(guard_id)
+        self.primary
+            .iter()
+            .any(|p| p.has_all_relay_ids_from(guard_id))
     }
 
     /// For every guard that has been marked as `Unreachable` for too long,
     /// mark it as `Unknown`.
     pub(crate) fn consider_all_retries(&mut self, now: Instant) {
-        for guard in self.guards.values_mut() {
-            guard.consider_retry(now);
-        }
+        let old_guards = std::mem::take(&mut self.guards);
+        self.guards = old_guards
+            .into_values()
+            .map(|mut guard| {
+                guard.consider_retry(now);
+                guard
+            })
+            .collect();
     }
 
     /// Return the earliest time at which any guard will be retriable.
@@ -571,9 +663,8 @@ impl GuardSet {
     /// Mark every `Unreachable` primary guard as `Unknown`.
     pub(crate) fn mark_primary_guards_retriable(&mut self) {
         for id in &self.primary {
-            if let Some(g) = self.guards.get_mut(id) {
-                g.mark_retriable();
-            }
+            self.guards
+                .modify_by_all_ids(id, |guard| guard.mark_retriable());
         }
     }
 
@@ -582,28 +673,33 @@ impl GuardSet {
     pub(crate) fn all_primary_guards_are_unreachable(&mut self) -> bool {
         self.primary
             .iter()
-            .flat_map(|id| self.guards.get(id))
+            .flat_map(|id| self.guards.by_all_ids(id))
             .all(|g| g.reachable() == Reachable::Unreachable)
     }
 
     /// Mark every `Unreachable` guard as `Unknown`.
     pub(crate) fn mark_all_guards_retriable(&mut self) {
-        for g in self.guards.values_mut() {
-            g.mark_retriable();
-        }
+        let old_guards = std::mem::take(&mut self.guards);
+        self.guards = old_guards
+            .into_values()
+            .map(|mut guard| {
+                guard.mark_retriable();
+                guard
+            })
+            .collect();
     }
 
     /// Record that an attempt has begun to use the guard with
     /// `guard_id`.
     pub(crate) fn record_attempt(&mut self, guard_id: &GuardId, now: Instant) {
         let is_primary = self.guard_is_primary(guard_id);
-        if let Some(guard) = self.guards.get_mut(guard_id) {
+        self.guards.modify_by_all_ids(guard_id, |guard| {
             guard.record_attempt(now);
 
             if !is_primary {
                 guard.note_exploratory_circ(true);
             }
-        }
+        });
     }
 
     /// Record that an attempt to use the guard with `guard_id` has just
@@ -619,20 +715,18 @@ impl GuardSet {
         now: SystemTime,
     ) {
         self.assert_consistency();
-        if let Some(guard) = self.guards.get_mut(guard_id) {
-            match how {
-                Some(external) => guard.record_external_success(external),
-                None => {
-                    let newly_confirmed = guard.record_success(now, params);
+        self.guards.modify_by_all_ids(guard_id, |guard| match how {
+            Some(external) => guard.record_external_success(external),
+            None => {
+                let newly_confirmed = guard.record_success(now, params);
 
-                    if newly_confirmed == NewlyConfirmed::Yes {
-                        self.confirmed.push(guard_id.clone());
-                        self.primary_guards_invalidated = true;
-                    }
+                if newly_confirmed == NewlyConfirmed::Yes {
+                    self.confirmed.push(guard_id.clone());
+                    self.primary_guards_invalidated = true;
                 }
             }
-            self.assert_consistency();
-        }
+        });
+        self.assert_consistency();
     }
 
     /// Record that an attempt to use the guard with `guard_id` has just failed.
@@ -645,37 +739,33 @@ impl GuardSet {
     ) {
         // TODO use instant uniformly for in-process, and systemtime for storage?
         let is_primary = self.guard_is_primary(guard_id);
-        if let Some(guard) = self.guards.get_mut(guard_id) {
-            match how {
-                Some(external) => guard.record_external_failure(external, now),
-                None => guard.record_failure(now, is_primary),
-            }
-        }
+        self.guards.modify_by_all_ids(guard_id, |guard| match how {
+            Some(external) => guard.record_external_failure(external, now),
+            None => guard.record_failure(now, is_primary),
+        });
     }
 
     /// Record that an attempt to use the guard with `guard_id` has
     /// just been abandoned, without learning whether it succeeded or failed.
     pub(crate) fn record_attempt_abandoned(&mut self, guard_id: &GuardId) {
-        if let Some(guard) = self.guards.get_mut(guard_id) {
-            guard.note_exploratory_circ(false);
-        }
+        self.guards
+            .modify_by_all_ids(guard_id, |guard| guard.note_exploratory_circ(false));
     }
 
     /// Record that an attempt to use the guard with `guard_id` has
     /// just failed in a way that we could not definitively attribute to
     /// the guard.
     pub(crate) fn record_indeterminate_result(&mut self, guard_id: &GuardId) {
-        if let Some(guard) = self.guards.get_mut(guard_id) {
+        self.guards.modify_by_all_ids(guard_id, |guard| {
             guard.note_exploratory_circ(false);
             guard.record_indeterminate_result();
-        }
+        });
     }
 
     /// Record that a given guard has told us about clock skew.
     pub(crate) fn record_skew(&mut self, guard_id: &GuardId, observation: SkewObservation) {
-        if let Some(guard) = self.guards.get_mut(guard_id) {
-            guard.note_skew(observation);
-        }
+        self.guards
+            .modify_by_all_ids(guard_id, |guard| guard.note_skew(observation));
     }
 
     /// Return an iterator over all stored clock skew observations.
@@ -724,7 +814,9 @@ impl GuardSet {
         // _rather_ use are either down, or have had their circuit
         // attempts pending for too long.
 
-        let cutoff = now - params.np_connect_timeout;
+        let cutoff = now
+            .checked_sub(params.np_connect_timeout)
+            .expect("Can't subtract connect timeout from now.");
 
         for (src, guard) in self.preference_order() {
             if guard.guard_id() == guard_id {
@@ -735,8 +827,10 @@ impl GuardSet {
                 match (src, guard.reachable()) {
                     (_, Reachable::Reachable) => return Some(false),
                     (_, Reachable::Unreachable) => (),
-                    (ListKind::Primary, Reachable::Unknown) => return Some(false),
-                    (_, Reachable::Unknown) => {
+                    (ListKind::Primary, Reachable::Untried | Reachable::Retriable) => {
+                        return Some(false)
+                    }
+                    (_, Reachable::Untried | Reachable::Retriable) => {
                         if guard.exploratory_attempt_after(cutoff) {
                             return None;
                         }
@@ -753,8 +847,15 @@ impl GuardSet {
     ///
     /// On success, returns the kind of guard that we got, and its filtered
     /// representation in a form suitable for use as a first hop.
+    ///
+    /// Label the returned guard as having come from `sample_id`.
+    //
+    // NOTE (nickm): I wish that we didn't have to take sample_id as an input,
+    // but the alternative would be storing it as a member of `GuardSet`, which
+    // makes things very complicated.
     pub(crate) fn pick_guard(
         &self,
+        sample_id: &GuardSetSelector,
         usage: &GuardUsage,
         params: &GuardParams,
         now: Instant,
@@ -763,7 +864,7 @@ impl GuardSet {
         let first_hop = self
             .get(&id)
             .expect("Somehow selected a guard we don't know!")
-            .get_external_rep();
+            .get_external_rep(sample_id.clone());
         let first_hop = self.active_filter.modify_hop(first_hop)?;
 
         Ok((list_kind, first_hop))
@@ -842,6 +943,42 @@ impl GuardSet {
             }
         }
     }
+
+    /// Return the guards whose bridge descriptors we should request, given our
+    /// current configuration and status.
+    ///
+    /// (The output of this function is not reasonable unless this is a Bridge
+    /// sample.)
+    #[cfg(feature = "bridge-client")]
+    pub(crate) fn descriptors_to_request(&self, now: Instant, params: &GuardParams) -> Vec<&Guard> {
+        /// This constant is here to improve our odds that we can get a working
+        /// bridge if we have any per-circuit filters that would prevent us from
+        /// using our preferred bridge.
+        const MINIMUM: usize = 2;
+
+        let maximum = std::cmp::max(params.data_parallelism, MINIMUM);
+        let data_usage = GuardUsage::default();
+
+        // Here we duplicate some but not all of the restrictions above in
+        // pick_guard_id.  We skip those restrictions that are specific to only
+        // certain kinds of circuits, and those that are temporary restrictions
+        // encouraging us to try more guards.
+        //
+        // TODO: we may want to refactor this code and the code in pick_guard_id
+        // above to share a single function.  Before we do that, however, I want
+        // to experiment with this logic a bit to make sure that it works and
+        // doesn't give us surprising results.
+        self.preference_order()
+            .filter(|(_, g)| {
+                g.usable()
+                    && g.reachable() != Reachable::Unreachable
+                    && g.ready_for_usage(&data_usage, now)
+                    && self.active_filter.permits(*g)
+            })
+            .take(maximum)
+            .map(|(_, g)| g)
+            .collect()
+    }
 }
 
 use serde::Serializer;
@@ -882,8 +1019,18 @@ impl<'a> From<GuardSample<'a>> for GuardSet {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use tor_linkspec::{HasRelayIds, RelayIdType};
+    use tor_netdir::{NetDir, Relay};
     use tor_netdoc::doc::netstatus::{RelayFlags, RelayWeight};
 
     use super::*;
@@ -902,7 +1049,7 @@ mod test {
         // calculation of collision probability at the end of this function is
         // too tricky.
         let netdir = tor_netdir::testnet::construct_custom_netdir(|idx, builder| {
-            // Give every node eequal bandwidth.
+            // Give every node equal bandwidth.
             builder.rs.weight(RelayWeight::Measured(1000));
             // The default network has 40 relays, and the first 10 are
             // not Guard by default.
@@ -945,12 +1092,12 @@ mod test {
             guards.assert_consistency();
 
             // make sure all the guards are okay.
-            for (g, guard) in &guards.guards {
-                let id: FirstHopId = g.clone().into();
+            for guard in guards.guards.values() {
+                let id = FirstHopId::in_sample(GuardSetSelector::Default, guard.guard_id().clone());
                 let relay = id.get_relay(&netdir).unwrap();
                 assert!(relay.is_flagged_guard());
                 assert!(relay.is_dir_cache());
-                assert!(guards.contains_relay(&relay));
+                assert!(guards.guards.by_all_ids(&relay).is_some());
                 {
                     assert!(!guard.is_expired(&params, SystemTime::now()));
                 }
@@ -996,11 +1143,19 @@ mod test {
         assert_eq!(&guards2.confirmed, &guards.confirmed);
         assert_eq!(&guards2.confirmed, &[id1]);
         assert_eq!(
-            guards.guards.keys().collect::<HashSet<_>>(),
-            guards2.guards.keys().collect::<HashSet<_>>()
+            guards
+                .guards
+                .values()
+                .map(Guard::guard_id)
+                .collect::<HashSet<_>>(),
+            guards2
+                .guards
+                .values()
+                .map(Guard::guard_id)
+                .collect::<HashSet<_>>()
         );
-        for (k, g) in &guards.guards {
-            let g2 = guards2.guards.get(k).unwrap();
+        for g in guards.guards.values() {
+            let g2 = guards2.guards.by_all_ids(g.guard_id()).unwrap();
             assert_eq!(format!("{:?}", g), format!("{:?}", g2));
         }
     }
@@ -1313,7 +1468,7 @@ mod test {
             .pick_guard_id(&usage, &params, Instant::now())
             .unwrap();
         guards.record_success(&p_id1, &params, None, SystemTime::now());
-        assert_eq!(guards.missing_primary_microdescriptors(&netdir), 0);
+        assert_eq!(guards.n_primary_without_id_info_in(&netdir), 0);
 
         use tor_netdir::testnet;
         let netdir2 = testnet::construct_custom_netdir(|_idx, bld| {
@@ -1326,7 +1481,7 @@ mod test {
         .unwrap_if_sufficient()
         .unwrap();
 
-        assert_eq!(guards.missing_primary_microdescriptors(&netdir2), 1);
+        assert_eq!(guards.n_primary_without_id_info_in(&netdir2), 1);
     }
 
     #[test]
@@ -1352,27 +1507,35 @@ mod test {
         guards2.record_failure(&id2, None, Instant::now());
 
         // Copy status: make sure non-persistent status changed, and  persistent didn't.
-        guards1.copy_status_from(guards2);
+        guards1.copy_ephemeral_status_into_newly_loaded_state(guards2);
         {
             let g1 = guards1.get(&id1).unwrap();
             let g2 = guards1.get(&id2).unwrap();
             assert!(g1.confirmed());
             assert!(!g2.confirmed());
-            assert_eq!(g1.reachable(), Reachable::Unknown);
+            assert_eq!(g1.reachable(), Reachable::Untried);
             assert_eq!(g2.reachable(), Reachable::Unreachable);
         }
 
         // Now make a new set of unrelated guards, and make sure that copying
         // from it doesn't change the membership of guards1.
         let mut guards3 = GuardSet::default();
-        let g1_set: HashSet<_> = guards1.guards.keys().map(Clone::clone).collect();
+        let g1_set: HashSet<_> = guards1
+            .guards
+            .values()
+            .map(|g| g.guard_id().clone())
+            .collect();
         let mut g3_set: HashSet<_> = HashSet::new();
         for _ in 0..4 {
             // There is roughly a 1-in-5000 chance of getting the same set
             // twice, so we loop until that doesn't happen.
             guards3.extend_sample_as_needed(SystemTime::now(), &params, &netdir);
             guards3.select_primary_guards(&params);
-            g3_set = guards3.guards.keys().map(Clone::clone).collect();
+            g3_set = guards3
+                .guards
+                .values()
+                .map(|g| g.guard_id().clone())
+                .collect();
 
             // There is roughly a 1-in-5000 chance of getting the same set twice, so
             if g1_set == g3_set {
@@ -1383,8 +1546,12 @@ mod test {
         }
         assert_ne!(g1_set, g3_set);
         // Do the copy; make sure that the membership is unchanged.
-        guards1.copy_status_from(guards3);
-        let g1_set_new: HashSet<_> = guards1.guards.keys().map(Clone::clone).collect();
+        guards1.copy_ephemeral_status_into_newly_loaded_state(guards3);
+        let g1_set_new: HashSet<_> = guards1
+            .guards
+            .values()
+            .map(|g| g.guard_id().clone())
+            .collect();
         assert_eq!(g1_set, g1_set_new);
     }
 }

@@ -1,21 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `tor-chanmgr`: Manage a set of channels on the Tor network.
-//!
-//! # Overview
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//!
-//! In Tor, a channel is a connection to a Tor relay.  It can be
-//! direct via TLS, or indirect via TLS over a pluggable transport.
-//! (For now, only direct channels are supported.)
-//!
-//! Since a channel can be used for more than one circuit, it's
-//! important to reuse channels when possible.  This crate implements
-//! a [`ChanMgr`] type that can be used to create channels on demand,
-//! and return existing channels when they already exist.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -49,16 +33,20 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
-mod builder;
+pub mod builder;
 mod config;
 mod err;
 mod event;
+pub mod factory;
 mod mgr;
 #[cfg(test)]
 mod testing;
+pub mod transport;
 
 use educe::Educe;
 use futures::select_biased;
@@ -83,6 +71,7 @@ use tor_rtcompat::Runtime;
 /// A Result as returned by this crate.
 pub type Result<T> = std::result::Result<T, Error>;
 
+use crate::factory::BootstrapReporter;
 pub use event::{ConnBlockage, ConnStatus, ConnStatusEvents};
 use tor_rtcompat::scheduler::{TaskHandle, TaskSchedule};
 
@@ -93,10 +82,14 @@ use tor_rtcompat::scheduler::{TaskHandle, TaskSchedule};
 /// get one if it exists.
 pub struct ChanMgr<R: Runtime> {
     /// Internal channel manager object that does the actual work.
-    mgr: mgr::AbstractChanMgr<builder::ChanBuilder<R>>,
+    mgr: mgr::AbstractChanMgr<factory::CompoundFactory>,
 
     /// Stream of [`ConnStatus`] events.
     bootstrap_status: event::ConnStatusEvents,
+
+    /// This currently isn't actually used, but we're keeping a PhantomData here
+    /// since probably we'll want it again, sooner or later.
+    runtime: std::marker::PhantomData<fn(R) -> R>,
 }
 
 /// Description of how we got a channel.
@@ -128,25 +121,33 @@ pub enum Dormancy {
     Dormant,
 }
 
-/// How a channel is going to be used
+/// The usage that we have in mind when requesting a channel.
 ///
-/// A channel may be used in multiple ways.  Each time it is (re)used, a separate
-/// ChannelUsage is passed in.
+/// A channel may be used in multiple ways.  Each time a channel is requested
+/// from `ChanMgr` a separate `ChannelUsage` is passed in to tell the `ChanMgr`
+/// how the channel will be used this time.
+///
+/// To be clear, the `ChannelUsage` is aspect of a _request_ for a channel, and
+/// is not an immutable property of the channel itself.
 ///
 /// This type is obtained from a `tor_circmgr::usage::SupportedCircUsage` in
 /// `tor_circmgr::usage`, and it has roughly the same set of variants.
 #[derive(Clone, Debug, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ChannelUsage {
-    /// Use for BEGINDIR-based non-anonymous directory connections
+    /// Requesting a channel to use for BEGINDIR-based non-anonymous directory
+    /// connections.
     Dir,
 
-    /// Use to transmit user traffic (including exit traffic) over the network.
+    /// Requesting a channel to transmit user traffic (including exit traffic)
+    /// over the network.
     ///
-    /// Includes a circuit being constructed preemptively.
+    /// This includes the case where we are constructing a circuit preemptively,
+    /// and _planning_ to use it for user traffic later on.
     UserTraffic,
 
-    /// For a channel which is not use for circuit(s), or only for useless circuits
+    /// Requesting a channel that the caller does not plan to used at all, or
+    /// which it plans to use only for testing circuits.
     UselessCircuit,
 }
 
@@ -161,13 +162,25 @@ impl<R: Runtime> ChanMgr<R> {
         config: &ChannelConfig,
         dormancy: Dormancy,
         netparams: &NetParameters,
-    ) -> Self {
+    ) -> Self
+    where
+        R: 'static,
+    {
         let (sender, receiver) = event::channel();
-        let builder = builder::ChanBuilder::new(runtime, sender);
-        let mgr = mgr::AbstractChanMgr::new(builder, config, dormancy, netparams);
+        let sender = Arc::new(std::sync::Mutex::new(sender));
+        let reporter = BootstrapReporter(sender);
+        let transport = transport::DefaultTransport::new(runtime.clone());
+        let builder = builder::ChanBuilder::new(runtime, transport);
+        let factory = factory::CompoundFactory::new(
+            Arc::new(builder),
+            #[cfg(feature = "pt-client")]
+            None,
+        );
+        let mgr = mgr::AbstractChanMgr::new(factory, config, dormancy, netparams, reporter);
         ChanMgr {
             mgr,
             bootstrap_status: receiver,
+            runtime: std::marker::PhantomData,
         }
     }
 
@@ -208,18 +221,9 @@ impl<R: Runtime> ChanMgr<R> {
         target: &T,
         usage: ChannelUsage,
     ) -> Result<(Channel, ChanProvenance)> {
-        // TODO(nickm): We will need to change the way that we index our map
-        // when we eventually support channels that are _not_ primarily
-        // identified by their ed25519 key.  That could be in the distant future
-        // when we make Ed25519 keys optional: But more likely it will be when
-        // we implement bridges.
-        let ed_identity = target.ed_identity().ok_or(Error::MissingId)?;
         let targetinfo = OwnedChanTarget::from_chan_target(target);
 
-        let (chan, provenance) = self
-            .mgr
-            .get_or_launch(*ed_identity, targetinfo, usage)
-            .await?;
+        let (chan, provenance) = self.mgr.get_or_launch(targetinfo, usage).await?;
         // Double-check the match to make sure that the RSA identity is
         // what we wanted too.
         chan.check_match(target)
@@ -266,6 +270,13 @@ impl<R: Runtime> ChanMgr<R> {
         let _: Option<&tor_error::Bug> = r.as_ref().err();
 
         Ok(r?)
+    }
+
+    /// Replace the transport registry with one that may know about
+    /// more transports.
+    #[cfg(feature = "pt-client")]
+    pub fn set_pt_mgr(&self, ptmgr: Arc<dyn factory::AbstractPtMgr + 'static>) {
+        self.mgr.with_mut_builder(|f| f.replace_ptmgr(ptmgr));
     }
 
     /// Watch for things that ought to change the configuration of all channels in the client

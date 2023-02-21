@@ -67,10 +67,7 @@ pub(super) fn files_to_delete(statepath: &Path, now: SystemTime) -> Vec<PathBuf>
         .map_err(dir_read_failed) // Result from fs::read_dir
         .into_iter()
         .flatten()
-        // TODO: Use map_while once we are on Rust >= 1.57
-        .map(|result| result.map_err(dir_read_failed).ok()) // Result from dir.next()
-        .take_while(|result| result.is_some())
-        .flatten();
+        .map_while(|result| result.map_err(dir_read_failed).ok()); // Result from dir.next()
 
     for entry in entries {
         let path = entry.path();
@@ -101,7 +98,16 @@ pub(super) fn files_to_delete(statepath: &Path, now: SystemTime) -> Vec<PathBuf>
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]
@@ -125,7 +131,7 @@ mod test {
 
         let fname1 = dir.path().join("quokka");
         let now = SystemTime::now();
-        std::fs::write(&fname1, "hello world").unwrap();
+        std::fs::write(fname1, "hello world").unwrap();
 
         let mut r = std::fs::read_dir(dir.path()).unwrap();
         let ent = r.next().unwrap().unwrap();
@@ -139,10 +145,10 @@ mod test {
         let now = SystemTime::now();
 
         let fname1 = dir.path().join("quokka.toml");
-        std::fs::write(&fname1, "hello world").unwrap();
+        std::fs::write(fname1, "hello world").unwrap();
 
         let fname2 = dir.path().join("wombat.json");
-        std::fs::write(&fname2, "greetings").unwrap();
+        std::fs::write(fname2, "greetings").unwrap();
 
         let removable_now = files_to_delete(dir.path(), now);
         assert!(removable_now.is_empty());

@@ -14,7 +14,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use tor_chanmgr::{ChanMgr, ChanProvenance, ChannelUsage};
 use tor_guardmgr::GuardStatus;
-use tor_linkspec::{ChanTarget, OwnedChanTarget, OwnedCircTarget};
+use tor_linkspec::{ChanTarget, IntoOwnedChanTarget, OwnedChanTarget, OwnedCircTarget};
 use tor_proto::circuit::{CircParameters, ClientCirc, PendingClientCirc};
 use tor_rtcompat::{Runtime, SleepProviderExt};
 
@@ -93,7 +93,7 @@ async fn create_common<RT: Runtime, CT: ChanTarget>(
                 guard_status.skew(skew);
             }
             return Err(Error::Channel {
-                peer: OwnedChanTarget::from_chan_target(target),
+                peer: target.to_logged(),
                 cause,
             });
         }
@@ -127,7 +127,7 @@ impl Buildable for ClientCirc {
         circ.create_firsthop_fast(params)
             .await
             .map_err(|error| Error::Protocol {
-                peer: Some(ct.clone()),
+                peer: Some(ct.to_logged()),
                 error,
                 action: "running CREATE_FAST handshake",
             })
@@ -144,7 +144,7 @@ impl Buildable for ClientCirc {
         circ.create_firsthop_ntor(ct, params.clone())
             .await
             .map_err(|error| Error::Protocol {
-                peer: Some(OwnedChanTarget::from_chan_target(ct)),
+                peer: Some(ct.to_logged()),
                 error,
                 action: "creating first hop",
             })
@@ -502,7 +502,16 @@ where
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::timeouts::TimeoutEstimator;
     use futures::channel::oneshot;
@@ -812,11 +821,24 @@ mod test {
 
     /// Testing only: create a bogus circuit target
     fn circ_t(id: Ed25519Identity) -> OwnedCircTarget {
-        OwnedCircTarget::new(chan_t(id), [0x33; 32].into(), "".parse().unwrap())
+        let mut builder = OwnedCircTarget::builder();
+        builder
+            .chan_target()
+            .ed_identity(id)
+            .rsa_identity([0x20; 20].into());
+        builder
+            .ntor_onion_key([0x33; 32].into())
+            .protocols("".parse().unwrap())
+            .build()
+            .unwrap()
     }
     /// Testing only: create a bogus channel target
     fn chan_t(id: Ed25519Identity) -> OwnedChanTarget {
-        OwnedChanTarget::new(vec![], id, [0x20; 20].into())
+        OwnedChanTarget::builder()
+            .ed_identity(id)
+            .rsa_identity([0x20; 20].into())
+            .build()
+            .unwrap()
     }
 
     async fn run_builder_test<R: Runtime>(

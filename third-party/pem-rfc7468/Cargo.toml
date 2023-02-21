@@ -13,21 +13,47 @@
 edition = "2021"
 rust-version = "1.56"
 name = "pem-rfc7468"
-version = "0.3.1"
+version = "0.6.0"
 authors = ["RustCrypto Developers"]
-description = "PEM Encoding (RFC 7468) for PKIX, PKCS, and CMS Structures, implementing a\nstrict subset of the original Privacy-Enhanced Mail encoding intended\nspecifically for use with cryptographic keys, certificates, and other messages.\nProvides a no_std-friendly, constant-time implementation suitable for use with\ncryptographic private keys.\n"
+description = """
+PEM Encoding (RFC 7468) for PKIX, PKCS, and CMS Structures, implementing a
+strict subset of the original Privacy-Enhanced Mail encoding intended
+specifically for use with cryptographic keys, certificates, and other messages.
+Provides a no_std-friendly, constant-time implementation suitable for use with
+cryptographic private keys.
+"""
 readme = "README.md"
-keywords = ["crypto", "key", "pem", "pkcs", "rsa"]
-categories = ["cryptography", "data-structures", "encoding", "no-std", "parser-implementations"]
+keywords = [
+    "crypto",
+    "key",
+    "pem",
+    "pkcs",
+    "rsa",
+]
+categories = [
+    "cryptography",
+    "data-structures",
+    "encoding",
+    "no-std",
+    "parser-implementations",
+]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/pem-rfc7468"
 resolver = "2"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
 [dependencies.base64ct]
-version = "1"
+version = "1.4"
 
 [features]
-alloc = []
-std = ["alloc"]
+alloc = ["base64ct/alloc"]
+std = [
+    "alloc",
+    "base64ct/std",
+]

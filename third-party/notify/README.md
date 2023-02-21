@@ -2,7 +2,7 @@
 
 [![» Crate](https://flat.badgen.net/crates/v/notify)][crate]
 [![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
-[![» CI](https://flat.badgen.net/github/checks/notify-rs/notify/try-v4)][build]
+[![» CI](https://flat.badgen.net/github/checks/notify-rs/notify/main)][build]
 [![» Downloads](https://flat.badgen.net/crates/d/notify)][crate]
 [![» Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)][coc]
 [![» Public Domain](https://flat.badgen.net/badge/license/CC0-1.0/purple)][cc0]
@@ -13,84 +13,44 @@ _Cross-platform filesystem notification library for Rust._
 [alert-after]!)
 
 - [API Documentation][docs]
+- [Debouncer Documentation][debouncer]
+- [Examples][examples]
 - [Crate page][crate]
-- Earliest supported Rust version: **1.26.1**
+- [Changelog][changelog]
+- [Upgrading from v4](UPGRADING_V4_TO_V5.md)
+- Earliest supported Rust version: **1.56**
+- **incomplete [Guides and in-depth docs][wiki]**
 
-As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
-[mdBook], [pax], [rdiff], [timetrack], [watchexec], [xi-editor], and others.
-
-## Installation
-
-```toml
-[dependencies]
-notify = "4.0.17"
-```
-
-## Usage
-
-```rust
-extern crate notify;
-
-use notify::{RecommendedWatcher, Watcher, RecursiveMode};
-use std::sync::mpsc::channel;
-use std::time::Duration;
-
-fn watch() -> notify::Result<()> {
-    // Create a channel to receive the events.
-    let (tx, rx) = channel();
-
-    // Automatically select the best implementation for your platform.
-    // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = try!(Watcher::new(tx, Duration::from_secs(2)));
-
-    // Add a path to be watched. All files and directories at that path and
-    // below will be monitored for changes.
-    try!(watcher.watch("/home/test/notify", RecursiveMode::Recursive));
-
-    // This is a simple loop, but you may want to use more complex logic here,
-    // for example to handle I/O.
-    loop {
-        match rx.recv() {
-            Ok(event) => println!("{:?}", event),
-            Err(e) => println!("watch error: {:?}", e),
-        }
-    }
-}
-
-fn main() {
-    if let Err(e) = watch() {
-        println!("error: {:?}", e)
-    }
-}
-```
-
-Looking overly verbose? Too much boilerplate? Have a look at [hotwatch], a friendly wrapper:
-
-```rust
-// Taken from the hotwatch readme
-use hotwatch::{Hotwatch, Event};
-
-let mut hotwatch = Hotwatch::new().expect("Hotwatch failed to initialize.");
-hotwatch.watch("war.png", |event: Event| {
-    if let Event::Write(path) = event {
-        println!("War has changed.");
-    }
-}).expect("Failed to watch file!");
-```
+As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],
+[rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], [watchfiles],
+and others.
 
 ## Platforms
 
 - Linux / Android: inotify
-- macOS: FSEvents
+- macOS: FSEvents or kqueue, see features
 - Windows: ReadDirectoryChangesW
+- FreeBSD / NetBSD / OpenBSD / DragonflyBSD: kqueue
 - All platforms: polling
 
 ### FSEvents
 
 Due to the inner security model of FSEvents (see [FileSystemEventSecurity]),
-some event cannot be observed easily when trying to follow files that do not
+some events cannot be observed easily when trying to follow files that do not
 belong to you. In this case, reverting to the pollwatcher can fix the issue,
 with a slight performance cost.
+
+## License
+
+Notify was undergoing a transition to using the
+[Artistic License 2.0][artistic] from [CC Zero 1.0][cc0]. A part of
+the code is only under CC0, and another part, including _all new code_ since
+commit [`3378ac5a`], is under _both_ CC0 and Artistic. When the project was to be
+entirely free of CC0 code, the license would be formally changed (and that would
+have incurred a major version bump). As part of this, contributions to Notify since
+would agree to release under both.
+
+[`3378ac5a`]: https://github.com/notify-rs/notify/commit/3378ac5ad5f174dfeacce6edadd7ded1a08d384e
 
 ## Origins
 
@@ -98,27 +58,25 @@ Inspired by Go's [fsnotify] and Node.js's [Chokidar], born out of need for
 [cargo watch], and general frustration at the non-existence of C/Rust
 cross-platform notify libraries.
 
-Written by [Félix Saparelli] and awesome [contributors], and released in the
-Public Domain using the [Creative Commons Zero Declaration][cc0].
+Originally created by [Félix Saparelli] and awesome [contributors].
 
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
+[debouncer]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini
 [Félix Saparelli]: https://passcod.name
-[alert-after]: https://github.com/frewsxcv/alert-after
 [alacritty]: https://github.com/jwilm/alacritty
-[artistic]: https://github.com/notify-rs/notify/blob/next/LICENSE
+[alert-after]: https://github.com/frewsxcv/alert-after
+[artistic]: ./LICENSE.ARTISTIC
 [build]: https://github.com/notify-rs/notify/actions
 [cargo watch]: https://github.com/passcod/cargo-watch
-[cc0]: https://creativecommons.org/publicdomain/zero/1.0/
+[cc0]: ./LICENSE
+[changelog]: ./CHANGELOG.md
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
 [coc]: http://contributor-covenant.org/version/1/4/
 [contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
-[docs-debounce]: https://docs.rs/notify/#default-debounced-api
-[docs-raw]: https://docs.rs/notify/#raw-api
-[docs-recursivemode]: https://docs.rs/notify/*/notify/enum.RecursiveMode.html
-[docs]: https://docs.rs/notify
 [docket]: https://iwillspeak.github.io/docket/
+[docs]: https://docs.rs/notify/5.1.0/notify/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch
@@ -126,6 +84,11 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [notify-rust]: https://github.com/hoodie/notify-rust
 [pax]: https://pax.js.org/
 [rdiff]: https://github.com/dyule/rdiff
+[rust-analyzer]: https://github.com/rust-analyzer/rust-analyzer
+[serde]: https://serde.rs/
 [timetrack]: https://github.com/joshmcguigan/timetrack
 [watchexec]: https://github.com/mattgreen/watchexec
+[wiki]: https://github.com/notify-rs/notify/wiki
 [xi-editor]: https://xi-editor.io/
+[watchfiles]: https://watchfiles.helpmanual.io/
+[examples]: examples/

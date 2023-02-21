@@ -178,7 +178,7 @@ impl DirTolerance {
             .extend_pre_tolerance(self.pre_valid_tolerance)
     }
 
-    /// Return a new consensus [`Lifetime`] that extgends the validity intervals
+    /// Return a new consensus [`Lifetime`] that extends the validity intervals
     /// of `lifetime` according to this configuration.
     pub(crate) fn extend_lifetime(&self, lifetime: &Lifetime) -> Lifetime {
         Lifetime::new(
@@ -207,7 +207,7 @@ impl DirTolerance {
 //
 // However, here, the DirMgrConfig is just a subset of the fields of a
 // TorClientConfig, and it is important that all its fields are
-// initialised by arti-client.
+// initialized by arti-client.
 //
 // If it grows a field, arti-client ought not to compile any more.
 #[derive(Debug, Clone)]
@@ -324,7 +324,16 @@ pub struct DirMgrExtensions {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     #![allow(clippy::unnecessary_wraps)]
     use super::*;
     use tempfile::tempdir;

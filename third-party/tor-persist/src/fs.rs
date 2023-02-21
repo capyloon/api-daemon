@@ -212,13 +212,6 @@ impl StateMgr for FsStateMgr {
         let string = match self.inner.statepath.read_to_string(rel_fname) {
             Ok(string) => string,
             Err(fs_mistrust::Error::NotFound(_)) => return Ok(None),
-            Err(fs_mistrust::Error::Io { err, .. }) => {
-                return Err(Error::new(
-                    ErrorSource::IoError(err),
-                    Action::Loading,
-                    self.err_resource(key),
-                ))
-            }
             Err(e) => return Err(Error::new(e, Action::Loading, self.err_resource(key))),
         };
 
@@ -255,7 +248,16 @@ impl StateMgr for FsStateMgr {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use std::{collections::HashMap, time::Duration};
 
@@ -344,7 +346,7 @@ mod test {
         assert_eq!(store.try_lock()?, LockStatus::NewlyAcquired);
         let fname = statedir.join("numbat.toml");
         let fname2 = statedir.join("quoll.json");
-        std::fs::write(&fname, "we no longer use toml files.").unwrap();
+        std::fs::write(fname, "we no longer use toml files.").unwrap();
         std::fs::write(&fname2, "{}").unwrap();
 
         // Make the store directory read-only and make sure that we can't delete from it.
@@ -358,7 +360,7 @@ mod test {
         assert_eq!(lst.len(), 3); // We can't remove the file, but we didn't freak out. Great!
                                   // Try failing to read a mode-0 file.
         std::fs::set_permissions(&statedir, rw_dir).unwrap();
-        std::fs::set_permissions(&fname2, unusable).unwrap();
+        std::fs::set_permissions(fname2, unusable).unwrap();
 
         let h: Result<Option<HashMap<String, u32>>> = store.load("quoll");
         assert!(h.is_err());
@@ -392,5 +394,24 @@ mod test {
         assert_eq!(store2.try_lock().unwrap(), LockStatus::NewlyAcquired);
         assert!(store2.can_store());
         assert!(!store1.can_store());
+    }
+
+    #[test]
+    fn errors() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = FsStateMgr::from_path(dir.path()).unwrap();
+
+        // file not found is not an error.
+        let nonesuch: Result<Option<String>> = store.load("Hello");
+        assert!(matches!(nonesuch, Ok(None)));
+
+        // bad utf8 is an error.
+        std::fs::write(dir.path().join("state/Hello.json"), b"hello world \x00\xff").unwrap();
+        let bad_utf8: Result<Option<String>> = store.load("Hello");
+        assert!(bad_utf8.is_err());
+        assert!(bad_utf8
+            .unwrap_err()
+            .to_string()
+            .starts_with("IO error while loading persistent data on Hello.json in "));
     }
 }

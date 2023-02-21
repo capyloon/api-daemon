@@ -8,29 +8,54 @@
 //!
 //! For more information see the [FSEvents API reference][ref].
 //!
+//! TODO: document event translation
+//!
 //! [ref]: https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/
 
 #![allow(non_upper_case_globals, dead_code)]
-extern crate fsevent as fse;
 
-use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
+use crate::event::*;
+use crate::{unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, Watcher};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
-use libc;
 use std::collections::HashMap;
-use std::convert::AsRef;
 use std::ffi::CStr;
-use std::mem::transmute;
+use std::fmt;
 use std::os::raw;
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::slice;
-use std::str::from_utf8;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+
+bitflags::bitflags! {
+  #[repr(C)]
+  struct StreamFlags: u32 {
+    const NONE = fs::kFSEventStreamEventFlagNone;
+    const MUST_SCAN_SUBDIRS = fs::kFSEventStreamEventFlagMustScanSubDirs;
+    const USER_DROPPED = fs::kFSEventStreamEventFlagUserDropped;
+    const KERNEL_DROPPED = fs::kFSEventStreamEventFlagKernelDropped;
+    const IDS_WRAPPED = fs::kFSEventStreamEventFlagEventIdsWrapped;
+    const HISTORY_DONE = fs::kFSEventStreamEventFlagHistoryDone;
+    const ROOT_CHANGED = fs::kFSEventStreamEventFlagRootChanged;
+    const MOUNT = fs::kFSEventStreamEventFlagMount;
+    const UNMOUNT = fs::kFSEventStreamEventFlagUnmount;
+    const ITEM_CREATED = fs::kFSEventStreamEventFlagItemCreated;
+    const ITEM_REMOVED = fs::kFSEventStreamEventFlagItemRemoved;
+    const INODE_META_MOD = fs::kFSEventStreamEventFlagItemInodeMetaMod;
+    const ITEM_RENAMED = fs::kFSEventStreamEventFlagItemRenamed;
+    const ITEM_MODIFIED = fs::kFSEventStreamEventFlagItemModified;
+    const FINDER_INFO_MOD = fs::kFSEventStreamEventFlagItemFinderInfoMod;
+    const ITEM_CHANGE_OWNER = fs::kFSEventStreamEventFlagItemChangeOwner;
+    const ITEM_XATTR_MOD = fs::kFSEventStreamEventFlagItemXattrMod;
+    const IS_FILE = fs::kFSEventStreamEventFlagItemIsFile;
+    const IS_DIR = fs::kFSEventStreamEventFlagItemIsDir;
+    const IS_SYMLINK = fs::kFSEventStreamEventFlagItemIsSymlink;
+    const OWN_EVENT = fs::kFSEventStreamEventFlagOwnEvent;
+    const IS_HARDLINK = fs::kFSEventStreamEventFlagItemIsHardlink;
+    const IS_LAST_HARDLINK = fs::kFSEventStreamEventFlagItemIsLastHardlink;
+    const ITEM_CLONED = fs::kFSEventStreamEventFlagItemCloned;
+  }
+}
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
@@ -38,10 +63,23 @@ pub struct FsEventWatcher {
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
-    event_tx: Arc<Mutex<EventTx>>,
-    runloop: Option<usize>,
-    context: Option<Box<StreamContextInfo>>,
+    event_handler: Arc<Mutex<dyn EventHandler>>,
+    runloop: Option<(cf::CFRunLoopRef, thread::JoinHandle<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
+}
+
+impl fmt::Debug for FsEventWatcher {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("FsEventWatcher")
+            .field("paths", &self.paths)
+            .field("since_when", &self.since_when)
+            .field("latency", &self.latency)
+            .field("flags", &self.flags)
+            .field("event_handler", &Arc::as_ptr(&self.event_handler))
+            .field("runloop", &self.runloop)
+            .field("recursive_info", &self.recursive_info)
+            .finish()
+    }
 }
 
 // CFMutableArrayRef is a type alias to *mut libc::c_void, so FsEventWatcher is not Send/Sync
@@ -51,50 +89,212 @@ unsafe impl Send for FsEventWatcher {}
 // It's Sync because all methods that change the mutable state use `&mut self`.
 unsafe impl Sync for FsEventWatcher {}
 
-fn translate_flags(flags: fse::StreamFlags) -> op::Op {
-    let mut ret = op::Op::empty();
-    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD)
-        || flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER)
-    {
-        ret.insert(op::Op::CHMOD);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_CREATED) {
-        ret.insert(op::Op::CREATE);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_REMOVED) {
-        ret.insert(op::Op::REMOVE);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_RENAMED) {
-        ret.insert(op::Op::RENAME);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_MODIFIED) {
-        ret.insert(op::Op::WRITE);
-    }
-    ret
-}
+fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
+    let mut evs = Vec::new();
 
-fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
-    if let Some(e) = event {
-        event_tx.send(RawEvent {
-            path: e.path,
-            op: e.op,
-            cookie: None,
+    // «Denotes a sentinel event sent to mark the end of the "historical" events
+    // sent as a result of specifying a `sinceWhen` value in the FSEvents.Create
+    // call that created this event stream. After invoking the client's callback
+    // with all the "historical" events that occurred before now, the client's
+    // callback will be invoked with an event where the HistoryDone flag is set.
+    // The client should ignore the path supplied in this callback.»
+    // — https://www.mbsplugins.eu/FSEventsNextEvent.shtml
+    //
+    // As a result, we just stop processing here and return an empty vec, which
+    // will ignore this completely and not emit any Events whatsoever.
+    if flags.contains(StreamFlags::HISTORY_DONE) {
+        return evs;
+    }
+
+    // FSEvents provides two possible hints as to why events were dropped,
+    // however documentation on what those mean is scant, so we just pass them
+    // through in the info attr field. The intent is clear enough, and the
+    // additional information is provided if the user wants it.
+    if flags.contains(StreamFlags::MUST_SCAN_SUBDIRS) {
+        let e = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+        evs.push(if flags.contains(StreamFlags::USER_DROPPED) {
+            e.set_info("rescan: user dropped")
+        } else if flags.contains(StreamFlags::KERNEL_DROPPED) {
+            e.set_info("rescan: kernel dropped")
+        } else {
+            e
         });
     }
+
+    // In imprecise mode, let's not even bother parsing the kind of the event
+    // except for the above very special events.
+    if !precise {
+        evs.push(Event::new(EventKind::Any));
+        return evs;
+    }
+
+    // This is most likely a rename or a removal. We assume rename but may want
+    // to figure out if it was a removal some way later (TODO). To denote the
+    // special nature of the event, we add an info string.
+    if flags.contains(StreamFlags::ROOT_CHANGED) {
+        evs.push(
+            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                .set_info("root changed"),
+        );
+    }
+
+    // A path was mounted at the event path; we treat that as a create.
+    if flags.contains(StreamFlags::MOUNT) {
+        evs.push(Event::new(EventKind::Create(CreateKind::Other)).set_info("mount"));
+    }
+
+    // A path was unmounted at the event path; we treat that as a remove.
+    if flags.contains(StreamFlags::UNMOUNT) {
+        evs.push(Event::new(EventKind::Remove(RemoveKind::Other)).set_info("mount"));
+    }
+
+    if flags.contains(StreamFlags::ITEM_CREATED) {
+        evs.push(if flags.contains(StreamFlags::IS_DIR) {
+            Event::new(EventKind::Create(CreateKind::Folder))
+        } else if flags.contains(StreamFlags::IS_FILE) {
+            Event::new(EventKind::Create(CreateKind::File))
+        } else {
+            let e = Event::new(EventKind::Create(CreateKind::Other));
+            if flags.contains(StreamFlags::IS_SYMLINK) {
+                e.set_info("is: symlink")
+            } else if flags.contains(StreamFlags::IS_HARDLINK) {
+                e.set_info("is: hardlink")
+            } else if flags.contains(StreamFlags::ITEM_CLONED) {
+                e.set_info("is: clone")
+            } else {
+                Event::new(EventKind::Create(CreateKind::Any))
+            }
+        });
+    }
+
+    if flags.contains(StreamFlags::ITEM_REMOVED) {
+        evs.push(if flags.contains(StreamFlags::IS_DIR) {
+            Event::new(EventKind::Remove(RemoveKind::Folder))
+        } else if flags.contains(StreamFlags::IS_FILE) {
+            Event::new(EventKind::Remove(RemoveKind::File))
+        } else {
+            let e = Event::new(EventKind::Remove(RemoveKind::Other));
+            if flags.contains(StreamFlags::IS_SYMLINK) {
+                e.set_info("is: symlink")
+            } else if flags.contains(StreamFlags::IS_HARDLINK) {
+                e.set_info("is: hardlink")
+            } else if flags.contains(StreamFlags::ITEM_CLONED) {
+                e.set_info("is: clone")
+            } else {
+                Event::new(EventKind::Remove(RemoveKind::Any))
+            }
+        });
+    }
+
+    // FSEvents provides no mechanism to associate the old and new sides of a
+    // rename event.
+    if flags.contains(StreamFlags::ITEM_RENAMED) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Name(
+            RenameMode::Any,
+        ))));
+    }
+
+    // This is only described as "metadata changed", but it may be that it's
+    // only emitted for some more precise subset of events... if so, will need
+    // amending, but for now we have an Any-shaped bucket to put it in.
+    if flags.contains(StreamFlags::INODE_META_MOD) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Any,
+        ))));
+    }
+
+    if flags.contains(StreamFlags::FINDER_INFO_MOD) {
+        evs.push(
+            Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Other)))
+                .set_info("meta: finder info"),
+        );
+    }
+
+    if flags.contains(StreamFlags::ITEM_CHANGE_OWNER) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Ownership,
+        ))));
+    }
+
+    if flags.contains(StreamFlags::ITEM_XATTR_MOD) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Extended,
+        ))));
+    }
+
+    // This is specifically described as a data change, which we take to mean
+    // is a content change.
+    if flags.contains(StreamFlags::ITEM_MODIFIED) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Data(
+            DataChange::Content,
+        ))));
+    }
+
+    if flags.contains(StreamFlags::OWN_EVENT) {
+        for ev in &mut evs {
+            *ev = std::mem::take(ev).set_process_id(std::process::id());
+        }
+    }
+
+    evs
 }
 
 struct StreamContextInfo {
-    event_tx: Arc<Mutex<EventTx>>,
-    done: Receiver<()>,
+    event_handler: Arc<Mutex<dyn EventHandler>>,
     recursive_info: HashMap<PathBuf, bool>,
+}
+
+// Free the context when the stream created by `FSEventStreamCreate` is released.
+extern "C" fn release_context(info: *const libc::c_void) {
+    // Safety:
+    // - The [documentation] for `FSEventStreamContext` states that `release` is only
+    //   called when the stream is deallocated, so it is safe to convert `info` back into a
+    //   box and drop it.
+    //
+    // [docs]: https://developer.apple.com/documentation/coreservices/fseventstreamcontext?language=objc
+    unsafe {
+        drop(Box::from_raw(
+            info as *const StreamContextInfo as *mut StreamContextInfo,
+        ));
+    }
 }
 
 extern "C" {
     /// Indicates whether the run loop is waiting for an event.
-    pub fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> bool;
+    fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
 }
 
 impl FsEventWatcher {
+    fn from_event_handler(event_handler: Arc<Mutex<dyn EventHandler>>) -> Result<Self> {
+        Ok(FsEventWatcher {
+            paths: unsafe {
+                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
+            },
+            since_when: fs::kFSEventStreamEventIdSinceNow,
+            latency: 0.0,
+            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
+            event_handler,
+            runloop: None,
+            recursive_info: HashMap::new(),
+        })
+    }
+
+    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.stop();
+        let result = self.append_path(path, recursive_mode);
+        // ignore return error: may be empty path list
+        let _ = self.run();
+        result
+    }
+
+    fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
+        self.stop();
+        let result = self.remove_path(path);
+        // ignore return error: may be empty path list
+        let _ = self.run();
+        result
+    }
+
     #[inline]
     fn is_running(&self) -> bool {
         self.runloop.is_some()
@@ -105,38 +305,30 @@ impl FsEventWatcher {
             return;
         }
 
-        if let Some(runloop) = self.runloop {
+        if let Some((runloop, thread_handle)) = self.runloop.take() {
             unsafe {
                 let runloop = runloop as *mut raw::c_void;
 
-                while !CFRunLoopIsWaiting(runloop) {
+                while CFRunLoopIsWaiting(runloop) == 0 {
                     thread::yield_now();
                 }
 
                 cf::CFRunLoopStop(runloop);
             }
-        }
 
-        self.runloop = None;
-        if let Some(ref context_info) = self.context {
-            // sync done channel
-            match context_info.done.recv() {
-                Ok(()) => (),
-                Err(_) => panic!("the runloop may not be finished!"),
-            }
+            // Wait for the thread to shut down.
+            thread_handle.join().expect("thread to shut down");
         }
-
-        self.context = None;
     }
 
-    fn remove_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let str_path = path.as_ref().to_str().unwrap();
+    fn remove_path(&mut self, path: &Path) -> Result<()> {
+        let str_path = path.to_str().unwrap();
         unsafe {
             let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
             if cf_path.is_null() {
                 cf::CFRelease(err as cf::CFRef);
-                return Err(Error::WatchNotFound);
+                return Err(Error::watch_not_found().add_path(path.into()));
             }
 
             let mut to_remove = Vec::new();
@@ -149,31 +341,30 @@ impl FsEventWatcher {
                 }
             }
 
+            cf::CFRelease(cf_path);
+
             for idx in to_remove.iter().rev() {
                 cf::CFArrayRemoveValueAtIndex(self.paths, *idx);
             }
         }
-        let p = if let Ok(canonicalized_path) = path.as_ref().canonicalize() {
+        let p = if let Ok(canonicalized_path) = path.canonicalize() {
             canonicalized_path
         } else {
-            path.as_ref().to_owned()
+            path.to_owned()
         };
         match self.recursive_info.remove(&p) {
             Some(_) => Ok(()),
-            None => Err(Error::WatchNotFound),
+            None => Err(Error::watch_not_found()),
         }
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path<P: AsRef<Path>>(
-        &mut self,
-        path: P,
-        recursive_mode: RecursiveMode,
-    ) -> Result<()> {
-        if !path.as_ref().exists() {
-            return Err(Error::PathNotFound);
+    fn append_path(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        if !path.exists() {
+            return Err(Error::path_not_found().add_path(path.into()));
         }
-        let str_path = path.as_ref().to_str().unwrap();
+        let canonical_path = path.to_path_buf().canonicalize()?;
+        let str_path = path.to_str().unwrap();
         unsafe {
             let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
@@ -181,46 +372,43 @@ impl FsEventWatcher {
                 // Most likely the directory was deleted, or permissions changed,
                 // while the above code was running.
                 cf::CFRelease(err as cf::CFRef);
-                return Err(Error::PathNotFound);
+                return Err(Error::path_not_found().add_path(path.into()));
             }
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
-        self.recursive_info.insert(
-            path.as_ref().to_path_buf().canonicalize().unwrap(),
-            recursive_mode.is_recursive(),
-        );
+        self.recursive_info
+            .insert(canonical_path, recursive_mode.is_recursive());
         Ok(())
     }
 
     fn run(&mut self) -> Result<()> {
         if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
-            return Err(Error::PathNotFound);
+            // TODO: Reconstruct and add paths to error
+            return Err(Error::path_not_found());
         }
 
-        // done channel is used to sync quit status of runloop thread
-        let (done_tx, done_rx) = channel();
-
-        let info = StreamContextInfo {
-            event_tx: self.event_tx.clone(),
-            done: done_rx,
+        // We need to associate the stream context with our callback in order to propagate events
+        // to the rest of the system. This will be owned by the stream, and will be freed when the
+        // stream is closed. This means we will leak the context if we panic before reacing
+        // `FSEventStreamRelease`.
+        let context = Box::into_raw(Box::new(StreamContextInfo {
+            event_handler: self.event_handler.clone(),
             recursive_info: self.recursive_info.clone(),
-        };
-
-        self.context = Some(Box::new(info));
+        }));
 
         let stream_context = fs::FSEventStreamContext {
             version: 0,
-            info: unsafe { transmute(self.context.as_ref().map(|ctx| &**ctx)) },
-            retain: cf::NULL,
-            copy_description: cf::NULL,
+            info: context as *mut libc::c_void,
+            retain: None,
+            release: Some(release_context),
+            copy_description: None,
         };
 
-        let cb = callback as *mut _;
         let stream = unsafe {
             fs::FSEventStreamCreate(
                 cf::kCFAllocatorDefault,
-                cb,
+                callback,
                 &stream_context,
                 self.paths,
                 self.since_when,
@@ -229,187 +417,152 @@ impl FsEventWatcher {
             )
         };
 
+        // Wrapper to help send CFRef types across threads.
+        struct CFSendWrapper(cf::CFRef);
+
+        // Safety:
+        // - According to the Apple documentation, it's safe to move `CFRef`s across threads.
+        //   https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html
+        unsafe impl Send for CFSendWrapper {}
+
         // move into thread
-        let dummy = stream as usize;
+        let stream = CFSendWrapper(stream);
+
         // channel to pass runloop around
-        let (rl_tx, rl_rx) = channel();
+        let (rl_tx, rl_rx) = unbounded();
 
-        thread::spawn(move || {
-            let stream = dummy as *mut raw::c_void;
-            unsafe {
-                let cur_runloop = cf::CFRunLoopGetCurrent();
+        let thread_handle = thread::Builder::new()
+            .name("notify-rs fsevents loop".to_string())
+            .spawn(move || {
+                let _ = &stream;
+                let stream = stream.0;
 
-                fs::FSEventStreamScheduleWithRunLoop(
-                    stream,
-                    cur_runloop,
-                    cf::kCFRunLoopDefaultMode,
-                );
-                fs::FSEventStreamStart(stream);
+                unsafe {
+                    let cur_runloop = cf::CFRunLoopGetCurrent();
 
-                // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
-                rl_tx
-                    .send(cur_runloop as *mut libc::c_void as usize)
-                    .expect("Unable to send runloop to watcher");
-                cf::CFRunLoopRun();
-                fs::FSEventStreamStop(stream);
-                fs::FSEventStreamInvalidate(stream);
-                fs::FSEventStreamRelease(stream);
-            }
-            done_tx
-                .send(())
-                .expect("error while signal run loop is done");
-        });
-        // block until runloop has been set
-        self.runloop = Some(rl_rx.recv().unwrap());
+                    fs::FSEventStreamScheduleWithRunLoop(
+                        stream,
+                        cur_runloop,
+                        cf::kCFRunLoopDefaultMode,
+                    );
+                    fs::FSEventStreamStart(stream);
+
+                    // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
+                    rl_tx
+                        .send(CFSendWrapper(cur_runloop))
+                        .expect("Unable to send runloop to watcher");
+
+                    cf::CFRunLoopRun();
+                    fs::FSEventStreamStop(stream);
+                    fs::FSEventStreamInvalidate(stream);
+                    fs::FSEventStreamRelease(stream);
+                }
+            })?;
+        // block until runloop has been sent
+        self.runloop = Some((rl_rx.recv().unwrap().0, thread_handle));
 
         Ok(())
     }
+
+    fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
+        tx.send(Ok(false))
+            .expect("configuration channel disconnect");
+    }
 }
 
-#[allow(unused_variables)]
-#[doc(hidden)]
-pub unsafe extern "C" fn callback(
+extern "C" fn callback(
     stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,                // size_t numEvents
-    event_paths: *const *const libc::c_char, // void *eventPaths
-    event_flags: *mut libc::c_void,          // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *mut libc::c_void,            // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,                        // size_t numEvents
+    event_paths: *mut libc::c_void,                  // void *eventPaths
+    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *const fs::FSEventStreamEventId,      // const FSEventStreamEventId eventIds[]
 ) {
-    let num = num_events as usize;
-    let e_ptr = event_flags as *mut u32;
-    let i_ptr = event_ids as *mut u64;
-    let info = transmute::<_, *const StreamContextInfo>(info);
+    unsafe {
+        callback_impl(
+            stream_ref,
+            info,
+            num_events,
+            event_paths,
+            event_flags,
+            event_ids,
+        )
+    }
+}
 
-    let paths: &[*const libc::c_char] = transmute(slice::from_raw_parts(event_paths, num));
-    let flags = slice::from_raw_parts_mut(e_ptr, num);
-    let ids = slice::from_raw_parts_mut(i_ptr, num);
+unsafe fn callback_impl(
+    _stream_ref: fs::FSEventStreamRef,
+    info: *mut libc::c_void,
+    num_events: libc::size_t,                        // size_t numEvents
+    event_paths: *mut libc::c_void,                  // void *eventPaths
+    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
+    _event_ids: *const fs::FSEventStreamEventId,     // const FSEventStreamEventId eventIds[]
+) {
+    let event_paths = event_paths as *const *const libc::c_char;
+    let info = info as *const StreamContextInfo;
+    let event_handler = &(*info).event_handler;
 
-    if let Ok(mut event_tx) = (*info).event_tx.lock() {
-        let mut rename_event: Option<RawEvent> = None;
+    for p in 0..num_events {
+        let path = CStr::from_ptr(*event_paths.add(p))
+            .to_str()
+            .expect("Invalid UTF8 string.");
+        let path = PathBuf::from(path);
 
-        for p in 0..num {
-            let i = CStr::from_ptr(paths[p]).to_bytes();
-            let flag = fse::StreamFlags::from_bits(flags[p] as u32)
-                .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32).as_ref());
-            let id = ids[p];
+        let flag = *event_flags.add(p);
+        let flag = StreamFlags::from_bits(flag).unwrap_or_else(|| {
+            panic!("Unable to decode StreamFlags: {}", flag);
+        });
 
-            let path = PathBuf::from(from_utf8(i).expect("Invalid UTF8 string."));
-
-            let mut handle_event = false;
-            for (p, r) in &(*info).recursive_info {
-                if path.starts_with(p) {
-                    if *r || &path == p {
+        let mut handle_event = false;
+        for (p, r) in &(*info).recursive_info {
+            if path.starts_with(p) {
+                if *r || &path == p {
+                    handle_event = true;
+                    break;
+                } else if let Some(parent_path) = path.parent() {
+                    if parent_path == p {
                         handle_event = true;
                         break;
-                    } else if let Some(parent_path) = path.parent() {
-                        if parent_path == p {
-                            handle_event = true;
-                            break;
-                        }
                     }
-                }
-            }
-
-            if flag.contains(fse::StreamFlags::MUST_SCAN_SUBDIRS) {
-                event_tx.send(RawEvent {
-                    path: None,
-                    op: Ok(op::Op::RESCAN),
-                    cookie: None,
-                });
-            }
-
-            if handle_event {
-                if flag.contains(fse::StreamFlags::ITEM_RENAMED) {
-                    if let Some(e) = rename_event {
-                        if e.cookie == Some((id - 1) as u32) {
-                            event_tx.send(e);
-                            event_tx.send(RawEvent {
-                                op: Ok(translate_flags(flag)),
-                                path: Some(path),
-                                cookie: Some((id - 1) as u32),
-                            });
-                            rename_event = None;
-                        } else {
-                            send_pending_rename_event(Some(e), &mut event_tx);
-                            rename_event = Some(RawEvent {
-                                path: Some(path),
-                                op: Ok(translate_flags(flag)),
-                                cookie: Some(id as u32),
-                            });
-                        }
-                    } else {
-                        rename_event = Some(RawEvent {
-                            path: Some(path),
-                            op: Ok(translate_flags(flag)),
-                            cookie: Some(id as u32),
-                        });
-                    }
-                } else {
-                    send_pending_rename_event(rename_event, &mut event_tx);
-                    rename_event = None;
-
-                    event_tx.send(RawEvent {
-                        op: Ok(translate_flags(flag)),
-                        path: Some(path),
-                        cookie: None,
-                    });
                 }
             }
         }
 
-        send_pending_rename_event(rename_event, &mut event_tx);
+        if !handle_event {
+            continue;
+        }
+
+        for ev in translate_flags(flag, true).into_iter() {
+            // TODO: precise
+            let ev = ev.add_path(path.clone());
+            let mut event_handler = event_handler.lock().expect("lock not to be poisoned");
+            event_handler.handle_event(Ok(ev));
+        }
     }
 }
 
 impl Watcher for FsEventWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<FsEventWatcher> {
-        Ok(FsEventWatcher {
-            paths: unsafe {
-                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
-            },
-            since_when: fs::kFSEventStreamEventIdSinceNow,
-            latency: 0.0,
-            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(Mutex::new(EventTx::Raw { tx: tx })),
-            runloop: None,
-            context: None,
-            recursive_info: HashMap::new(),
-        })
+    /// Create a new watcher.
+    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
+        Self::from_event_handler(Arc::new(Mutex::new(event_handler)))
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<FsEventWatcher> {
-        Ok(FsEventWatcher {
-            paths: unsafe {
-                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
-            },
-            since_when: fs::kFSEventStreamEventIdSinceNow,
-            latency: 0.0,
-            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(Mutex::new(EventTx::Debounced {
-                tx: tx.clone(),
-                debounce: Debounce::new(delay, tx),
-            })),
-            runloop: None,
-            context: None,
-            recursive_info: HashMap::new(),
-        })
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.stop();
-        let result = self.append_path(path, recursive_mode);
-        // ignore return error: may be empty path list
-        let _ = self.run();
-        result
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.stop();
-        let result = self.remove_path(path);
-        // ignore return error: may be empty path list
-        let _ = self.run();
-        result
+    fn configure(&mut self, config: Config) -> Result<bool> {
+        let (tx, rx) = unbounded();
+        self.configure_raw_mode(config, tx);
+        rx.recv()?
+    }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::Fsevent
     }
 }
 
@@ -427,30 +580,33 @@ fn test_fsevent_watcher_drop() {
     use super::*;
     use std::time::Duration;
 
-    let (tx, rx) = channel();
+    let dir = tempfile::tempdir().unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
 
     {
-        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).unwrap();
-        watcher.watch("../../", RecursiveMode::Recursive).unwrap();
+        let mut watcher = FsEventWatcher::new(tx, Default::default()).unwrap();
+        watcher.watch(dir.path(), RecursiveMode::Recursive).unwrap();
         thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());
 
         thread::sleep(Duration::from_millis(1000));
-        watcher.unwatch("../..").unwrap();
+        watcher.unwatch(dir.path()).unwrap();
         println!("is running -> {}", watcher.is_running());
     }
 
     thread::sleep(Duration::from_millis(1000));
 
-    // if drop() works, this loop will quit after all Sender freed
-    // otherwise will block forever
-    for e in rx.iter() {
-        println!(
-            "debug => {:?} {:?}",
-            e.op.map(|e| e.bits()).unwrap_or(0),
-            e.path
-        );
+    for res in rx {
+        let e = res.unwrap();
+        println!("debug => {:?} {:?}", e.kind, e.paths);
     }
 
     println!("in test: {} works", file!());
+}
+
+#[test]
+fn test_steam_context_info_send_and_sync() {
+    fn check_send<T: Send + Sync>() {}
+    check_send::<StreamContextInfo>();
 }

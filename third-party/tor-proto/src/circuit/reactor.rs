@@ -33,6 +33,7 @@ use crate::circuit::sendme::CircTag;
 use crate::circuit::sendme::StreamSendWindow;
 use crate::crypto::handshake::ntor::{NtorClient, NtorPublicKey};
 use crate::crypto::handshake::{ClientHandshake, KeyGenerator};
+use safelog::sensitive as sv;
 use tor_cell::chancell;
 use tor_cell::chancell::{ChanCell, CircId};
 use tor_linkspec::{LinkSpec, OwnedChanTarget, RelayIds};
@@ -781,7 +782,11 @@ impl Reactor {
         params: &CircParameters,
     ) -> Result<()> {
         // Exit now if we have an Ed25519 or RSA identity mismatch.
-        let target = RelayIds::new(ed_identity, pubkey.id);
+        let target = RelayIds::builder()
+            .ed_identity(ed_identity)
+            .rsa_identity(pubkey.id)
+            .build()
+            .expect("Unable to build RelayIds");
         self.channel.check_match(&target)?;
 
         let wrap = Create2Wrap {
@@ -1026,7 +1031,7 @@ impl Reactor {
                     );
                     return Err(Error::CircProto(format!(
                         "tried to send a relay cell on non-open stream {}",
-                        stream_id
+                        sv(stream_id),
                     )));
                 }
             }
@@ -1117,7 +1122,12 @@ impl Reactor {
                     RequireSendmeAuth::No
                 };
 
-                let dummy_peer_id = OwnedChanTarget::new(vec![], [4; 32].into(), [5; 20].into());
+                let dummy_peer_id = OwnedChanTarget::builder()
+                    .ed_identity([4; 32].into())
+                    .rsa_identity([5; 20].into())
+                    .build()
+                    .expect("Could not construct fake hop");
+
                 let fwd = Box::new(DummyCrypto::new(fwd_lasthop));
                 let rev = Box::new(DummyCrypto::new(rev_lasthop));
                 self.add_hop(dummy_peer_id, require_sendme_auth, fwd, rev, &params);
@@ -1275,7 +1285,7 @@ impl Reactor {
         if !msg.cmd().accepts_streamid_val(streamid) {
             return Err(Error::CircProto(format!(
                 "Invalid stream ID {} for relay command {}",
-                streamid,
+                sv(streamid),
                 msg.cmd()
             )));
         }
@@ -1326,7 +1336,7 @@ impl Reactor {
                         // is sending us more cells than we asked for via congestion control.
                         return Err(Error::CircProto(format!(
                             "Stream sink would block; received too many cells on stream ID {}",
-                            streamid,
+                            sv(streamid),
                         )));
                     }
                     if e.is_disconnected() && c_t_w {

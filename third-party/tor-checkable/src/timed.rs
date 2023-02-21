@@ -85,11 +85,6 @@ impl<T> TimerangeBound<T> {
     ///
     /// The caller takes responsibility for making sure that the bounds are
     /// actually checked.
-    ///
-    /// This is an experimental API. Using it voids your stability guarantees.
-    /// It is only available when this crate is compiled with the
-    /// `experimental-api` feature.
-    #[cfg(feature = "experimental-api")]
     pub fn dangerously_into_parts(self) -> (T, (Bound<time::SystemTime>, Bound<time::SystemTime>)) {
         (
             self.obj,
@@ -106,11 +101,6 @@ impl<T> TimerangeBound<T> {
     /// The caller takes responsibility for making sure that nothing is actually
     /// done with the inner object that would rely on the bounds being correct, until
     /// the bounds are (eventually) checked.
-    ///
-    /// This is an experimental API. Using it voids your stability guarantees.
-    /// It is only available when this crate is compiled with the
-    /// `experimental-api` feature.
-    #[cfg(feature = "experimental-api")]
     pub fn dangerously_peek(&self) -> &T {
         &self.obj
     }
@@ -143,18 +133,30 @@ impl<T> crate::Timebound<T> for TimerangeBound<T> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::{TimeValidityError, Timebound};
+    use humantime::parse_rfc3339;
     use std::time::{Duration, SystemTime};
 
     #[test]
     fn test_bounds() {
+        #![allow(clippy::unwrap_used)]
         let one_day = Duration::new(86400, 0);
-        let mixminion_v0_0_1 = SystemTime::UNIX_EPOCH + 12059 * one_day; //2003-01-07
-        let tor_v0_0_2pre13 = SystemTime::UNIX_EPOCH + 12344 * one_day; //2003-10-19
-        let cussed_nougat = SystemTime::UNIX_EPOCH + 14093 * one_day; //2008-08-02
-        let tor_v0_4_4_5 = SystemTime::UNIX_EPOCH + 18520 * one_day; //2020-09-15
-        let today = SystemTime::UNIX_EPOCH + 18527 * one_day; //2020-09-22
+        let mixminion_v0_0_1 = parse_rfc3339("2003-01-07T00:00:00Z").unwrap();
+        let tor_v0_0_2pre13 = parse_rfc3339("2003-10-19T00:00:00Z").unwrap();
+        let cussed_nougat = parse_rfc3339("2008-08-02T00:00:00Z").unwrap();
+        let tor_v0_4_4_5 = parse_rfc3339("2020-09-15T00:00:00Z").unwrap();
+        let today = parse_rfc3339("2020-09-22T00:00:00Z").unwrap();
 
         let tr = TimerangeBound::new((), ..tor_v0_4_4_5);
         assert_eq!(tr.start, None);

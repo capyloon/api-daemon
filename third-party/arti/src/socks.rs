@@ -18,7 +18,7 @@ use tor_socksproto::{SocksAddr, SocksAuth, SocksCmd, SocksRequest};
 
 use anyhow::{anyhow, Context, Result};
 
-/// Paylod to return when an HTTP connection arrive on a Socks port
+/// Payload to return when an HTTP connection arrive on a Socks port
 const WRONG_PROTOCOL_PAYLOAD: &[u8] = br#"HTTP/1.0 501 Tor is not an HTTP Proxy
 Content-Type: text/html; charset=utf-8
 
@@ -110,7 +110,7 @@ where
     // The SOCKS handshake can require multiple round trips (SOCKS5
     // always does) so we we need to run this part of the process in a
     // loop.
-    let mut handshake = tor_socksproto::SocksHandshake::new();
+    let mut handshake = tor_socksproto::SocksProxyHandshake::new();
 
     let (mut socks_r, mut socks_w) = socks_stream.split();
     let mut inbuf = [0_u8; 1024];
@@ -192,7 +192,7 @@ where
                 .await;
             let tor_stream = match tor_stream {
                 Ok(s) => s,
-                Err(e) => return reply_error(&mut socks_w, &request, e).await,
+                Err(e) => return reply_error(&mut socks_w, &request, e.kind()).await,
             };
             // Okay, great! We have a connection over the Tor network.
             debug!("Got a stream for {}:{}", sensitive(&addr), port);
@@ -214,18 +214,28 @@ where
         SocksCmd::RESOLVE => {
             // We've been asked to perform a regular hostname lookup.
             // (This is a tor-specific SOCKS extension.)
-            let addrs = match tor_client.resolve_with_prefs(&addr, &prefs).await {
-                Ok(addrs) => addrs,
-                Err(e) => return reply_error(&mut socks_w, &request, e).await,
+
+            let addr = if let Ok(addr) = addr.parse() {
+                // if this is a valid ip address, just parse it and reply.
+                Ok(addr)
+            } else {
+                tor_client
+                    .resolve_with_prefs(&addr, &prefs)
+                    .await
+                    .map_err(|e| e.kind())
+                    .and_then(|addrs| addrs.first().copied().ok_or(ErrorKind::Other))
             };
-            if let Some(addr) = addrs.first() {
-                let reply = request
-                    .reply(
-                        tor_socksproto::SocksStatus::SUCCEEDED,
-                        Some(&SocksAddr::Ip(*addr)),
-                    )
-                    .context("Encoding socks reply")?;
-                write_all_and_close(&mut socks_w, &reply[..]).await?;
+            match addr {
+                Ok(addr) => {
+                    let reply = request
+                        .reply(
+                            tor_socksproto::SocksStatus::SUCCEEDED,
+                            Some(&SocksAddr::Ip(addr)),
+                        )
+                        .context("Encoding socks reply")?;
+                    write_all_and_close(&mut socks_w, &reply[..]).await?;
+                }
+                Err(e) => return reply_error(&mut socks_w, &request, e).await,
             }
         }
         SocksCmd::RESOLVE_PTR => {
@@ -243,7 +253,7 @@ where
             };
             let hosts = match tor_client.resolve_ptr_with_prefs(addr, &prefs).await {
                 Ok(hosts) => hosts,
-                Err(e) => return reply_error(&mut socks_w, &request, e).await,
+                Err(e) => return reply_error(&mut socks_w, &request, e.kind()).await,
             };
             if let Some(host) = hosts.into_iter().next() {
                 // this conversion should never fail, legal DNS names len must be <= 253 but Socks
@@ -306,13 +316,13 @@ where
 async fn reply_error<W>(
     writer: &mut W,
     request: &SocksRequest,
-    error: arti_client::Error,
+    error: arti_client::ErrorKind,
 ) -> Result<()>
 where
     W: AsyncWrite + Unpin,
 {
     // We need to send an error. See what kind it is.
-    let reply = match error.kind() {
+    let reply = match error {
         ErrorKind::RemoteNetworkTimeout => {
             request.reply(tor_socksproto::SocksStatus::TTL_EXPIRED, None)
         }

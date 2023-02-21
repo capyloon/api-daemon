@@ -6,7 +6,7 @@
 use super::rs::build::RouterStatusBuilder;
 use super::{
     CommonHeader, Consensus, ConsensusFlavor, ConsensusHeader, ConsensusVoterInfo, DirSource,
-    Footer, Lifetime, NetParams, ProtoStatus, RouterStatus, SharedRandVal,
+    Footer, Lifetime, NetParams, ProtoStatus, RouterStatus, SharedRandStatus, SharedRandVal,
 };
 
 use crate::{BuildError as Error, BuildResult as Result};
@@ -14,6 +14,7 @@ use tor_llcrypto::pk::rsa::RsaIdentity;
 use tor_protover::Protocols;
 
 use std::net::IpAddr;
+use std::time::SystemTime;
 
 /// A builder object used to construct a consensus.
 ///
@@ -42,9 +43,9 @@ pub struct ConsensusBuilder<RS> {
     /// See [`ConsensusHeader::consensus_method`]
     consensus_method: Option<u32>,
     /// See [`ConsensusHeader::shared_rand_prev`]
-    shared_rand_prev: Option<SharedRandVal>,
+    shared_rand_prev: Option<SharedRandStatus>,
     /// See [`ConsensusHeader::shared_rand_cur`]
-    shared_rand_cur: Option<SharedRandVal>,
+    shared_rand_cur: Option<SharedRandStatus>,
     /// See [`Consensus::voters`]
     voters: Vec<ConsensusVoterInfo>,
     /// See [`Consensus::relays`]
@@ -147,15 +148,33 @@ impl<RS> ConsensusBuilder<RS> {
     /// Set the previous day's shared-random value for this consensus.
     ///
     /// This value is optional.
-    pub fn shared_rand_prev(&mut self, n_reveals: u8, value: Vec<u8>) -> &mut Self {
-        self.shared_rand_prev = Some(SharedRandVal { n_reveals, value });
+    pub fn shared_rand_prev(
+        &mut self,
+        n_reveals: u8,
+        value: SharedRandVal,
+        timestamp: Option<SystemTime>,
+    ) -> &mut Self {
+        self.shared_rand_prev = Some(SharedRandStatus {
+            n_reveals,
+            value,
+            timestamp,
+        });
         self
     }
     /// Set the current day's shared-random value for this consensus.
     ///
     /// This value is optional.
-    pub fn shared_rand_cur(&mut self, n_reveals: u8, value: Vec<u8>) -> &mut Self {
-        self.shared_rand_cur = Some(SharedRandVal { n_reveals, value });
+    pub fn shared_rand_cur(
+        &mut self,
+        n_reveals: u8,
+        value: SharedRandVal,
+        timestamp: Option<SystemTime>,
+    ) -> &mut Self {
+        self.shared_rand_cur = Some(SharedRandStatus {
+            n_reveals,
+            value,
+            timestamp,
+        });
         self
     }
     /// Set a named weight parameter for this consensus.
@@ -369,7 +388,16 @@ impl VoterInfoBuilder {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::doc::netstatus::RelayFlags;
 
@@ -394,8 +422,8 @@ mod test {
             .param("knish", 1212)
             .voting_delay(7, 8)
             .consensus_method(32)
-            .shared_rand_prev(1, (*b"").into())
-            .shared_rand_cur(1, (*b"hi there").into())
+            .shared_rand_prev(1, SharedRandVal([b'x'; 32]), None)
+            .shared_rand_cur(1, SharedRandVal([b'y'; 32]), None)
             .weight("Wxy", 303)
             .weight("Wow", 999);
 

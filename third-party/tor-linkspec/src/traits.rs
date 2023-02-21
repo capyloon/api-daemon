@@ -1,10 +1,15 @@
 //! Declare traits to be implemented by types that describe a place
 //! that Tor can connect to, directly or indirectly.
 
-use std::{iter::FusedIterator, net::SocketAddr};
+use safelog::Redactable;
+use std::{fmt, iter::FusedIterator, net::SocketAddr};
+use strum::IntoEnumIterator;
 use tor_llcrypto::pk;
 
-use crate::{RelayIdRef, RelayIdType, RelayIdTypeIter};
+use crate::{ChannelMethod, RelayIdRef, RelayIdType, RelayIdTypeIter};
+
+#[cfg(feature = "pt-client")]
+use crate::PtTargetAddr;
 
 /// Legacy implementation helper for HasRelayIds.
 ///
@@ -61,6 +66,11 @@ pub trait HasRelayIds {
         self.identity(id.id_type()).map(|my_id| my_id == id) == Some(true)
     }
 
+    /// Return true if this object has any known identity.
+    fn has_any_identity(&self) -> bool {
+        RelayIdType::iter().any(|id_type| self.identity(id_type).is_some())
+    }
+
     /// Return true if this object has exactly the same relay IDs as `other`.
     //
     // TODO: Once we make it so particular identity key types are optional, we
@@ -90,6 +100,24 @@ pub trait HasRelayIds {
                 (_, None) => true,
             }
         })
+    }
+
+    /// Compare this object to another HasRelayIds.
+    ///
+    /// Objects are sorted by Ed25519 identities, with ties decided by RSA
+    /// identities. An absent identity of a given type is sorted before a
+    /// present identity of that type.
+    ///
+    /// If additional identities are added in the future, they may taken into
+    /// consideration before _or_ after the current identity types.
+    fn cmp_by_relay_ids<T: HasRelayIds + ?Sized>(&self, other: &T) -> std::cmp::Ordering {
+        for key_type in RelayIdType::iter() {
+            let ordering = Ord::cmp(&self.identity(key_type), &other.identity(key_type));
+            if ordering.is_ne() {
+                return ordering;
+            }
+        }
+        std::cmp::Ordering::Equal
     }
 }
 
@@ -126,13 +154,44 @@ impl<'a, T: HasRelayIds + ?Sized> Iterator for RelayIdIter<'a, T> {
 // RelayIdIter is fused since next_key is fused.
 impl<'a, T: HasRelayIds + ?Sized> FusedIterator for RelayIdIter<'a, T> {}
 
-/// An object that represents a host on the network with known IP addresses.
+/// An object that represents a host on the network which may have known IP addresses.
 pub trait HasAddrs {
-    /// Return the addresses at which you can connect to this server.
+    /// Return the addresses listed for this server.
+    ///
+    /// NOTE that these addresses are not necessarily ones that we should
+    /// connect to directly!  They can be useful for telling where a server is
+    /// located, or whether it is "close" to another server, but without knowing
+    /// the associated protocols you cannot use these to launch a connection.
+    ///
+    /// Also, for some servers, we may not actually have any relevant addresses;
+    /// in that case, the returned slice is empty.
+    ///
+    /// To see how to _connect_ to a relay, use [`HasChanMethod::chan_method`]
+    //
     // TODO: This is a questionable API. I'd rather return an iterator
     // of addresses or references to addresses, but both of those options
     // make defining the right associated types rather tricky.
     fn addrs(&self) -> &[SocketAddr];
+}
+
+/// An object that can be connected to via [`ChannelMethod`]s.
+pub trait HasChanMethod {
+    /// Return the known ways to contact this
+    // TODO: See notes on HasAddrs above.
+    // TODO: I don't like having this return a new ChannelMethod, but I
+    // don't see a great alternative. Let's revisit that.-nickm.
+    fn chan_method(&self) -> ChannelMethod;
+}
+
+/// Implement `HasChanMethods` for an object with `HasAddr` whose addresses
+/// _all_ represent a host we can connect to by a direct Tor connection at its
+/// IP addresses.
+pub trait DirectChanMethodsHelper: HasAddrs {}
+
+impl<D: DirectChanMethodsHelper> HasChanMethod for D {
+    fn chan_method(&self) -> ChannelMethod {
+        ChannelMethod::Direct(self.addrs().to_vec())
+    }
 }
 
 /// Information about a Tor relay used to connect to it.
@@ -140,7 +199,19 @@ pub trait HasAddrs {
 /// Anything that implements 'ChanTarget' can be used as the
 /// identity of a relay for the purposes of launching a new
 /// channel.
-pub trait ChanTarget: HasRelayIds + HasAddrs {}
+pub trait ChanTarget: HasRelayIds + HasAddrs + HasChanMethod {
+    /// Return a reference to this object suitable for formatting its
+    /// [`ChanTarget`]-specific members.
+    ///
+    /// The display format is not exhaustive, but tries to give enough
+    /// information to identify which channel target we're talking about.
+    fn display_chan_target(&self) -> DisplayChanTarget<'_, Self>
+    where
+        Self: Sized,
+    {
+        DisplayChanTarget { inner: self }
+    }
+}
 
 /// Information about a Tor relay used to extend a circuit to it.
 ///
@@ -153,8 +224,9 @@ pub trait CircTarget: ChanTarget {
     // doing so correctly would require default associated types.
     fn linkspecs(&self) -> Vec<crate::LinkSpec> {
         let mut result: Vec<_> = self.identities().map(|id| id.to_owned().into()).collect();
-        for addr in self.addrs().iter() {
-            result.push(addr.into());
+        #[allow(irrefutable_let_patterns)]
+        if let ChannelMethod::Direct(addrs) = self.chan_method() {
+            result.extend(addrs.into_iter().map(crate::LinkSpec::from));
         }
         result
     }
@@ -164,13 +236,81 @@ pub trait CircTarget: ChanTarget {
     fn protovers(&self) -> &tor_protover::Protocols;
 }
 
+/// A reference to a ChanTarget that implements Display using a hopefully useful
+/// format.
+#[derive(Debug, Clone)]
+pub struct DisplayChanTarget<'a, T> {
+    /// The ChanTarget that we're formatting.
+    inner: &'a T,
+}
+
+impl<'a, T: ChanTarget> DisplayChanTarget<'a, T> {
+    /// helper: output `self` in a possibly redacted way.
+    fn fmt_impl(&self, f: &mut fmt::Formatter<'_>, redact: bool) -> fmt::Result {
+        write!(f, "[")?;
+        // We look at the chan_method() (where we would connect to) rather than
+        // the addrs() (where the relay is, nebulously, "located").  This lets us
+        // give a less surprising description.
+        match self.inner.chan_method() {
+            ChannelMethod::Direct(v) if v.is_empty() => write!(f, "?")?,
+            ChannelMethod::Direct(v) if v.len() == 1 => {
+                write!(f, "{}", v[0].maybe_redacted(redact))?;
+            }
+            ChannelMethod::Direct(v) => write!(f, "{}+", v[0].maybe_redacted(redact))?,
+            #[cfg(feature = "pt-client")]
+            ChannelMethod::Pluggable(target) => {
+                match target.addr() {
+                    PtTargetAddr::None => {}
+                    other => write!(f, "{} ", other.maybe_redacted(redact))?,
+                }
+                write!(f, "via {}", target.transport())?;
+                // This deliberately doesn't include the PtTargetSettings, since
+                // they can be large, and they're typically unnecessary.
+            }
+        }
+
+        for ident in self.inner.identities() {
+            write!(f, " {}", ident.maybe_redacted(redact))?;
+            if redact {
+                break;
+            }
+        }
+
+        write!(f, "]")
+    }
+}
+
+impl<'a, T: ChanTarget> fmt::Display for DisplayChanTarget<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_impl(f, false)
+    }
+}
+
+impl<'a, T: ChanTarget + std::fmt::Debug> safelog::Redactable for DisplayChanTarget<'a, T> {
+    fn display_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_impl(f, true)
+    }
+    fn debug_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ChanTarget({:?})", self.redacted().to_string())
+    }
+}
+
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
     use std::net::IpAddr;
-    use tor_llcrypto::pk;
+    use tor_llcrypto::pk::{self, ed25519::Ed25519Identity, rsa::RsaIdentity};
 
     struct Example {
         addrs: Vec<SocketAddr>,
@@ -184,6 +324,7 @@ mod test {
             &self.addrs[..]
         }
     }
+    impl DirectChanMethodsHelper for Example {}
     impl HasRelayIdsLegacy for Example {
         fn ed_identity(&self) -> &pk::ed25519::Ed25519Identity {
             &self.ed_id
@@ -260,5 +401,101 @@ mod test {
             specs[3],
             LinkSpec::OrPort("::1".parse::<IpAddr>().unwrap(), 909)
         );
+    }
+
+    #[test]
+    fn cmp_by_ids() {
+        use crate::RelayIds;
+        use std::cmp::Ordering;
+        fn b(ed: Option<Ed25519Identity>, rsa: Option<RsaIdentity>) -> RelayIds {
+            let mut b = RelayIds::builder();
+            if let Some(ed) = ed {
+                b.ed_identity(ed);
+            }
+            if let Some(rsa) = rsa {
+                b.rsa_identity(rsa);
+            }
+            b.build().unwrap()
+        }
+        // Assert that v is strictly ascending.
+        fn assert_sorted(v: &[RelayIds]) {
+            for slice in v.windows(2) {
+                assert_eq!(slice[0].cmp_by_relay_ids(&slice[1]), Ordering::Less);
+                assert_eq!(slice[1].cmp_by_relay_ids(&slice[0]), Ordering::Greater);
+                assert_eq!(slice[0].cmp_by_relay_ids(&slice[0]), Ordering::Equal);
+            }
+        }
+
+        let ed1 = hex!("0a54686973206973207468652043656e7472616c205363727574696e697a6572").into();
+        let ed2 = hex!("6962696c69747920746f20656e666f72636520616c6c20746865206c6177730a").into();
+        let ed3 = hex!("73736564207965740a497420697320616c736f206d7920726573706f6e736962").into();
+        let rsa1 = hex!("2e2e2e0a4974206973206d7920726573706f6e73").into();
+        let rsa2 = hex!("5468617420686176656e2774206265656e207061").into();
+        let rsa3 = hex!("696c69747920746f20616c65727420656163680a").into();
+
+        assert_sorted(&[
+            b(Some(ed1), None),
+            b(Some(ed2), None),
+            b(Some(ed3), None),
+            b(Some(ed3), Some(rsa1)),
+        ]);
+        assert_sorted(&[
+            b(Some(ed1), Some(rsa3)),
+            b(Some(ed2), Some(rsa2)),
+            b(Some(ed3), Some(rsa1)),
+            b(Some(ed3), Some(rsa2)),
+        ]);
+        assert_sorted(&[
+            b(Some(ed1), Some(rsa1)),
+            b(Some(ed1), Some(rsa2)),
+            b(Some(ed1), Some(rsa3)),
+        ]);
+        assert_sorted(&[
+            b(None, Some(rsa1)),
+            b(None, Some(rsa2)),
+            b(None, Some(rsa3)),
+        ]);
+        assert_sorted(&[
+            b(None, Some(rsa1)),
+            b(Some(ed1), None),
+            b(Some(ed1), Some(rsa1)),
+        ]);
+    }
+
+    #[test]
+    fn display() {
+        let e1 = example();
+        assert_eq!(
+            e1.display_chan_target().to_string(),
+            "[127.0.0.1:99+ ed25519:/FHNjmIYoaONpH7QAjDwWAgW7RO6MwOsXeuRFUiQgCU \
+              $1234567890abcdef12341234567890abcdef1234]"
+        );
+
+        #[cfg(feature = "pt-client")]
+        {
+            use crate::PtTarget;
+
+            let rsa = hex!("234461644a6f6b6523436f726e794f6e4d61696e").into();
+            let mut b = crate::OwnedChanTarget::builder();
+            b.ids().rsa_identity(rsa);
+            let e2 = b
+                .method(ChannelMethod::Pluggable(PtTarget::new(
+                    "obfs4".parse().unwrap(),
+                    "127.0.0.1:99".parse().unwrap(),
+                )))
+                .build()
+                .unwrap();
+            assert_eq!(
+                e2.to_string(),
+                "[127.0.0.1:99 via obfs4 $234461644a6f6b6523436f726e794f6e4d61696e]"
+            );
+        }
+    }
+
+    #[test]
+    fn has_id() {
+        use crate::RelayIds;
+        assert!(example().has_any_identity());
+        assert!(!RelayIds::empty().has_any_identity());
     }
 }

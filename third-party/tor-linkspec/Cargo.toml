@@ -1,9 +1,9 @@
 [package]
 name = "tor-linkspec"
-version = "0.5.0"
+version = "0.6.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
 description = "Parts of the Tor protocol that indicate specific relays on the network"
@@ -11,19 +11,36 @@ keywords = ["tor", "arti"]
 categories = ["network-programming"]
 repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
+[features]
+default = []
+full = ["pt-client"]
+experimental = []
+pt-client = []
+
 [dependencies]
 base64ct = "1.5.1"
-derive_more = "0.99"
+by_address = "1"
+cfg-if = "1.0.0"
+derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
+derive_more = "0.99.3"
+educe = "0.4.6"
 hex = "0.4"
+safelog = { path = "../safelog", version = "0.2.1" }
 serde = { version = "1.0.103", features = ["derive"] }
+serde_with = "2.0.1"
 strum = { version = "0.24", features = ["derive"] }
 thiserror = "1"
-tor-bytes = { path = "../tor-bytes", version = "0.5.1" }
-tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.4" }
-tor-protover = { path = "../tor-protover", version = "0.3.0" }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.5.0" }
+tor-bytes = { path = "../tor-bytes", version = "0.6.1" }
+tor-config = { path = "../tor-config", version = "0.7.1" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.4.1" }
+tor-protover = { path = "../tor-protover", version = "0.4.0" }
 
 [dev-dependencies]
 hex-literal = "0.3"
+itertools = "0.10.1"
+serde_test = "1.0.124"
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]

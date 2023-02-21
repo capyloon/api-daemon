@@ -9,10 +9,10 @@ use env_logger;
 use rustls;
 
 use rustls::internal::msgs::codec::{Codec, Reader};
-use rustls::internal::msgs::enums::{CipherSuite, ProtocolVersion};
 use rustls::internal::msgs::persist;
 use rustls::quic::{self, ClientQuicExt, QuicExt, ServerQuicExt};
 use rustls::server::ClientHello;
+use rustls::{CipherSuite, ProtocolVersion};
 use rustls::{ClientConnection, Connection, ServerConnection};
 
 use std::convert::TryInto;
@@ -252,7 +252,7 @@ impl rustls::sign::SigningKey for FixedSignatureSchemeSigningKey {
             self.key.choose_scheme(&[])
         }
     }
-    fn algorithm(&self) -> rustls::internal::msgs::enums::SignatureAlgorithm {
+    fn algorithm(&self) -> rustls::SignatureAlgorithm {
         self.key.algorithm()
     }
 }
@@ -576,8 +576,8 @@ fn quit_err(why: &str) -> ! {
 }
 
 fn handle_err(err: rustls::Error) -> ! {
-    use rustls::internal::msgs::enums::{AlertDescription, ContentType};
     use rustls::Error;
+    use rustls::{AlertDescription, ContentType};
     use std::{thread, time};
 
     println!("TLS error: {:?}", err);

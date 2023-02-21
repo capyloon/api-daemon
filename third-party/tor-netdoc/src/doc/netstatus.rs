@@ -168,7 +168,7 @@ impl<T> NetParams<T> {
     pub fn get<A: AsRef<str>>(&self, v: A) -> Option<&T> {
         self.params.get(v.as_ref())
     }
-    /// Return an iterator over all key value pares in an arbitrary order.
+    /// Return an iterator over all key value pairs in an arbitrary order.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &T)> {
         self.params.iter()
     }
@@ -292,8 +292,18 @@ pub struct SignatureGroup {
     signatures: Vec<Signature>,
 }
 
-/// A shared-random value produced by the directory authorities.
+/// A shared random value produced by the directory authorities.
+#[derive(
+    Debug, Clone, Copy, Eq, PartialEq, derive_more::From, derive_more::Into, derive_more::AsRef,
+)]
+// TODO hs: Use CtBytes for this.  I don't think it actually matters, but it
+// seems like a good idea.
+pub struct SharedRandVal([u8; 32]);
+
+/// A shared-random value produced by the directory authorities,
+/// along with meta-information about that value.
 #[allow(dead_code)]
+// TODO hs: This should have real accessors, not this 'visible/visibility' hack.
 #[cfg_attr(
     feature = "dangerous-expose-struct-fields",
     visible::StructFields(pub),
@@ -301,7 +311,7 @@ pub struct SignatureGroup {
     non_exhaustive
 )]
 #[derive(Debug, Clone)]
-struct SharedRandVal {
+pub struct SharedRandStatus {
     /// How many authorities revealed shares that contributed to this value.
     #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     n_reveals: u8,
@@ -312,7 +322,13 @@ struct SharedRandVal {
     /// live, and that a hostile party could not have forced it to
     /// have any more than a small number of possible random values.
     #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
-    value: Vec<u8>,
+    value: SharedRandVal,
+
+    /// The time when this SharedRandVal becomes (or became) the latest.
+    ///
+    /// (This is added per proposal 342, assuming that gets accepted.)
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
+    timestamp: Option<time::SystemTime>,
 }
 
 /// Parts of the networkstatus header that are present in every networkstatus.
@@ -379,10 +395,10 @@ struct ConsensusHeader {
     consensus_method: u32,
     /// Global shared-random value for the previous shared-random period.
     #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
-    shared_rand_prev: Option<SharedRandVal>,
+    shared_rand_prev: Option<SharedRandStatus>,
     /// Global shared-random value for the current shared-random period.
     #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
-    shared_rand_cur: Option<SharedRandVal>,
+    shared_rand_cur: Option<SharedRandStatus>,
 }
 
 /// Description of an authority's identity and address.
@@ -636,6 +652,18 @@ impl<RS> Consensus<RS> {
     /// Return the map of network parameters that this consensus advertises.
     pub fn params(&self) -> &NetParams<i32> {
         &self.header.hdr.params
+    }
+
+    /// Return the latest shared random value, if the consensus
+    /// contains one.
+    pub fn shared_rand_cur(&self) -> Option<&SharedRandStatus> {
+        self.header.shared_rand_cur.as_ref()
+    }
+
+    /// Return the previous shared random value, if the consensus
+    /// contains one.
+    pub fn shared_rand_prev(&self) -> Option<&SharedRandStatus> {
+        self.header.shared_rand_prev.as_ref()
     }
 }
 
@@ -979,7 +1007,7 @@ impl CommonHeader {
     }
 }
 
-impl SharedRandVal {
+impl SharedRandStatus {
     /// Parse a current or previous shared rand value from a given
     /// SharedRandPreviousValue or SharedRandCurrentValue.
     fn from_item(item: &Item<'_, NetstatusKwd>) -> Result<Self> {
@@ -995,8 +1023,26 @@ impl SharedRandVal {
         }
         let n_reveals: u8 = item.parse_arg(0)?;
         let val: B64 = item.parse_arg(1)?;
-        let value = val.into();
-        Ok(SharedRandVal { n_reveals, value })
+        let value = SharedRandVal(val.into_array()?);
+        // Added in proposal 342
+        let timestamp = item
+            .parse_optional_arg::<Iso8601TimeNoSp>(2)?
+            .map(Into::into);
+        Ok(SharedRandStatus {
+            n_reveals,
+            value,
+            timestamp,
+        })
+    }
+
+    /// Return the actual shared random value.
+    pub fn value(&self) -> &SharedRandVal {
+        &self.value
+    }
+
+    /// Return the timestamp (if any) associated with this `SharedRandValue`.
+    pub fn timestamp(&self) -> Option<std::time::SystemTime> {
+        self.timestamp
     }
 }
 
@@ -1018,12 +1064,12 @@ impl ConsensusHeader {
 
         let shared_rand_prev = sec
             .get(SHARED_RAND_PREVIOUS_VALUE)
-            .map(SharedRandVal::from_item)
+            .map(SharedRandStatus::from_item)
             .transpose()?;
 
         let shared_rand_cur = sec
             .get(SHARED_RAND_CURRENT_VALUE)
-            .map(SharedRandVal::from_item)
+            .map(SharedRandStatus::from_item)
             .transpose()?;
 
         Ok(ConsensusHeader {
@@ -1702,7 +1748,16 @@ impl SignatureGroup {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
 
@@ -1925,16 +1980,30 @@ mod test {
         let sr =
             gettok("shared-rand-previous-value 9 5LodY4yWxFhTKtxpV9wAgNA9N8flhUCH0NqQv1/05y4\n")
                 .unwrap();
-        let sr = SharedRandVal::from_item(&sr).unwrap();
+        let sr = SharedRandStatus::from_item(&sr).unwrap();
 
         assert_eq!(sr.n_reveals, 9);
         assert_eq!(
-            sr.value,
+            sr.value.0,
             hex!("e4ba1d638c96c458532adc6957dc0080d03d37c7e5854087d0da90bf5ff4e72e")
+        );
+        assert!(sr.timestamp.is_none());
+
+        let sr2 = gettok(
+            "shared-rand-current-value 9 \
+                    5LodY4yWxFhTKtxpV9wAgNA9N8flhUCH0NqQv1/05y4 2022-01-20T12:34:56\n",
+        )
+        .unwrap();
+        let sr2 = SharedRandStatus::from_item(&sr2).unwrap();
+        assert_eq!(sr2.n_reveals, sr.n_reveals);
+        assert_eq!(sr2.value.0, sr.value.0);
+        assert_eq!(
+            sr2.timestamp.unwrap(),
+            humantime::parse_rfc3339("2022-01-20T12:34:56Z").unwrap()
         );
 
         let sr = gettok("foo bar\n").unwrap();
-        let sr = SharedRandVal::from_item(&sr);
+        let sr = SharedRandStatus::from_item(&sr);
         assert!(sr.is_err());
     }
 }

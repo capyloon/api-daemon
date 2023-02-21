@@ -98,9 +98,17 @@ impl SingleFilter {
     /// Return true if this filter permits the provided target.
     fn permits<C: ChanTarget>(&self, target: &C) -> bool {
         match self {
-            SingleFilter::ReachableAddrs(patterns) => patterns
-                .iter()
-                .any(|pat| target.addrs().iter().any(|addr| pat.matches_sockaddr(addr))),
+            SingleFilter::ReachableAddrs(patterns) => {
+                patterns.iter().any(|pat| {
+                    match target.chan_method().socket_addrs() {
+                        // Check whether _any_ address actually used by this
+                        // method is permitted by _any_ pattern.
+                        Some(addrs) => addrs.iter().any(|addr| pat.matches_sockaddr(addr)),
+                        // This target doesn't use addresses: only hostnames or "None"
+                        None => true,
+                    }
+                })
+            }
         }
     }
 
@@ -115,10 +123,12 @@ impl SingleFilter {
     ) -> Result<crate::FirstHop, crate::PickGuardError> {
         match self {
             SingleFilter::ReachableAddrs(patterns) => {
-                first_hop
-                    .orports
-                    .retain(|addr| patterns.iter().any(|pat| pat.matches_sockaddr(addr)));
-                if first_hop.orports.is_empty() {
+                let r = first_hop
+                    .chan_target_mut()
+                    .chan_method_mut()
+                    .retain_addrs(|addr| patterns.iter().any(|pat| pat.matches_sockaddr(addr)));
+
+                if r.is_err() {
                     // TODO(nickm): The fact that this check needs to be checked
                     // happen indicates a likely problem in our code design.
                     // Right now, we have `modify_hop` and `permits` as separate
@@ -144,7 +154,16 @@ impl SingleFilter {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use float_eq::assert_float_eq;
     use tor_netdir::testnet;

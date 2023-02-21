@@ -4,10 +4,12 @@
 #![allow(clippy::dbg_macro)]
 #![allow(clippy::print_stderr)]
 #![allow(clippy::print_stdout)]
+#![allow(clippy::single_char_pattern)]
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::unchecked_duration_subtraction)]
 //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
-// This example showcase how to use the trait IsolationHelper to build complexe isolation rules.
+// This example showcase how to use the trait IsolationHelper to build complex isolation rules.
 // For most usages, using a combination of TorClient::isolated_client and IsolationToken should
 // be enough.
 use std::collections::HashSet;
@@ -20,7 +22,7 @@ use tokio_crate as tokio;
 use futures::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Example Isolation which isolate streams deemed sensitive from each other, but won't isolate
-/// Innocent streams from other Innoncent streams or from Sensitive streams.
+/// `Innocent` streams from other `Innocent` streams or from `Sensitive` streams.
 ///
 /// More formally, for two streams to share the same circuit, it's required that either:
 /// - at least one stream is Innocent
@@ -191,11 +193,7 @@ async fn main() -> Result<()> {
 async fn send_request(stream: &mut arti_client::DataStream, host: &str) -> Result<()> {
     stream
         .write_all(
-            format!(
-                "GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-                host
-            )
-            .as_bytes(),
+            format!("GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
         )
         .await?;
     stream.flush().await?;

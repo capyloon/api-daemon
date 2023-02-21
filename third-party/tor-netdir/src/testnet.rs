@@ -178,7 +178,7 @@ where
         };
         // everybody is family with the adjacent relay.
         let fam_id = [idx ^ 1; 20];
-        let family = hex::encode(&fam_id);
+        let family = hex::encode(fam_id);
 
         let mut md_builder = Microdesc::builder();
         md_builder
@@ -232,6 +232,16 @@ where
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     #[test]
     fn try_with_function() {

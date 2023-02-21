@@ -1,9 +1,9 @@
 [package]
 name = "tor-socksproto"
-version = "0.5.1"
+version = "0.6.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
 description = "Encode and decode the SOCKS protocol, as extended in Tor"
@@ -11,11 +11,18 @@ keywords = ["tor", "arti", "socks"]
 categories = ["network-programming"]
 repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
 
+[features]
+default = ["proxy-handshake"]
+client-handshake = []
+proxy-handshake = []
+
 [dependencies]
-caret = { path = "../caret", version = "0.2.0" }
+arbitrary = { version = "1.0.1", optional = true, features = ["derive"] }
+caret = { path = "../caret", version = "0.3.0" }
+subtle = "2"
 thiserror = "1"
-tor-bytes = { path = "../tor-bytes", version = "0.5.1" }
-tor-error = { path = "../tor-error", version = "0.3.2" }
+tor-bytes = { path = "../tor-bytes", version = "0.6.1" }
+tor-error = { path = "../tor-error", version = "0.4.1" }
 
 [dev-dependencies]
 hex-literal = "0.3"

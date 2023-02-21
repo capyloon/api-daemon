@@ -1,25 +1,64 @@
+//! Error types.
+
+/// Alias for [`core::result::Result`] with the `rsa` crate's [`Error`] type.
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Error types
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    /// Invalid padding scheme.
     InvalidPaddingScheme,
+
+    /// Decryption error.
     Decryption,
+
+    /// Verification error.
     Verification,
+
+    /// Message too long.
     MessageTooLong,
+
+    /// Input must be hashed.
     InputNotHashed,
+
+    /// Number of primes must be 2 or greater.
     NprimesTooSmall,
+
+    /// Too few primes of a given length to generate an RSA key.
     TooFewPrimes,
+
+    /// Invalid prime value.
     InvalidPrime,
+
+    /// Invalid modulus.
     InvalidModulus,
+
+    /// Invalid exponent.
     InvalidExponent,
+
+    /// Invalid coefficient.
     InvalidCoefficient,
+
+    /// Modulus too large.
+    ModulusTooLarge,
+
+    /// Public exponent too small.
     PublicExponentTooSmall,
+
+    /// Public exponent too large.
     PublicExponentTooLarge,
+
+    /// PKCS#1 error.
     Pkcs1(pkcs1::Error),
+
+    /// PKCS#8 error.
     Pkcs8(pkcs8::Error),
+
+    /// Internal error.
     Internal,
+
+    /// Label too long.
     LabelTooLong,
 }
 
@@ -41,6 +80,7 @@ impl core::fmt::Display for Error {
             Error::InvalidModulus => write!(f, "invalid modulus"),
             Error::InvalidExponent => write!(f, "invalid exponent"),
             Error::InvalidCoefficient => write!(f, "invalid coefficient"),
+            Error::ModulusTooLarge => write!(f, "modulus too large"),
             Error::PublicExponentTooSmall => write!(f, "public exponent too small"),
             Error::PublicExponentTooLarge => write!(f, "public exponent too large"),
             Error::Pkcs1(err) => write!(f, "{}", err),
@@ -60,5 +100,19 @@ impl From<pkcs1::Error> for Error {
 impl From<pkcs8::Error> for Error {
     fn from(err: pkcs8::Error) -> Error {
         Error::Pkcs8(err)
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<Error> for signature::Error {
+    fn from(err: Error) -> Self {
+        Self::from_source(err)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl From<Error> for signature::Error {
+    fn from(_err: Error) -> Self {
+        Self::new()
     }
 }

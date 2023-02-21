@@ -12,13 +12,21 @@ use tor_basic_utils::futures::{DropNotifyWatchSender, PostageWatchSenderExt};
 use tor_circmgr::isolation::Isolation;
 use tor_circmgr::{isolation::StreamIsolationBuilder, IsolationToken, TargetPort};
 use tor_config::MutCfg;
-use tor_dirmgr::Timeliness;
+#[cfg(feature = "bridge-client")]
+use tor_dirmgr::bridgedesc::BridgeDescMgr;
+use tor_dirmgr::{DirMgrStore, Timeliness};
 use tor_error::{internal, Bug};
+use tor_guardmgr::GuardMgr;
 use tor_netdir::{params::NetParameters, NetDirProvider};
 use tor_persist::{FsStateMgr, StateMgr};
 use tor_proto::circuit::ClientCirc;
 use tor_proto::stream::{DataStream, IpVersionPreference, StreamParameters};
-use tor_rtcompat::{PreferredRuntime, Runtime, SleepProviderExt};
+#[cfg(all(
+    any(feature = "native-tls", feature = "rustls"),
+    any(feature = "async-std", feature = "tokio")
+))]
+use tor_rtcompat::PreferredRuntime;
+use tor_rtcompat::{Runtime, SleepProviderExt};
 
 use educe::Educe;
 use futures::lock::Mutex as AsyncMutex;
@@ -63,8 +71,30 @@ pub struct TorClient<R: Runtime> {
     /// Circuit manager for keeping our circuits up to date and building
     /// them on-demand.
     circmgr: Arc<tor_circmgr::CircMgr<R>>,
+    /// Directory manager persistent storage.
+    #[cfg_attr(not(feature = "bridge-client"), allow(dead_code))]
+    dirmgr_store: DirMgrStore<R>,
     /// Directory manager for keeping our directory material up to date.
     dirmgr: Arc<dyn tor_dirmgr::DirProvider>,
+    /// Bridge descriptor manager
+    ///
+    /// None until we have bootstrapped.
+    ///
+    /// Lock hierarchy: don't acquire this before dormant
+    //
+    // TODO: after or as part of https://gitlab.torproject.org/tpo/core/arti/-/issues/634
+    // this can be   bridge_desc_mgr: BridgeDescMgr<R>>
+    // since BridgeDescMgr is Clone and all its methods take `&self` (it has a lock inside)
+    // Or maybe BridgeDescMgr should not be Clone, since we want to make Weaks of it,
+    // which we can't do when the Arc is inside.
+    #[cfg(feature = "bridge-client")]
+    bridge_desc_mgr: Arc<Mutex<Option<Arc<BridgeDescMgr<R>>>>>,
+    /// Pluggable transport manager.
+    #[cfg(feature = "pt-client")]
+    pt_mgr: Arc<tor_ptmgr::PtMgr<R>>,
+    /// Guard manager
+    #[cfg_attr(not(feature = "bridge-client"), allow(dead_code))]
+    guardmgr: GuardMgr<R>,
     /// Location on disk where we store persistent data.
     statemgr: FsStateMgr,
     /// Client address configuration
@@ -92,6 +122,9 @@ pub struct TorClient<R: Runtime> {
     should_bootstrap: BootstrapBehavior,
 
     /// Shared boolean for whether we're currently in "dormant mode" or not.
+    //
+    // The sent value is `Option`, so that `None` is sent when the sender, here,
+    // is dropped,.  That shuts down the monitoring task.
     dormant: Arc<Mutex<DropNotifyWatchSender<Option<DormantMode>>>>,
 }
 
@@ -135,6 +168,10 @@ pub struct StreamPrefs {
     isolation: StreamIsolationPreference,
     /// Whether to return the stream optimistically.
     optimistic_stream: bool,
+    /// Whether to try to make connections to onion services.
+    #[cfg(feature = "onion-client")]
+    #[allow(dead_code)]
+    connect_to_onion_services: bool, // TODO hs: this should default to "true".
 }
 
 /// Record of how we are isolating connections
@@ -155,6 +192,15 @@ impl From<DormantMode> for tor_chanmgr::Dormancy {
         match dormant {
             DormantMode::Normal => tor_chanmgr::Dormancy::Active,
             DormantMode::Soft => tor_chanmgr::Dormancy::Dormant,
+        }
+    }
+}
+#[cfg(feature = "bridge-client")]
+impl From<DormantMode> for tor_dirmgr::bridgedesc::Dormancy {
+    fn from(dormant: DormantMode) -> tor_dirmgr::bridgedesc::Dormancy {
+        match dormant {
+            DormantMode::Normal => tor_dirmgr::bridgedesc::Dormancy::Active,
+            DormantMode::Soft => tor_dirmgr::bridgedesc::Dormancy::Dormant,
         }
     }
 }
@@ -220,6 +266,8 @@ impl StreamPrefs {
         self.optimistic_stream = true;
         self
     }
+
+    // TODO hs: make setters for the `connect_to_onion_services` field.
 
     /// Return a TargetPort to describe what kind of exit policy our
     /// target circuit needs to support.
@@ -303,6 +351,10 @@ impl StreamPrefs {
     // TODO: Add some way to be IPFlexible, and require exit to support both.
 }
 
+#[cfg(all(
+    any(feature = "native-tls", feature = "rustls"),
+    any(feature = "async-std", feature = "tokio")
+))]
 impl TorClient<PreferredRuntime> {
     /// Bootstrap a connection to the Tor network, using the provided `config`.
     ///
@@ -387,6 +439,10 @@ impl<R: Runtime> TorClient<R> {
             config.storage.permissions(),
         )
         .map_err(ErrorDetail::StateMgrSetup)?;
+        // Try to take state ownership early, so we'll know if we have it.
+        // (At this point we don't yet care if we have it.)
+        let _ignore_status = statemgr.try_lock().map_err(ErrorDetail::StateMgrSetup)?;
+
         let addr_cfg = config.address_filter.clone();
 
         let (status_sender, status_receiver) = postage::watch::channel();
@@ -399,13 +455,46 @@ impl<R: Runtime> TorClient<R> {
             dormant.into(),
             &NetParameters::from_map(&config.override_net_params),
         ));
-        let circmgr =
-            tor_circmgr::CircMgr::new(&config, statemgr.clone(), &runtime, Arc::clone(&chanmgr))
-                .map_err(ErrorDetail::CircMgrSetup)?;
+        let guardmgr = tor_guardmgr::GuardMgr::new(runtime.clone(), statemgr.clone(), &config)
+            .map_err(ErrorDetail::GuardMgrSetup)?;
+
+        #[cfg(feature = "pt-client")]
+        let pt_mgr = {
+            let mut pt_state_dir = config.storage.expand_state_dir()?;
+            pt_state_dir.push("pt_state");
+            config.storage.permissions().make_directory(&pt_state_dir)?;
+
+            let mgr = Arc::new(tor_ptmgr::PtMgr::new(
+                config.bridges.transports.clone(),
+                pt_state_dir,
+                runtime.clone(),
+            )?);
+
+            chanmgr.set_pt_mgr(mgr.clone());
+
+            mgr
+        };
+
+        let circmgr = tor_circmgr::CircMgr::new(
+            &config,
+            statemgr.clone(),
+            &runtime,
+            Arc::clone(&chanmgr),
+            guardmgr.clone(),
+        )
+        .map_err(ErrorDetail::CircMgrSetup)?;
 
         let timeout_cfg = config.stream_timeouts;
+
+        let dirmgr_store =
+            DirMgrStore::new(&dir_cfg, runtime.clone(), false).map_err(ErrorDetail::DirMgrSetup)?;
         let dirmgr = dirmgr_builder
-            .build(runtime.clone(), Arc::clone(&circmgr), dir_cfg)
+            .build(
+                runtime.clone(),
+                dirmgr_store.clone(),
+                Arc::clone(&circmgr),
+                dir_cfg,
+            )
             .map_err(crate::Error::into_detail)?;
 
         let mut periodic_task_handles = circmgr
@@ -422,12 +511,16 @@ impl<R: Runtime> TorClient<R> {
 
         let (dormant_send, dormant_recv) = postage::watch::channel_with(Some(dormant));
         let dormant_send = DropNotifyWatchSender::new(dormant_send);
+        #[cfg(feature = "bridge-client")]
+        let bridge_desc_mgr = Arc::new(Mutex::new(None));
 
         runtime
             .spawn(tasks_monitor_dormant(
                 dormant_recv,
                 dirmgr.clone().upcast_arc(),
                 chanmgr.clone(),
+                #[cfg(feature = "bridge-client")]
+                bridge_desc_mgr.clone(),
                 periodic_task_handles,
             ))
             .map_err(|e| ErrorDetail::from_spawn("periodic task dormant monitor", e))?;
@@ -452,7 +545,13 @@ impl<R: Runtime> TorClient<R> {
             connect_prefs: Default::default(),
             chanmgr,
             circmgr,
+            dirmgr_store,
             dirmgr,
+            #[cfg(feature = "bridge-client")]
+            bridge_desc_mgr,
+            #[cfg(feature = "pt-client")]
+            pt_mgr,
+            guardmgr,
             statemgr,
             addrcfg: Arc::new(addr_cfg.into()),
             timeoutcfg: Arc::new(timeout_cfg.into()),
@@ -489,6 +588,31 @@ impl<R: Runtime> TorClient<R> {
     /// Implementation of `bootstrap`, split out in order to avoid manually specifying
     /// double error conversions.
     async fn bootstrap_inner(&self) -> StdResult<(), ErrorDetail> {
+        // Make sure we have a bridge descriptor manager, which is active iff required
+        #[cfg(feature = "bridge-client")]
+        {
+            let mut dormant = self.dormant.lock().expect("dormant lock poisoned");
+            let dormant = dormant.borrow();
+            let dormant = dormant.ok_or_else(|| internal!("dormant dropped"))?.into();
+
+            let mut bdm = self.bridge_desc_mgr.lock().expect("bdm lock poisoned");
+            if bdm.is_none() {
+                let new_bdm = Arc::new(BridgeDescMgr::new(
+                    &Default::default(),
+                    self.runtime.clone(),
+                    self.dirmgr_store.clone(),
+                    self.circmgr.clone(),
+                    dormant,
+                )?);
+                self.guardmgr
+                    .install_bridge_desc_provider(&(new_bdm.clone() as _))
+                    .map_err(ErrorDetail::GuardMgrSetup)?;
+                // If ^ that fails, we drop the BridgeDescMgr again.  It may do some
+                // work but will hopefully eventually quit.
+                *bdm = Some(new_bdm);
+            }
+        }
+
         // Wait for an existing bootstrap attempt to finish first.
         //
         // This is a futures::lock::Mutex, so it's okay to await while we hold it.
@@ -522,7 +646,7 @@ impl<R: Runtime> TorClient<R> {
         Ok(())
     }
 
-    /// ## For `BootstrapBehavior::Ondemand` clients
+    /// ## For `BootstrapBehavior::OnDemand` clients
     ///
     /// Initiate a bootstrap by calling `bootstrap` (which is idempotent, so attempts to
     /// bootstrap twice will just do nothing).
@@ -616,6 +740,11 @@ impl<R: Runtime> TorClient<R> {
 
         self.chanmgr
             .reconfigure(&new_config.channel, how, netparams)
+            .map_err(wrap_err)?;
+
+        #[cfg(feature = "pt-client")]
+        self.pt_mgr
+            .reconfigure(how, new_config.bridges.transports.clone())
             .map_err(wrap_err)?;
 
         if how == tor_config::Reconfigure::CheckAllOrNothing {
@@ -762,10 +891,7 @@ impl<R: Runtime> TorClient<R> {
     ///
     /// Connection preferences always override configuration, even configuration set later
     /// (eg, by a config reload).
-    //
-    // This function is private just because we're not sure we want to provide this API.
-    // https://gitlab.torproject.org/tpo/core/arti/-/merge_requests/250#note_2771238
-    fn set_stream_prefs(&mut self, connect_prefs: StreamPrefs) {
+    pub fn set_stream_prefs(&mut self, connect_prefs: StreamPrefs) {
         self.connect_prefs = connect_prefs;
     }
 
@@ -967,6 +1093,7 @@ async fn tasks_monitor_dormant<R: Runtime>(
     mut dormant_rx: postage::watch::Receiver<Option<DormantMode>>,
     netdir: Arc<dyn NetDirProvider>,
     chanmgr: Arc<tor_chanmgr::ChanMgr<R>>,
+    #[cfg(feature = "bridge-client")] bridge_desc_mgr: Arc<Mutex<Option<Arc<BridgeDescMgr<R>>>>>,
     periodic_task_handles: Vec<TaskHandle>,
 ) {
     while let Some(Some(mode)) = dormant_rx.next().await {
@@ -975,6 +1102,15 @@ async fn tasks_monitor_dormant<R: Runtime>(
         chanmgr
             .set_dormancy(mode.into(), netparams)
             .unwrap_or_else(|e| error!("set dormancy: {}", e));
+
+        // IEFI simplifies handling of exceptional cases, as "never mind, then".
+        #[cfg(feature = "bridge-client")]
+        (|| {
+            let mut bdm = bridge_desc_mgr.lock().ok()?;
+            let bdm = bdm.as_mut()?;
+            bdm.set_dormancy(mode.into());
+            Some(())
+        })();
 
         let is_dormant = matches!(mode, DormantMode::Soft);
 
@@ -998,7 +1134,16 @@ where
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
     use super::*;
     use crate::config::TorClientConfigBuilder;

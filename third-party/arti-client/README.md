@@ -13,18 +13,27 @@ highest-level library crate in Arti, and the one that nearly all client-only
 programs should use. Most of its functionality is provided by lower-level
 crates in Arti.
 
-### ⚠ Warnings ⚠
+### Shape of the API, and relationship to other crates
 
-Note that Arti is a work in progress; although we've tried to write all the
-critical security components, you probably shouldn't use Arti in production
-until it's a bit more mature.  (That said, now is a _great_ time to try our
-Arti on an experimental basis, so you can tell us what we need to fix
-between now and the 1.0.0 release.)
+The API here is great if you are building an application in async Rust
+and want your Tor connections as async streams (`AsyncRead`/`AsyncWrite`).
+If you are wanting to make HTTP requests,
+look at [arti_hyper](https://tpo.pages.torproject.net/core/doc/rust/arti_hyper/index.html)).
+
+If you are trying to glue Arti to some other programming language,
+right now your best bet is probably to spawn the
+[`arti` CLI](https://tpo.pages.torproject.net/core/doc/rust/arti/index.html)
+SOCKS proxy,
+as a subprocess.
+We don't yet offer an API that would be nice to expose via FFI;
+we intend to add this in the future.
+
+### ⚠ Warnings ⚠
 
 Also note that the APIs for this crate are not all yet completely stable.
 We'll try not to break things without good reason, and we'll follow semantic
 versioning when we do, but please expect a certain amount of breakage
-between now and 1.0.0.
+between now and us declaring `arti-client` 1.x.
 
 The APIs exposed by lower-level crates in Arti are _even more unstable_;
 they will break more often than those from `arti-client`, for less reason.
@@ -44,7 +53,7 @@ This state gets persisted to the locations specified in the
 (This method requires you to initialize the client in an `async fn`.
 Consider using the builder method, below, if that doesn't work for you.)
 
-```rust
+```rust,ignore
 // The client configuration describes how to connect to the Tor network,
 // and what directories to use for storing persistent state.
 let config = TorClientConfig::default();
@@ -65,7 +74,7 @@ bootstrap (or having to use an `await`). This can be done by making a
 The returned client can be made to bootstrap when it is first used (the
 default), or not; see [`BootstrapBehavior`] for more details.
 
-```rust
+```rust,ignore
 // Specifying `BootstrapBehavior::OnDemand` means the client will automatically
 // bootstrap when it is used. `Manual` exists if you'd rather have full control.
 let tor_client = TorClient::builder()
@@ -84,7 +93,7 @@ those traits if the `tokio` crate feature is enabled.
 
 ### Example: making connections over Tor
 
-```rust
+```rust,ignore
 #
 // Initiate a connection over Tor to example.com, port 80.
 let mut stream = tor_client.connect(("example.com", 80)).await?;
@@ -150,6 +159,10 @@ about these features.
   [native-tls](https://github.com/sfackler/rust-native-tls) crate for TLS
   support
 * `async-std` -- build with [async-std](https://async.rs/) support
+* `compression` (default) -- Build support for downloading compressed
+  documents. Requires a C compiler.
+* `bridge-client` -- Build with support for bridges.
+* `pt-client` -- Build with support for pluggable transports.
 
 * `full` -- Build with all features above, along with all stable additive
   features from other arti crates.  (This does not include experimental
@@ -195,6 +208,9 @@ implementation with another.
 * `error_detail` -- expose the `arti_client::Error` inner error type.
 * `dirfilter` -- expose the `DirFilter` API, which lets you modify a network
   directory before it is used.
+* `onion-client` -- build with non-working stub APIs to support connecting to
+  onion services.  (These do not work yet, and will just cause your code to
+  panic.)
 
 * `experimental` -- Build with all experimental features above, along with
   all experimental features from other arti crates.

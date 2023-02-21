@@ -19,10 +19,14 @@ use std::{
 use educe::Educe;
 use futures::{stream::Stream, Future, StreamExt};
 use itertools::chain;
+use paste::paste;
 use time::OffsetDateTime;
 use tor_basic_utils::skip_fmt;
 use tor_netdir::DirEvent;
 use tor_netdoc::doc::netstatus;
+
+#[cfg(feature = "bridge-client")]
+use tor_guardmgr::bridge::BridgeDescEvent;
 
 use crate::bootstrap::AttemptId;
 
@@ -47,24 +51,71 @@ pub(crate) trait FlagEvent: Sized {
     fn from_index(flag: u16) -> Option<Self>;
 }
 
-impl FlagEvent for DirEvent {
-    const MAXIMUM: u16 = 1;
-    fn to_index(self) -> u16 {
-        match self {
-            DirEvent::NewConsensus => 0,
-            DirEvent::NewDescriptors => 1,
-            // HACK(eta): This is an unfortunate consequence of marking DirEvent #[non_exhaustive].
-            _ => panic!("DirEvent updated without updating its FlagEvent impl"),
+/// Implements [`FlagEvent`] for a C-like enum
+///
+/// Requiremets:
+///
+///  * `$ty` must implement [`strum::EnumCount`] [`strum::IntoEnumIterator`]
+///
+///  * `$ty` type must implement [`Into<u16>`] and [`TryFrom<u16>`]
+///     (for example using the `num_enum` crate).
+///
+///  * The discriminants must be densely allocated.
+///    This will be done automatically by the compiler
+///    if explicit discriminants are not specified.
+///    (This property is checked in a test.)
+///
+///  * The variants may not contain any data.
+///    This is required for correctness.
+///    We think it is checked if you use `num_enum::TryFromPrimitive`.
+///
+/// # Example
+///
+// Sadly, it does not appear to be possible to doctest a private macro.
+/// ```rust,ignore
+/// use num_enum::{IntoPrimitive, TryFromPrimitive};
+/// use strum::{EnumCount, EnumIter};
+///
+/// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// #[derive(EnumIter, EnumCount, IntoPrimitive, TryFromPrimitive)]
+/// #[non_exhaustive]
+/// #[repr(u16)]
+/// pub enum DirEvent {
+///     NewConsensus,
+///     NewDescriptors,
+/// }
+///
+/// impl_FlagEvent!{ DirEvent }
+/// ```
+macro_rules! impl_FlagEvent { { $ty:ident } => { paste!{
+    impl FlagEvent for $ty {
+        const MAXIMUM: u16 = {
+            let count = <$ty as $crate::strum::EnumCount>::COUNT;
+            (count - 1) as u16
+        };
+        fn to_index(self) -> u16 {
+            self.into()
+        }
+        fn from_index(flag: u16) -> Option<Self> {
+            flag.try_into().ok()
         }
     }
-    fn from_index(flag: u16) -> Option<Self> {
-        match flag {
-            0 => Some(DirEvent::NewConsensus),
-            1 => Some(DirEvent::NewDescriptors),
-            _ => None,
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn [< flagevent_test_variant_numbers_ $ty >]() {
+        for variant in <$ty as $crate::strum::IntoEnumIterator>::iter() {
+            assert!(<$ty as FlagEvent>::to_index(variant) <=
+                    <$ty as FlagEvent>::MAXIMUM,
+                    "impl_FlagEvent only allowed if discriminators are dense");
         }
     }
-}
+} } }
+
+impl_FlagEvent! { DirEvent }
+
+#[cfg(feature = "bridge-client")]
+impl_FlagEvent! { BridgeDescEvent }
 
 /// A publisher that broadcasts flag-level events to multiple subscribers.
 ///
@@ -116,6 +167,12 @@ pub(crate) struct FlagListener<F> {
     listener: event_listener::EventListener,
     /// Reference to shared data.
     inner: Arc<Inner<F>>,
+}
+
+impl<F: FlagEvent> Default for FlagPublisher<F> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<F: FlagEvent> FlagPublisher<F> {
@@ -757,9 +814,18 @@ impl Stream for DirBootstrapEvents {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use std::time::Duration;
 
     use super::*;

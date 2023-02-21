@@ -1,30 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `tor-dirclient`: Implements a minimal directory client for Tor.
-//!
-//! # Overview
-//!
-//! Tor makes its directory requests as HTTP/1.0 requests tunneled over
-//! Tor circuits.  For most objects, Tor uses a one-hop tunnel.  Tor
-//! also uses a few strange and ad-hoc HTTP headers to select
-//! particular functionality, such as asking for diffs, compression,
-//! or multiple documents.
-//!
-//! This crate provides an API for downloading Tor directory resources
-//! over a Tor circuit.
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//!
-//! # Features
-//!
-//! `xz` -- enable XZ compression.  This can be expensive in RAM and CPU,
-//! but it saves a lot of bandwidth.  (On by default.)
-//!
-//! `zstd` -- enable ZSTD compression.  (On by default.)
-//!
-//! `routerdesc` -- Add support for downloading router descriptors.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -58,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 mod err;
@@ -85,7 +62,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
-pub use err::{Error, RequestError};
+pub use err::{Error, RequestError, RequestFailedError};
 pub use response::{DirResponse, SourceInfo};
 
 /// Type for results returned in this crate.
@@ -123,9 +100,11 @@ where
     let begin_timeout = Duration::from_secs(5);
     let source = SourceInfo::from_circuit(&circuit);
 
-    let wrap_err = |error| Error::RequestFailed {
-        source: Some(source.clone()),
-        error,
+    let wrap_err = |error| {
+        Error::RequestFailed(RequestFailedError {
+            source: Some(source.clone()),
+            error,
+        })
     };
 
     req.check_circuit(&circuit).map_err(wrap_err)?;
@@ -173,6 +152,10 @@ fn should_retire_circ(result: &Result<DirResponse>) -> bool {
 ///
 /// This function doesn't close the stream; you may want to do that
 /// yourself.
+///
+/// The only error variant returned is [`Error::RequestFailed`].
+// TODO: should the error return type change to `RequestFailedError`?
+// If so, that would simplify some code in_dirmgr::bridgedesc.
 pub async fn download<R, S, SP>(
     runtime: &SP,
     req: &R,
@@ -184,9 +167,11 @@ where
     S: AsyncRead + AsyncWrite + Send + Unpin,
     SP: SleepProvider,
 {
-    let wrap_err = |error| Error::RequestFailed {
-        source: source.clone(),
-        error,
+    let wrap_err = |error| {
+        Error::RequestFailed(RequestFailedError {
+            source: source.clone(),
+            error,
+        })
     };
 
     let partial_ok = req.partial_docs_ok();
@@ -469,7 +454,16 @@ fn get_decoder<'a, S: AsyncBufRead + Unpin + Send + 'a>(
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use tor_rtmock::{io::stream_pair, time::MockSleepProvider};
 
@@ -665,9 +659,11 @@ mod test {
                 async {
                     // Run the download function.
                     let r = download(&rt, &req, &mut s1, None).await;
-                    s1.close().await.map_err(|error| Error::RequestFailed {
-                        source: None,
-                        error: error.into(),
+                    s1.close().await.map_err(|error| {
+                        Error::RequestFailed(RequestFailedError {
+                            source: None,
+                            error: error.into(),
+                        })
                     })?;
                     r
                 },
@@ -723,9 +719,9 @@ mod test {
         assert!(!response.is_partial());
         assert!(response.error().is_none());
         assert!(response.source().is_none());
-        let out_ref = response.output();
+        let out_ref = response.output_unchecked();
         assert_eq!(out_ref, b"This is where the descs would go.");
-        let out = response.into_output();
+        let out = response.into_output_unchecked();
         assert_eq!(&out, b"This is where the descs would go.");
 
         Ok(())
@@ -758,8 +754,8 @@ mod test {
         assert_eq!(response.status_code(), 200);
         assert!(response.error().is_some());
         assert!(response.is_partial());
-        assert!(response.output().len() < 37 * 2);
-        assert!(response.output().starts_with(b"One fish"));
+        assert!(response.output_unchecked().len() < 37 * 2);
+        assert!(response.output_unchecked().starts_with(b"One fish"));
     }
 
     #[test]
@@ -779,10 +775,10 @@ mod test {
 
         assert!(matches!(
             response,
-            Err(Error::RequestFailed {
+            Err(Error::RequestFailed(RequestFailedError {
                 error: RequestError::TruncatedHeaders,
                 ..
-            })
+            }))
         ));
 
         // Try a completely empty response.
@@ -792,10 +788,10 @@ mod test {
 
         assert!(matches!(
             response,
-            Err(Error::RequestFailed {
+            Err(Error::RequestFailed(RequestFailedError {
                 error: RequestError::TruncatedHeaders,
                 ..
-            })
+            }))
         ));
     }
 
@@ -809,10 +805,10 @@ mod test {
         assert!(response.as_ref().unwrap_err().should_retire_circ());
         assert!(matches!(
             response,
-            Err(Error::RequestFailed {
+            Err(Error::RequestFailed(RequestFailedError {
                 error: RequestError::HttparseError(_),
                 ..
-            })
+            }))
         ));
     }
 

@@ -44,14 +44,45 @@ Just add a dependency in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-shellexpand = "2.1"
+shellexpand = "3.0"
 ```
 
 See the crate documentation (a link is present in the beginning of this readme) for more information
 and examples.
 
+### Cargo features
+
+Functional features:
+
+ * `tilde` (on by default): support for tilde expansion (home directory).
+ * `path` (in `full`): support for operations on `Path`s.
+
+Metafeatures:
+
+ * `full`: all non-experimental, non-hazardous functionality.
+ * `base-0` (on by default): basic functionality.
+   You must enable this feature.
+
+At the time of writing there is no experimental or hazardous functionality;
+if we introduce any it will be feature gated and not enabled by default nor part of `full`.
+Requiring `base-0` allows us to split existing functionality into a new optional feature,
+without a semver break.
 
 ## Changelog
+
+### Version 3.0.0 - 2022-12-01
+
+Breaking changes:
+
+* `tilde_with_context` and `full_with_context` now expect home directories as `str`, not `Path`.
+  If you want to deal in Path, use the `path` feature and module.
+* You must select at least one cargo feature.
+  The `base-0` feature is equivalent to the features available in shellexpand 2.x.
+
+Significant changes:
+
+* Use Rust 2018, bumping MSRV to 1.31.0.
+* New `path` module, and corresponding cargo feature.
 
 ### Version 2.1.2
 

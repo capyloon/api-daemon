@@ -1,20 +1,20 @@
 //! ASN.1 `NULL` support.
 
 use crate::{
-    asn1::Any, ByteSlice, DecodeValue, Decoder, Encodable, EncodeValue, Encoder, Error, ErrorKind,
-    FixedTag, Length, OrdIsValueOrd, Result, Tag,
+    asn1::AnyRef, ord::OrdIsValueOrd, ByteSlice, DecodeValue, EncodeValue, Error, ErrorKind,
+    FixedTag, Header, Length, Reader, Result, Tag, Writer,
 };
 
 /// ASN.1 `NULL` type.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Null;
 
-impl DecodeValue<'_> for Null {
-    fn decode_value(decoder: &mut Decoder<'_>, length: Length) -> Result<Self> {
-        if length.is_zero() {
+impl<'a> DecodeValue<'a> for Null {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        if header.length.is_zero() {
             Ok(Null)
         } else {
-            Err(decoder.error(ErrorKind::Length { tag: Self::TAG }))
+            Err(reader.error(ErrorKind::Length { tag: Self::TAG }))
         }
     }
 }
@@ -24,7 +24,7 @@ impl EncodeValue for Null {
         Ok(Length::ZERO)
     }
 
-    fn encode_value(&self, _encoder: &mut Encoder<'_>) -> Result<()> {
+    fn encode_value(&self, _writer: &mut dyn Writer) -> Result<()> {
         Ok(())
     }
 }
@@ -35,48 +35,48 @@ impl FixedTag for Null {
 
 impl OrdIsValueOrd for Null {}
 
-impl<'a> From<Null> for Any<'a> {
-    fn from(_: Null) -> Any<'a> {
-        Any::from_tag_and_value(Tag::Null, ByteSlice::default())
+impl<'a> From<Null> for AnyRef<'a> {
+    fn from(_: Null) -> AnyRef<'a> {
+        AnyRef::from_tag_and_value(Tag::Null, ByteSlice::default())
     }
 }
 
-impl TryFrom<Any<'_>> for Null {
+impl TryFrom<AnyRef<'_>> for Null {
     type Error = Error;
 
-    fn try_from(any: Any<'_>) -> Result<Null> {
+    fn try_from(any: AnyRef<'_>) -> Result<Null> {
         any.decode_into()
     }
 }
 
-impl TryFrom<Any<'_>> for () {
+impl TryFrom<AnyRef<'_>> for () {
     type Error = Error;
 
-    fn try_from(any: Any<'_>) -> Result<()> {
+    fn try_from(any: AnyRef<'_>) -> Result<()> {
         Null::try_from(any).map(|_| ())
     }
 }
 
-impl<'a> From<()> for Any<'a> {
-    fn from(_: ()) -> Any<'a> {
+impl<'a> From<()> for AnyRef<'a> {
+    fn from(_: ()) -> AnyRef<'a> {
         Null.into()
     }
 }
 
-impl DecodeValue<'_> for () {
-    fn decode_value(decoder: &mut Decoder<'_>, length: Length) -> Result<Self> {
-        Null::decode_value(decoder, length)?;
+impl<'a> DecodeValue<'a> for () {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        Null::decode_value(reader, header)?;
         Ok(())
     }
 }
 
-impl Encodable for () {
-    fn encoded_len(&self) -> Result<Length> {
-        Null.encoded_len()
+impl EncodeValue for () {
+    fn value_len(&self) -> Result<Length> {
+        Ok(Length::ZERO)
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Null.encode(encoder)
+    fn encode_value(&self, _writer: &mut dyn Writer) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -87,7 +87,7 @@ impl FixedTag for () {
 #[cfg(test)]
 mod tests {
     use super::Null;
-    use crate::{Decodable, Encodable};
+    use crate::{Decode, Encode};
 
     #[test]
     fn decode() {

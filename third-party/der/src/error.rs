@@ -3,7 +3,7 @@
 pub use core::str::Utf8Error;
 
 use crate::{Length, Tag};
-use core::{convert::Infallible, fmt};
+use core::{convert::Infallible, fmt, num::TryFromIntError};
 
 #[cfg(feature = "oid")]
 use crate::asn1::ObjectIdentifier;
@@ -33,9 +33,18 @@ impl Error {
         }
     }
 
-    /// If the error's `kind` is an [`ErrorKind::Incomplete`], return the `expected_len`.
-    pub fn incomplete(self) -> Option<usize> {
-        self.kind().incomplete()
+    /// Create a new [`ErrorKind::Incomplete`] for the given length.
+    ///
+    /// Computes the expected len as being one greater than `actual_len`.
+    pub fn incomplete(actual_len: Length) -> Self {
+        match actual_len + Length::ONE {
+            Ok(expected_len) => ErrorKind::Incomplete {
+                expected_len,
+                actual_len,
+            }
+            .at(actual_len),
+            Err(err) => err.kind().at(actual_len),
+        }
     }
 
     /// Get the [`ErrorKind`] which occurred.
@@ -91,12 +100,28 @@ impl From<Infallible> for Error {
     }
 }
 
+impl From<TryFromIntError> for Error {
+    fn from(_: TryFromIntError) -> Error {
+        Error {
+            kind: ErrorKind::Overflow,
+            position: None,
+        }
+    }
+}
+
 impl From<Utf8Error> for Error {
     fn from(err: Utf8Error) -> Error {
         Error {
             kind: ErrorKind::Utf8(err),
             position: None,
         }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl From<alloc::string::FromUtf8Error> for Error {
+    fn from(err: alloc::string::FromUtf8Error) -> Error {
+        ErrorKind::Utf8(err.utf8_error()).into()
     }
 }
 
@@ -132,6 +157,7 @@ impl From<time::error::ComponentRange> for Error {
         ErrorKind::DateTime.into()
     }
 }
+
 /// Error type.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -220,6 +246,9 @@ pub enum ErrorKind {
     #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     PermissionDenied,
 
+    /// Reader does not support the requested operation.
+    Reader,
+
     /// Unknown tag mode.
     TagModeUnknown,
 
@@ -273,14 +302,6 @@ impl ErrorKind {
     pub fn at(self, position: Length) -> Error {
         Error::new(self, position)
     }
-
-    /// If this is an [`ErrorKind::Incomplete`], return the `expected_len`.
-    pub fn incomplete(self) -> Option<usize> {
-        match self {
-            ErrorKind::Incomplete { expected_len, .. } => usize::try_from(expected_len).ok(),
-            _ => None,
-        }
-    }
 }
 
 impl fmt::Display for ErrorKind {
@@ -289,7 +310,7 @@ impl fmt::Display for ErrorKind {
             ErrorKind::DateTime => write!(f, "date/time error"),
             ErrorKind::Failed => write!(f, "operation failed"),
             #[cfg(feature = "std")]
-            ErrorKind::FileNotFound => f.write_str("file not found"),
+            ErrorKind::FileNotFound => write!(f, "file not found"),
             ErrorKind::Incomplete {
                 expected_len,
                 actual_len,
@@ -309,13 +330,14 @@ impl fmt::Display for ErrorKind {
             ErrorKind::OidUnknown { oid } => {
                 write!(f, "unknown/unsupported OID: {}", oid)
             }
-            ErrorKind::SetOrdering => write!(f, "ordering error"),
+            ErrorKind::SetOrdering => write!(f, "SET OF ordering error"),
             ErrorKind::Overflow => write!(f, "integer overflow"),
             ErrorKind::Overlength => write!(f, "ASN.1 DER message is too long"),
             #[cfg(feature = "pem")]
             ErrorKind::Pem(e) => write!(f, "PEM error: {}", e),
             #[cfg(feature = "std")]
-            ErrorKind::PermissionDenied => f.write_str("permission denied"),
+            ErrorKind::PermissionDenied => write!(f, "permission denied"),
+            ErrorKind::Reader => write!(f, "reader does not support the requested operation"),
             ErrorKind::TagModeUnknown => write!(f, "unknown tag mode"),
             ErrorKind::TagNumberInvalid => write!(f, "invalid tag number"),
             ErrorKind::TagUnexpected { expected, actual } => {

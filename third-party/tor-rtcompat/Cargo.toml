@@ -1,9 +1,9 @@
 [package]
 name = "tor-rtcompat"
-version = "0.6.0"
+version = "0.8.1"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
 description = "Compatibility layer for asynchronous runtimes, used by Tor"
@@ -18,16 +18,14 @@ full = ["async-std", "tokio", "native-tls"]
 
 async-std = ["async-std-crate", "async-io", "async_executors/async_std"]
 tokio = ["tokio-crate", "tokio-util", "async_executors/tokio_tp"]
-# TODO: This feature makes us link native-tls statically even if we
-# don't want to use native-tls in the first place.  That's not so clever!
-static = ["native-tls-crate/vendored"]
+static = ["native-tls-crate?/vendored"]
 native-tls = ["native-tls-crate", "async-native-tls"]
 rustls = ["rustls-crate", "async-rustls", "x509-signature"]
 
 [dependencies]
 async-io = { version = "1.4.1", optional = true }
 async-native-tls = { version = "0.4.0", optional = true }
-async-rustls = { version = "0.2.0", optional = true }
+async-rustls = { version = "0.3.0", optional = true }
 async-std-crate = { package = "async-std", version = "1.7.0", optional = true }
 async-trait = "0.1.2"
 async_executors = { version = "0.6.0", default_features = false }
@@ -35,9 +33,10 @@ educe = "0.4.6"
 futures = "0.3.14"
 native-tls-crate = { package = "native-tls", version = "0.2", optional = true }
 pin-project = "1"
-rustls-crate = { package = "rustls", version = "0.19", optional = true, features = [
+rustls-crate = { package = "rustls", version = "0.20.7", optional = true, features = [
     "dangerous_configuration",
 ] }
+thiserror = "1"
 tokio-crate = { package = "tokio", version = "1.7", optional = true, features = [
     "rt",
     "rt-multi-thread",

@@ -230,7 +230,16 @@ enum Error {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use std::env::VarError;
 
     use super::*;
@@ -250,7 +259,7 @@ mod test {
         }
         {
             let seed = *b"hello world. this is a longer st";
-            let mut s = hex::encode(&seed);
+            let mut s = hex::encode(seed);
             assert_eq!(Ok(Config::Seeded(seed)), Config::from_str(&s));
             // we can make it longer, and it just gets truncated.
             s.push_str("aabbccddeeff");

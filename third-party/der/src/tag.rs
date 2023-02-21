@@ -6,7 +6,7 @@ mod number;
 
 pub use self::{class::Class, mode::TagMode, number::TagNumber};
 
-use crate::{Decodable, Decoder, DerOrd, Encodable, Encoder, Error, ErrorKind, Length, Result};
+use crate::{Decode, DerOrd, Encode, Error, ErrorKind, Length, Reader, Result, Writer};
 use core::{cmp::Ordering, fmt};
 
 /// Indicator bit for constructed form encoding (i.e. vs primitive form)
@@ -67,6 +67,9 @@ pub enum Tag {
     /// `OBJECT IDENTIFIER` tag: `6`.
     ObjectIdentifier,
 
+    /// `REAL` tag: `9`.
+    Real,
+
     /// `ENUMERATED` tag: `10`.
     Enumerated,
 
@@ -84,6 +87,12 @@ pub enum Tag {
 
     /// `PrintableString` tag: `19`.
     PrintableString,
+
+    /// `TeletexString` tag: `20`.
+    TeletexString,
+
+    /// `VideotexString` tag: `21`.
+    VideotexString,
 
     /// `IA5String` tag: `22`.
     Ia5String,
@@ -189,12 +198,15 @@ impl Tag {
             Tag::OctetString => 0x04,
             Tag::Null => 0x05,
             Tag::ObjectIdentifier => 0x06,
+            Tag::Real => 0x09,
             Tag::Enumerated => 0x0A,
             Tag::Utf8String => 0x0C,
             Tag::Sequence => 0x10 | CONSTRUCTED_FLAG,
             Tag::Set => 0x11 | CONSTRUCTED_FLAG,
             Tag::NumericString => 0x12,
             Tag::PrintableString => 0x13,
+            Tag::TeletexString => 0x14,
+            Tag::VideotexString => 0x15,
             Tag::Ia5String => 0x16,
             Tag::UtcTime => 0x17,
             Tag::GeneralizedTime => 0x18,
@@ -257,10 +269,13 @@ impl TryFrom<u8> for Tag {
             0x04 => Ok(Tag::OctetString),
             0x05 => Ok(Tag::Null),
             0x06 => Ok(Tag::ObjectIdentifier),
+            0x09 => Ok(Tag::Real),
             0x0A => Ok(Tag::Enumerated),
             0x0C => Ok(Tag::Utf8String),
             0x12 => Ok(Tag::NumericString),
             0x13 => Ok(Tag::PrintableString),
+            0x14 => Ok(Tag::TeletexString),
+            0x15 => Ok(Tag::VideotexString),
             0x16 => Ok(Tag::Ia5String),
             0x17 => Ok(Tag::UtcTime),
             0x18 => Ok(Tag::GeneralizedTime),
@@ -297,19 +312,19 @@ impl From<&Tag> for u8 {
     }
 }
 
-impl Decodable<'_> for Tag {
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Self> {
-        decoder.byte().and_then(Self::try_from)
+impl<'a> Decode<'a> for Tag {
+    fn decode<R: Reader<'a>>(reader: &mut R) -> Result<Self> {
+        reader.read_byte().and_then(Self::try_from)
     }
 }
 
-impl Encodable for Tag {
+impl Encode for Tag {
     fn encoded_len(&self) -> Result<Length> {
         Ok(Length::ONE)
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        encoder.byte(self.into())
+    fn encode(&self, writer: &mut dyn Writer) -> Result<()> {
+        writer.write_byte(self.into())
     }
 }
 
@@ -330,11 +345,14 @@ impl fmt::Display for Tag {
             Tag::OctetString => f.write_str("OCTET STRING"),
             Tag::Null => f.write_str("NULL"),
             Tag::ObjectIdentifier => f.write_str("OBJECT IDENTIFIER"),
+            Tag::Real => f.write_str("REAL"),
             Tag::Enumerated => f.write_str("ENUMERATED"),
             Tag::Utf8String => f.write_str("UTF8String"),
             Tag::Set => f.write_str("SET"),
             Tag::NumericString => f.write_str("NumericString"),
             Tag::PrintableString => f.write_str("PrintableString"),
+            Tag::TeletexString => f.write_str("TeletexString"),
+            Tag::VideotexString => f.write_str("VideotexString"),
             Tag::Ia5String => f.write_str("IA5String"),
             Tag::UtcTime => f.write_str("UTCTime"),
             Tag::GeneralizedTime => f.write_str("GeneralizedTime"),
@@ -347,7 +365,8 @@ impl fmt::Display for Tag {
             } => write!(
                 f,
                 "APPLICATION [{}] ({})",
-                number, FIELD_TYPE[constructed as usize]
+                number,
+                FIELD_TYPE[usize::from(constructed)]
             ),
             Tag::ContextSpecific {
                 constructed,
@@ -355,7 +374,8 @@ impl fmt::Display for Tag {
             } => write!(
                 f,
                 "CONTEXT-SPECIFIC [{}] ({})",
-                number, FIELD_TYPE[constructed as usize]
+                number,
+                FIELD_TYPE[usize::from(constructed)]
             ),
             Tag::Private {
                 constructed,
@@ -363,7 +383,8 @@ impl fmt::Display for Tag {
             } => write!(
                 f,
                 "PRIVATE [{}] ({})",
-                number, FIELD_TYPE[constructed as usize]
+                number,
+                FIELD_TYPE[usize::from(constructed)]
             ),
         }
     }
@@ -388,11 +409,14 @@ mod tests {
         assert_eq!(Tag::OctetString.class(), Class::Universal);
         assert_eq!(Tag::Null.class(), Class::Universal);
         assert_eq!(Tag::ObjectIdentifier.class(), Class::Universal);
+        assert_eq!(Tag::Real.class(), Class::Universal);
         assert_eq!(Tag::Enumerated.class(), Class::Universal);
         assert_eq!(Tag::Utf8String.class(), Class::Universal);
         assert_eq!(Tag::Set.class(), Class::Universal);
         assert_eq!(Tag::NumericString.class(), Class::Universal);
         assert_eq!(Tag::PrintableString.class(), Class::Universal);
+        assert_eq!(Tag::TeletexString.class(), Class::Universal);
+        assert_eq!(Tag::VideotexString.class(), Class::Universal);
         assert_eq!(Tag::Ia5String.class(), Class::Universal);
         assert_eq!(Tag::UtcTime.class(), Class::Universal);
         assert_eq!(Tag::GeneralizedTime.class(), Class::Universal);

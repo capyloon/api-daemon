@@ -57,7 +57,7 @@ impl Writeable for UnrecognizedExt {
                 .map_err(|_| tor_bytes::EncodeError::BadLengthValue)?,
         );
         w.write_u8(self.ext_type.into());
-        let flags = if self.affects_validation { 1 } else { 0 };
+        let flags = u8::from(self.affects_validation);
         w.write_u8(flags);
         w.write_all(&self.body[..]);
         Ok(())
@@ -159,6 +159,16 @@ impl Ed25519CertConstructor {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::CertifiedKey;
     use tor_checkable::{SelfSigned, Timebound};

@@ -1,8 +1,8 @@
 //! ASN.1 `BOOLEAN` support.
 
 use crate::{
-    asn1::Any, ByteSlice, DecodeValue, Decoder, EncodeValue, Encoder, Error, ErrorKind, FixedTag,
-    Length, OrdIsValueOrd, Result, Tag,
+    asn1::AnyRef, ord::OrdIsValueOrd, ByteSlice, DecodeValue, EncodeValue, Error, ErrorKind,
+    FixedTag, Header, Length, Reader, Result, Tag, Writer,
 };
 
 /// Byte used to encode `true` in ASN.1 DER. From X.690 Section 11.1:
@@ -15,12 +15,12 @@ const TRUE_OCTET: u8 = 0b11111111;
 const FALSE_OCTET: u8 = 0b00000000;
 
 impl<'a> DecodeValue<'a> for bool {
-    fn decode_value(decoder: &mut Decoder<'a>, length: Length) -> Result<Self> {
-        if length != Length::ONE {
-            return Err(decoder.error(ErrorKind::Length { tag: Self::TAG }));
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        if header.length != Length::ONE {
+            return Err(reader.error(ErrorKind::Length { tag: Self::TAG }));
         }
 
-        match decoder.byte()? {
+        match reader.read_byte()? {
             FALSE_OCTET => Ok(false),
             TRUE_OCTET => Ok(true),
             _ => Err(Self::TAG.non_canonical_error()),
@@ -33,8 +33,8 @@ impl EncodeValue for bool {
         Ok(Length::ONE)
     }
 
-    fn encode_value(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        encoder.byte(if *self { TRUE_OCTET } else { FALSE_OCTET })
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        writer.write_byte(if *self { TRUE_OCTET } else { FALSE_OCTET })
     }
 }
 
@@ -44,28 +44,28 @@ impl FixedTag for bool {
 
 impl OrdIsValueOrd for bool {}
 
-impl From<bool> for Any<'static> {
-    fn from(value: bool) -> Any<'static> {
+impl From<bool> for AnyRef<'static> {
+    fn from(value: bool) -> AnyRef<'static> {
         let value = ByteSlice::from(match value {
             false => &[FALSE_OCTET],
             true => &[TRUE_OCTET],
         });
 
-        Any::from_tag_and_value(Tag::Boolean, value)
+        AnyRef::from_tag_and_value(Tag::Boolean, value)
     }
 }
 
-impl TryFrom<Any<'_>> for bool {
+impl TryFrom<AnyRef<'_>> for bool {
     type Error = Error;
 
-    fn try_from(any: Any<'_>) -> Result<bool> {
+    fn try_from(any: AnyRef<'_>) -> Result<bool> {
         any.try_into()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Decodable, Encodable};
+    use crate::{Decode, Encode};
 
     #[test]
     fn decode() {

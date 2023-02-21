@@ -1,12 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
-//! `tor-error` -- Support for error handling in Tor and Arti
-//!
-//! Primarily, this crate provides the [`ErrorKind`] enum,
-//! and associated [`HasKind`] trait.
-//!
-//! There is also some other miscellany, supporting error handling in
-//! crates higher up the dependency stack.
-
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -40,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use derive_more::Display;
@@ -54,8 +49,8 @@ pub use report::*;
 mod retriable;
 pub use retriable::*;
 
-mod truncated;
-pub use truncated::*;
+mod misc;
+pub use misc::*;
 
 /// Classification of an error arising from Arti's Tor operations
 ///
@@ -123,8 +118,9 @@ pub use truncated::*;
 pub enum ErrorKind {
     /// Error connecting to the Tor network
     ///
-    /// Perhaps the local network is not working, or perhaps the chosen relay is not working
-    /// properly.  Not used for errors that occur within the Tor network, or accessing the public
+    /// Perhaps the local network is not working,
+    /// or perhaps the chosen relay or bridge is not working properly.
+    /// Not used for errors that occur within the Tor network, or accessing the public
     /// internet on the far side of Tor.
     #[display(fmt = "error connecting to Tor")]
     TorAccessFailed,
@@ -315,8 +311,11 @@ pub enum ErrorKind {
     /// implementation of the protocol, or in ours.  In any case, the problem
     /// is with software on the local system (or otherwise sharing a Tor client).
     ///
-    /// It might also occur if the local system has an incompatible combination of
+    /// It might also occur if the local system has an incompatible combination
+    /// of tools that we can't talk with.
     ///
+    /// This error kind does *not* include situations that are better explained
+    /// by a local program simply crashing or terminating unexpectedly.
     #[display(fmt = "local protocol violation (local bug or incompatibility)")]
     LocalProtocolViolation,
 
@@ -338,6 +337,18 @@ pub enum ErrorKind {
     /// should typically be available.
     #[display(fmt = "problem with network or connection")]
     LocalNetworkError,
+
+    /// A problem occurred with a protocol to a local (not anonymized) party.
+    ///
+    /// This is likely a protocol-specific problem, such as bad authentication
+    /// over SOCKS.
+    #[display(fmt = "local authentication refused.")]
+    LocalProtocolFailed,
+
+    /// A problem occurred when launching or communicating with an external
+    /// process running on this computer.
+    #[display(fmt = "an externally launched plug-in tool failed")]
+    ExternalToolFailed,
 
     /// A relay had an identity other than the one we expected.
     ///

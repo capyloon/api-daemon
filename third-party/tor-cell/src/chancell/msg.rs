@@ -218,9 +218,9 @@ impl Readable for VPadding {
     }
 }
 
-/// helper -- declare a fixed-width cell where a fixed number of bytes
-/// matter and the rest are ignored
-macro_rules! fixed_len {
+/// helper -- declare a fixed-width cell for handshake commands, in which
+/// a fixed number of bytes matter and the rest are ignored
+macro_rules! fixed_len_handshake {
     {
         $(#[$meta:meta])*
         $name:ident , $cmd:ident, $len:ident
@@ -265,10 +265,10 @@ pub(crate) const TAP_S_HANDSHAKE_LEN: usize = 128 + 20;
 
 /// Number of bytes used for a CREATE_FAST handshake by the initiator
 const FAST_C_HANDSHAKE_LEN: usize = 20;
-/// Number of bytes used for a CRATE_FAST handshake response
+/// Number of bytes used for a CREATE_FAST handshake response
 const FAST_S_HANDSHAKE_LEN: usize = 20 + 20;
 
-fixed_len! {
+fixed_len_handshake! {
     /// A Create message creates a circuit, using the TAP handshake.
     ///
     /// TAP is an obsolete handshake based on RSA-1024 and DH-1024.
@@ -279,14 +279,14 @@ fixed_len! {
     /// service protocol.
     Create, CREATE, TAP_C_HANDSHAKE_LEN
 }
-fixed_len! {
+fixed_len_handshake! {
     /// A Created message responds to a Created message, using the TAP
     /// handshake.
     ///
     /// TAP is an obsolete handshake based on RSA-1024 and DH-1024.
     Created, CREATED, TAP_S_HANDSHAKE_LEN
 }
-fixed_len! {
+fixed_len_handshake! {
     /// A CreateFast message creates a circuit using no public-key crypto.
     ///
     /// CreateFast is safe only when used on an already-secure TLS
@@ -302,11 +302,11 @@ fixed_len! {
 }
 impl CreateFast {
     /// Return the content of this handshake
-    pub fn body(&self) -> &[u8] {
+    pub fn handshake(&self) -> &[u8] {
         &self.handshake
     }
 }
-fixed_len! {
+fixed_len_handshake! {
     /// A CreatedFast message responds to a CreateFast message
     ///
     /// Relays send this message back to indicate that the CrateFast handshake
@@ -315,7 +315,7 @@ fixed_len! {
 }
 impl CreatedFast {
     /// Consume this message and return the content of this handshake
-    pub fn into_body(self) -> Vec<u8> {
+    pub fn into_handshake(self) -> Vec<u8> {
         self.handshake
     }
 }
@@ -448,7 +448,7 @@ pub struct Relay {
     /// The contents of the relay cell as encoded for transfer.
     ///
     /// TODO(nickm): It's nice that this is boxed, since we don't want to copy
-    /// cell data all over the place. But unfortunately, a there are some other
+    /// cell data all over the place. But unfortunately, there are some other
     /// places where we _don't_ Box things that we should, and more copies than
     /// necessary happen. We should refactor our data handling until we're mostly
     /// moving around pointers rather than copying data;  see ticket #7.
@@ -543,7 +543,7 @@ caret_int! {
     pub struct DestroyReason(u8) {
         /// No reason given.
         ///
-        /// (This is the only reason that clients send.
+        /// This is the only reason that clients send.
         NONE = 0,
         /// Protocol violation
         PROTOCOL = 1,
@@ -645,14 +645,12 @@ fn take_one_netinfo_addr(r: &mut Reader<'_>) -> Result<Option<IpAddr>> {
             bytes.copy_from_slice(abody);
             Ok(Some(IpAddr::V6(bytes.into())))
         }
-        (0x04, _) => Ok(None),
-        (0x06, _) => Ok(None),
         (_, _) => Ok(None),
     }
 }
 impl Netinfo {
     /// Construct a new Netinfo to be sent by a client.
-    pub fn for_client(their_addr: Option<IpAddr>) -> Self {
+    pub fn from_client(their_addr: Option<IpAddr>) -> Self {
         Netinfo {
             timestamp: 0, // clients don't report their timestamps.
             their_addr,
@@ -660,7 +658,7 @@ impl Netinfo {
         }
     }
     /// Construct a new Netinfo to be sent by a relay
-    pub fn for_relay<V>(timestamp: u32, their_addr: Option<IpAddr>, my_addrs: V) -> Self
+    pub fn from_relay<V>(timestamp: u32, their_addr: Option<IpAddr>, my_addrs: V) -> Self
     where
         V: Into<Vec<IpAddr>>,
     {
@@ -707,8 +705,8 @@ impl Readable for Netinfo {
     fn take_from(r: &mut Reader<'_>) -> Result<Self> {
         let timestamp = r.take_u32()?;
         let their_addr = take_one_netinfo_addr(r)?.filter(|a| !a.is_unspecified());
-        let mut my_addr = Vec::new();
         let my_n_addrs = r.take_u8()?;
+        let mut my_addr = Vec::with_capacity(my_n_addrs as usize);
         for _ in 0..my_n_addrs {
             if let Some(a) = take_one_netinfo_addr(r)? {
                 my_addr.push(a);
@@ -1086,8 +1084,8 @@ impl Body for AuthChallenge {
             .try_into()
             .map_err(|_| EncodeError::BadLengthValue)?;
         w.write_u16(n_methods);
-        for m in &self.methods {
-            w.write_u16(*m);
+        for m in self.methods {
+            w.write_u16(m);
         }
         Ok(())
     }
@@ -1274,6 +1272,16 @@ msg_into_cell!(Authorize);
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     #[test]
     fn destroy_reason() {

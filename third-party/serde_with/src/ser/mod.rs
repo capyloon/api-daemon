@@ -7,16 +7,14 @@
 //!
 //! [user guide]: crate::guide
 
-mod const_arrays;
-#[macro_use]
 mod impls;
 
-use super::*;
+use crate::prelude::*;
 
 /// A **data structure** that can be serialized into any data format supported by Serde, analogue to [`Serialize`].
 ///
 /// The trait is analogue to the [`serde::Serialize`][`Serialize`] trait, with the same meaning of input and output arguments.
-/// It can and should the implemented using the same code structure as the [`Serialize`] trait.
+/// It can and should be implemented using the same code structure as the [`Serialize`] trait.
 /// As such, the same advice for [implementing `Serialize`][impl-serialize] applies here.
 ///
 /// # Differences to [`Serialize`]
@@ -112,7 +110,6 @@ pub trait SerializeAs<T: ?Sized> {
 }
 
 /// Helper type to implement [`SerializeAs`] for container-like types.
-#[derive(Debug)]
 pub struct SerializeAsWrap<'a, T: ?Sized, U: ?Sized> {
     value: &'a T,
     marker: PhantomData<U>,
@@ -154,5 +151,21 @@ where
 {
     fn from(value: &'a T) -> Self {
         Self::new(value)
+    }
+}
+
+impl<T: ?Sized> As<T> {
+    /// Serialize type `T` using [`SerializeAs`][]
+    ///
+    /// The function signature is compatible with [serde's with-annotation][with-annotation].
+    ///
+    /// [with-annotation]: https://serde.rs/field-attrs.html#with
+    pub fn serialize<S, I>(value: &I, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: SerializeAs<I>,
+        I: ?Sized,
+    {
+        T::serialize_as(value, serializer)
     }
 }

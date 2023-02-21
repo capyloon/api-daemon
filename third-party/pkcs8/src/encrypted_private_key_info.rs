@@ -2,14 +2,20 @@
 
 use crate::{Error, Result};
 use core::fmt;
-use der::{asn1::OctetString, Decodable, Decoder, Encodable, Sequence};
+use der::{asn1::OctetStringRef, Decode, DecodeValue, Encode, Header, Reader, Sequence};
 use pkcs5::EncryptionScheme;
 
 #[cfg(feature = "alloc")]
-use crate::{EncryptedPrivateKeyDocument, PrivateKeyDocument};
+use der::SecretDocument;
+
+#[cfg(feature = "encryption")]
+use {
+    pkcs5::pbes2,
+    rand_core::{CryptoRng, RngCore},
+};
 
 #[cfg(feature = "pem")]
-use {crate::LineEnding, alloc::string::String, der::Document, zeroize::Zeroizing};
+use der::pem::PemLabel;
 
 /// PKCS#8 `EncryptedPrivateKeyInfo`.
 ///
@@ -46,37 +52,60 @@ impl<'a> EncryptedPrivateKeyInfo<'a> {
     /// password to derive an encryption key.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    pub fn decrypt(&self, password: impl AsRef<[u8]>) -> Result<PrivateKeyDocument> {
+    pub fn decrypt(&self, password: impl AsRef<[u8]>) -> Result<SecretDocument> {
         Ok(self
             .encryption_algorithm
             .decrypt(password, self.encrypted_data)?
             .try_into()?)
     }
 
-    /// Encode this [`EncryptedPrivateKeyInfo`] as ASN.1 DER.
-    #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    pub fn to_der(&self) -> Result<EncryptedPrivateKeyDocument> {
-        self.try_into()
+    /// Encrypt the given ASN.1 DER document using a symmetric encryption key
+    /// derived from the provided password.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub(crate) fn encrypt(
+        mut rng: impl CryptoRng + RngCore,
+        password: impl AsRef<[u8]>,
+        doc: &[u8],
+    ) -> Result<SecretDocument> {
+        let mut salt = [0u8; 16];
+        rng.fill_bytes(&mut salt);
+
+        let mut iv = [0u8; 16];
+        rng.fill_bytes(&mut iv);
+
+        let pbes2_params = pbes2::Parameters::scrypt_aes256cbc(Default::default(), &salt, &iv)?;
+        EncryptedPrivateKeyInfo::encrypt_with(pbes2_params, password, doc)
     }
 
-    /// Encode this [`EncryptedPrivateKeyInfo`] as PEM-encoded ASN.1 DER with
-    /// the given [`LineEnding`].
-    #[cfg(feature = "pem")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
-    pub fn to_pem(&self, line_ending: LineEnding) -> Result<Zeroizing<String>> {
-        Ok(Zeroizing::new(
-            EncryptedPrivateKeyDocument::try_from(self)?.to_pem(line_ending)?,
-        ))
+    /// Encrypt this private key using a symmetric encryption key derived
+    /// from the provided password and [`pbes2::Parameters`].
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub(crate) fn encrypt_with(
+        pbes2_params: pbes2::Parameters<'a>,
+        password: impl AsRef<[u8]>,
+        doc: &[u8],
+    ) -> Result<SecretDocument> {
+        let encrypted_data = pbes2_params.encrypt(password, doc)?;
+
+        EncryptedPrivateKeyInfo {
+            encryption_algorithm: pbes2_params.into(),
+            encrypted_data: &encrypted_data,
+        }
+        .try_into()
     }
 }
 
-impl<'a> Decodable<'a> for EncryptedPrivateKeyInfo<'a> {
-    fn decode(decoder: &mut Decoder<'a>) -> der::Result<EncryptedPrivateKeyInfo<'a>> {
-        decoder.sequence(|decoder| {
+impl<'a> DecodeValue<'a> for EncryptedPrivateKeyInfo<'a> {
+    fn decode_value<R: Reader<'a>>(
+        reader: &mut R,
+        header: Header,
+    ) -> der::Result<EncryptedPrivateKeyInfo<'a>> {
+        reader.read_nested(header.length, |reader| {
             Ok(Self {
-                encryption_algorithm: decoder.decode()?,
-                encrypted_data: decoder.octet_string()?.as_bytes(),
+                encryption_algorithm: reader.decode()?,
+                encrypted_data: OctetStringRef::decode(reader)?.as_bytes(),
             })
         })
     }
@@ -85,11 +114,11 @@ impl<'a> Decodable<'a> for EncryptedPrivateKeyInfo<'a> {
 impl<'a> Sequence<'a> for EncryptedPrivateKeyInfo<'a> {
     fn fields<F, T>(&self, f: F) -> der::Result<T>
     where
-        F: FnOnce(&[&dyn Encodable]) -> der::Result<T>,
+        F: FnOnce(&[&dyn Encode]) -> der::Result<T>,
     {
         f(&[
             &self.encryption_algorithm,
-            &OctetString::new(self.encrypted_data)?,
+            &OctetStringRef::new(self.encrypted_data)?,
         ])
     }
 }
@@ -106,6 +135,32 @@ impl<'a> fmt::Debug for EncryptedPrivateKeyInfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EncryptedPrivateKeyInfo")
             .field("encryption_algorithm", &self.encryption_algorithm)
-            .finish() // TODO(tarcieri): use `finish_non_exhaustive` when stable
+            .finish_non_exhaustive()
     }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "pkcs5"))))]
+impl TryFrom<EncryptedPrivateKeyInfo<'_>> for SecretDocument {
+    type Error = Error;
+
+    fn try_from(encrypted_private_key: EncryptedPrivateKeyInfo<'_>) -> Result<SecretDocument> {
+        SecretDocument::try_from(&encrypted_private_key)
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "pkcs5"))))]
+impl TryFrom<&EncryptedPrivateKeyInfo<'_>> for SecretDocument {
+    type Error = Error;
+
+    fn try_from(encrypted_private_key: &EncryptedPrivateKeyInfo<'_>) -> Result<SecretDocument> {
+        Ok(Self::encode_msg(encrypted_private_key)?)
+    }
+}
+
+#[cfg(feature = "pem")]
+#[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
+impl PemLabel for EncryptedPrivateKeyInfo<'_> {
+    const PEM_LABEL: &'static str = "ENCRYPTED PRIVATE KEY";
 }
