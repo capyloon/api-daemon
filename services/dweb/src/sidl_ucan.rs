@@ -2,6 +2,7 @@
 use crate::generated::common::*;
 use crate::service::State;
 use common::traits::{Shared, SimpleObjectTracker, TrackerId};
+use core::str::FromStr;
 use ucan::ucan::Ucan;
 
 pub struct SidlUcan {
@@ -26,7 +27,7 @@ impl SidlUcan {
     }
 
     pub fn try_new(id: TrackerId, token: String, state: Shared<State>) -> Option<Self> {
-        if let Ok(ucan) = Ucan::try_from_token_string(&token) {
+        if let Ok(ucan) = Ucan::from_str(&token) {
             Some(Self::new(id, ucan, state))
         } else {
             None

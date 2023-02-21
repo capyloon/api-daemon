@@ -1,12 +1,11 @@
+use crate::serde::ser_to_lower_case;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;
 use url::Url;
 
-use crate::serde::ser_to_lower_case;
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct CapabilityIpld {
     pub with: String,
     #[serde(serialize_with = "ser_to_lower_case")]
@@ -63,7 +62,7 @@ pub trait Scope: ToString + TryFrom<Url> + PartialEq + Clone {
 
 pub trait Action: Ord + TryFrom<String> + ToString + Clone {}
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum Resource<S>
 where
     S: Scope,
@@ -99,7 +98,7 @@ where
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum With<S>
 where
     S: Scope,
@@ -150,7 +149,7 @@ where
         match self {
             With::Resource { kind } => kind.to_string(),
             With::My { kind } => format!("my:{}", kind.to_string()),
-            With::As { did, kind } => format!("as:{}:{}", did, kind.to_string()),
+            With::As { did, kind } => format!("as:{did}:{}", kind.to_string()),
         }
     }
 }
@@ -185,7 +184,7 @@ where
             _ => return None,
         };
 
-        Some((format!("did:key:{}", value), path_parts.collect()))
+        Some((format!("did:key:{value}"), path_parts.collect()))
     }
 
     fn parse_resource(&self, with: &Url) -> Option<Resource<S>> {
@@ -216,7 +215,7 @@ where
             },
         };
 
-        let action = match self.parse_action(&can) {
+        let action = match self.parse_action(can) {
             Some(action) => action,
             None => return None,
         };
@@ -225,7 +224,7 @@ where
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Capability<S, A>
 where
     S: Scope,

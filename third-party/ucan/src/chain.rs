@@ -1,8 +1,3 @@
-use async_recursion::async_recursion;
-use cid::Cid;
-use std::collections::BTreeSet;
-use std::fmt::Debug;
-
 use crate::{
     capability::{
         proof::{ProofDelegationSemantics, ProofSelection},
@@ -13,10 +8,13 @@ use crate::{
     ucan::Ucan,
 };
 use anyhow::{anyhow, Result};
+use async_recursion::async_recursion;
+use cid::Cid;
+use std::{collections::BTreeSet, fmt::Debug};
 
 const PROOF_DELEGATION_SEMANTICS: ProofDelegationSemantics = ProofDelegationSemantics {};
 
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct CapabilityInfo<S: Scope, A: Action> {
     pub originators: BTreeSet<String>,
     pub not_before: Option<u64>,
@@ -48,6 +46,7 @@ pub struct ProofChain {
 }
 
 impl ProofChain {
+    /// Instantiate a [ProofChain] from a [Ucan], given a [UcanJwtStore] and [DidParser]
     #[cfg_attr(target_arch = "wasm32", async_recursion(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_recursion)]
     pub async fn from_ucan<S>(
@@ -104,10 +103,16 @@ impl ProofChain {
         })
     }
 
-    pub async fn from_cid<'a>(_cid: &str, _did_parser: &mut DidParser) -> Result<ProofChain> {
-        todo!("Resolving a proof from a CID not yet implemented")
+    /// Instantiate a [ProofChain] from a [Cid], given a [UcanJwtStore] and [DidParser]
+    /// The [Cid] must resolve to a JWT token string
+    pub async fn from_cid<S>(cid: &Cid, did_parser: &mut DidParser, store: &S) -> Result<ProofChain>
+    where
+        S: UcanJwtStore,
+    {
+        Self::try_from_token_string(&store.require_token(cid).await?, did_parser, store).await
     }
 
+    /// Instantiate a [ProofChain] from a JWT token string, given a [UcanJwtStore] and [DidParser]
     pub async fn try_from_token_string<'a, S>(
         ucan_token_string: &str,
         did_parser: &mut DidParser,
@@ -116,7 +121,7 @@ impl ProofChain {
     where
         S: UcanJwtStore,
     {
-        let ucan = Ucan::try_from_token_string(ucan_token_string)?;
+        let ucan = Ucan::try_from(ucan_token_string)?;
         Self::from_ucan(ucan, did_parser, store).await
     }
 
@@ -183,8 +188,8 @@ impl ProofChain {
                     .map(|mut info| {
                         // Redelegated capabilities should be attenuated by
                         // this UCAN's lifetime
-                        info.not_before = self.ucan.not_before().clone();
-                        info.expires_at = self.ucan.expires_at().clone();
+                        info.not_before = *self.ucan.not_before();
+                        info.expires_at = *self.ucan.expires_at();
                         info
                     })
             })

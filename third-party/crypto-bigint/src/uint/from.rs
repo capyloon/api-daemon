@@ -1,23 +1,23 @@
 //! `From`-like conversions for [`UInt`].
 
-use crate::{Limb, LimbUInt, Split, UInt, U128, U64};
+use crate::{Limb, UInt, WideWord, Word, U128, U64};
 
 impl<const LIMBS: usize> UInt<LIMBS> {
     /// Create a [`UInt`] from a `u8` (const-friendly)
     // TODO(tarcieri): replace with `const impl From<u8>` when stable
     pub const fn from_u8(n: u8) -> Self {
-        const_assert!(LIMBS >= 1, "number of limbs must be greater than zero");
+        assert!(LIMBS >= 1, "number of limbs must be greater than zero");
         let mut limbs = [Limb::ZERO; LIMBS];
-        limbs[0].0 = n as LimbUInt;
+        limbs[0].0 = n as Word;
         Self { limbs }
     }
 
     /// Create a [`UInt`] from a `u16` (const-friendly)
     // TODO(tarcieri): replace with `const impl From<u16>` when stable
     pub const fn from_u16(n: u16) -> Self {
-        const_assert!(LIMBS >= 1, "number of limbs must be greater than zero");
+        assert!(LIMBS >= 1, "number of limbs must be greater than zero");
         let mut limbs = [Limb::ZERO; LIMBS];
-        limbs[0].0 = n as LimbUInt;
+        limbs[0].0 = n as Word;
         Self { limbs }
     }
 
@@ -25,9 +25,9 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     // TODO(tarcieri): replace with `const impl From<u32>` when stable
     #[allow(trivial_numeric_casts)]
     pub const fn from_u32(n: u32) -> Self {
-        const_assert!(LIMBS >= 1, "number of limbs must be greater than zero");
+        assert!(LIMBS >= 1, "number of limbs must be greater than zero");
         let mut limbs = [Limb::ZERO; LIMBS];
-        limbs[0].0 = n as LimbUInt;
+        limbs[0].0 = n as Word;
         Self { limbs }
     }
 
@@ -35,7 +35,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     // TODO(tarcieri): replace with `const impl From<u64>` when stable
     #[cfg(target_pointer_width = "32")]
     pub const fn from_u64(n: u64) -> Self {
-        const_assert!(LIMBS >= 2, "number of limbs must be two or greater");
+        assert!(LIMBS >= 2, "number of limbs must be two or greater");
         let mut limbs = [Limb::ZERO; LIMBS];
         limbs[0].0 = (n & 0xFFFFFFFF) as u32;
         limbs[1].0 = (n >> 32) as u32;
@@ -46,7 +46,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     // TODO(tarcieri): replace with `const impl From<u64>` when stable
     #[cfg(target_pointer_width = "64")]
     pub const fn from_u64(n: u64) -> Self {
-        const_assert!(LIMBS >= 1, "number of limbs must be greater than zero");
+        assert!(LIMBS >= 1, "number of limbs must be greater than zero");
         let mut limbs = [Limb::ZERO; LIMBS];
         limbs[0].0 = n;
         Self { limbs }
@@ -55,7 +55,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     /// Create a [`UInt`] from a `u128` (const-friendly)
     // TODO(tarcieri): replace with `const impl From<u128>` when stable
     pub const fn from_u128(n: u128) -> Self {
-        const_assert!(
+        assert!(
             LIMBS >= (128 / Limb::BIT_SIZE),
             "number of limbs must be greater than zero"
         );
@@ -80,35 +80,23 @@ impl<const LIMBS: usize> UInt<LIMBS> {
         Self { limbs }
     }
 
-    /// Create a [`UInt`] from an array of the [`LimbUInt`]
-    /// unsigned integer type.
-    // TODO(tarcieri): replace with `const impl From<[LimbUInt; LIMBS]>` when stable
-    #[inline]
-    pub const fn from_uint_array(arr: [LimbUInt; LIMBS]) -> Self {
+    /// Create a [`UInt`] from a `Word` (const-friendly)
+    // TODO(tarcieri): replace with `const impl From<Word>` when stable
+    pub const fn from_word(n: Word) -> Self {
+        assert!(LIMBS >= 1, "number of limbs must be greater than zero");
         let mut limbs = [Limb::ZERO; LIMBS];
-        let mut i = 0;
-
-        while i < LIMBS {
-            limbs[i] = Limb(arr[i]);
-            i += 1;
-        }
-
+        limbs[0].0 = n;
         Self { limbs }
     }
 
-    /// Create an array of [`LimbUInt`] unsigned integers from a [`UInt`].
-    #[inline]
-    // TODO(tarcieri): replace with `const impl From<Self> for [limb::Inner; LIMBS]` when stable
-    pub const fn to_uint_array(self) -> [LimbUInt; LIMBS] {
-        let mut arr = [0; LIMBS];
-        let mut i = 0;
-
-        while i < LIMBS {
-            arr[i] = self.limbs[i].0;
-            i += 1;
-        }
-
-        arr
+    /// Create a [`UInt`] from a `WideWord` (const-friendly)
+    // TODO(tarcieri): replace with `const impl From<WideWord>` when stable
+    pub const fn from_wide_word(n: WideWord) -> Self {
+        assert!(LIMBS >= 2, "number of limbs must be two or greater");
+        let mut limbs = [Limb::ZERO; LIMBS];
+        limbs[0].0 = n as Word;
+        limbs[1].0 = (n >> Limb::BIT_SIZE) as Word;
+        Self { limbs }
     }
 }
 
@@ -175,15 +163,15 @@ impl From<U128> for u128 {
     }
 }
 
-impl<const LIMBS: usize> From<[LimbUInt; LIMBS]> for UInt<LIMBS> {
-    fn from(arr: [LimbUInt; LIMBS]) -> Self {
-        Self::from_uint_array(arr)
+impl<const LIMBS: usize> From<[Word; LIMBS]> for UInt<LIMBS> {
+    fn from(arr: [Word; LIMBS]) -> Self {
+        Self::from_words(arr)
     }
 }
 
-impl<const LIMBS: usize> From<UInt<LIMBS>> for [LimbUInt; LIMBS] {
-    fn from(n: UInt<LIMBS>) -> [LimbUInt; LIMBS] {
-        n.to_uint_array()
+impl<const LIMBS: usize> From<UInt<LIMBS>> for [Word; LIMBS] {
+    fn from(n: UInt<LIMBS>) -> [Word; LIMBS] {
+        *n.as_ref()
     }
 }
 
@@ -207,7 +195,7 @@ impl<const LIMBS: usize> From<Limb> for UInt<LIMBS> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Limb, LimbUInt, U128};
+    use crate::{Limb, Word, U128};
 
     #[cfg(target_pointer_width = "32")]
     use crate::U64 as UIntEx;
@@ -244,7 +232,7 @@ mod tests {
     fn array_round_trip() {
         let arr1 = [1, 2];
         let n = UIntEx::from(arr1);
-        let arr2: [LimbUInt; 2] = n.into();
+        let arr2: [Word; 2] = n.into();
         assert_eq!(arr1, arr2);
     }
 }

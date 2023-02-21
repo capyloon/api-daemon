@@ -4,6 +4,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.11.1 (2022-06-12)
+### Added
+- Re-export low-level `diffie_hellman` function ([#556])
+- Additional RFC6979 test vectors ([#591])
+
+### Changed
+- Use a 4-bit window for scalar multiplication ([#563])
+- `invert()`, `sqrt()`: replace exponentiations with addition chains ([#564])
+- Use generic prime order formulas ([#602])
+
+[#556]: https://github.com/RustCrypto/elliptic-curves/pull/556
+[#563]: https://github.com/RustCrypto/elliptic-curves/pull/563
+[#564]: https://github.com/RustCrypto/elliptic-curves/pull/564
+[#591]: https://github.com/RustCrypto/elliptic-curves/pull/591
+[#602]: https://github.com/RustCrypto/elliptic-curves/pull/602
+
+## 0.11.0 (2022-05-09)
+### Changed
+- Bump `digest` to v0.10 ([#515])
+- Have `pkcs8` feature activate `ecdsa/pkcs8` ([#538])
+- Bump `elliptic-curve` to v0.12 ([#544])
+- Bump `ecdsa` to v0.14 ([#544])
+
+[#515]: https://github.com/RustCrypto/elliptic-curves/pull/515
+[#538]: https://github.com/RustCrypto/elliptic-curves/pull/538
+[#544]: https://github.com/RustCrypto/elliptic-curves/pull/544
+
+## 0.10.1 (2022-01-17)
+### Added
+- Impl `ff::Field` trait for `FieldElement` ([#498])
+- hash2curve support: impl `GroupDigest` trait for `NistP256` ([#503])
+- Impl `VoprfParameters` trait for `NistP256` ([#506])
+- Impl `ReduceNonZero<U256>` trait for `Scalar` ([#507])
+- `IDENTITY` and `GENERATOR` point constants ([#509], [#511])
+
+[#498]: https://github.com/RustCrypto/elliptic-curves/pull/498
+[#503]: https://github.com/RustCrypto/elliptic-curves/pull/503
+[#506]: https://github.com/RustCrypto/elliptic-curves/pull/506
+[#507]: https://github.com/RustCrypto/elliptic-curves/pull/507
+[#509]: https://github.com/RustCrypto/elliptic-curves/pull/509
+[#511]: https://github.com/RustCrypto/elliptic-curves/pull/511
+
+## 0.10.0 (2021-12-14)
+### Added
+- Implement point compaction support ([#357])
+- Implement `Scalar::sqrt` ([#392])
+- Impl `DefaultIsZeroes` for `ProjectivePoint` ([#414])
+- Impl `PrimeCurveArithmetic` ([#415])
+- Impl `Reduce<U256>` for `Scalar` ([#436])
+- `serde` feature ([#463], [#465])
+- Impl `LinearCombination` trait ([#476])
+
+### Changed
+- Use `PrimeCurve` trait ([#413])
+- Use `sec1` crate for `EncodedPoint` type ([#435])
+- Replace `ecdsa::hazmat::FromDigest` with `Reduce` ([#438])
+- Make `FromEncodedPoint` return a `CtOption` ([#445])
+- Rust 2021 edition upgrade; MSRV 1.56+ ([#453])
+- Leverage generic ECDSA implementation from `ecdsa` crate ([#462])
+- Bump `elliptic-curve` crate dependency to v0.11 ([#466])
+- Bump `ecdsa` crate dependency to v0.13 ([#467])
+
+### Fixed
+- `ProjectivePoint::to_bytes()` encoding for identity ([#443])
+- Handle identity point in `GroupEncoding` ([#446])
+
+[#357]: https://github.com/RustCrypto/elliptic-curves/pull/357
+[#392]: https://github.com/RustCrypto/elliptic-curves/pull/392
+[#413]: https://github.com/RustCrypto/elliptic-curves/pull/413
+[#414]: https://github.com/RustCrypto/elliptic-curves/pull/414
+[#415]: https://github.com/RustCrypto/elliptic-curves/pull/415
+[#435]: https://github.com/RustCrypto/elliptic-curves/pull/435
+[#436]: https://github.com/RustCrypto/elliptic-curves/pull/436
+[#438]: https://github.com/RustCrypto/elliptic-curves/pull/438
+[#443]: https://github.com/RustCrypto/elliptic-curves/pull/443
+[#445]: https://github.com/RustCrypto/elliptic-curves/pull/445
+[#446]: https://github.com/RustCrypto/elliptic-curves/pull/446
+[#453]: https://github.com/RustCrypto/elliptic-curves/pull/453
+[#463]: https://github.com/RustCrypto/elliptic-curves/pull/463
+[#465]: https://github.com/RustCrypto/elliptic-curves/pull/465
+[#466]: https://github.com/RustCrypto/elliptic-curves/pull/466
+[#467]: https://github.com/RustCrypto/elliptic-curves/pull/467
+[#476]: https://github.com/RustCrypto/elliptic-curves/pull/476
+
 ## 0.9.0 (2021-06-08)
 ### Added
 - `AffineArithmetic` trait impl ([#347])

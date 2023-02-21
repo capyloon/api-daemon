@@ -1,12 +1,12 @@
-use crate::rsa::{RsaKeyMaterial};
+use crate::rsa::RsaKeyMaterial;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use js_sys::{Array, ArrayBuffer, Boolean, Object, Reflect, Uint8Array};
-use rsa::RsaPublicKey;
-use rsa::pkcs1::DecodeRsaPublicKey;
-use rsa::pkcs1::der::Encodable;
-use ucan::crypto::KeyMaterial;
-use ucan::crypto::JwtSignatureAlgorithm;
+use rsa::{
+    pkcs1::{der::Encode, DecodeRsaPublicKey},
+    RsaPublicKey,
+};
+use ucan::crypto::{JwtSignatureAlgorithm, KeyMaterial};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Crypto, CryptoKey, CryptoKeyPair, SubtleCrypto};
@@ -259,7 +259,7 @@ mod tests {
             .unwrap();
 
         let mut did_parser = DidParser::new(&[(RSA_MAGIC_BYTES, bytes_to_rsa_key)]);
-        let ucan = Ucan::try_from_token_string(token.as_str()).unwrap();
+        let ucan = Ucan::try_from(token.as_str()).unwrap();
 
         ucan.check_signature(&mut did_parser).await.unwrap();
     }

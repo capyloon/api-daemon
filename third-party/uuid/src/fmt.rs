@@ -42,22 +42,14 @@ impl fmt::Display for Variant {
 
 impl fmt::LowerHex for Uuid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.alternate() {
-            fmt::LowerHex::fmt(self.as_simple(), f)
-        } else {
-            fmt::LowerHex::fmt(self.as_hyphenated(), f)
-        }
+        fmt::LowerHex::fmt(self.as_hyphenated(), f)
     }
 }
 
 impl fmt::UpperHex for Uuid {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.alternate() {
-            fmt::UpperHex::fmt(self.as_simple(), f)
-        } else {
-            fmt::UpperHex::fmt(self.as_hyphenated(), f)
-        }
+        fmt::UpperHex::fmt(self.as_hyphenated(), f)
     }
 }
 
@@ -140,12 +132,10 @@ impl Uuid {
 }
 
 const UPPER: [u8; 16] = [
-    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B',
-    b'C', b'D', b'E', b'F',
+    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E', b'F',
 ];
 const LOWER: [u8; 16] = [
-    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'a', b'b',
-    b'c', b'd', b'e', b'f',
+    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'a', b'b', b'c', b'd', b'e', b'f',
 ];
 
 #[inline]
@@ -190,11 +180,7 @@ const fn format_hyphenated(src: &[u8; 16], upper: bool) -> [u8; 36] {
 }
 
 #[inline]
-fn encode_simple<'b>(
-    src: &[u8; 16],
-    buffer: &'b mut [u8],
-    upper: bool,
-) -> &'b mut str {
+fn encode_simple<'b>(src: &[u8; 16], buffer: &'b mut [u8], upper: bool) -> &'b mut str {
     let buf = &mut buffer[..Simple::LENGTH];
     let dst = buf.as_mut_ptr();
 
@@ -207,11 +193,7 @@ fn encode_simple<'b>(
 }
 
 #[inline]
-fn encode_hyphenated<'b>(
-    src: &[u8; 16],
-    buffer: &'b mut [u8],
-    upper: bool,
-) -> &'b mut str {
+fn encode_hyphenated<'b>(src: &[u8; 16], buffer: &'b mut [u8], upper: bool) -> &'b mut str {
     let buf = &mut buffer[..Hyphenated::LENGTH];
     let dst = buf.as_mut_ptr();
 
@@ -224,11 +206,7 @@ fn encode_hyphenated<'b>(
 }
 
 #[inline]
-fn encode_braced<'b>(
-    src: &[u8; 16],
-    buffer: &'b mut [u8],
-    upper: bool,
-) -> &'b mut str {
+fn encode_braced<'b>(src: &[u8; 16], buffer: &'b mut [u8], upper: bool) -> &'b mut str {
     let buf = &mut buffer[..Braced::LENGTH];
     buf[0] = b'{';
     buf[Braced::LENGTH - 1] = b'}';
@@ -244,11 +222,7 @@ fn encode_braced<'b>(
 }
 
 #[inline]
-fn encode_urn<'b>(
-    src: &[u8; 16],
-    buffer: &'b mut [u8],
-    upper: bool,
-) -> &'b mut str {
+fn encode_urn<'b>(src: &[u8; 16], buffer: &'b mut [u8], upper: bool) -> &'b mut str {
     let buf = &mut buffer[..Urn::LENGTH];
     buf[..9].copy_from_slice(b"urn:uuid:");
 

@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use crate::{
     capability::{
         proof::ProofDelegationSemantics, Action, Capability, CapabilityIpld, CapabilitySemantics,
@@ -8,7 +6,7 @@ use crate::{
     crypto::KeyMaterial,
     serde::Base64Encode,
     time::now,
-    ucan::{UcanHeader, UcanPayload, UCAN_VERSION},
+    ucan::{Ucan, UcanHeader, UcanPayload, UCAN_VERSION},
 };
 use anyhow::{anyhow, Result};
 use cid::Cid;
@@ -16,8 +14,7 @@ use log::warn;
 use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-
-use crate::ucan::Ucan;
+use std::convert::TryFrom;
 
 /// A signable is a UCAN that has all the state it needs in order to be signed,
 /// but has not yet been signed.
@@ -58,7 +55,7 @@ where
     pub async fn ucan_payload(&self) -> Result<UcanPayload> {
         let nonce = match self.add_nonce {
             true => Some(base64::encode_config(
-                &rand::thread_rng().gen::<[u8; 32]>(),
+                rand::thread_rng().gen::<[u8; 32]>(),
                 base64::URL_SAFE_NO_PAD,
             )),
             false => None,
@@ -88,7 +85,7 @@ where
         let header_base64 = header.jwt_base64_encode()?;
         let payload_base64 = payload.jwt_base64_encode()?;
 
-        let data_to_sign = format!("{}.{}", header_base64, payload_base64)
+        let data_to_sign = format!("{header_base64}.{payload_base64}")
             .as_bytes()
             .to_vec();
         let signature = self.issuer.sign(data_to_sign.as_slice()).await?;
@@ -235,7 +232,7 @@ where
                 let proof_index = self.proofs.len() - 1;
                 let proof_delegation = ProofDelegationSemantics {};
                 let capability =
-                    proof_delegation.parse(&format!("prf:{}", proof_index), "ucan/DELEGATE");
+                    proof_delegation.parse(&format!("prf:{proof_index}"), "ucan/DELEGATE");
 
                 match capability {
                     Some(capability) => {

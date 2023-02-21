@@ -7,8 +7,7 @@ use ed25519_zebra::{
 
 use ucan::crypto::KeyMaterial;
 
-pub use ucan::crypto::did::ED25519_MAGIC_BYTES;
-pub use ucan::crypto::JwtSignatureAlgorithm;
+pub use ucan::crypto::{did::ED25519_MAGIC_BYTES, JwtSignatureAlgorithm};
 
 pub fn bytes_to_ed25519_key(bytes: Vec<u8>) -> Result<Box<dyn KeyMaterial>> {
     let public_key = Ed25519PublicKey::try_from(bytes.as_slice())?;
@@ -87,7 +86,7 @@ mod tests {
 
         let mut did_parser = DidParser::new(&[(ED25519_MAGIC_BYTES, bytes_to_ed25519_key)]);
 
-        let ucan = Ucan::try_from_token_string(token_string.as_str()).unwrap();
+        let ucan = Ucan::try_from(token_string).unwrap();
         ucan.check_signature(&mut did_parser).await.unwrap();
     }
 }

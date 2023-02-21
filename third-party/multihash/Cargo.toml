@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "multihash"
-version = "0.16.3"
+version = "0.17.0"
 authors = [
     "dignifiedquire <dignifiedquire@gmail.com>",
     "David Craven <david@craven.ch>",
@@ -73,11 +73,12 @@ optional = true
 default-features = false
 
 [dependencies.quickcheck]
-version = "0.9.2"
+version = "1.0.3"
 optional = true
 
 [dependencies.rand]
-version = "0.7.3"
+version = "0.8.5"
+features = ["small_rng"]
 optional = true
 
 [dependencies.ripemd-rs]
@@ -132,10 +133,10 @@ version = "0.3.3"
 version = "0.4.2"
 
 [dev-dependencies.quickcheck]
-version = "0.9.2"
+version = "1.0.3"
 
 [dev-dependencies.rand]
-version = "0.7.3"
+version = "0.8.5"
 
 [dev-dependencies.serde_json]
 version = "1.0.58"

@@ -12,6 +12,7 @@ use crate::generated::common::Peer;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::traits::SharedServiceState;
+use core::str::FromStr;
 use did_key::{CoreSign, Ed25519KeyPair, Fingerprint};
 use ucan::crypto::did::{DidParser, KeyConstructorSlice};
 use ucan::crypto::KeyMaterial;
@@ -58,7 +59,7 @@ fn bytes_to_ed25519_key(bytes: Vec<u8>) -> Result<Box<dyn KeyMaterial>> {
 }
 
 pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
-    let ucan = Ucan::try_from_token_string(&token).map_err(|_| ())?;
+    let ucan = Ucan::from_str(&token).map_err(|_| ())?;
     // Parse the token, check time bounds and signature.
     let mut parser = DidParser::new(SUPPORTED_UCAN_KEYS);
     ucan.validate(&mut parser).await.map_err(|_| ())?;

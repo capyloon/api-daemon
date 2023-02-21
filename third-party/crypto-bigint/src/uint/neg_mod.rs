@@ -1,69 +1,68 @@
-//! [`UInt`] subtraction modulus operations.
+//! [`UInt`] negation modulus operations.
 
 use crate::{Limb, NegMod, UInt};
 
 impl<const LIMBS: usize> UInt<LIMBS> {
     /// Computes `-a mod p` in constant time.
+    /// Assumes `self` is in `[0, p)`.
     pub const fn neg_mod(&self, p: &Self) -> Self {
-        let mut tmp = [Limb::ZERO; LIMBS];
-
-        // Subtract `a` from `p` to negate. Ignore the final
-        // borrow because it cannot underflow; a is guaranteed to
-        // be in the field.
-        let mut borrow = Limb::ZERO;
+        let z = self.ct_is_nonzero();
+        let mut ret = p.sbb(self, Limb::ZERO).0;
         let mut i = 0;
-
         while i < LIMBS {
-            let (l, b) = p.limbs[i].sbb(self.limbs[i], borrow);
-            tmp[i] = l;
-            borrow = b;
-
+            // Set ret to 0 if the original value was 0, in which
+            // case ret would be p.
+            ret.limbs[i].0 &= z;
             i += 1;
         }
+        ret
+    }
 
-        // `tmp` could be `p` if `a` was zero. Create a mask that is
-        // zero if `a` was zero, and `Limb::MAX` if self was nonzero.
-        // FIXME: constant time comparison
-        let mut self_or = self.limbs[0];
-        let mut i = 1;
-
-        while i < LIMBS {
-            self_or = self_or.bitor(self.limbs[i]);
-            i += 1;
-        }
-
-        let v = if self_or.eq_vartime(&Limb::ZERO) {
-            Limb::ONE
-        } else {
-            Limb::ZERO
-        };
-
-        let mask = v.wrapping_sub(Limb::ONE);
-
-        let mut i = 0;
-
-        while i < LIMBS {
-            tmp[i] = tmp[i].bitand(mask);
-            i += 1;
-        }
-
-        UInt::new(tmp)
+    /// Computes `-a mod p` in constant time for the special modulus
+    /// `p = MAX+1-c` where `c` is small enough to fit in a single [`Limb`].
+    pub const fn neg_mod_special(&self, c: Limb) -> Self {
+        Self::ZERO.sub_mod_special(self, c)
     }
 }
 
-macro_rules! impl_neg_mod {
-    ($($size:expr),+) => {
-        $(
-            impl NegMod for UInt<$size> {
-                type Output = Self;
+impl<const LIMBS: usize> NegMod for UInt<LIMBS> {
+    type Output = Self;
 
-                fn neg_mod(&self, p: &Self) -> Self {
-                    debug_assert!(self < p);
-                    self.neg_mod(p)
-                }
-            }
-        )+
-    };
+    fn neg_mod(&self, p: &Self) -> Self {
+        debug_assert!(self < p);
+        self.neg_mod(p)
+    }
 }
 
-impl_neg_mod!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+#[cfg(test)]
+mod tests {
+    use crate::U256;
+
+    #[test]
+    fn neg_mod_random() {
+        let x =
+            U256::from_be_hex("8d16e171674b4e6d8529edba4593802bf30b8cb161dd30aa8e550d41380007c2");
+        let p =
+            U256::from_be_hex("928334a4e4be0843ec225a4c9c61df34bdc7a81513e4b6f76f2bfa3148e2e1b5");
+
+        let actual = x.neg_mod(&p);
+        let expected =
+            U256::from_be_hex("056c53337d72b9d666f86c9256ce5f08cabc1b63b207864ce0d6ecf010e2d9f3");
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn neg_mod_zero() {
+        let x =
+            U256::from_be_hex("0000000000000000000000000000000000000000000000000000000000000000");
+        let p =
+            U256::from_be_hex("928334a4e4be0843ec225a4c9c61df34bdc7a81513e4b6f76f2bfa3148e2e1b5");
+
+        let actual = x.neg_mod(&p);
+        let expected =
+            U256::from_be_hex("0000000000000000000000000000000000000000000000000000000000000000");
+
+        assert_eq!(expected, actual);
+    }
+}

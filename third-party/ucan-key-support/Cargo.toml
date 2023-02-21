@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "ucan-key-support"
-version = "0.7.0-alpha.1"
+version = "0.1.0"
 description = "Ready to use SigningKey implementations for the ucan crate"
 homepage = "https://github.com/cdata/rs-ucan"
 documentation = "https://docs.rs/ucan"
@@ -34,47 +34,48 @@ repository = "https://github.com/cdata/rs-ucan/"
 resolver = "1"
 
 [dependencies.anyhow]
-version = "1.0.52"
+version = "1.0"
 
 [dependencies.async-trait]
-version = "0.1.52"
+version = "0.1"
 
 [dependencies.bs58]
 version = "0.4"
 
 [dependencies.ed25519-zebra]
-version = "^3"
+version = "3.1"
 
 [dependencies.log]
 version = "0.4"
 
 [dependencies.rsa]
-version = "0.6"
+version = "0.7"
 
 [dependencies.sha2]
 version = "0.10"
+features = ["oid"]
 
 [dependencies.ucan]
-version = "0.7.0-alpha.1"
+version = "0.1.0"
 
 [dev-dependencies.getrandom]
-version = "~0.2"
+version = "0.2"
 features = ["js"]
 
 [dev-dependencies.rand]
-version = "~0.8"
+version = "0.8"
 
 [dev-dependencies.wasm-bindgen-test]
-version = "~0.3"
+version = "0.3"
 
 [build-dependencies.npm_rs]
-version = "0.2.1"
+version = "1.0"
 
 [features]
 default = []
 
 [target."cfg(not(target_arch = \"wasm32\"))".dev-dependencies.tokio]
-version = "^1"
+version = "1.21"
 features = [
     "macros",
     "rt",

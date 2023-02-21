@@ -1,18 +1,18 @@
 //! Field arithmetic modulo p = 2^{224}(2^{32} − 1) + 2^{192} + 2^{96} − 1
 
+#![allow(clippy::assign_op_pattern, clippy::op_ref)]
+
 use crate::{
     arithmetic::util::{adc, mac, sbb},
     FieldBytes,
 };
-use core::convert::TryInto;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use elliptic_curve::{
-    rand_core::{CryptoRng, RngCore},
+    ff::Field,
+    rand_core::RngCore,
     subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption},
+    zeroize::DefaultIsZeroes,
 };
-
-#[cfg(feature = "zeroize")]
-use elliptic_curve::zeroize::Zeroize;
 
 /// The number of 64-bit limbs used to represent a [`FieldElement`].
 const LIMBS: usize = 4;
@@ -43,62 +43,18 @@ const R2: FieldElement = FieldElement([
 ]);
 
 /// An element in the finite field modulo p = 2^{224}(2^{32} − 1) + 2^{192} + 2^{96} − 1.
-// The internal representation is in little-endian order. Elements are always in
-// Montgomery form; i.e., FieldElement(a) = aR mod p, with R = 2^256.
+///
+/// The internal representation is in little-endian order. Elements are always in
+/// Montgomery form; i.e., FieldElement(a) = aR mod p, with R = 2^256.
 #[derive(Clone, Copy, Debug)]
 pub struct FieldElement(pub(crate) [u64; LIMBS]);
 
-impl ConditionallySelectable for FieldElement {
-    fn conditional_select(a: &FieldElement, b: &FieldElement, choice: Choice) -> FieldElement {
-        FieldElement([
-            u64::conditional_select(&a.0[0], &b.0[0], choice),
-            u64::conditional_select(&a.0[1], &b.0[1], choice),
-            u64::conditional_select(&a.0[2], &b.0[2], choice),
-            u64::conditional_select(&a.0[3], &b.0[3], choice),
-        ])
-    }
-}
-
-impl ConstantTimeEq for FieldElement {
-    fn ct_eq(&self, other: &Self) -> Choice {
-        self.0[0].ct_eq(&other.0[0])
-            & self.0[1].ct_eq(&other.0[1])
-            & self.0[2].ct_eq(&other.0[2])
-            & self.0[3].ct_eq(&other.0[3])
-    }
-}
-
-impl PartialEq for FieldElement {
-    fn eq(&self, other: &Self) -> bool {
-        self.ct_eq(other).into()
-    }
-}
-
-impl Default for FieldElement {
-    fn default() -> Self {
-        FieldElement::zero()
-    }
-}
-
 impl FieldElement {
-    /// Returns the zero element.
-    pub const fn zero() -> FieldElement {
-        FieldElement([0, 0, 0, 0])
-    }
+    /// Zero element.
+    pub const ZERO: Self = FieldElement([0, 0, 0, 0]);
 
-    /// Returns the multiplicative identity.
-    pub const fn one() -> FieldElement {
-        R
-    }
-
-    /// Returns a uniformly-random element within the field.
-    pub fn generate(mut rng: impl CryptoRng + RngCore) -> Self {
-        // We reduce a random 512-bit value into a 256-bit field, which results in a
-        // negligible bias from the uniform distribution.
-        let mut buf = [0; 64];
-        rng.fill_bytes(&mut buf);
-        FieldElement::from_bytes_wide(buf)
-    }
+    /// Multiplicative identity.
+    pub const ONE: Self = R;
 
     fn from_bytes_wide(bytes: [u8; 64]) -> Self {
         FieldElement::montgomery_reduce(
@@ -135,14 +91,13 @@ impl FieldElement {
         let is_some = (borrow as u8) & 1;
 
         // Convert w to Montgomery form: w * R^2 * R^-1 mod p = wR mod p
-        CtOption::new(FieldElement(w).mul(&R2), Choice::from(is_some))
+        CtOption::new(FieldElement(w).to_montgomery(), Choice::from(is_some))
     }
 
     /// Returns the SEC1 encoding of this field element.
-    pub fn to_bytes(&self) -> FieldBytes {
+    pub fn to_bytes(self) -> FieldBytes {
         // Convert from Montgomery form to canonical form
-        let tmp =
-            FieldElement::montgomery_reduce(self.0[0], self.0[1], self.0[2], self.0[3], 0, 0, 0, 0);
+        let tmp = self.to_canonical();
 
         let mut ret = FieldBytes::default();
         ret[0..8].copy_from_slice(&tmp.0[3].to_be_bytes());
@@ -180,7 +135,7 @@ impl FieldElement {
         let (w3, w4) = adc(self.0[3], rhs.0[3], carry);
 
         // Attempt to subtract the modulus, to ensure the result is in the field.
-        Self::sub_inner(
+        let (result, _) = Self::sub_inner(
             w0,
             w1,
             w2,
@@ -191,7 +146,8 @@ impl FieldElement {
             MODULUS.0[2],
             MODULUS.0[3],
             0,
-        )
+        );
+        result
     }
 
     /// Returns 2*self.
@@ -201,12 +157,20 @@ impl FieldElement {
 
     /// Returns self - rhs mod p
     pub const fn subtract(&self, rhs: &Self) -> Self {
+        let (result, _) = Self::sub_inner(
+            self.0[0], self.0[1], self.0[2], self.0[3], 0, rhs.0[0], rhs.0[1], rhs.0[2], rhs.0[3],
+            0,
+        );
+        result
+    }
+
+    /// Returns self - rhs mod p
+    pub(crate) const fn informed_subtract(&self, rhs: &Self) -> (Self, u64) {
         Self::sub_inner(
             self.0[0], self.0[1], self.0[2], self.0[3], 0, rhs.0[0], rhs.0[1], rhs.0[2], rhs.0[3],
             0,
         )
     }
-
     #[inline]
     #[allow(clippy::too_many_arguments)]
     const fn sub_inner(
@@ -220,7 +184,7 @@ impl FieldElement {
         r2: u64,
         r3: u64,
         r4: u64,
-    ) -> Self {
+    ) -> (Self, u64) {
         let (w0, borrow) = sbb(l0, r0, 0);
         let (w1, borrow) = sbb(l1, r1, borrow);
         let (w2, borrow) = sbb(l2, r2, borrow);
@@ -235,7 +199,7 @@ impl FieldElement {
         let (w2, carry) = adc(w2, MODULUS.0[2] & borrow, carry);
         let (w3, _) = adc(w3, MODULUS.0[3] & borrow, carry);
 
-        FieldElement([w0, w1, w2, w3])
+        (FieldElement([w0, w1, w2, w3]), borrow)
     }
 
     /// Montgomery Reduction
@@ -310,7 +274,7 @@ impl FieldElement {
         let (r7, r8) = adc(r7, carry2, carry);
 
         // Result may be within MODULUS of the correct value
-        Self::sub_inner(
+        let (result, _) = Self::sub_inner(
             r4,
             r5,
             r6,
@@ -321,7 +285,20 @@ impl FieldElement {
             MODULUS.0[2],
             MODULUS.0[3],
             0,
-        )
+        );
+        result
+    }
+
+    /// Translate a field element out of the Montgomery domain.
+    #[inline]
+    pub(crate) const fn to_canonical(self) -> Self {
+        FieldElement::montgomery_reduce(self.0[0], self.0[1], self.0[2], self.0[3], 0, 0, 0, 0)
+    }
+
+    /// Translate a field element into the Montgomery domain.
+    #[inline]
+    pub(crate) const fn to_montgomery(self) -> Self {
+        Self::mul(&self, &R2)
     }
 
     /// Returns self * rhs mod p
@@ -357,6 +334,15 @@ impl FieldElement {
         self.mul(self)
     }
 
+    /// Returns self^(2^n) mod p
+    fn sqn(&self, n: usize) -> Self {
+        let mut x = *self;
+        for _ in 0..n {
+            x = x.square();
+        }
+        x
+    }
+
     /// Returns `self^by`, where `by` is a little-endian integer exponent.
     ///
     /// **This operation is variable time with respect to the exponent.** If the exponent
@@ -385,12 +371,17 @@ impl FieldElement {
         //    a^(p-2) * a ≡ 1 mod p
         //
         // Thus inversion can be implemented with a single exponentiation.
-        let inverse = self.pow_vartime(&[
-            0xffff_ffff_ffff_fffd,
-            0x0000_0000_ffff_ffff,
-            0x0000_0000_0000_0000,
-            0xffff_ffff_0000_0001,
-        ]);
+
+        let t111 = self.mul(&self.mul(&self.square()).square());
+        let t111111 = t111.mul(t111.sqn(3));
+        let x15 = t111111.sqn(6).mul(t111111).sqn(3).mul(t111);
+        let x16 = x15.square().mul(self);
+        let i53 = x16.sqn(16).mul(x16).sqn(15);
+        let x47 = x15.mul(i53);
+        let inverse = x47
+            .mul(i53.sqn(17).mul(self).sqn(143).mul(x47).sqn(47))
+            .sqn(2)
+            .mul(self);
 
         CtOption::new(inverse, !self.is_zero())
     }
@@ -405,12 +396,18 @@ impl FieldElement {
         //
         // Thus sqrt can be implemented with a single exponentiation.
 
-        let sqrt = self.pow_vartime(&[
-            0x0000_0000_0000_0000,
-            0x0000_0000_4000_0000,
-            0x4000_0000_0000_0000,
-            0x3fff_ffff_c000_0000,
-        ]);
+        let t11 = self.mul(&self.square());
+        let t1111 = t11.mul(&t11.sqn(2));
+        let t11111111 = t1111.mul(t1111.sqn(4));
+        let x16 = t11111111.sqn(8).mul(t11111111);
+        let sqrt = x16
+            .sqn(16)
+            .mul(x16)
+            .sqn(32)
+            .mul(self)
+            .sqn(96)
+            .mul(self)
+            .sqn(94);
 
         CtOption::new(
             sqrt,
@@ -419,11 +416,83 @@ impl FieldElement {
     }
 }
 
-impl Add<&FieldElement> for &FieldElement {
+impl Field for FieldElement {
+    fn random(mut rng: impl RngCore) -> Self {
+        // We reduce a random 512-bit value into a 256-bit field, which results in a
+        // negligible bias from the uniform distribution.
+        let mut buf = [0; 64];
+        rng.fill_bytes(&mut buf);
+        FieldElement::from_bytes_wide(buf)
+    }
+
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    fn one() -> Self {
+        Self::ONE
+    }
+
+    #[must_use]
+    fn square(&self) -> Self {
+        self.square()
+    }
+
+    #[must_use]
+    fn double(&self) -> Self {
+        self.double()
+    }
+
+    fn invert(&self) -> CtOption<Self> {
+        self.invert()
+    }
+
+    fn sqrt(&self) -> CtOption<Self> {
+        self.sqrt()
+    }
+}
+
+impl ConditionallySelectable for FieldElement {
+    fn conditional_select(a: &FieldElement, b: &FieldElement, choice: Choice) -> FieldElement {
+        FieldElement([
+            u64::conditional_select(&a.0[0], &b.0[0], choice),
+            u64::conditional_select(&a.0[1], &b.0[1], choice),
+            u64::conditional_select(&a.0[2], &b.0[2], choice),
+            u64::conditional_select(&a.0[3], &b.0[3], choice),
+        ])
+    }
+}
+
+impl ConstantTimeEq for FieldElement {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.0[0].ct_eq(&other.0[0])
+            & self.0[1].ct_eq(&other.0[1])
+            & self.0[2].ct_eq(&other.0[2])
+            & self.0[3].ct_eq(&other.0[3])
+    }
+}
+
+impl Default for FieldElement {
+    fn default() -> Self {
+        FieldElement::zero()
+    }
+}
+
+impl DefaultIsZeroes for FieldElement {}
+
+impl Eq for FieldElement {}
+
+impl PartialEq for FieldElement {
+    fn eq(&self, other: &Self) -> bool {
+        self.ct_eq(other).into()
+    }
+}
+
+impl Add<FieldElement> for FieldElement {
     type Output = FieldElement;
 
-    fn add(self, other: &FieldElement) -> FieldElement {
-        FieldElement::add(self, other)
+    fn add(self, other: FieldElement) -> FieldElement {
+        FieldElement::add(&self, &other)
     }
 }
 
@@ -435,17 +504,31 @@ impl Add<&FieldElement> for FieldElement {
     }
 }
 
-impl AddAssign<FieldElement> for FieldElement {
-    fn add_assign(&mut self, rhs: FieldElement) {
-        *self = FieldElement::add(self, &rhs);
+impl Add<&FieldElement> for &FieldElement {
+    type Output = FieldElement;
+
+    fn add(self, other: &FieldElement) -> FieldElement {
+        FieldElement::add(self, other)
     }
 }
 
-impl Sub<&FieldElement> for &FieldElement {
+impl AddAssign<FieldElement> for FieldElement {
+    fn add_assign(&mut self, other: FieldElement) {
+        *self = FieldElement::add(self, &other);
+    }
+}
+
+impl AddAssign<&FieldElement> for FieldElement {
+    fn add_assign(&mut self, other: &FieldElement) {
+        *self = FieldElement::add(self, other);
+    }
+}
+
+impl Sub<FieldElement> for FieldElement {
     type Output = FieldElement;
 
-    fn sub(self, other: &FieldElement) -> FieldElement {
-        FieldElement::subtract(self, other)
+    fn sub(self, other: FieldElement) -> FieldElement {
+        FieldElement::subtract(&self, &other)
     }
 }
 
@@ -457,17 +540,31 @@ impl Sub<&FieldElement> for FieldElement {
     }
 }
 
-impl SubAssign<FieldElement> for FieldElement {
-    fn sub_assign(&mut self, rhs: FieldElement) {
-        *self = FieldElement::subtract(self, &rhs);
+impl Sub<&FieldElement> for &FieldElement {
+    type Output = FieldElement;
+
+    fn sub(self, other: &FieldElement) -> FieldElement {
+        FieldElement::subtract(self, other)
     }
 }
 
-impl Mul<&FieldElement> for &FieldElement {
+impl SubAssign<FieldElement> for FieldElement {
+    fn sub_assign(&mut self, other: FieldElement) {
+        *self = FieldElement::subtract(self, &other);
+    }
+}
+
+impl SubAssign<&FieldElement> for FieldElement {
+    fn sub_assign(&mut self, other: &FieldElement) {
+        *self = FieldElement::subtract(self, other);
+    }
+}
+
+impl Mul<FieldElement> for FieldElement {
     type Output = FieldElement;
 
-    fn mul(self, other: &FieldElement) -> FieldElement {
-        FieldElement::mul(self, other)
+    fn mul(self, other: FieldElement) -> FieldElement {
+        FieldElement::mul(&self, &other)
     }
 }
 
@@ -479,9 +576,23 @@ impl Mul<&FieldElement> for FieldElement {
     }
 }
 
+impl Mul<&FieldElement> for &FieldElement {
+    type Output = FieldElement;
+
+    fn mul(self, other: &FieldElement) -> FieldElement {
+        FieldElement::mul(self, other)
+    }
+}
+
 impl MulAssign<FieldElement> for FieldElement {
-    fn mul_assign(&mut self, rhs: FieldElement) {
-        *self = FieldElement::mul(self, &rhs);
+    fn mul_assign(&mut self, other: FieldElement) {
+        *self = FieldElement::mul(self, &other);
+    }
+}
+
+impl MulAssign<&FieldElement> for FieldElement {
+    fn mul_assign(&mut self, other: &FieldElement) {
+        *self = FieldElement::mul(self, other);
     }
 }
 
@@ -493,7 +604,7 @@ impl Neg for FieldElement {
     }
 }
 
-impl<'a> Neg for &'a FieldElement {
+impl Neg for &FieldElement {
     type Output = FieldElement;
 
     fn neg(self) -> FieldElement {
@@ -501,17 +612,11 @@ impl<'a> Neg for &'a FieldElement {
     }
 }
 
-#[cfg(feature = "zeroize")]
-impl Zeroize for FieldElement {
-    fn zeroize(&mut self) {
-        self.0.zeroize();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::FieldElement;
     use crate::{test_vectors::field::DBL_TEST_VECTORS, FieldBytes};
+    use elliptic_curve::ff::Field;
     use proptest::{num::u64::ANY, prelude::*};
 
     #[test]

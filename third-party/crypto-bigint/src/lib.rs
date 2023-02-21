@@ -1,4 +1,21 @@
+#![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc = include_str!("../README.md")]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg"
+)]
+#![deny(unsafe_code)]
+#![warn(
+    clippy::unwrap_used,
+    missing_docs,
+    missing_debug_implementations,
+    missing_copy_implementations,
+    rust_2018_idioms,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_qualifications
+)]
 
 //! ## Usage
 //!
@@ -120,29 +137,11 @@
 //! [`Sub`]: core::ops::Sub
 //! [`CryptoRng`]: rand_core::CryptoRng
 
-#![no_std]
-#![cfg_attr(docsrs, feature(doc_cfg))]
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_root_url = "https://docs.rs/crypto-bigint/0.3.2"
-)]
-#![forbid(unsafe_code, clippy::unwrap_used)]
-#![warn(
-    missing_docs,
-    missing_debug_implementations,
-    missing_copy_implementations,
-    rust_2018_idioms,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_qualifications
-)]
-
 #[cfg(all(feature = "alloc", test))]
 extern crate alloc;
 
 #[macro_use]
-mod macros;
+mod nlimbs;
 
 #[cfg(feature = "generic-array")]
 mod array;
@@ -155,7 +154,7 @@ mod wrapping;
 
 pub use crate::{
     checked::Checked,
-    limb::{Limb, LimbUInt, WideLimbUInt},
+    limb::{Limb, WideWord, Word},
     non_zero::NonZero,
     traits::*,
     uint::*,
@@ -163,7 +162,11 @@ pub use crate::{
 };
 pub use subtle;
 
-pub(crate) use limb::{LimbInt, WideLimbInt};
+// TODO(tarcieri): remove these in the next breaking release
+#[allow(deprecated)]
+pub use crate::limb::{LimbUInt, WideLimbUInt};
+
+pub(crate) use limb::{SignedWord, WideSignedWord};
 
 #[cfg(feature = "generic-array")]
 pub use {
@@ -186,4 +189,11 @@ pub mod prelude {
 
     #[cfg(feature = "generic-array")]
     pub use crate::array::{ArrayDecoding, ArrayEncoding};
+}
+
+#[cfg(sidefuzz)]
+#[no_mangle]
+pub extern "C" fn fuzz() {
+    let input = sidefuzz::fetch_input(32); // 32 bytes of of fuzzing input as a &[u8]
+    sidefuzz::black_box(my_hopefully_constant_fn(input));
 }
