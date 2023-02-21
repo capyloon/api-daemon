@@ -3,35 +3,16 @@
 //! By default these are all constant-time and use the `subtle` crate.
 
 use super::UInt;
-use crate::limb::{Inner, SignedInner, SignedWide, BIT_SIZE};
-use crate::Limb;
+use crate::{Limb, LimbInt, LimbUInt, WideLimbInt, Zero};
 use core::cmp::Ordering;
 use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess};
 
 impl<const LIMBS: usize> UInt<LIMBS> {
-    /// Determine if this [`UInt`] is equal to zero.
-    ///
-    /// # Returns
-    ///
-    /// If zero, return `Choice(1)`.  Otherwise, return `Choice(0)`.
-    pub fn is_zero(&self) -> Choice {
-        self.ct_eq(&Self::ZERO)
-    }
-
-    /// Is this [`UInt`] an odd number?
-    #[inline]
-    pub fn is_odd(&self) -> Choice {
-        self.limbs
-            .first()
-            .map(|limb| limb.is_odd())
-            .unwrap_or_else(|| Choice::from(0))
-    }
-
     /// Return `a` if `c`!=0 or `b` if `c`==0.
     ///
     /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
     #[inline]
-    pub(crate) const fn ct_select(a: UInt<LIMBS>, b: UInt<LIMBS>, c: Inner) -> Self {
+    pub(crate) const fn ct_select(a: UInt<LIMBS>, b: UInt<LIMBS>, c: LimbUInt) -> Self {
         let mut limbs = [Limb::ZERO; LIMBS];
 
         let mut i = 0;
@@ -47,7 +28,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     ///
     /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
     #[inline]
-    pub(crate) const fn ct_is_nonzero(&self) -> Inner {
+    pub(crate) const fn ct_is_nonzero(&self) -> LimbUInt {
         let mut b = 0;
         let mut i = 0;
         while i < LIMBS {
@@ -63,19 +44,19 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     ///
     /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
     #[inline]
-    pub(crate) const fn ct_cmp(&self, rhs: &Self) -> SignedInner {
+    pub(crate) const fn ct_cmp(&self, rhs: &Self) -> LimbInt {
         let mut gt = 0;
         let mut lt = 0;
         let mut i = LIMBS;
 
         while i > 0 {
-            let a = self.limbs[i - 1].0 as SignedWide;
-            let b = rhs.limbs[i - 1].0 as SignedWide;
-            gt |= ((b - a) >> BIT_SIZE) & 1 & !lt;
-            lt |= ((a - b) >> BIT_SIZE) & 1 & !gt;
+            let a = self.limbs[i - 1].0 as WideLimbInt;
+            let b = rhs.limbs[i - 1].0 as WideLimbInt;
+            gt |= ((b - a) >> Limb::BIT_SIZE) & 1 & !lt;
+            lt |= ((a - b) >> Limb::BIT_SIZE) & 1 & !gt;
             i -= 1;
         }
-        (gt as SignedInner) - (lt as SignedInner)
+        (gt as LimbInt) - (lt as LimbInt)
     }
 }
 
@@ -136,7 +117,7 @@ impl<const LIMBS: usize> PartialEq for UInt<LIMBS> {
 
 #[cfg(test)]
 mod tests {
-    use crate::U128;
+    use crate::{Integer, Zero, U128};
     use subtle::{ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess};
 
     #[test]

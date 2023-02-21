@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! `tor-config`: Tools for configuration management in Arti
 //!
 //! # Overview
@@ -96,6 +97,7 @@ pub mod cmdline;
 mod err;
 pub mod list_builder;
 pub mod load;
+mod misc;
 mod mut_cfg;
 mod path;
 pub mod sources;
@@ -103,13 +105,15 @@ pub mod sources;
 pub use cmdline::CmdLine;
 pub use config as config_crate;
 pub use educe;
-pub use err::{ConfigBuildError, ReconfigureError};
-pub use load::{resolve, resolve_ignore_unrecognized, resolve_return_unrecognized};
+pub use err::{ConfigBuildError, ConfigError, ReconfigureError};
+pub use itertools::Itertools;
+pub use load::{resolve, resolve_ignore_warnings, resolve_return_results};
+pub use misc::*;
 pub use mut_cfg::MutCfg;
 pub use paste::paste;
 pub use path::{CfgPath, CfgPathError};
 pub use serde;
-pub use sources::ConfigurationSources;
+pub use sources::{ConfigurationSource, ConfigurationSources};
 
 pub use tor_basic_utils::macro_first_nonempty;
 
@@ -161,9 +165,7 @@ impl Reconfigure {
 ///
 /// # ⚠ Stability Warning ⚠
 ///
-/// We hope to significantly change this so that it is an method in an extension trait.
-/// We may also make it able to support settings where the special "no such thing" value is
-/// not `T::Default`.
+/// We may significantly change this so that it is an method in an extension trait.
 //
 // This is an annoying AOI right now because you have to write things like
 //     #[builder(field(build = r#"tor_config::resolve_option(&self.dns_port, || None)"#))]
@@ -176,12 +178,135 @@ where
     T: Clone + Default + PartialEq,
     DF: FnOnce() -> Option<T>,
 {
+    resolve_option_general(
+        input.as_ref().map(|ov| ov.as_ref()),
+        |v| v == &T::default(),
+        def,
+    )
+}
+
+/// Resolves an `Option<Option<T>>` (in a builder) into an `Option<T>`, more generally
+///
+/// Like `resolve_option`, but:
+///
+///  * Doesn't rely on `T`' being `Default + PartialEq`
+///    to determine whether it's the sentinel value;
+///    instead, taking `is_explicit`.
+///
+///  * Takes `Option<Option<&T>>` which is more general, but less like the usual call sites.
+///
+///  * If the input is `None`, this indicates that the user did not specify a value,
+///    and we therefore use `def` to obtain the default value.
+///
+///  * If the input is `Some(None)`, or `Some(Some(v)) where is_sentinel(v)`,
+///    the user has explicitly specified that this config item should be null/none/nothing,
+///    so we return `None`.
+///
+///  * Otherwise the user provided an actual value, and we return `Some` of it.
+///
+/// See <https://gitlab.torproject.org/tpo/core/arti/-/issues/488>
+///
+/// # ⚠ Stability Warning ⚠
+///
+/// We may significantly change this so that it is an method in an extension trait.
+//
+// TODO: it would be nice to have an example here, but right now I'm not sure
+// what type (or config setting) we could put in an example that would be natural enough
+// to add clarity.  See
+//  https://gitlab.torproject.org/tpo/core/arti/-/merge_requests/685#note_2829951
+pub fn resolve_option_general<T, ISF, DF>(
+    input: Option<Option<&T>>,
+    is_sentinel: ISF,
+    def: DF,
+) -> Option<T>
+where
+    T: Clone,
+    DF: FnOnce() -> Option<T>,
+    ISF: FnOnce(&T) -> bool,
+{
     match input {
         None => def(),
         Some(None) => None,
-        Some(Some(v)) if v == &T::default() => None,
+        Some(Some(v)) if is_sentinel(v) => None,
         Some(Some(v)) => Some(v.clone()),
     }
+}
+
+/// Helper for resolving a config item which can be specified in multiple ways
+///
+/// Useable when a single configuration item can be specified
+/// via multiple (alternative) input fields;
+/// Each input field which is actually present
+/// should be converted to the common output type,
+/// and then passed to this function,
+/// which will handle consistency checks and defaulting.
+///
+/// A common use case is deprecated field name/types.
+/// In that case, the deprecated field names should be added to the appropriate
+/// [`load::TopLevel::DEPRECATED_KEYS`].
+///
+/// `specified` should be an array (or other iterator) of `(key, Option<value>)`
+/// where `key` is the field name and
+/// `value` is that field from the builder,
+/// converted to the common output type `V`.
+///
+/// # Example
+///
+/// ```
+/// use derive_builder::Builder;
+/// use serde::{Deserialize, Serialize};
+/// use tor_config::{impl_standard_builder, ConfigBuildError, Listen, resolve_alternative_specs};
+///
+/// #[derive(Debug, Clone, Builder, Eq, PartialEq)]
+/// #[builder(build_fn(error = "ConfigBuildError"))]
+/// #[builder(derive(Debug, Serialize, Deserialize))]
+/// #[allow(clippy::option_option)]
+/// pub struct ProxyConfig {
+///    /// Addresses to listen on for incoming SOCKS connections.
+///    #[builder(field(build = r#"self.resolve_socks_port()?"#))]
+///    pub(crate) socks_listen: Listen,
+///
+///    /// Port to listen on (at localhost) for incoming SOCKS
+///    /// connections.
+///    #[builder(setter(strip_option), field(type = "Option<Option<u16>>", build = "()"))]
+///    pub(crate) socks_port: (),
+/// }
+/// impl_standard_builder! { ProxyConfig }
+///
+/// impl ProxyConfigBuilder {
+///     fn resolve_socks_port(&self) -> Result<Listen, ConfigBuildError> {
+///         resolve_alternative_specs(
+///             [
+///                 ("socks_listen", self.socks_listen.clone()),
+///                 ("socks_port", self.socks_port.map(Listen::new_localhost_optional)),
+///             ],
+///             || Listen::new_localhost(9150),
+///         )
+///     }
+/// }
+/// ```
+//
+// Testing: this is tested quit exhaustively in the context of the listen/port handling, in
+// crates/arti/src/cfg.rs.
+pub fn resolve_alternative_specs<V, K>(
+    specified: impl IntoIterator<Item = (K, Option<V>)>,
+    default: impl FnOnce() -> V,
+) -> Result<V, ConfigBuildError>
+where
+    K: Into<String>,
+    V: Eq,
+{
+    Ok(specified
+        .into_iter()
+        .filter_map(|(k, v)| Some((k, v?)))
+        .dedup_by(|(_, v1), (_, v2)| v1 == v2)
+        .at_most_one()
+        .map_err(|several| ConfigBuildError::Inconsistent {
+            fields: several.into_iter().map(|(k, _v)| k.into()).collect_vec(),
+            problem: "conflicting fields, specifying different values".into(),
+        })?
+        .map(|(_k, v)| v)
+        .unwrap_or_else(default))
 }
 
 /// Defines standard impls for a struct with a `Builder`, incl `Default`

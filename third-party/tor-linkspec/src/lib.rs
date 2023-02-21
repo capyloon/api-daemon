@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! `tor-linkspec`: Descriptions of Tor relays, as used to connect to them.
 //!
 //! # Overview
@@ -72,10 +73,12 @@
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
+mod ids;
 mod ls;
 mod owned;
 mod traits;
 
+pub use ids::{set::RelayIdSet, RelayId, RelayIdError, RelayIdRef, RelayIdType, RelayIdTypeIter};
 pub use ls::LinkSpec;
-pub use owned::{OwnedChanTarget, OwnedCircTarget};
-pub use traits::{ChanTarget, CircTarget};
+pub use owned::{OwnedChanTarget, OwnedCircTarget, RelayIds};
+pub use traits::{ChanTarget, CircTarget, HasAddrs, HasRelayIds, HasRelayIdsLegacy};

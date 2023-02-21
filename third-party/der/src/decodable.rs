@@ -1,7 +1,6 @@
 //! Trait definition for [`Decodable`].
 
-use crate::{asn1::Any, Decoder, Error, Result};
-use core::convert::TryFrom;
+use crate::{DecodeValue, Decoder, FixedTag, Header, Result};
 
 /// Decoding trait.
 ///
@@ -19,7 +18,7 @@ pub trait Decodable<'a>: Sized {
 
     /// Parse `Self` from the provided DER-encoded byte slice.
     fn from_der(bytes: &'a [u8]) -> Result<Self> {
-        let mut decoder = Decoder::new(bytes);
+        let mut decoder = Decoder::new(bytes)?;
         let result = Self::decode(&mut decoder)?;
         decoder.finish(result)
     }
@@ -27,11 +26,11 @@ pub trait Decodable<'a>: Sized {
 
 impl<'a, T> Decodable<'a> for T
 where
-    T: TryFrom<Any<'a>, Error = Error>,
+    T: DecodeValue<'a> + FixedTag,
 {
     fn decode(decoder: &mut Decoder<'a>) -> Result<T> {
-        Any::decode(decoder)
-            .and_then(Self::try_from)
-            .map_err(|e| decoder.error(e.kind()))
+        let header = Header::decode(decoder)?;
+        header.tag.assert_eq(T::TAG)?;
+        T::decode_value(decoder, header.length)
     }
 }

@@ -1,16 +1,9 @@
 //! Trait definition for [`Encodable`].
 
-use crate::{Encoder, Length, Result};
+use crate::{EncodeValue, Encoder, Length, Result, Tagged};
 
 #[cfg(feature = "alloc")]
-use {
-    crate::ErrorKind,
-    alloc::vec::Vec,
-    core::{
-        convert::{TryFrom, TryInto},
-        iter,
-    },
-};
+use {crate::ErrorKind, alloc::vec::Vec, core::iter};
 
 /// Encoding trait.
 pub trait Encodable {
@@ -42,9 +35,9 @@ pub trait Encodable {
         let actual_len = encoder.finish()?.len();
 
         if expected_len != actual_len {
-            return Err(ErrorKind::Underlength {
-                expected: expected_len.try_into()?,
-                actual: actual_len.try_into()?,
+            return Err(ErrorKind::Incomplete {
+                expected_len: expected_len.try_into()?,
+                actual_len: actual_len.try_into()?,
             }
             .into());
         }
@@ -59,5 +52,21 @@ pub trait Encodable {
         let mut buf = Vec::new();
         self.encode_to_vec(&mut buf)?;
         Ok(buf)
+    }
+}
+
+impl<T> Encodable for T
+where
+    T: EncodeValue + Tagged,
+{
+    /// Compute the length of this value in bytes when encoded as ASN.1 DER.
+    fn encoded_len(&self) -> Result<Length> {
+        self.value_len().and_then(|len| len.for_tlv())
+    }
+
+    /// Encode this value as ASN.1 DER using the provided [`Encoder`].
+    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+        self.header()?.encode(encoder)?;
+        self.encode_value(encoder)
     }
 }

@@ -1,7 +1,7 @@
 //! [`UInt`] addition operations.
 
 use super::UInt;
-use crate::{Limb, Wrapping};
+use crate::{Checked, CheckedSub, Limb, Wrapping, Zero};
 use core::ops::{Sub, SubAssign};
 use subtle::CtOption;
 
@@ -22,15 +22,28 @@ impl<const LIMBS: usize> UInt<LIMBS> {
         (Self { limbs }, borrow)
     }
 
+    /// Perform saturating subtraction, returning `ZERO` on underflow.
+    pub const fn saturating_sub(&self, rhs: &Self) -> Self {
+        let (res, underflow) = self.sbb(rhs, Limb::ZERO);
+
+        if underflow.0 == 0 {
+            res
+        } else {
+            Self::ZERO
+        }
+    }
+
     /// Perform wrapping subtraction, discarding underflow and wrapping around
     /// the boundary of the type.
     pub const fn wrapping_sub(&self, rhs: &Self) -> Self {
         self.sbb(rhs, Limb::ZERO).0
     }
+}
 
-    /// Perform checked subtraction, returning a [`CtOption`] which `is_some`
-    /// only if the operation did not overflow.
-    pub fn checked_sub(&self, rhs: &Self) -> CtOption<Self> {
+impl<const LIMBS: usize> CheckedSub<&UInt<LIMBS>> for UInt<LIMBS> {
+    type Output = Self;
+
+    fn checked_sub(&self, rhs: &Self) -> CtOption<Self> {
         let (result, underflow) = self.sbb(rhs, Limb::ZERO);
         CtOption::new(result, underflow.is_zero())
     }
@@ -80,9 +93,65 @@ impl<const LIMBS: usize> SubAssign<&Wrapping<UInt<LIMBS>>> for Wrapping<UInt<LIM
     }
 }
 
+impl<const LIMBS: usize> Sub for Checked<UInt<LIMBS>> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> Sub<&Checked<UInt<LIMBS>>> for Checked<UInt<LIMBS>> {
+    type Output = Checked<UInt<LIMBS>>;
+
+    fn sub(self, rhs: &Checked<UInt<LIMBS>>) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> Sub<Checked<UInt<LIMBS>>> for &Checked<UInt<LIMBS>> {
+    type Output = Checked<UInt<LIMBS>>;
+
+    fn sub(self, rhs: Checked<UInt<LIMBS>>) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> Sub<&Checked<UInt<LIMBS>>> for &Checked<UInt<LIMBS>> {
+    type Output = Checked<UInt<LIMBS>>;
+
+    fn sub(self, rhs: &Checked<UInt<LIMBS>>) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> SubAssign for Checked<UInt<LIMBS>> {
+    fn sub_assign(&mut self, other: Self) {
+        *self = *self - other;
+    }
+}
+
+impl<const LIMBS: usize> SubAssign<&Checked<UInt<LIMBS>>> for Checked<UInt<LIMBS>> {
+    fn sub_assign(&mut self, other: &Self) {
+        *self = *self - other;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Limb, U128};
+    use crate::{CheckedSub, Limb, U128};
 
     #[test]
     fn sbb_no_borrow() {

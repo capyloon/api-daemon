@@ -10,13 +10,15 @@ use caret::caret_int;
 use educe::Educe;
 use std::fmt::Write;
 use std::net::{IpAddr, Ipv4Addr};
-use tor_bytes::{Error, Result};
+use tor_bytes::{EncodeError, EncodeResult, Error, Result};
 use tor_bytes::{Readable, Reader, Writeable, Writer};
 use tor_linkspec::LinkSpec;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 
 use bitflags::bitflags;
 
+#[cfg(feature = "onion-service")]
+use super::onion_service;
 #[cfg(feature = "experimental-udp")]
 use super::udp;
 
@@ -63,10 +65,16 @@ pub enum RelayMsg {
     /// UDP stream data
     #[cfg(feature = "experimental-udp")]
     Datagram(udp::Datagram),
+    // No hs for now.
+    /// Establish Introduction
+    #[cfg(feature = "onion-service")]
+    EstablishIntro(onion_service::EstablishIntro),
+    /// Establish Rendezvous
+    #[cfg(feature = "onion-service")]
+    EstablishRendezvous(onion_service::EstablishRendezvous),
 
     /// An unrecognized command.
     Unrecognized(Unrecognized),
-    // No hs for now.
 }
 
 /// Internal: traits in common different cell bodies.
@@ -76,7 +84,7 @@ pub trait Body: Sized {
     /// Decode a relay cell body from a provided reader.
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self>;
     /// Encode the body of this cell into the end of a vec.
-    fn encode_onto(self, w: &mut Vec<u8>);
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()>;
 }
 
 impl<B: Body> From<B> for RelayMsg {
@@ -111,6 +119,10 @@ impl RelayMsg {
             ConnectedUdp(_) => RelayCmd::CONNECTED_UDP,
             #[cfg(feature = "experimental-udp")]
             Datagram(_) => RelayCmd::DATAGRAM,
+            #[cfg(feature = "onion-service")]
+            EstablishIntro(_) => RelayCmd::ESTABLISH_INTRO,
+            #[cfg(feature = "onion-service")]
+            EstablishRendezvous(_) => RelayCmd::ESTABLISH_RENDEZVOUS,
             Unrecognized(u) => u.cmd(),
         }
     }
@@ -140,11 +152,19 @@ impl RelayMsg {
             }
             #[cfg(feature = "experimental-udp")]
             RelayCmd::DATAGRAM => RelayMsg::Datagram(udp::Datagram::decode_from_reader(r)?),
+            #[cfg(feature = "onion-service")]
+            RelayCmd::ESTABLISH_INTRO => {
+                RelayMsg::EstablishIntro(onion_service::EstablishIntro::decode_from_reader(r)?)
+            }
+            #[cfg(feature = "onion-service")]
+            RelayCmd::ESTABLISH_RENDEZVOUS => RelayMsg::EstablishRendezvous(
+                onion_service::EstablishRendezvous::decode_from_reader(r)?,
+            ),
             _ => RelayMsg::Unrecognized(Unrecognized::decode_with_cmd(c, r)?),
         })
     }
     /// Encode the body of this message, not including command or length
-    pub fn encode_onto(self, w: &mut Vec<u8>) {
+    pub fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         use RelayMsg::*;
         match self {
             Begin(b) => b.encode_onto(w),
@@ -156,18 +176,22 @@ impl RelayMsg {
             Extended(b) => b.encode_onto(w),
             Extend2(b) => b.encode_onto(w),
             Extended2(b) => b.encode_onto(w),
-            Truncate => (),
+            Truncate => Ok(()),
             Truncated(b) => b.encode_onto(w),
-            Drop => (),
+            Drop => Ok(()),
             Resolve(b) => b.encode_onto(w),
             Resolved(b) => b.encode_onto(w),
-            BeginDir => (),
+            BeginDir => Ok(()),
             #[cfg(feature = "experimental-udp")]
             ConnectUdp(b) => b.encode_onto(w),
             #[cfg(feature = "experimental-udp")]
             ConnectedUdp(b) => b.encode_onto(w),
             #[cfg(feature = "experimental-udp")]
             Datagram(b) => b.encode_onto(w),
+            #[cfg(feature = "onion-service")]
+            EstablishIntro(b) => b.encode_onto(w),
+            #[cfg(feature = "onion-service")]
+            EstablishRendezvous(b) => b.encode_onto(w),
             Unrecognized(b) => b.encode_onto(w),
         }
     }
@@ -300,7 +324,7 @@ impl Body for Begin {
             flags: flags.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         if self.addr.contains(&b':') {
             w.write_u8(b'[');
             w.write_all(&self.addr[..]);
@@ -314,6 +338,7 @@ impl Body for Begin {
         if self.flags.bits() != 0 {
             w.write_u32(self.flags.bits());
         }
+        Ok(())
     }
 }
 
@@ -381,8 +406,9 @@ impl Body for Data {
             body: r.take(r.remaining())?.into(),
         })
     }
-    fn encode_onto(mut self, w: &mut Vec<u8>) {
+    fn encode_onto(mut self, w: &mut Vec<u8>) -> EncodeResult<()> {
         w.append(&mut self.body);
+        Ok(())
     }
 }
 
@@ -415,7 +441,7 @@ caret_int! {
         EXITPOLICY = 4,
         /// Circuit destroyed
         DESTROY = 5,
-        /// TCP connection was closed
+        /// Anonymized TCP connection was closed
         DONE = 6,
         /// Connection timed out, or OR timed out while connecting
         TIMEOUT = 7,
@@ -518,15 +544,16 @@ impl Body for End {
             Ok(End { reason, addr: None })
         }
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         w.write_u8(self.reason.into());
         if let (EndReason::EXITPOLICY, Some((addr, ttl))) = (self.reason, self.addr) {
             match addr {
-                IpAddr::V4(v4) => w.write(&v4),
-                IpAddr::V6(v6) => w.write(&v6),
+                IpAddr::V4(v4) => w.write(&v4)?,
+                IpAddr::V6(v6) => w.write(&v6)?,
             }
             w.write_u32(ttl);
         }
+        Ok(())
     }
 }
 
@@ -597,18 +624,19 @@ impl Body for Connected {
             addr: Some((addr, ttl)),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         if let Some((addr, ttl)) = self.addr {
             match addr {
-                IpAddr::V4(v4) => w.write(&v4),
+                IpAddr::V4(v4) => w.write(&v4)?,
                 IpAddr::V6(v6) => {
                     w.write_u32(0);
                     w.write_u8(6);
-                    w.write(&v6);
+                    w.write(&v6)?;
                 }
             }
             w.write_u32(ttl);
         }
+        Ok(())
     }
 }
 
@@ -674,7 +702,7 @@ impl Body for Sendme {
         };
         Ok(Sendme { digest })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         match self.digest {
             None => (),
             Some(mut x) => {
@@ -682,11 +710,12 @@ impl Body for Sendme {
                 let bodylen: u16 = x
                     .len()
                     .try_into()
-                    .expect("Too many bytes to encode in relay cell.");
+                    .map_err(|_| EncodeError::BadLengthValue)?;
                 w.write_u16(bodylen);
                 w.append(&mut x);
             }
         }
+        Ok(())
     }
 }
 
@@ -732,11 +761,12 @@ impl Body for Extend {
             rsaid,
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
-        w.write(&self.addr);
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+        w.write(&self.addr)?;
         w.write_u16(self.port);
         w.write_all(&self.handshake[..]);
-        w.write(&self.rsaid);
+        w.write(&self.rsaid)?;
+        Ok(())
     }
 }
 
@@ -764,8 +794,9 @@ impl Body for Extended {
         let handshake = r.take(TAP_S_HANDSHAKE_LEN)?.into();
         Ok(Extended { handshake })
     }
-    fn encode_onto(mut self, w: &mut Vec<u8>) {
+    fn encode_onto(mut self, w: &mut Vec<u8>) -> EncodeResult<()> {
         w.append(&mut self.handshake);
+        Ok(())
     }
 }
 
@@ -835,16 +866,25 @@ impl Body for Extend2 {
             handshake,
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
-        let n_linkspecs: u8 = self.linkspec.len().try_into().expect("Too many linkspecs");
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+        let n_linkspecs: u8 = self
+            .linkspec
+            .len()
+            .try_into()
+            .map_err(|_| EncodeError::BadLengthValue)?;
         w.write_u8(n_linkspecs);
         for ls in &self.linkspec {
-            w.write(ls);
+            w.write(ls)?;
         }
         w.write_u16(self.handshake_type);
-        let handshake_len: u16 = self.handshake.len().try_into().expect("Handshake too long");
+        let handshake_len: u16 = self
+            .handshake
+            .len()
+            .try_into()
+            .map_err(|_| EncodeError::BadLengthValue)?;
         w.write_u16(handshake_len);
         w.write_all(&self.handshake[..]);
+        Ok(())
     }
 }
 
@@ -880,10 +920,15 @@ impl Body for Extended2 {
             handshake: handshake.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
-        let handshake_len: u16 = self.handshake.len().try_into().expect("Handshake too long");
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+        let handshake_len: u16 = self
+            .handshake
+            .len()
+            .try_into()
+            .map_err(|_| EncodeError::BadLengthValue)?;
         w.write_u16(handshake_len);
         w.write_all(&self.handshake[..]);
+        Ok(())
     }
 }
 
@@ -918,8 +963,9 @@ impl Body for Truncated {
             reason: r.take_u8()?.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         w.write_u8(self.reason.into());
+        Ok(())
     }
 }
 
@@ -974,9 +1020,10 @@ impl Body for Resolve {
             query: query.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         w.write_all(&self.query[..]);
         w.write_u8(0);
+        Ok(())
     }
 }
 
@@ -1043,23 +1090,26 @@ impl Readable for ResolvedVal {
 }
 
 impl Writeable for ResolvedVal {
-    fn write_onto<B: Writer + ?Sized>(&self, w: &mut B) {
+    fn write_onto<B: Writer + ?Sized>(&self, w: &mut B) -> EncodeResult<()> {
         match self {
             Self::Hostname(h) => {
                 w.write_u8(RES_HOSTNAME);
-                let h_len: u8 = h.len().try_into().expect("Hostname too long");
+                let h_len: u8 = h
+                    .len()
+                    .try_into()
+                    .map_err(|_| EncodeError::BadLengthValue)?;
                 w.write_u8(h_len);
                 w.write_all(&h[..]);
             }
             Self::Ip(IpAddr::V4(a)) => {
                 w.write_u8(RES_IPV4);
                 w.write_u8(4); // length
-                w.write(a);
+                w.write(a)?;
             }
             Self::Ip(IpAddr::V6(a)) => {
                 w.write_u8(RES_IPV6);
                 w.write_u8(16); // length
-                w.write(a);
+                w.write(a)?;
             }
             Self::TransientError => {
                 w.write_u8(RES_ERR_TRANSIENT);
@@ -1074,11 +1124,12 @@ impl Writeable for ResolvedVal {
                 let v_len: u8 = v
                     .len()
                     .try_into()
-                    .expect("Unrecognized resolved entry too long");
+                    .map_err(|_| EncodeError::BadLengthValue)?;
                 w.write_u8(v_len);
                 w.write_all(&v[..]);
             }
         }
+        Ok(())
     }
 }
 
@@ -1141,11 +1192,12 @@ impl Body for Resolved {
         }
         Ok(Resolved { answers })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         for (rv, ttl) in &self.answers {
-            w.write(rv);
+            w.write(rv)?;
             w.write_u32(*ttl);
         }
+        Ok(())
     }
 }
 
@@ -1192,7 +1244,8 @@ impl Body for Unrecognized {
             body: r.take(r.remaining())?.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) {
+    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
         w.write_all(&self.body[..]);
+        Ok(())
     }
 }

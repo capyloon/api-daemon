@@ -40,7 +40,7 @@ pub type TransactionResult<'c> = Result<Transaction<'c, Sqlite>, ResourceStoreEr
 // Only useful for tests
 impl From<i32> for ResourceId {
     fn from(val: i32) -> ResourceId {
-        ResourceId::from(format!("id-{}", val))
+        ResourceId::from(format!("id-{val}"))
     }
 }
 
@@ -518,11 +518,11 @@ unsafe impl Send for DefaultResourceNameProvider {}
 
 impl ResourceNameProvider for DefaultResourceNameProvider {
     fn metadata_name(&self, id: &ResourceId) -> String {
-        format!("{}.meta", id)
+        format!("{id}.meta")
     }
 
     fn variant_name(&self, id: &ResourceId, variant: &str) -> String {
-        format!("{}.variant.{}", id, variant)
+        format!("{id}.variant.{variant}")
     }
 }
 

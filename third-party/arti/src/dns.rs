@@ -224,7 +224,8 @@ where
 }
 
 /// Launch a DNS resolver to listen on a given local port, and run indefinitely.
-pub async fn run_dns_resolver<R: Runtime>(
+#[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+pub(crate) async fn run_dns_resolver<R: Runtime>(
     runtime: R,
     tor_client: TorClient<R>,
     dns_port: u16,
@@ -237,12 +238,14 @@ pub async fn run_dns_resolver<R: Runtime>(
     // Try to bind to the DNS ports.
     for localhost in &localhosts {
         let addr: SocketAddr = (*localhost, dns_port).into();
+        // NOTE: Our logs here displays the local address. We allow this, since
+        // knowing the address is basically essential for diagnostics.
         match runtime.bind(&addr).await {
             Ok(listener) => {
                 info!("Listening on {:?}.", addr);
                 listeners.push(listener);
             }
-            Err(e) => warn!("Can't listen on {:?}: {}", addr, e),
+            Err(e) => warn!("Can't listen on {}: {}", addr, e),
         }
     }
     // We weren't able to bind any ports: There's nothing to do.

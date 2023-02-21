@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! `tor-circmgr`: circuits through the Tor network on demand.
 //!
 //! # Overview
@@ -59,7 +60,7 @@
 use tor_basic_utils::retry::RetryDelay;
 use tor_chanmgr::ChanMgr;
 use tor_linkspec::ChanTarget;
-use tor_netdir::{DirEvent, NetDir, NetDirProvider};
+use tor_netdir::{DirEvent, NetDir, NetDirProvider, Timeliness};
 use tor_proto::circuit::{CircParameters, ClientCirc, UniqId};
 use tor_rtcompat::Runtime;
 
@@ -96,6 +97,7 @@ use crate::mgr::CircProvenance;
 use crate::preemptive::PreemptiveCircuitPredictor;
 use usage::TargetCircUsage;
 
+use safelog::sensitive as sv;
 pub use tor_guardmgr::{ExternalActivity, FirstHopId};
 use tor_persist::{FsStateMgr, StateMgr};
 use tor_rtcompat::scheduler::{TaskHandle, TaskSchedule};
@@ -474,7 +476,11 @@ impl<R: Runtime> CircMgr<R> {
                     trace!("Circuit already existed created for {:?}", circs[i]);
                 }
                 Err(e) => {
-                    warn!("Failed to build preemptive circuit {:?}: {}", circs[i], &e);
+                    warn!(
+                        "Failed to build preemptive circuit {:?}: {}",
+                        sv(&circs[i]),
+                        &e
+                    );
                     n_errors += 1;
                 }
             }
@@ -572,11 +578,10 @@ impl<R: Runtime> CircMgr<R> {
         while let Some(event) = events.next().await {
             if matches!(event, NewConsensus) {
                 if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
-                    let netdir = dm
-                        .latest_netdir()
-                        .expect("got new consensus event, without a netdir?");
-                    #[allow(deprecated)]
-                    cm.update_network_parameters(netdir.params());
+                    if let Ok(netdir) = dm.netdir(Timeliness::Timely) {
+                        #[allow(deprecated)]
+                        cm.update_network_parameters(netdir.params());
+                    }
                 } else {
                     debug!("Circmgr or dirmgr has disappeared; task exiting.");
                     break;
@@ -600,7 +605,7 @@ impl<R: Runtime> CircMgr<R> {
     {
         while sched.next().await.is_some() {
             if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
-                if let Some(netdir) = dm.latest_netdir() {
+                if let Ok(netdir) = dm.netdir(Timeliness::Unchecked) {
                     if let Err(e) = cm.launch_timeout_testing_circuit_if_appropriate(&netdir) {
                         warn!("Problem launching a timeout testing circuit: {}", e);
                     }
@@ -703,7 +708,7 @@ impl<R: Runtime> CircMgr<R> {
 
         while sched.next().await.is_some() {
             if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
-                if let Some(netdir) = dm.latest_netdir() {
+                if let Ok(netdir) = dm.netdir(Timeliness::Timely) {
                     let result = cm
                         .launch_circuits_preemptively(DirInfo::Directory(&netdir))
                         .await;
@@ -737,11 +742,10 @@ impl<R: Runtime> CircMgr<R> {
         target: &impl ChanTarget,
         external_failure: ExternalActivity,
     ) {
-        self.mgr.peek_builder().guardmgr().note_external_failure(
-            target.ed_identity(),
-            target.rsa_identity(),
-            external_failure,
-        );
+        self.mgr
+            .peek_builder()
+            .guardmgr()
+            .note_external_failure(target, external_failure);
     }
 
     /// Record that a success occurred on a circuit with a given guard, in a way
@@ -751,11 +755,10 @@ impl<R: Runtime> CircMgr<R> {
         target: &impl ChanTarget,
         external_activity: ExternalActivity,
     ) {
-        self.mgr.peek_builder().guardmgr().note_external_success(
-            target.ed_identity(),
-            target.rsa_identity(),
-            external_activity,
-        );
+        self.mgr
+            .peek_builder()
+            .guardmgr()
+            .note_external_success(target, external_activity);
     }
 
     /// Return a stream of events about our estimated clock skew; these events

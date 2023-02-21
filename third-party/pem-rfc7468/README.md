@@ -42,7 +42,7 @@ to promote interoperability.
 This crate attempts to implement a strict interpretation of the [RFC 7468]
 rules, implementing all of the MUSTs and SHOULDs while avoiding the MAYs,
 and targeting the "ABNF (Strict)" subset of the grammar as described in
-Section 3 Figure 3.
+[RFC 7468 Section 3 Figure 3 (p6)][RFC 7468 p6].
 
 ## Implementation notes
 
@@ -56,6 +56,13 @@ Section 3 Figure 3.
 The paper [Util::Lookup: Exploiting key decoding in cryptographic libraries][Util::Lookup]
 demonstrates how the leakage from non-constant-time PEM parsers can be used
 to practically extract RSA private keys from SGX enclaves.
+
+## Minimum Supported Rust Version
+
+This crate requires **Rust 1.56** at a minimum.
+
+We may change the MSRV in the future, but it will be accompanied by a minor
+version bump.
 
 ## License
 
@@ -81,7 +88,7 @@ dual licensed as above, without any additional terms or conditions.
 [build-image]: https://github.com/RustCrypto/formats/actions/workflows/pem-rfc7468.yml/badge.svg
 [build-link]: https://github.com/RustCrypto/formats/actions/workflows/pem-rfc7468.yml
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.51+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.56+-blue.svg
 [chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
 [chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/300570-formats
 
@@ -90,5 +97,6 @@ dual licensed as above, without any additional terms or conditions.
 [RustCrypto]: https://github.com/rustcrypto
 [RFC 1421]: https://datatracker.ietf.org/doc/html/rfc1421
 [RFC 7468]: https://datatracker.ietf.org/doc/html/rfc7468
+[RFC 7468 p6]: https://datatracker.ietf.org/doc/html/rfc7468#page-6
 [`base64ct`]: https://github.com/RustCrypto/formats/tree/master/base64ct
 [Util::Lookup]: https://arxiv.org/pdf/2108.04600.pdf

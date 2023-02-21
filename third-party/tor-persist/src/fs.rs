@@ -2,8 +2,9 @@
 
 mod clean;
 
-use crate::{load_error, store_error};
+use crate::err::{Action, ErrorSource, Resource};
 use crate::{Error, LockStatus, Result, StateMgr};
+use fs_mistrust::anon_home::PathExt as _;
 use fs_mistrust::CheckedDir;
 use serde::{de::DeserializeOwned, Serialize};
 use std::path::{Path, PathBuf};
@@ -36,6 +37,7 @@ use tracing::{info, warn};
 /// fs-safe on all systems.
 ///
 /// NEVER use user-controlled or remote-controlled data for your keys.
+#[cfg_attr(docsrs, doc(cfg(not(target_arch = "wasm32"))))]
 #[derive(Clone, Debug)]
 pub struct FsStateMgr {
     /// Inner reference-counted object.
@@ -63,15 +65,37 @@ impl FsStateMgr {
         mistrust: &fs_mistrust::Mistrust,
     ) -> Result<Self> {
         let path = path.as_ref();
-        let statepath = path.join("state");
+        let dir = path.join("state");
 
         let statepath = mistrust
             .verifier()
             .check_content()
-            .make_secure_dir(statepath)?;
-        let lockpath = statepath.join("state.lock")?;
+            .make_secure_dir(&dir)
+            .map_err(|e| {
+                Error::new(
+                    e,
+                    Action::Initializing,
+                    Resource::Directory { dir: dir.clone() },
+                )
+            })?;
+        let lockpath = statepath.join("state.lock").map_err(|e| {
+            Error::new(
+                e,
+                Action::Initializing,
+                Resource::Directory { dir: dir.clone() },
+            )
+        })?;
 
-        let lockfile = Mutex::new(fslock::LockFile::open(&lockpath)?);
+        let lockfile = Mutex::new(fslock::LockFile::open(&lockpath).map_err(|e| {
+            Error::new(
+                e,
+                Action::Initializing,
+                Resource::File {
+                    container: dir,
+                    file: "state.lock".into(),
+                },
+            )
+        })?);
 
         Ok(FsStateMgr {
             inner: Arc::new(FsStateMgrInner {
@@ -115,10 +139,26 @@ impl FsStateMgr {
     /// Requires that we hold the lock.
     fn clean(&self, now: SystemTime) {
         for fname in clean::files_to_delete(self.inner.statepath.as_path(), now) {
-            info!("Deleting obsolete file {}", fname.display());
+            info!("Deleting obsolete file {}", fname.anonymize_home());
             if let Err(e) = std::fs::remove_file(&fname) {
-                warn!("Unable to delete {}: {}", fname.display(), e);
+                warn!("Unable to delete {}: {}", fname.anonymize_home(), e);
             }
+        }
+    }
+
+    /// Return a `Resource` object representing the file with a given key.
+    fn err_resource(&self, key: &str) -> Resource {
+        Resource::File {
+            container: self.path().to_path_buf(),
+            file: self.rel_filename(key),
+        }
+    }
+
+    /// Return a `Resource` object representing our lock file.
+    fn err_resource_lock(&self) -> Resource {
+        Resource::File {
+            container: self.path().to_path_buf(),
+            file: "state.lock".into(),
         }
     }
 }
@@ -140,7 +180,10 @@ impl StateMgr for FsStateMgr {
             .expect("Poisoned lock on state lockfile");
         if lockfile.owns_lock() {
             Ok(LockStatus::AlreadyHeld)
-        } else if lockfile.try_lock()? {
+        } else if lockfile
+            .try_lock()
+            .map_err(|e| Error::new(e, Action::Locking, self.err_resource_lock()))?
+        {
             self.clean(SystemTime::now());
             Ok(LockStatus::NewlyAcquired)
         } else {
@@ -154,7 +197,9 @@ impl StateMgr for FsStateMgr {
             .lock()
             .expect("Poisoned lock on state lockfile");
         if lockfile.owns_lock() {
-            lockfile.unlock()?;
+            lockfile
+                .unlock()
+                .map_err(|e| Error::new(e, Action::Unlocking, self.err_resource_lock()))?;
         }
         Ok(())
     }
@@ -167,11 +212,19 @@ impl StateMgr for FsStateMgr {
         let string = match self.inner.statepath.read_to_string(rel_fname) {
             Ok(string) => string,
             Err(fs_mistrust::Error::NotFound(_)) => return Ok(None),
-            Err(fs_mistrust::Error::Io { err, .. }) => return Err(Error::IoError(err)),
-            Err(e) => return Err(e.into()),
+            Err(fs_mistrust::Error::Io { err, .. }) => {
+                return Err(Error::new(
+                    ErrorSource::IoError(err),
+                    Action::Loading,
+                    self.err_resource(key),
+                ))
+            }
+            Err(e) => return Err(Error::new(e, Action::Loading, self.err_resource(key))),
         };
 
-        Ok(Some(serde_json::from_str(&string).map_err(load_error)?))
+        Ok(Some(serde_json::from_str(&string).map_err(|source| {
+            Error::new(source, Action::Loading, self.err_resource(key))
+        })?))
     }
 
     fn store<S>(&self, key: &str, val: &S) -> Result<()>
@@ -179,14 +232,22 @@ impl StateMgr for FsStateMgr {
         S: Serialize,
     {
         if !self.can_store() {
-            return Err(Error::NoLock);
+            return Err(Error::new(
+                ErrorSource::NoLock,
+                Action::Storing,
+                Resource::Manager,
+            ));
         }
 
         let rel_fname = self.rel_filename(key);
 
-        let output = serde_json::to_string_pretty(val).map_err(store_error)?;
+        let output = serde_json::to_string_pretty(val)
+            .map_err(|e| Error::new(e, Action::Storing, self.err_resource(key)))?;
 
-        self.inner.statepath.write_and_replace(rel_fname, output)?;
+        self.inner
+            .statepath
+            .write_and_replace(rel_fname, output)
+            .map_err(|e| Error::new(e, Action::Storing, self.err_resource(key)))?;
 
         Ok(())
     }
@@ -226,7 +287,10 @@ mod test {
             .into_iter()
             .collect();
 
-        assert!(matches!(store.store("xyz", &stuff4), Err(Error::NoLock)));
+        assert!(matches!(
+            store.store("xyz", &stuff4).unwrap_err().source(),
+            ErrorSource::NoLock
+        ));
 
         assert_eq!(store.try_lock()?, LockStatus::NewlyAcquired);
         store.store("xyz", &stuff4)?;
@@ -284,7 +348,7 @@ mod test {
         std::fs::write(&fname2, "{}").unwrap();
 
         // Make the store directory read-only and make sure that we can't delete from it.
-        std::fs::set_permissions(&statedir, ro_dir)?;
+        std::fs::set_permissions(&statedir, ro_dir).unwrap();
         store.clean(SystemTime::now() + Duration::from_secs(365 * 86400));
         let lst: Vec<_> = statedir.read_dir().unwrap().collect();
         if lst.len() == 2 {
@@ -293,12 +357,12 @@ mod test {
         }
         assert_eq!(lst.len(), 3); // We can't remove the file, but we didn't freak out. Great!
                                   // Try failing to read a mode-0 file.
-        std::fs::set_permissions(&statedir, rw_dir)?;
-        std::fs::set_permissions(&fname2, unusable)?;
+        std::fs::set_permissions(&statedir, rw_dir).unwrap();
+        std::fs::set_permissions(&fname2, unusable).unwrap();
 
         let h: Result<Option<HashMap<String, u32>>> = store.load("quoll");
         assert!(h.is_err());
-        assert!(matches!(h, Err(Error::IoError(_))));
+        assert!(matches!(h.unwrap_err().source(), ErrorSource::IoError(_)));
 
         Ok(())
     }

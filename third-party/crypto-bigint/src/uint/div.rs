@@ -1,12 +1,12 @@
 //! [`UInt`] division operations.
 
 use super::UInt;
-use crate::limb::{Inner, SignedInner, BIT_SIZE};
+use crate::limb::{LimbInt, LimbUInt};
 use crate::{Integer, Limb, NonZero, Wrapping};
 use core::ops::{Div, DivAssign, Rem, RemAssign};
 use subtle::{Choice, CtOption};
 
-const BIT_SIZE_M_1: usize = BIT_SIZE - 1;
+const LIMB_BIT_SIZE_M_1: usize = Limb::BIT_SIZE - 1;
 
 impl<const LIMBS: usize> UInt<LIMBS> {
     /// Computes `self` / `rhs`, returns the quotient (q), remainder (r)
@@ -19,7 +19,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     /// When used with a fixed `rhs`, this function is constant-time with respect
     /// to `self`.
     pub(crate) const fn ct_div_rem(&self, rhs: &Self) -> (Self, Self, u8) {
-        let mut bd = self.bits().saturating_sub(rhs.bits()) as usize;
+        let mut bd = self.bits().saturating_sub(rhs.bits());
         let mut rem = *self;
         let mut quo = Self::ZERO;
 
@@ -28,8 +28,8 @@ impl<const LIMBS: usize> UInt<LIMBS> {
 
         loop {
             let mut r: Self = rem.wrapping_sub(&c);
-            let d = -(((1 - (r.limbs[LIMBS - 1].0 >> BIT_SIZE_M_1)) & 1) as SignedInner);
-            let d = d as Inner;
+            let d = -(((1 - (r.limbs[LIMBS - 1].0 >> LIMB_BIT_SIZE_M_1)) & 1) as LimbInt);
+            let d = d as LimbUInt;
             rem = Self::ct_select(rem, r, d);
             r = quo;
             r = r.wrapping_add(&e);
@@ -44,7 +44,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
         // If `self`<rhs
         // set quo and rem to Self::ZERO
         let res = self.ct_cmp(rhs) + 1;
-        let gt = Limb::is_nonzero(Limb(res as Inner));
+        let gt = Limb::is_nonzero(Limb(res as LimbUInt));
         quo = Self::ct_select(Self::ZERO, quo, gt);
         rem = Self::ct_select(Self::ZERO, rem, gt);
         let is_some = rhs.ct_is_nonzero() & 1;
@@ -59,15 +59,15 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     /// When used with a fixed `rhs`, this function is constant-time with respect
     /// to `self`.
     pub(crate) const fn ct_reduce(&self, rhs: &Self) -> (Self, u8) {
-        let mut bd = self.bits().saturating_sub(rhs.bits()) as usize;
+        let mut bd = self.bits().saturating_sub(rhs.bits());
         let mut rem = *self;
 
         let mut c = rhs.shl_vartime(bd);
 
         loop {
             let r: Self = rem.wrapping_sub(&c);
-            let d = -(((1 - (r.limbs[LIMBS - 1].0 >> BIT_SIZE_M_1)) & 1) as SignedInner);
-            let d = d as Inner;
+            let d = -(((1 - (r.limbs[LIMBS - 1].0 >> LIMB_BIT_SIZE_M_1)) & 1) as LimbInt);
+            let d = d as LimbUInt;
             rem = Self::ct_select(rem, r, d);
             if bd == 0 {
                 break;
@@ -78,7 +78,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
         // If `self`<rhs
         // set rem to Self::ZERO
         let res = self.ct_cmp(rhs) + 1;
-        let gt = Limb::is_nonzero(Limb(res as Inner));
+        let gt = Limb::is_nonzero(Limb(res as LimbUInt));
         rem = Self::ct_select(Self::ZERO, rem, gt);
         let is_some = rhs.ct_is_nonzero() & 1;
         (rem, is_some as u8)
@@ -195,46 +195,46 @@ where
     }
 }
 
-impl<const LIMBS: usize> Div<&Wrapping<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
+impl<const LIMBS: usize> Div<NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
     type Output = Wrapping<UInt<LIMBS>>;
 
-    fn div(self, rhs: &Wrapping<UInt<LIMBS>>) -> Self::Output {
-        *self / *rhs
+    fn div(self, rhs: NonZero<UInt<LIMBS>>) -> Self::Output {
+        Wrapping(self.0.wrapping_div(rhs.as_ref()))
     }
 }
 
-impl<const LIMBS: usize> Div<&Wrapping<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+impl<const LIMBS: usize> Div<NonZero<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
     type Output = Wrapping<UInt<LIMBS>>;
 
-    fn div(self, rhs: &Wrapping<UInt<LIMBS>>) -> Self::Output {
-        self / *rhs
-    }
-}
-
-impl<const LIMBS: usize> Div<Wrapping<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
-    type Output = Wrapping<UInt<LIMBS>>;
-
-    fn div(self, rhs: Wrapping<UInt<LIMBS>>) -> Self::Output {
+    fn div(self, rhs: NonZero<UInt<LIMBS>>) -> Self::Output {
         *self / rhs
     }
 }
 
-impl<const LIMBS: usize> Div for Wrapping<UInt<LIMBS>> {
+impl<const LIMBS: usize> Div<&NonZero<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
     type Output = Wrapping<UInt<LIMBS>>;
 
-    fn div(self, rhs: Self) -> Self::Output {
-        Wrapping(self.0.checked_div(&rhs.0).unwrap())
+    fn div(self, rhs: &NonZero<UInt<LIMBS>>) -> Self::Output {
+        *self / *rhs
     }
 }
 
-impl<const LIMBS: usize> DivAssign<&Wrapping<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
-    fn div_assign(&mut self, rhs: &Wrapping<UInt<LIMBS>>) {
-        *self = Wrapping(self.0.checked_div(&rhs.0).unwrap())
+impl<const LIMBS: usize> Div<&NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+    type Output = Wrapping<UInt<LIMBS>>;
+
+    fn div(self, rhs: &NonZero<UInt<LIMBS>>) -> Self::Output {
+        self / *rhs
     }
 }
 
-impl<const LIMBS: usize> DivAssign for Wrapping<UInt<LIMBS>> {
-    fn div_assign(&mut self, rhs: Self) {
+impl<const LIMBS: usize> DivAssign<&NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+    fn div_assign(&mut self, rhs: &NonZero<UInt<LIMBS>>) {
+        *self = Wrapping(self.0.wrapping_div(rhs.as_ref()))
+    }
+}
+
+impl<const LIMBS: usize> DivAssign<NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+    fn div_assign(&mut self, rhs: NonZero<UInt<LIMBS>>) {
         *self /= &rhs;
     }
 }
@@ -289,7 +289,7 @@ where
     UInt<LIMBS>: Integer,
 {
     fn rem_assign(&mut self, rhs: &NonZero<UInt<LIMBS>>) {
-        let (r, _) = self.ct_reduce(&rhs);
+        let (r, _) = self.ct_reduce(rhs);
         *self = r
     }
 }
@@ -303,59 +303,61 @@ where
     }
 }
 
-impl<const LIMBS: usize> Rem<&Wrapping<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
+impl<const LIMBS: usize> Rem<NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
     type Output = Wrapping<UInt<LIMBS>>;
 
-    fn rem(self, rhs: &Wrapping<UInt<LIMBS>>) -> Self::Output {
-        *self % *rhs
+    fn rem(self, rhs: NonZero<UInt<LIMBS>>) -> Self::Output {
+        Wrapping(self.0.wrapping_rem(rhs.as_ref()))
     }
 }
 
-impl<const LIMBS: usize> Rem<&Wrapping<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+impl<const LIMBS: usize> Rem<NonZero<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
     type Output = Wrapping<UInt<LIMBS>>;
 
-    fn rem(self, rhs: &Wrapping<UInt<LIMBS>>) -> Self::Output {
-        self % *rhs
-    }
-}
-
-impl<const LIMBS: usize> Rem<Wrapping<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
-    type Output = Wrapping<UInt<LIMBS>>;
-
-    fn rem(self, rhs: Wrapping<UInt<LIMBS>>) -> Self::Output {
+    fn rem(self, rhs: NonZero<UInt<LIMBS>>) -> Self::Output {
         *self % rhs
     }
 }
 
-impl<const LIMBS: usize> Rem for Wrapping<UInt<LIMBS>> {
+impl<const LIMBS: usize> Rem<&NonZero<UInt<LIMBS>>> for &Wrapping<UInt<LIMBS>> {
     type Output = Wrapping<UInt<LIMBS>>;
 
-    fn rem(self, rhs: Wrapping<UInt<LIMBS>>) -> Self::Output {
-        Wrapping(self.0.checked_rem(&rhs.0).unwrap())
+    fn rem(self, rhs: &NonZero<UInt<LIMBS>>) -> Self::Output {
+        *self % *rhs
     }
 }
 
-impl<const LIMBS: usize> RemAssign<&Wrapping<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
-    fn rem_assign(&mut self, rhs: &Wrapping<UInt<LIMBS>>) {
-        *self = Wrapping(self.0.checked_rem(&rhs.0).unwrap())
+impl<const LIMBS: usize> Rem<&NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+    type Output = Wrapping<UInt<LIMBS>>;
+
+    fn rem(self, rhs: &NonZero<UInt<LIMBS>>) -> Self::Output {
+        self % *rhs
     }
 }
 
-impl<const LIMBS: usize> RemAssign for Wrapping<UInt<LIMBS>> {
-    fn rem_assign(&mut self, rhs: Self) {
+impl<const LIMBS: usize> RemAssign<NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+    fn rem_assign(&mut self, rhs: NonZero<UInt<LIMBS>>) {
         *self %= &rhs;
+    }
+}
+
+impl<const LIMBS: usize> RemAssign<&NonZero<UInt<LIMBS>>> for Wrapping<UInt<LIMBS>> {
+    fn rem_assign(&mut self, rhs: &NonZero<UInt<LIMBS>>) {
+        *self = Wrapping(self.0.wrapping_rem(rhs.as_ref()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::limb::HI_BIT;
-    use crate::Limb;
-    use crate::U256;
+    use crate::{limb::HI_BIT, Limb, U256};
 
     #[cfg(feature = "rand")]
-    use {rand_chacha::ChaChaRng, rand_core::SeedableRng};
+    use {
+        crate::{CheckedMul, Random},
+        rand_chacha::ChaChaRng,
+        rand_core::SeedableRng,
+    };
 
     #[test]
     fn div_word() {
@@ -395,7 +397,7 @@ mod tests {
     fn div_max() {
         let mut a = U256::ZERO;
         let mut b = U256::ZERO;
-        b.limbs[b.limbs.len() - 1] = Limb(Inner::MAX);
+        b.limbs[b.limbs.len() - 1] = Limb(LimbUInt::MAX);
         let q = a.wrapping_div(&b);
         assert_eq!(q, UInt::ZERO);
         a.limbs[a.limbs.len() - 1] = Limb(1 << HI_BIT - 7);
@@ -448,7 +450,7 @@ mod tests {
     fn reduce_max() {
         let mut a = U256::ZERO;
         let mut b = U256::ZERO;
-        b.limbs[b.limbs.len() - 1] = Limb(Inner::MAX);
+        b.limbs[b.limbs.len() - 1] = Limb(LimbUInt::MAX);
         let r = a.wrapping_rem(&b);
         assert_eq!(r, UInt::ZERO);
         a.limbs[a.limbs.len() - 1] = Limb(1 << HI_BIT - 7);

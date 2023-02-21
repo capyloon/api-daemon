@@ -7,10 +7,14 @@
 use crate::address::IntoTorAddr;
 
 use crate::config::{ClientAddrConfig, StreamTimeoutConfig, TorClientConfig};
-use safelog::sensitive;
+use safelog::{sensitive, Sensitive};
+use tor_basic_utils::futures::{DropNotifyWatchSender, PostageWatchSenderExt};
 use tor_circmgr::isolation::Isolation;
 use tor_circmgr::{isolation::StreamIsolationBuilder, IsolationToken, TargetPort};
 use tor_config::MutCfg;
+use tor_dirmgr::Timeliness;
+use tor_error::{internal, Bug};
+use tor_netdir::{params::NetParameters, NetDirProvider};
 use tor_persist::{FsStateMgr, StateMgr};
 use tor_proto::circuit::ClientCirc;
 use tor_proto::stream::{DataStream, IpVersionPreference, StreamParameters};
@@ -19,15 +23,15 @@ use tor_rtcompat::{PreferredRuntime, Runtime, SleepProviderExt};
 use educe::Educe;
 use futures::lock::Mutex as AsyncMutex;
 use futures::task::SpawnExt;
+use futures::StreamExt as _;
 use std::net::IpAddr;
 use std::result::Result as StdResult;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::err::ErrorDetail;
 use crate::{status, util, TorClientBuilder};
 use tor_rtcompat::scheduler::TaskHandle;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 /// An active client session on the Tor network.
 ///
@@ -52,6 +56,10 @@ pub struct TorClient<R: Runtime> {
     client_isolation: IsolationToken,
     /// Connection preferences.  Starts out as `Default`,  Inherited by our clones.
     connect_prefs: StreamPrefs,
+    /// Channel manager, used by circuits etc.,
+    ///
+    /// Used directly by client only for reconfiguration.
+    chanmgr: Arc<tor_chanmgr::ChanMgr<R>>,
     /// Circuit manager for keeping our circuits up to date and building
     /// them on-demand.
     circmgr: Arc<tor_circmgr::CircMgr<R>>,
@@ -83,14 +91,8 @@ pub struct TorClient<R: Runtime> {
     /// instead.
     should_bootstrap: BootstrapBehavior,
 
-    /// Handles to periodic background tasks, useful for suspending them later.
-    periodic_task_handles: Vec<TaskHandle>,
-
     /// Shared boolean for whether we're currently in "dormant mode" or not.
-    dormant: Arc<AtomicBool>,
-
-    /// Settings for how we perform permissions checks on the filesystem.
-    fs_mistrust: fs_mistrust::Mistrust,
+    dormant: Arc<Mutex<DropNotifyWatchSender<Option<DormantMode>>>>,
 }
 
 /// Preferences for whether a [`TorClient`] should bootstrap on its own or not.
@@ -112,10 +114,12 @@ pub enum BootstrapBehavior {
 }
 
 /// What level of sleep to put a Tor client into.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Educe, PartialEq, Eq)]
+#[educe(Default)]
 #[non_exhaustive]
 pub enum DormantMode {
     /// The client functions as normal, and background tasks run periodically.
+    #[educe(Default)]
     Normal,
     /// Background tasks are suspended, conserving CPU usage. Attempts to use the client will
     /// wake it back up again.
@@ -144,6 +148,15 @@ enum StreamIsolationPreference {
     Explicit(Box<dyn Isolation>),
     /// Isolate every connection!
     EveryStream,
+}
+
+impl From<DormantMode> for tor_chanmgr::Dormancy {
+    fn from(dormant: DormantMode) -> tor_chanmgr::Dormancy {
+        match dormant {
+            DormantMode::Normal => tor_chanmgr::Dormancy::Active,
+            DormantMode::Soft => tor_chanmgr::Dormancy::Dormant,
+        }
+    }
 }
 
 impl StreamPrefs {
@@ -353,25 +366,39 @@ impl<R: Runtime> TorClient<R> {
         runtime: R,
         config: TorClientConfig,
         autobootstrap: BootstrapBehavior,
-        mistrust: Option<fs_mistrust::Mistrust>,
         dirmgr_builder: &dyn crate::builder::DirProviderBuilder<R>,
         dirmgr_extensions: tor_dirmgr::config::DirMgrExtensions,
     ) -> StdResult<Self, ErrorDetail> {
-        let mistrust = mistrust.unwrap_or_else(|| config.storage.permissions().clone());
+        if crate::util::running_as_setuid() {
+            return Err(tor_error::bad_api_usage!(
+                "Arti does not support running in a setuid or setgid context."
+            )
+            .into());
+        }
+
+        let dormant = DormantMode::Normal;
         let dir_cfg = {
-            let mut c: tor_dirmgr::DirMgrConfig = config.dir_mgr_config(mistrust.clone())?;
+            let mut c: tor_dirmgr::DirMgrConfig = config.dir_mgr_config()?;
             c.extensions = dirmgr_extensions;
             c
         };
-        let statemgr =
-            FsStateMgr::from_path_and_mistrust(config.storage.expand_state_dir()?, &mistrust)?;
+        let statemgr = FsStateMgr::from_path_and_mistrust(
+            config.storage.expand_state_dir()?,
+            config.storage.permissions(),
+        )
+        .map_err(ErrorDetail::StateMgrSetup)?;
         let addr_cfg = config.address_filter.clone();
 
         let (status_sender, status_receiver) = postage::watch::channel();
         let status_receiver = status::BootstrapEvents {
             inner: status_receiver,
         };
-        let chanmgr = Arc::new(tor_chanmgr::ChanMgr::new(runtime.clone()));
+        let chanmgr = Arc::new(tor_chanmgr::ChanMgr::new(
+            runtime.clone(),
+            &config.channel,
+            dormant.into(),
+            &NetParameters::from_map(&config.override_net_params),
+        ));
         let circmgr =
             tor_circmgr::CircMgr::new(&config, statemgr.clone(), &runtime, Arc::clone(&chanmgr))
                 .map_err(ErrorDetail::CircMgrSetup)?;
@@ -393,6 +420,18 @@ impl<R: Runtime> TorClient<R> {
                 .into_iter(),
         );
 
+        let (dormant_send, dormant_recv) = postage::watch::channel_with(Some(dormant));
+        let dormant_send = DropNotifyWatchSender::new(dormant_send);
+
+        runtime
+            .spawn(tasks_monitor_dormant(
+                dormant_recv,
+                dirmgr.clone().upcast_arc(),
+                chanmgr.clone(),
+                periodic_task_handles,
+            ))
+            .map_err(|e| ErrorDetail::from_spawn("periodic task dormant monitor", e))?;
+
         let conn_status = chanmgr.bootstrap_events();
         let dir_status = dirmgr.bootstrap_events();
         let skew_status = circmgr.skew_events();
@@ -411,6 +450,7 @@ impl<R: Runtime> TorClient<R> {
             runtime,
             client_isolation,
             connect_prefs: Default::default(),
+            chanmgr,
             circmgr,
             dirmgr,
             statemgr,
@@ -420,9 +460,7 @@ impl<R: Runtime> TorClient<R> {
             status_receiver,
             bootstrap_in_progress: Arc::new(AsyncMutex::new(())),
             should_bootstrap: autobootstrap,
-            periodic_task_handles,
-            dormant: Arc::new(AtomicBool::new(false)),
-            fs_mistrust: mistrust,
+            dormant: Arc::new(Mutex::new(dormant_send)),
         })
     }
 
@@ -456,7 +494,12 @@ impl<R: Runtime> TorClient<R> {
         // This is a futures::lock::Mutex, so it's okay to await while we hold it.
         let _bootstrap_lock = self.bootstrap_in_progress.lock().await;
 
-        if self.statemgr.try_lock()?.held() {
+        if self
+            .statemgr
+            .try_lock()
+            .map_err(ErrorDetail::StateAccess)?
+            .held()
+        {
             debug!("It appears we have the lock on our state files.");
         } else {
             info!(
@@ -468,7 +511,10 @@ impl<R: Runtime> TorClient<R> {
         // unlock the state files.
         let unlock_guard = util::StateMgrUnlockGuard::new(&self.statemgr);
 
-        self.dirmgr.bootstrap().await?;
+        self.dirmgr
+            .bootstrap()
+            .await
+            .map_err(ErrorDetail::DirMgrBootstrap)?;
 
         // Since we succeeded, disarm the unlock guard.
         unlock_guard.disarm();
@@ -495,10 +541,17 @@ impl<R: Runtime> TorClient<R> {
                 self.bootstrap_in_progress.lock().await;
             }
         }
-        // NOTE(eta): will need to be changed when hard dormant mode is introduced
-        if self.dormant.load(Ordering::SeqCst) {
-            self.set_dormant(DormantMode::Normal);
-        }
+        self.dormant
+            .lock()
+            .map_err(|_| internal!("dormant poisoned"))?
+            .try_maybe_send(|dormant| {
+                Ok::<_, Bug>(Some({
+                    match dormant.ok_or_else(|| internal!("dormant dropped"))? {
+                        DormantMode::Soft => DormantMode::Normal,
+                        other @ DormantMode::Normal => other,
+                    }
+                }))
+            })?;
         Ok(())
     }
 
@@ -544,9 +597,7 @@ impl<R: Runtime> TorClient<R> {
             _ => {}
         }
 
-        let dir_cfg = new_config
-            .dir_mgr_config(self.fs_mistrust.clone())
-            .map_err(wrap_err)?;
+        let dir_cfg = new_config.dir_mgr_config().map_err(wrap_err)?;
         let state_cfg = new_config.storage.expand_state_dir().map_err(wrap_err)?;
         let addr_cfg = &new_config.address_filter;
         let timeout_cfg = &new_config.stream_timeouts;
@@ -558,7 +609,14 @@ impl<R: Runtime> TorClient<R> {
         self.circmgr
             .reconfigure(new_config, how)
             .map_err(wrap_err)?;
+
         self.dirmgr.reconfigure(&dir_cfg, how).map_err(wrap_err)?;
+
+        let netparams = self.dirmgr.params();
+
+        self.chanmgr
+            .reconfigure(&new_config.channel, how, netparams)
+            .map_err(wrap_err)?;
 
         if how == tor_config::Reconfigure::CheckAllOrNothing {
             return Ok(());
@@ -679,7 +737,7 @@ impl<R: Runtime> TorClient<R> {
             .get_or_launch_exit_circ(&exit_ports, prefs)
             .await
             .map_err(wrap_err)?;
-        info!("Got a circuit for {}:{}", sensitive(&addr), port);
+        debug!("Got a circuit for {}:{}", sensitive(&addr), port);
 
         let stream_future = circ.begin_stream(&addr, port, Some(prefs.stream_parameters()));
         // This timeout is needless but harmless for optimistic streams.
@@ -688,7 +746,10 @@ impl<R: Runtime> TorClient<R> {
             .timeout(self.timeoutcfg.get().connect_timeout, stream_future)
             .await
             .map_err(|_| ErrorDetail::ExitTimeout)?
-            .map_err(wrap_err)?;
+            .map_err(|cause| ErrorDetail::StreamFailed {
+                cause,
+                kind: "data",
+            })?;
 
         Ok(stream)
     }
@@ -741,7 +802,10 @@ impl<R: Runtime> TorClient<R> {
             .timeout(self.timeoutcfg.get().resolve_timeout, resolve_future)
             .await
             .map_err(|_| ErrorDetail::ExitTimeout)?
-            .map_err(wrap_err)?;
+            .map_err(|cause| ErrorDetail::StreamFailed {
+                cause,
+                kind: "DNS lookup",
+            })?;
 
         Ok(addrs)
     }
@@ -772,7 +836,10 @@ impl<R: Runtime> TorClient<R> {
             )
             .await
             .map_err(|_| ErrorDetail::ExitTimeout)?
-            .map_err(wrap_err)?;
+            .map_err(|cause| ErrorDetail::StreamFailed {
+                cause,
+                kind: "reverse DNS lookup",
+            })?;
 
         Ok(hostnames)
     }
@@ -806,6 +873,24 @@ impl<R: Runtime> TorClient<R> {
         &self.runtime
     }
 
+    /// Return a netdir that is timely according to the rules of `timeliness`.
+    ///
+    /// Use `action` to
+    fn netdir(
+        &self,
+        timeliness: Timeliness,
+        action: &'static str,
+    ) -> StdResult<Arc<tor_netdir::NetDir>, ErrorDetail> {
+        use tor_netdir::Error as E;
+        match self.dirmgr.netdir(timeliness) {
+            Ok(netdir) => Ok(netdir),
+            Err(E::NoInfo) | Err(E::NotEnoughInfo) => {
+                Err(ErrorDetail::BootstrapRequired { action })
+            }
+            Err(error) => Err(ErrorDetail::NoDir { error, action }),
+        }
+    }
+
     /// Get or launch an exit-suitable circuit with a given set of
     /// exit ports.
     async fn get_or_launch_exit_circ(
@@ -814,12 +899,7 @@ impl<R: Runtime> TorClient<R> {
         prefs: &StreamPrefs,
     ) -> StdResult<ClientCirc, ErrorDetail> {
         self.wait_for_bootstrap().await?;
-        let dir = self
-            .dirmgr
-            .latest_netdir()
-            .ok_or(ErrorDetail::BootstrapRequired {
-                action: "launch a circuit",
-            })?;
+        let dir = self.netdir(Timeliness::Timely, "build a circuit")?;
 
         let isolation = {
             let mut b = StreamIsolationBuilder::new();
@@ -839,7 +919,7 @@ impl<R: Runtime> TorClient<R> {
             .await
             .map_err(|cause| ErrorDetail::ObtainExitCircuit {
                 cause,
-                exit_ports: exit_ports.into(),
+                exit_ports: Sensitive::new(exit_ports.into()),
             })?;
         drop(dir); // This decreases the refcount on the netdir.
 
@@ -871,20 +951,38 @@ impl<R: Runtime> TorClient<R> {
     ///
     /// See the [`DormantMode`] documentation for more details.
     pub fn set_dormant(&self, mode: DormantMode) {
+        *self
+            .dormant
+            .lock()
+            .expect("dormant lock poisoned")
+            .borrow_mut() = Some(mode);
+    }
+}
+
+/// Monitor `dormant_mode` and enable/disable periodic tasks as applicable
+///
+/// This function is spawned as a task during client construction.
+// TODO should this perhaps be done by each TaskHandle?
+async fn tasks_monitor_dormant<R: Runtime>(
+    mut dormant_rx: postage::watch::Receiver<Option<DormantMode>>,
+    netdir: Arc<dyn NetDirProvider>,
+    chanmgr: Arc<tor_chanmgr::ChanMgr<R>>,
+    periodic_task_handles: Vec<TaskHandle>,
+) {
+    while let Some(Some(mode)) = dormant_rx.next().await {
+        let netparams = netdir.params();
+
+        chanmgr
+            .set_dormancy(mode.into(), netparams)
+            .unwrap_or_else(|e| error!("set dormancy: {}", e));
+
         let is_dormant = matches!(mode, DormantMode::Soft);
 
-        // Do an atomic compare-exchange. If it succeeds, we just flipped `self.dormant`.
-        if self
-            .dormant
-            .compare_exchange(!is_dormant, is_dormant, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
-            for task in self.periodic_task_handles.iter() {
-                if is_dormant {
-                    task.cancel();
-                } else {
-                    task.fire();
-                }
+        for task in periodic_task_handles.iter() {
+            if is_dormant {
+                task.cancel();
+            } else {
+                task.fire();
             }
         }
     }

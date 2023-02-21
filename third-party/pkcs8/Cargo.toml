@@ -10,9 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 name = "pkcs8"
-version = "0.7.6"
+version = "0.8.0"
 authors = ["RustCrypto Developers"]
 description = "Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #8:\nPrivate-Key Information Syntax Specification (RFC 5208), with additional\nsupport for PKCS#8v2 asymmetric key packages (RFC 5958)\n"
 readme = "README.md"
@@ -25,20 +26,11 @@ resolver = "2"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 [dependencies.der]
-version = "0.4"
+version = "0.5"
 features = ["oid"]
 
-[dependencies.pem-rfc7468]
-version = "0.2"
-optional = true
-
-[dependencies.pkcs1]
-version = "0.2"
-features = ["alloc"]
-optional = true
-
 [dependencies.pkcs5]
-version = "0.3"
+version = "0.4"
 optional = true
 
 [dependencies.rand_core]
@@ -47,7 +39,12 @@ optional = true
 default-features = false
 
 [dependencies.spki]
-version = "0.4"
+version = "0.5"
+
+[dependencies.subtle]
+version = "2"
+optional = true
+default-features = false
 
 [dependencies.zeroize]
 version = "1"
@@ -59,9 +56,10 @@ version = "0.3"
 
 [features]
 3des = ["encryption", "pkcs5/3des"]
-alloc = ["der/alloc", "zeroize"]
+alloc = ["der/alloc", "spki/alloc", "zeroize"]
 des-insecure = ["encryption", "pkcs5/des-insecure"]
 encryption = ["alloc", "pkcs5/alloc", "pkcs5/pbes2", "rand_core"]
-pem = ["alloc", "pem-rfc7468/alloc"]
+pem = ["alloc", "der/pem", "spki/pem"]
+rand = ["rand_core/std"]
 sha1 = ["encryption", "pkcs5/sha1"]
-std = ["alloc", "der/std"]
+std = ["alloc", "der/std", "spki/std"]

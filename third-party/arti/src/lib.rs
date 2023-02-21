@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! A minimal command line program for connecting to the tor network
 //!
 //! (If you want a more general Tor client library interface, use
@@ -52,6 +53,10 @@
 //!   (default)
 //! * `journald` -- Build with support for logging to the `journald` logging
 //!   backend (available as part of systemd.)
+//! * `dns-proxy` (default) -- Build with support for proxying certain simple
+//!   DNS queries over the Tor network.  
+//! * `harden` (default) -- Build with support for hardening the Arti process by
+//!   disabling debugger attachment and other local memory-inspection vectors.
 //!
 //! * `full` -- Build with all features above, along with all stable additive
 //!   features from other arti crates.  (This does not include experimental
@@ -88,11 +93,18 @@
 //! ## Experimental features
 //!
 //!  Note that the APIs enabled by these features are NOT covered by semantic
-//!  versioning guarantees: we might break them or remove them between patch
+//!  versioning[^1] guarantees: we might break them or remove them between patch
 //!  versions.
 //!
+//! * `experimental-api` -- build with experimental, unstable API support.
+//!    (Right now, most APIs in the `arti` crate are experimental, since this
+//!    crate was originally written to run as a binary only.)
 //! * `experimental` -- Build with all experimental features above, along with
 //!   all experimental features from other arti crates.
+//!
+//! [^1]: Remember, semantic versioning is what makes various `cargo` features
+//! work reliably. To be explicit, if you want `cargo update` to _only_ make
+//! correct changes, then you cannot enable these features.
 //!
 //! # Limitations
 //!
@@ -150,12 +162,29 @@
 #![allow(clippy::print_stdout)]
 
 pub mod cfg;
-pub mod dns;
-pub mod exit;
 pub mod logging;
+
+#[cfg(all(feature = "experimental-api", feature = "dns-proxy"))]
+pub mod dns;
+#[cfg(feature = "experimental-api")]
+pub mod exit;
+#[cfg(feature = "experimental-api")]
 pub mod process;
+#[cfg(feature = "experimental-api")]
+pub mod reload_cfg;
+#[cfg(feature = "experimental-api")]
 pub mod socks;
-pub mod watch_cfg;
+
+#[cfg(all(not(feature = "experimental-api"), feature = "dns-proxy"))]
+mod dns;
+#[cfg(not(feature = "experimental-api"))]
+mod exit;
+#[cfg(not(feature = "experimental-api"))]
+mod process;
+#[cfg(not(feature = "experimental-api"))]
+mod reload_cfg;
+#[cfg(not(feature = "experimental-api"))]
+mod socks;
 
 use std::fmt::Write;
 
@@ -165,7 +194,7 @@ pub use cfg::{
 };
 pub use logging::{LoggingConfig, LoggingConfigBuilder};
 
-use arti_client::config::{default_config_file, fs_permissions_checks_disabled_via_env};
+use arti_client::config::default_config_files;
 use arti_client::{TorClient, TorClientConfig};
 use safelog::with_safe_logging_suppressed;
 use tor_config::ConfigurationSources;
@@ -173,7 +202,7 @@ use tor_rtcompat::{BlockOn, Runtime};
 
 use anyhow::{Context, Error, Result};
 use clap::{App, AppSettings, Arg, SubCommand};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Shorthand for a boxed and pinned Future.
 type PinnedFuture<T> = std::pin::Pin<Box<dyn futures::Future<Output = T>>>;
@@ -216,29 +245,25 @@ fn list_enabled_features() -> &'static [&'static str] {
 /// # Panics
 ///
 /// Currently, might panic if things go badly enough wrong
-pub async fn run<R: Runtime>(
+#[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+#[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
+async fn run<R: Runtime>(
     runtime: R,
     socks_port: u16,
     dns_port: u16,
     config_sources: ConfigurationSources,
     arti_config: ArtiConfig,
     client_config: TorClientConfig,
-    fs_mistrust_disabled: bool,
 ) -> Result<()> {
     // Using OnDemand arranges that, while we are bootstrapping, incoming connections wait
     // for bootstrap to complete, rather than getting errors.
     use arti_client::BootstrapBehavior::OnDemand;
     use futures::FutureExt;
-    let mut client_builder = TorClient::with_runtime(runtime.clone())
+    let client_builder = TorClient::with_runtime(runtime.clone())
         .config(client_config)
         .bootstrap_behavior(OnDemand);
-    if fs_mistrust_disabled {
-        client_builder = client_builder.disable_fs_permission_checks();
-    }
     let client = client_builder.create_unbootstrapped()?;
-    if arti_config.application().watch_configuration {
-        watch_cfg::watch_for_config_changes(config_sources, arti_config, client.clone())?;
-    }
+    reload_cfg::watch_for_config_changes(config_sources, arti_config, client.clone())?;
 
     let mut proxy: Vec<PinnedFuture<(Result<()>, &str)>> = Vec::new();
     if socks_port != 0 {
@@ -250,6 +275,7 @@ pub async fn run<R: Runtime>(
         }));
     }
 
+    #[cfg(feature = "dns-proxy")]
     if dns_port != 0 {
         let runtime = runtime.clone();
         let client = client.isolated_client();
@@ -257,6 +283,12 @@ pub async fn run<R: Runtime>(
             let res = dns::run_dns_resolver(runtime, client, dns_port).await;
             (res, "DNS")
         }));
+    }
+
+    #[cfg(not(feature = "dns-proxy"))]
+    if dns_port != 0 {
+        warn!("Tried to specify a DNS proxy port, but Arti was built without dns-proxy support.");
+        return Ok(());
     }
 
     if proxy.is_empty() {
@@ -279,17 +311,29 @@ pub async fn run<R: Runtime>(
     )
 }
 
-/// Inner function to allow convenient error handling
+/// Inner function, to handle a set of CLI arguments and return a single
+/// `Result<()>` for convenient handling.
+///
+/// # ⚠️ Warning! ⚠️
+///
+/// If your program needs to call this function, you are setting yourself up for
+/// some serious maintenance headaches.  See discussion on [`main`] and please
+/// reach out to help us build you a better API.
 ///
 /// # Panics
 ///
 /// Currently, might panic if wrong arguments are specified.
-pub fn main_main() -> Result<()> {
+#[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+fn main_main<I, T>(cli_args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
     // We describe a default here, rather than using `default()`, because the
     // correct behavior is different depending on whether the filename is given
     // explicitly or not.
     let mut config_file_help = "Specify which config file(s) to read.".to_string();
-    if let Ok(default) = default_config_file() {
+    if let Ok(default) = default_config_files() {
         // If we couldn't resolve the default config file, then too bad.  If something
         // actually tries to use it, it will produce an error, but don't fail here
         // just for that reason.
@@ -356,7 +400,6 @@ pub fn main_main() -> Result<()> {
                 Arg::with_name("disable-fs-permission-checks")
                     .long("disable-fs-permission-checks")
                     .takes_value(false)
-                    .value_name("FILE")
                     .global(true)
                     .help("Don't check permissions on the files we use."),
             )
@@ -401,24 +444,32 @@ pub fn main_main() -> Result<()> {
         .finish();
     let pre_config_logging = tracing::Dispatch::new(pre_config_logging);
     let pre_config_logging_ret = tracing::dispatcher::with_default(&pre_config_logging, || {
-        let matches = clap_app.get_matches();
+        let matches = clap_app.get_matches_from_safe(cli_args)?;
 
-        let fs_mistrust_disabled = fs_permissions_checks_disabled_via_env()
-            | matches.is_present("disable-fs-permission-checks");
+        let fs_mistrust_disabled = matches.is_present("disable-fs-permission-checks");
 
         // A Mistrust object to use for loading our configuration.  Elsewhere, we
         // use the value _from_ the configuration.
         let cfg_mistrust = if fs_mistrust_disabled {
             fs_mistrust::Mistrust::new_dangerously_trust_everyone()
         } else {
-            fs_mistrust::Mistrust::new()
+            fs_mistrust::MistrustBuilder::default()
+                .controlled_by_env_var(arti_client::config::FS_PERMISSIONS_CHECKS_DISABLE_VAR)
+                .build()
+                .expect("Could not construct default fs-mistrust")
         };
+
+        let mut override_options: Vec<&str> =
+            matches.values_of("option").unwrap_or_default().collect();
+        if fs_mistrust_disabled {
+            override_options.push("storage.permissions.dangerously_trust_everyone=true");
+        }
 
         let cfg_sources = {
             let mut cfg_sources = ConfigurationSources::from_cmdline(
-                default_config_file()?,
+                default_config_files()?,
                 matches.values_of_os("config-files").unwrap_or_default(),
-                matches.values_of("option").unwrap_or_default(),
+                override_options,
             );
             cfg_sources.set_mistrust(cfg_mistrust);
             cfg_sources
@@ -428,25 +479,13 @@ pub fn main_main() -> Result<()> {
         let (config, client_config) =
             tor_config::resolve::<ArtiCombinedConfig>(cfg).context("read configuration")?;
 
-        let log_mistrust = if fs_mistrust_disabled {
-            fs_mistrust::Mistrust::new_dangerously_trust_everyone()
-        } else {
-            client_config.fs_mistrust().clone()
-        };
+        let log_mistrust = client_config.fs_mistrust().clone();
 
-        Ok::<_, Error>((
-            matches,
-            cfg_sources,
-            config,
-            client_config,
-            fs_mistrust_disabled,
-            log_mistrust,
-        ))
+        Ok::<_, Error>((matches, cfg_sources, config, client_config, log_mistrust))
     })?;
     // Sadly I don't seem to be able to persuade rustfmt to format the two lists of
     // variable names identically.
-    let (matches, cfg_sources, config, client_config, fs_mistrust_disabled, log_mistrust) =
-        pre_config_logging_ret;
+    let (matches, cfg_sources, config, client_config, log_mistrust) = pre_config_logging_ret;
 
     let _log_guards = logging::setup_logging(
         config.logging(),
@@ -454,17 +493,32 @@ pub fn main_main() -> Result<()> {
         matches.value_of("loglevel"),
     )?;
 
+    if !config.application().allow_running_as_root {
+        process::exit_if_root();
+    }
+
+    #[cfg(feature = "harden")]
+    if !config.application().permit_debugging {
+        if let Err(e) = process::enable_process_hardening() {
+            error!("Encountered a problem while enabling hardening. To disable this feature, set application.permit_debugging to true.");
+            return Err(e);
+        }
+    }
+
     if let Some(proxy_matches) = matches.subcommand_matches("proxy") {
         let socks_port = match (
             proxy_matches.value_of("socks-port"),
-            config.proxy().socks_port,
+            config.proxy().socks_listen.localhost_port_legacy()?,
         ) {
             (Some(p), _) => p.parse().expect("Invalid port specified"),
             (None, Some(s)) => s,
             (None, None) => 0,
         };
 
-        let dns_port = match (proxy_matches.value_of("dns-port"), config.proxy().dns_port) {
+        let dns_port = match (
+            proxy_matches.value_of("dns-port"),
+            config.proxy().dns_listen.localhost_port_legacy()?,
+        ) {
             (Some(p), _) => p.parse().expect("Invalid port specified"),
             (None, Some(s)) => s,
             (None, None) => 0,
@@ -486,7 +540,6 @@ pub fn main_main() -> Result<()> {
             cfg_sources,
             config,
             client_config,
-            fs_mistrust_disabled,
         ))?;
         Ok(())
     } else {
@@ -495,6 +548,36 @@ pub fn main_main() -> Result<()> {
 }
 
 /// Main program, callable directly from a binary crate's `main`
+///
+/// This function behaves the same as `main_main()`, except:
+///   * It takes command-line arguments from `std::env::args_os` rather than
+///     from an argument.
+///   * It exits the process with an appropriate error code on error.
+///
+/// # ⚠️ Warning ⚠️
+///
+/// Calling this function, or the related experimental function `main_main`, is
+/// probably a bad idea for your code.  It means that you are invoking Arti as
+/// if from the command line, but keeping it embedded inside your process. Doing
+/// this will block your process take over handling for several signal types,
+/// possibly disable debugger attachment, and a lot more junk that a library
+/// really has no business doing for you.  It is not designed to run in this
+/// way, and may give you strange results.
+///
+/// If the functionality you want is available in [`arti_client`] crate, or from
+/// a *non*-experimental API in this crate, it would be better for you to use
+/// that API instead.
+///
+/// Alternatively, if you _do_ need some underlying function from the `arti`
+/// crate, it would be better for all of us if you had a stable interface to that
+/// function. Please reach out to the Arti developers, so we can work together
+/// to get you the stable API you need.
 pub fn main() {
-    main_main().unwrap_or_else(|e| with_safe_logging_suppressed(|| tor_error::report_and_exit(e)));
+    match main_main(std::env::args_os()) {
+        Ok(()) => {}
+        Err(e) => match e.downcast_ref::<clap::Error>() {
+            Some(clap_err) => clap_err.exit(),
+            None => with_safe_logging_suppressed(|| tor_error::report_and_exit(e)),
+        },
+    }
 }

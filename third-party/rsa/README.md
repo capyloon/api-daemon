@@ -3,32 +3,31 @@
 [![crates.io][crate-image]][crate-link]
 [![Documentation][doc-image]][doc-link]
 [![Build Status][build-image]][build-link]
-![minimum rustc 1.51][msrv-image]
+![minimum rustc 1.56][msrv-image]
 [![Project Chat][chat-image]][chat-link]
 [![dependency status][deps-image]][deps-link]
 
 A portable RSA implementation in pure Rust.
 
-:warning: **WARNING:** This crate has been audited by a 3rd party, but a full blog post with the results and the updates made since the audit has not been officially released yet. See [#60](https://github.com/RustCrypto/RSA/issues/60) for more information.
+⚠️ **WARNING:** This crate has been audited by a 3rd party, but a full blog post with the results and the updates made since the audit has not been officially released yet. See [#60](https://github.com/RustCrypto/RSA/issues/60) for more information.
 
 ## Example
 
 ```rust
-use rsa::{PublicKey, RsaPrivateKey, PaddingScheme};
-use rand::rngs::OsRng;
+use rsa::{PublicKey, RsaPrivateKey, RsaPublicKey, PaddingScheme};
 
-let mut rng = OsRng;
+let mut rng = rand::thread_rng();
 let bits = 2048;
 let priv_key = RsaPrivateKey::new(&mut rng, bits).expect("failed to generate a key");
 let pub_key = RsaPublicKey::from(&priv_key);
 
 // Encrypt
 let data = b"hello world";
-let enc_data = pub_key.encrypt(&mut rng, PaddingScheme::new_pkcs1v15(), &data[..]).expect("failed to encrypt");
+let enc_data = pub_key.encrypt(&mut rng, PaddingScheme::new_pkcs1v15_encrypt(), &data[..]).expect("failed to encrypt");
 assert_ne!(&data[..], &enc_data[..]);
 
 // Decrypt
-let dec_data = priv_key.decrypt(PaddingScheme::new_pkcs1v15(), &enc_data).expect("failed to decrypt");
+let dec_data = priv_key.decrypt(PaddingScheme::new_pkcs1v15_encrypt(), &enc_data).expect("failed to decrypt");
 assert_eq!(&data[..], &dec_data[..]);
 ```
 
@@ -47,31 +46,31 @@ assert_eq!(&data[..], &dec_data[..]);
 
 ## Status
 
-Currently at Phase 1 (v) :construction:.
+Currently at Phase 1 (v) 🚧
 
-There will be three phases before `1.0` :ship: can be released.
+There will be three phases before `1.0` 🚢 can be released.
 
-1. :construction:  Make it work
-    - [x] Prime generation :white_check_mark:
-    - [x] Key generation :white_check_mark:
-    - [x] PKCS1v1.5: Encryption & Decryption :white_check_mark:
-    - [x] PKCS1v1.5: Sign & Verify :white_check_mark:
+1. 🚧  Make it work
+    - [x] Prime generation ✅
+    - [x] Key generation ✅
+    - [x] PKCS1v1.5: Encryption & Decryption ✅
+    - [x] PKCS1v1.5: Sign & Verify ✅
     - [ ] PKCS1v1.5 (session key): Encryption & Decryption
     - [x] OAEP: Encryption & Decryption
     - [x] PSS: Sign & Verify
     - [x] Key import & export
-2. :rocket: Make it fast
-    - [x] Benchmarks :white_check_mark:
-    - [ ] compare to other implementations :construction:
-    - [ ] optimize :construction:
-3. :lock: Make it secure
+2. 🚀 Make it fast
+    - [x] Benchmarks ✅
+    - [ ] compare to other implementations 🚧
+    - [ ] optimize 🚧
+3. 🔐 Make it secure
     - [ ] Fuzz testing
     - [ ] Security Audits
 
 
 ## Minimum Supported Rust Version (MSRV)
 
-All crates in this repository support Rust 1.51 or higher. In future
+All crates in this repository support Rust 1.56 or higher. In future
 minimally supported version of Rust can be changed, but it will be done with
 a minor version bump.
 
@@ -98,7 +97,7 @@ dual licensed as above, without any additional terms or conditions.
 [doc-link]: https://docs.rs/rsa
 [build-image]: https://github.com/rustcrypto/RSA/workflows/CI/badge.svg
 [build-link]: https://github.com/RustCrypto/RSA/actions?query=workflow%3ACI+branch%3Amaster
-[msrv-image]: https://img.shields.io/badge/rustc-1.51+-blue.svg
+[msrv-image]: https://img.shields.io/badge/rustc-1.56+-blue.svg
 [chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
 [chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/260047-RSA
 [deps-image]: https://deps.rs/repo/github/RustCrypto/RSA/status.svg

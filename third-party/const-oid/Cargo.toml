@@ -10,9 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 name = "const-oid"
-version = "0.6.2"
+version = "0.7.1"
 authors = ["RustCrypto Developers"]
 description = "Const-friendly implementation of the ISO/IEC Object Identifier (OID) standard\nas defined in ITU X.660, with support for BER/DER encoding/decoding as well as\nheapless no_std (i.e. embedded) support\n"
 documentation = "https://docs.rs/const-oid"

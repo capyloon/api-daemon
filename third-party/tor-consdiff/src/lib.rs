@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! `tor-consdiff`: Restricted ed diff and patch formats for Tor.
 //!
 //! # Overview
@@ -140,7 +141,7 @@ where
     let d1 = hex::decode(elts[1])?;
     let d2 = hex::decode(elts[2])?;
     match (d1.try_into(), d2.try_into()) {
-        (Ok(a), Ok(b)) => (Ok((a, b))),
+        (Ok(a), Ok(b)) => Ok((a, b)),
         _ => Err(Error::BadDiff("wrong digest lengths on 'hash' line")),
     }
 }

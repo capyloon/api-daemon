@@ -1,5 +1,7 @@
 //! Declare error types.
 
+use std::sync::Arc;
+
 use tor_error::{ErrorKind, HasKind};
 
 /// An error related to an option passed to Arti via a configuration
@@ -90,11 +92,49 @@ pub enum ReconfigureError {
         /// The field (or fields) that we tried to change.
         field: String,
     },
+
+    /// There was a programming error somewhere in our code, or the calling code.
+    #[error("Programming error")]
+    Bug(#[from] tor_error::Bug),
 }
 
 impl HasKind for ReconfigureError {
     fn kind(&self) -> ErrorKind {
         ErrorKind::InvalidConfigTransition
+    }
+}
+
+/// Wrapper for [`config::ConfigError`] with a more helpful error message.
+#[derive(Debug, Clone)]
+pub struct ConfigError(Arc<config::ConfigError>);
+
+impl From<config::ConfigError> for ConfigError {
+    fn from(err: config::ConfigError) -> Self {
+        ConfigError(Arc::new(err))
+    }
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = self.0.to_string();
+        write!(f, "{}", s)?;
+        if s.contains("invalid escape") || s.contains("invalid hex escape") {
+            write!(f, "   (If you wanted to include a literal \\ character, you need to escape it by writing two in a row: \\\\)")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+impl ConfigError {
+    /// Return the inner [`config::ConfigError`] that this is wrapping.
+    pub fn inner(&self) -> &config::ConfigError {
+        self.0.as_ref()
     }
 }
 

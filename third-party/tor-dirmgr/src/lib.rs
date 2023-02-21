@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! `tor-dirmgr`: Code to fetch, store, and update Tor directory information.
 //!
 //! # Overview
@@ -90,6 +91,7 @@ use scopeguard::ScopeGuard;
 use tor_circmgr::CircMgr;
 use tor_dirclient::SourceInfo;
 use tor_error::into_internal;
+use tor_netdir::params::NetParameters;
 use tor_netdir::{DirEvent, MdReceiver, NetDir, NetDirProvider};
 
 use async_trait::async_trait;
@@ -108,7 +110,7 @@ use std::{fmt::Debug, time::SystemTime};
 use crate::state::{DirState, NetDirChange};
 pub use authority::{Authority, AuthorityBuilder};
 pub use config::{
-    DirMgrConfig, DirSkewTolerance, DirSkewToleranceBuilder, DownloadScheduleConfig,
+    DirMgrConfig, DirTolerance, DirToleranceBuilder, DownloadScheduleConfig,
     DownloadScheduleConfigBuilder, NetworkConfig, NetworkConfigBuilder,
 };
 pub use docid::DocId;
@@ -116,6 +118,7 @@ pub use err::Error;
 pub use event::{DirBlockage, DirBootstrapEvents, DirBootstrapStatus};
 pub use storage::DocumentText;
 pub use tor_guardmgr::fallback::{FallbackDir, FallbackDirBuilder};
+pub use tor_netdir::Timeliness;
 
 /// A Result as returned by this crate.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -151,12 +154,54 @@ pub trait DirProvider: NetDirProvider {
 // NOTE(eta): We can't implement this for Arc<DirMgr<R>> due to trait coherence rules, so instead
 //            there's a blanket impl for Arc<T> in tor-netdir.
 impl<R: Runtime> NetDirProvider for DirMgr<R> {
-    fn latest_netdir(&self) -> Option<Arc<NetDir>> {
-        self.opt_netdir()
+    fn netdir(&self, timeliness: Timeliness) -> tor_netdir::Result<Arc<NetDir>> {
+        use tor_netdir::Error as NetDirError;
+        let netdir = self.netdir.get().ok_or(NetDirError::NoInfo)?;
+        let lifetime = match timeliness {
+            Timeliness::Strict => netdir.lifetime().clone(),
+            Timeliness::Timely => self
+                .config
+                .get()
+                .tolerance
+                .extend_lifetime(netdir.lifetime()),
+            Timeliness::Unchecked => return Ok(netdir),
+        };
+        let now = SystemTime::now();
+        if lifetime.valid_after() > now {
+            Err(NetDirError::DirNotYetValid)
+        } else if lifetime.valid_until() < now {
+            Err(NetDirError::DirExpired)
+        } else {
+            Ok(netdir)
+        }
     }
 
     fn events(&self) -> BoxStream<'static, DirEvent> {
         Box::pin(self.events.subscribe())
+    }
+
+    fn params(&self) -> Arc<dyn AsRef<tor_netdir::params::NetParameters>> {
+        if let Some(netdir) = self.netdir.get() {
+            // We have a directory, so we'd like to give it out for its
+            // parameters.
+            //
+            // We do this even if the directory is expired, since parameters
+            // don't really expire on any plausible timescale.
+            netdir
+        } else {
+            // We have no directory, so we'll give out the default parameters as
+            // modified by the provided override_net_params configuration.
+            //
+            self.default_parameters
+                .lock()
+                .expect("Poisoned lock")
+                .clone()
+        }
+        // TODO(nickm): If we felt extremely clever, we could add a third case
+        // where, if we have a pending directory with a validated consensus, we
+        // give out that consensus's network parameters even if we _don't_ yet
+        // have a full directory.  That's significant refactoring, though, for
+        // an unclear amount of benefit.
     }
 }
 
@@ -212,6 +257,9 @@ pub struct DirMgr<R: Runtime> {
     // TODO(eta): Eurgh! This is so many Arcs! (especially considering this
     //            gets wrapped in an Arc)
     netdir: Arc<SharedMutArc<NetDir>>,
+
+    /// A set of network parameters to hand out when we have no directory.
+    default_parameters: Mutex<Arc<NetParameters>>,
 
     /// A publisher handle that we notify whenever the consensus changes.
     events: event::FlagPublisher<DirEvent>,
@@ -298,7 +346,9 @@ impl<R: Runtime> DirMgr<R> {
         // TODO: add some way to return a directory that isn't up-to-date
         let _success = dirmgr.load_directory(AttemptId::next()).await?;
 
-        dirmgr.opt_netdir().ok_or(Error::DirectoryNotPresent)
+        dirmgr
+            .netdir(Timeliness::Timely)
+            .map_err(|_| Error::DirectoryNotPresent)
     }
 
     /// Return a current netdir, either loading it or bootstrapping it
@@ -316,7 +366,9 @@ impl<R: Runtime> DirMgr<R> {
         circmgr: Arc<CircMgr<R>>,
     ) -> Result<Arc<NetDir>> {
         let dirmgr = DirMgr::bootstrap_from_config(config, runtime, circmgr).await?;
-        dirmgr.netdir()
+        dirmgr
+            .timely_netdir()
+            .map_err(|_| Error::DirectoryNotPresent)
     }
 
     /// Create a new `DirMgr` in online mode, but don't bootstrap it yet.
@@ -698,6 +750,11 @@ impl<R: Runtime> DirMgr<R> {
                 netdir.replace_overridden_parameters(&new_config.override_net_params);
                 Ok(())
             });
+            {
+                let mut params = self.default_parameters.lock().expect("lock failed");
+                *params = Arc::new(NetParameters::from_map(&new_config.override_net_params));
+            }
+
             // (It's okay to ignore the error, since it just means that there
             // was no current netdir.)
             self.events.publish(DirEvent::NewConsensus);
@@ -787,6 +844,8 @@ impl<R: Runtime> DirMgr<R> {
         let store = Mutex::new(config.open_store(offline)?);
         let netdir = Arc::new(SharedMutArc::new());
         let events = event::FlagPublisher::new();
+        let default_parameters = NetParameters::from_map(&config.override_net_params);
+        let default_parameters = Mutex::new(Arc::new(default_parameters));
 
         let (send_status, receive_status) = postage::watch::channel();
         let send_status = Mutex::new(send_status);
@@ -804,6 +863,7 @@ impl<R: Runtime> DirMgr<R> {
             config: config.into(),
             store,
             netdir,
+            default_parameters,
             events,
             send_status,
             receive_status,
@@ -836,21 +896,6 @@ impl<R: Runtime> DirMgr<R> {
         let _ = bootstrap::load(Arc::clone(self), Box::new(state), attempt_id).await?;
 
         Ok(self.netdir.get().is_some())
-    }
-
-    /// Return an Arc handle to our latest directory, if we have one.
-    pub fn opt_netdir(&self) -> Option<Arc<NetDir>> {
-        self.netdir.get()
-    }
-
-    /// Return an Arc handle to our latest directory, returning an error if there is none.
-    ///
-    /// # Errors
-    ///
-    /// Errors with [`Error::DirectoryNotPresent`] if the `DirMgr` hasn't been bootstrapped yet.
-    // TODO: Add variants of this that make sure that it's up-to-date?
-    pub fn netdir(&self) -> Result<Arc<NetDir>> {
-        self.opt_netdir().ok_or(Error::DirectoryNotPresent)
     }
 
     /// Return a new asynchronous stream that will receive notification
@@ -1027,7 +1072,7 @@ fn upgrade_weak_ref<T>(weak: &Weak<T>) -> Result<Arc<T>> {
 /// return the age of the oldest consensus that we should request at that time.
 pub(crate) fn default_consensus_cutoff(
     now: SystemTime,
-    tolerance: &DirSkewTolerance,
+    tolerance: &DirTolerance,
 ) -> Result<SystemTime> {
     /// We _always_ allow at least this much age in our consensuses, to account
     /// for the fact that consensuses have some lifetime.
@@ -1079,7 +1124,7 @@ mod test {
             let (_tempdir, mgr) = new_mgr(rt);
 
             assert!(mgr.circmgr().is_err());
-            assert!(mgr.opt_netdir().is_none());
+            assert!(mgr.netdir(Timeliness::Unchecked).is_err());
         });
     }
 
@@ -1219,7 +1264,7 @@ mod test {
                 )
                 .unwrap()
             };
-            let tolerance = DirSkewTolerance::default().post_valid_tolerance;
+            let tolerance = DirTolerance::default().post_valid_tolerance;
             match req {
                 ClientRequest::Consensus(r) => {
                     assert_eq!(r.old_consensus_digests().count(), 0);

@@ -65,7 +65,7 @@ impl Fts {
         text: &str,
         tag: Option<String>,
     ) -> Result<Vec<IdFrec>, ResourceStoreError> {
-        let _timer = Timer::start(&format!("Fts::search {} {:?}", text, tag));
+        let _timer = Timer::start(&format!("Fts::search {text} {tag:?}"));
 
         let mut tx = self.db_pool.begin().await?;
 

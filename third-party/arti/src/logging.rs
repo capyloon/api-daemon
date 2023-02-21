@@ -62,7 +62,7 @@ impl_standard_builder! { LoggingConfig }
 /// Return a default tracing filter value for `logging.console`.
 #[allow(clippy::unnecessary_wraps)]
 fn default_console_filter() -> Option<String> {
-    Some("debug".to_owned())
+    Some("info".to_owned())
 }
 
 /// Local type alias, mostly helpful for derive_builder to DTRT
@@ -259,7 +259,8 @@ where
 
 /// Opaque structure that gets dropped when the program is shutting down,
 /// after logs are no longer needed.  The `Drop` impl flushes buffered messages.
-pub struct LogGuards {
+#[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+pub(crate) struct LogGuards {
     /// The actual list of guards we're returning.
     #[allow(unused)]
     guards: Vec<WorkerGuard>,
@@ -273,7 +274,9 @@ pub struct LogGuards {
 ///
 /// Note that the returned LogGuard must be dropped precisely when the program
 /// quits; they're used to ensure that all the log messages are flushed.
-pub fn setup_logging(
+#[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+#[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
+pub(crate) fn setup_logging(
     config: &LoggingConfig,
     mistrust: &Mistrust,
     cli: Option<&str>,

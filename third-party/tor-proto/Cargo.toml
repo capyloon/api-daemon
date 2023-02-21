@@ -1,6 +1,6 @@
 [package]
 name = "tor-proto"
-version = "0.4.0"
+version = "0.6.0"
 authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
 edition = "2021"
 rust-version = "1.56"
@@ -17,13 +17,16 @@ full = ["tokio"]
 experimental = ["hs", "ntor_v3"]
 hs = []
 ntor_v3 = []
+# Enable testing-only APIs.  APIs under this feature are not
+# covered by semver.
+testing = []
 tokio = ["tokio-crate", "tokio-util"]
 
 [dependencies]
 arrayref = "0.3"
 asynchronous-codec = "0.6.0"
 bytes = "1"
-cipher = "0.4.1"
+cipher = { version = "0.4.1", features = ["zeroize"] }
 coarsetime = "0.1.20"
 derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
 digest = "0.10.0"
@@ -39,17 +42,18 @@ subtle = "2"
 thiserror = "1"
 tokio-crate = { package = "tokio", version = "1.7", optional = true }
 tokio-util = { version = "0.7.0", features = ["compat"], optional = true }
-tor-basic-utils = { path = "../tor-basic-utils", version = "0.3.2" }
-tor-bytes = { path = "../tor-bytes", version = "0.4.0" }
-tor-cell = { path = "../tor-cell", version = "0.4.0" }
-tor-cert = { path = "../tor-cert", version = "0.4.0" }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.4.0" }
+tor-bytes = { path = "../tor-bytes", version = "0.5.1" }
+tor-cell = { path = "../tor-cell", version = "0.6.0" }
+tor-cert = { path = "../tor-cert", version = "0.5.0" }
 tor-checkable = { path = "../tor-checkable", version = "0.3.0" }
+tor-config = { path = "../tor-config", version = "0.6.0" }
 tor-error = { path = "../tor-error", version = "0.3.2" }
-tor-linkspec = { path = "../tor-linkspec", version = "0.3.0" }
-tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.2" }
+tor-linkspec = { path = "../tor-linkspec", version = "0.5.0" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.3.4" }
 tor-protover = { path = "../tor-protover", version = "0.3.0" }
-tor-rtcompat = { path = "../tor-rtcompat", version = "0.5.0" }
-tor-rtmock = { path = "../tor-rtmock", version = "0.4.0" }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.6.0" }
+tor-rtmock = { path = "../tor-rtmock", version = "0.5.0" }
 tor-units = { path = "../tor-units", version = "0.3.1" }
 tracing = "0.1.18"
 typenum = "1.12"
@@ -59,6 +63,10 @@ zeroize = "1"
 hex = "0.4"
 hex-literal = "0.3"
 itertools = "0.10.1"
-statrs = "0.15.0"
+regex = { version = "1", default-features = false, features = ["std"] }
+statrs = "0.16.0"
 tokio-crate = { package = "tokio", version = "1.7", features = ["full"] }
-tor-rtcompat = { path = "../tor-rtcompat", version = "0.5.0", features = ["tokio", "native-tls"] }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.6.0", features = ["tokio", "native-tls"] }
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

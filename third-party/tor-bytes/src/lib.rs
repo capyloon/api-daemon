@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
 //! `tor-bytes`: Utilities to decode/encode things into bytes.
 //!
 //! # Overview
@@ -86,16 +87,20 @@
 mod err;
 mod impls;
 mod reader;
+mod secretbuf;
 mod writer;
 
 pub use err::{EncodeError, Error};
 pub use reader::Reader;
+pub use secretbuf::SecretBuf;
 pub use writer::Writer;
 
 use arrayref::array_ref;
 
-/// Result type returned by this crate.
+/// Result type returned by this crate for [`Reader`]-related methods.
 pub type Result<T> = std::result::Result<T, Error>;
+/// Result type returned by this crate for [`Writer`]-related methods.
+pub type EncodeResult<T> = std::result::Result<T, EncodeError>;
 
 /// Trait for an object that can be encoded onto a Writer by reference.
 ///
@@ -107,7 +112,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # Example
 ///
 /// ```
-/// use tor_bytes::{Writeable, Writer};
+/// use tor_bytes::{Writeable, Writer, EncodeResult};
 /// #[derive(Debug, Eq, PartialEq)]
 /// struct Message {
 ///   flags: u32,
@@ -115,10 +120,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// }
 ///
 /// impl Writeable for Message {
-///     fn write_onto<B:Writer+?Sized>(&self, b: &mut B) {
+///     fn write_onto<B:Writer+?Sized>(&self, b: &mut B) -> EncodeResult<()> {
 ///         // We'll say that a "Message" is encoded as flags, then command.
 ///         b.write_u32(self.flags);
 ///         b.write_u8(self.cmd);
+///         Ok(())
 ///     }
 /// }
 ///
@@ -129,7 +135,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ```
 pub trait Writeable {
     /// Encode this object into the writer `b`.
-    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B);
+    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()>;
 }
 
 /// Trait for an object that can be encoded and consumed by a Writer.
@@ -139,14 +145,14 @@ pub trait Writeable {
 ///
 /// Most code won't need to call this directly, but will instead use
 /// it implicitly via the Writer::write_and_consume() method.
-pub trait WriteableOnce {
+pub trait WriteableOnce: Sized {
     /// Encode this object into the writer `b`, and consume it.
-    fn write_into<B: Writer + ?Sized>(self, b: &mut B);
+    fn write_into<B: Writer + ?Sized>(self, b: &mut B) -> EncodeResult<()>;
 }
 
-impl<W: Writeable> WriteableOnce for W {
-    fn write_into<B: Writer + ?Sized>(self, b: &mut B) {
-        self.write_onto(b);
+impl<W: Writeable + Sized> WriteableOnce for W {
+    fn write_into<B: Writer + ?Sized>(self, b: &mut B) -> EncodeResult<()> {
+        self.write_onto(b)
     }
 }
 

@@ -10,12 +10,12 @@ actix-rt = "2.7"
 actix-web = {version = "4.1"}
 async-std = {version = "1.10", features = ["attributes"]}
 async-trait = "0.1"
-base64 = "0.13"
+base64 = "0.21"
 chrono = {version = "0.4", features = ["serde"]}
 futures = "0.3"
 futures-core = "0.3"
 lazy_static = "1.4"
-libsqlite3-sys = "0.24"
+libsqlite3-sys = "0.25"
 log = "0.4"
 lru = "0.7"
 new_mime_guess = "4.0"
@@ -25,7 +25,7 @@ secular = "1.0"
 serde = {version = "1.0", features = ["derive"]}
 serde_json = "1.0"
 speedy = "*"
-sqlx = {version = "0.6", features = ["runtime-async-std-rustls", "migrate", "sqlite", "chrono"]}
+sqlx = {git = "https://github.com/launchbadge/sqlx.git", rev = "4b7053807c705df312bcb9b6281e184bf7534eb3", features = ["runtime-async-std-rustls", "migrate", "sqlite", "chrono"]}
 thiserror = "1.0"
 toml = "0.5"
 uuid = {version = "1.1", features = ["v4"]}

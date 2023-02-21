@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use super::{DirStatus, FallbackDir, FallbackDirBuilder};
 use crate::fallback::default_fallbacks;
 use crate::{ids::FallbackId, PickGuardError};
+use tor_basic_utils::iter::{FilterCount, IteratorExt as _};
 use tor_config::define_list_builder_helper;
 
 /// A list of fallback directories.
@@ -48,11 +49,10 @@ impl FallbackList {
     }
     /// Return a random member of this list.
     pub fn choose<R: rand::Rng>(&self, rng: &mut R) -> Result<&FallbackDir, PickGuardError> {
-        // TODO: Return NoCandidatesAvailable when the fallback list is empty.
         self.fallbacks
             .iter()
             .choose(rng)
-            .ok_or(PickGuardError::AllFallbacksDown { retry_at: None })
+            .ok_or(PickGuardError::NoCandidatesAvailable)
     }
 }
 
@@ -135,13 +135,19 @@ impl FallbackState {
             return Err(PickGuardError::NoCandidatesAvailable);
         }
 
+        let mut running = FilterCount::default();
+        let mut filtered = FilterCount::default();
+
         self.fallbacks
             .iter()
-            .filter(|ent| ent.status.usable_at(now) && filter.permits(&ent.fallback))
+            .filter_cnt(&mut running, |ent| ent.status.usable_at(now))
+            .filter_cnt(&mut filtered, |ent| filter.permits(&ent.fallback))
             .choose(rng)
             .map(|ent| &ent.fallback)
             .ok_or_else(|| PickGuardError::AllFallbacksDown {
                 retry_at: self.next_retry(),
+                running,
+                filtered,
             })
     }
 
@@ -272,7 +278,7 @@ mod test {
             rand_fb(&mut rng),
         ];
         let fb_other = rand_fb(&mut rng);
-        let id_other = FallbackId::from_chan_target(&fb_other);
+        let id_other = FallbackId::from_relay_ids(&fb_other);
 
         // basic case: construct a set
         let list: FallbackList = fbs.clone().into();
@@ -288,7 +294,7 @@ mod test {
 
         // use the constructed set a little.
         for fb in fbs.iter() {
-            let id = FallbackId::from_chan_target(fb);
+            let id = FallbackId::from_relay_ids(fb);
             assert_eq!(set.get_mut(&id).unwrap().id(), &id);
         }
         assert!(set.get_mut(&id_other).is_none());
@@ -425,7 +431,7 @@ mod test {
         let mut fbs2: Vec<_> = fbs
             .into_iter()
             // (Remove the fallback with id==ids[2])
-            .filter(|fb| FallbackId::from_chan_target(fb) != ids[2])
+            .filter(|fb| FallbackId::from_relay_ids(fb) != ids[2])
             .collect();
         // add 2 new ones.
         let fbs_new = vec![rand_fb(&mut rng), rand_fb(&mut rng), rand_fb(&mut rng)];
@@ -444,7 +450,7 @@ mod test {
         // Make sure that the new fbs are there.
         for new_fb in fbs_new {
             assert!(set2
-                .get_mut(&FallbackId::from_chan_target(&new_fb))
+                .get_mut(&FallbackId::from_relay_ids(&new_fb))
                 .unwrap()
                 .status
                 .usable_at(now));

@@ -1,32 +1,40 @@
 //! Support for encoding negative integers
 
 use super::is_highest_bit_set;
-use crate::{asn1::Any, Encodable, Encoder, Header, Length, Result, Tag};
-use core::convert::TryFrom;
+use crate::{Encoder, ErrorKind, Length, Result};
 
 /// Decode an unsigned integer of the specified size.
 ///
 /// Returns a byte array of the requested size containing a big endian integer.
-pub(super) fn decode_array<const N: usize>(any: Any<'_>) -> Result<[u8; N]> {
-    any.tag().assert_eq(Tag::Integer)?;
-    let mut output = [0xFFu8; N];
-    let offset = N.saturating_sub(any.as_bytes().len());
-    output[offset..].copy_from_slice(any.as_bytes());
-    Ok(output)
+pub(super) fn decode_to_array<const N: usize>(bytes: &[u8]) -> Result<[u8; N]> {
+    match N.checked_sub(bytes.len()) {
+        Some(offset) => {
+            let mut output = [0xFFu8; N];
+            output[offset..].copy_from_slice(bytes);
+            Ok(output)
+        }
+        None => {
+            let expected_len = Length::try_from(N)?;
+            let actual_len = Length::try_from(bytes.len())?;
+
+            Err(ErrorKind::Incomplete {
+                expected_len,
+                actual_len,
+            }
+            .into())
+        }
+    }
 }
 
 /// Encode the given big endian bytes representing an integer as ASN.1 DER.
-pub(super) fn encode(encoder: &mut Encoder<'_>, bytes: &[u8]) -> Result<()> {
-    let bytes = strip_leading_ones(&bytes);
-    let len = Length::try_from(bytes.len())?;
-    Header::new(Tag::Integer, len)?.encode(encoder)?;
-    encoder.bytes(bytes)
+pub(super) fn encode_bytes(encoder: &mut Encoder<'_>, bytes: &[u8]) -> Result<()> {
+    encoder.bytes(strip_leading_ones(bytes))
 }
 
 /// Get the encoded length for the given unsigned integer serialized as bytes.
 #[inline]
 pub(super) fn encoded_len(bytes: &[u8]) -> Result<Length> {
-    Length::try_from(strip_leading_ones(&bytes).len())
+    Length::try_from(strip_leading_ones(bytes).len())
 }
 
 /// Strip the leading all-ones bytes from the given byte slice.
