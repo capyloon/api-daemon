@@ -1,8 +1,7 @@
 //! PKCS#1 version identifier.
 
 use crate::Error;
-use core::convert::{TryFrom, TryInto};
-use der::{asn1::Any, Encodable, Encoder, Tag, Tagged};
+use der::{Decode, Encode, FixedTag, Reader, Tag, Writer};
 
 /// Version identifier for PKCS#1 documents as defined in
 /// [RFC 8017 Appendix 1.2].
@@ -18,13 +17,21 @@ use der::{asn1::Any, Encodable, Encoder, Tag, Tagged};
 /// ```
 ///
 /// [RFC 8017 Appendix 1.2]: https://datatracker.ietf.org/doc/html/rfc8017#appendix-A.1.2
-#[derive(Clone, Debug, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u8)]
 pub enum Version {
     /// Denotes a `two-prime` key
     TwoPrime = 0,
 
     /// Denotes a `multi` (i.e. multi-prime) key
     Multi = 1,
+}
+
+impl Version {
+    /// Is this a multi-prime RSA key?
+    pub fn is_multi(self) -> bool {
+        self == Self::Multi
+    }
 }
 
 impl From<Version> for u8 {
@@ -44,25 +51,22 @@ impl TryFrom<u8> for Version {
     }
 }
 
-impl<'a> TryFrom<Any<'a>> for Version {
-    type Error = der::Error;
-    fn try_from(any: Any<'a>) -> der::Result<Version> {
-        u8::try_from(any)?
-            .try_into()
-            .map_err(|_| der::ErrorKind::Value { tag: Tag::Integer }.into())
+impl<'a> Decode<'a> for Version {
+    fn decode<R: Reader<'a>>(decoder: &mut R) -> der::Result<Self> {
+        Version::try_from(u8::decode(decoder)?).map_err(|_| Self::TAG.value_error())
     }
 }
 
-impl Encodable for Version {
+impl Encode for Version {
     fn encoded_len(&self) -> der::Result<der::Length> {
         der::Length::ONE.for_tlv()
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> der::Result<()> {
-        u8::from(*self).encode(encoder)
+    fn encode(&self, writer: &mut dyn Writer) -> der::Result<()> {
+        u8::from(*self).encode(writer)
     }
 }
 
-impl Tagged for Version {
+impl FixedTag for Version {
     const TAG: Tag = Tag::Integer;
 }

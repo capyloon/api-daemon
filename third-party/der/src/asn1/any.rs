@@ -1,90 +1,91 @@
 //! ASN.1 `ANY` type.
 
 use crate::{
-    asn1::*, ByteSlice, Choice, Decodable, Decoder, Encodable, Encoder, Error, ErrorKind, Header,
-    Length, Result, Tag,
+    asn1::*, ByteSlice, Choice, Decode, DecodeValue, DerOrd, EncodeValue, Error, ErrorKind,
+    FixedTag, Header, Length, Reader, Result, SliceReader, Tag, Tagged, ValueOrd, Writer,
 };
-use core::convert::{TryFrom, TryInto};
+use core::cmp::Ordering;
+
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 
 #[cfg(feature = "oid")]
 use crate::asn1::ObjectIdentifier;
 
 /// ASN.1 `ANY`: represents any explicitly tagged ASN.1 value.
 ///
+/// This is a zero-copy reference type which borrows from the input data.
+///
 /// Technically `ANY` hasn't been a recommended part of ASN.1 since the X.209
 /// revision from 1988. It was deprecated and replaced by Information Object
 /// Classes in X.680 in 1994, and X.690 no longer refers to it whatsoever.
 ///
-/// Nevertheless, this crate defines an [`Any`] type as it remains a familiar
+/// Nevertheless, this crate defines an `ANY` type as it remains a familiar
 /// and useful concept which is still extensively used in things like
 /// PKI-related RFCs.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub struct Any<'a> {
+pub struct AnyRef<'a> {
     /// Tag representing the type of the encoded value.
     tag: Tag,
-
-    /// Encoded length of this [`Any`] value.
-    length: Length,
 
     /// Inner value encoded as bytes.
     value: ByteSlice<'a>,
 }
 
-impl<'a> Any<'a> {
-    /// Create a new [`Any`] from the provided [`Tag`] and byte slice.
+impl<'a> AnyRef<'a> {
+    /// [`AnyRef`] representation of the ASN.1 `NULL` type.
+    pub const NULL: Self = Self {
+        tag: Tag::Null,
+        value: ByteSlice::EMPTY,
+    };
+
+    /// Create a new [`AnyRef`] from the provided [`Tag`] and DER bytes.
     pub fn new(tag: Tag, bytes: &'a [u8]) -> Result<Self> {
         let value = ByteSlice::new(bytes).map_err(|_| ErrorKind::Length { tag })?;
+        Ok(Self { tag, value })
+    }
 
-        let length = if has_leading_zero_byte(tag) {
-            (value.len() + 1u8)?
-        } else {
-            value.len()
+    /// Infallible creation of an [`AnyRef`] from a [`ByteSlice`].
+    pub(crate) fn from_tag_and_value(tag: Tag, value: ByteSlice<'a>) -> Self {
+        Self { tag, value }
+    }
+
+    /// Get the raw value for this [`AnyRef`] type as a byte slice.
+    pub fn value(self) -> &'a [u8] {
+        self.value.as_slice()
+    }
+
+    /// Attempt to decode this [`AnyRef`] type into the inner value.
+    pub fn decode_into<T>(self) -> Result<T>
+    where
+        T: DecodeValue<'a> + FixedTag,
+    {
+        self.tag.assert_eq(T::TAG)?;
+        let header = Header {
+            tag: self.tag,
+            length: self.value.len(),
         };
 
-        Ok(Self { tag, length, value })
+        let mut decoder = SliceReader::new(self.value())?;
+        let result = T::decode_value(&mut decoder, header)?;
+        decoder.finish(result)
     }
 
-    /// Infallible creation of an [`Any`] from a [`ByteSlice`].
-    pub(crate) fn from_tag_and_value(tag: Tag, value: ByteSlice<'a>) -> Self {
-        Self {
-            tag,
-            length: value.len(),
-            value,
-        }
-    }
-
-    /// Get the tag for this [`Any`] type.
-    pub fn tag(self) -> Tag {
-        self.tag
-    }
-
-    /// Get the [`Length`] of this [`Any`] type's value.
-    pub fn len(self) -> Length {
-        self.length
-    }
-
-    /// Is the body of this [`Any`] type empty?
-    pub fn is_empty(self) -> bool {
-        self.value.is_empty()
-    }
-
-    /// Is this value an ASN.1 NULL value?
+    /// Is this value an ASN.1 `NULL` value?
     pub fn is_null(self) -> bool {
-        Null::try_from(self).is_ok()
-    }
-
-    /// Get the raw value for this [`Any`] type as a byte slice.
-    pub fn as_bytes(self) -> &'a [u8] {
-        self.value.as_bytes()
+        self == Self::NULL
     }
 
     /// Attempt to decode an ASN.1 `BIT STRING`.
-    pub fn bit_string(self) -> Result<BitString<'a>> {
+    pub fn bit_string(self) -> Result<BitStringRef<'a>> {
         self.try_into()
     }
 
     /// Attempt to decode an ASN.1 `CONTEXT-SPECIFIC` field.
-    pub fn context_specific(self) -> Result<ContextSpecific<'a>> {
+    pub fn context_specific<T>(self) -> Result<ContextSpecific<T>>
+    where
+        T: Decode<'a>,
+    {
         self.try_into()
     }
 
@@ -94,12 +95,12 @@ impl<'a> Any<'a> {
     }
 
     /// Attempt to decode an ASN.1 `IA5String`.
-    pub fn ia5_string(self) -> Result<Ia5String<'a>> {
+    pub fn ia5_string(self) -> Result<Ia5StringRef<'a>> {
         self.try_into()
     }
 
     /// Attempt to decode an ASN.1 `OCTET STRING`.
-    pub fn octet_string(self) -> Result<OctetString<'a>> {
+    pub fn octet_string(self) -> Result<OctetStringRef<'a>> {
         self.try_into()
     }
 
@@ -123,17 +124,30 @@ impl<'a> Any<'a> {
     }
 
     /// Attempt to decode an ASN.1 `PrintableString`.
-    pub fn printable_string(self) -> Result<PrintableString<'a>> {
+    pub fn printable_string(self) -> Result<PrintableStringRef<'a>> {
+        self.try_into()
+    }
+
+    /// Attempt to decode an ASN.1 `TeletexString`.
+    pub fn teletex_string(self) -> Result<TeletexStringRef<'a>> {
+        self.try_into()
+    }
+
+    /// Attempt to decode an ASN.1 `VideotexString`.
+    pub fn videotex_string(self) -> Result<VideotexStringRef<'a>> {
         self.try_into()
     }
 
     /// Attempt to decode this value an ASN.1 `SEQUENCE`, creating a new
-    /// nested [`Decoder`] and calling the provided argument with it.
+    /// nested reader and calling the provided argument with it.
     pub fn sequence<F, T>(self, f: F) -> Result<T>
     where
-        F: FnOnce(&mut Decoder<'a>) -> Result<T>,
+        F: FnOnce(&mut SliceReader<'a>) -> Result<T>,
     {
-        Sequence::try_from(self)?.decode_nested(f)
+        self.tag.assert_eq(Tag::Sequence)?;
+        let mut reader = SliceReader::new(self.value.as_slice())?;
+        let result = f(&mut reader)?;
+        reader.finish(result)
     }
 
     /// Attempt to decode an ASN.1 `UTCTime`.
@@ -142,98 +156,129 @@ impl<'a> Any<'a> {
     }
 
     /// Attempt to decode an ASN.1 `UTF8String`.
-    pub fn utf8_string(self) -> Result<Utf8String<'a>> {
+    pub fn utf8_string(self) -> Result<Utf8StringRef<'a>> {
         self.try_into()
     }
 }
 
-impl<'a> Choice<'a> for Any<'a> {
+impl<'a> Choice<'a> for AnyRef<'a> {
     fn can_decode(_: Tag) -> bool {
         true
     }
 }
 
-impl<'a> Decodable<'a> for Any<'a> {
-    fn decode(decoder: &mut Decoder<'a>) -> Result<Any<'a>> {
-        let header = Header::decode(decoder)?;
-        let tag = header.tag;
-        let mut value = decoder
-            .bytes(header.length)
-            .map_err(|_| decoder.error(ErrorKind::Length { tag }))?;
+impl<'a> Decode<'a> for AnyRef<'a> {
+    fn decode<R: Reader<'a>>(reader: &mut R) -> Result<AnyRef<'a>> {
+        let header = Header::decode(reader)?;
 
-        if has_leading_zero_byte(tag) {
-            let (byte, rest) = value
-                .split_first()
-                .ok_or(ErrorKind::Truncated)
-                .map_err(|e| decoder.error(e))?;
-
-            // The first octet of a BIT STRING encodes the number of unused bits.
-            // We presently constrain this to 0.
-            if *byte != 0 {
-                return Err(decoder.error(ErrorKind::Noncanonical { tag }));
-            }
-
-            value = rest;
-        }
-
-        Self::new(tag, value).map_err(|e| decoder.error(e.kind()))
-    }
-}
-
-impl<'a> Encodable for Any<'a> {
-    fn encoded_len(&self) -> Result<Length> {
-        self.len().for_tlv()
-    }
-
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Header::new(self.tag, self.len())?.encode(encoder)?;
-
-        if has_leading_zero_byte(self.tag) {
-            encoder.byte(0)?;
-        }
-
-        encoder.bytes(self.as_bytes())
-    }
-}
-
-impl<'a> TryFrom<&'a [u8]> for Any<'a> {
-    type Error = Error;
-
-    fn try_from(bytes: &'a [u8]) -> Result<Any<'a>> {
-        Any::from_der(bytes)
-    }
-}
-
-// Special handling for the leading `0` byte on [`BitString`]
-impl<'a> TryFrom<Any<'a>> for BitString<'a> {
-    type Error = Error;
-
-    fn try_from(any: Any<'a>) -> Result<BitString<'a>> {
-        any.tag().assert_eq(Tag::BitString)?;
-
-        Ok(BitString {
-            inner: any.value,
-            encoded_len: any.length,
+        Ok(Self {
+            tag: header.tag,
+            value: ByteSlice::decode_value(reader, header)?,
         })
     }
 }
 
-// Special handling for the leading `0` byte on [`BitString`]
-impl<'a> From<BitString<'a>> for Any<'a> {
-    fn from(bit_string: BitString<'a>) -> Any<'a> {
-        Any {
-            tag: Tag::BitString,
-            length: bit_string.encoded_len,
-            value: bit_string.inner,
-        }
+impl EncodeValue for AnyRef<'_> {
+    fn value_len(&self) -> Result<Length> {
+        Ok(self.value.len())
+    }
+
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        writer.write(self.value())
     }
 }
 
-/// Does a value with this tag have a leading zero byte?
+impl Tagged for AnyRef<'_> {
+    fn tag(&self) -> Tag {
+        self.tag
+    }
+}
+
+impl ValueOrd for AnyRef<'_> {
+    fn value_cmp(&self, other: &Self) -> Result<Ordering> {
+        self.value.der_cmp(&other.value)
+    }
+}
+
+impl<'a> From<AnyRef<'a>> for ByteSlice<'a> {
+    fn from(any: AnyRef<'a>) -> ByteSlice<'a> {
+        any.value
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for AnyRef<'a> {
+    type Error = Error;
+
+    fn try_from(bytes: &'a [u8]) -> Result<AnyRef<'a>> {
+        AnyRef::from_der(bytes)
+    }
+}
+
+/// ASN.1 `ANY`: represents any explicitly tagged ASN.1 value.
 ///
-/// This is mostly a hack for `BIT STRING`, and permits simple `From`
-/// conversions from `BitString` into `Any`.
-// TODO(tarcieri): better generalize this? or is there a better solution?
-fn has_leading_zero_byte(tag: Tag) -> bool {
-    tag == Tag::BitString
+/// This type provides the same functionality as [`AnyRef`] but owns the
+/// backing data.
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct Any {
+    /// Tag representing the type of the encoded value.
+    tag: Tag,
+
+    /// Inner value encoded as bytes.
+    value: Vec<u8>,
+}
+
+#[cfg(feature = "alloc")]
+impl Any {
+    /// Create a new [`Any`] from the provided [`Tag`] and DER bytes.
+    pub fn new(tag: Tag, bytes: impl Into<Vec<u8>>) -> Result<Self> {
+        let value = bytes.into();
+
+        // Ensure the tag and value are a valid `AnyRef`.
+        AnyRef::new(tag, &value)?;
+        Ok(Self { tag, value })
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Choice<'_> for Any {
+    fn can_decode(_: Tag) -> bool {
+        true
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> Decode<'a> for Any {
+    fn decode<R: Reader<'a>>(reader: &mut R) -> Result<Self> {
+        let header = Header::decode(reader)?;
+        let value = reader.read_vec(header.length)?;
+        Self::new(header.tag, value)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl EncodeValue for Any {
+    fn value_len(&self) -> Result<Length> {
+        self.value.len().try_into()
+    }
+
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        writer.write(&self.value)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> From<&'a Any> for AnyRef<'a> {
+    fn from(any: &'a Any) -> AnyRef<'a> {
+        // Ensured to parse successfully in constructor
+        AnyRef::new(any.tag, &any.value).expect("invalid ANY")
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Tagged for Any {
+    fn tag(&self) -> Tag {
+        self.tag
+    }
 }

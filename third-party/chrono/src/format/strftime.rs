@@ -11,9 +11,9 @@ The following specifiers are available both to formatting and parsing.
 | Spec. | Example  | Description                                                                |
 |-------|----------|----------------------------------------------------------------------------|
 |       |          | **DATE SPECIFIERS:**                                                       |
-| `%Y`  | `2001`   | The full proleptic Gregorian year, zero-padded to 4 digits. [^1]           |
-| `%C`  | `20`     | The proleptic Gregorian year divided by 100, zero-padded to 2 digits. [^2] |
-| `%y`  | `01`     | The proleptic Gregorian year modulo 100, zero-padded to 2 digits. [^2]     |
+| `%Y`  | `2001`   | The full proleptic Gregorian year, zero-padded to 4 digits. chrono supports years from -262144 to 262143. |
+| `%C`  | `20`     | The proleptic Gregorian year divided by 100, zero-padded to 2 digits. [^1] |
+| `%y`  | `01`     | The proleptic Gregorian year modulo 100, zero-padded to 2 digits. [^1]     |
 |       |          |                                                                            |
 | `%m`  | `07`     | Month number (01--12), zero-padded to 2 digits.                            |
 | `%b`  | `Jul`    | Abbreviated month name. Always 3 letters.                                  |
@@ -28,12 +28,12 @@ The following specifiers are available both to formatting and parsing.
 | `%w`  | `0`      | Sunday = 0, Monday = 1, ..., Saturday = 6.                                 |
 | `%u`  | `7`      | Monday = 1, Tuesday = 2, ..., Sunday = 7. (ISO 8601)                       |
 |       |          |                                                                            |
-| `%U`  | `28`     | Week number starting with Sunday (00--53), zero-padded to 2 digits. [^3]   |
+| `%U`  | `28`     | Week number starting with Sunday (00--53), zero-padded to 2 digits. [^2]   |
 | `%W`  | `27`     | Same as `%U`, but week 1 starts with the first Monday in that year instead.|
 |       |          |                                                                            |
-| `%G`  | `2001`   | Same as `%Y` but uses the year number in ISO 8601 week date. [^4]          |
-| `%g`  | `01`     | Same as `%y` but uses the year number in ISO 8601 week date. [^4]          |
-| `%V`  | `27`     | Same as `%U` but uses the week number in ISO 8601 week date (01--53). [^4] |
+| `%G`  | `2001`   | Same as `%Y` but uses the year number in ISO 8601 week date. [^3]          |
+| `%g`  | `01`     | Same as `%y` but uses the year number in ISO 8601 week date. [^3]          |
+| `%V`  | `27`     | Same as `%U` but uses the week number in ISO 8601 week date (01--53). [^3] |
 |       |          |                                                                            |
 | `%j`  | `189`    | Day of the year (001--366), zero-padded to 3 digits.                       |
 |       |          |                                                                            |
@@ -52,15 +52,15 @@ The following specifiers are available both to formatting and parsing.
 | `%p`  | `AM`     | `AM` or `PM` in 12-hour clocks.                                            |
 |       |          |                                                                            |
 | `%M`  | `34`     | Minute number (00--59), zero-padded to 2 digits.                           |
-| `%S`  | `60`     | Second number (00--60), zero-padded to 2 digits. [^5]                      |
-| `%f`  | `026490000`   | The fractional seconds (in nanoseconds) since last whole second. [^8] |
-| `%.f` | `.026490`| Similar to `.%f` but left-aligned. These all consume the leading dot. [^8] |
-| `%.3f`| `.026`        | Similar to `.%f` but left-aligned but fixed to a length of 3. [^8]    |
-| `%.6f`| `.026490`     | Similar to `.%f` but left-aligned but fixed to a length of 6. [^8]    |
-| `%.9f`| `.026490000`  | Similar to `.%f` but left-aligned but fixed to a length of 9. [^8]    |
-| `%3f` | `026`         | Similar to `%.3f` but without the leading dot. [^8]                   |
-| `%6f` | `026490`      | Similar to `%.6f` but without the leading dot. [^8]                   |
-| `%9f` | `026490000`   | Similar to `%.9f` but without the leading dot. [^8]                   |
+| `%S`  | `60`     | Second number (00--60), zero-padded to 2 digits. [^4]                      |
+| `%f`  | `026490000`   | The fractional seconds (in nanoseconds) since last whole second. [^7] |
+| `%.f` | `.026490`| Similar to `.%f` but left-aligned. These all consume the leading dot. [^7] |
+| `%.3f`| `.026`        | Similar to `.%f` but left-aligned but fixed to a length of 3. [^7]    |
+| `%.6f`| `.026490`     | Similar to `.%f` but left-aligned but fixed to a length of 6. [^7]    |
+| `%.9f`| `.026490000`  | Similar to `.%f` but left-aligned but fixed to a length of 9. [^7]    |
+| `%3f` | `026`         | Similar to `%.3f` but without the leading dot. [^7]                   |
+| `%6f` | `026490`      | Similar to `%.6f` but without the leading dot. [^7]                   |
+| `%9f` | `026490000`   | Similar to `%.9f` but without the leading dot. [^7]                   |
 |       |               |                                                                       |
 | `%R`  | `00:34`       | Hour-minute format. Same as `%H:%M`.                                  |
 | `%T`  | `00:34:60`    | Hour-minute-second format. Same as `%H:%M:%S`.                        |
@@ -68,16 +68,18 @@ The following specifiers are available both to formatting and parsing.
 | `%r`  | `12:34:60 AM` | Hour-minute-second format in 12-hour clocks. Same as `%I:%M:%S %p`.   |
 |       |          |                                                                            |
 |       |          | **TIME ZONE SPECIFIERS:**                                                  |
-| `%Z`  | `ACST`   | Local time zone name. Skips all non-whitespace characters during parsing. [^9] |
+| `%Z`  | `ACST`   | Local time zone name. Skips all non-whitespace characters during parsing. [^8] |
 | `%z`  | `+0930`  | Offset from the local time to UTC (with UTC being `+0000`).                |
 | `%:z` | `+09:30` | Same as `%z` but with a colon.                                             |
+|`%::z`|`+09:30:00`| Offset from the local time to UTC with seconds.                            |
+|`%:::z`| `+09`    | Offset from the local time to UTC without minutes.                         |
 | `%#z` | `+09`    | *Parsing only:* Same as `%z` but allows minutes to be missing or present.  |
 |       |          |                                                                            |
 |       |          | **DATE & TIME SPECIFIERS:**                                                |
 |`%c`|`Sun Jul  8 00:34:60 2001`|Locale's date and time (e.g., Thu Mar  3 23:05:25 2005).       |
-| `%+`  | `2001-07-08T00:34:60.026490+09:30` | ISO 8601 / RFC 3339 date & time format. [^6]     |
+| `%+`  | `2001-07-08T00:34:60.026490+09:30` | ISO 8601 / RFC 3339 date & time format. [^5]     |
 |       |               |                                                                       |
-| `%s`  | `994518299`   | UNIX timestamp, the number of seconds since 1970-01-01 00:00 UTC. [^7]|
+| `%s`  | `994518299`   | UNIX timestamp, the number of seconds since 1970-01-01 00:00 UTC. [^6]|
 |       |          |                                                                            |
 |       |          | **SPECIAL SPECIFIERS:**                                                    |
 | `%t`  |          | Literal tab (`\t`).                                                        |
@@ -95,25 +97,29 @@ Modifier | Description
 
 Notes:
 
-[^1]: `%Y`:
-   Negative years are allowed in formatting but not in parsing.
-
-[^2]: `%C`, `%y`:
+[^1]: `%C`, `%y`:
    This is floor division, so 100 BCE (year number -99) will print `-1` and `99` respectively.
 
-[^3]: `%U`:
+[^2]: `%U`:
    Week 1 starts with the first Sunday in that year.
    It is possible to have week 0 for days before the first Sunday.
 
-[^4]: `%G`, `%g`, `%V`:
+[^3]: `%G`, `%g`, `%V`:
    Week 1 is the first week with at least 4 days in that year.
    Week 0 does not exist, so this should be used with `%G` or `%g`.
 
-[^5]: `%S`:
+[^4]: `%S`:
    It accounts for leap seconds, so `60` is possible.
 
-[^6]: `%+`: Same as `%Y-%m-%dT%H:%M:%S%.f%:z`, i.e. 0, 3, 6 or 9 fractional
+[^5]: `%+`: Same as `%Y-%m-%dT%H:%M:%S%.f%:z`, i.e. 0, 3, 6 or 9 fractional
    digits for seconds and colons in the time zone offset.
+   <br>
+   <br>
+   This format also supports having a `Z` or `UTC` in place of `%:z`. They
+   are equivalent to `+00:00`.
+   <br>
+   <br>
+   Note that all `T`, `Z`, and `UTC` are parsed case-insensitively.
    <br>
    <br>
    The typical `strftime` implementations have different (and locale-dependent)
@@ -121,12 +127,12 @@ Notes:
    stable, it is best to avoid this specifier if you want to control the exact
    output.
 
-[^7]: `%s`:
+[^6]: `%s`:
    This is not padded and can be negative.
    For the purpose of Chrono, it only accounts for non-leap seconds
    so it slightly differs from ISO C `strftime` behavior.
 
-[^8]: `%f`, `%.f`, `%.3f`, `%.6f`, `%.9f`, `%3f`, `%6f`, `%9f`:
+[^7]: `%f`, `%.f`, `%.3f`, `%.6f`, `%.9f`, `%3f`, `%6f`, `%9f`:
    <br>
    The default `%f` is right-aligned and always zero-padded to 9 digits
    for the compatibility with glibc and others,
@@ -157,7 +163,7 @@ Notes:
    and parsing `07`, `070000` etc. will yield the same.
    Note that they can read nothing if the fractional part is zero.
 
-[^9]: `%Z`:
+[^8]: `%Z`:
    Offset will not be populated from the parsed data, nor will it be validated.
    Timezone is completely ignored. Similar to the glibc `strptime` treatment of
    this format code.
@@ -169,6 +175,12 @@ Notes:
 */
 
 #[cfg(feature = "unstable-locales")]
+extern crate alloc;
+
+#[cfg(feature = "unstable-locales")]
+use alloc::vec::Vec;
+
+#[cfg(feature = "unstable-locales")]
 use super::{locales, Locale};
 use super::{Fixed, InternalFixed, InternalInternal, Item, Numeric, Pad};
 
@@ -177,9 +189,9 @@ type Fmt<'a> = Vec<Item<'a>>;
 #[cfg(not(feature = "unstable-locales"))]
 type Fmt<'a> = &'static [Item<'static>];
 
-static D_FMT: &'static [Item<'static>] =
+static D_FMT: &[Item<'static>] =
     &[num0!(Month), lit!("/"), num0!(Day), lit!("/"), num0!(YearMod100)];
-static D_T_FMT: &'static [Item<'static>] = &[
+static D_T_FMT: &[Item<'static>] = &[
     fix!(ShortWeekdayName),
     sp!(" "),
     fix!(ShortMonthName),
@@ -194,8 +206,7 @@ static D_T_FMT: &'static [Item<'static>] = &[
     sp!(" "),
     num0!(Year),
 ];
-static T_FMT: &'static [Item<'static>] =
-    &[num0!(Hour), lit!(":"), num0!(Minute), lit!(":"), num0!(Second)];
+static T_FMT: &[Item<'static>] = &[num0!(Hour), lit!(":"), num0!(Minute), lit!(":"), num0!(Second)];
 
 /// Parsing iterator for `strftime`-like format strings.
 #[derive(Clone, Debug)]
@@ -222,23 +233,18 @@ impl<'a> StrftimeItems<'a> {
 
     /// Creates a new parsing iterator from the `strftime`-like format string.
     #[cfg(feature = "unstable-locales")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-locales")))]
     pub fn new_with_locale(s: &'a str, locale: Locale) -> StrftimeItems<'a> {
         let d_fmt = StrftimeItems::new(locales::d_fmt(locale)).collect();
         let d_t_fmt = StrftimeItems::new(locales::d_t_fmt(locale)).collect();
         let t_fmt = StrftimeItems::new(locales::t_fmt(locale)).collect();
 
-        StrftimeItems {
-            remainder: s,
-            recons: Vec::new(),
-            d_fmt: d_fmt,
-            d_t_fmt: d_t_fmt,
-            t_fmt: t_fmt,
-        }
+        StrftimeItems { remainder: s, recons: Vec::new(), d_fmt, d_t_fmt, t_fmt }
     }
 
     #[cfg(not(feature = "unstable-locales"))]
     fn with_remainer(s: &'a str) -> StrftimeItems<'a> {
-        static FMT_NONE: &'static [Item<'static>; 0] = &[];
+        static FMT_NONE: &[Item<'static>; 0] = &[];
 
         StrftimeItems {
             remainder: s,
@@ -261,7 +267,7 @@ impl<'a> StrftimeItems<'a> {
     }
 }
 
-const HAVE_ALTERNATES: &'static str = "z";
+const HAVE_ALTERNATES: &str = "z";
 
 impl<'a> Iterator for StrftimeItems<'a> {
     type Item = Item<'a>;
@@ -407,10 +413,20 @@ impl<'a> Iterator for StrftimeItems<'a> {
                         }
                     }
                     '+' => fix!(RFC3339),
-                    ':' => match next!() {
-                        'z' => fix!(TimezoneOffsetColon),
-                        _ => Item::Error,
-                    },
+                    ':' => {
+                        if self.remainder.starts_with("::z") {
+                            self.remainder = &self.remainder[3..];
+                            fix!(TimezoneOffsetTripleColon)
+                        } else if self.remainder.starts_with(":z") {
+                            self.remainder = &self.remainder[2..];
+                            fix!(TimezoneOffsetDoubleColon)
+                        } else if self.remainder.starts_with('z') {
+                            self.remainder = &self.remainder[1..];
+                            fix!(TimezoneOffsetColon)
+                        } else {
+                            Item::Error
+                        }
+                    }
                     '.' => match next!() {
                         '3' => match next!() {
                             'f' => fix!(Nanosecond3),
@@ -462,7 +478,7 @@ impl<'a> Iterator for StrftimeItems<'a> {
                 let nextspec = self
                     .remainder
                     .find(|c: char| !c.is_whitespace())
-                    .unwrap_or_else(|| self.remainder.len());
+                    .unwrap_or(self.remainder.len());
                 assert!(nextspec > 0);
                 let item = sp!(&self.remainder[..nextspec]);
                 self.remainder = &self.remainder[nextspec..];
@@ -474,7 +490,7 @@ impl<'a> Iterator for StrftimeItems<'a> {
                 let nextspec = self
                     .remainder
                     .find(|c: char| c.is_whitespace() || c == '%')
-                    .unwrap_or_else(|| self.remainder.len());
+                    .unwrap_or(self.remainder.len());
                 assert!(nextspec > 0);
                 let item = lit!(&self.remainder[..nextspec]);
                 self.remainder = &self.remainder[nextspec..];
@@ -487,11 +503,11 @@ impl<'a> Iterator for StrftimeItems<'a> {
 #[cfg(test)]
 #[test]
 fn test_strftime_items() {
-    fn parse_and_collect<'a>(s: &'a str) -> Vec<Item<'a>> {
+    fn parse_and_collect(s: &str) -> Vec<Item<'_>> {
         // map any error into `[Item::Error]`. useful for easy testing.
         let items = StrftimeItems::new(s);
         let items = items.map(|spec| if spec == Item::Error { None } else { Some(spec) });
-        items.collect::<Option<Vec<_>>>().unwrap_or(vec![Item::Error])
+        items.collect::<Option<Vec<_>>>().unwrap_or_else(|| vec![Item::Error])
     }
 
     assert_eq!(parse_and_collect(""), []);
@@ -540,9 +556,18 @@ fn test_strftime_items() {
 #[cfg(test)]
 #[test]
 fn test_strftime_docs() {
-    use {FixedOffset, TimeZone, Timelike};
+    use crate::NaiveDate;
+    use crate::{DateTime, FixedOffset, TimeZone, Timelike, Utc};
 
-    let dt = FixedOffset::east(34200).ymd(2001, 7, 8).and_hms_nano(0, 34, 59, 1_026_490_708);
+    let dt = FixedOffset::east_opt(34200)
+        .unwrap()
+        .from_local_datetime(
+            &NaiveDate::from_ymd_opt(2001, 7, 8)
+                .unwrap()
+                .and_hms_nano_opt(0, 34, 59, 1_026_490_708)
+                .unwrap(),
+        )
+        .unwrap();
 
     // date specifiers
     assert_eq!(dt.format("%Y").to_string(), "2001");
@@ -599,10 +624,30 @@ fn test_strftime_docs() {
     //assert_eq!(dt.format("%Z").to_string(), "ACST");
     assert_eq!(dt.format("%z").to_string(), "+0930");
     assert_eq!(dt.format("%:z").to_string(), "+09:30");
+    assert_eq!(dt.format("%::z").to_string(), "+09:30:00");
+    assert_eq!(dt.format("%:::z").to_string(), "+09");
 
     // date & time specifiers
     assert_eq!(dt.format("%c").to_string(), "Sun Jul  8 00:34:60 2001");
     assert_eq!(dt.format("%+").to_string(), "2001-07-08T00:34:60.026490708+09:30");
+
+    assert_eq!(
+        dt.with_timezone(&Utc).format("%+").to_string(),
+        "2001-07-07T15:04:60.026490708+00:00"
+    );
+    assert_eq!(
+        dt.with_timezone(&Utc),
+        DateTime::parse_from_str("2001-07-07T15:04:60.026490708Z", "%+").unwrap()
+    );
+    assert_eq!(
+        dt.with_timezone(&Utc),
+        DateTime::parse_from_str("2001-07-07T15:04:60.026490708UTC", "%+").unwrap()
+    );
+    assert_eq!(
+        dt.with_timezone(&Utc),
+        DateTime::parse_from_str("2001-07-07t15:04:60.026490708utc", "%+").unwrap()
+    );
+
     assert_eq!(
         dt.with_nanosecond(1_026_490_000).unwrap().format("%+").to_string(),
         "2001-07-08T00:34:60.026490+09:30"
@@ -618,9 +663,14 @@ fn test_strftime_docs() {
 #[cfg(feature = "unstable-locales")]
 #[test]
 fn test_strftime_docs_localized() {
-    use {FixedOffset, TimeZone};
+    use crate::{FixedOffset, TimeZone};
 
-    let dt = FixedOffset::east(34200).ymd(2001, 7, 8).and_hms_nano(0, 34, 59, 1_026_490_708);
+    let dt = FixedOffset::east_opt(34200).unwrap().ymd_opt(2001, 7, 8).unwrap().and_hms_nano(
+        0,
+        34,
+        59,
+        1_026_490_708,
+    );
 
     // date specifiers
     assert_eq!(dt.format_localized("%b", Locale::fr_BE).to_string(), "jui");

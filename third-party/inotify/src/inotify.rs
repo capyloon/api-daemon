@@ -25,19 +25,17 @@ use libc::{
     fcntl,
 };
 
-use events::Events;
-use fd_guard::FdGuard;
-use util::read_into_buffer;
-use watches::{
+use crate::events::Events;
+use crate::fd_guard::FdGuard;
+use crate::util::read_into_buffer;
+use crate::watches::{
     WatchDescriptor,
     WatchMask,
 };
 
-#[cfg(feature = "stream")]
-use tokio_reactor::Handle;
 
 #[cfg(feature = "stream")]
-use stream::EventStream;
+use crate::stream::EventStream;
 
 
 /// Idiomatic Rust wrapper around Linux's inotify API
@@ -50,6 +48,7 @@ use stream::EventStream;
 /// usage example.
 ///
 /// [top-level documentation]: index.html
+#[derive(Debug)]
 pub struct Inotify {
     fd: Arc<FdGuard>,
 }
@@ -102,21 +101,24 @@ impl Inotify {
         // https://github.com/rust-lang/rust/issues/12148
         let fd = unsafe {
             let fd = ffi::inotify_init();
-            fcntl(fd, F_SETFD, FD_CLOEXEC);
-            fcntl(fd, F_SETFL, O_NONBLOCK);
+            if fd == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            if fcntl(fd, F_SETFD, FD_CLOEXEC) == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            if fcntl(fd, F_SETFL, O_NONBLOCK) == -1 {
+                return Err(io::Error::last_os_error());
+            }
             fd
         };
 
-        match fd {
-            -1 => Err(io::Error::last_os_error()),
-            _  =>
-                Ok(Inotify {
-                    fd: Arc::new(FdGuard {
-                        fd,
-                        close_on_drop: AtomicBool::new(false),
-                    }),
-                }),
-        }
+        Ok(Inotify {
+            fd: Arc::new(FdGuard {
+                fd,
+                close_on_drop: AtomicBool::new(true),
+            }),
+        })
     }
 
     /// Adds or updates a watch for the given path
@@ -287,26 +289,38 @@ impl Inotify {
         -> io::Result<Events<'a>>
     {
         unsafe {
-            fcntl(**self.fd, F_SETFL, fcntl(**self.fd, F_GETFL) & !O_NONBLOCK)
+            let res = fcntl(**self.fd, F_GETFL);
+            if res == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            if fcntl(**self.fd, F_SETFL, res & !O_NONBLOCK) == -1 {
+                return Err(io::Error::last_os_error());
+            }
         };
         let result = self.read_events(buffer);
         unsafe {
-            fcntl(**self.fd, F_SETFL, fcntl(**self.fd, F_GETFL) | O_NONBLOCK)
+            let res = fcntl(**self.fd, F_GETFL);
+            if res == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            if fcntl(**self.fd, F_SETFL, res | O_NONBLOCK) == -1 {
+                return Err(io::Error::last_os_error());
+            }
         };
 
         result
     }
 
-    /// Returns any available events
+    /// Returns one buffer's worth of available events
     ///
-    /// Returns an iterator over all events that are currently available. If no
-    /// events are available, an iterator is still returned. If you need a
-    /// method that will block until at least one event is available, please
-    /// consider [`read_events_blocking`].
+    /// Reads as many events as possible into `buffer`, and returns an iterator
+    /// over them. If no events are available, an iterator is still returned. If
+    /// you need a method that will block until at least one event is available,
+    /// please consider [`read_events_blocking`].
     ///
-    /// Please note that inotify will merge identical unread events into a
-    /// single event. This means this method can not be used to count the number
-    /// of file system events.
+    /// Please note that inotify will merge identical successive unread events 
+    /// into a single event. This means this method can not be used to count the 
+    /// number of file system events.
     ///
     /// The `buffer` argument, as the name indicates, is used as a buffer for
     /// the inotify events. Its contents may be overwritten.
@@ -399,36 +413,13 @@ impl Inotify {
     /// infinite source of events.
     ///
     /// An internal buffer which can hold the largest possible event is used.
-    ///
-    /// The event stream will be associated with the default reactor. See
-    /// [`Inotify::event_stream_with_handle`], if you need more control over the
-    /// reactor used.
-    ///
-    /// [`Inotify::event_stream_with_handle`]: struct.Inotify.html#method.event_stream_with_handle
     #[cfg(feature = "stream")]
     pub fn event_stream<T>(&mut self, buffer: T)
-        -> EventStream<T>
-    where
-        T: AsMut<[u8]> + AsRef<[u8]>,
-    {
-        EventStream::new(self.fd.clone(), buffer)
-    }
-
-    /// Create a stream which collects events, associated with the given
-    /// reactor.
-    ///
-    /// This functions identically to [`Inotify::event_stream`], except that
-    /// the returned stream will be associated with the given reactor, rather
-    /// than the default.
-    ///
-    /// [`Inotify::event_stream`]: struct.Inotify.html#method.event_stream
-    #[cfg(feature = "stream")]
-    pub fn event_stream_with_handle<T>(&mut self, handle: &Handle, buffer: T)
         -> io::Result<EventStream<T>>
     where
         T: AsMut<[u8]> + AsRef<[u8]>,
     {
-        EventStream::new_with_handle(self.fd.clone(), handle, buffer)
+        EventStream::new(self.fd.clone(), buffer)
     }
 
     /// Closes the inotify instance

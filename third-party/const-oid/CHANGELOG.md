@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.1 (2022-11-12)
+### Added
+- clippy lints for checked arithmetic and panics ([#561])
+- `DynAssociatedOid` trait ([#758])
+
+[#561]: https://github.com/RustCrypto/formats/pull/561
+[#758]: https://github.com/RustCrypto/formats/pull/758
+
+## 0.9.0 (2022-03-11)
+### Added
+- Fallible `const fn` parser + `::new_unwrap` ([#458], [#459])
+- OID database gated under the `db` feature ([#451], [#453], [#456], [#488])
+- `AssociatedOid` trait ([#479])
+- `ObjectIdentifier::push_arc` ([#504])
+- `ObjectIdentifier::parent` ([#505])
+
+### Changed
+- `ObjectIdentifier::new` now returns a `Result` ([#458])
+
+[#451]: https://github.com/RustCrypto/formats/pull/451
+[#453]: https://github.com/RustCrypto/formats/pull/453
+[#456]: https://github.com/RustCrypto/formats/pull/456
+[#458]: https://github.com/RustCrypto/formats/pull/458
+[#459]: https://github.com/RustCrypto/formats/pull/459
+[#479]: https://github.com/RustCrypto/formats/pull/479
+[#488]: https://github.com/RustCrypto/formats/pull/488
+[#504]: https://github.com/RustCrypto/formats/pull/504
+[#505]: https://github.com/RustCrypto/formats/pull/505
+
+## 0.8.0 (2022-01-17)
+### Changed
+- Leverage `const_panic`; MSRV 1.57 ([#341])
+
+[#341]: https://github.com/RustCrypto/formats/pull/341
+
+## 0.7.1 (2021-11-30)
+### Changed
+- Increase `MAX_SIZE` to 39 ([#258])
+
+[#258]: https://github.com/RustCrypto/formats/pull/258
+
+## 0.7.0 (2021-11-14) [YANKED]
+### Changed
+- Rust 2021 edition upgrade; MSRV 1.56 ([#136])
+- Rename `MAX_LENGTH` to `MAX_SIZE`; bump to `31` ([#174])
+- Make `length` the first field of `ObjectIdentifier` ([#178])
+
+### Fixed
+- `debug_assert!` false positive on large arc ([#180])
+
+[#136]: https://github.com/RustCrypto/formats/pull/136
+[#174]: https://github.com/RustCrypto/formats/pull/174
+[#178]: https://github.com/RustCrypto/formats/pull/178
+[#180]: https://github.com/RustCrypto/formats/pull/180
+
 ## 0.6.2 (2021-10-14)
 ### Fixed
 - Off-by-one error parsing large BER arcs ([#84])

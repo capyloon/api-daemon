@@ -27,6 +27,7 @@ pub struct MdConsensusRouterStatus {
     ///
     /// This is private because we don't want to leak that these two
     /// types have the same implementation "under the hood".
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     rs: GenericRouterStatus<MdDigest>,
 }
 
@@ -66,7 +67,7 @@ impl ParseRouterStatus for MdConsensusRouterStatus {
     }
 
     fn from_section(sec: &Section<'_, NetstatusKwd>) -> Result<MdConsensusRouterStatus> {
-        let rs = GenericRouterStatus::from_section(sec, true)?;
+        let rs = GenericRouterStatus::from_section(sec, ConsensusFlavor::Microdesc)?;
         Ok(MdConsensusRouterStatus { rs })
     }
 }

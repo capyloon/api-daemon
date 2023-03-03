@@ -13,12 +13,15 @@ use tor_netdoc::doc::netstatus::ConsensusFlavor;
 #[cfg(feature = "routerdesc")]
 use tor_netdoc::doc::routerdesc::RdDigest;
 
+#[cfg(feature = "bridge-client")]
+pub(crate) use tor_guardmgr::bridge::BridgeConfig;
+
 use crate::docmeta::{AuthCertMeta, ConsensusMeta};
 use crate::{Error, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
-use std::ops::{Deref, DerefMut};
+use std::io::Result as IoResult;
 use std::str::Utf8Error;
 use std::time::SystemTime;
 use time::Duration;
@@ -28,7 +31,7 @@ pub(crate) mod sqlite;
 pub(crate) use sqlite::SqliteStore;
 
 /// Convenient Sized & dynamic [`Store`]
-pub(crate) type DynStore = Box<dyn Store + Send>;
+pub(crate) type DynStore = Box<dyn Store>;
 
 /// A document returned by a directory manager.
 ///
@@ -93,8 +96,7 @@ pub(crate) enum InputString {
 impl InputString {
     /// Return a view of this InputString as a &str, if it is valid UTF-8.
     pub(crate) fn as_str(&self) -> Result<&str> {
-        self.as_str_impl()
-            .map_err(|_| Error::CacheCorruption("Invalid UTF-8"))
+        self.as_str_impl().map_err(Error::BadUtf8InCache)
     }
 
     /// Helper for [`Self::as_str()`], with unwrapped error type.
@@ -131,7 +133,7 @@ impl InputString {
     /// We'll try to memory-map the file if we can.  If that fails, or if we
     /// were built without the `mmap` feature, we'll fall back to reading the
     /// file into memory.
-    pub(crate) fn load(file: File) -> Result<Self> {
+    pub(crate) fn load(file: File) -> IoResult<Self> {
         #[cfg(feature = "mmap")]
         {
             let mapping = unsafe {
@@ -183,9 +185,21 @@ impl From<Vec<u8>> for InputString {
 
 /// Configuration of expiration of each element of a [`Store`].
 pub(crate) struct ExpirationConfig {
-    /// How long to keep expired router descriptors.
+    /// How long to keep router descriptors.
+    ///
+    /// This timeout is measured since the publication date of the router
+    /// descriptor.
+    ///
+    /// TODO(nickm): We may want a better approach in the future; see notes in
+    /// `EXPIRATION_DEFAULTS`.
     pub(super) router_descs: Duration,
-    /// How long to keep expired microdescriptors descriptors.
+    /// How long to keep unlisted microdescriptors.
+    ///
+    /// This timeout counts the amount of time since a microdescriptor is no
+    /// longer listed in a live consensus. Shorter values save storage at the
+    /// expense of extra bandwidth spent re-downloading microdescriptors; higher
+    /// values save bandwidth at the expense of storage used to store old
+    /// microdescriptors that might become listed again.
     pub(super) microdescs: Duration,
     /// How long to keep expired authority certificate.
     pub(super) authcerts: Duration,
@@ -196,10 +210,21 @@ pub(crate) struct ExpirationConfig {
 /// Configuration of expiration shared between [`Store`] implementations.
 pub(crate) const EXPIRATION_DEFAULTS: ExpirationConfig = {
     ExpirationConfig {
-        // TODO: Choose a more realistic time.
-        router_descs: Duration::days(3 * 30),
-        // TODO: Choose a more realistic time.
-        microdescs: Duration::days(3 * 30),
+        // TODO: This is the value that C Tor uses here, but it may be desirable
+        // to adjust it depending on what we find in practice.  For relays,
+        // instead of looking at publication date, we might want to use an
+        // approach more similar to the "last-listed" approach taken by
+        // microdescriptors.  For bridges, we can keep descriptors for a longer
+        // time.  In either case, we may be able to discard all but the most
+        // recent descriptor from each identity.
+        router_descs: Duration::days(5),
+        // This value is a compromise between saving bandwidth (by not having to
+        // re-download microdescs) and saving space (by not having to store too
+        // many microdescs).  It's the same one that C tor uses; experiments on
+        // 2022 data suggest that it winds up using only 1% more microdesc dl
+        // bandwidth than strictly necessary, at the cost of storing 40% more
+        // microdescriptors than will be immediately useful at any given time.
+        microdescs: Duration::days(7),
         authcerts: Duration::ZERO,
         consensuses: Duration::days(2),
     }
@@ -209,7 +234,7 @@ pub(crate) const EXPIRATION_DEFAULTS: ExpirationConfig = {
 ///
 /// When creating an instance of this [`Store`], it should try to grab the lock during
 /// initialization (`is_readonly() iff some other implementation grabbed it`).
-pub(crate) trait Store {
+pub(crate) trait Store: Send + 'static {
     /// Return true if this [`Store`] is opened in read-only mode.
     fn is_readonly(&self) -> bool;
     /// Try to upgrade from a read-only connection to a read-write connection.
@@ -281,98 +306,54 @@ pub(crate) trait Store {
     #[cfg(feature = "routerdesc")]
     #[allow(unused)]
     fn store_routerdescs(&mut self, digests: &[(&str, SystemTime, &RdDigest)]) -> Result<()>;
+
+    /// Look up a cached bridge descriptor.
+    #[cfg(feature = "bridge-client")]
+    fn lookup_bridgedesc(&self, bridge: &BridgeConfig) -> Result<Option<CachedBridgeDescriptor>>;
+
+    /// Store a cached bridge descriptor.
+    ///
+    /// This entry will be deleted some time after `until`
+    /// (but the caller is not allowed to rely on either timely deletion,
+    /// or retention until that time).
+    #[cfg(feature = "bridge-client")]
+    fn store_bridgedesc(
+        &mut self,
+        bridge: &BridgeConfig,
+        entry: CachedBridgeDescriptor,
+        until: SystemTime,
+    ) -> Result<()>;
+
+    /// Delete a cached bridge descriptor for this bridge.
+    ///
+    /// It's not an error if it's not present.
+    #[cfg(feature = "bridge-client")]
+    fn delete_bridgedesc(&mut self, bridge: &BridgeConfig) -> Result<()>;
 }
 
-// TODO(eta): maybe use something like the `delegate` crate to autogenerate this?
-impl Store for DynStore {
-    fn is_readonly(&self) -> bool {
-        self.deref().is_readonly()
-    }
+/// Value in the bridge descriptor cache
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "bridge_client"), allow(dead_code))]
+pub(crate) struct CachedBridgeDescriptor {
+    /// When we fetched this
+    pub(crate) fetched: SystemTime,
 
-    fn upgrade_to_readwrite(&mut self) -> Result<bool> {
-        self.deref_mut().upgrade_to_readwrite()
-    }
-
-    fn expire_all(&mut self, expiration: &ExpirationConfig) -> Result<()> {
-        self.deref_mut().expire_all(expiration)
-    }
-
-    fn latest_consensus(
-        &self,
-        flavor: ConsensusFlavor,
-        pending: Option<bool>,
-    ) -> Result<Option<InputString>> {
-        self.deref().latest_consensus(flavor, pending)
-    }
-
-    fn latest_consensus_meta(&self, flavor: ConsensusFlavor) -> Result<Option<ConsensusMeta>> {
-        self.deref().latest_consensus_meta(flavor)
-    }
-
-    fn consensus_by_meta(&self, cmeta: &ConsensusMeta) -> Result<InputString> {
-        self.deref().consensus_by_meta(cmeta)
-    }
-
-    fn consensus_by_sha3_digest_of_signed_part(
-        &self,
-        d: &[u8; 32],
-    ) -> Result<Option<(InputString, ConsensusMeta)>> {
-        self.deref().consensus_by_sha3_digest_of_signed_part(d)
-    }
-
-    fn store_consensus(
-        &mut self,
-        cmeta: &ConsensusMeta,
-        flavor: ConsensusFlavor,
-        pending: bool,
-        contents: &str,
-    ) -> Result<()> {
-        self.deref_mut()
-            .store_consensus(cmeta, flavor, pending, contents)
-    }
-
-    fn mark_consensus_usable(&mut self, cmeta: &ConsensusMeta) -> Result<()> {
-        self.deref_mut().mark_consensus_usable(cmeta)
-    }
-
-    fn delete_consensus(&mut self, cmeta: &ConsensusMeta) -> Result<()> {
-        self.deref_mut().delete_consensus(cmeta)
-    }
-
-    fn authcerts(&self, certs: &[AuthCertKeyIds]) -> Result<HashMap<AuthCertKeyIds, String>> {
-        self.deref().authcerts(certs)
-    }
-
-    fn store_authcerts(&mut self, certs: &[(AuthCertMeta, &str)]) -> Result<()> {
-        self.deref_mut().store_authcerts(certs)
-    }
-
-    fn microdescs(&self, digests: &[MdDigest]) -> Result<HashMap<MdDigest, String>> {
-        self.deref().microdescs(digests)
-    }
-
-    fn store_microdescs(&mut self, digests: &[(&str, &MdDigest)], when: SystemTime) -> Result<()> {
-        self.deref_mut().store_microdescs(digests, when)
-    }
-
-    fn update_microdescs_listed(&mut self, digests: &[MdDigest], when: SystemTime) -> Result<()> {
-        self.deref_mut().update_microdescs_listed(digests, when)
-    }
-
-    #[cfg(feature = "routerdesc")]
-    fn routerdescs(&self, digests: &[RdDigest]) -> Result<HashMap<RdDigest, String>> {
-        self.deref().routerdescs(digests)
-    }
-
-    #[cfg(feature = "routerdesc")]
-    fn store_routerdescs(&mut self, digests: &[(&str, SystemTime, &RdDigest)]) -> Result<()> {
-        self.deref_mut().store_routerdescs(digests)
-    }
+    /// The document text, as we fetched it
+    pub(crate) document: String,
 }
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use tempfile::tempdir;
 

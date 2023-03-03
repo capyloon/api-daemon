@@ -1,34 +1,23 @@
-//! PKCS#8 encoding/decoding support
+//! PKCS#8 encoding/decoding support.
 
 use super::SecretKey;
 use crate::{
-    sec1::{self, UncompressedPointSize, UntaggedPointSize, ValidatePublicKey},
-    weierstrass, AlgorithmParameters, ALGORITHM_OID,
+    pkcs8::{self, AssociatedOid, DecodePrivateKey},
+    sec1::{ModulusSize, ValidatePublicKey},
+    Curve, FieldSize, ALGORITHM_OID,
 };
-use core::ops::Add;
-use generic_array::{typenum::U1, ArrayLength};
-use pkcs8::{
-    der::{
-        self,
-        asn1::{BitString, ContextSpecific, OctetString},
-        TagNumber,
-    },
-    FromPrivateKey,
-};
-use zeroize::Zeroize;
+use der::Decode;
+use sec1::EcPrivateKey;
 
-// Imports for the `ToPrivateKey` impl
-// TODO(tarcieri): use weak activation of `pkcs8/alloc` for gating `ToPrivateKey` impl
+// Imports for the `EncodePrivateKey` impl
+// TODO(tarcieri): use weak activation of `pkcs8/alloc` for gating `EncodePrivateKey` impl
 #[cfg(all(feature = "arithmetic", feature = "pem"))]
 use {
     crate::{
-        scalar::Scalar,
         sec1::{FromEncodedPoint, ToEncodedPoint},
         AffinePoint, ProjectiveArithmetic,
     },
-    core::convert::TryInto,
-    pkcs8::{der::Encodable, ToPrivateKey},
-    zeroize::Zeroizing,
+    pkcs8::EncodePrivateKey,
 };
 
 // Imports for actual PEM support
@@ -38,52 +27,30 @@ use {
     core::str::FromStr,
 };
 
-/// Version
-const VERSION: u8 = 1;
-
-/// Context-specific tag number for the public key.
-const PUBLIC_KEY_TAG: TagNumber = TagNumber::new(1);
-
 #[cfg_attr(docsrs, doc(cfg(feature = "pkcs8")))]
-impl<C> FromPrivateKey for SecretKey<C>
+impl<C> TryFrom<pkcs8::PrivateKeyInfo<'_>> for SecretKey<C>
 where
-    C: weierstrass::Curve + AlgorithmParameters + ValidatePublicKey,
-    UntaggedPointSize<C>: Add<U1> + ArrayLength<u8>,
-    UncompressedPointSize<C>: ArrayLength<u8>,
+    C: Curve + AssociatedOid + ValidatePublicKey,
+    FieldSize<C>: ModulusSize,
 {
-    fn from_pkcs8_private_key_info(
-        private_key_info: pkcs8::PrivateKeyInfo<'_>,
-    ) -> pkcs8::Result<Self> {
+    type Error = pkcs8::Error;
+
+    fn try_from(private_key_info: pkcs8::PrivateKeyInfo<'_>) -> pkcs8::Result<Self> {
         private_key_info
             .algorithm
             .assert_oids(ALGORITHM_OID, C::OID)?;
 
-        let mut decoder = der::Decoder::new(private_key_info.private_key);
-
-        let result = decoder.sequence(|decoder| {
-            if decoder.uint8()? != VERSION {
-                return Err(der::Tag::Integer.value_error());
-            }
-
-            let secret_key = Self::from_bytes(decoder.octet_string()?)
-                .map_err(|_| der::Tag::Sequence.value_error())?;
-
-            let public_key = decoder
-                .context_specific(PUBLIC_KEY_TAG)?
-                .ok_or_else(|| der::Tag::ContextSpecific(PUBLIC_KEY_TAG).value_error())?
-                .bit_string()?;
-
-            if let Ok(pk) = sec1::EncodedPoint::<C>::from_bytes(public_key.as_ref()) {
-                if C::validate_public_key(&secret_key, &pk).is_ok() {
-                    return Ok(secret_key);
-                }
-            }
-
-            Err(der::Tag::BitString.value_error())
-        })?;
-
-        Ok(decoder.finish(result)?)
+        let ec_private_key = EcPrivateKey::from_der(private_key_info.private_key)?;
+        Ok(Self::try_from(ec_private_key)?)
     }
+}
+
+#[cfg_attr(docsrs, doc(cfg(feature = "pkcs8")))]
+impl<C> DecodePrivateKey for SecretKey<C>
+where
+    C: Curve + AssociatedOid + ValidatePublicKey,
+    FieldSize<C>: ModulusSize,
+{
 }
 
 // TODO(tarcieri): use weak activation of `pkcs8/alloc` for this when possible
@@ -92,37 +59,21 @@ where
 #[cfg(all(feature = "arithmetic", feature = "pem"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "arithmetic")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
-impl<C> ToPrivateKey for SecretKey<C>
+impl<C> EncodePrivateKey for SecretKey<C>
 where
-    C: weierstrass::Curve + AlgorithmParameters + ProjectiveArithmetic,
+    C: Curve + AssociatedOid + ProjectiveArithmetic,
     AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
-    Scalar<C>: Zeroize,
-    UntaggedPointSize<C>: Add<U1> + ArrayLength<u8>,
-    UncompressedPointSize<C>: ArrayLength<u8>,
+    FieldSize<C>: ModulusSize,
 {
-    fn to_pkcs8_der(&self) -> pkcs8::Result<pkcs8::PrivateKeyDocument> {
-        // TODO(tarcieri): wrap `secret_key_bytes` in `Zeroizing`
-        let mut secret_key_bytes = self.to_bytes();
-        let secret_key_field = OctetString::new(&secret_key_bytes)?;
-        let public_key_bytes = self.public_key().to_encoded_point(false);
-        let public_key_field = ContextSpecific {
-            tag_number: PUBLIC_KEY_TAG,
-            value: BitString::new(public_key_bytes.as_ref())?.into(),
+    fn to_pkcs8_der(&self) -> pkcs8::Result<der::SecretDocument> {
+        let algorithm_identifier = pkcs8::AlgorithmIdentifier {
+            oid: ALGORITHM_OID,
+            parameters: Some((&C::OID).into()),
         };
 
-        let der_message_fields: &[&dyn Encodable] =
-            &[&VERSION, &secret_key_field, &public_key_field];
-
-        let encoded_len = der::message::encoded_len(der_message_fields)?.try_into()?;
-        let mut der_message = Zeroizing::new(vec![0u8; encoded_len]);
-        let mut encoder = der::Encoder::new(&mut der_message);
-        encoder.message(der_message_fields)?;
-        encoder.finish()?;
-
-        // TODO(tarcieri): wrap `secret_key_bytes` in `Zeroizing`
-        secret_key_bytes.zeroize();
-
-        Ok(pkcs8::PrivateKeyInfo::new(C::algorithm_identifier(), &der_message).to_der())
+        let ec_private_key = self.to_sec1_der()?;
+        let pkcs8_key = pkcs8::PrivateKeyInfo::new(algorithm_identifier, &ec_private_key);
+        Ok(der::SecretDocument::encode_msg(&pkcs8_key)?)
     }
 }
 
@@ -130,9 +81,8 @@ where
 #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
 impl<C> FromStr for SecretKey<C>
 where
-    C: weierstrass::Curve + AlgorithmParameters + ValidatePublicKey,
-    UntaggedPointSize<C>: Add<U1> + ArrayLength<u8>,
-    UncompressedPointSize<C>: ArrayLength<u8>,
+    C: Curve + AssociatedOid + ValidatePublicKey,
+    FieldSize<C>: ModulusSize,
 {
     type Err = Error;
 

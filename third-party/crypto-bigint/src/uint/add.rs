@@ -1,7 +1,6 @@
 //! [`UInt`] addition operations.
 
-use super::UInt;
-use crate::{Limb, Wrapping};
+use crate::{Checked, CheckedAdd, Limb, UInt, Wrapping, Zero};
 use core::ops::{Add, AddAssign};
 use subtle::CtOption;
 
@@ -22,14 +21,27 @@ impl<const LIMBS: usize> UInt<LIMBS> {
         (Self { limbs }, carry)
     }
 
+    /// Perform saturating addition, returning `MAX` on overflow.
+    pub const fn saturating_add(&self, rhs: &Self) -> Self {
+        let (res, overflow) = self.adc(rhs, Limb::ZERO);
+
+        if overflow.0 == 0 {
+            res
+        } else {
+            Self::MAX
+        }
+    }
+
     /// Perform wrapping addition, discarding overflow.
     pub const fn wrapping_add(&self, rhs: &Self) -> Self {
         self.adc(rhs, Limb::ZERO).0
     }
+}
 
-    /// Perform checked addition, returning a [`CtOption`] which `is_some` only
-    /// if the operation did not overflow.
-    pub fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
+impl<const LIMBS: usize> CheckedAdd<&UInt<LIMBS>> for UInt<LIMBS> {
+    type Output = Self;
+
+    fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let (result, carry) = self.adc(rhs, Limb::ZERO);
         CtOption::new(result, carry.is_zero())
     }
@@ -79,9 +91,65 @@ impl<const LIMBS: usize> AddAssign<&Wrapping<UInt<LIMBS>>> for Wrapping<UInt<LIM
     }
 }
 
+impl<const LIMBS: usize> Add for Checked<UInt<LIMBS>> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_add(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> Add<&Checked<UInt<LIMBS>>> for Checked<UInt<LIMBS>> {
+    type Output = Checked<UInt<LIMBS>>;
+
+    fn add(self, rhs: &Checked<UInt<LIMBS>>) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_add(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> Add<Checked<UInt<LIMBS>>> for &Checked<UInt<LIMBS>> {
+    type Output = Checked<UInt<LIMBS>>;
+
+    fn add(self, rhs: Checked<UInt<LIMBS>>) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_add(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> Add<&Checked<UInt<LIMBS>>> for &Checked<UInt<LIMBS>> {
+    type Output = Checked<UInt<LIMBS>>;
+
+    fn add(self, rhs: &Checked<UInt<LIMBS>>) -> Checked<UInt<LIMBS>> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_add(&rhs))),
+        )
+    }
+}
+
+impl<const LIMBS: usize> AddAssign for Checked<UInt<LIMBS>> {
+    fn add_assign(&mut self, other: Self) {
+        *self = *self + other;
+    }
+}
+
+impl<const LIMBS: usize> AddAssign<&Checked<UInt<LIMBS>>> for Checked<UInt<LIMBS>> {
+    fn add_assign(&mut self, other: &Self) {
+        *self = *self + other;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Limb, U128};
+    use crate::{CheckedAdd, Limb, U128};
 
     #[test]
     fn adc_no_carry() {

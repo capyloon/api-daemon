@@ -12,6 +12,7 @@ use crate::generated::common::Peer;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::traits::SharedServiceState;
+use core::str::FromStr;
 use did_key::{CoreSign, Ed25519KeyPair, Fingerprint};
 use ucan::crypto::did::{DidParser, KeyConstructorSlice};
 use ucan::crypto::KeyMaterial;
@@ -19,7 +20,7 @@ use ucan::ucan::Ucan;
 
 pub const SUPPORTED_UCAN_KEYS: &KeyConstructorSlice = &[
     // https://github.com/multiformats/multicodec/blob/e9ecf587558964715054a0afcc01f7ace220952c/table.csv#L94
-    ([0xed, 0x01], bytes_to_ed25519_key),
+    (&[0xed, 0x01], bytes_to_ed25519_key),
 ];
 
 struct UcanKeyPair {
@@ -58,7 +59,7 @@ fn bytes_to_ed25519_key(bytes: Vec<u8>) -> Result<Box<dyn KeyMaterial>> {
 }
 
 pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
-    let ucan = Ucan::try_from_token_string(&token).map_err(|_| ())?;
+    let ucan = Ucan::from_str(&token).map_err(|_| ())?;
     // Parse the token, check time bounds and signature.
     let mut parser = DidParser::new(SUPPORTED_UCAN_KEYS);
     ucan.validate(&mut parser).await.map_err(|_| ())?;
@@ -86,10 +87,10 @@ pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
 
 // Trait to implement by peer discovery mechanisms.
 pub trait DiscoveryMechanism {
-    fn with_state(state: common::traits::Shared<service::State>, peer: &Peer) -> Option<Self>
+    fn with_state(state: common::traits::Shared<service::State>) -> Option<Self>
     where
         Self: Sized;
 
-    fn start(&mut self) -> Result<(), ()>;
+    fn start(&mut self, peer: &Peer) -> Result<(), ()>;
     fn stop(&mut self) -> Result<(), ()>;
 }

@@ -1,6 +1,6 @@
 //! Testing-only StateMgr that stores values in a hash table.
 
-use crate::{load_error, store_error};
+use crate::err::{Action, ErrorSource, Resource};
 use crate::{Error, LockStatus, Result, StateMgr};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 /// without having to store anything to disk.
 ///
 /// Only available when this crate is built with the `testing` feature.
+#[cfg_attr(docsrs, doc(cfg(feature = "testing")))]
 #[derive(Clone, Debug)]
 pub struct TestingStateMgr {
     /// Inner reference-counted storage.
@@ -87,6 +88,13 @@ impl TestingStateMgr {
             inner: Arc::new(Mutex::new(new_inner)),
         }
     }
+
+    /// Return an error Resource corresponding to a given `key`.
+    fn err_resource(&self, key: &str) -> Resource {
+        Resource::Temporary {
+            key: key.to_string(),
+        }
+    }
 }
 
 impl StateMgr for TestingStateMgr {
@@ -98,7 +106,11 @@ impl StateMgr for TestingStateMgr {
         let storage = inner.storage.lock().expect("Lock poisoned.");
         let content = storage.entries.get(key);
         match content {
-            Some(value) => Ok(Some(serde_json::from_str(value).map_err(load_error)?)),
+            Some(value) => {
+                Ok(Some(serde_json::from_str(value).map_err(|e| {
+                    Error::new(e, Action::Loading, self.err_resource(key))
+                })?))
+            }
             None => Ok(None),
         }
     }
@@ -109,11 +121,16 @@ impl StateMgr for TestingStateMgr {
     {
         let inner = self.inner.lock().expect("Lock poisoned.");
         if !inner.lock_held {
-            return Err(Error::NoLock);
+            return Err(Error::new(
+                ErrorSource::NoLock,
+                Action::Storing,
+                Resource::Manager,
+            ));
         }
         let mut storage = inner.storage.lock().expect("Lock poisoned.");
 
-        let val = serde_json::to_string_pretty(val).map_err(store_error)?;
+        let val = serde_json::to_string_pretty(val)
+            .map_err(|e| Error::new(e, Action::Storing, self.err_resource(key)))?;
 
         storage.entries.insert(key.to_string(), val);
         Ok(())
@@ -157,7 +174,16 @@ impl Drop for TestingStateMgrInner {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use serde::{Deserialize, Serialize};
 
@@ -191,7 +217,10 @@ mod test {
         };
 
         assert_eq!(mgr.load::<Ex1>("item1").unwrap(), None);
-        assert!(matches!(mgr.store("item1", &v1), Err(Error::NoLock)));
+        assert!(matches!(
+            mgr.store("item1", &v1).unwrap_err().source(),
+            ErrorSource::NoLock
+        ));
 
         assert!(!mgr.can_store());
         assert_eq!(mgr.try_lock().unwrap(), LockStatus::NewlyAcquired);
@@ -250,7 +279,10 @@ mod test {
             s2: "yrfmstbyes".into(),
         };
 
-        assert!(matches!(h1.store(&v1), Err(Error::NoLock)));
+        assert!(matches!(
+            h1.store(&v1).unwrap_err().source(),
+            ErrorSource::NoLock
+        ));
         assert!(mgr.try_lock().unwrap().held());
         assert!(h1.can_store());
         assert!(h1.store(&v1).is_ok());

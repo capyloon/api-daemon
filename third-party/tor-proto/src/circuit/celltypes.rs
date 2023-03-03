@@ -5,18 +5,33 @@
 //! so that Rust's typesafety can help enforce protocol properties.
 
 use crate::{Error, Result};
+use std::fmt::{self, Display};
 use tor_cell::chancell::msg::{self as chanmsg, ChanMsg};
 
 /// A subclass of ChanMsg that can arrive in response to a CREATE* cell
 /// that we send.
+#[cfg_attr(docsrs, doc(cfg(feature = "testing")))]
 #[derive(Debug)]
-pub(crate) enum CreateResponse {
+#[allow(unreachable_pub)] // Only `pub` with feature `testing`; otherwise, visible in crate
+#[allow(clippy::exhaustive_enums)]
+pub enum CreateResponse {
     /// Destroy cell: the CREATE failed.
     Destroy(chanmsg::Destroy),
     /// CreatedFast: good response to a CREATE cell.
     CreatedFast(chanmsg::CreatedFast),
     /// Created2: good response to a CREATE2 cell.
     Created2(chanmsg::Created2),
+}
+
+impl Display for CreateResponse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CreateResponse as CR;
+        match self {
+            CR::Destroy(destroy) => write!(f, "DESTROY({})", destroy.reason()),
+            CR::CreatedFast(_) => Display::fmt("CREATED_FAST", f),
+            CR::Created2(_) => Display::fmt("CREATED2", f),
+        }
+    }
 }
 
 impl TryFrom<ChanMsg> for CreateResponse {
@@ -38,7 +53,8 @@ impl TryFrom<ChanMsg> for CreateResponse {
 /// A subclass of ChanMsg that can correctly arrive on a live client
 /// circuit (one where a CREATED* has been received).
 #[derive(Debug)]
-pub(crate) enum ClientCircChanMsg {
+#[allow(unreachable_pub)] // Only `pub` with feature `testing`; otherwise, visible in crate
+pub enum ClientCircChanMsg {
     /// A relay cell telling us some kind of remote command from some
     /// party on the circuit.
     Relay(chanmsg::Relay),
@@ -64,7 +80,16 @@ impl TryFrom<ChanMsg> for ClientCircChanMsg {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]

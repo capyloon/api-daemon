@@ -12,11 +12,13 @@ use bytes::BytesMut;
 /// This object can be used to encode and decode channel cells.
 ///
 /// NOTE: only link protocol versions 3 and higher are supported.
-/// VERSIONS cells are not supported via the encoder/decoder, since it
-/// VERSIONS always uses a two-byte circuit-ID.
+/// VERSIONS cells are not supported via the encoder/decoder, since
+/// VERSIONS cells always use a two-byte circuit-ID for backwards
+/// compatibility with protocol versions < 4.
 ///
 /// The implemented format is one of the following:
 ///
+/// Variable-length cells (since protocol versions 2 and 3 respectively):
 /// ```ignore
 ///     u32 circid;
 ///     u8 command;
@@ -24,6 +26,7 @@ use bytes::BytesMut;
 ///     u8 body[len];
 /// ```
 ///
+/// Fixed-width cells (since protocol version 1 and 4 respectively):
 /// ```ignore
 ///     u32 circid;
 ///     u8 command;
@@ -34,7 +37,7 @@ pub struct ChannelCodec {
     /// The link protocol version being used for this channel.
     ///
     /// (We don't currently support any versions of the link protocol
-    /// where this version matters, but for some older versions, it would
+    /// where this version matters, but for protocol versions below 4, it would
     /// affect the length of the circuit ID.)
     link_version: u16,
 }
@@ -57,7 +60,7 @@ impl ChannelCodec {
         // now write the cell body and handle the length.
         if cmd.is_var_cell() {
             dst.write_u16(0);
-            msg.write_body_onto(dst);
+            msg.write_body_onto(dst)?;
             let len = dst.len() - pos - 2;
             if len > std::u16::MAX as usize {
                 return Err(Error::Internal(internal!("ran out of space for varcell")));
@@ -65,7 +68,7 @@ impl ChannelCodec {
             // go back and set the length.
             *(array_mut_ref![&mut dst[pos..pos + 2], 0, 2]) = (len as u16).to_be_bytes();
         } else {
-            msg.write_body_onto(dst);
+            msg.write_body_onto(dst)?;
             let len = dst.len() - pos;
             if len > CELL_DATA_LEN {
                 return Err(Error::Internal(internal!("ran out of space for cell")));

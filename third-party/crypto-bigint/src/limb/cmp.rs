@@ -1,16 +1,10 @@
 //! Limb comparisons
 
-use super::{Inner, Limb, SignedInner, SignedWide, BIT_SIZE, HI_BIT};
+use super::{Limb, SignedWord, WideSignedWord, Word, HI_BIT};
 use core::cmp::Ordering;
 use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess};
 
 impl Limb {
-    /// Is this limb equal to zero?
-    #[inline]
-    pub fn is_zero(&self) -> Choice {
-        self.ct_eq(&Self::ZERO)
-    }
-
     /// Is this limb an odd number?
     #[inline]
     pub fn is_odd(&self) -> Choice {
@@ -34,18 +28,18 @@ impl Limb {
     ///
     /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
     #[inline]
-    pub(crate) const fn is_nonzero(self) -> Inner {
-        let inner = self.0 as SignedInner;
-        ((inner | inner.saturating_neg()) >> HI_BIT) as Inner
+    pub(crate) const fn is_nonzero(self) -> Word {
+        let inner = self.0 as SignedWord;
+        ((inner | inner.saturating_neg()) >> HI_BIT) as Word
     }
 
     #[inline]
-    pub(crate) const fn ct_cmp(lhs: Self, rhs: Self) -> SignedInner {
-        let a = lhs.0 as SignedWide;
-        let b = rhs.0 as SignedWide;
-        let gt = ((b - a) >> BIT_SIZE) & 1;
-        let lt = ((a - b) >> BIT_SIZE) & 1 & !gt;
-        (gt as SignedInner) - (lt as SignedInner)
+    pub(crate) const fn ct_cmp(lhs: Self, rhs: Self) -> SignedWord {
+        let a = lhs.0 as WideSignedWord;
+        let b = rhs.0 as WideSignedWord;
+        let gt = ((b - a) >> Limb::BIT_SIZE) & 1;
+        let lt = ((a - b) >> Limb::BIT_SIZE) & 1 & !gt;
+        (gt as SignedWord) - (lt as SignedWord)
     }
 }
 
@@ -106,7 +100,7 @@ impl PartialEq for Limb {
 
 #[cfg(test)]
 mod tests {
-    use crate::Limb;
+    use crate::{Limb, Zero};
     use core::cmp::Ordering;
     use subtle::{ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess};
 

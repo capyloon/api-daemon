@@ -4,16 +4,16 @@
 //! A collection of parsed date and time items.
 //! They can be constructed incrementally while being checked for consistency.
 
+use num_integer::div_rem;
 use num_traits::ToPrimitive;
-use oldtime::Duration as OldDuration;
 
 use super::{ParseResult, IMPOSSIBLE, NOT_ENOUGH, OUT_OF_RANGE};
-use div::div_rem;
-use naive::{NaiveDate, NaiveDateTime, NaiveTime};
-use offset::{FixedOffset, LocalResult, Offset, TimeZone};
-use DateTime;
-use Weekday;
-use {Datelike, Timelike};
+use crate::naive::{NaiveDate, NaiveDateTime, NaiveTime};
+use crate::offset::{FixedOffset, LocalResult, Offset, TimeZone};
+use crate::oldtime::Duration as OldDuration;
+use crate::DateTime;
+use crate::Weekday;
+use crate::{Datelike, Timelike};
 
 /// Parsed parts of date and time. There are two classes of methods:
 ///
@@ -22,8 +22,7 @@ use {Datelike, Timelike};
 ///
 /// - `to_*` methods try to make a concrete date and time value out of set fields.
 ///   It fully checks any remaining out-of-range conditions and inconsistent/impossible fields.
-#[allow(missing_copy_implementations)]
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Parsed {
     /// Year.
     ///
@@ -123,34 +122,6 @@ fn set_if_consistent<T: PartialEq>(old: &mut Option<T>, new: T) -> ParseResult<(
     } else {
         *old = Some(new);
         Ok(())
-    }
-}
-
-impl Default for Parsed {
-    fn default() -> Parsed {
-        Parsed {
-            year: None,
-            year_div_100: None,
-            year_mod_100: None,
-            isoyear: None,
-            isoyear_div_100: None,
-            isoyear_mod_100: None,
-            month: None,
-            week_from_sun: None,
-            week_from_mon: None,
-            isoweek: None,
-            weekday: None,
-            ordinal: None,
-            day: None,
-            hour_div_12: None,
-            hour_mod_12: None,
-            minute: None,
-            second: None,
-            nanosecond: None,
-            timestamp: None,
-            offset: None,
-            _dummy: (),
-        }
     }
 }
 
@@ -254,14 +225,14 @@ impl Parsed {
     /// (`false` for AM, `true` for PM)
     #[inline]
     pub fn set_ampm(&mut self, value: bool) -> ParseResult<()> {
-        set_if_consistent(&mut self.hour_div_12, if value { 1 } else { 0 })
+        set_if_consistent(&mut self.hour_div_12, u32::from(value))
     }
 
     /// Tries to set the [`hour_mod_12`](#structfield.hour_mod_12) field from
     /// given hour number in 12-hour clocks.
     #[inline]
     pub fn set_hour12(&mut self, value: i64) -> ParseResult<()> {
-        if value < 1 || value > 12 {
+        if !(1..=12).contains(&value) {
             return Err(OUT_OF_RANGE);
         }
         set_if_consistent(&mut self.hour_mod_12, value as u32 % 12)
@@ -333,7 +304,7 @@ impl Parsed {
                 // check if present quotient and/or modulo is consistent to the full year.
                 // since the presence of those fields means a positive full year,
                 // we should filter a negative full year first.
-                (Some(y), q, r @ Some(0...99)) | (Some(y), q, r @ None) => {
+                (Some(y), q, r @ Some(0..=99)) | (Some(y), q, r @ None) => {
                     if y < 0 {
                         return Err(OUT_OF_RANGE);
                     }
@@ -347,7 +318,7 @@ impl Parsed {
 
                 // the full year is missing but we have quotient and modulo.
                 // reconstruct the full year. make sure that the result is always positive.
-                (None, Some(q), Some(r @ 0...99)) => {
+                (None, Some(q), Some(r @ 0..=99)) => {
                     if q < 0 {
                         return Err(OUT_OF_RANGE);
                     }
@@ -357,7 +328,7 @@ impl Parsed {
 
                 // we only have modulo. try to interpret a modulo as a conventional two-digit year.
                 // note: we are affected by Rust issue #18060. avoid multiple range patterns.
-                (None, None, Some(r @ 0...99)) => Ok(Some(r + if r < 70 { 2000 } else { 1900 })),
+                (None, None, Some(r @ 0..=99)) => Ok(Some(r + if r < 70 { 2000 } else { 1900 })),
 
                 // otherwise it is an out-of-bound or insufficient condition.
                 (None, Some(_), None) => Err(NOT_ENOUGH),
@@ -528,32 +499,32 @@ impl Parsed {
     /// It is able to handle leap seconds when given second is 60.
     pub fn to_naive_time(&self) -> ParseResult<NaiveTime> {
         let hour_div_12 = match self.hour_div_12 {
-            Some(v @ 0...1) => v,
+            Some(v @ 0..=1) => v,
             Some(_) => return Err(OUT_OF_RANGE),
             None => return Err(NOT_ENOUGH),
         };
         let hour_mod_12 = match self.hour_mod_12 {
-            Some(v @ 0...11) => v,
+            Some(v @ 0..=11) => v,
             Some(_) => return Err(OUT_OF_RANGE),
             None => return Err(NOT_ENOUGH),
         };
         let hour = hour_div_12 * 12 + hour_mod_12;
 
         let minute = match self.minute {
-            Some(v @ 0...59) => v,
+            Some(v @ 0..=59) => v,
             Some(_) => return Err(OUT_OF_RANGE),
             None => return Err(NOT_ENOUGH),
         };
 
         // we allow omitting seconds or nanoseconds, but they should be in the range.
         let (second, mut nano) = match self.second.unwrap_or(0) {
-            v @ 0...59 => (v, 0),
+            v @ 0..=59 => (v, 0),
             60 => (59, 1_000_000_000),
             _ => return Err(OUT_OF_RANGE),
         };
         nano += match self.nanosecond {
-            Some(v @ 0...999_999_999) if self.second.is_some() => v,
-            Some(0...999_999_999) => return Err(NOT_ENOUGH), // second is missing
+            Some(v @ 0..=999_999_999) if self.second.is_some() => v,
+            Some(0..=999_999_999) => return Err(NOT_ENOUGH), // second is missing
             Some(_) => return Err(OUT_OF_RANGE),
             None => 0,
         };
@@ -655,6 +626,12 @@ impl Parsed {
         let offset = self.offset.ok_or(NOT_ENOUGH)?;
         let datetime = self.to_naive_datetime_with_offset(offset)?;
         let offset = FixedOffset::east_opt(offset).ok_or(OUT_OF_RANGE)?;
+
+        // this is used to prevent an overflow when calling FixedOffset::from_local_datetime
+        datetime
+            .checked_sub_signed(OldDuration::seconds(i64::from(offset.local_minus_utc())))
+            .ok_or(OUT_OF_RANGE)?;
+
         match offset.from_local_datetime(&datetime) {
             LocalResult::None => Err(IMPOSSIBLE),
             LocalResult::Single(t) => Ok(t),
@@ -721,10 +698,10 @@ impl Parsed {
 mod tests {
     use super::super::{IMPOSSIBLE, NOT_ENOUGH, OUT_OF_RANGE};
     use super::Parsed;
-    use naive::{NaiveDate, NaiveTime, MAX_DATE, MIN_DATE};
-    use offset::{FixedOffset, TimeZone, Utc};
-    use Datelike;
-    use Weekday::*;
+    use crate::naive::{NaiveDate, NaiveTime};
+    use crate::offset::{FixedOffset, TimeZone, Utc};
+    use crate::Datelike;
+    use crate::Weekday::*;
 
     #[test]
     fn test_parsed_set_fields() {
@@ -805,7 +782,7 @@ mod tests {
             )
         }
 
-        let ymd = |y, m, d| Ok(NaiveDate::from_ymd(y, m, d));
+        let ymd = |y, m, d| Ok(NaiveDate::from_ymd_opt(y, m, d).unwrap());
 
         // ymd: omission of fields
         assert_eq!(parse!(), Err(NOT_ENOUGH));
@@ -851,7 +828,7 @@ mod tests {
         assert_eq!(parse!(year_div_100: 19, year_mod_100: -1, month: 1, day: 1), Err(OUT_OF_RANGE));
         assert_eq!(parse!(year_div_100: 0, year_mod_100: 0, month: 1, day: 1), ymd(0, 1, 1));
         assert_eq!(parse!(year_div_100: -1, year_mod_100: 42, month: 1, day: 1), Err(OUT_OF_RANGE));
-        let max_year = MAX_DATE.year();
+        let max_year = NaiveDate::MAX.year();
         assert_eq!(
             parse!(year_div_100: max_year / 100,
                           year_mod_100: max_year % 100, month: 1, day: 1),
@@ -992,8 +969,8 @@ mod tests {
             )
         }
 
-        let hms = |h, m, s| Ok(NaiveTime::from_hms(h, m, s));
-        let hmsn = |h, m, s, n| Ok(NaiveTime::from_hms_nano(h, m, s, n));
+        let hms = |h, m, s| Ok(NaiveTime::from_hms_opt(h, m, s).unwrap());
+        let hmsn = |h, m, s, n| Ok(NaiveTime::from_hms_nano_opt(h, m, s, n).unwrap());
 
         // omission of fields
         assert_eq!(parse!(), Err(NOT_ENOUGH));
@@ -1048,9 +1025,12 @@ mod tests {
             ($($k:ident: $v:expr),*) => (parse!(offset = 0; $($k: $v),*))
         }
 
-        let ymdhms = |y, m, d, h, n, s| Ok(NaiveDate::from_ymd(y, m, d).and_hms(h, n, s));
-        let ymdhmsn =
-            |y, m, d, h, n, s, nano| Ok(NaiveDate::from_ymd(y, m, d).and_hms_nano(h, n, s, nano));
+        let ymdhms = |y, m, d, h, n, s| {
+            Ok(NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, n, s).unwrap())
+        };
+        let ymdhmsn = |y, m, d, h, n, s, nano| {
+            Ok(NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_nano_opt(h, n, s, nano).unwrap())
+        };
 
         // omission of fields
         assert_eq!(parse!(), Err(NOT_ENOUGH));
@@ -1104,14 +1084,15 @@ mod tests {
 
         // more timestamps
         let max_days_from_year_1970 =
-            MAX_DATE.signed_duration_since(NaiveDate::from_ymd(1970, 1, 1));
-        let year_0_from_year_1970 =
-            NaiveDate::from_ymd(0, 1, 1).signed_duration_since(NaiveDate::from_ymd(1970, 1, 1));
+            NaiveDate::MAX.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
+        let year_0_from_year_1970 = NaiveDate::from_ymd_opt(0, 1, 1)
+            .unwrap()
+            .signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
         let min_days_from_year_1970 =
-            MIN_DATE.signed_duration_since(NaiveDate::from_ymd(1970, 1, 1));
+            NaiveDate::MIN.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
         assert_eq!(
             parse!(timestamp: min_days_from_year_1970.num_seconds()),
-            ymdhms(MIN_DATE.year(), 1, 1, 0, 0, 0)
+            ymdhms(NaiveDate::MIN.year(), 1, 1, 0, 0, 0)
         );
         assert_eq!(
             parse!(timestamp: year_0_from_year_1970.num_seconds()),
@@ -1119,7 +1100,7 @@ mod tests {
         );
         assert_eq!(
             parse!(timestamp: max_days_from_year_1970.num_seconds() + 86399),
-            ymdhms(MAX_DATE.year(), 12, 31, 23, 59, 59)
+            ymdhms(NaiveDate::MAX.year(), 12, 31, 23, 59, 59)
         );
 
         // leap seconds #1: partial fields
@@ -1198,7 +1179,15 @@ mod tests {
         }
 
         let ymdhmsn = |y, m, d, h, n, s, nano, off| {
-            Ok(FixedOffset::east(off).ymd(y, m, d).and_hms_nano(h, n, s, nano))
+            Ok(FixedOffset::east_opt(off)
+                .unwrap()
+                .from_local_datetime(
+                    &NaiveDate::from_ymd_opt(y, m, d)
+                        .unwrap()
+                        .and_hms_nano_opt(h, n, s, nano)
+                        .unwrap(),
+                )
+                .unwrap())
         };
 
         assert_eq!(parse!(offset: 0), Err(NOT_ENOUGH));
@@ -1242,7 +1231,14 @@ mod tests {
             parse!(Utc;
                           year: 2014, ordinal: 365, hour_div_12: 0, hour_mod_12: 4,
                           minute: 26, second: 40, nanosecond: 12_345_678, offset: 0),
-            Ok(Utc.ymd(2014, 12, 31).and_hms_nano(4, 26, 40, 12_345_678))
+            Ok(Utc
+                .from_local_datetime(
+                    &NaiveDate::from_ymd_opt(2014, 12, 31)
+                        .unwrap()
+                        .and_hms_nano_opt(4, 26, 40, 12_345_678)
+                        .unwrap()
+                )
+                .unwrap())
         );
         assert_eq!(
             parse!(Utc;
@@ -1251,31 +1247,42 @@ mod tests {
             Err(IMPOSSIBLE)
         );
         assert_eq!(
-            parse!(FixedOffset::east(32400);
+            parse!(FixedOffset::east_opt(32400).unwrap();
                           year: 2014, ordinal: 365, hour_div_12: 0, hour_mod_12: 4,
                           minute: 26, second: 40, nanosecond: 12_345_678, offset: 0),
             Err(IMPOSSIBLE)
         );
         assert_eq!(
-            parse!(FixedOffset::east(32400);
+            parse!(FixedOffset::east_opt(32400).unwrap();
                           year: 2014, ordinal: 365, hour_div_12: 1, hour_mod_12: 1,
                           minute: 26, second: 40, nanosecond: 12_345_678, offset: 32400),
-            Ok(FixedOffset::east(32400).ymd(2014, 12, 31).and_hms_nano(13, 26, 40, 12_345_678))
+            Ok(FixedOffset::east_opt(32400)
+                .unwrap()
+                .from_local_datetime(
+                    &NaiveDate::from_ymd_opt(2014, 12, 31)
+                        .unwrap()
+                        .and_hms_nano_opt(13, 26, 40, 12_345_678)
+                        .unwrap()
+                )
+                .unwrap())
         );
 
         // single result from timestamp
         assert_eq!(
             parse!(Utc; timestamp: 1_420_000_000, offset: 0),
-            Ok(Utc.ymd(2014, 12, 31).and_hms(4, 26, 40))
+            Ok(Utc.with_ymd_and_hms(2014, 12, 31, 4, 26, 40).unwrap())
         );
         assert_eq!(parse!(Utc; timestamp: 1_420_000_000, offset: 32400), Err(IMPOSSIBLE));
         assert_eq!(
-            parse!(FixedOffset::east(32400); timestamp: 1_420_000_000, offset: 0),
+            parse!(FixedOffset::east_opt(32400).unwrap(); timestamp: 1_420_000_000, offset: 0),
             Err(IMPOSSIBLE)
         );
         assert_eq!(
-            parse!(FixedOffset::east(32400); timestamp: 1_420_000_000, offset: 32400),
-            Ok(FixedOffset::east(32400).ymd(2014, 12, 31).and_hms(13, 26, 40))
+            parse!(FixedOffset::east_opt(32400).unwrap(); timestamp: 1_420_000_000, offset: 32400),
+            Ok(FixedOffset::east_opt(32400)
+                .unwrap()
+                .with_ymd_and_hms(2014, 12, 31, 13, 26, 40)
+                .unwrap())
         );
 
         // TODO test with a variable time zone (for None and Ambiguous cases)

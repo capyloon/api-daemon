@@ -1,24 +1,25 @@
 //! `From`-like conversions for [`Limb`].
 
-use super::{Inner, Limb, Wide};
+use super::{Limb, WideWord, Word};
 
 impl Limb {
     /// Create a [`Limb`] from a `u8` integer (const-friendly)
     // TODO(tarcieri): replace with `const impl From<u8>` when stable
     pub const fn from_u8(n: u8) -> Self {
-        Limb(n as Inner)
+        Limb(n as Word)
     }
 
     /// Create a [`Limb`] from a `u16` integer (const-friendly)
     // TODO(tarcieri): replace with `const impl From<u16>` when stable
     pub const fn from_u16(n: u16) -> Self {
-        Limb(n as Inner)
+        Limb(n as Word)
     }
 
     /// Create a [`Limb`] from a `u32` integer (const-friendly)
     // TODO(tarcieri): replace with `const impl From<u32>` when stable
     pub const fn from_u32(n: u32) -> Self {
-        Limb(n as Inner)
+        #[allow(trivial_numeric_casts)]
+        Limb(n as Word)
     }
 
     /// Create a [`Limb`] from a `u64` integer (const-friendly)
@@ -60,16 +61,16 @@ impl From<u64> for Limb {
     }
 }
 
-impl From<Limb> for Inner {
+impl From<Limb> for Word {
     #[inline]
-    fn from(limb: Limb) -> Inner {
+    fn from(limb: Limb) -> Word {
         limb.0
     }
 }
 
-impl From<Limb> for Wide {
+impl From<Limb> for WideWord {
     #[inline]
-    fn from(limb: Limb) -> Wide {
+    fn from(limb: Limb) -> WideWord {
         limb.0.into()
     }
 }

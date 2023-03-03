@@ -1,7 +1,6 @@
 //! Limb subtraction
 
-use super::{Inner, Limb, Wide};
-use crate::{Encoding, Wrapping};
+use crate::{Checked, CheckedSub, Limb, WideWord, Word, Wrapping, Zero};
 use core::ops::{Sub, SubAssign};
 use subtle::CtOption;
 
@@ -9,11 +8,17 @@ impl Limb {
     /// Computes `self - (rhs + borrow)`, returning the result along with the new borrow.
     #[inline(always)]
     pub const fn sbb(self, rhs: Limb, borrow: Limb) -> (Limb, Limb) {
-        let a = self.0 as Wide;
-        let b = rhs.0 as Wide;
-        let borrow = (borrow.0 >> (Self::BIT_SIZE - 1)) as Wide;
+        let a = self.0 as WideWord;
+        let b = rhs.0 as WideWord;
+        let borrow = (borrow.0 >> (Self::BIT_SIZE - 1)) as WideWord;
         let ret = a.wrapping_sub(b + borrow);
-        (Limb(ret as Inner), Limb((ret >> Self::BIT_SIZE) as Inner))
+        (Limb(ret as Word), Limb((ret >> Self::BIT_SIZE) as Word))
+    }
+
+    /// Perform saturating subtraction.
+    #[inline]
+    pub const fn saturating_sub(&self, rhs: Self) -> Self {
+        Limb(self.0.saturating_sub(rhs.0))
     }
 
     /// Perform wrapping subtraction, discarding underflow and wrapping around
@@ -22,11 +27,13 @@ impl Limb {
     pub const fn wrapping_sub(&self, rhs: Self) -> Self {
         Limb(self.0.wrapping_sub(rhs.0))
     }
+}
 
-    /// Perform checked subtraction, returning a [`CtOption`] which `is_some`
-    /// only if the operation did not overflow.
+impl CheckedSub for Limb {
+    type Output = Self;
+
     #[inline]
-    pub fn checked_sub(&self, rhs: Self) -> CtOption<Self> {
+    fn checked_sub(&self, rhs: Self) -> CtOption<Self> {
         let (result, underflow) = self.sbb(rhs, Limb::ZERO);
         CtOption::new(result, underflow.is_zero())
     }
@@ -76,9 +83,65 @@ impl SubAssign<&Wrapping<Limb>> for Wrapping<Limb> {
     }
 }
 
+impl Sub for Checked<Limb> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Checked<Limb> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(rhs))),
+        )
+    }
+}
+
+impl Sub<&Checked<Limb>> for Checked<Limb> {
+    type Output = Checked<Limb>;
+
+    fn sub(self, rhs: &Checked<Limb>) -> Checked<Limb> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(rhs))),
+        )
+    }
+}
+
+impl Sub<Checked<Limb>> for &Checked<Limb> {
+    type Output = Checked<Limb>;
+
+    fn sub(self, rhs: Checked<Limb>) -> Checked<Limb> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(rhs))),
+        )
+    }
+}
+
+impl Sub<&Checked<Limb>> for &Checked<Limb> {
+    type Output = Checked<Limb>;
+
+    fn sub(self, rhs: &Checked<Limb>) -> Checked<Limb> {
+        Checked(
+            self.0
+                .and_then(|lhs| rhs.0.and_then(|rhs| lhs.checked_sub(rhs))),
+        )
+    }
+}
+
+impl SubAssign for Checked<Limb> {
+    fn sub_assign(&mut self, other: Self) {
+        *self = *self - other;
+    }
+}
+
+impl SubAssign<&Checked<Limb>> for Checked<Limb> {
+    fn sub_assign(&mut self, other: &Self) {
+        *self = *self - other;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::Limb;
+    use crate::{CheckedSub, Limb};
 
     #[test]
     fn sbb_no_borrow() {

@@ -6,6 +6,10 @@
 
 import { core } from "./core.js";
 
+function log(msg) {
+    console.log(`WSTransport[${location.host}] ${msg}`);
+}
+
 class WSTransport {
     /**
      * Initialize a web socket transport object.
@@ -36,7 +40,7 @@ class WSTransport {
         this.state = "start";
 
         this.socket.onopen = () => {
-            console.log("Websocket: opened");
+            log("Websocket opened");
             // Send the handshake
             let handshake = new core.SessionHandshake(token);
             this.socket.send(handshake.encode());
@@ -46,7 +50,7 @@ class WSTransport {
             if (this.state == "start") {
                 // We are waiting for the session Ack.
                 let ack = new core.SessionAck().decode(new Uint8Array(event.data));
-                console.log(`Got ack: ${JSON.stringify(ack)}`);
+                log(`Got ack: ${JSON.stringify(ack)}`);
                 if (!ack.success) {
                     this.socket.close();
                     if (this.listener) {
@@ -66,7 +70,7 @@ class WSTransport {
         }
 
         this.socket.onerror = (event) => {
-            console.log("Websocket: error " + event);
+            log("Websocket error " + event);
             this.state = "failed";
             if (this.listener) {
                 this.listener.set_transport_state("error");
@@ -75,7 +79,7 @@ class WSTransport {
         }
 
         this.socket.onclose = (event) => {
-            console.log("Websocket: close code " + event.code);
+            log("Websocket closed code " + event.code);
             this.socket = null;
             this.state = "failed";
             if (this.listener) {

@@ -1115,7 +1115,7 @@ impl ModificationObserver for Observer {
 
         self.inner
             .event_broadcaster
-            .broadcast_onresourcemodified(modification.into());
+            .broadcast_onresourcemodified(&modification.into());
         info!("Done broadcasting event {:?}", modification);
 
         // Get the id of the modified resource.
@@ -1132,7 +1132,7 @@ impl ModificationObserver for Observer {
         let inner = Rc::get_mut(&mut self.inner).unwrap();
         inner.resource_observers.for_each(&id, |proxy, id| {
             info!("Notifiying observer {}", id);
-            proxy.modified(modification.into());
+            proxy.modified(&modification.into());
         });
     }
 

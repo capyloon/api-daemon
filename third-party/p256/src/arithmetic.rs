@@ -1,7 +1,9 @@
-//! A pure-Rust implementation of group operations on secp256r1.
+//! Pure Rust implementation of group operations on secp256r1.
 
 pub(crate) mod affine;
-mod field;
+pub(crate) mod field;
+#[cfg(feature = "hash2curve")]
+mod hash2curve;
 pub(crate) mod projective;
 pub(crate) mod scalar;
 pub(crate) mod util;
@@ -12,10 +14,10 @@ use projective::ProjectivePoint;
 use scalar::Scalar;
 
 /// a = -3
-const CURVE_EQUATION_A: FieldElement = FieldElement::zero()
-    .subtract(&FieldElement::one())
-    .subtract(&FieldElement::one())
-    .subtract(&FieldElement::one());
+const CURVE_EQUATION_A: FieldElement = FieldElement::ZERO
+    .subtract(&FieldElement::ONE)
+    .subtract(&FieldElement::ONE)
+    .subtract(&FieldElement::ONE);
 
 /// b = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
 const CURVE_EQUATION_B: FieldElement = FieldElement([
@@ -49,7 +51,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "zeroize")]
     fn generate_secret_key() {
         use crate::SecretKey;
         use elliptic_curve::rand_core::OsRng;
@@ -57,6 +58,6 @@ mod tests {
         let key = SecretKey::random(&mut OsRng);
 
         // Sanity check
-        assert!(!key.to_bytes().iter().all(|b| *b == 0))
+        assert!(!key.to_be_bytes().iter().all(|b| *b == 0))
     }
 }

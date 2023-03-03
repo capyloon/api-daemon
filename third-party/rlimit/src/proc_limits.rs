@@ -11,7 +11,7 @@ use std::path::Path;
 ///
 /// See <https://man7.org/linux/man-pages/man5/proc.5.html>.
 ///
-#[cfg_attr(docsrs, doc(cfg(target_os = "linux")))]
+#[cfg_attr(docsrs, doc(cfg(any(target_os = "linux", target_os = "android"))))]
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct ProcLimits {
@@ -50,7 +50,7 @@ pub struct ProcLimits {
 }
 
 /// A process's resource limit field.
-#[cfg_attr(docsrs, doc(cfg(target_os = "linux")))]
+#[cfg_attr(docsrs, doc(cfg(any(target_os = "linux", target_os = "android"))))]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProcLimit {
     /// Soft limit. `None` indicates `unlimited`.
@@ -87,7 +87,7 @@ impl ProcLimits {
                 "ProcLimits: pid must be non-negative",
             ));
         }
-        Self::read_proc_fs(format!("/proc/{}/limits", pid))
+        Self::read_proc_fs(format!("/proc/{pid}/limits"))
     }
 
     fn read_proc_fs(limits_path: impl AsRef<Path>) -> io::Result<Self> {
@@ -108,33 +108,21 @@ impl ProcLimits {
             }
         }
 
-        fn error_missing_table_head() -> io::Error {
-            io::Error::new(io::ErrorKind::Other, "ProcLimits: missing table head")
+        fn io_error_other(s: impl Into<String>) -> io::Error {
+            io::Error::new(io::ErrorKind::Other, s.into())
         }
 
-        fn error_invalid_table_head() -> io::Error {
-            io::Error::new(io::ErrorKind::Other, "ProcLimits: invalid table head")
-        }
+        let error_missing_table_head = || io_error_other("ProcLimits: missing table head");
 
-        fn error_invalid_limit_number(e: ParseIntError) -> io::Error {
-            let ans = io::Error::new(
-                io::ErrorKind::Other,
-                format!("ProcLimits: invalid limit number: {}", e),
-            );
-            drop(e);
-            ans
-        }
+        let error_invalid_table_head = || io_error_other("ProcLimits: invalid table head");
 
-        fn error_duplicate_limit_field() -> io::Error {
-            io::Error::new(io::ErrorKind::Other, "ProcLimits: duplicate limit field")
-        }
+        let error_invalid_limit_number =
+            |e| io_error_other(format!("ProcLimits: invalid limit number: {e}"));
 
-        fn error_unknown_limit_field(s: &str) -> io::Error {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("ProcLimits: unknown limit field: {:?}", s),
-            )
-        }
+        let error_duplicate_limit_field = || io_error_other("ProcLimits: duplicate limit field");
+
+        let error_unknown_limit_field =
+            |s: &str| io_error_other(format!("ProcLimits: unknown limit field: {s:?}"));
 
         let reader = io::BufReader::new(fs::File::open(limits_path)?);
         let mut lines = reader.lines();

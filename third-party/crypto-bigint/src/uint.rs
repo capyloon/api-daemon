@@ -7,18 +7,26 @@
 )]
 
 #[macro_use]
-mod macros;
+mod concat;
+#[macro_use]
+mod split;
 
 mod add;
 mod add_mod;
-mod and;
+mod bit_and;
+mod bit_not;
+mod bit_or;
+mod bit_xor;
+mod bits;
 mod cmp;
 mod div;
 mod encoding;
 mod from;
+mod inv_mod;
 mod mul;
+mod mul_mod;
 mod neg_mod;
-mod or;
+mod resize;
 mod shl;
 mod shr;
 mod sqrt;
@@ -28,13 +36,15 @@ mod sub_mod;
 #[cfg(feature = "generic-array")]
 mod array;
 
-mod bits;
-#[cfg(feature = "rand")]
+#[cfg(feature = "rand_core")]
 mod rand;
 
-use crate::{Concat, Encoding, Integer, Limb, Split};
-use core::fmt;
+use crate::{Concat, Encoding, Integer, Limb, Split, Word, Zero};
+use core::{fmt, mem};
 use subtle::{Choice, ConditionallySelectable};
+
+#[cfg(feature = "serde")]
+use serdect::serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
@@ -69,6 +79,9 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     /// The value `1`.
     pub const ONE: Self = Self::from_u8(1);
 
+    /// The number of limbs used on this platform.
+    pub const LIMBS: usize = LIMBS;
+
     /// Maximum value this [`UInt`] can express.
     pub const MAX: Self = Self {
         limbs: [Limb::MAX; LIMBS],
@@ -79,30 +92,115 @@ impl<const LIMBS: usize> UInt<LIMBS> {
         Self { limbs }
     }
 
+    /// Create a [`UInt`] from an array of [`Word`]s (i.e. word-sized unsigned
+    /// integers).
+    #[inline]
+    pub const fn from_words(arr: [Word; LIMBS]) -> Self {
+        let mut limbs = [Limb::ZERO; LIMBS];
+        let mut i = 0;
+
+        while i < LIMBS {
+            limbs[i] = Limb(arr[i]);
+            i += 1;
+        }
+
+        Self { limbs }
+    }
+
+    /// Create an array of [`Word`]s (i.e. word-sized unsigned integers) from
+    /// a [`UInt`].
+    #[inline]
+    pub const fn to_words(self) -> [Word; LIMBS] {
+        let mut arr = [0; LIMBS];
+        let mut i = 0;
+
+        while i < LIMBS {
+            arr[i] = self.limbs[i].0;
+            i += 1;
+        }
+
+        arr
+    }
+
+    /// Borrow the inner limbs as an array of [`Word`]s.
+    pub const fn as_words(&self) -> &[Word; LIMBS] {
+        // SAFETY: `Limb` is a `repr(transparent)` newtype for `Word`
+        #[allow(unsafe_code)]
+        unsafe {
+            // TODO(tarcieri): use &*((&self.limbs as *const _) as *const [Word; LIMBS])
+            mem::transmute(&self.limbs)
+        }
+    }
+
+    /// Borrow the inner limbs as a mutable array of [`Word`]s.
+    pub fn as_words_mut(&mut self) -> &mut [Word; LIMBS] {
+        // SAFETY: `Limb` is a `repr(transparent)` newtype for `Word`
+        #[allow(trivial_casts, unsafe_code)]
+        unsafe {
+            &mut *((&mut self.limbs as *mut _) as *mut [Word; LIMBS])
+        }
+    }
+
+    /// Deprecated: borrow the inner limbs as an array of [`Word`]s.
+    #[deprecated(since = "0.4.8", note = "please use `as_words` instead")]
+    pub const fn as_uint_array(&self) -> &[Word; LIMBS] {
+        self.as_words()
+    }
+
+    /// Deprecated: create a [`UInt`] from an array of [`Word`]s.
+    #[deprecated(since = "0.4.8", note = "please use `from_words` instead")]
+    pub const fn from_uint_array(words: [Word; LIMBS]) -> Self {
+        Self::from_words(words)
+    }
+
+    /// Deprecated: create an array of [`Word`]s from a [`UInt`].
+    #[deprecated(since = "0.4.8", note = "please use `to_words` instead")]
+    pub const fn to_uint_array(self) -> [Word; LIMBS] {
+        self.to_words()
+    }
+
     /// Borrow the limbs of this [`UInt`].
-    // TODO(tarcieri): eventually phase this out?
+    // TODO(tarcieri): rename to `as_limbs` for consistency with `as_words`
     pub const fn limbs(&self) -> &[Limb; LIMBS] {
         &self.limbs
     }
 
+    /// Borrow the limbs of this [`UInt`] mutably.
+    // TODO(tarcieri): rename to `as_limbs_mut` for consistency with `as_words_mut`
+    pub fn limbs_mut(&mut self) -> &mut [Limb; LIMBS] {
+        &mut self.limbs
+    }
+
     /// Convert this [`UInt`] into its inner limbs.
-    // TODO(tarcieri): eventually phase this out?
+    // TODO(tarcieri): rename to `to_limbs` for consistency with `to_words`
     pub const fn into_limbs(self) -> [Limb; LIMBS] {
         self.limbs
     }
 }
 
-// TODO(tarcieri): eventually phase this out?
+impl<const LIMBS: usize> AsRef<[Word; LIMBS]> for UInt<LIMBS> {
+    fn as_ref(&self) -> &[Word; LIMBS] {
+        self.as_words()
+    }
+}
+
+impl<const LIMBS: usize> AsMut<[Word; LIMBS]> for UInt<LIMBS> {
+    fn as_mut(&mut self) -> &mut [Word; LIMBS] {
+        self.as_words_mut()
+    }
+}
+
+// TODO(tarcieri): eventually phase this out in favor of `limbs()`?
 impl<const LIMBS: usize> AsRef<[Limb]> for UInt<LIMBS> {
     fn as_ref(&self) -> &[Limb] {
         self.limbs()
     }
 }
 
-// TODO(tarcieri): eventually phase this out?
+// TODO(tarcieri): eventually phase this out in favor of `limbs_mut()`?
 impl<const LIMBS: usize> AsMut<[Limb]> for UInt<LIMBS> {
     fn as_mut(&mut self) -> &mut [Limb] {
-        &mut self.limbs
+        self.limbs_mut()
     }
 }
 
@@ -124,17 +222,20 @@ impl<const LIMBS: usize> Default for UInt<LIMBS> {
     }
 }
 
-impl<const LIMBS: usize> Integer for UInt<LIMBS>
-where
-    Self: Encoding,
-{
-    const ZERO: Self = Self::ZERO;
+impl<const LIMBS: usize> Integer for UInt<LIMBS> {
     const ONE: Self = Self::ONE;
     const MAX: Self = Self::MAX;
 
     fn is_odd(&self) -> Choice {
-        self.is_odd()
+        self.limbs
+            .first()
+            .map(|limb| limb.is_odd())
+            .unwrap_or_else(|| Choice::from(0))
     }
+}
+
+impl<const LIMBS: usize> Zero for UInt<LIMBS> {
+    const ZERO: Self = Self::ZERO;
 }
 
 impl<const LIMBS: usize> fmt::Display for UInt<LIMBS> {
@@ -161,9 +262,82 @@ impl<const LIMBS: usize> fmt::UpperHex for UInt<LIMBS> {
     }
 }
 
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+impl<'de, const LIMBS: usize> Deserialize<'de> for UInt<LIMBS>
+where
+    UInt<LIMBS>: Encoding,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mut buffer = Self::ZERO.to_le_bytes();
+        serdect::array::deserialize_hex_or_bin(buffer.as_mut(), deserializer)?;
+
+        Ok(Self::from_le_bytes(buffer))
+    }
+}
+
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+impl<'de, const LIMBS: usize> Serialize for UInt<LIMBS>
+where
+    UInt<LIMBS>: Encoding,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serdect::array::serialize_hex_lower_or_bin(&Encoding::to_le_bytes(self), serializer)
+    }
+}
+
 #[cfg(feature = "zeroize")]
 #[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
 impl<const LIMBS: usize> DefaultIsZeroes for UInt<LIMBS> {}
+
+// TODO(tarcieri): use `const_evaluatable_checked` when stable to make generic around bits.
+macro_rules! impl_uint_aliases {
+    ($(($name:ident, $bits:expr, $doc:expr)),+) => {
+        $(
+            #[doc = $doc]
+            #[doc="unsigned big integer."]
+            pub type $name = UInt<{nlimbs!($bits)}>;
+
+            impl Encoding for $name {
+                const BIT_SIZE: usize = $bits;
+                const BYTE_SIZE: usize = $bits / 8;
+
+                type Repr = [u8; $bits / 8];
+
+                #[inline]
+                fn from_be_bytes(bytes: Self::Repr) -> Self {
+                    Self::from_be_slice(&bytes)
+                }
+
+                #[inline]
+                fn from_le_bytes(bytes: Self::Repr) -> Self {
+                    Self::from_le_slice(&bytes)
+                }
+
+                #[inline]
+                fn to_be_bytes(&self) -> Self::Repr {
+                    let mut result = [0u8; $bits / 8];
+                    self.write_be_bytes(&mut result);
+                    result
+                }
+
+                #[inline]
+                fn to_le_bytes(&self) -> Self::Repr {
+                    let mut result = [0u8; $bits / 8];
+                    self.write_le_bytes(&mut result);
+                    result
+                }
+            }
+        )+
+     };
+}
 
 // TODO(tarcieri): use `const_evaluatable_checked` when stable to make generic around bits.
 impl_uint_aliases! {
@@ -174,6 +348,7 @@ impl_uint_aliases! {
     (U384, 384, "384-bit"),
     (U448, 448, "448-bit"),
     (U512, 512, "512-bit"),
+    (U576, 576, "576-bit"),
     (U768, 768, "768-bit"),
     (U896, 896, "896-bit"),
     (U1024, 1024, "1024-bit"),
@@ -229,8 +404,11 @@ impl_split! {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Concat, Split, U128, U64};
+    use crate::{Encoding, U128};
     use subtle::ConditionallySelectable;
+
+    #[cfg(feature = "serde")]
+    use crate::U64;
 
     #[test]
     #[cfg(feature = "alloc")]
@@ -240,6 +418,34 @@ mod tests {
 
         use alloc::string::ToString;
         assert_eq!(hex, n.to_string());
+
+        let hex = "AAAAAAAABBBBBBBB0000000000000000";
+        let n = U128::from_be_hex(hex);
+        assert_eq!(hex, n.to_string());
+
+        let hex = "AAAAAAAABBBBBBBB00000000DDDDDDDD";
+        let n = U128::from_be_hex(hex);
+        assert_eq!(hex, n.to_string());
+
+        let hex = "AAAAAAAABBBBBBBB0CCCCCCCDDDDDDDD";
+        let n = U128::from_be_hex(hex);
+        assert_eq!(hex, n.to_string());
+    }
+
+    #[test]
+    fn from_bytes() {
+        let a = U128::from_be_hex("AAAAAAAABBBBBBBB0CCCCCCCDDDDDDDD");
+
+        let be_bytes = a.to_be_bytes();
+        let le_bytes = a.to_le_bytes();
+        for i in 0..16 {
+            assert_eq!(le_bytes[i], be_bytes[15 - i]);
+        }
+
+        let a_from_be = U128::from_be_bytes(be_bytes);
+        let a_from_le = U128::from_le_bytes(le_bytes);
+        assert_eq!(a_from_be, a_from_le);
+        assert_eq!(a_from_be, a);
     }
 
     #[test]
@@ -255,19 +461,24 @@ mod tests {
     }
 
     #[test]
-    fn concat() {
-        let hi = U64::from_u64(0x0011223344556677);
-        let lo = U64::from_u64(0x8899aabbccddeeff);
-        assert_eq!(
-            hi.concat(&lo),
-            U128::from_be_hex("00112233445566778899aabbccddeeff")
-        );
+    #[cfg(feature = "serde")]
+    fn serde() {
+        const TEST: U64 = U64::from_u64(0x0011223344556677);
+
+        let serialized = bincode::serialize(&TEST).unwrap();
+        let deserialized: U64 = bincode::deserialize(&serialized).unwrap();
+
+        assert_eq!(TEST, deserialized);
     }
 
     #[test]
-    fn split() {
-        let (hi, lo) = U128::from_be_hex("00112233445566778899aabbccddeeff").split();
-        assert_eq!(hi, U64::from_u64(0x0011223344556677));
-        assert_eq!(lo, U64::from_u64(0x8899aabbccddeeff));
+    #[cfg(feature = "serde")]
+    fn serde_owned() {
+        const TEST: U64 = U64::from_u64(0x0011223344556677);
+
+        let serialized = bincode::serialize(&TEST).unwrap();
+        let deserialized: U64 = bincode::deserialize_from(serialized.as_slice()).unwrap();
+
+        assert_eq!(TEST, deserialized);
     }
 }

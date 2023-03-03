@@ -4,6 +4,208 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.12.3 (2022-08-01)
+### Added
+- Aliases for SEC1 compressed/uncompressed points ([#1067])
+
+### Fixed
+- `arithmetic` + `serde` feature combo ([#1066])
+
+[#1066]: https://github.com/RustCrypto/traits/pull/1066
+[#1067]: https://github.com/RustCrypto/traits/pull/1067
+
+## 0.12.2 (2022-07-01)
+### Changed
+- Bump `crypto-bigint` to v0.4.8 ([#1039])
+
+[#1039]: https://github.com/RustCrypto/traits/pull/1039
+
+## 0.12.1 (2022-06-12)
+### Added
+- `impl_field_element!` macro ([#1021])
+- Generic impl of complete prime order formulas ([#1022])
+
+### Changed
+- Bump `crypto-bigint` to v0.4.4 ([#1018], [#1020])
+
+[#1018]: https://github.com/RustCrypto/traits/pull/1018
+[#1020]: https://github.com/RustCrypto/traits/pull/1020
+[#1021]: https://github.com/RustCrypto/traits/pull/1021
+[#1022]: https://github.com/RustCrypto/traits/pull/1022
+
+## 0.12.0 (2022-05-08)
+### Added
+- `ecdh::SharedSecret::extract` HKDF helper ([#1007])
+
+### Changed
+- Bump `digest` dependency to v0.10 ([#883], [#904])
+- Make `NonZeroScalar::invert` infallible ([#894])
+- `ToCompactEncodedPoint` now returns `CtOption` ([#895])
+- Move `hash2field` into `hash2curve` module ([#903])
+- Bump `ff` and `group` dependencies to v0.12 ([#994])
+- Use `serdect` crate ([#996])
+- Replace `AlgorithmParamters` with `AssociatedOid` ([#1001])
+- Bump `crypto-bigint` dependency to v0.4 ([#1005])
+- Bump `der` dependency to v0.6 ([#1006])
+- Bump `pkcs8` dependency to v0.9 ([#1006])
+- Bump `sec1` dependency to v0.3 ([#1006])
+- Bump `pem-rfc7468` dependency to v0.6 ([#1009])
+
+### Removed
+- `Zeroize` impl from `ecdh::SharedSecret` ([#978])
+
+[#883]: https://github.com/RustCrypto/traits/pull/883
+[#894]: https://github.com/RustCrypto/traits/pull/894
+[#895]: https://github.com/RustCrypto/traits/pull/895
+[#903]: https://github.com/RustCrypto/traits/pull/903
+[#904]: https://github.com/RustCrypto/traits/pull/904
+[#978]: https://github.com/RustCrypto/traits/pull/978
+[#994]: https://github.com/RustCrypto/traits/pull/994
+[#996]: https://github.com/RustCrypto/traits/pull/996
+[#1001]: https://github.com/RustCrypto/traits/pull/1001
+[#1005]: https://github.com/RustCrypto/traits/pull/1005
+[#1006]: https://github.com/RustCrypto/traits/pull/1006
+[#1007]: https://github.com/RustCrypto/traits/pull/1007
+[#1009]: https://github.com/RustCrypto/traits/pull/1009
+
+## 0.11.12 (2022-01-30)
+### Changed
+- Disable `bits` feature on docs.rs due to nightly breakage ([#927])
+
+[#927]: https://github.com/RustCrypto/traits/pull/927
+
+## 0.11.11 (2022-01-30)
+- No changes; triggering a docs.rs rebuild
+
+## 0.11.10 (2022-01-27)
+### Changed
+- Revert [#884] to support a wider range of `zeroize` versions ([#923])
+
+[#923]: https://github.com/RustCrypto/traits/pull/891
+
+## 0.11.9 (2022-01-17) [YANKED]
+### Changed
+- Activate `bits`, `hash2curve`, and `voprf` features on docs.rs ([#891])
+
+[#891]: https://github.com/RustCrypto/traits/pull/891
+
+## 0.11.8 (2022-01-15) [YANKED]
+### Added
+- Impl `ZeroizeOnDrop` on appropriate items ([#884])
+
+### Changed
+- Use the `base16ct` crate for hex serialization ([#886], [#887], [#888])
+
+[#884]: https://github.com/RustCrypto/traits/pull/884
+[#886]: https://github.com/RustCrypto/traits/pull/886
+[#887]: https://github.com/RustCrypto/traits/pull/887
+[#888]: https://github.com/RustCrypto/traits/pull/888
+
+## 0.11.7 (2022-01-14) [YANKED]
+### Added
+- Initial hash-to-field support ([#854], [#855], [#871], [#874])
+- Initial hash-to-curve support ([#865], [#876])
+- Impl `Mul` for `NonZeroScalar` * `NonZeroScalar` ([#857], [#862])
+- `Reduce::from_*e_digest_reduced` ([#869])
+- `VoprfParameters` trait ([#878])
+
+[#854]: https://github.com/RustCrypto/traits/pull/854
+[#855]: https://github.com/RustCrypto/traits/pull/855
+[#857]: https://github.com/RustCrypto/traits/pull/857
+[#862]: https://github.com/RustCrypto/traits/pull/862
+[#865]: https://github.com/RustCrypto/traits/pull/865
+[#869]: https://github.com/RustCrypto/traits/pull/869
+[#871]: https://github.com/RustCrypto/traits/pull/871
+[#874]: https://github.com/RustCrypto/traits/pull/874
+[#876]: https://github.com/RustCrypto/traits/pull/876
+[#878]: https://github.com/RustCrypto/traits/pull/878
+
+## 0.11.6 (2021-12-20)
+### Added
+- Type conversions chart ([#852])
+
+[#852]: https://github.com/RustCrypto/traits/pull/852
+
+## 0.11.5 (2021-12-05)
+### Changed
+- Revised `LinearCombination` trait ([#835])
+
+[#835]: https://github.com/RustCrypto/traits/pull/835
+
+## 0.11.4 (2021-12-04) [YANKED]
+### Added
+- `LinearCombination` trait ([#832])
+
+[#832]: https://github.com/RustCrypto/traits/pull/832
+
+## 0.11.3 (2021-12-03) [YANKED]
+### Added
+- `ReduceNonZero` trait ([#827])
+
+[#827]: https://github.com/RustCrypto/traits/pull/827
+
+## 0.11.2 (2021-12-03) [YANKED]
+### Changed
+- Bump `pem-rfc7468` dependency to v0.3 ([#825])
+
+[#825]: https://github.com/RustCrypto/traits/pull/825
+
+## 0.11.1 (2021-11-21) [YANKED]
+### Added
+- `NonZeroScalar::from_uint` ([#822])
+
+[#822]: https://github.com/RustCrypto/traits/pull/822
+
+## 0.11.0 (2021-11-19) [YANKED]
+### Added
+- `ScalarCore<C>` type ([#732])
+- `PrimeCurveArithmetic` trait ([#739])
+- SEC1 private key support ([#762])
+- `Reduce` trait ([#768])
+- Re-export `ff` and `PrimeField` ([#796])
+- `Encoding` bound on `Curve::UInt` ([#806])
+- `scalar::IsHigh` trait ([#814], [#815])
+- `Neg` impl for `NonZeroScalar<C>` ([#816])
+- `AffineXCoordinate` trait ([#817])
+- `serde` support for scalar and `PublicKey` types ([#818])
+
+### Changed
+- Bump `ff` + `group` to v0.11 ([#730])
+- Make `SecretKey::to_jwk_string` self-zeroizing ([#742])
+- Use `sec1` crate's `EncodedPoint` ([#771])
+- Make `FromEncodedPoint` return a `CtOption` ([#782])
+- Rust 2021 edition upgrade; MSRV to 1.56 ([#795])
+- Bump `crypto-bigint` dependency to v0.3 ([#807])
+- Use `sec1` crate for `pkcs8` support ([#809])
+- Bump `spki` dependency to v0.5 release ([#810])
+- `NonZeroScalar` is now bounded on `ScalarArithmetic` instead of
+  `ProjectiveArithmetic` ([#812])
+
+### Fixed
+- `Zeroize` impl on `NonZeroScalar` ([#785])
+
+[#730]: https://github.com/RustCrypto/traits/pull/730
+[#732]: https://github.com/RustCrypto/traits/pull/732
+[#739]: https://github.com/RustCrypto/traits/pull/739
+[#742]: https://github.com/RustCrypto/traits/pull/742
+[#762]: https://github.com/RustCrypto/traits/pull/762
+[#768]: https://github.com/RustCrypto/traits/pull/768
+[#771]: https://github.com/RustCrypto/traits/pull/771
+[#782]: https://github.com/RustCrypto/traits/pull/782
+[#785]: https://github.com/RustCrypto/traits/pull/785
+[#795]: https://github.com/RustCrypto/traits/pull/795
+[#796]: https://github.com/RustCrypto/traits/pull/796
+[#806]: https://github.com/RustCrypto/traits/pull/806
+[#807]: https://github.com/RustCrypto/traits/pull/807
+[#809]: https://github.com/RustCrypto/traits/pull/809
+[#810]: https://github.com/RustCrypto/traits/pull/810
+[#812]: https://github.com/RustCrypto/traits/pull/812
+[#814]: https://github.com/RustCrypto/traits/pull/814
+[#815]: https://github.com/RustCrypto/traits/pull/815
+[#816]: https://github.com/RustCrypto/traits/pull/816
+[#817]: https://github.com/RustCrypto/traits/pull/817
+[#818]: https://github.com/RustCrypto/traits/pull/818
+
 ## 0.10.6 (2021-08-23)
 ### Changed
 - Bump `crypto-bigint` dependency to v0.2.4 ([#710])
@@ -12,7 +214,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.10.5 (2021-07-20)
 ### Changed
-- Pin `zeroize` dependency to v1.4 and `subtle` to v2.4 ([#349])
+- Pin `zeroize` dependency to v1.4 and `subtle` to v2.4 ([#689])
 
 [#689]: https://github.com/RustCrypto/traits/pull/689
 

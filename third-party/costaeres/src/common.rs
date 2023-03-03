@@ -40,7 +40,7 @@ pub type TransactionResult<'c> = Result<Transaction<'c, Sqlite>, ResourceStoreEr
 // Only useful for tests
 impl From<i32> for ResourceId {
     fn from(val: i32) -> ResourceId {
-        ResourceId::from(format!("id-{}", val))
+        ResourceId::from(format!("id-{val}"))
     }
 }
 
@@ -350,10 +350,12 @@ impl ResourceMetadata {
         self.variants = variants;
     }
 
-    pub fn add_variant(&mut self, variant: VariantMetadata) {
-        if !self.has_variant(&variant.name()) {
-            self.variants.push(variant);
+    pub fn add_or_update_variant(&mut self, variant: VariantMetadata) {
+        if self.has_variant(&variant.name()) {
+            self.delete_variant(&variant.name());
         }
+
+        self.variants.push(variant);
     }
 
     pub fn delete_variant(&mut self, name: &str) {
@@ -518,11 +520,11 @@ unsafe impl Send for DefaultResourceNameProvider {}
 
 impl ResourceNameProvider for DefaultResourceNameProvider {
     fn metadata_name(&self, id: &ResourceId) -> String {
-        format!("{}.meta", id)
+        format!("{id}.meta")
     }
 
     fn variant_name(&self, id: &ResourceId, variant: &str) -> String {
-        format!("{}.variant.{}", id, variant)
+        format!("{id}.variant.{variant}")
     }
 }
 

@@ -10,7 +10,7 @@ use futures::task::SpawnExt;
 use safelog::sensitive;
 use std::io::Result as IoResult;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use arti_client::{ErrorKind, HasKind, StreamPrefs, TorClient};
 use tor_rtcompat::{Runtime, TcpListener};
@@ -18,7 +18,7 @@ use tor_socksproto::{SocksAddr, SocksAuth, SocksCmd, SocksRequest};
 
 use anyhow::{anyhow, Context, Result};
 
-/// Paylod to return when an HTTP connection arrive on a Socks port
+/// Payload to return when an HTTP connection arrive on a Socks port
 const WRONG_PROTOCOL_PAYLOAD: &[u8] = br#"HTTP/1.0 501 Tor is not an HTTP Proxy
 Content-Type: text/html; charset=utf-8
 
@@ -46,7 +46,8 @@ See <a href="https://gitlab.torproject.org/tpo/core/arti/#todo-need-to-change-wh
 
 /// Find out which kind of address family we can/should use for a
 /// given `SocksRequest`.
-pub fn stream_preference(req: &SocksRequest, addr: &str) -> StreamPrefs {
+#[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+fn stream_preference(req: &SocksRequest, addr: &str) -> StreamPrefs {
     let mut prefs = StreamPrefs::new();
     if addr.parse::<Ipv4Addr>().is_ok() {
         // If they asked for an IPv4 address correctly, nothing else will do.
@@ -109,7 +110,7 @@ where
     // The SOCKS handshake can require multiple round trips (SOCKS5
     // always does) so we we need to run this part of the process in a
     // loop.
-    let mut handshake = tor_socksproto::SocksHandshake::new();
+    let mut handshake = tor_socksproto::SocksProxyHandshake::new();
 
     let (mut socks_r, mut socks_w) = socks_stream.split();
     let mut inbuf = [0_u8; 1024];
@@ -164,7 +165,7 @@ where
     // Unpack the socks request and find out where we're connecting to.
     let addr = request.addr().to_string();
     let port = request.port();
-    info!(
+    debug!(
         "Got a socks request: {} {}:{}",
         request.command(),
         sensitive(&addr),
@@ -191,14 +192,16 @@ where
                 .await;
             let tor_stream = match tor_stream {
                 Ok(s) => s,
-                Err(e) => return reply_error(&mut socks_w, &request, e).await,
+                Err(e) => return reply_error(&mut socks_w, &request, e.kind()).await,
             };
             // Okay, great! We have a connection over the Tor network.
-            info!("Got a stream for {}:{}", sensitive(&addr), port);
+            debug!("Got a stream for {}:{}", sensitive(&addr), port);
 
             // Send back a SOCKS response, telling the client that it
             // successfully connected.
-            let reply = request.reply(tor_socksproto::SocksStatus::SUCCEEDED, None);
+            let reply = request
+                .reply(tor_socksproto::SocksStatus::SUCCEEDED, None)
+                .context("Encoding socks reply")?;
             write_all_and_flush(&mut socks_w, &reply[..]).await?;
 
             let (tor_r, tor_w) = tor_stream.split();
@@ -211,16 +214,28 @@ where
         SocksCmd::RESOLVE => {
             // We've been asked to perform a regular hostname lookup.
             // (This is a tor-specific SOCKS extension.)
-            let addrs = match tor_client.resolve_with_prefs(&addr, &prefs).await {
-                Ok(addrs) => addrs,
-                Err(e) => return reply_error(&mut socks_w, &request, e).await,
+
+            let addr = if let Ok(addr) = addr.parse() {
+                // if this is a valid ip address, just parse it and reply.
+                Ok(addr)
+            } else {
+                tor_client
+                    .resolve_with_prefs(&addr, &prefs)
+                    .await
+                    .map_err(|e| e.kind())
+                    .and_then(|addrs| addrs.first().copied().ok_or(ErrorKind::Other))
             };
-            if let Some(addr) = addrs.first() {
-                let reply = request.reply(
-                    tor_socksproto::SocksStatus::SUCCEEDED,
-                    Some(&SocksAddr::Ip(*addr)),
-                );
-                write_all_and_close(&mut socks_w, &reply[..]).await?;
+            match addr {
+                Ok(addr) => {
+                    let reply = request
+                        .reply(
+                            tor_socksproto::SocksStatus::SUCCEEDED,
+                            Some(&SocksAddr::Ip(addr)),
+                        )
+                        .context("Encoding socks reply")?;
+                    write_all_and_close(&mut socks_w, &reply[..]).await?;
+                }
+                Err(e) => return reply_error(&mut socks_w, &request, e).await,
             }
         }
         SocksCmd::RESOLVE_PTR => {
@@ -229,28 +244,33 @@ where
             let addr: IpAddr = match addr.parse() {
                 Ok(ip) => ip,
                 Err(e) => {
-                    let reply =
-                        request.reply(tor_socksproto::SocksStatus::ADDRTYPE_NOT_SUPPORTED, None);
+                    let reply = request
+                        .reply(tor_socksproto::SocksStatus::ADDRTYPE_NOT_SUPPORTED, None)
+                        .context("Encoding socks reply")?;
                     write_all_and_close(&mut socks_w, &reply[..]).await?;
                     return Err(anyhow!(e));
                 }
             };
             let hosts = match tor_client.resolve_ptr_with_prefs(addr, &prefs).await {
                 Ok(hosts) => hosts,
-                Err(e) => return reply_error(&mut socks_w, &request, e).await,
+                Err(e) => return reply_error(&mut socks_w, &request, e.kind()).await,
             };
             if let Some(host) = hosts.into_iter().next() {
                 // this conversion should never fail, legal DNS names len must be <= 253 but Socks
                 // names can be up to 255 chars.
                 let hostname = SocksAddr::Hostname(host.try_into()?);
-                let reply = request.reply(tor_socksproto::SocksStatus::SUCCEEDED, Some(&hostname));
+                let reply = request
+                    .reply(tor_socksproto::SocksStatus::SUCCEEDED, Some(&hostname))
+                    .context("Encoding socks reply")?;
                 write_all_and_close(&mut socks_w, &reply[..]).await?;
             }
         }
         _ => {
             // We don't support this SOCKS command.
             warn!("Dropping request; {:?} is unsupported", request.command());
-            let reply = request.reply(tor_socksproto::SocksStatus::COMMAND_NOT_SUPPORTED, None);
+            let reply = request
+                .reply(tor_socksproto::SocksStatus::COMMAND_NOT_SUPPORTED, None)
+                .context("Encoding socks reply")?;
             write_all_and_close(&mut socks_w, &reply[..]).await?;
         }
     };
@@ -296,18 +316,19 @@ where
 async fn reply_error<W>(
     writer: &mut W,
     request: &SocksRequest,
-    error: arti_client::Error,
+    error: arti_client::ErrorKind,
 ) -> Result<()>
 where
     W: AsyncWrite + Unpin,
 {
     // We need to send an error. See what kind it is.
-    let reply = match error.kind() {
+    let reply = match error {
         ErrorKind::RemoteNetworkTimeout => {
             request.reply(tor_socksproto::SocksStatus::TTL_EXPIRED, None)
         }
         _ => request.reply(tor_socksproto::SocksStatus::GENERAL_FAILURE, None),
-    };
+    }
+    .context("Encoding socks reply")?;
     // if writing back the error fail, still return the original error
     let _ = write_all_and_close(writer, &reply[..]).await;
 
@@ -400,7 +421,8 @@ fn accept_err_is_fatal(err: &IoError) -> bool {
 /// Requires a `runtime` to use for launching tasks and handling
 /// timeouts, and a `tor_client` to use in connecting over the Tor
 /// network.
-pub async fn run_socks_proxy<R: Runtime>(
+#[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+pub(crate) async fn run_socks_proxy<R: Runtime>(
     runtime: R,
     tor_client: TorClient<R>,
     socks_port: u16,
@@ -413,12 +435,14 @@ pub async fn run_socks_proxy<R: Runtime>(
     // Try to bind to the SOCKS ports.
     for localhost in &localhosts {
         let addr: SocketAddr = (*localhost, socks_port).into();
+        // NOTE: Our logs here displays the local address. We allow this, since
+        // knowing the address is basically essential for diagnostics.
         match runtime.listen(&addr).await {
             Ok(listener) => {
                 info!("Listening on {:?}.", addr);
                 listeners.push(listener);
             }
-            Err(e) => warn!("Can't listen on {:?}: {}", addr, e),
+            Err(e) => warn!("Can't listen on {}: {}", addr, e),
         }
     }
     // We weren't able to bind any ports: There's nothing to do.

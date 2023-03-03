@@ -194,7 +194,7 @@ mod test {
             vec![default_variant()],
         );
 
-        let _ = store
+        store
             .create(&meta, Some(default_content().await))
             .await
             .unwrap();
@@ -211,20 +211,20 @@ mod test {
             vec![VariantMetadata::new("default", "inode/directory", 0)],
         );
 
-        let _ = store.create(&meta, None).await.unwrap();
+        store.create(&meta, None).await.unwrap();
 
         let mut ids = vec![];
         for id in 0..10 {
             let meta = ResourceMetadata::new(
-                &(format!("child-{}", id).into()),
+                &(format!("child-{id}").into()),
                 &ROOT_ID,
                 ResourceKind::Leaf,
-                &format!("child-{}", id),
+                &format!("child-{id}"),
                 vec!["one".into(), "two".into()],
                 vec![default_variant()],
             );
 
-            let _ = store
+            store
                 .create(&meta, Some(default_content().await))
                 .await
                 .unwrap();
@@ -273,10 +273,10 @@ mod test {
     async fn http_wrong_path() {
         let data = get_data("./http-test-content/0").await;
 
-        let mut app = create_app!(data);
+        let app = create_app!(data);
 
         let req = test::TestRequest::get().uri("/random/path").to_request();
-        let resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
@@ -290,13 +290,13 @@ mod test {
             keys.insert("somekey".into());
         }
 
-        let mut app = create_app!(data);
+        let app = create_app!(data);
 
         let req = test::TestRequest::get()
             .uri("/cmgr/key1/resource1/default")
             .to_request();
 
-        let resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
@@ -306,19 +306,21 @@ mod test {
         let data = get_data("./http-test-content/2").await;
 
         {
-            let mut keys = data.keys.lock();
-            keys.insert("somekey".into());
+            {
+                let mut keys = data.keys.lock();
+                keys.insert("somekey".into());
+            }
 
             add_root(&data.store).await;
         }
 
-        let mut app = create_app!(data);
+        let app = create_app!(data);
 
         let req = test::TestRequest::get()
-            .uri(&format!("/cmgr/somekey/{}/default", ROOT_ID_STR))
+            .uri(&format!("/cmgr/somekey/{ROOT_ID_STR}/default"))
             .to_request();
 
-        let result = test::call_and_read_body(&mut app, req).await;
+        let result = test::call_and_read_body(&app, req).await;
         assert_eq!(result, Bytes::from_static(b"#!/bin/bash\n\nset -x -e\n\nrm build.sqlite\nsqlite3 build.sqlite < db/migrations/00001_main.sql\n\n"));
     }
 
@@ -327,19 +329,21 @@ mod test {
         let data = get_data("./http-test-content/3").await;
 
         {
-            let mut keys = data.keys.lock();
-            keys.insert("somekey".into());
+            {
+                let mut keys = data.keys.lock();
+                keys.insert("somekey".into());
+            }
 
             add_root(&data.store).await;
         }
 
-        let mut app = create_app!(data);
+        let app = create_app!(data);
 
         let req = test::TestRequest::get()
             .uri("/cmgr/somekey/deadbeef/default")
             .to_request();
 
-        let resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
@@ -349,19 +353,21 @@ mod test {
         let data = get_data("./http-test-content/4").await;
 
         {
-            let mut keys = data.keys.lock();
-            keys.insert("somekey".into());
+            {
+                let mut keys = data.keys.lock();
+                keys.insert("somekey".into());
+            }
 
             add_root(&data.store).await;
         }
 
-        let mut app = create_app!(data);
+        let app = create_app!(data);
 
         let req = test::TestRequest::get()
-            .uri(&format!("/cmgr/somekey/{}/some-variant", ROOT_ID_STR))
+            .uri(&format!("/cmgr/somekey/{ROOT_ID_STR}/some-variant"))
             .to_request();
 
-        let resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
@@ -371,19 +377,21 @@ mod test {
         let data = get_data("./http-test-content/5").await;
 
         {
-            let mut keys = data.keys.lock();
-            keys.insert("somekey".into());
+            {
+                let mut keys = data.keys.lock();
+                keys.insert("somekey".into());
+            }
 
             add_root(&data.store).await;
         }
 
-        let mut app = create_app!(data);
+        let app = create_app!(data);
 
         let req = test::TestRequest::get()
-            .uri(&format!("/cmgr/somekey/{}/default", ROOT_ID_STR))
+            .uri(&format!("/cmgr/somekey/{ROOT_ID_STR}/default"))
             .to_request();
 
-        let resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
         let headers = resp.headers();
@@ -399,20 +407,22 @@ mod test {
         let data = get_data("./http-test-content/6").await;
 
         {
-            let mut keys = data.keys.lock();
-            keys.insert("somekey".into());
+            {
+                let mut keys = data.keys.lock();
+                keys.insert("somekey".into());
+            }
 
             add_root_container(&data.store).await;
         }
 
-        let mut app = create_app!(data);
+        let app = create_app!(data);
 
         let req = test::TestRequest::get()
-            .uri(&format!("/cmgr/somekey/{}/default", ROOT_ID_STR))
+            .uri(&format!("/cmgr/somekey/{ROOT_ID_STR}/default"))
             .to_request();
 
         // Check that it's a json mime type.
-        let resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
         let headers = resp.headers();
@@ -422,11 +432,11 @@ mod test {
         );
 
         let req = test::TestRequest::get()
-            .uri(&format!("/cmgr/somekey/{}/default", ROOT_ID_STR))
+            .uri(&format!("/cmgr/somekey/{ROOT_ID_STR}/default"))
             .to_request();
 
         // Check json content.
-        let result = test::call_and_read_body(&mut app, req).await;
+        let result = test::call_and_read_body(&app, req).await;
 
         let metas: Vec<MetaSummary> = serde_json::from_slice(&result).unwrap();
 

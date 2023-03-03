@@ -202,14 +202,13 @@ impl SettingsDb {
                 }
 
                 // Dispatch a change event for this setting.
-                self.event_broadcaster
-                    .broadcast_change(setting_info.clone());
+                self.event_broadcaster.broadcast_change(&setting_info);
 
                 // If we have observers for this setting, call their callback.
                 self.observers
                     .for_each(&setting_info.name, |obs, _id| match obs {
                         ObserverType::Proxy(cb) => {
-                            cb.callback(setting_info.clone());
+                            cb.callback(&setting_info);
                         }
                         ObserverType::FuncPtr(cb) => {
                             cb.callback(&setting_info.name, &setting_info.value);

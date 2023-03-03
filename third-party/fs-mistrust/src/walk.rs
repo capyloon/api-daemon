@@ -26,6 +26,39 @@ pub(crate) enum PathType {
     Content,
 }
 
+/// A single piece of a path.
+///
+/// We would use [`std::path::Component`] directly here, but we want an owned
+/// type.
+#[derive(Clone, Debug)]
+struct Component {
+    /// Is this a prefix of a windows path?
+    ///
+    /// We need to keep track of these, because we expect stat() to fail for
+    /// them.
+    #[cfg(target_family = "windows")]
+    is_windows_prefix: bool,
+    /// The textual value of the component.
+    text: OsString,
+}
+
+/// Windows error code that we expect to get when calling stat() on a prefix.
+#[cfg(target_family = "windows")]
+const INVALID_FUNCTION: i32 = 1;
+
+impl<'a> From<std::path::Component<'a>> for Component {
+    fn from(c: std::path::Component<'a>) -> Self {
+        #[cfg(target_family = "windows")]
+        let is_windows_prefix = matches!(c, std::path::Component::Prefix(_));
+        let text = c.as_os_str().to_owned();
+        Component {
+            #[cfg(target_family = "windows")]
+            is_windows_prefix,
+            text,
+        }
+    }
+}
+
 /// An iterator to resolve and canonicalize a filename, imitating the actual
 /// filesystem's lookup behavior.
 ///
@@ -94,10 +127,12 @@ pub(crate) struct ResolvePath {
     /// The parts of the path that we have _not yet resolved_.  The item on the
     /// top of the stack (that is, the end), is the next element that we'd like
     /// to add to `resolved`.
+    ///
+    /// This is in reverse order: later path components at the start of the `Vec` (bottom of stack)
     //
     // TODO: I'd like to have a more efficient representation of this; the
     // current one has a lot of tiny little allocations.
-    stack: Vec<OsString>,
+    stack: Vec<Component>,
 
     /// If true, we have encountered a nonrecoverable error and cannot yield any
     /// more items.
@@ -171,12 +206,11 @@ impl ResolvePath {
     /// ended with an error), we return the part that we were able to resolve,
     /// and a path that would need to be joined onto it to reach the intended
     /// destination.
-    #[cfg(test)]
     pub(crate) fn into_result(self) -> (PathBuf, Option<PathBuf>) {
         let remainder = if self.stack.is_empty() {
             None
         } else {
-            Some(self.stack.into_iter().rev().collect())
+            Some(self.stack.into_iter().rev().map(|c| c.text).collect())
         };
 
         (self.resolved, remainder)
@@ -189,12 +223,8 @@ impl ResolvePath {
 ///
 /// (This is a separate function rather than a method for borrow-checker
 /// reasons.)
-fn push_prefix(stack: &mut Vec<OsString>, path: &Path) {
-    stack.extend(
-        path.components()
-            .rev()
-            .map(|component| component.as_os_str().to_owned()),
-    );
+fn push_prefix(stack: &mut Vec<Component>, path: &Path) {
+    stack.extend(path.components().rev().map(|component| component.into()));
 }
 
 impl Iterator for ResolvePath {
@@ -235,10 +265,10 @@ impl Iterator for ResolvePath {
 
             // ..and add that component to the our resolved path to see what we
             // should inspect next.
-            let inspecting: std::borrow::Cow<'_, Path> = if next_part == "." {
+            let inspecting: std::borrow::Cow<'_, Path> = if next_part.text == "." {
                 // Do nothing.
                 self.resolved.as_path().into()
-            } else if next_part == ".." {
+            } else if next_part.text == ".." {
                 // We can safely remove the last part of our path: We know it is
                 // canonical, so ".." will not give surprising results.  (If we
                 // are already at the root, "PathBuf::pop" will do nothing.)
@@ -252,7 +282,7 @@ impl Iterator for ResolvePath {
                 // fix that in a minute.
                 //
                 // This is the only thing that can ever make `resolved` longer.
-                self.resolved.join(&next_part).into()
+                self.resolved.join(&next_part.text).into()
             };
 
             // Now "inspecting" is the path we want to look at.  Later in this
@@ -283,6 +313,16 @@ impl Iterator for ResolvePath {
             // Look up the lstat() of the file, to see if it's a symlink.
             let metadata = match inspecting.symlink_metadata() {
                 Ok(m) => m,
+                #[cfg(target_family = "windows")]
+                Err(e)
+                    if next_part.is_windows_prefix
+                        && e.raw_os_error() == Some(INVALID_FUNCTION) =>
+                {
+                    // We expected an error here, and we got one. Skip over this
+                    // path component and look at the next.
+                    self.resolved = inspecting.into_owned();
+                    continue;
+                }
                 Err(e) => {
                     // Oops: can't lstat.  Move the last component back on to the stack, and terminate.
                     self.stack.push(next_part);
@@ -347,9 +387,21 @@ impl std::fmt::Display for ResolvePath {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
-    use crate::testing::{self, LinkType};
+    use crate::testing;
+
+    #[cfg(target_family = "unix")]
+    use crate::testing::LinkType;
 
     /// Helper: skip `r` past the first occurrence of the path `p` in a
     /// successful return.
@@ -364,6 +416,36 @@ mod test {
         }
     }
 
+    /// Helper: change the prefix on `path` (if any) to a verbatim prefix.
+    ///
+    /// We do this to match the output of `fs::canonicalize` on Windows, for
+    /// testing.
+    ///
+    /// If this function proves to be hard-to-maintain, we should consider
+    /// alternative ways of testing what it provides.
+    fn make_prefix_verbatim(path: PathBuf) -> PathBuf {
+        let mut components = path.components();
+        if let Some(std::path::Component::Prefix(prefix)) = components.next() {
+            use std::path::Prefix as P;
+            let verbatim = match prefix.kind() {
+                P::UNC(server, share) => {
+                    let mut p = OsString::from(r"\\?\UNC\");
+                    p.push(server);
+                    p.push("/");
+                    p.push(share);
+                    p
+                }
+                P::Disk(disk) => format!(r"\\?\{}:", disk as char).into(),
+                _ => return path, // original prefix is fine.
+            };
+            let mut newpath = PathBuf::from(verbatim);
+            newpath.extend(components.map(|c| c.as_os_str()));
+            newpath
+        } else {
+            path // nothing to do.
+        }
+    }
+
     #[test]
     fn simple_path() {
         let d = testing::Dir::new();
@@ -372,7 +454,7 @@ mod test {
         // Try resolving a simple path that exists.
         d.file("a/b/c");
         let mut r = ResolvePath::new(d.path("a/b/c")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let mut so_far = root.to_path_buf();
         for (c, p) in Path::new("a/b/c").components().zip(&mut r) {
             let (p, pt, meta) = p.unwrap();
@@ -392,7 +474,7 @@ mod test {
 
         // Same as above, starting from a relative path to the target.
         let mut r = ResolvePath::new(d.relative_root().join("a/b/c")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let mut so_far = root.to_path_buf();
         for (c, p) in Path::new("a/b/c").components().zip(&mut r) {
             let (p, pt, meta) = p.unwrap();
@@ -407,12 +489,13 @@ mod test {
             assert_eq!(so_far, p);
         }
         let (canonical, rest) = r.into_result();
+        let canonical = make_prefix_verbatim(canonical);
         assert_eq!(canonical, d.path("a/b/c").canonicalize().unwrap());
         assert!(rest.is_none());
 
         // Try resolving a simple path that doesn't exist.
         let mut r = ResolvePath::new(d.path("a/xxx/yyy")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let (p, pt, _) = r.next().unwrap().unwrap();
         assert_eq!(p, root.join("a"));
         assert_eq!(pt, PathType::Intermediate);
@@ -427,6 +510,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(target_family = "unix")]
     fn repeats() {
         let d = testing::Dir::new();
         let root = d.canonical_root();
@@ -435,7 +519,7 @@ mod test {
         // get each given path once.
         d.dir("a/b/c/d");
         let mut r = ResolvePath::new(root.join("a/b/../b/../b/c/../c/d")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let paths: Vec<_> = r.map(|item| item.unwrap().0).collect();
         assert_eq!(
             paths,
@@ -451,7 +535,7 @@ mod test {
         // each path once.
         d.link_rel(LinkType::Dir, "../../", "a/b/c/rel_lnk");
         let mut r = ResolvePath::new(root.join("a/b/c/rel_lnk/b/c/d")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let paths: Vec<_> = r.map(|item| item.unwrap().0).collect();
         assert_eq!(
             paths,
@@ -467,7 +551,7 @@ mod test {
         // Once more, with an absolute symlink.
         d.link_abs(LinkType::Dir, "a", "a/b/c/abs_lnk");
         let mut r = ResolvePath::new(root.join("a/b/c/abs_lnk/b/c/d")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let paths: Vec<_> = r.map(|item| item.unwrap().0).collect();
         assert_eq!(
             paths,
@@ -482,7 +566,7 @@ mod test {
 
         // One more, with multiple links.
         let mut r = ResolvePath::new(root.join("a/b/c/abs_lnk/b/c/rel_lnk/b/c/d")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let paths: Vec<_> = r.map(|item| item.unwrap().0).collect();
         assert_eq!(
             paths,
@@ -500,7 +584,7 @@ mod test {
         let mut r =
             ResolvePath::new(root.join("a/b/c/abs_lnk/b/c/rel_lnk/b/c/rel_lnk/b/c/abs_lnk/b/c/d"))
                 .unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let paths: Vec<_> = r.map(|item| item.unwrap().0).collect();
         assert_eq!(
             paths,
@@ -516,6 +600,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(target_family = "unix")]
     fn looping() {
         let d = testing::Dir::new();
         let root = d.canonical_root();
@@ -524,7 +609,7 @@ mod test {
         // This file links to itself.  We should hit our loop detector and barf.
         d.link_rel(LinkType::File, "../../b/c/d", "a/b/c/d");
         let mut r = ResolvePath::new(root.join("a/b/c/d")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         assert_eq!(r.next().unwrap().unwrap().0, root.join("a"));
         assert_eq!(r.next().unwrap().unwrap().0, root.join("a/b"));
         assert_eq!(r.next().unwrap().unwrap().0, root.join("a/b/c"));
@@ -539,7 +624,7 @@ mod test {
         d.link_rel(LinkType::Dir, "./f", "a/b/c/e");
         d.link_rel(LinkType::Dir, "./e", "a/b/c/f");
         let mut r = ResolvePath::new(root.join("a/b/c/e/413")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         assert_eq!(r.next().unwrap().unwrap().0, root.join("a"));
         assert_eq!(r.next().unwrap().unwrap().0, root.join("a/b"));
         assert_eq!(r.next().unwrap().unwrap().0, root.join("a/b/c"));
@@ -566,16 +651,13 @@ mod test {
         d.chmod("a/b/c/d", 0o000);
 
         let mut r = ResolvePath::new(root.join("a/b/c/d/e/413")).unwrap();
-        skip_past(&mut r, &root);
+        skip_past(&mut r, root);
         let resolvable: Vec<_> = (&mut r)
             .take(4)
             .map(|item| {
                 let (p, _, m) = item.unwrap();
                 (
-                    p.strip_prefix(&root)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
+                    p.strip_prefix(root).unwrap().to_string_lossy().into_owned(),
                     m.permissions().mode() & 0o777,
                 )
             })

@@ -6,8 +6,9 @@ use futures::task::SpawnError;
 use retry_error::RetryError;
 use thiserror::Error;
 
+use tor_basic_utils::iter::FilterCount;
 use tor_error::{Bug, ErrorKind, HasKind, HasRetryTime};
-use tor_linkspec::OwnedChanTarget;
+use tor_linkspec::{LoggedChanTarget, OwnedChanTarget};
 
 use crate::mgr::RestrictionFailed;
 
@@ -17,9 +18,6 @@ use crate::mgr::RestrictionFailed;
 pub enum Error {
     /// We started building a circuit on a guard, but later decided not
     /// to use that guard.
-    //
-    // TODO: We shouldn't count this as an error for the purposes of the number
-    // of allowable failures of a circuit request.
     #[error("Discarded circuit because of speculative guard selection")]
     GuardNotUsable,
 
@@ -28,7 +26,7 @@ pub enum Error {
     PendingCanceled,
 
     /// We were waiting on a pending circuits, but it failed.
-    #[error("Pending circuit failed.")]
+    #[error("Circuit we were waiting for failed to complete")]
     PendingFailed(#[source] Box<Error>),
 
     /// We were told that we could use a given circuit, but before we got a
@@ -37,7 +35,7 @@ pub enum Error {
     ///
     /// This is a version of `UsageMismatched` for when a race is the
     /// likeliest explanation for the mismatch.
-    #[error("Circuit seemed suitable, but another request got it first.")]
+    #[error("Circuit seemed suitable, but another request got it first")]
     LostUsabilityRace(#[source] RestrictionFailed),
 
     /// A circuit succeeded, but was cancelled before it could be used.
@@ -45,9 +43,6 @@ pub enum Error {
     /// Circuits can be cancelled either by a call to
     /// `retire_all_circuits()`, or by a configuration change that
     /// makes old paths unusable.
-    //
-    // TODO: We shouldn't count this as an error for the purposes of the number
-    // of allowable failures of a circuit request.
     #[error("Circuit canceled")]
     CircCanceled,
 
@@ -67,16 +62,38 @@ pub enum Error {
     CircTimeout,
 
     /// A request spent too long waiting for a circuit
-    #[error("Spent too long waiting for a circuit to build")]
+    #[error("Spent too long trying to construct circuits for this request")]
     RequestTimeout,
 
     /// No suitable relays for a request
-    #[error("Can't build path for circuit: {0}")]
-    NoPath(String),
+    #[error(
+        "Can't find {role} for circuit: Rejected {} because of family restrictions \
+         and {} because of usage requirements.",
+         can_share.display_frac_rejected(),
+         correct_usage.display_frac_rejected(),
+    )]
+    NoPath {
+        /// The role that we were trying to choose a relay for.
+        role: &'static str,
+        /// Relays accepted and rejected based on relay family policies.
+        can_share: FilterCount,
+        /// Relays accepted and rejected based on our usage requirements.
+        correct_usage: FilterCount,
+    },
 
     /// No suitable exit relay for a request.
-    #[error("Can't find exit for circuit: {0}")]
-    NoExit(String),
+    #[error(
+        "Can't find exit for circuit: \
+         Rejected {} because of family restrictions and {} because of port requirements",
+        can_share.display_frac_rejected(),
+        correct_ports.display_frac_rejected(),
+    )]
+    NoExit {
+        /// Exit relays accepted and rejected based on relay family policies.
+        can_share: FilterCount,
+        /// Exit relays accepted and rejected base on the ports that we need.
+        correct_ports: FilterCount,
+    },
 
     /// Problem creating or updating a guard manager.
     #[error("Problem creating or updating guards list")]
@@ -91,10 +108,10 @@ pub enum Error {
     RequestFailed(RetryError<Box<Error>>),
 
     /// Problem with channel
-    #[error("Problem with channel to {peer}")]
+    #[error("Problem opening a channel to {peer}")]
     Channel {
         /// Which relay we were trying to connect to
-        peer: OwnedChanTarget,
+        peer: LoggedChanTarget,
 
         /// What went wrong
         #[source]
@@ -102,23 +119,21 @@ pub enum Error {
     },
 
     /// Protocol issue while building a circuit.
-    #[error("Problem building a circuit with {peer:?}")]
+    #[error("Problem building a circuit, while {}{}", action, WithOptPeer(peer))]
     Protocol {
+        /// The action that we were trying to take.
+        action: &'static str,
         /// The peer that created the protocol error.
         ///
         /// This is set to None if we can't blame a single party.
-        peer: Option<OwnedChanTarget>,
+        peer: Option<LoggedChanTarget>,
         /// The underlying error.
         #[source]
         error: tor_proto::Error,
     },
 
-    /// We have an expired consensus
-    #[error("Consensus is expired")]
-    ExpiredConsensus,
-
     /// Unable to spawn task
-    #[error("unable to spawn {spawning}")]
+    #[error("Unable to spawn {spawning}")]
     Spawn {
         /// What we were trying to spawn
         spawning: &'static str,
@@ -165,8 +180,8 @@ impl HasKind for Error {
         match self {
             E::Channel { cause, .. } => cause.kind(),
             E::Bug(e) => e.kind(),
-            E::NoPath(_) => EK::NoPath,
-            E::NoExit(_) => EK::NoExit,
+            E::NoPath { .. } => EK::NoPath,
+            E::NoExit { .. } => EK::NoExit,
             E::PendingCanceled => EK::ReactorShuttingDown,
             E::PendingFailed(e) => e.kind(),
             E::CircTimeout => EK::TorNetworkTimeout,
@@ -184,7 +199,6 @@ impl HasKind for Error {
             E::State(e) => e.kind(),
             E::GuardMgr(e) => e.kind(),
             E::Guard(e) => e.kind(),
-            E::ExpiredConsensus => EK::DirectoryExpired,
             E::Spawn { cause, .. } => cause.kind(),
         }
     }
@@ -210,7 +224,7 @@ impl HasRetryTime for Error {
             // TODO: In some rare cases, these errors can actually happen when
             // we have walked ourselves into a snag in our path selection.  See
             // additional "TODO" comments in exitpath.rs.
-            E::NoPath(_) | E::NoExit(_) => RT::Never,
+            E::NoPath { .. } | E::NoExit { .. } => RT::Never,
 
             // If we encounter UsageMismatched without first converting to
             // LostUsabilityRace, it reflects a real problem in our code.
@@ -245,9 +259,6 @@ impl HasRetryTime for Error {
                 RT::earliest_approx(errors.sources().map(|err| err.retry_time()))
                     .unwrap_or(RT::Never)
             }
-
-            // This will not resolve on its own till the DirMgr gets a working consensus.
-            E::ExpiredConsensus => RT::Never,
 
             // These all indicate an internal error, or an error that shouldn't
             // be able to happen when we're building a circuit.
@@ -295,14 +306,13 @@ impl Error {
             E::CircCanceled => 20,
             E::CircTimeout => 30,
             E::RequestTimeout => 30,
-            E::NoPath(_) => 40,
-            E::NoExit(_) => 40,
+            E::NoPath { .. } => 40,
+            E::NoExit { .. } => 40,
             E::GuardMgr(_) => 40,
             E::Guard(_) => 40,
             E::RequestFailed(_) => 40,
             E::Channel { .. } => 40,
             E::Protocol { .. } => 45,
-            E::ExpiredConsensus => 50,
             E::Spawn { .. } => 90,
             E::State(_) => 90,
             E::UsageMismatched(_) => 90,
@@ -311,14 +321,54 @@ impl Error {
         }
     }
 
+    /// Return true if this error should not count against our total number of
+    /// failures.
+    ///
+    /// We count an error as an "internal reset" if it can happen in normal
+    /// operation and doesn't indicate a real problem with building a circuit, so much as an externally generated "need to retry".
+    pub(crate) fn is_internal_reset(&self) -> bool {
+        match self {
+            // This error is a reset because we expect it to happen while
+            // we're picking guards; if it happens, it means that we now know a
+            // good guard that we should have used instead.
+            Error::GuardNotUsable => true,
+            // This error is a reset because it can only happen on the basis
+            // of a caller action (for example, a decision to reconfigure the
+            // `CircMgr`). If it happens, it just means that we should try again
+            // with the new configuration.
+            Error::CircCanceled => true,
+            // This error is a reset because it doesn't indicate anything wrong
+            // with the circuit: it just means that multiple requests all wanted
+            // to use the circuit at once, and they turned out not to be
+            // compatible with one another after the circuit was built.
+            Error::LostUsabilityRace(_) => true,
+
+            Error::PendingCanceled
+            | Error::PendingFailed(_)
+            | Error::UsageMismatched(_)
+            | Error::CircTimeout
+            | Error::RequestTimeout
+            | Error::NoPath { .. }
+            | Error::NoExit { .. }
+            | Error::GuardMgr(_)
+            | Error::Guard(_)
+            | Error::RequestFailed(_)
+            | Error::Channel { .. }
+            | Error::Protocol { .. }
+            | Error::Spawn { .. }
+            | Error::State(_)
+            | Error::Bug(_) => false,
+        }
+    }
+
     /// Return a list of the peers to "blame" for this error, if there are any.
     pub fn peers(&self) -> Vec<&OwnedChanTarget> {
         match self {
             Error::RequestFailed(errors) => errors.sources().flat_map(|e| e.peers()).collect(),
-            Error::Channel { peer, .. } => vec![peer],
+            Error::Channel { peer, .. } => vec![peer.as_inner()],
             Error::Protocol {
                 peer: Some(peer), ..
-            } => vec![peer],
+            } => vec![peer.as_inner()],
             _ => vec![],
         }
     }
@@ -330,3 +380,19 @@ impl Error {
 /// This is a separate type since we never report it outside the crate.
 #[derive(Debug)]
 pub(crate) struct PreemptiveCircError;
+
+/// Helper to display an optional peer, prefixed with the string " with".
+struct WithOptPeer<'a, T>(&'a Option<T>);
+
+impl<'a, T> std::fmt::Display for WithOptPeer<'a, T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(peer) = self.0.as_ref() {
+            write!(f, " with {}", peer)
+        } else {
+            Ok(())
+        }
+    }
+}

@@ -13,11 +13,6 @@ replace-with = "vendored-sources"
 git = "https://github.com/capyloon/costaeres.git"
 replace-with = "vendored-sources"
 
-[source."https://github.com/capyloon/did-key.rs.git"]
-git = "https://github.com/capyloon/did-key.rs.git"
-rev = "0fd82e043d41e70104a395aec239db5b449f7a96"
-replace-with = "vendored-sources"
-
 [source."https://github.com/capyloon/wspty.git"]
 git = "https://github.com/capyloon/wspty.git"
 replace-with = "vendored-sources"
@@ -38,6 +33,11 @@ replace-with = "vendored-sources"
 [source."https://github.com/fabricedesre/rust-phonenumber.git"]
 git = "https://github.com/fabricedesre/rust-phonenumber.git"
 branch = "api-daemon"
+replace-with = "vendored-sources"
+
+[source."https://github.com/launchbadge/sqlx.git"]
+git = "https://github.com/launchbadge/sqlx.git"
+rev = "4b7053807c705df312bcb9b6281e184bf7534eb3"
 replace-with = "vendored-sources"
 
 [source."ssh://git@git.kaiostech.com/KaiOS/breakpad-sys.git"]

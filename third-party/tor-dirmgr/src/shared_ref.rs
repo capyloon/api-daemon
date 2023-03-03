@@ -16,6 +16,7 @@ use crate::{Error, Result};
 // sure we don't hold the lock against any async suspend points.
 #[derive(Debug, Educe)]
 #[educe(Default)]
+#[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
 #[cfg_attr(not(feature = "experimental-api"), allow(unreachable_pub))]
 pub struct SharedMutArc<T> {
     /// Locked reference to the current value.
@@ -93,7 +94,16 @@ impl<T> SharedMutArc<T> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     #[test]
     fn shared_mut_arc() {

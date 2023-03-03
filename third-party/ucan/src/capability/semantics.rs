@@ -1,22 +1,57 @@
+use crate::serde::ser_to_lower_case;
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fmt::Debug;
 use url::Url;
 
-#[derive(Serialize, Deserialize)]
-pub struct RawCapability {
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct CapabilityIpld {
     pub with: String,
+    #[serde(serialize_with = "ser_to_lower_case")]
     pub can: String,
+    pub nb: Option<Value>,
 }
 
-impl<S, A> From<Capability<S, A>> for RawCapability
-where
-    S: Scope,
-    A: Action,
-{
-    fn from(capability: Capability<S, A>) -> Self {
-        RawCapability {
-            with: capability.with.to_string(),
-            can: capability.can.to_string(),
+impl<S: Scope, A: Action> From<&Capability<S, A>> for CapabilityIpld {
+    fn from(capability: &Capability<S, A>) -> Self {
+        CapabilityIpld {
+            with: capability.with().to_string(),
+            can: capability.can().to_string(),
+
+            // TODO(#22): Full support for 0.9 and the nb field
+            nb: None,
+        }
+    }
+}
+
+impl TryFrom<&Value> for CapabilityIpld {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Object(map) => {
+                let with = map
+                    .get("with")
+                    .ok_or_else(|| anyhow!("Missing 'with' field"))?;
+                let can = map
+                    .get("can")
+                    .ok_or_else(|| anyhow!("Missing 'can' field"))?;
+                let nb = map.get("nb").cloned();
+
+                let with = match with {
+                    Value::String(with) => with.clone(),
+                    _ => return Err(anyhow!("The 'with' field must be a string")),
+                };
+
+                let can = match can {
+                    Value::String(can) => can.to_lowercase(),
+                    _ => return Err(anyhow!("The 'can' field must be a string")),
+                };
+
+                Ok(CapabilityIpld { with, can, nb })
+            }
+            _ => Err(anyhow!("Not a valid capability: {}", value)),
         }
     }
 }
@@ -27,7 +62,7 @@ pub trait Scope: ToString + TryFrom<Url> + PartialEq + Clone {
 
 pub trait Action: Ord + TryFrom<String> + ToString + Clone {}
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum Resource<S>
 where
     S: Scope,
@@ -63,7 +98,7 @@ where
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum With<S>
 where
     S: Scope,
@@ -114,7 +149,7 @@ where
         match self {
             With::Resource { kind } => kind.to_string(),
             With::My { kind } => format!("my:{}", kind.to_string()),
-            With::As { did, kind } => format!("as:{}:{}", did, kind.to_string()),
+            With::As { did, kind } => format!("as:{did}:{}", kind.to_string()),
         }
     }
 }
@@ -149,7 +184,7 @@ where
             _ => return None,
         };
 
-        Some((format!("did:key:{}", value), path_parts.collect()))
+        Some((format!("did:key:{value}"), path_parts.collect()))
     }
 
     fn parse_resource(&self, with: &Url) -> Option<Resource<S>> {
@@ -159,8 +194,8 @@ where
         })
     }
 
-    fn parse(&self, with: String, can: String) -> Option<Capability<S, A>> {
-        let uri = Url::parse(with.as_str()).ok()?;
+    fn parse(&self, with: &str, can: &str) -> Option<Capability<S, A>> {
+        let uri = Url::parse(with).ok()?;
 
         let resource = match uri.scheme() {
             "my" => With::My {
@@ -180,7 +215,7 @@ where
             },
         };
 
-        let action = match self.parse_action(&can) {
+        let action = match self.parse_action(can) {
             Some(action) => action,
             None => return None,
         };
@@ -189,7 +224,7 @@ where
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Capability<S, A>
 where
     S: Scope,

@@ -64,16 +64,22 @@ pub struct Microdesc {
     /// it, and when listing it in a consensus document.
     // TODO: maybe this belongs somewhere else. Once it's used to store
     // correlate the microdesc to a consensus, it's never used again.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     sha256: MdDigest,
     /// Public key used for the ntor circuit extension protocol.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ntor_onion_key: curve25519::PublicKey,
     /// Declared family for this relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     family: Arc<RelayFamily>,
     /// List of IPv4 ports to which this relay will exit
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv4_policy: Arc<PortPolicy>,
     /// List of IPv6 ports to which this relay will exit
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv6_policy: Arc<PortPolicy>,
     /// Ed25519 identity for this relay
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ed25519_id: ed25519::Ed25519Identity,
     // addr is obsolete and doesn't go here any more
     // pr is obsolete and doesn't go here any more.
@@ -448,7 +454,16 @@ impl<'a> Iterator for MicrodescReader<'a> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
     const TESTDATA: &str = include_str!("../../testdata/microdesc1.txt");
@@ -473,7 +488,7 @@ mod test {
 
     #[test]
     fn parse_multi() -> Result<()> {
-        use std::time::{Duration, SystemTime};
+        use humantime::parse_rfc3339;
         let mds: Result<Vec<_>> =
             MicrodescReader::new(TESTDATA2, &AllowAnnotations::AnnotationsAllowed).collect();
         let mds = mds?;
@@ -481,7 +496,7 @@ mod test {
 
         assert_eq!(
             mds[0].ann.last_listed.unwrap(),
-            SystemTime::UNIX_EPOCH + Duration::new(1580151129, 0)
+            parse_rfc3339("2020-01-27T18:52:09Z").unwrap()
         );
         assert_eq!(
             mds[0].md().digest(),

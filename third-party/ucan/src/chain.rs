@@ -1,20 +1,20 @@
-use async_recursion::async_recursion;
-use std::fmt::Debug;
-use std::collections::BTreeSet;
-
 use crate::{
     capability::{
         proof::{ProofDelegationSemantics, ProofSelection},
         Action, Capability, CapabilityIterator, CapabilitySemantics, Resource, Scope, With,
     },
     crypto::did::DidParser,
+    store::UcanJwtStore,
     ucan::Ucan,
 };
 use anyhow::{anyhow, Result};
+use async_recursion::async_recursion;
+use cid::Cid;
+use std::{collections::BTreeSet, fmt::Debug};
 
 const PROOF_DELEGATION_SEMANTICS: ProofDelegationSemantics = ProofDelegationSemantics {};
 
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct CapabilityInfo<S: Scope, A: Action> {
     pub originators: BTreeSet<String>,
     pub not_before: Option<u64>,
@@ -38,6 +38,7 @@ where
 }
 
 /// A deserialized chain of ancestral proofs that are linked to a UCAN
+#[derive(Debug)]
 pub struct ProofChain {
     ucan: Ucan,
     proofs: Vec<ProofChain>,
@@ -45,18 +46,25 @@ pub struct ProofChain {
 }
 
 impl ProofChain {
-    #[cfg_attr(all(target_arch="wasm32", feature = "web"), async_recursion(?Send))]
-    #[cfg_attr(
-        any(not(target_arch = "wasm32"), not(feature = "web")),
-        async_recursion
-    )]
-    pub async fn from_ucan(ucan: Ucan, did_parser: &mut DidParser) -> Result<ProofChain> {
+    /// Instantiate a [ProofChain] from a [Ucan], given a [UcanJwtStore] and [DidParser]
+    #[cfg_attr(target_arch = "wasm32", async_recursion(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_recursion)]
+    pub async fn from_ucan<S>(
+        ucan: Ucan,
+        did_parser: &mut DidParser,
+        store: &S,
+    ) -> Result<ProofChain>
+    where
+        S: UcanJwtStore,
+    {
         ucan.validate(did_parser).await?;
 
         let mut proofs: Vec<ProofChain> = Vec::new();
 
-        for proof_string in ucan.proofs().iter() {
-            let proof_chain = Self::try_from_token_string(proof_string, did_parser).await?;
+        for cid_string in ucan.proofs().iter() {
+            let cid = Cid::try_from(cid_string.as_str())?;
+            let ucan_token = store.require_token(&cid).await?;
+            let proof_chain = Self::try_from_token_string(&ucan_token, did_parser, store).await?;
             proof_chain.validate_link_to(&ucan)?;
             proofs.push(proof_chain);
         }
@@ -95,16 +103,26 @@ impl ProofChain {
         })
     }
 
-    pub async fn from_cid<'a>(_cid: &str, _did_parser: &mut DidParser) -> Result<ProofChain> {
-        todo!("Resolving a proof from a CID not yet implemented")
+    /// Instantiate a [ProofChain] from a [Cid], given a [UcanJwtStore] and [DidParser]
+    /// The [Cid] must resolve to a JWT token string
+    pub async fn from_cid<S>(cid: &Cid, did_parser: &mut DidParser, store: &S) -> Result<ProofChain>
+    where
+        S: UcanJwtStore,
+    {
+        Self::try_from_token_string(&store.require_token(cid).await?, did_parser, store).await
     }
 
-    pub async fn try_from_token_string<'a>(
+    /// Instantiate a [ProofChain] from a JWT token string, given a [UcanJwtStore] and [DidParser]
+    pub async fn try_from_token_string<'a, S>(
         ucan_token_string: &str,
         did_parser: &mut DidParser,
-    ) -> Result<ProofChain> {
-        let ucan = Ucan::try_from_token_string(ucan_token_string)?;
-        Self::from_ucan(ucan, did_parser).await
+        store: &S,
+    ) -> Result<ProofChain>
+    where
+        S: UcanJwtStore,
+    {
+        let ucan = Ucan::try_from(ucan_token_string)?;
+        Self::from_ucan(ucan, did_parser, store).await
     }
 
     fn validate_link_to(&self, ucan: &Ucan) -> Result<()> {
@@ -184,7 +202,7 @@ impl ProofChain {
         let mut self_capability_infos: Vec<CapabilityInfo<S, A>> = match self.proofs.len() {
             0 => self_capabilities_iter
                 .map(|capability| CapabilityInfo {
-                    originators: BTreeSet::from_iter(vec![self.ucan.issuer().clone()]),
+                    originators: BTreeSet::from_iter(vec![self.ucan.issuer().to_string()]),
                     capability,
                     not_before: *self.ucan.not_before(),
                     expires_at: *self.ucan.expires_at(),
@@ -207,7 +225,7 @@ impl ProofChain {
                     // If there are no related ancestral capability, then this
                     // link in the chain is considered the first originator
                     if originators.is_empty() {
-                        originators.insert(self.ucan.issuer().clone());
+                        originators.insert(self.ucan.issuer().to_string());
                     }
 
                     CapabilityInfo {

@@ -172,7 +172,7 @@ pub trait TcpListener {
     type TcpStream: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static;
 
     /// The type of [`stream::Stream`] returned by [`Self::incoming()`].
-    type Incoming: stream::Stream<Item = IoResult<(Self::TcpStream, SocketAddr)>> + Unpin;
+    type Incoming: stream::Stream<Item = IoResult<(Self::TcpStream, SocketAddr)>> + Send + Unpin;
 
     /// Wait for an incoming stream; return it along with its address.
     async fn accept(&self) -> IoResult<(Self::TcpStream, SocketAddr)>;
@@ -195,7 +195,7 @@ pub trait UdpProvider: Clone + Send + Sync + 'static {
     async fn bind(&self, addr: &SocketAddr) -> IoResult<Self::UdpSocket>;
 }
 
-/// Trait for a localy bound Udp socket that can send and receive datagrams.
+/// Trait for a locally bound Udp socket that can send and receive datagrams.
 ///
 /// These objects are returned by instances of [`UdpProvider`].
 //

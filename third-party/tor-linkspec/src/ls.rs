@@ -5,9 +5,11 @@
 
 use std::net::{IpAddr, SocketAddr};
 
-use tor_bytes::{Error, Readable, Reader, Result, Writeable, Writer};
+use tor_bytes::{EncodeResult, Error, Readable, Reader, Result, Writeable, Writer};
 use tor_llcrypto::pk::ed25519;
 use tor_llcrypto::pk::rsa::RsaIdentity;
+
+use crate::RelayId;
 
 /// A piece of information about a relay and how to connect to it.
 #[non_exhaustive]
@@ -67,38 +69,42 @@ impl Readable for LinkSpec {
     }
 }
 impl Writeable for LinkSpec {
-    fn write_onto<B: Writer + ?Sized>(&self, w: &mut B) {
+    fn write_onto<B: Writer + ?Sized>(&self, w: &mut B) -> EncodeResult<()> {
         use LinkSpec::*;
         match self {
             OrPort(IpAddr::V4(v4), port) => {
                 w.write_u8(LSTYPE_ORPORT_V4);
                 w.write_u8(6); // Length
-                w.write(v4);
+                w.write(v4)?;
                 w.write_u16(*port);
             }
             OrPort(IpAddr::V6(v6), port) => {
                 w.write_u8(LSTYPE_ORPORT_V6);
                 w.write_u8(18); // Length
-                w.write(v6);
+                w.write(v6)?;
                 w.write_u16(*port);
             }
             RsaId(r) => {
                 w.write_u8(LSTYPE_RSAID);
                 w.write_u8(20); // Length
-                w.write(r);
+                w.write(r)?;
             }
             Ed25519Id(e) => {
                 w.write_u8(LSTYPE_ED25519ID);
                 w.write_u8(32); // Length
-                w.write(e);
+                w.write(e)?;
             }
             Unrecognized(tp, vec) => {
                 w.write_u8(*tp);
-                assert!(vec.len() < std::u8::MAX as usize);
-                w.write_u8(vec.len() as u8);
+                let vec_len = vec
+                    .len()
+                    .try_into()
+                    .map_err(|_| tor_bytes::EncodeError::BadLengthValue)?;
+                w.write_u8(vec_len);
                 w.write_all(&vec[..]);
             }
         }
+        Ok(())
     }
 }
 
@@ -127,6 +133,14 @@ impl From<ed25519::PublicKey> for LinkSpec {
         LinkSpec::Ed25519Id(pk.into())
     }
 }
+impl From<RelayId> for LinkSpec {
+    fn from(id: RelayId) -> Self {
+        match id {
+            RelayId::Ed25519(key) => LinkSpec::Ed25519Id(key),
+            RelayId::Rsa(key) => LinkSpec::RsaId(key),
+        }
+    }
+}
 
 impl LinkSpec {
     /// Helper: return the position in the list of identifiers
@@ -151,7 +165,16 @@ impl LinkSpec {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -165,7 +188,7 @@ mod test {
             assert_eq!(r.remaining(), 0);
             assert_eq!(&got, val);
             let mut v = Vec::new();
-            v.write(val);
+            v.write(val).expect("Encoding failure");
             assert_eq!(&v[..], b);
         }
 

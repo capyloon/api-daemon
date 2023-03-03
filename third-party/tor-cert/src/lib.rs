@@ -1,55 +1,5 @@
-//! Implementation for Tor certificates
-//!
-//! # Overview
-//!
-//! The `tor-cert` crate implements the binary certificate types
-//! documented in Tor's cert-spec.txt, which are used when
-//! authenticating Tor channels.  (Eventually, support for onion service
-//! certificate support will get added too.)
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//!
-//! There are other types of certificate used by Tor as well, and they
-//! are implemented in other places.  In particular, see
-//! [`tor-netdoc::doc::authcert`] for the certificate types used by
-//! authorities in the directory protocol.
-//!
-//! ## Design notes
-//!
-//! The `tor-cert` code is in its own separate crate because it is
-//! required by several other higher-level crates that do not depend
-//! upon each other.  For example, [`tor-netdoc`] parses encoded
-//! certificates from router descriptors, while [`tor-proto`] uses
-//! certificates when authenticating relays.
-//!
-//! # Examples
-//!
-//! Parsing, validating, and inspecting a certificate:
-//!
-//! ```
-//! use base64::decode;
-//! use tor_cert::*;
-//! use tor_checkable::*;
-//! // Taken from a random relay on the Tor network.
-//! let cert_base64 =
-//!  "AQQABrntAThPWJ4nFH1L77Ar+emd4GPXZTPUYzIwmR2H6Zod5TvXAQAgBAC+vzqh
-//!   VFO1SGATubxcrZzrsNr+8hrsdZtyGg/Dde/TqaY1FNbeMqtAPMziWOd6txzShER4
-//!   qc/haDk5V45Qfk6kjcKw+k7cPwyJeu+UF/azdoqcszHRnUHRXpiPzudPoA4=";
-//! // Remove the whitespace, so base64 doesn't choke on it.
-//! let cert_base64: String = cert_base64.split_whitespace().collect();
-//! // Decode the base64.
-//! let cert_bin = base64::decode(cert_base64).unwrap();
-//!
-//! // Decode the cert and check its signature.
-//! let cert = Ed25519Cert::decode(&cert_bin).unwrap()
-//!     .check_key(&None).unwrap()
-//!     .check_signature().unwrap()
-//!     .dangerously_assume_timely();
-//! let signed_key = cert.subject_key();
-//! ```
-
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -83,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 mod err;
@@ -98,6 +50,11 @@ use tor_llcrypto::pk::*;
 use std::time;
 
 pub use err::CertError;
+
+#[cfg(feature = "encode")]
+mod encode;
+#[cfg(feature = "encode")]
+pub use err::CertEncodeError;
 
 /// A Result defined to use CertError
 type CertResult<T> = std::result::Result<T, CertError>;
@@ -173,14 +130,21 @@ caret_int! {
 
         // 08 through 09 and 0B are used for onion services.  They
         // probably shouldn't be, but that's what Tor does.
+        // TODO hs: Add these types.
     }
 }
 
 /// Structure for an Ed25519-signed certificate as described in Tor's
 /// cert-spec.txt.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "encode", derive(derive_builder::Builder))]
+#[cfg_attr(
+    feature = "encode",
+    builder(name = "Ed25519CertConstructor", build_fn(skip))
+)]
 pub struct Ed25519Cert {
     /// How many _hours_ after the epoch will this certificate expire?
+    #[cfg_attr(feature = "encode", builder(setter(custom)))]
     exp_hours: u32,
     /// Type of the certificate; recognized values are in certtype::*
     cert_type: CertType,
@@ -188,12 +152,15 @@ pub struct Ed25519Cert {
     cert_key: CertifiedKey,
     /// A list of extensions.
     #[allow(unused)]
+    #[cfg_attr(feature = "encode", builder(setter(custom)))]
     extensions: Vec<CertExt>,
     /// The key that signed this cert.
     ///
-    /// Once the cert has been unwrapped from an KeyUnknownCert, this
-    /// field will be set.
-    signed_with: Option<ed25519::PublicKey>,
+    /// Once the cert has been unwrapped from an KeyUnknownCert, this field will
+    /// be set.  If there is a `SignedWithEd25519` extension in
+    /// `self.extensions`, this will match it.
+    #[cfg_attr(feature = "encode", builder(setter(custom)))]
+    signed_with: Option<ed25519::Ed25519Identity>,
 }
 
 /// One of the data types that can be certified by an Ed25519Cert.
@@ -201,13 +168,15 @@ pub struct Ed25519Cert {
 #[non_exhaustive]
 pub enum CertifiedKey {
     /// An Ed25519 public key, signed directly.
-    Ed25519(ed25519::PublicKey),
+    Ed25519(ed25519::Ed25519Identity),
     /// The SHA256 digest of a DER-encoded RsaPublicKey
     RsaSha256Digest([u8; 32]),
     /// The SHA256 digest of an X.509 certificate.
     X509Sha256Digest([u8; 32]),
     /// Some unrecognized key type.
     Unrecognized(UnrecognizedKey),
+    // TODO hs: Add new alternatives here for the case that we're handling key types from
+    // onion services.  These will correspond to types in tor-hscrypto.
 }
 
 /// A key whose type we didn't recognize.
@@ -242,7 +211,7 @@ impl CertifiedKey {
     }
     /// If this is an Ed25519 public key, return Some(key).
     /// Otherwise, return None.
-    pub fn as_ed25519(&self) -> Option<&ed25519::PublicKey> {
+    pub fn as_ed25519(&self) -> Option<&ed25519::Ed25519Identity> {
         match self {
             CertifiedKey::Ed25519(k) => Some(k),
             _ => None,
@@ -295,61 +264,12 @@ impl CertExt {
     }
 }
 
-/*
-impl Writeable for CertExt {
-    fn write_onto<B: Writer + ?Sized>(&self, w: &mut B) {
-        match self {
-            CertExt::SignedWithEd25519(pk) => pk.write_onto(w),
-            CertExt::Unrecognized(u) => u.write_onto(w),
-        }
-    }
-}
- */
-
 /// Extension indicating that a key that signed a given certificate.
 #[derive(Debug, Clone)]
 struct SignedWithEd25519Ext {
     /// The key that signed the certificate including this extension.
-    pk: ed25519::PublicKey,
+    pk: ed25519::Ed25519Identity,
 }
-
-/*
-impl Writeable for SignedWithEd25519Ext {
-    fn write_onto<B: Writer + ?Sized>(&self, w: &mut B) {
-        // body length
-        w.write_u16(32);
-        // Signed-with-ed25519-key-extension
-        w.write_u8(ExtType::SIGNED_WITH_ED25519_KEY.into());
-        // flags = 0.
-        w.write_u8(0);
-        // body
-        w.write_all(self.pk.as_bytes());
-    }
-}
-*/
-
-/*
-impl UnrecognizedExt {
-    /// Assert that there is no problem with the internal representation
-    /// of this object.
-    fn assert_rep_ok(&self) {
-        assert!(self.body.len() <= std::u16::MAX as usize);
-    }
-}
-*/
-
-/*
-impl Writeable for UnrecognizedExt {
-    fn write_onto<B: Writer + ?Sized>(&self, w: &mut B) {
-        self.assert_rep_ok();
-        w.write_u16(self.body.len() as u16);
-        w.write_u8(self.ext_type.into());
-        let flags = if self.affects_validation { 1 } else { 0 };
-        w.write_u8(flags);
-        w.write_all(&self.body[..]);
-    }
-}
-*/
 
 impl Readable for CertExt {
     fn take_from(b: &mut Reader<'_>) -> BytesResult<Self> {
@@ -359,15 +279,10 @@ impl Readable for CertExt {
         let body = b.take(len as usize)?;
 
         Ok(match ext_type {
-            ExtType::SIGNED_WITH_ED25519_KEY => {
-                if body.len() != 32 {
-                    return Err(BytesError::BadMessage("wrong length on Ed25519 key"));
-                }
-                CertExt::SignedWithEd25519(SignedWithEd25519Ext {
-                    pk: ed25519::PublicKey::from_bytes(body)
-                        .map_err(|_| BytesError::BadMessage("invalid Ed25519 public key"))?,
-                })
-            }
+            ExtType::SIGNED_WITH_ED25519_KEY => CertExt::SignedWithEd25519(SignedWithEd25519Ext {
+                pk: ed25519::Ed25519Identity::from_bytes(body)
+                    .ok_or(BytesError::BadMessage("wrong length on Ed25519 key"))?,
+            }),
             _ => {
                 if (flags & 1) != 0 {
                     return Err(BytesError::BadMessage(
@@ -385,34 +300,6 @@ impl Readable for CertExt {
 }
 
 impl Ed25519Cert {
-    /*
-        /// Helper: Assert that there is nothing wrong with the
-        /// internal structure of this certificate.
-        fn assert_rep_ok(&self) {
-            assert!(self.extensions.len() <= std::u8::MAX as usize);
-        }
-
-        /// Encode a certificate into a new vector, signing the result
-        /// with `keypair`.
-        pub fn encode_and_sign(&self, skey: &ed25519::Keypair) -> Vec<u8> {
-            self.assert_rep_ok();
-            let mut w = Vec::new();
-            w.write_u8(1); // Version
-            w.write_u8(self.cert_type.into());
-            w.write_u32(self.exp_hours);
-            w.write_u8(self.cert_key.key_type().into());
-            w.write_all(self.cert_key.as_bytes());
-
-            for e in self.extensions.iter() {
-                w.write(e);
-            }
-
-            let signature = skey.sign(&w[..]);
-            w.write(&signature);
-            w
-        }
-    */
-
     /// Try to decode a certificate from a byte slice.
     ///
     /// This function returns an error if the byte slice is not
@@ -495,7 +382,7 @@ impl Ed25519Cert {
     }
 
     /// Return the ed25519 key that signed this certificate.
-    pub fn signing_key(&self) -> Option<&ed25519::PublicKey> {
+    pub fn signing_key(&self) -> Option<&ed25519::Ed25519Identity> {
         self.signed_with.as_ref()
     }
 
@@ -528,7 +415,7 @@ impl KeyUnknownCert {
     ///
     /// On success, we can check whether the certificate is well-signed;
     /// otherwise, we can't check the certificate.
-    pub fn check_key(self, pkey: &Option<ed25519::PublicKey>) -> CertResult<UncheckedCert> {
+    pub fn check_key(self, pkey: Option<&ed25519::Ed25519Identity>) -> CertResult<UncheckedCert> {
         let real_key = match (pkey, self.cert.cert.signed_with) {
             (Some(a), Some(b)) if a == &b => b,
             (Some(_), Some(_)) => return Err(CertError::KeyMismatch),
@@ -579,6 +466,9 @@ impl UncheckedCert {
     ) -> CertResult<(SigCheckedCert, ed25519::ValidatableEd25519Signature)> {
         use tor_checkable::SelfSigned;
         let signing_key = self.cert.signed_with.ok_or(CertError::MissingPubKey)?;
+        let signing_key = signing_key
+            .try_into()
+            .map_err(|_| CertError::BadSignature)?;
         let signature =
             ed25519::ValidatableEd25519Signature::new(signing_key, self.signature, &self.text[..]);
         Ok((self.dangerously_assume_wellsigned(), signature))
@@ -589,7 +479,7 @@ impl UncheckedCert {
         &self.cert.cert_key
     }
     /// Return signing key of the underlying cert.
-    pub fn peek_signing_key(&self) -> &ed25519::PublicKey {
+    pub fn peek_signing_key(&self) -> &ed25519::Ed25519Identity {
         self.cert
             .signed_with
             .as_ref()
@@ -602,6 +492,7 @@ impl tor_checkable::SelfSigned<SigCheckedCert> for UncheckedCert {
 
     fn is_well_signed(&self) -> CertResult<()> {
         let pubkey = &self.cert.signed_with.ok_or(CertError::MissingPubKey)?;
+        let pubkey: ed25519::PublicKey = pubkey.try_into().map_err(|_| CertError::BadSignature)?;
 
         pubkey
             .verify(&self.text[..], &self.signature)
@@ -636,7 +527,16 @@ impl tor_checkable::Timebound<Ed25519Cert> for SigCheckedCert {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
 

@@ -19,7 +19,7 @@ use digest::Digest;
 #[must_use]
 pub struct RsaCrosscert {
     /// The key that is being certified
-    subject_key: ll::pk::ed25519::PublicKey,
+    subject_key: ll::pk::ed25519::Ed25519Identity,
     /// The expiration time of this certificate, in hours since the
     /// unix epoch.
     exp_hours: u32,
@@ -37,8 +37,8 @@ impl RsaCrosscert {
     }
 
     /// Return true if the subject key in this certificate matches `other`
-    pub fn subject_key_matches(&self, other: &ll::pk::ed25519::PublicKey) -> bool {
-        &self.subject_key == other
+    pub fn subject_key_matches(&self, other: &ll::pk::ed25519::Ed25519Identity) -> bool {
+        other == &self.subject_key
     }
 
     /// Decode a slice of bytes into an RSA crosscert.

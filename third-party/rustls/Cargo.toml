@@ -11,13 +11,14 @@
 
 [package]
 edition = "2018"
+rust-version = "1.57"
 name = "rustls"
-version = "0.20.6"
+version = "0.20.8"
 build = "build.rs"
 autobenches = false
 description = "Rustls is a modern TLS library written in Rust."
 homepage = "https://github.com/rustls/rustls"
-readme = "../README.md"
+readme = "README.md"
 categories = [
     "network-programming",
     "cryptography",
@@ -51,7 +52,7 @@ path = "examples/internal/bench.rs"
 
 [[bench]]
 name = "benchmarks"
-path = "tests/benchmarks.rs"
+path = "benches/benchmarks.rs"
 harness = false
 
 [dependencies.log]
@@ -102,4 +103,5 @@ default = [
 logging = ["log"]
 quic = []
 read_buf = ["rustversion"]
+secret_extraction = []
 tls12 = []

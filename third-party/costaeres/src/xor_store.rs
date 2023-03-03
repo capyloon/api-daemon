@@ -6,32 +6,38 @@ use crate::common::{
 use crate::file_store::FileStore;
 use async_std::io::{Read, Seek, SeekFrom};
 use async_std::task::{Context, Poll};
+use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
+use base64::Engine;
 use pin_project_lite::pin_project;
 use std::pin::Pin;
 
 struct XorNameProvider {
     xor: u8,
+    base64: GeneralPurpose,
 }
 
 impl XorNameProvider {
     pub fn new(xor: u8) -> Self {
-        Self { xor }
+        Self {
+            xor,
+            base64: GeneralPurpose::new(&base64::alphabet::BCRYPT, GeneralPurposeConfig::new()),
+        }
     }
 
     /// Transform a string in a xored + base64 version, safely usable as a file name.
     pub fn transform(&self, what: &str) -> String {
         let xored: Vec<u8> = what.chars().map(|c| (c as u8) ^ self.xor).collect();
-        base64::encode_config(&xored, base64::BCRYPT)
+        self.base64.encode(xored)
     }
 }
 
 impl ResourceNameProvider for XorNameProvider {
     fn metadata_name(&self, id: &ResourceId) -> String {
-        self.transform(&format!("{}.meta", id))
+        self.transform(&format!("{id}.meta"))
     }
 
     fn variant_name(&self, id: &ResourceId, variant: &str) -> String {
-        self.transform(&format!("{}.{}.content", id, variant))
+        self.transform(&format!("{id}.{variant}.content"))
     }
 }
 

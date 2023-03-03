@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use tor_bytes::Reader;
-use tor_linkspec::{ChanTarget, OwnedChanTarget};
+use tor_linkspec::{ChanTarget, ChannelMethod, OwnedChanTargetBuilder, RelayIds};
 use tor_llcrypto as ll;
 use tor_llcrypto::pk::ed25519::Ed25519Identity;
 use tor_llcrypto::pk::rsa::RsaIdentity;
@@ -31,8 +31,7 @@ use super::CellFrame;
 use tracing::{debug, trace};
 
 /// A list of the link protocols that we support.
-// We only support version 4 for now, since we don't do padding right.
-static LINK_PROTOCOLS: &[u16] = &[4];
+static LINK_PROTOCOLS: &[u16] = &[4, 5];
 
 /// A raw client channel on which nothing has been done.
 pub struct OutboundClientHandshake<
@@ -48,8 +47,8 @@ pub struct OutboundClientHandshake<
     /// connection won't be secure.)
     tls: T,
 
-    /// Declared target for this stream, if any.
-    target_addr: Option<SocketAddr>,
+    /// Declared target method for this channel, if any.
+    target_method: Option<ChannelMethod>,
 
     /// Logging identifier for this stream.  (Used for logging only.)
     unique_id: UniqId,
@@ -67,8 +66,8 @@ pub struct UnverifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     tls: CellFrame<T>,
     /// The certs cell that we got from the relay.
     certs_cell: msg::Certs,
-    /// Declared target for this stream, if any.
-    target_addr: Option<SocketAddr>,
+    /// Declared target method for this channel, if any.
+    target_method: Option<ChannelMethod>,
     /// The netinfo cell that we got from the relay.
     #[allow(dead_code)] // Relays will need this.
     netinfo_cell: msg::Netinfo,
@@ -95,8 +94,8 @@ pub struct VerifiedChannel<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S
     link_protocol: u16,
     /// The Source+Sink on which we're reading and writing cells.
     tls: CellFrame<T>,
-    /// Declared target for this stream, if any.
-    target_addr: Option<SocketAddr>,
+    /// Declared target method for this stream, if any.
+    target_method: Option<ChannelMethod>,
     /// Logging identifier for this stream.  (Used for logging only.)
     unique_id: UniqId,
     /// Validated Ed25519 identity for this peer.
@@ -123,10 +122,10 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider>
     OutboundClientHandshake<T, S>
 {
     /// Construct a new OutboundClientHandshake.
-    pub(crate) fn new(tls: T, target_addr: Option<SocketAddr>, sleep_prov: S) -> Self {
+    pub(crate) fn new(tls: T, target_method: Option<ChannelMethod>, sleep_prov: S) -> Self {
         Self {
             tls,
-            target_addr,
+            target_method,
             unique_id: UniqId::new(),
             sleep_prov,
         }
@@ -146,8 +145,11 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider>
             Error::HandshakeIoErr(Arc::new(err))
         }
 
-        match self.target_addr {
-            Some(addr) => debug!("{}: starting Tor handshake with {}", self.unique_id, addr),
+        match &self.target_method {
+            Some(method) => debug!(
+                "{}: starting Tor handshake with {:?}",
+                self.unique_id, method
+            ),
             None => debug!("{}: starting Tor handshake", self.unique_id),
         }
         trace!("{}: sending versions", self.unique_id);
@@ -156,7 +158,11 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider>
             let my_versions = msg::Versions::new(LINK_PROTOCOLS)
                 .map_err(|e| Error::from_cell_enc(e, "versions message"))?;
             self.tls
-                .write_all(&my_versions.encode_for_handshake())
+                .write_all(
+                    &my_versions
+                        .encode_for_handshake()
+                        .map_err(|e| Error::from_cell_enc(e.into(), "versions message"))?,
+                )
                 .await
                 .map_err(io_err_to_handshake)?;
             self.tls.flush().await.map_err(io_err_to_handshake)?;
@@ -283,7 +289,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider>
                     certs_cell,
                     netinfo_cell,
                     clock_skew,
-                    target_addr: self.target_addr,
+                    target_method: self.target_method.take(),
                     unique_id: self.unique_id,
                     sleep_prov: self.sleep_prov.clone(),
                 })
@@ -407,7 +413,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Unver
 
         // Check the identity->signing cert
         let (id_sk, id_sk_sig) = id_sk
-            .check_key(&None)
+            .check_key(None)
             .map_err(Error::HandshakeCertErr)?
             .dangerously_split()
             .map_err(Error::HandshakeCertErr)?;
@@ -427,7 +433,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Unver
         // Now look at the signing->TLS cert and check it against the
         // peer certificate.
         let (sk_tls, sk_tls_sig) = sk_tls
-            .check_key(&Some(*signing_key))
+            .check_key(Some(signing_key))
             .map_err(Error::HandshakeCertErr)?
             .dangerously_split()
             .map_err(Error::HandshakeCertErr)?;
@@ -450,8 +456,6 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Unver
                 "Invalid ed25519 signature in handshake".into(),
             ));
         }
-
-        let ed25519_id: Ed25519Identity = identity_key.into();
 
         // Part 2: validate rsa stuff.
 
@@ -490,7 +494,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Unver
         trace!(
             "{}: Validated identity as {} [{}]",
             self.unique_id,
-            ed25519_id,
+            identity_key,
             rsa_id
         );
 
@@ -502,15 +506,19 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Unver
         // We do this _last_, since "this is the wrong peer" is
         // usually a different situation than "this peer couldn't even
         // identify itself right."
-        if *peer.ed_identity() != ed25519_id {
-            return Err(Error::HandshakeProto(
-                "Peer ed25519 id not as expected".into(),
-            ));
-        }
 
-        if *peer.rsa_identity() != rsa_id {
-            return Err(Error::HandshakeProto("Peer RSA id not as expected".into()));
-        }
+        let actual_identity = RelayIds::builder()
+            .ed_identity(*identity_key)
+            .rsa_identity(rsa_id)
+            .build()
+            .expect("Unable to build RelayIds");
+
+        // We enforce that the relay proved that it has every ID that we wanted:
+        // it may also have additional IDs that we didn't ask for.
+        match super::check_id_match_helper(&actual_identity, peer) {
+            Err(Error::ChanMismatch(msg)) => Err(Error::HandshakeProto(msg)),
+            other => other,
+        }?;
 
         // If we reach this point, the clock skew might be may now be considered
         // authenticated: The certificates are what we wanted, and everything
@@ -534,8 +542,8 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Unver
             link_protocol: self.link_protocol,
             tls: self.tls,
             unique_id: self.unique_id,
-            target_addr: self.target_addr,
-            ed25519_id,
+            target_method: self.target_method,
+            ed25519_id: *identity_key,
             rsa_id,
             clock_skew: self.clock_skew,
             sleep_prov: self.sleep_prov,
@@ -559,7 +567,18 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Verif
         // time to be no earlier than _that_ timestamp.
         crate::note_incoming_traffic();
         trace!("{}: Sending netinfo cell.", self.unique_id);
-        let netinfo = msg::Netinfo::for_client(self.target_addr.as_ref().map(SocketAddr::ip));
+
+        // We do indeed want the real IP here, regardless of whether the
+        // ChannelMethod is Direct connection or not.  The role of the IP in a
+        // NETINFO cell is to tell our peer what address we believe they had, so
+        // that they can better notice MITM attacks and such.
+        let peer_ip = self
+            .target_method
+            .as_ref()
+            .and_then(ChannelMethod::socket_addrs)
+            .and_then(|addrs| addrs.get(0))
+            .map(SocketAddr::ip);
+        let netinfo = msg::Netinfo::from_client(peer_ip);
         self.tls
             .send(netinfo.into())
             .await
@@ -572,11 +591,18 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Verif
 
         let (tls_sink, tls_stream) = self.tls.split();
 
-        let peer_id = OwnedChanTarget::new(
-            self.target_addr.into_iter().collect(),
-            self.ed25519_id,
-            self.rsa_id,
-        );
+        let mut peer_builder = OwnedChanTargetBuilder::default();
+        if let Some(target_method) = self.target_method {
+            if let Some(addrs) = target_method.socket_addrs() {
+                peer_builder.addrs(addrs.to_owned());
+            }
+            peer_builder.method(target_method);
+        }
+        let peer_id = peer_builder
+            .ed_identity(self.ed25519_id)
+            .rsa_identity(self.rsa_id)
+            .build()
+            .expect("OwnedChanTarget builder failed");
 
         Ok(super::Channel::new(
             self.link_protocol,
@@ -594,12 +620,14 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static, S: SleepProvider> Verif
 pub(super) mod test {
     #![allow(clippy::unwrap_used)]
     use hex_literal::hex;
+    use regex::Regex;
     use std::time::{Duration, SystemTime};
 
     use super::*;
     use crate::channel::codec::test::MsgBuf;
     use crate::Result;
     use tor_cell::chancell::msg;
+    use tor_linkspec::OwnedChanTarget;
     use tor_rtcompat::{PreferredRuntime, Runtime};
 
     const VERSIONS: &[u8] = &hex!("0000 07 0006 0003 0004 0005");
@@ -638,7 +666,7 @@ pub(super) mod test {
     #[test]
     fn connect_ok() -> Result<()> {
         tor_rtcompat::test_with_one_runtime!(|rt| async move {
-            let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1217696400);
+            let now = humantime::parse_rfc3339("2008-08-02T17:00:00Z").unwrap();
             let mut buf = Vec::new();
             // versions cell
             buf.extend_from_slice(VERSIONS);
@@ -650,7 +678,7 @@ pub(super) mod test {
             let handshake = OutboundClientHandshake::new(mb, None, rt.clone());
             let unverified = handshake.connect(|| now).await?;
 
-            assert_eq!(unverified.link_protocol, 4);
+            assert_eq!(unverified.link_protocol, 5);
             // No timestamp in the NETINFO, so no skew.
             assert_eq!(unverified.clock_skew(), ClockSkew::None);
 
@@ -788,7 +816,7 @@ pub(super) mod test {
         R: Runtime,
     {
         let localhost = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
-        let netinfo_cell = msg::Netinfo::for_client(Some(localhost));
+        let netinfo_cell = msg::Netinfo::from_client(Some(localhost));
         let clock_skew = ClockSkew::None;
         UnverifiedChannel {
             link_protocol: 4,
@@ -796,31 +824,16 @@ pub(super) mod test {
             certs_cell: certs,
             netinfo_cell,
             clock_skew,
-            target_addr: None,
+            target_method: None,
             unique_id: UniqId::new(),
             sleep_prov: runtime,
         }
     }
 
-    struct DummyChanTarget {
-        ed: Ed25519Identity,
-        rsa: RsaIdentity,
-    }
-    impl ChanTarget for DummyChanTarget {
-        fn addrs(&self) -> &[SocketAddr] {
-            &[]
-        }
-        fn ed_identity(&self) -> &Ed25519Identity {
-            &self.ed
-        }
-        fn rsa_identity(&self) -> &RsaIdentity {
-            &self.rsa
-        }
-    }
-
     // Timestamp when the example certificates were all valid.
     fn cert_timestamp() -> SystemTime {
-        SystemTime::UNIX_EPOCH + Duration::new(1601143280, 0)
+        use humantime::parse_rfc3339;
+        parse_rfc3339("2020-09-26T18:01:20Z").unwrap()
     }
 
     fn certs_test<R>(
@@ -837,7 +850,11 @@ pub(super) mod test {
         let unver = make_unverified(certs, runtime.clone());
         let ed = Ed25519Identity::from_bytes(peer_ed).unwrap();
         let rsa = RsaIdentity::from_bytes(peer_rsa).unwrap();
-        let chan = DummyChanTarget { ed, rsa };
+        let chan = OwnedChanTarget::builder()
+            .ed_identity(ed)
+            .rsa_identity(rsa)
+            .build()
+            .unwrap();
         unver.check_internal(&chan, peer_cert_sha256, when)
     }
 
@@ -940,10 +957,12 @@ pub(super) mod test {
         .err()
         .unwrap();
 
-        assert_eq!(
-            format!("{}", err),
-            "Handshake protocol violation: Peer ed25519 id not as expected"
-        );
+        let re = Regex::new(
+            // identities might be scrubbed by safelog
+            r"Identity .* does not match target .*",
+        )
+        .unwrap();
+        assert!(re.is_match(&format!("{}", err)));
 
         let err = certs_test(
             certs.clone(),
@@ -956,10 +975,12 @@ pub(super) mod test {
         .err()
         .unwrap();
 
-        assert_eq!(
-            format!("{}", err),
-            "Handshake protocol violation: Peer RSA id not as expected"
-        );
+        let re = Regex::new(
+            // identities might be scrubbed by safelog
+            r"Identity .* does not match target .*",
+        )
+        .unwrap();
+        assert!(re.is_match(&format!("{}", err)));
 
         let err = certs_test(
             certs,
@@ -1062,7 +1083,7 @@ pub(super) mod test {
                 link_protocol: 4,
                 tls: futures_codec::Framed::new(MsgBuf::new(&b""[..]), ChannelCodec::new(4)),
                 unique_id: UniqId::new(),
-                target_addr: Some(peer_addr),
+                target_method: Some(ChannelMethod::Direct(vec![peer_addr])),
                 ed25519_id,
                 rsa_id,
                 clock_skew: ClockSkew::None,

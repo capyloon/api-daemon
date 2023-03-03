@@ -40,6 +40,7 @@ use sqlx::{
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -131,9 +132,7 @@ impl<T> Manager<T> {
         sqlx::migrate!("db/migrations")
             .run(&db_pool)
             .await
-            .map_err(|err| {
-                ResourceStoreError::Custom(format!("Failed to run migration: {}", err))
-            })?;
+            .map_err(|err| ResourceStoreError::Custom(format!("Failed to run migration: {err}")))?;
 
         let fts = Fts::new(&db_pool);
         Ok(Manager {
@@ -141,7 +140,10 @@ impl<T> Manager<T> {
             store,
             fts,
             indexers: Vec::new(),
-            cache: LruCache::new(config.metadata_cache_capacity),
+            cache: LruCache::new(
+                NonZeroUsize::new(config.metadata_cache_capacity)
+                    .unwrap_or(unsafe { NonZeroUsize::new_unchecked(128) }),
+            ),
             observers: HashMap::new(),
             current_observer: 0,
         })
@@ -719,7 +721,7 @@ impl<T> Manager<T> {
             .await?;
 
         if let Some(content) = &content {
-            metadata.add_variant(content.metadata.clone());
+            metadata.add_or_update_variant(content.metadata.clone());
         }
 
         // Start a transaction to store the new metadata.
@@ -767,7 +769,7 @@ impl<T> Manager<T> {
     ) -> Result<(), ResourceStoreError> {
         let mut metadata = self.get_metadata(id).await?;
 
-        metadata.add_variant(content.metadata.clone());
+        metadata.add_or_update_variant(content.metadata.clone());
         metadata.modify_now();
 
         let mut tx = self.db_pool.begin().await?;
@@ -1107,7 +1109,7 @@ impl<T> Manager<T> {
                     break;
                 }
 
-                let aname = format!("{}", name);
+                let aname = format!("{name}");
                 let ppath = Path::new(&aname);
                 suffix += 1;
                 let ext = match ppath.extension() {

@@ -1,21 +1,5 @@
-//! `tor-consdiff`: Restricted ed diff and patch formats for Tor.
-//!
-//! # Overview
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.
-//! Tor uses a restricted version of the "ed-style" diff format to
-//! record the difference between a pair of consensus documents, so that
-//! clients can download only the changes since the last document they
-//! have.
-//!
-//! This crate provides a function to apply one of these diffs to an older
-//! consensus document, to get a newer one.
-//!
-//! TODO: Eventually, when we add relay support, we will need to generate
-//! these diffs as well as consume them.
-
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -49,7 +33,9 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 use std::fmt::{Display, Formatter};
@@ -140,7 +126,7 @@ where
     let d1 = hex::decode(elts[1])?;
     let d2 = hex::decode(elts[2])?;
     match (d1.try_into(), d2.try_into()) {
-        (Ok(a), Ok(b)) => (Ok((a, b))),
+        (Ok(a), Ok(b)) => Ok((a, b)),
         _ => Err(Error::BadDiff("wrong digest lengths on 'hash' line")),
     }
 }
@@ -425,8 +411,8 @@ impl<'a> DiffCommand<'a> {
     }
 }
 
-/// Iterator that wraps a line iterator and returns a sequence
-/// Result<DiffCommand>.
+/// Iterator that wraps a line iterator and returns a sequence of
+/// `Result<DiffCommand>`.
 ///
 /// This iterator forces the commands to affect the file in reverse order,
 /// so that we can use the O(n) algorithm for applying these diffs.
@@ -570,7 +556,16 @@ impl<'a> Display for DiffResult<'a> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]

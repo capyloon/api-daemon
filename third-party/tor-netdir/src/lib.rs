@@ -1,30 +1,5 @@
-//! Represents a clients'-eye view of the Tor network.
-//!
-//! # Overview
-//!
-//! The `tor-netdir` crate wraps objects from tor-netdoc, and combines
-//! them to provide a unified view of the relays on the network.
-//! It is responsible for representing a client's knowledge of the
-//! network's state and who is on it.
-//!
-//! This crate is part of
-//! [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to
-//! implement [Tor](https://www.torproject.org/) in Rust.  Its purpose
-//! is to expose an abstract view of a Tor network and the relays in
-//! it, so that higher-level crates don't need to know about the
-//! particular documents that describe the network and its properties.
-//!
-//! There are two intended users for this crate.  First, producers
-//! like [`tor-dirmgr`] create [`NetDir`] objects fill them with
-//! information from the Tor network directory.  Later, consumers
-//! like [`tor-circmgr`] use [`NetDir`]s to select relays for random
-//! paths through the Tor network.
-//!
-//! # Limitations
-//!
-//! Only modern consensus methods and microdescriptor consensuses are
-//! supported.
-
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
+#![doc = include_str!("../README.md")]
 // @@ begin lint list maintained by maint/add_warning @@
 #![cfg_attr(not(ci_arti_stable), allow(renamed_and_removed_lints))]
 #![cfg_attr(not(ci_arti_nightly), allow(unknown_lints))]
@@ -58,17 +33,30 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 mod err;
+#[cfg(feature = "onion-common")]
+mod hsdir_params;
+#[cfg(feature = "onion-common")]
+mod hsdir_ring;
 pub mod params;
 mod weight;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testnet;
+#[cfg(feature = "testing")]
+pub mod testprovider;
 
-use tor_linkspec::ChanTarget;
+#[cfg(feature = "onion-common")]
+use hsdir_ring::HsDirRing;
+use static_assertions::const_assert;
+use tor_linkspec::{
+    ChanTarget, DirectChanMethodsHelper, HasAddrs, HasRelayIds, RelayIdRef, RelayIdType,
+};
 use tor_llcrypto as ll;
 use tor_llcrypto::pk::{ed25519::Ed25519Identity, rsa::RsaIdentity};
 use tor_netdoc::doc::microdesc::{MdDigest, Microdesc};
@@ -76,17 +64,25 @@ use tor_netdoc::doc::netstatus::{self, MdConsensus, RouterStatus};
 use tor_netdoc::types::policy::PortPolicy;
 
 use futures::stream::BoxStream;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
 use std::sync::Arc;
+use strum::{EnumCount, EnumIter};
 use tracing::warn;
+
+#[cfg(feature = "onion-common")]
+use tor_hscrypto::{pk::BlindedOnionId, time::TimePeriod};
 
 pub use err::Error;
 pub use weight::WeightRole;
 /// A Result using the Error type from the tor-netdir crate
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(feature = "onion-common")]
+pub use err::OnionDirLookupError;
 
 use params::NetParameters;
 
@@ -129,8 +125,9 @@ impl SubnetConfig {
         }
     }
 
-    /// Are two addresses in the same subnet according to this configuration
-    fn addrs_in_same_subnet(&self, a: &IpAddr, b: &IpAddr) -> bool {
+    /// Return true if the two addresses in the same subnet, according to this
+    /// configuration.
+    pub fn addrs_in_same_subnet(&self, a: &IpAddr, b: &IpAddr) -> bool {
         match (a, b) {
             (IpAddr::V4(a), IpAddr::V4(b)) => {
                 let bits = self.subnets_family_v4;
@@ -152,6 +149,20 @@ impl SubnetConfig {
             }
             _ => false,
         }
+    }
+
+    /// Return true if any of the addresses in `a` shares a subnet with any of
+    /// the addresses in `b`, according to this configuration.
+    pub fn any_addrs_in_same_subnet<T, U>(&self, a: &T, b: &U) -> bool
+    where
+        T: tor_linkspec::HasAddrs,
+        U: tor_linkspec::HasAddrs,
+    {
+        a.addrs().iter().any(|aa| {
+            b.addrs()
+                .iter()
+                .any(|bb| self.addrs_in_same_subnet(&aa.ip(), &bb.ip()))
+        })
     }
 }
 
@@ -205,18 +216,36 @@ impl From<u64> for RelayWeight {
     }
 }
 
-/// A view of the Tor directory, suitable for use in building
-/// circuits.
+/// An operation for which we might be requesting an onion service directory.
+#[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
+pub enum OnionServiceDirOp {
+    /// Uploading an onion service descriptor.
+    Upload,
+    /// Downloading an onion service descriptor.
+    Download,
+}
+
+/// A view of the Tor directory, suitable for use in building circuits.
 ///
-/// Abstractly, a [`NetDir`] is a set of usable public [`Relay`]s,
-/// each of which has its own properties, identity, and correct weighted
-/// probability for use under different circumstances.
+/// Abstractly, a [`NetDir`] is a set of usable public [`Relay`]s, each of which
+/// has its own properties, identity, and correct weighted probability for use
+/// under different circumstances.
 ///
-/// A [`NetDir`] is constructed by making a [`PartialNetDir`] from a
-/// consensus document, and then adding enough microdescriptors to
-/// that `PartialNetDir` so that it can be used to build paths.
-/// (Thus, if you have a NetDir, it is definitely adequate to build
-/// paths.)
+/// A [`NetDir`] is constructed by making a [`PartialNetDir`] from a consensus
+/// document, and then adding enough microdescriptors to that `PartialNetDir` so
+/// that it can be used to build paths. (Thus, if you have a NetDir, it is
+/// definitely adequate to build paths.)
+///
+/// # Limitations
+///
+/// The current NetDir implementation assumes fairly strongly that every relay
+/// has an Ed25519 identity and an RSA identity, that the consensus is indexed
+/// by RSA identities, and that the Ed25519 identities are stored in
+/// microdescriptors.
+///
+/// If these assumptions someday change, then we'll have to revise the
+/// implementation.
 #[derive(Debug, Clone)]
 pub struct NetDir {
     /// A microdescriptor consensus that lists the members of the network,
@@ -253,6 +282,48 @@ pub struct NetDir {
     /// can be immutable.
     rs_idx_by_rsa: Arc<HashMap<RsaIdentity, usize>>,
 
+    /// A hash ring describing the onion service directory.
+    ///
+    /// This is empty in a PartialNetDir, and is filled in before the NetDir is
+    /// built.
+    ///
+    /// It corresponds to the time period containing the `valid-after` time in
+    /// the consensus. Its SRV is whatever SRV was most current at the time when
+    /// that time period began.
+    ///
+    /// This is the hash ring that we should use whenever we are fetching an
+    /// onion service descriptor.
+    //
+    // TODO hs: It is ugly to have this exist in a partially constructed state
+    // in a PartialNetDir.
+    #[cfg(feature = "onion-common")]
+    hsdir_ring: HsDirRing,
+
+    /// A hash ring describing the onion service directory based on the
+    /// parameters for the previous and next time periods.
+    ///
+    /// Onion services upload to positions on these ring as well, based on how
+    /// far into the current time period this directory is, so that
+    /// not-synchronized clients can still find their descriptor.
+    ///
+    /// Note that with the current (2023) network parameters, with
+    /// `hsdir_interval = SRV lifetime = 24 hours` at most one of these
+    /// secondary rings will be active at a time.  We have two here in order
+    /// to conform with a more flexible regime in proposal 342.
+    //
+    // TODO hs: It is sort of ugly to have these be partially constructed in a
+    // PartialNetDir.
+    //
+    // TODO hs: hs clients never need this; so I've made it not-present for thm.
+    // But does that risk too much with respect to side channels?
+    //
+    // TODO hs: Perhaps we should refactor this so that it is clear that these
+    // are immutable?  On the other hand, the documentation for this type
+    // declares that it is immutable, so we are likely okay.
+    #[cfg(feature = "onion-service")]
+    #[allow(dead_code)]
+    hsdir_secondary_rings: Vec<HsDirRing>,
+
     /// Weight values to apply to a given relay when deciding how frequently
     /// to choose it for a given role.
     weights: weight::WeightSet,
@@ -260,8 +331,11 @@ pub struct NetDir {
 
 /// An event that a [`NetDirProvider`] can broadcast to indicate that a change in
 /// the status of its directory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumCount, IntoPrimitive, TryFromPrimitive,
+)]
 #[non_exhaustive]
+#[repr(u16)]
 pub enum DirEvent {
     /// A new consensus has been received, and has enough information to be
     /// used.
@@ -278,11 +352,50 @@ pub enum DirEvent {
     NewDescriptors,
 }
 
+/// How "timely" must a network directory be?
+///
+/// This enum is used as an argument when requesting a [`NetDir`] object from
+/// [`NetDirProvider`] and other APIs, to specify how recent the information
+/// must be in order to be useful.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[allow(clippy::exhaustive_enums)]
+pub enum Timeliness {
+    /// The network directory must be strictly timely.
+    ///
+    /// That is, it must be based on a consensus that valid right now, with no
+    /// tolerance for skew or consensus problems.
+    ///
+    /// Avoid using this option if you could use [`Timeliness::Timely`] instead.
+    Strict,
+    /// The network directory must be roughly timely.
+    ///
+    /// This is, it must be be based on a consensus that is not _too_ far in the
+    /// future, and not _too_ far in the past.
+    ///
+    /// (The tolerances for "too far" will depend on configuration.)
+    ///
+    /// This is almost always the option that you want to use.
+    Timely,
+    /// Any network directory is permissible, regardless of how untimely.
+    ///
+    /// Avoid using this option if you could use [`Timeliness::Timely`] instead.
+    Unchecked,
+}
+
 /// An object that can provide [`NetDir`]s, as well as inform consumers when
 /// they might have changed.
 pub trait NetDirProvider: UpcastArcNetDirProvider + Send + Sync {
-    /// Return a handle to our latest directory, if we have one.
-    fn latest_netdir(&self) -> Option<Arc<NetDir>>;
+    /// Return a network directory that's live according to the provided
+    /// `timeliness`.
+    fn netdir(&self, timeliness: Timeliness) -> Result<Arc<NetDir>>;
+
+    /// Return a reasonable netdir for general usage.
+    ///
+    /// This is an alias for
+    /// [`NetDirProvider::netdir`]`(`[`Timeliness::Timely`]`)`.
+    fn timely_netdir(&self) -> Result<Arc<NetDir>> {
+        self.netdir(Timeliness::Timely)
+    }
 
     /// Return a new asynchronous stream that will receive notification
     /// whenever the consensus has changed.
@@ -291,18 +404,31 @@ pub trait NetDirProvider: UpcastArcNetDirProvider + Send + Sync {
     /// this stream yields an event, all you can assume is that the event has
     /// occurred at least once.
     fn events(&self) -> BoxStream<'static, DirEvent>;
+
+    /// Return the latest network parameters.
+    ///
+    /// If we have no directory, return a reasonable set of defaults.
+    fn params(&self) -> Arc<dyn AsRef<NetParameters>>;
 }
 
 impl<T> NetDirProvider for Arc<T>
 where
     T: NetDirProvider,
 {
-    fn latest_netdir(&self) -> Option<Arc<NetDir>> {
-        self.deref().latest_netdir()
+    fn netdir(&self, timeliness: Timeliness) -> Result<Arc<NetDir>> {
+        self.deref().netdir(timeliness)
+    }
+
+    fn timely_netdir(&self) -> Result<Arc<NetDir>> {
+        self.deref().timely_netdir()
     }
 
     fn events(&self) -> BoxStream<'static, DirEvent> {
         self.deref().events()
+    }
+
+    fn params(&self) -> Arc<dyn AsRef<NetParameters>> {
+        self.deref().params()
     }
 }
 
@@ -329,6 +455,12 @@ where
         Self: 'a,
     {
         self
+    }
+}
+
+impl AsRef<NetParameters> for NetDir {
+    fn as_ref(&self) -> &NetParameters {
+        self.params()
     }
 }
 
@@ -420,6 +552,28 @@ impl PartialNetDir {
             .map(|(rs_idx, rs)| (*rs.rsa_identity(), rs_idx))
             .collect();
 
+        #[cfg(feature = "onion-service")]
+        let hsdir_secondary_rings;
+        #[cfg(feature = "onion-common")]
+        let hsdir_ring = {
+            let (cur_hsparams, secondary_hsparams) =
+                hsdir_params::HsRingParams::compute(&consensus, &params)
+                    .expect("Invalid consensus!");
+            // TODO HS: I dislike using expect above, but this function does not
+            // return a Result. Perhaps we should change it so that it can?  Or as an alternative
+            // we could let this object exist in a state without any HsDir rings.
+
+            #[cfg(feature = "onion-service")]
+            {
+                hsdir_secondary_rings = secondary_hsparams
+                    .iter()
+                    .map(HsDirRing::empty_from_params)
+                    .collect();
+            }
+
+            HsDirRing::empty_from_params(&cur_hsparams)
+        };
+
         let netdir = NetDir {
             consensus: Arc::new(consensus),
             params,
@@ -427,6 +581,10 @@ impl PartialNetDir {
             rs_idx_by_missing,
             rs_idx_by_rsa: Arc::new(rs_idx_by_rsa),
             rs_idx_by_ed: HashMap::with_capacity(n_relays),
+            #[cfg(feature = "onion-common")]
+            hsdir_ring,
+            #[cfg(feature = "onion-service")]
+            hsdir_secondary_rings,
             weights,
         };
 
@@ -447,7 +605,30 @@ impl PartialNetDir {
                 loaded.push(md.digest());
             }
         }
+
+        #[cfg(feature = "hs-common")]
+        {
+            // TODO hs: cache the values for the hash rings if possible, maybe
+            // in the PartialNetDir, since we will want to use them in computing
+            // hash indices for the new hash ring.  This can let us save some
+            // computation?  Alternatively, we could compute the new rings at
+            // this point, but that could make this operation a bit expensive.
+        }
+
         loaded
+    }
+
+    /// Compute the hash ring(s) for this NetDir, if one is not already computed.
+    #[cfg(feature = "hs-common")]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn compute_ring(&mut self) {
+        // TODO hs: compute the ring based on the time period and shared random
+        // value of the consensus.
+        //
+        // The ring itself can be a bit expensive to compute, so maybe we should
+        // make sure this happens in a separate task or something, and expose a
+        // way to do that?
+        todo!()
     }
 
     /// Return true if this are enough information in this directory
@@ -459,18 +640,11 @@ impl PartialNetDir {
     /// circuits, return it.
     pub fn unwrap_if_sufficient(self) -> std::result::Result<NetDir, PartialNetDir> {
         if self.netdir.have_enough_paths() {
+            //  self.compute_ring(); // TODO hs
             Ok(self.netdir)
         } else {
             Err(self)
         }
-    }
-    /// Return true if we are currently missing a microdescriptor for the
-    /// given RSA identity.
-    ///
-    /// A descriptor is `missing` only if it is listed in the consensus,
-    /// but we don't have it downloaded.
-    pub fn missing_descriptor_for(&self, rsa_id: &RsaIdentity) -> bool {
-        self.netdir.missing_descriptor_for(rsa_id)
     }
 }
 
@@ -570,52 +744,74 @@ impl NetDir {
     pub fn relays(&self) -> impl Iterator<Item = Relay<'_>> {
         self.all_relays().filter_map(UncheckedRelay::into_relay)
     }
-    /// Return a relay matching a given Ed25519 identity, if we have a
+
+    /// Return a relay matching a given identity, if we have a
     /// _usable_ relay with that key.
     ///
     /// (Does not return unusable relays.)
     ///
-    /// Note that if a microdescriptor is subsequently added for a relay
-    /// with this ID, the ID may become usable.
+    ///    
+    /// Note that a `None` answer is not always permanent: if a microdescriptor
+    /// is subsequently added for a relay with this ID, the ID may become usable
+    /// even if it was not usable before.
     #[allow(clippy::missing_panics_doc)] // Can't panic on valid object.
-    pub fn by_id(&self, id: &Ed25519Identity) -> Option<Relay<'_>> {
-        let rs_idx = *self.rs_idx_by_ed.get(id)?;
-        let rs = self.consensus.relays().get(rs_idx).expect("Corrupt index");
+    pub fn by_id<'a, T>(&self, id: T) -> Option<Relay<'_>>
+    where
+        T: Into<RelayIdRef<'a>> + ?Sized,
+    {
+        let id = id.into();
+        let answer = match id {
+            RelayIdRef::Ed25519(ed25519) => {
+                let rs_idx = *self.rs_idx_by_ed.get(ed25519)?;
+                let rs = self.consensus.relays().get(rs_idx).expect("Corrupt index");
 
-        let relay = self.relay_from_rs_and_idx(rs, rs_idx).into_relay()?;
-        assert_eq!(id, relay.id());
-        Some(relay)
+                self.relay_from_rs_and_idx(rs, rs_idx).into_relay()?
+            }
+            RelayIdRef::Rsa(rsa) => self
+                .by_rsa_id_unchecked(rsa)
+                .and_then(UncheckedRelay::into_relay)?,
+            other_type => self.relays().find(|r| r.has_identity(other_type))?,
+        };
+        assert!(answer.has_identity(id));
+        Some(answer)
     }
 
-    /// Return a relay matching a given Ed25519 identity and RSA identity,
-    /// if we have a usable relay with _both_ keys.
+    /// Return a relay with the same identities as those in `target`, if one
+    /// exists.
     ///
-    /// (Does not return unusable relays.)
+    /// Does not return unusable relays.
     ///
-    /// Note that if a microdescriptor is subsequently added for a relay
-    /// with this ID, the ID may become usable.
-    pub fn by_id_pair(&self, ed_id: &Ed25519Identity, rsa_id: &RsaIdentity) -> Option<Relay<'_>> {
-        self.by_id(ed_id).filter(|r| r.rs.rsa_identity() == rsa_id)
-    }
-
-    /// Return the usable relay matching a given [`ChanTarget`]'s
-    /// identities, if any.
+    /// # Limitations
     ///
-    /// (Does not return unusable relays.)
-    pub fn by_chantarget(&self, chan_target: &impl tor_linkspec::ChanTarget) -> Option<Relay<'_>> {
-        self.by_id_pair(chan_target.ed_identity(), chan_target.rsa_identity())
-    }
-
-    /// Return a boolean if this consensus definitely has (or does not
-    /// have) a relay matching both the given Ed25519 and RSA
+    /// This will be very slow if `target` does not have an Ed25519 or RSA
     /// identity.
+    pub fn by_ids<T>(&self, target: &T) -> Option<Relay<'_>>
+    where
+        T: HasRelayIds + ?Sized,
+    {
+        let mut identities = target.identities();
+        // Don't try if there are no identities.
+        let first_id = identities.next()?;
+
+        // Since there is at most one relay with each given ID type,
+        // we only need to check the first relay we find.
+        let candidate = self.by_id(first_id)?;
+        if identities.all(|wanted_id| candidate.has_identity(wanted_id)) {
+            Some(candidate)
+        } else {
+            None
+        }
+    }
+
+    /// Return a boolean if this consensus definitely has (or does not have) a
+    /// relay matching the listed identities.
     ///
-    /// If we can't yet tell for sure, return None.
     ///
-    /// Once function has returned `Some(b)`, it will always return that
-    /// value for the same `ed_id` and `rsa_id` on this `NetDir`.  A `None`
-    /// answer may later become `Some(b)` if a microdescriptor arrives.
-    pub fn id_pair_listed(&self, ed_id: &Ed25519Identity, rsa_id: &RsaIdentity) -> Option<bool> {
+    /// If we can't yet tell for sure, return None. Once function has returned
+    /// `Some(b)`, it will always return that value for the same `ed_id` and
+    /// `rsa_id` on this `NetDir`.  A `None` answer may later become `Some(b)`
+    /// if a microdescriptor arrives.
+    fn id_pair_listed(&self, ed_id: &Ed25519Identity, rsa_id: &RsaIdentity) -> Option<bool> {
         let r = self.by_rsa_id_unchecked(rsa_id);
         match r {
             Some(unchecked) => {
@@ -633,21 +829,41 @@ impl NetDir {
         }
     }
 
-    /// Return true if we are currently missing a micro descriptor for the
-    /// given RSA identity.
+    /// As `id_pair_listed`, but check whether a relay exists (or may exist)
+    /// with the same identities as those in `target`.
     ///
-    /// A descriptor is `missing` only if it is listed in the consensus,
-    /// but we don't have it downloaded.
-    pub fn missing_descriptor_for(&self, rsa_id: &RsaIdentity) -> bool {
-        match self.by_rsa_id_unchecked(rsa_id) {
-            Some(unchecked) => unchecked.md.is_none(),
-            None => false,
+    /// # Limitations
+    ///
+    /// This can be inefficient if the target does not have both an ed25519 and
+    /// an rsa identity key.
+    pub fn ids_listed<T>(&self, target: &T) -> Option<bool>
+    where
+        T: HasRelayIds + ?Sized,
+    {
+        let rsa_id = target.rsa_identity();
+        let ed25519_id = target.ed_identity();
+
+        // TODO: If we later support more identity key types, this will
+        // become incorrect.  This assertion might help us recognize that case.
+        const_assert!(RelayIdType::COUNT == 2);
+
+        match (rsa_id, ed25519_id) {
+            (Some(r), Some(e)) => self.id_pair_listed(e, r),
+            (Some(r), None) => Some(self.rsa_id_is_listed(r)),
+            (None, Some(e)) => {
+                if self.rs_idx_by_ed.contains_key(e) {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            (None, None) => None,
         }
     }
 
     /// Return a (possibly unusable) relay with a given RSA identity.
     #[allow(clippy::missing_panics_doc)] // Can't panic on valid object.
-    pub fn by_rsa_id_unchecked(&self, rsa_id: &RsaIdentity) -> Option<UncheckedRelay<'_>> {
+    fn by_rsa_id_unchecked(&self, rsa_id: &RsaIdentity) -> Option<UncheckedRelay<'_>> {
         let rs_idx = *self.rs_idx_by_rsa.get(rsa_id)?;
         let rs = self.consensus.relays().get(rs_idx).expect("Corrupt index");
         assert_eq!(rs.rsa_identity(), rsa_id);
@@ -655,14 +871,15 @@ impl NetDir {
     }
     /// Return the relay with a given RSA identity, if we have one
     /// and it is usable.
-    pub fn by_rsa_id(&self, rsa_id: &RsaIdentity) -> Option<Relay<'_>> {
+    fn by_rsa_id(&self, rsa_id: &RsaIdentity) -> Option<Relay<'_>> {
         self.by_rsa_id_unchecked(rsa_id)?.into_relay()
     }
     /// Return true if `rsa_id` is listed in this directory, even if it
     /// isn't currently usable.
-    pub fn rsa_id_is_listed(&self, rsa_id: &RsaIdentity) -> bool {
+    fn rsa_id_is_listed(&self, rsa_id: &RsaIdentity) -> bool {
         self.by_rsa_id_unchecked(rsa_id).is_some()
     }
+
     /// Return the parameters from the consensus, clamped to the
     /// correct ranges, with defaults filled in.
     ///
@@ -766,7 +983,7 @@ impl NetDir {
     ) -> Option<Relay<'a>>
     where
         R: rand::Rng,
-        P: Fn(&Relay<'a>) -> bool,
+        P: FnMut(&Relay<'a>) -> bool,
     {
         use rand::seq::SliceRandom;
         let relays: Vec<_> = self.relays().filter(usable).collect();
@@ -819,7 +1036,7 @@ impl NetDir {
     ) -> Vec<Relay<'a>>
     where
         R: rand::Rng,
-        P: Fn(&Relay<'a>) -> bool,
+        P: FnMut(&Relay<'a>) -> bool,
     {
         use rand::seq::SliceRandom;
         let relays: Vec<_> = self.relays().filter(usable).collect();
@@ -898,6 +1115,61 @@ impl NetDir {
                 .filter(|other_relay| other_relay.md.family().contains(relay_rsa_id))
         })
     }
+
+    /// Return the current onion service directory "time period".
+    ///
+    /// Specifically, this returns the time period that contains the beginning
+    /// of the validity period of this `NetDir`'s consensus.  That time period
+    /// is the one we use when acting as an onion service client.
+    #[cfg(feature = "onion-common")]
+    pub fn onion_service_time_period(&self) -> TimePeriod {
+        self.hsdir_ring.time_period()
+    }
+
+    /// Return the secondary onion service directory "time periods".
+    ///
+    /// These are additional time periods that we publish descriptors for when we are
+    /// acting as an onion service.
+    #[cfg(feature = "onion-service")]
+    pub fn onion_service_secondary_time_periods(&self) -> Vec<TimePeriod> {
+        self.hsdir_secondary_rings
+            .iter()
+            .map(HsDirRing::time_period)
+            .collect()
+    }
+
+    /// Return the relays in this network directory that will be used to store a
+    /// given onion service's descriptor at a given time period.
+    ///
+    /// Return an error if the time period is not one returned by
+    /// `onion_service_time_period` or `onion_service_secondary_time_periods`.
+    #[cfg(feature = "onion-common")]
+    #[allow(unused, clippy::missing_panics_doc)] // TODO hs: remove.
+    pub fn onion_service_dirs(
+        &self,
+        id: BlindedOnionId,
+        op: OnionServiceDirOp,
+        when: TimePeriod,
+    ) -> std::result::Result<Vec<Relay<'_>>, OnionDirLookupError> {
+        // Algorithm:
+        //
+        // 1. Determine which HsDirRing to use, based on the time period.
+        // 2. Find the shared random value that's associated with that HsDirRing.
+        // 3. Choose spread = the parameter `hsdir_spread_store` or
+        //    `hsdir_spread_fetch` based on `op`.
+        // 4. Let n_replicas = the parameter `hsdir_n_replicas`.
+        // 5. Initialize Dirs = []
+        // 6. for idx in 0..n_replicas:
+        //       - let H = hsdir_ring::onion_service_index(id, replica, rand,
+        //         period).
+        //       - Find the position of H within hsdir_ring.
+        //       - Take elements from hsdir_ring starting at that position,
+        //         adding them to Dirs until we have added `spread` new elements
+        //         that were not there before.
+        // 7. return Dirs.
+
+        todo!() // TODO hs
+    }
 }
 
 impl MdReceiver for NetDir {
@@ -954,7 +1226,7 @@ impl<'a> Relay<'a> {
     /// Return true if this relay and `other` seem to be the same relay.
     ///
     /// (Two relays are the same if they have the same identity.)
-    pub fn same_relay<'b>(&self, other: &Relay<'b>) -> bool {
+    pub fn same_relay(&self, other: &Relay<'_>) -> bool {
         self.id() == other.id() && self.rsa_id() == other.rsa_id()
     }
     /// Return true if this relay allows exiting to `port` on IPv4.
@@ -981,18 +1253,13 @@ impl<'a> Relay<'a> {
     /// have IPv4 addresses with the same `subnets_family_v4`-bit
     /// prefix, or if they have IPv6 addresses with the same
     /// `subnets_family_v6`-bit prefix.
-    pub fn in_same_subnet<'b>(&self, other: &Relay<'b>, subnet_config: &SubnetConfig) -> bool {
-        self.rs.orport_addrs().any(|addr| {
-            other
-                .rs
-                .orport_addrs()
-                .any(|other| subnet_config.addrs_in_same_subnet(&addr.ip(), &other.ip()))
-        })
+    pub fn in_same_subnet(&self, other: &Relay<'_>, subnet_config: &SubnetConfig) -> bool {
+        subnet_config.any_addrs_in_same_subnet(self, other)
     }
     /// Return true if both relays are in the same family.
     ///
     /// (Every relay is considered to be in the same family as itself.)
-    pub fn in_same_family<'b>(&self, other: &Relay<'b>) -> bool {
+    pub fn in_same_family(&self, other: &Relay<'_>) -> bool {
         if self.same_relay(other) {
             return true;
         }
@@ -1069,10 +1336,12 @@ impl<'a> Relay<'a> {
     }
 }
 
-impl<'a> ChanTarget for Relay<'a> {
+impl<'a> HasAddrs for Relay<'a> {
     fn addrs(&self) -> &[std::net::SocketAddr] {
         self.rs.addrs()
     }
+}
+impl<'a> tor_linkspec::HasRelayIdsLegacy for Relay<'a> {
     fn ed_identity(&self) -> &Ed25519Identity {
         self.id()
     }
@@ -1080,6 +1349,21 @@ impl<'a> ChanTarget for Relay<'a> {
         self.rsa_id()
     }
 }
+
+impl<'a> HasRelayIds for UncheckedRelay<'a> {
+    fn identity(&self, key_type: RelayIdType) -> Option<RelayIdRef<'_>> {
+        match key_type {
+            RelayIdType::Ed25519 if self.rs.ed25519_id_is_usable() => {
+                self.md.map(|m| m.ed25519_id().into())
+            }
+            RelayIdType::Rsa => Some(self.rs.rsa_identity().into()),
+            _ => None,
+        }
+    }
+}
+
+impl<'a> DirectChanMethodsHelper for Relay<'a> {}
+impl<'a> ChanTarget for Relay<'a> {}
 
 impl<'a> tor_linkspec::CircTarget for Relay<'a> {
     fn ntor_onion_key(&self) -> &ll::pk::curve25519::PublicKey {
@@ -1098,7 +1382,16 @@ fn rs_is_dir_cache(rs: &netstatus::MdConsensusRouterStatus) -> bool {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     #![allow(clippy::cognitive_complexity)]
     use super::*;
     use crate::testnet::*;
@@ -1106,6 +1399,7 @@ mod test {
     use std::collections::HashSet;
     use std::time::Duration;
     use tor_basic_utils::test_rng;
+    use tor_linkspec::{RelayIdType, RelayIds};
 
     // Basic functionality for a partial netdir: Add microdescriptors,
     // then you have a netdir.
@@ -1284,7 +1578,7 @@ mod test {
                 r.supports_exit_port_ipv4(80)
             });
             let r = r.unwrap();
-            let id_byte = r.rsa_identity().as_bytes()[0];
+            let id_byte = r.identity(RelayIdType::Rsa).unwrap().as_bytes()[0];
             picked[id_byte as usize] += 1;
         }
         // non-exits should never get picked.
@@ -1316,7 +1610,7 @@ mod test {
             });
             assert_eq!(relays.len(), 4);
             for r in relays {
-                let id_byte = r.rsa_identity().as_bytes()[0];
+                let id_byte = r.identity(RelayIdType::Rsa).unwrap().as_bytes()[0];
                 picked[id_byte as usize] += 1;
             }
         }
@@ -1387,13 +1681,21 @@ mod test {
         let dir = dir.unwrap_if_sufficient().unwrap();
 
         // Pick out a few relays by ID.
-        let r0 = dir.by_id(&[0; 32].into()).unwrap();
-        let r1 = dir.by_id(&[1; 32].into()).unwrap();
-        let r2 = dir.by_id(&[2; 32].into()).unwrap();
-        let r3 = dir.by_id(&[3; 32].into()).unwrap();
-        let r10 = dir.by_id(&[10; 32].into()).unwrap();
-        let r15 = dir.by_id(&[15; 32].into()).unwrap();
-        let r20 = dir.by_id(&[20; 32].into()).unwrap();
+        let k0 = Ed25519Identity::from([0; 32]);
+        let k1 = Ed25519Identity::from([1; 32]);
+        let k2 = Ed25519Identity::from([2; 32]);
+        let k3 = Ed25519Identity::from([3; 32]);
+        let k10 = Ed25519Identity::from([10; 32]);
+        let k15 = Ed25519Identity::from([15; 32]);
+        let k20 = Ed25519Identity::from([20; 32]);
+
+        let r0 = dir.by_id(&k0).unwrap();
+        let r1 = dir.by_id(&k1).unwrap();
+        let r2 = dir.by_id(&k2).unwrap();
+        let r3 = dir.by_id(&k3).unwrap();
+        let r10 = dir.by_id(&k10).unwrap();
+        let r15 = dir.by_id(&k15).unwrap();
+        let r20 = dir.by_id(&k20).unwrap();
 
         assert_eq!(r0.id(), &[0; 32].into());
         assert_eq!(r0.rsa_id(), &[0; 20].into());
@@ -1467,8 +1769,8 @@ mod test {
         .unwrap_if_sufficient()
         .unwrap();
 
-        let e12 = netdir.by_id(&[12; 32].into()).unwrap();
-        let e32 = netdir.by_id(&[32; 32].into()).unwrap();
+        let e12 = netdir.by_id(&Ed25519Identity::from([12; 32])).unwrap();
+        let e32 = netdir.by_id(&Ed25519Identity::from([32; 32])).unwrap();
 
         assert!(!e12.supports_exit_port_ipv4(80));
         assert!(e32.supports_exit_port_ipv4(80));
@@ -1494,8 +1796,8 @@ mod test {
     fn test_accessors() {
         let netdir = construct_netdir().unwrap_if_sufficient().unwrap();
 
-        let r4 = netdir.by_id(&[4; 32].into()).unwrap();
-        let r16 = netdir.by_id(&[16; 32].into()).unwrap();
+        let r4 = netdir.by_id(&Ed25519Identity::from([4; 32])).unwrap();
+        let r16 = netdir.by_id(&Ed25519Identity::from([16; 32])).unwrap();
 
         assert!(!r4.md().ipv4_policy().allows_some_port());
         assert!(r16.md().ipv4_policy().allows_some_port());
@@ -1512,15 +1814,12 @@ mod test {
         })
         .unwrap();
 
-        assert!(netdir.missing_descriptor_for(&[13; 20].into()));
-        assert!(!netdir.missing_descriptor_for(&[15; 20].into()));
-
         let netdir = netdir.unwrap_if_sufficient().unwrap();
 
-        let r = netdir.by_id(&[0; 32].into()).unwrap();
+        let r = netdir.by_id(&Ed25519Identity::from([0; 32])).unwrap();
         assert_eq!(r.id().as_bytes(), &[0; 32]);
 
-        assert!(netdir.by_id(&[13; 32].into()).is_none());
+        assert!(netdir.by_id(&Ed25519Identity::from([13; 32])).is_none());
 
         let r = netdir.by_rsa_id(&[12; 20].into()).unwrap();
         assert_eq!(r.rsa_id().as_bytes(), &[12; 20]);
@@ -1535,14 +1834,31 @@ mod test {
         assert_eq!(r.rs.rsa_identity().as_bytes(), &[13; 20]);
         assert!(netdir.rsa_id_is_listed(&[13; 20].into()));
 
-        let r = netdir.by_id_pair(&[13; 32].into(), &[13; 20].into());
-        assert!(r.is_none());
-        let r = netdir
-            .by_id_pair(&[14; 32].into(), &[14; 20].into())
+        let pair_13_13 = RelayIds::builder()
+            .ed_identity([13; 32].into())
+            .rsa_identity([13; 20].into())
+            .build()
             .unwrap();
-        assert_eq!(r.rsa_identity(), &[14; 20].into());
-        assert_eq!(r.ed_identity(), &[14; 32].into());
-        let r = netdir.by_id_pair(&[14; 32].into(), &[99; 20].into());
+        let pair_14_14 = RelayIds::builder()
+            .ed_identity([14; 32].into())
+            .rsa_identity([14; 20].into())
+            .build()
+            .unwrap();
+        let pair_14_99 = RelayIds::builder()
+            .ed_identity([14; 32].into())
+            .rsa_identity([99; 20].into())
+            .build()
+            .unwrap();
+
+        let r = netdir.by_ids(&pair_13_13);
+        assert!(r.is_none());
+        let r = netdir.by_ids(&pair_14_14).unwrap();
+        assert_eq!(r.identity(RelayIdType::Rsa).unwrap().as_bytes(), &[14; 20]);
+        assert_eq!(
+            r.identity(RelayIdType::Ed25519).unwrap().as_bytes(),
+            &[14; 32]
+        );
+        let r = netdir.by_ids(&pair_14_99);
         assert!(r.is_none());
 
         assert_eq!(
@@ -1584,7 +1900,7 @@ mod test {
         let g_total = netdir.total_weight(WeightRole::Guard, |_| false);
         assert_eq!(g_total, RelayWeight(0));
 
-        let relay = netdir.by_id(&[35; 32].into()).unwrap();
+        let relay = netdir.by_id(&Ed25519Identity::from([35; 32])).unwrap();
         assert!(relay.is_flagged_guard());
         let w = netdir.relay_weight(&relay, WeightRole::Guard);
         assert_eq!(w, RelayWeight(6_000));
@@ -1619,13 +1935,13 @@ mod test {
         .unwrap();
 
         // In the testing netdir, adjacent members are in the same family by default...
-        let r0 = netdir.by_id(&[0; 32].into()).unwrap();
+        let r0 = netdir.by_id(&Ed25519Identity::from([0; 32])).unwrap();
         let family: Vec<_> = netdir.known_family_members(&r0).collect();
         assert_eq!(family.len(), 1);
         assert_eq!(family[0].id(), &Ed25519Identity::from([1; 32]));
 
         // But we've made this relay claim membership with several others.
-        let r10 = netdir.by_id(&[10; 32].into()).unwrap();
+        let r10 = netdir.by_id(&Ed25519Identity::from([10; 32])).unwrap();
         let family: HashSet<_> = netdir.known_family_members(&r10).map(|r| *r.id()).collect();
         assert_eq!(family.len(), 2);
         assert!(family.contains(&Ed25519Identity::from([11; 32])));

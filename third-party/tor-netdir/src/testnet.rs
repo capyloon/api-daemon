@@ -14,6 +14,7 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::{MdDigest, MdReceiver, PartialNetDir};
+use std::iter;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
 use tor_netdoc::doc::microdesc::{Microdesc, MicrodescBuilder};
@@ -52,18 +53,32 @@ pub fn construct_netdir() -> PartialNetDir {
     construct_custom_netdir(simple_net_func).expect("failed to build default testing netdir")
 }
 
-/// As [`construct_custom_network()`], but return a [`PartialNetDir`].
-pub fn construct_custom_netdir<F>(func: F) -> BuildResult<PartialNetDir>
+/// As [`construct_custom_network()`], but return a [`PartialNetDir`],
+/// and allow network parameter customisation.
+pub fn construct_custom_netdir_with_params<F, P, PK>(
+    func: F,
+    params: P,
+) -> BuildResult<PartialNetDir>
 where
     F: FnMut(usize, &mut NodeBuilders),
+    P: IntoIterator<Item = (PK, i32)>,
+    PK: Into<String>,
 {
     let (consensus, microdescs) = construct_custom_network(func)?;
-    let mut dir = PartialNetDir::new(consensus, None);
+    let mut dir = PartialNetDir::new(consensus, Some(&params.into_iter().collect()));
     for md in microdescs {
         dir.add_microdesc(md);
     }
 
     Ok(dir)
+}
+
+/// As [`construct_custom_network()`], but return a [`PartialNetDir`].
+pub fn construct_custom_netdir<F>(func: F) -> BuildResult<PartialNetDir>
+where
+    F: FnMut(usize, &mut NodeBuilders),
+{
+    construct_custom_netdir_with_params(func, iter::empty::<(&str, _)>())
 }
 
 /// As [`construct_custom_network`], but do not require a
@@ -163,7 +178,7 @@ where
         };
         // everybody is family with the adjacent relay.
         let fam_id = [idx ^ 1; 20];
-        let family = hex::encode(&fam_id);
+        let family = hex::encode(fam_id);
 
         let mut md_builder = Microdesc::builder();
         md_builder
@@ -217,6 +232,16 @@ where
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     #[test]
     fn try_with_function() {

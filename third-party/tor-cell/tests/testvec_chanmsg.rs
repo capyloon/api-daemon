@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use tor_bytes::Error as BytesError;
 /// Example channel messages to encode and decode.
 ///
@@ -5,6 +7,7 @@ use tor_bytes::Error as BytesError;
 /// 0.4.5.0-alpha-dev to dump all of its cells to the logs, and
 /// running in a chutney network with "test-network-all".
 use tor_cell::chancell::{msg, ChanCmd};
+use tor_units::IntegerMilliseconds;
 
 use std::net::IpAddr;
 
@@ -50,8 +53,12 @@ fn test_body(cmd: ChanCmd, s: &str, m: &msg::ChanMsg, pad_to_len: bool) {
 
     let mut encoded1 = Vec::new();
     let mut encoded2 = Vec::new();
-    decoded.write_body_onto(&mut encoded1);
-    m.clone().write_body_onto(&mut encoded2);
+    decoded
+        .write_body_onto(&mut encoded1)
+        .expect("encode error");
+    m.clone()
+        .write_body_onto(&mut encoded2)
+        .expect("encode error");
     if pad_to_len {
         assert!(encoded1.len() <= CELL_SIZE);
         assert!(encoded2.len() <= CELL_SIZE);
@@ -181,7 +188,7 @@ fn test_create_fast() {
 
     fbody(cmd, body, &msg::CreateFast::new(handshake.clone()).into());
     let create_fast = msg::CreateFast::new(handshake.clone());
-    assert_eq!(create_fast.body(), &handshake[..]);
+    assert_eq!(create_fast.handshake(), &handshake[..]);
 }
 
 #[test]
@@ -216,7 +223,7 @@ fn test_created_fast() {
 
     fbody(cmd, body, &msg::CreatedFast::new(handshake.clone()).into());
     let created_fast = msg::CreatedFast::new(handshake.clone());
-    assert_eq!(created_fast.into_body(), handshake);
+    assert_eq!(created_fast.into_handshake(), handshake);
 }
 
 #[test]
@@ -238,14 +245,14 @@ fn test_netinfo() {
     fbody(
         cmd,
         "00000000 04 04 7F000001 00",
-        &msg::Netinfo::for_client(Some(localhost)).into(),
+        &msg::Netinfo::from_client(Some(localhost)).into(),
     );
 
     // example relay netinfo
     fbody(
         cmd,
         "5F6F80E1 04 04 7F000001 01 04 04 7F000001",
-        &msg::Netinfo::for_relay(0x5f6f80e1, Some(localhost), &[localhost][..]).into(),
+        &msg::Netinfo::from_relay(0x5f6f80e1, Some(localhost), &[localhost][..]).into(),
     );
 
     // example ipv6 relay netinfo
@@ -256,7 +263,7 @@ fn test_netinfo() {
          02
          04 04 7F000001
          06 10 00000000000000000000000000000001",
-        &msg::Netinfo::for_relay(
+        &msg::Netinfo::from_relay(
             0x5f6f859c,
             Some(localhost_v6),
             &[localhost, localhost_v6][..],
@@ -275,14 +282,14 @@ fn test_netinfo() {
         false,
     );
     let expect: msg::ChanMsg =
-        msg::Netinfo::for_relay(0x5f6f859c, None, &[localhost_v6][..]).into();
+        msg::Netinfo::from_relay(0x5f6f859c, None, &[localhost_v6][..]).into();
     assert_eq!(format!("{:?}", netinfo), format!("{:?}", expect));
 
     // Zero-valued their_address are None (hand-generated from above)
     fbody(
         cmd,
         "00000000 04 04 00000000 00",
-        &msg::Netinfo::for_client(None).into(),
+        &msg::Netinfo::from_client(None).into(),
     );
 }
 
@@ -391,7 +398,14 @@ fn test_padding_negotiate() {
     fbody(
         cmd,
         "00 02 0100 0200",
-        &msg::PaddingNegotiate::new(true, 256, 512).into(),
+        &msg::PaddingNegotiate::start(IntegerMilliseconds::new(256), IntegerMilliseconds::new(512))
+            .into(),
+    );
+
+    fbody(
+        cmd,
+        "00 01 0000 0000",
+        &msg::PaddingNegotiate::stop().into(),
     );
 
     assert_eq!(

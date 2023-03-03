@@ -1,18 +1,29 @@
-use anyhow::{anyhow, Context, Result};
+use crate::{
+    capability::CapabilityIpld,
+    crypto::did::DidParser,
+    serde::{Base64Encode, DagJson},
+    time::now,
+};
+use anyhow::{anyhow, Result};
+use cid::{
+    multihash::{Code, MultihashDigest},
+    Cid,
+};
+use libipld_core::{codec::Codec, raw::RawCodec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::{convert::TryFrom, str::FromStr};
 
-use crate::crypto::did::DidParser;
-use crate::time::now;
+pub const UCAN_VERSION: &str = "0.9.0-canary";
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct UcanHeader {
     pub alg: String,
     pub typ: String,
     pub ucv: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct UcanPayload {
     pub iss: String,
     pub aud: String,
@@ -21,12 +32,12 @@ pub struct UcanPayload {
     pub nbf: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nnc: Option<String>,
-    pub att: Vec<Value>,
+    pub att: Vec<CapabilityIpld>,
     pub fct: Vec<Value>,
     pub prf: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Ucan {
     header: UcanHeader,
     payload: UcanPayload,
@@ -47,57 +58,6 @@ impl Ucan {
             payload,
             signature,
         }
-    }
-
-    /// Deserialize an encoded UCAN token string into a UCAN
-    pub fn try_from_token_string(ucan_token_string: &str) -> Result<Ucan> {
-        let signed_data = ucan_token_string
-            .split('.')
-            .take(2)
-            .map(String::from)
-            .reduce(|l, r| format!("{}.{}", l, r))
-            .ok_or_else(|| anyhow!("Could not parse signed data from token string"))?;
-
-        let mut parts = ucan_token_string.split('.').map(|str| {
-            base64::decode_config(str, base64::URL_SAFE_NO_PAD).map_err(|error| anyhow!(error))
-        });
-
-        let header: UcanHeader = match parts.next() {
-            Some(part) => match part {
-                Ok(decoded) => match serde_json::from_slice(decoded.as_slice()) {
-                    Ok(header) => header,
-                    Err(error) => return Err(error).context("Could not parse UCAN header JSON"),
-                },
-                Err(error) => return Err(error).context("Could not decode UCAN header base64"),
-            },
-            None => return Err(anyhow!("Missing UCAN header in token part")),
-        };
-
-        let payload: UcanPayload = match parts.next() {
-            Some(part) => match part {
-                Ok(decoded) => match serde_json::from_slice(decoded.as_slice()) {
-                    Ok(payload) => payload,
-                    Err(error) => return Err(error).context("Could not parse UCAN payload JSON"),
-                },
-                Err(error) => return Err(error).context("Could not parse UCAN payload base64"),
-            },
-            None => return Err(anyhow!("Missing UCAN payload in token part")),
-        };
-
-        let signature: Vec<u8> = match parts.next() {
-            Some(part) => match part {
-                Ok(decoded) => decoded,
-                Err(error) => return Err(error).context("Could not parse UCAN signature base64"),
-            },
-            None => return Err(anyhow!("Missing UCAN signature in token part")),
-        };
-
-        Ok(Ucan::new(
-            header,
-            payload,
-            signed_data.as_bytes().into(),
-            signature,
-        ))
     }
 
     /// Validate the UCAN's signature and timestamps
@@ -122,17 +82,11 @@ impl Ucan {
     /// Produce a base64-encoded serialization of the UCAN suitable for
     /// transferring in a header field
     pub fn encode(&self) -> Result<String> {
-        let header = base64::encode_config(
-            serde_json::to_string(&self.header)?.as_bytes(),
-            base64::URL_SAFE_NO_PAD,
-        );
-        let payload = base64::encode_config(
-            serde_json::to_string(&self.payload)?.as_bytes(),
-            base64::URL_SAFE_NO_PAD,
-        );
+        let header = self.header.jwt_base64_encode()?;
+        let payload = self.payload.jwt_base64_encode()?;
         let signature = base64::encode_config(self.signature.as_slice(), base64::URL_SAFE_NO_PAD);
 
-        Ok(format!("{}.{}.{}", header, payload, signature.as_str()))
+        Ok(format!("{header}.{payload}.{signature}"))
     }
 
     /// Returns true if the UCAN has past its expiration date
@@ -141,8 +95,12 @@ impl Ucan {
     }
 
     /// Raw bytes of signed data for this UCAN
-    pub fn signed_data(&self) -> &Vec<u8> {
+    pub fn signed_data(&self) -> &[u8] {
         &self.signed_data
+    }
+
+    pub fn signature(&self) -> &[u8] {
+        &self.signature
     }
 
     /// Returns true if the not-before ("nbf") time is still in the future
@@ -175,15 +133,15 @@ impl Ucan {
         self.lifetime_begins_before(other) && self.lifetime_ends_after(other)
     }
 
-    pub fn algorithm(&self) -> &String {
+    pub fn algorithm(&self) -> &str {
         &self.header.alg
     }
 
-    pub fn issuer(&self) -> &String {
+    pub fn issuer(&self) -> &str {
         &self.payload.iss
     }
 
-    pub fn audience(&self) -> &String {
+    pub fn audience(&self) -> &str {
         &self.payload.aud
     }
 
@@ -203,11 +161,98 @@ impl Ucan {
         &self.payload.nnc
     }
 
-    pub fn attenuation(&self) -> &Vec<Value> {
+    pub fn attenuation(&self) -> &Vec<CapabilityIpld> {
         &self.payload.att
     }
 
     pub fn facts(&self) -> &Vec<Value> {
         &self.payload.fct
+    }
+
+    pub fn version(&self) -> &str {
+        &self.header.ucv
+    }
+}
+
+impl TryFrom<&Ucan> for Cid {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Ucan) -> Result<Self, Self::Error> {
+        let codec = RawCodec::default();
+        let token = value.encode()?;
+        let encoded = codec.encode(token.as_bytes())?;
+
+        Ok(Cid::new_v1(codec.into(), Code::Blake2b256.digest(&encoded)))
+    }
+}
+
+impl TryFrom<Ucan> for Cid {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Ucan) -> Result<Self, Self::Error> {
+        Cid::try_from(&value)
+    }
+}
+
+/// Deserialize an encoded UCAN token string reference into a UCAN
+impl<'a> TryFrom<&'a str> for Ucan {
+    type Error = anyhow::Error;
+
+    fn try_from(ucan_token: &str) -> Result<Self, Self::Error> {
+        Ucan::from_str(ucan_token)
+    }
+}
+
+/// Deserialize an encoded UCAN token string into a UCAN
+impl TryFrom<String> for Ucan {
+    type Error = anyhow::Error;
+
+    fn try_from(ucan_token: String) -> Result<Self, Self::Error> {
+        Ucan::from_str(ucan_token.as_str())
+    }
+}
+
+/// Deserialize an encoded UCAN token string reference into a UCAN
+impl FromStr for Ucan {
+    type Err = anyhow::Error;
+
+    fn from_str(ucan_token: &str) -> Result<Self, Self::Err> {
+        // better to create multiple iterators than collect, or clone.
+        let signed_data = ucan_token
+            .split('.')
+            .take(2)
+            .map(String::from)
+            .reduce(|l, r| format!("{l}.{r}"))
+            .ok_or_else(|| anyhow!("Could not parse signed data from token string"))?;
+
+        let mut parts = ucan_token.split('.').map(|str| {
+            base64::decode_config(str, base64::URL_SAFE_NO_PAD).map_err(|error| anyhow!(error))
+        });
+
+        let header = parts
+            .next()
+            .ok_or_else(|| anyhow!("Missing UCAN header in token part"))?
+            .map(|decoded| UcanHeader::from_dag_json(&decoded))
+            .map_err(|e| e.context("Could not decode UCAN header base64"))?
+            .map_err(|e| e.context("Could not parse UCAN header JSON"))?;
+
+        let payload = parts
+            .next()
+            .ok_or_else(|| anyhow!("Missing UCAN payload in token part"))?
+            .map(|decoded| UcanPayload::from_dag_json(&decoded))
+            .map_err(|e| e.context("Could not decode UCAN payload base64"))?
+            .map_err(|e| e.context("Could not parse UCAN payload JSON"))?;
+
+        let signature = parts
+            .next()
+            .ok_or_else(|| anyhow!("Missing UCAN signature in token part"))?
+            .map_err(|e| e.context("Could not parse UCAN signature base64"))?;
+
+        Ok(Ucan::new(
+            header,
+            payload,
+            signed_data.as_bytes().into(),
+            signature,
+        ))
     }
 }

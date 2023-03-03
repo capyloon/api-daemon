@@ -12,6 +12,7 @@ use tor_proto::circuit::ClientCirc;
 /// Alias for a result with a `RequestError`.
 type Result<T> = std::result::Result<T, crate::err::RequestError>;
 
+use base64ct::{Base64Unpadded, Encoding as _};
 use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::time::{Duration, SystemTime};
@@ -270,6 +271,9 @@ impl AuthCertRequest {
 
 impl Requestable for AuthCertRequest {
     fn make_request(&self) -> Result<http::Request<()>> {
+        if self.ids.is_empty() {
+            return Err(RequestError::EmptyRequest);
+        }
         let mut ids = self.ids.clone();
         ids.sort_unstable();
 
@@ -337,9 +341,9 @@ impl MicrodescRequest {
 
 impl Requestable for MicrodescRequest {
     fn make_request(&self) -> Result<http::Request<()>> {
-        let d_encode_b64 = |d| base64::encode_config(d, base64::STANDARD_NO_PAD);
+        let d_encode_b64 = |d: &[u8; 32]| Base64Unpadded::encode_string(&d[..]);
         let ids = digest_list_stringify(&self.digests, d_encode_b64, "-")
-            .ok_or(RequestError::MdSha256Empty)?;
+            .ok_or(RequestError::EmptyRequest)?;
         let uri = format!("/tor/micro/d/{}.z", &ids);
         let req = http::Request::builder().method("GET").uri(uri);
 
@@ -416,7 +420,7 @@ impl Requestable for RouterDescRequest {
         } else {
             uri.push_str("d/");
             let ids = digest_list_stringify(&self.digests, hex::encode, "+")
-                .ok_or(RequestError::MdSha256Empty)?;
+                .ok_or(RequestError::EmptyRequest)?;
             uri.push_str(&ids);
         }
         uri.push_str(".z");
@@ -452,8 +456,38 @@ impl FromIterator<RdDigest> for RouterDescRequest {
     }
 }
 
+/// A request for the descriptor of whatever relay we are making the request to
+#[derive(Debug, Clone, Default)]
+#[cfg(feature = "routerdesc")]
+#[non_exhaustive]
+pub struct RoutersOwnDescRequest {}
+
+#[cfg(feature = "routerdesc")]
+impl RoutersOwnDescRequest {
+    /// Construct a new request.
+    pub fn new() -> Self {
+        RoutersOwnDescRequest::default()
+    }
+}
+
+#[cfg(feature = "routerdesc")]
+impl Requestable for RoutersOwnDescRequest {
+    fn make_request(&self) -> Result<http::Request<()>> {
+        let uri = "/tor/server/authority.z";
+        let req = http::Request::builder().method("GET").uri(uri);
+        let req = add_common_headers(req);
+
+        Ok(req.body(())?)
+    }
+
+    fn partial_docs_ok(&self) -> bool {
+        false
+    }
+}
+
 /// List the encodings we accept
 fn encodings() -> String {
+    #[allow(unused_mut)]
     let mut encodings = "deflate, identity".to_string();
     #[cfg(feature = "xz")]
     {
@@ -477,7 +511,16 @@ fn add_common_headers(req: http::request::Builder) -> http::request::Builder {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]

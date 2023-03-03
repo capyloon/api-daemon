@@ -4,6 +4,183 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.6.1 (2022-12-05)
+### Added
+- Rudimentary implementation of `TeletexString` and `VideotexString` ([#691])
+- Impl `ValueOrd` for `FlagSet<T>` and `UIntRef` ([#723])
+
+### Changed
+- Eliminate some boilerplate code by using `Deref` ([#697])
+
+[#691]: https://github.com/RustCrypto/formats/pull/691
+[#697]: https://github.com/RustCrypto/formats/pull/697
+[#723]: https://github.com/RustCrypto/formats/pull/723
+
+## 0.6.0 (2022-05-08)
+### Added
+- Impl `ValueOrd` for `SetOf` and `SetOfVec` ([#362])
+- `SequenceRef` type ([#374])
+- Support for `SetOf` sorting on heapless `no_std` targets ([#401])
+- Support for mapping `BitString` to/from a `FlagSet` ([#412])
+- `DecodeOwned` marker trait ([#529])
+- Support for the ASN.1 `REAL` type ([#346])
+- `DecodePem` and `EncodePem` traits ([#571])
+- `Document` and `SecretDocument` types ([#571])
+- `EncodeRef`/`EncodeValueRef` wrapper types ([#604])
+- `Writer` trait ([#605])
+- `Reader` trait ([#606])
+- Streaming on-the-fly `PemReader` and `PemWriter` ([#618], [#636])
+- Owned `BitString` ([#636])
+- Owned `Any` and `OctetString` types ([#640])
+
+### Changed
+- Pass `Header` to `DecodeValue` ([#392])
+- Bump `const-oid` dependency to v0.9 ([#507])
+- Renamed `Decodable`/`Encodable` => `Decode`/`Encode` ([#523])
+- Enable arithmetic, casting, and panic `clippy` lints ([#556], [#579])
+- Use `&mut dyn Writer` as output for `Encode::encode` and `EncodeValue::encode_value` ([#611])
+- Bump `pem-rfc7468` dependency to v0.6 ([#620])
+- Use `Reader<'a>` as input for `Decode::decode` and `DecodeValue::decode_value` ([#633])
+- Renamed `Any` => `AnyRef` ([#637])
+- Renamed `BitString` => `BitStringRef` ([#637])
+- Renamed `Ia5String` => `Ia5StringRef` ([#637])
+- Renamed `OctetString` => `OctetStringRef` ([#637])
+- Renamed `PrintableString` => `PrintableStringRef` ([#637])
+- Renamed `Utf8String` => `Utf8StringRef` ([#637])
+- Renamed `UIntBytes` => `UIntRef` ([#637])
+- Renamed `Decoder` => `SliceReader` ([#651])
+- Renamed `Encoder` => `SliceWriter` ([#651])
+
+### Fixed
+- Handling of oversized unsigned `INTEGER` inputs ([#447])
+
+### Removed
+- `bigint` feature ([#344])
+- `OrdIsValueOrd` trait ([#359])
+- `Document` trait ([#571])
+- `OptionalRef` ([#604])
+- Decode-time SET OF ordering checks ([#625])
+
+[#344]: https://github.com/RustCrypto/formats/pull/344
+[#346]: https://github.com/RustCrypto/formats/pull/346
+[#359]: https://github.com/RustCrypto/formats/pull/359
+[#362]: https://github.com/RustCrypto/formats/pull/362
+[#374]: https://github.com/RustCrypto/formats/pull/374
+[#392]: https://github.com/RustCrypto/formats/pull/392
+[#401]: https://github.com/RustCrypto/formats/pull/401
+[#412]: https://github.com/RustCrypto/formats/pull/412
+[#447]: https://github.com/RustCrypto/formats/pull/447
+[#507]: https://github.com/RustCrypto/formats/pull/507
+[#523]: https://github.com/RustCrypto/formats/pull/523
+[#529]: https://github.com/RustCrypto/formats/pull/529
+[#556]: https://github.com/RustCrypto/formats/pull/556
+[#571]: https://github.com/RustCrypto/formats/pull/571
+[#579]: https://github.com/RustCrypto/formats/pull/579
+[#604]: https://github.com/RustCrypto/formats/pull/604
+[#605]: https://github.com/RustCrypto/formats/pull/605
+[#606]: https://github.com/RustCrypto/formats/pull/606
+[#611]: https://github.com/RustCrypto/formats/pull/611
+[#618]: https://github.com/RustCrypto/formats/pull/618
+[#620]: https://github.com/RustCrypto/formats/pull/620
+[#625]: https://github.com/RustCrypto/formats/pull/625
+[#633]: https://github.com/RustCrypto/formats/pull/633
+[#636]: https://github.com/RustCrypto/formats/pull/636
+[#637]: https://github.com/RustCrypto/formats/pull/637
+[#640]: https://github.com/RustCrypto/formats/pull/640
+[#651]: https://github.com/RustCrypto/formats/pull/651
+
+## 0.5.1 (2021-11-17)
+### Added
+- `Any::NULL` constant ([#226])
+
+[#226]: https://github.com/RustCrypto/formats/pull/226
+
+## 0.5.0 (2021-11-15) [YANKED]
+### Added
+- Support for `IMPLICIT` mode `CONTEXT-SPECIFIC` fields ([#61])
+- `DecodeValue`/`EncodeValue` traits ([#63])
+- Expose `DateTime` through public API ([#75])
+- `SEQUENCE OF` support for `[T; N]` ([#90])
+- `SequenceOf` type ([#95])
+- `SEQUENCE OF` support for `Vec` ([#96])
+- `Document` trait ([#117])
+- Basic integration with `time` crate ([#129])
+- `Tag::NumericString` ([#132])
+- Support for unused bits to `BitString` ([#141])
+- `Decoder::{peek_tag, peek_header}` ([#142])
+- Type hint in `encoder `sequence` method ([#147])
+- `Tag::Enumerated` ([#153])
+- `ErrorKind::TagNumberInvalid` ([#156])
+- `Tag::VisibleString` and `Tag::BmpString` ([#160])
+- Inherent constants for all valid `TagNumber`s ([#165])
+- `DerOrd` and `ValueOrd` traits ([#190])
+- `ContextSpecificRef` type ([#199])
+
+### Changed
+- Make `ContextSpecific` generic around an inner type ([#60])
+- Removed `SetOf` trait; rename `SetOfArray` => `SetOf` ([#97])
+- Rename `Message` trait to `Sequence` ([#99])
+- Make `GeneralizedTime`/`UtcTime` into `DateTime` newtypes ([#102])
+- Rust 2021 edition upgrade; MSRV 1.56 ([#136])
+- Replace `ErrorKind::Truncated` with `ErrorKind::Incomplete` ([#143])
+- Rename `ErrorKind::UnknownTagMode` => `ErrorKind::TagModeUnknown` ([#155])
+- Rename `ErrorKind::UnexpectedTag` => `ErrorKind::TagUnexpected` ([#155])
+- Rename `ErrorKind::UnknownTag` => `ErrorKind::TagUnknown` ([#155])
+- Consolidate `ErrorKind::{Incomplete, Underlength}` ([#157])
+- Rename `Tagged` => `FixedTag`; add new `Tagged` trait ([#189])
+- Use `DerOrd` for `SetOf*` types ([#200])
+- Switch `impl From<BitString> for &[u8]` to `TryFrom` ([#203])
+- Bump `crypto-bigint` dependency to v0.3 ([#215])
+- Bump `const-oid` dependency to v0.7 ([#216])
+- Bump `pem-rfc7468` dependency to v0.3 ([#217])
+- Bump `der_derive` dependency to v0.5 ([#221])
+
+### Removed
+- `Sequence` struct ([#98])
+- `Tagged` bound on `ContextSpecific::decode_implicit` ([#161])
+- `ErrorKind::DuplicateField` ([#162])
+
+[#60]: https://github.com/RustCrypto/formats/pull/60
+[#61]: https://github.com/RustCrypto/formats/pull/61
+[#63]: https://github.com/RustCrypto/formats/pull/63
+[#75]: https://github.com/RustCrypto/formats/pull/75
+[#90]: https://github.com/RustCrypto/formats/pull/90
+[#95]: https://github.com/RustCrypto/formats/pull/95
+[#96]: https://github.com/RustCrypto/formats/pull/96
+[#97]: https://github.com/RustCrypto/formats/pull/97
+[#98]: https://github.com/RustCrypto/formats/pull/98
+[#99]: https://github.com/RustCrypto/formats/pull/99
+[#102]: https://github.com/RustCrypto/formats/pull/102
+[#117]: https://github.com/RustCrypto/formats/pull/117
+[#129]: https://github.com/RustCrypto/formats/pull/129
+[#132]: https://github.com/RustCrypto/formats/pull/132
+[#136]: https://github.com/RustCrypto/formats/pull/136
+[#141]: https://github.com/RustCrypto/formats/pull/141
+[#142]: https://github.com/RustCrypto/formats/pull/142
+[#143]: https://github.com/RustCrypto/formats/pull/143
+[#147]: https://github.com/RustCrypto/formats/pull/147
+[#153]: https://github.com/RustCrypto/formats/pull/153
+[#155]: https://github.com/RustCrypto/formats/pull/155
+[#156]: https://github.com/RustCrypto/formats/pull/156
+[#157]: https://github.com/RustCrypto/formats/pull/157
+[#160]: https://github.com/RustCrypto/formats/pull/160
+[#161]: https://github.com/RustCrypto/formats/pull/161
+[#162]: https://github.com/RustCrypto/formats/pull/162
+[#165]: https://github.com/RustCrypto/formats/pull/165
+[#189]: https://github.com/RustCrypto/formats/pull/189
+[#190]: https://github.com/RustCrypto/formats/pull/190
+[#199]: https://github.com/RustCrypto/formats/pull/199
+[#200]: https://github.com/RustCrypto/formats/pull/200
+[#203]: https://github.com/RustCrypto/formats/pull/203
+[#215]: https://github.com/RustCrypto/formats/pull/215
+[#216]: https://github.com/RustCrypto/formats/pull/216
+[#217]: https://github.com/RustCrypto/formats/pull/217
+[#221]: https://github.com/RustCrypto/formats/pull/221
+
+## 0.4.5 (2021-12-01)
+### Fixed
+- Backport [#147] type hint fix for WASM platforms to 0.4.x
+
 ## 0.4.4 (2021-10-06)
 ### Removed
 - Accidentally checked-in `target/` directory ([#66])

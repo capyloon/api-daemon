@@ -42,7 +42,7 @@ impl AppMgmtTask for InstallPackageTask {
                 shared
                     .registry
                     .event_broadcaster
-                    .broadcast_app_installed(app);
+                    .broadcast_app_installed(&app);
             }
             Err(err) => {
                 request.broadcast_download_failed(url, err);
@@ -86,7 +86,7 @@ impl AppMgmtTask for InstallPwaTask {
                     .lock()
                     .registry
                     .event_broadcaster
-                    .broadcast_app_installed(app);
+                    .broadcast_app_installed(&app);
             }
             Err(err) => {
                 request.broadcast_download_failed(url, err);
@@ -132,7 +132,7 @@ impl AppMgmtTask for UninstallTask {
         shared
             .registry
             .event_broadcaster
-            .broadcast_app_uninstalled(url.clone());
+            .broadcast_app_uninstalled(&url);
     }
 }
 
@@ -204,7 +204,7 @@ impl AppMgmtTask for UpdateTask {
                 let mut shared = request.shared_data.lock();
                 shared.vhost_api.app_updated(&app.name);
                 responder.resolve(app.clone());
-                shared.registry.event_broadcaster.broadcast_app_updated(app);
+                shared.registry.event_broadcaster.broadcast_app_updated(&app);
             }
             Err(err) => {
                 request.broadcast_download_failed(url, err);
@@ -269,7 +269,7 @@ impl AppMgmtTask for CheckForUpdateTask {
                         .lock()
                         .registry
                         .event_broadcaster
-                        .broadcast_app_update_available(app);
+                        .broadcast_app_update_available(&app);
                     updated = true;
                 }
 
@@ -309,7 +309,7 @@ impl AppMgmtTask for SetEnabledTask {
                     shared
                         .registry
                         .event_broadcaster
-                        .broadcast_appstatus_changed(app.clone());
+                        .broadcast_appstatus_changed(&app);
                 }
                 responder.resolve(app);
             }

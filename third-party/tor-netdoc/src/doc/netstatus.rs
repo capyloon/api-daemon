@@ -168,13 +168,21 @@ impl<T> NetParams<T> {
     pub fn get<A: AsRef<str>>(&self, v: A) -> Option<&T> {
         self.params.get(v.as_ref())
     }
-    /// Return an iterator over all key value pares in an arbitrary order.
+    /// Return an iterator over all key value pairs in an arbitrary order.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &T)> {
         self.params.iter()
     }
     /// Set or replace the value of a network parameter.
     pub fn set(&mut self, k: String, v: T) {
         self.params.insert(k, v);
+    }
+}
+
+impl<K: Into<String>, T> FromIterator<(K, T)> for NetParams<T> {
+    fn from_iter<I: IntoIterator<Item = (K, T)>>(i: I) -> Self {
+        NetParams {
+            params: i.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }
     }
 }
 
@@ -253,11 +261,14 @@ pub struct Signature {
     ///
     /// Currently sha1 and sh256 are recognized.  Here we only support
     /// sha256.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     digestname: String,
     /// Fingerprints of the keys for the authority that made
     /// this signature.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     key_ids: AuthCertKeyIds,
     /// The signature itself.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     signature: Vec<u8>,
 }
 
@@ -271,15 +282,28 @@ pub struct Signature {
 #[derive(Debug, Clone)]
 pub struct SignatureGroup {
     /// The sha256 of the document itself
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     sha256: Option<[u8; 32]>,
     /// The sha1 of the document itself
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     sha1: Option<[u8; 20]>,
     /// The signatures listed on the document.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     signatures: Vec<Signature>,
 }
 
-/// A shared-random value produced by the directory authorities.
+/// A shared random value produced by the directory authorities.
+#[derive(
+    Debug, Clone, Copy, Eq, PartialEq, derive_more::From, derive_more::Into, derive_more::AsRef,
+)]
+// TODO hs: Use CtBytes for this.  I don't think it actually matters, but it
+// seems like a good idea.
+pub struct SharedRandVal([u8; 32]);
+
+/// A shared-random value produced by the directory authorities,
+/// along with meta-information about that value.
 #[allow(dead_code)]
+// TODO hs: This should have real accessors, not this 'visible/visibility' hack.
 #[cfg_attr(
     feature = "dangerous-expose-struct-fields",
     visible::StructFields(pub),
@@ -287,8 +311,9 @@ pub struct SignatureGroup {
     non_exhaustive
 )]
 #[derive(Debug, Clone)]
-struct SharedRandVal {
+pub struct SharedRandStatus {
     /// How many authorities revealed shares that contributed to this value.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     n_reveals: u8,
     /// The current random value.
     ///
@@ -296,7 +321,14 @@ struct SharedRandVal {
     /// that this value isn't predictable before it first becomes
     /// live, and that a hostile party could not have forced it to
     /// have any more than a small number of possible random values.
-    value: Vec<u8>,
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
+    value: SharedRandVal,
+
+    /// The time when this SharedRandVal becomes (or became) the latest.
+    ///
+    /// (This is added per proposal 342, assuming that gets accepted.)
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
+    timestamp: Option<time::SystemTime>,
 }
 
 /// Parts of the networkstatus header that are present in every networkstatus.
@@ -314,24 +346,32 @@ struct SharedRandVal {
 struct CommonHeader {
     /// What kind of consensus document is this?  Absent in votes and
     /// in ns-flavored consensuses.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     flavor: ConsensusFlavor,
     /// Over what time is this consensus valid?  (For votes, this is
     /// the time over which the voted-upon consensus should be valid.)
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     lifetime: Lifetime,
     /// List of recommended Tor client versions.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     client_versions: Vec<String>,
     /// List of recommended Tor relay versions.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     relay_versions: Vec<String>,
     /// Lists of recommended and required subprotocol versions for clients
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     client_protos: ProtoStatus,
     /// Lists of recommended and required subprotocol versions for relays
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     relay_protos: ProtoStatus,
     /// Declared parameters for tunable settings about how to the
     /// network should operator. Some of these adjust timeouts and
     /// whatnot; some features things on and off.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     params: NetParams<i32>,
     /// How long in seconds should voters wait for votes and
     /// signatures (respectively) to propagate?
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     voting_delay: Option<(u32, u32)>,
 }
 
@@ -346,15 +386,19 @@ struct CommonHeader {
 #[derive(Debug, Clone)]
 struct ConsensusHeader {
     /// Header fields common to votes and consensuses
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     hdr: CommonHeader,
     /// What "method" was used to produce this consensus?  (A
     /// consensus method is a version number used by authorities to
     /// upgrade the consensus algorithm.)
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     consensus_method: u32,
     /// Global shared-random value for the previous shared-random period.
-    shared_rand_prev: Option<SharedRandVal>,
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
+    shared_rand_prev: Option<SharedRandStatus>,
     /// Global shared-random value for the current shared-random period.
-    shared_rand_cur: Option<SharedRandVal>,
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
+    shared_rand_cur: Option<SharedRandStatus>,
 }
 
 /// Description of an authority's identity and address.
@@ -370,18 +414,23 @@ struct ConsensusHeader {
 #[derive(Debug, Clone)]
 struct DirSource {
     /// human-readable nickname for this authority.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     nickname: String,
     /// Fingerprint for the _authority_ identity key of this
     /// authority.
     ///
     /// This is the same key as the one that signs the authority's
     /// certificates.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     identity: RsaIdentity,
     /// IP address for the authority
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ip: net::IpAddr,
     /// HTTP directory port for this authority
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     dir_port: u16,
     /// OR port for this authority.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     or_port: u16,
 }
 
@@ -470,11 +519,14 @@ impl RelayWeight {
 #[derive(Debug, Clone)]
 struct ConsensusVoterInfo {
     /// Contents of the dirsource line about an authority
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     dir_source: DirSource,
     /// Human-readable contact information about the authority
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     contact: String,
     /// Digest of the vote that the authority cast to contribute to
     /// this consensus.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     vote_digest: Vec<u8>,
 }
 
@@ -493,6 +545,7 @@ struct Footer {
     ///
     /// For example, we want to avoid choosing exits for non-exit
     /// roles when overall the proportion of exits is small.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     weights: NetParams<i32>,
 }
 
@@ -538,13 +591,17 @@ pub trait RouterStatus: Sealed {
 #[derive(Debug, Clone)]
 pub struct Consensus<RS> {
     /// Part of the header shared by all consensus types.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     header: ConsensusHeader,
     /// List of voters whose votes contributed to this consensus.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     voters: Vec<ConsensusVoterInfo>,
     /// A list of routerstatus entries for the relays on the network,
     /// with one entry per relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     relays: Vec<RS>,
     /// Footer for the consensus object.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     footer: Footer,
 }
 
@@ -595,6 +652,18 @@ impl<RS> Consensus<RS> {
     /// Return the map of network parameters that this consensus advertises.
     pub fn params(&self) -> &NetParams<i32> {
         &self.header.hdr.params
+    }
+
+    /// Return the latest shared random value, if the consensus
+    /// contains one.
+    pub fn shared_rand_cur(&self) -> Option<&SharedRandStatus> {
+        self.header.shared_rand_cur.as_ref()
+    }
+
+    /// Return the previous shared random value, if the consensus
+    /// contains one.
+    pub fn shared_rand_prev(&self) -> Option<&SharedRandStatus> {
+        self.header.shared_rand_prev.as_ref()
     }
 }
 
@@ -938,7 +1007,7 @@ impl CommonHeader {
     }
 }
 
-impl SharedRandVal {
+impl SharedRandStatus {
     /// Parse a current or previous shared rand value from a given
     /// SharedRandPreviousValue or SharedRandCurrentValue.
     fn from_item(item: &Item<'_, NetstatusKwd>) -> Result<Self> {
@@ -954,8 +1023,26 @@ impl SharedRandVal {
         }
         let n_reveals: u8 = item.parse_arg(0)?;
         let val: B64 = item.parse_arg(1)?;
-        let value = val.into();
-        Ok(SharedRandVal { n_reveals, value })
+        let value = SharedRandVal(val.into_array()?);
+        // Added in proposal 342
+        let timestamp = item
+            .parse_optional_arg::<Iso8601TimeNoSp>(2)?
+            .map(Into::into);
+        Ok(SharedRandStatus {
+            n_reveals,
+            value,
+            timestamp,
+        })
+    }
+
+    /// Return the actual shared random value.
+    pub fn value(&self) -> &SharedRandVal {
+        &self.value
+    }
+
+    /// Return the timestamp (if any) associated with this `SharedRandValue`.
+    pub fn timestamp(&self) -> Option<std::time::SystemTime> {
+        self.timestamp
     }
 }
 
@@ -977,12 +1064,12 @@ impl ConsensusHeader {
 
         let shared_rand_prev = sec
             .get(SHARED_RAND_PREVIOUS_VALUE)
-            .map(SharedRandVal::from_item)
+            .map(SharedRandStatus::from_item)
             .transpose()?;
 
         let shared_rand_cur = sec
             .get(SHARED_RAND_CURRENT_VALUE)
-            .map(SharedRandVal::from_item)
+            .map(SharedRandStatus::from_item)
             .transpose()?;
 
         Ok(ConsensusHeader {
@@ -1218,12 +1305,7 @@ impl Signature {
     /// If possible, find the right certificate for checking this signature
     /// from among a slice of certificates.
     fn find_cert<'a>(&self, certs: &'a [AuthCert]) -> Option<&'a AuthCert> {
-        for c in certs {
-            if self.matches_cert(c) {
-                return Some(c);
-            }
-        }
-        None
+        certs.iter().find(|&c| self.matches_cert(c))
     }
 
     /// Try to check whether this signature is a valid signature of a
@@ -1468,13 +1550,16 @@ impl<RS: RouterStatus + ParseRouterStatus> Consensus<RS> {
 pub struct UnvalidatedConsensus<RS> {
     /// The consensus object. We don't want to expose this until it's
     /// validated.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     consensus: Consensus<RS>,
     /// The signatures that need to be validated before we can call
     /// this consensus valid.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     siggroup: SignatureGroup,
     /// The total number of authorities that we believe in.  We need
     /// this information in order to validate the signatures, since it
     /// determines how many signatures we need to find valid in `siggroup`.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     n_authorities: Option<u16>,
 }
 
@@ -1663,7 +1748,16 @@ impl SignatureGroup {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
 
@@ -1886,16 +1980,30 @@ mod test {
         let sr =
             gettok("shared-rand-previous-value 9 5LodY4yWxFhTKtxpV9wAgNA9N8flhUCH0NqQv1/05y4\n")
                 .unwrap();
-        let sr = SharedRandVal::from_item(&sr).unwrap();
+        let sr = SharedRandStatus::from_item(&sr).unwrap();
 
         assert_eq!(sr.n_reveals, 9);
         assert_eq!(
-            sr.value,
+            sr.value.0,
             hex!("e4ba1d638c96c458532adc6957dc0080d03d37c7e5854087d0da90bf5ff4e72e")
+        );
+        assert!(sr.timestamp.is_none());
+
+        let sr2 = gettok(
+            "shared-rand-current-value 9 \
+                    5LodY4yWxFhTKtxpV9wAgNA9N8flhUCH0NqQv1/05y4 2022-01-20T12:34:56\n",
+        )
+        .unwrap();
+        let sr2 = SharedRandStatus::from_item(&sr2).unwrap();
+        assert_eq!(sr2.n_reveals, sr.n_reveals);
+        assert_eq!(sr2.value.0, sr.value.0);
+        assert_eq!(
+            sr2.timestamp.unwrap(),
+            humantime::parse_rfc3339("2022-01-20T12:34:56Z").unwrap()
         );
 
         let sr = gettok("foo bar\n").unwrap();
-        let sr = SharedRandVal::from_item(&sr);
+        let sr = SharedRandStatus::from_item(&sr);
         assert!(sr.is_err());
     }
 }

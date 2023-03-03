@@ -1,246 +1,315 @@
 //! ASN.1 `SET OF` support.
+//!
+//! # Ordering Notes
+//!
+//! Some DER serializer implementations fail to properly sort elements of a
+//! `SET OF`. This is technically non-canonical, but occurs frequently
+//! enough that most DER decoders tolerate it. Unfortunately because
+//! of that, we must also follow suit.
+//!
+//! However, all types in this module sort elements of a set at decode-time,
+//! ensuring they'll be in the proper order if reserialized.
 
 use crate::{
-    asn1::Any, ByteSlice, Decodable, Decoder, Encodable, Encoder, Error, ErrorKind, Length, Result,
-    Tag, Tagged,
+    arrayvec, ord::iter_cmp, ArrayVec, Decode, DecodeValue, DerOrd, Encode, EncodeValue, Error,
+    ErrorKind, FixedTag, Header, Length, Reader, Result, Tag, ValueOrd, Writer,
 };
-use core::{convert::TryFrom, marker::PhantomData};
+use core::cmp::Ordering;
 
 #[cfg(feature = "alloc")]
-use {
-    crate::Header,
-    alloc::collections::{btree_set, BTreeSet},
-};
+use {alloc::vec::Vec, core::slice};
 
-/// ASN.1 `SET OF` denotes a collection of zero or more occurrences of a
-/// given type.
+/// ASN.1 `SET OF` backed by an array.
 ///
-/// When encoded as DER, `SET OF` is lexicographically ordered. To implement
-/// that requirement, types `T` which are elements of [`SetOf`] MUST provide
-/// an impl of `Ord` which ensures that the corresponding DER encodings of
-/// a given type are ordered.
-pub trait SetOf<'a, 'b, T>: Decodable<'a> + Encodable
+/// This type implements an append-only `SET OF` type which is stack-based
+/// and does not depend on `alloc` support.
+// TODO(tarcieri): use `ArrayVec` when/if it's merged into `core`
+// See: https://github.com/rust-lang/rfcs/pull/2990
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct SetOf<T, const N: usize>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: DerOrd,
 {
-    /// Iterator over the elements of the set.
-    ///
-    /// The iterator type MUST maintain the invariant that messages are
-    /// lexicographically ordered.
-    ///
-    /// See toplevel documentation about `Ord` trait requirements for
-    /// more information.
-    type Iter: Iterator<Item = T>;
-
-    /// Iterate over the elements of the set.
-    fn elements(&'b self) -> Self::Iter;
+    inner: ArrayVec<T, N>,
 }
 
-/// ASN.1 `SET OF` backed by a byte slice containing serialized DER.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct SetOfRef<'a, T>
+impl<T, const N: usize> SetOf<T, N>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: DerOrd,
 {
-    /// DER-encoded byte slice
-    inner: ByteSlice<'a>,
+    /// Create a new [`SetOf`].
+    pub fn new() -> Self {
+        Self {
+            inner: ArrayVec::default(),
+        }
+    }
 
-    /// Set element type
-    element_type: PhantomData<T>,
-}
-
-impl<'a, T> SetOfRef<'a, T>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    /// Create a new [`SetOfRef`] from a slice.
-    pub fn new(slice: &'a [u8]) -> Result<Self> {
-        let inner = ByteSlice::new(slice).map_err(|_| ErrorKind::Length { tag: Self::TAG })?;
-        let mut decoder = Decoder::new(slice);
-        let mut last_value = None;
-
-        // Validate that we can decode all elements in the slice, and that they
-        // are lexicographically ordered according to DER's rules
-        while !decoder.is_finished() {
-            let value: T = decoder.decode()?;
-
-            if let Some(last) = last_value.as_ref() {
-                if last >= &value {
-                    return Err(Self::TAG.non_canonical_error());
-                }
+    /// Add an element to this [`SetOf`].
+    ///
+    /// Items MUST be added in lexicographical order according to the
+    /// [`DerOrd`] impl on `T`.
+    pub fn add(&mut self, new_elem: T) -> Result<()> {
+        // Ensure set elements are lexicographically ordered
+        if let Some(last_elem) = self.inner.last() {
+            if new_elem.der_cmp(last_elem)? != Ordering::Greater {
+                return Err(ErrorKind::SetOrdering.into());
             }
-
-            last_value = Some(value);
         }
 
-        Ok(Self {
-            inner,
-            element_type: PhantomData,
+        self.inner.add(new_elem)
+    }
+
+    /// Get the nth element from this [`SetOf`].
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.inner.get(index)
+    }
+
+    /// Iterate over the elements of this [`SetOf`].
+    pub fn iter(&self) -> SetOfIter<'_, T> {
+        SetOfIter {
+            inner: self.inner.iter(),
+        }
+    }
+
+    /// Is this [`SetOf`] empty?
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Number of elements in this [`SetOf`].
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<T, const N: usize> Default for SetOf<T, N>
+where
+    T: DerOrd,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a, T, const N: usize> DecodeValue<'a> for SetOf<T, N>
+where
+    T: Decode<'a> + DerOrd,
+{
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        reader.read_nested(header.length, |reader| {
+            let mut result = Self::new();
+
+            while !reader.is_finished() {
+                result.inner.add(T::decode(reader)?)?;
+            }
+
+            der_sort(result.inner.as_mut())?;
+            validate(result.inner.as_ref())?;
+            Ok(result)
         })
     }
-
-    /// Borrow the inner byte sequence.
-    pub fn as_bytes(&self) -> &'a [u8] {
-        self.inner.as_bytes()
-    }
 }
 
-impl<'a, T> AsRef<[u8]> for SetOfRef<'a, T>
+impl<'a, T, const N: usize> EncodeValue for SetOf<T, N>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: 'a + Decode<'a> + Encode + DerOrd,
 {
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
+    fn value_len(&self) -> Result<Length> {
+        self.iter()
+            .fold(Ok(Length::ZERO), |len, elem| len + elem.encoded_len()?)
+    }
+
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        for elem in self.iter() {
+            elem.encode(writer)?;
+        }
+
+        Ok(())
     }
 }
 
-impl<'a, T> TryFrom<Any<'a>> for SetOfRef<'a, T>
+impl<'a, T, const N: usize> FixedTag for SetOf<T, N>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    type Error = Error;
-
-    fn try_from(any: Any<'a>) -> Result<Self> {
-        any.tag().assert_eq(Tag::Set)?;
-        Self::new(any.as_bytes())
-    }
-}
-
-impl<'a, T> From<SetOfRef<'a, T>> for Any<'a>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    fn from(set: SetOfRef<'a, T>) -> Any<'a> {
-        Any::from_tag_and_value(Tag::Set, set.inner)
-    }
-}
-
-impl<'a, T> Encodable for SetOfRef<'a, T>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    fn encoded_len(&self) -> Result<Length> {
-        Any::from(self.clone()).encoded_len()
-    }
-
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Any::from(self.clone()).encode(encoder)
-    }
-}
-
-impl<'a, 'b, T> SetOf<'a, 'b, T> for SetOfRef<'a, T>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    type Iter = SetOfRefIter<'a, T>;
-
-    fn elements(&'b self) -> Self::Iter {
-        SetOfRefIter::new(self)
-    }
-}
-
-impl<'a, T> Tagged for SetOfRef<'a, T>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: Decode<'a> + DerOrd,
 {
     const TAG: Tag = Tag::Set;
 }
 
-/// Iterator over the elements of an [`SetOfRef`].
-pub struct SetOfRefIter<'a, T>
+impl<T, const N: usize> TryFrom<[T; N]> for SetOf<T, N>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    /// Decoder which iterates over the elements of the message
-    decoder: Decoder<'a>,
-
-    /// Element type
-    element_type: PhantomData<T>,
-}
-
-impl<'a, T> SetOfRefIter<'a, T>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    pub(crate) fn new(set: &SetOfRef<'a, T>) -> Self {
-        Self {
-            decoder: Decoder::new(set.as_bytes()),
-            element_type: PhantomData,
-        }
-    }
-}
-
-impl<'a, T> Iterator for SetOfRefIter<'a, T>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
-{
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        if self.decoder.is_finished() {
-            None
-        } else {
-            Some(
-                self.decoder
-                    .decode()
-                    .expect("SetOfRef decodable invariant violated"),
-            )
-        }
-    }
-}
-
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-impl<'a, T> TryFrom<Any<'a>> for BTreeSet<T>
-where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: DerOrd,
 {
     type Error = Error;
 
-    fn try_from(any: Any<'a>) -> Result<Self> {
-        any.tag().assert_eq(Tag::Set)?;
+    fn try_from(mut arr: [T; N]) -> Result<SetOf<T, N>> {
+        der_sort(&mut arr)?;
 
-        let mut result = BTreeSet::new();
-        let mut decoder = Decoder::new(any.as_bytes());
-        let mut last_value = None;
+        let mut result = SetOf::new();
 
-        while !decoder.is_finished() {
-            let value = decoder.decode()?;
-
-            if let Some(last) = last_value.take() {
-                if last >= value {
-                    return Err(Self::TAG.non_canonical_error());
-                }
-
-                result.insert(last);
-            }
-
-            last_value = Some(value);
-        }
-
-        if let Some(last) = last_value {
-            result.insert(last);
+        for elem in arr {
+            result.add(elem)?;
         }
 
         Ok(result)
     }
 }
 
+impl<T, const N: usize> ValueOrd for SetOf<T, N>
+where
+    T: DerOrd,
+{
+    fn value_cmp(&self, other: &Self) -> Result<Ordering> {
+        iter_cmp(self.iter(), other.iter())
+    }
+}
+
+/// Iterator over the elements of an [`SetOf`].
+#[derive(Clone, Debug)]
+pub struct SetOfIter<'a, T> {
+    /// Inner iterator.
+    inner: arrayvec::Iter<'a, T>,
+}
+
+impl<'a, T> Iterator for SetOfIter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<&'a T> {
+        self.inner.next()
+    }
+}
+
+impl<'a, T> ExactSizeIterator for SetOfIter<'a, T> {}
+
+/// ASN.1 `SET OF` backed by a [`Vec`].
+///
+/// This type implements an append-only `SET OF` type which is heap-backed
+/// and depends on `alloc` support.
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-impl<'a, T> Encodable for BTreeSet<T>
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct SetOfVec<T>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: DerOrd,
 {
-    fn encoded_len(&self) -> Result<Length> {
-        btreeset_inner_len(self)?.for_tlv()
+    inner: Vec<T>,
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<T: DerOrd> Default for SetOfVec<T> {
+    fn default() -> Self {
+        Self {
+            inner: Default::default(),
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<T> SetOfVec<T>
+where
+    T: DerOrd,
+{
+    /// Create a new [`SetOfVec`].
+    pub fn new() -> Self {
+        Self {
+            inner: Vec::default(),
+        }
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Header::new(Self::TAG, btreeset_inner_len(self)?)?.encode(encoder)?;
+    /// Add an element to this [`SetOfVec`].
+    ///
+    /// Items MUST be added in lexicographical order according to the
+    /// [`DerOrd`] impl on `T`.
+    pub fn add(&mut self, new_elem: T) -> Result<()> {
+        // Ensure set elements are lexicographically ordered
+        if let Some(last_elem) = self.inner.last() {
+            if new_elem.der_cmp(last_elem)? != Ordering::Greater {
+                return Err(ErrorKind::SetOrdering.into());
+            }
+        }
 
-        for value in self.iter() {
-            encoder.encode(value)?;
+        self.inner.push(new_elem);
+        Ok(())
+    }
+
+    /// Borrow the elements of this [`SetOfVec`] as a slice.
+    pub fn as_slice(&self) -> &[T] {
+        self.inner.as_slice()
+    }
+
+    /// Get the nth element from this [`SetOfVec`].
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.inner.get(index)
+    }
+
+    /// Convert this [`SetOfVec`] into the inner [`Vec`].
+    pub fn into_vec(self) -> Vec<T> {
+        self.inner
+    }
+
+    /// Iterate over the elements of this [`SetOfVec`].
+    pub fn iter(&self) -> slice::Iter<'_, T> {
+        self.inner.iter()
+    }
+
+    /// Is this [`SetOfVec`] empty?
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Number of elements in this [`SetOfVec`].
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<T> AsRef<[T]> for SetOfVec<T>
+where
+    T: DerOrd,
+{
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<'a, T> DecodeValue<'a> for SetOfVec<T>
+where
+    T: Decode<'a> + DerOrd,
+{
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        reader.read_nested(header.length, |reader| {
+            let mut inner = Vec::new();
+
+            while !reader.is_finished() {
+                inner.push(T::decode(reader)?);
+            }
+
+            der_sort(inner.as_mut())?;
+            validate(inner.as_ref())?;
+            Ok(Self { inner })
+        })
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<'a, T> EncodeValue for SetOfVec<T>
+where
+    T: 'a + Decode<'a> + Encode + DerOrd,
+{
+    fn value_len(&self) -> Result<Length> {
+        self.iter()
+            .fold(Ok(Length::ZERO), |len, elem| len + elem.encoded_len()?)
+    }
+
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        for elem in self.iter() {
+            elem.encode(writer)?;
         }
 
         Ok(())
@@ -249,32 +318,134 @@ where
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-impl<'a, 'b, T: 'b> SetOf<'a, 'b, T> for BTreeSet<T>
+impl<T> FixedTag for SetOfVec<T>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: DerOrd,
 {
-    type Iter = core::iter::Cloned<btree_set::Iter<'b, T>>;
+    const TAG: Tag = Tag::Set;
+}
 
-    fn elements(&'b self) -> Self::Iter {
-        self.iter().cloned()
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<T> From<SetOfVec<T>> for Vec<T>
+where
+    T: DerOrd,
+{
+    fn from(set: SetOfVec<T>) -> Vec<T> {
+        set.into_vec()
     }
 }
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-impl<'a, T> Tagged for BTreeSet<T>
+impl<T> TryFrom<Vec<T>> for SetOfVec<T>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: DerOrd,
 {
-    const TAG: Tag = Tag::Set;
+    type Error = Error;
+
+    fn try_from(mut vec: Vec<T>) -> Result<SetOfVec<T>> {
+        // TODO(tarcieri): use `[T]::sort_by` here?
+        der_sort(vec.as_mut_slice())?;
+        Ok(SetOfVec { inner: vec })
+    }
 }
 
-/// Get the encoded length of a [`BTreeSet`]
 #[cfg(feature = "alloc")]
-fn btreeset_inner_len<'a, T>(set: &BTreeSet<T>) -> Result<Length>
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<T, const N: usize> TryFrom<[T; N]> for SetOfVec<T>
 where
-    T: Clone + Decodable<'a> + Encodable + Ord,
+    T: DerOrd,
 {
-    set.iter()
-        .fold(Ok(Length::ZERO), |acc, val| acc? + val.encoded_len()?)
+    type Error = Error;
+
+    fn try_from(arr: [T; N]) -> Result<SetOfVec<T>> {
+        Vec::from(arr).try_into()
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl<T> ValueOrd for SetOfVec<T>
+where
+    T: DerOrd,
+{
+    fn value_cmp(&self, other: &Self) -> Result<Ordering> {
+        iter_cmp(self.iter(), other.iter())
+    }
+}
+
+/// Sort a mut slice according to its [`DerOrd`], returning any errors which
+/// might occur during the comparison.
+///
+/// The algorithm is insertion sort, which should perform well when the input
+/// is mostly sorted to begin with.
+///
+/// This function is used rather than Rust's built-in `[T]::sort_by` in order
+/// to support heapless `no_std` targets as well as to enable bubbling up
+/// sorting errors.
+#[allow(clippy::integer_arithmetic)]
+fn der_sort<T: DerOrd>(slice: &mut [T]) -> Result<()> {
+    for i in 0..slice.len() {
+        let mut j = i;
+
+        while j > 0 && slice[j - 1].der_cmp(&slice[j])? == Ordering::Greater {
+            slice.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate the elements of a `SET OF`, ensuring that they are all in order
+/// and that there are no duplicates.
+fn validate<T: DerOrd>(slice: &[T]) -> Result<()> {
+    if let Some(len) = slice.len().checked_sub(1) {
+        for i in 0..len {
+            let j = i.checked_add(1).ok_or(ErrorKind::Overflow)?;
+
+            match slice.get(i..=j) {
+                Some([a, b]) => {
+                    if a.der_cmp(b)? != Ordering::Less {
+                        return Err(ErrorKind::SetOrdering.into());
+                    }
+                }
+                _ => return Err(Tag::Set.value_error()),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(all(test, feature = "alloc"))]
+mod tests {
+    use super::{SetOf, SetOfVec};
+    use alloc::vec::Vec;
+
+    #[test]
+    fn setof_tryfrom_array() {
+        let arr = [3u16, 2, 1, 65535, 0];
+        let set = SetOf::try_from(arr).unwrap();
+        assert_eq!(
+            set.iter().cloned().collect::<Vec<u16>>(),
+            &[0, 1, 2, 3, 65535]
+        );
+    }
+
+    #[test]
+    fn setofvec_tryfrom_array() {
+        let arr = [3u16, 2, 1, 65535, 0];
+        let set = SetOfVec::try_from(arr).unwrap();
+        assert_eq!(set.as_ref(), &[0, 1, 2, 3, 65535]);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn setofvec_tryfrom_vec() {
+        let vec = vec![3u16, 2, 1, 65535, 0];
+        let set = SetOfVec::try_from(vec).unwrap();
+        assert_eq!(set.as_ref(), &[0, 1, 2, 3, 65535]);
+    }
 }

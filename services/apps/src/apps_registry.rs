@@ -165,9 +165,10 @@ impl AppsRegistry {
 
     pub fn broadcast_installing(&self, is_update: bool, apps_object: AppsObject) {
         if is_update {
-            self.event_broadcaster.broadcast_app_updating(apps_object);
+            self.event_broadcaster.broadcast_app_updating(&apps_object);
         } else {
-            self.event_broadcaster.broadcast_app_installing(apps_object);
+            self.event_broadcaster
+                .broadcast_app_installing(&apps_object);
         }
     }
 

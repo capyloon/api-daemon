@@ -18,6 +18,7 @@ use rand::Rng;
 ///
 /// This facility is only enabled when the crate is built with
 /// the `build_docs` feature.
+#[cfg_attr(docsrs, doc(cfg(feature = "build_docs")))]
 #[derive(Debug, Clone)]
 pub struct MicrodescBuilder {
     /// The ntor onion key we'll be using.
@@ -146,7 +147,16 @@ impl MicrodescBuilder {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]

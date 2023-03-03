@@ -13,6 +13,18 @@ use std::cell::{Ref, RefCell};
 use std::str::FromStr;
 use tor_error::internal;
 
+/// Useful constants for netdoc object syntax
+pub(crate) mod object {
+    /// indicates the start of an object
+    pub(crate) const BEGIN_STR: &str = "-----BEGIN ";
+    /// indicates the end of an object
+    pub(crate) const END_STR: &str = "-----END ";
+    /// indicates the end of a begin or end tag.
+    pub(crate) const TAG_END: &str = "-----";
+    /// Maximum PEM base64 line length (not enforced during parsing)
+    pub(crate) const BASE64_PEM_MAX_LINE: usize = 64;
+}
+
 /// Return true iff a given character is "space" according to the rules
 /// of dir-spec.txt
 pub(crate) fn is_sp(c: char) -> bool {
@@ -156,6 +168,9 @@ impl<'a, K: Keyword> NetDocReaderBase<'a, K> {
     fn kwdline(&mut self) -> Result<(&'a str, &'a str)> {
         let pos = self.off;
         let line = self.line()?;
+        if line.is_empty() {
+            return Err(EK::EmptyLine.at_pos(self.pos(pos)));
+        }
         let (line, anno_ok) = if let Some(rem) = line.strip_prefix("opt ") {
             (rem, false)
         } else {
@@ -187,12 +202,7 @@ impl<'a, K: Keyword> NetDocReaderBase<'a, K> {
     /// found, Ok(None) if no object is found, and Err only if a
     /// corrupt object is found.
     fn object(&mut self) -> Result<Option<Object<'a>>> {
-        /// indicates the start of an object
-        const BEGIN_STR: &str = "-----BEGIN ";
-        /// indicates the end of an object
-        const END_STR: &str = "-----END ";
-        /// indicates the end of a begin or end tag.
-        const TAG_END: &str = "-----";
+        use object::*;
 
         let pos = self.off;
         if !self.starts_with(BEGIN_STR) {
@@ -203,7 +213,7 @@ impl<'a, K: Keyword> NetDocReaderBase<'a, K> {
             return Err(EK::BadObjectBeginTag.at_pos(self.pos(pos)));
         }
         let tag = &line[BEGIN_STR.len()..(line.len() - TAG_END.len())];
-        if !tag_keyword_ok(tag) {
+        if !tag_keywords_ok(tag) {
             return Err(EK::BadObjectBeginTag.at_pos(self.pos(pos)));
         }
         let datapos = self.off;
@@ -276,12 +286,12 @@ fn keyword_ok(mut s: &str, anno_ok: bool) -> bool {
     s.chars().all(kwd_char_ok)
 }
 
-/// Return true iff 's' is a valid keyword for a BEGIN/END tag.
-fn tag_keyword_ok(s: &str) -> bool {
+/// Return true iff 's' is a valid keywords string for a BEGIN/END tag.
+pub(crate) fn tag_keywords_ok(s: &str) -> bool {
     s.split(' ').all(|w| keyword_ok(w, false))
 }
 
-/// When used as an Iterator, returns a sequence of Result<Item>.
+/// When used as an Iterator, returns a sequence of `Result<Item>`.
 impl<'a, K: Keyword> Iterator for NetDocReaderBase<'a, K> {
     type Item = Result<Item<'a, K>>;
     fn next(&mut self) -> Option<Self::Item> {
@@ -534,7 +544,7 @@ impl<'a, 'b, K: Keyword> MaybeItem<'a, 'b, K> {
     }
 }
 
-/// Extension trait for Result<Item> -- makes it convenient to implement
+/// Extension trait for `Result<Item>` -- makes it convenient to implement
 /// PauseAt predicates
 pub(crate) trait ItemResult<K: Keyword> {
     /// Return true if this is an ok result with an annotation.
@@ -549,6 +559,8 @@ pub(crate) trait ItemResult<K: Keyword> {
     fn is_ok_with_kwd_in(&self, ks: &[K]) -> bool;
     /// Return true if this is an ok result with a keyword not in the slice 'ks'
     fn is_ok_with_kwd_not_in(&self, ks: &[K]) -> bool;
+    /// Return true if this is an empty-line error.
+    fn is_empty_line(&self) -> bool;
 }
 
 impl<'a, K: Keyword> ItemResult<K> for Result<Item<'a, K>> {
@@ -575,6 +587,12 @@ impl<'a, K: Keyword> ItemResult<K> for Result<Item<'a, K>> {
             Ok(item) => !item.has_kwd_in(ks),
             Err(_) => false,
         }
+    }
+    fn is_empty_line(&self) -> bool {
+        matches!(
+            self,
+            Err(e) if e.parse_error_kind() == crate::err::ParseErrorKind::EmptyLine
+        )
     }
 }
 
@@ -639,6 +657,23 @@ impl<'a, K: Keyword> NetDocReader<'a, K> {
         }
     }
 
+    /// Give an error if there are remaining tokens in this NetDocReader.
+    ///
+    /// Like [`should_be_exhausted`](Self::should_be_exhausted),
+    /// but permit empty lines at the end of the document.
+    #[cfg(feature = "routerdesc")]
+    pub(crate) fn should_be_exhausted_but_for_empty_lines(&mut self) -> Result<()> {
+        use crate::err::ParseErrorKind as K;
+        while let Some(Err(e)) = self.iter().peek() {
+            if e.parse_error_kind() == K::EmptyLine {
+                let _ignore = self.iter().next();
+            } else {
+                break;
+            }
+        }
+        self.should_be_exhausted()
+    }
+
     /// Return the position from which the underlying reader is about to take
     /// the next token.  Use to make sure that the reader is progressing.
     pub(crate) fn pos(&mut self) -> Pos {
@@ -652,7 +687,16 @@ impl<'a, K: Keyword> NetDocReader<'a, K> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     #![allow(clippy::cognitive_complexity)]
     use super::*;
     use crate::parse::macros::test::Fruit;
@@ -866,7 +910,7 @@ truncated line";
         assert!(toks[17].is_err());
         assert_eq!(
             toks[17].as_ref().err().unwrap(),
-            &EK::BadKeyword.at_pos(Pos::from_line(28, 1))
+            &EK::EmptyLine.at_pos(Pos::from_line(28, 1))
         );
 
         assert!(toks[18].is_err());

@@ -1,6 +1,7 @@
 //! Internal: Declare an Error type for tor-bytes
 
 use thiserror::Error;
+use tor_error::{into_internal, Bug};
 
 /// Error type for decoding Tor objects from bytes.
 //
@@ -50,11 +51,31 @@ impl PartialEq for Error {
 }
 
 /// Error type for encoding Tor objects to bytes.
-#[derive(Error, Debug, Clone, Eq, PartialEq)]
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum EncodeError {
     /// We tried to encode an object with an attached length, but the length was
     /// too large to encode in the available space.
     #[error("Object length too large to encode")]
     BadLengthValue,
+    /// A parsing error that should never happen.
+    ///
+    /// We use this variant instead of calling assert() and expect() and
+    /// unwrap() from within encoding implementations.
+    #[error("Internal error")]
+    Bug(#[from] Bug),
+}
+
+impl EncodeError {
+    /// Converts this error into a [`Bug`]
+    ///
+    /// Use when any encoding error is a bug.
+    //
+    // TODO: should this be a `From` impl or would that be too error-prone?
+    pub fn always_bug(self) -> Bug {
+        match self {
+            EncodeError::Bug(bug) => bug,
+            EncodeError::BadLengthValue => into_internal!("EncodingError")(self),
+        }
+    }
 }

@@ -1,4 +1,4 @@
-use integer::Integer;
+use crate::integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use crate::BigInt;
@@ -97,5 +97,4 @@ mod tests {
             assert_eq!(case[2] as isize, jacobi(&x, &y), "jacobi({}, {})", x, y);
         }
     }
-
 }

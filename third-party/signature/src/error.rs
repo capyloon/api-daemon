@@ -22,11 +22,8 @@ pub type Result<T> = core::result::Result<T, Error>;
 ///
 /// [BB'06]: https://en.wikipedia.org/wiki/Daniel_Bleichenbacher
 #[derive(Default)]
+#[non_exhaustive]
 pub struct Error {
-    /// Prevent from being instantiated as `Error {}` when the `std` feature
-    /// is disabled
-    _private: (),
-
     /// Source of the error (if applicable).
     #[cfg(feature = "std")]
     source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
@@ -45,12 +42,10 @@ impl Error {
     /// cases are for propagating errors related to external signers, e.g.
     /// communication/authentication errors with HSMs, KMS, etc.
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn from_source(
         source: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
     ) -> Self {
         Self {
-            _private: (),
             source: Some(source.into()),
         }
     }

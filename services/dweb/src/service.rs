@@ -12,6 +12,7 @@ use common::traits::{
     CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
     Shared, SharedServiceState, SharedSessionContext, StateLogger, TrackerId,
 };
+use common::JsonValue;
 use log::{debug, error, info};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -54,8 +55,7 @@ impl State {
         let key = peer.peer.device_id.clone();
         if !self.known_peers.contains_key(&key) {
             info!("Peer added: {}", key);
-            self.event_broadcaster
-                .broadcast_peerfound(peer.peer.clone());
+            self.event_broadcaster.broadcast_peerfound(&peer.peer);
             self.known_peers.insert(key, peer);
         }
     }
@@ -64,7 +64,7 @@ impl State {
         info!("Removing peer: {}", id);
 
         if let Some(peer) = self.known_peers.remove(id) {
-            self.event_broadcaster.broadcast_peerlost(peer.peer.clone());
+            self.event_broadcaster.broadcast_peerlost(&peer.peer);
             self.maybe_remove_session(peer.peer);
         } else {
             error!("Failed to remove peer {}", id);
@@ -77,7 +77,7 @@ impl State {
 
     fn maybe_remove_session(&mut self, peer: Peer) {
         let mut session_id = None;
-        self.sessions.retain(|key, session| {
+        self.sessions.retain(|_key, session| {
             let found = session.peer.did == peer.did && session.peer.device_id == peer.device_id;
             if found {
                 session_id = Some(session.id.clone());
@@ -86,19 +86,18 @@ impl State {
         });
 
         if let Some(id) = session_id {
-            self.event_broadcaster.broadcast_sessionremoved(id);
+            self.event_broadcaster.broadcast_sessionremoved(&id);
         }
     }
 
-    fn create_session(&mut self, peer: Peer) -> Session {
+    pub fn create_session(&mut self, peer: Peer) -> Session {
         let session = Session {
             id: new_session_id(),
             peer,
         };
 
         self.sessions.insert(session.id.clone(), session.clone());
-        self.event_broadcaster
-            .broadcast_sessionadded(session.clone());
+        self.event_broadcaster.broadcast_sessionadded(&session);
 
         session
     }
@@ -244,7 +243,7 @@ impl DwebMethods for DWebServiceImpl {
         let mut state = self.state.lock();
         if let Ok(true) = state.dweb_store.add_did(&did) {
             let sdid: SidlDid = did.into();
-            state.event_broadcaster.broadcast_didcreated(sdid.clone());
+            state.event_broadcaster.broadcast_didcreated(&sdid);
             responder.resolve(sdid);
         } else {
             responder.reject(DidError::InternalError);
@@ -269,7 +268,7 @@ impl DwebMethods for DWebServiceImpl {
 
         let mut state = self.state.lock();
         if let Ok(true) = state.dweb_store.remove_did(&uri) {
-            state.event_broadcaster.broadcast_didremoved(uri);
+            state.event_broadcaster.broadcast_didremoved(&uri);
             responder.resolve();
         } else {
             responder.reject(DidError::UnknownDid);
@@ -334,7 +333,7 @@ impl DwebMethods for DWebServiceImpl {
                 capabilities,
             };
 
-            if let Ok(result) = provider.grant_capabilities(requested).recv() {
+            if let Ok(result) = provider.grant_capabilities(&requested).recv() {
                 match result {
                     Ok(granted) => {
                         // Build the token.
@@ -447,12 +446,11 @@ impl DwebMethods for DWebServiceImpl {
         let mut state = self.state.lock();
 
         if state.mdns.is_none() {
-            let mdns = MdnsDiscovery::with_state(self.state.clone(), &peer);
-            state.mdns = mdns;
+            state.mdns = MdnsDiscovery::with_state(self.state.clone());
         }
 
         if let Some(mdns) = &mut state.mdns {
-            if mdns.start().is_err() {
+            if mdns.start(&peer).is_err() {
                 responder.reject();
             }
         } else {
@@ -601,13 +599,7 @@ impl DwebMethods for DWebServiceImpl {
         }
     }
 
-    fn setup_webrtc_for(
-        &mut self,
-        responder: DwebSetupWebrtcForResponder,
-        session: Session,
-        action: PeerAction,
-        offer: String,
-    ) {
+    fn dial(&mut self, responder: DwebDialResponder, session: Session, params: JsonValue) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "dweb",
@@ -651,13 +643,13 @@ impl DwebMethods for DWebServiceImpl {
 
         if let Some(ref mdns) = state.mdns {
             let endpoint = peer.endpoint;
-            println!("XYZ Will send offer to {:?} for {:?}", endpoint, action);
+            info!("Will send params to {:?}", endpoint);
             let this_peer = mdns.get_peer();
             let _ = std::thread::Builder::new()
                 .name("mdns connect".into())
                 .spawn(move || {
                     let client = HandshakeClient::new(&endpoint);
-                    match client.get_answer(this_peer, action, offer) {
+                    match client.dial(this_peer, params) {
                         Ok(answer) => responder.resolve(answer),
                         Err(Status::Denied) => {
                             responder.reject(ConnectError {

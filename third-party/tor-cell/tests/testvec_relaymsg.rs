@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use tor_basic_utils::test_rng::testing_rng;
 use tor_bytes::Error as BytesError;
 /// Example relay messages to encode and decode.
@@ -12,6 +14,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use hex_literal::hex;
 
+#[cfg(feature = "onion-service")]
+use tor_cell::relaycell::onion_service;
 #[cfg(feature = "experimental-udp")]
 use tor_cell::relaycell::udp;
 
@@ -45,8 +49,10 @@ fn msg_noncanonical(cmd: RelayCmd, s: &str, s2: &str, msg: &msg::RelayMsg) {
 
     let mut encoded1 = Vec::new();
     let mut encoded2 = Vec::new();
-    decoded.encode_onto(&mut encoded1);
-    msg.clone().encode_onto(&mut encoded2);
+    decoded.encode_onto(&mut encoded1).expect("Encoding error.");
+    msg.clone()
+        .encode_onto(&mut encoded2)
+        .expect("Encoding error");
     assert_eq!(encoded1, encoded2);
     assert_eq!(body2, encoded2);
 }
@@ -613,6 +619,163 @@ fn test_connected_udp() {
     );
 }
 
+#[cfg(feature = "onion-service")]
+#[test]
+fn test_establish_rendezvous() {
+    let cmd = RelayCmd::ESTABLISH_RENDEZVOUS;
+    assert_eq!(Into::<u8>::into(cmd), 33_u8);
+
+    // Valid cookie length
+    let cookie = [1; 20];
+    msg(
+        cmd,
+        // 20 ones
+        "0101010101010101010101010101010101010101",
+        &onion_service::EstablishRendezvous::new(cookie).into(),
+    );
+
+    // Extra bytes are ignored
+    // 21 ones
+    let body = "010101010101010101010101010101010101010101";
+    let actual_msg = decode(cmd, &unhex(body)[..]).unwrap();
+    let mut actual_bytes = vec![];
+    actual_msg
+        .encode_onto(&mut actual_bytes)
+        .expect("Encode msg onto byte vector");
+    let expected_bytes = vec![1; 20];
+
+    assert_eq!(actual_bytes, expected_bytes);
+
+    // Invalid cookie length
+    // 19 ones
+    let body = "01010101010101010101010101010101010101";
+    assert_eq!(
+        decode(cmd, &unhex(body)[..]).unwrap_err(),
+        BytesError::Truncated,
+    );
+}
+
+#[cfg(feature = "onion-service")]
+#[test]
+fn test_establish_intro() {
+    use tor_cell::relaycell::{
+        msg::RelayMsg,
+        onion_service::{AuthKeyType, EstIntroExtDoS, EstablishIntro},
+    };
+
+    let cmd = RelayCmd::ESTABLISH_INTRO;
+    let auth_key_type = AuthKeyType::ED25519_SHA3_256;
+    let auth_key = vec![0, 1, 2, 3];
+    let extension_dos = EstIntroExtDoS::new(Some(1_i32), Some(2_i32))
+        .expect("invalid EST_INTRO_DOS_EXT parameter(s)");
+    let handshake_auth = [1; 32];
+    let sig = vec![0, 1, 2, 3];
+    assert_eq!(Into::<u8>::into(cmd), 32);
+
+    // Establish intro with one recognised extension
+    let mut es_intro = EstablishIntro::new(auth_key_type, auth_key, handshake_auth, sig);
+    es_intro.set_extension_dos(extension_dos);
+    msg(
+        cmd,
+        "02 0004 00010203
+         01 01 13 02 01 0000000000000001 02 0000000000000002
+         0101010101010101010101010101010101010101010101010101010101010101
+         0004 00010203",
+        &es_intro.into(),
+    );
+
+    // Establish intro with no extension
+    let auth_key = vec![0, 1, 2, 3];
+    let sig = vec![0, 1, 2, 3];
+    msg(
+        cmd,
+        "02 0004 00010203
+         00
+         0101010101010101010101010101010101010101010101010101010101010101
+         0004 00010203",
+        &EstablishIntro::new(auth_key_type, auth_key, handshake_auth, sig).into(),
+    );
+
+    // Establish intro with one recognised extension
+    // and one unknown extension
+    let auth_key = vec![0, 1, 2, 3];
+    let sig = vec![0, 1, 2, 3];
+    let extension_dos = EstIntroExtDoS::new(Some(1_i32), Some(2_i32))
+        .expect("invalid EST_INTRO_DOS_EXT parameter(s)");
+
+    let body = "02 0004 00010203
+         02 01 13 02 01 0000000000000001 02 0000000000000002 02 01 00
+         0101010101010101010101010101010101010101010101010101010101010101
+         0004 00010203";
+    let actual_msg = decode(cmd, &unhex(body)[..]).unwrap();
+    let mut actual_bytes = vec![];
+    let mut expect_bytes = vec![];
+    actual_msg
+        .encode_onto(&mut actual_bytes)
+        .expect("Encode msg onto byte vector");
+    let mut es_intro = EstablishIntro::new(auth_key_type, auth_key, handshake_auth, sig);
+    es_intro.set_extension_dos(extension_dos);
+    let expected_msg: RelayMsg = es_intro.into();
+    expected_msg
+        .encode_onto(&mut expect_bytes)
+        .expect("Encode msg onto byte vector");
+    assert_eq!(actual_bytes, expect_bytes);
+}
+
+#[cfg(feature = "onion-service")]
+#[test]
+fn test_introduce() {
+    use tor_cell::relaycell::{
+        msg::RelayMsg,
+        onion_service::{AuthKeyType, Introduce1},
+    };
+
+    // Testing with Introduce1 only should be sufficient as long as
+    // Introduce1 and Introduce2 share the same inner body
+    let cmd = RelayCmd::INTRODUCE1;
+    let auth_key_type = AuthKeyType::ED25519_SHA3_256;
+    let auth_key = vec![0, 1, 2, 3];
+    let encrypted = vec![1, 9, 8, 4];
+    assert_eq!(Into::<u8>::into(cmd), 34);
+
+    // Introduce1 with no extension
+    let intro1 = Introduce1::new(auth_key_type, auth_key, encrypted);
+    msg(
+        cmd,
+        "0000000000000000000000000000000000000000
+         02 0004 00010203
+         00
+         01090804",
+        &intro1.clone().into(),
+    );
+
+    // Introduce1 with unknown extensions
+    let body = "0000000000000000000000000000000000000000
+         02 0004 00010203
+         02 01 01 00 02 01 00
+         01090804";
+    let actual_msg = decode(cmd, &unhex(body)[..]).unwrap();
+    let mut actual_bytes = vec![];
+    let mut expect_bytes = vec![];
+    actual_msg
+        .encode_onto(&mut actual_bytes)
+        .expect("Encode msg onto byte vector");
+    let expected_msg: RelayMsg = intro1.into();
+    expected_msg
+        .encode_onto(&mut expect_bytes)
+        .expect("Encode msg onto byte vector");
+    assert_eq!(actual_bytes, expect_bytes);
+
+    // Introduce1 with legacy key id
+    msg_error(
+        cmd,
+        "1000000000000000000000000000000000000000
+         02 0004 00010203
+         00
+         01090804",
+        BytesError::BadMessage("legacy key id in Introduce1."),
+    );
+}
 // TODO: need to add tests for:
 //    - unrecognized
 //    - data

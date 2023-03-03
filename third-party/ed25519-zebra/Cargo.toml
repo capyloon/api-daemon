@@ -12,11 +12,14 @@
 [package]
 edition = "2018"
 name = "ed25519-zebra"
-version = "3.0.0"
+version = "3.1.0"
 authors = ["Henry de Valence <hdevalence@hdevalence.ca>"]
 description = "Zcash-flavored Ed25519 for use in Zebra."
+readme = "README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ZcashFoundation/ed25519-zebra"
+resolver = "2"
+
 [package.metadata.docs.rs]
 features = ["nightly"]
 
@@ -32,11 +35,22 @@ name = "batch"
 [[bench]]
 name = "bench"
 harness = false
+
 [dependencies.curve25519-dalek]
 version = "3"
+features = [
+    "alloc",
+    "u64_backend",
+]
+default-features = false
+
+[dependencies.hashbrown]
+version = "0.12.0"
 
 [dependencies.hex]
 version = "0.4"
+features = ["alloc"]
+default-features = false
 
 [dependencies.rand_core]
 version = "0.6"
@@ -48,17 +62,16 @@ optional = true
 
 [dependencies.sha2]
 version = "0.9"
-
-[dependencies.thiserror]
-version = "1"
+default-features = false
 
 [dependencies.zeroize]
 version = "1.2"
+
 [dev-dependencies.bincode]
 version = "1"
 
 [dev-dependencies.color-eyre]
-version = "0.5"
+version = "0.6"
 
 [dev-dependencies.criterion]
 version = "0.3"
@@ -74,5 +87,9 @@ version = "1.4"
 version = "0.8"
 
 [features]
-default = ["serde"]
+default = [
+    "serde",
+    "std",
+]
 nightly = []
+std = []

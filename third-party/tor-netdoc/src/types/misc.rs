@@ -36,7 +36,7 @@ pub(crate) trait FromBytes: Sized {
 /// Types for decoding base64-encoded values.
 mod b64impl {
     use crate::{Error, ParseErrorKind as EK, Pos, Result};
-    use base64ct::{Base64, Encoding};
+    use base64ct::{Base64, Base64Unpadded, Encoding};
     use std::ops::RangeBounds;
 
     /// A byte array, encoded in base64 with optional padding.
@@ -45,22 +45,10 @@ mod b64impl {
     impl std::str::FromStr for B64 {
         type Err = Error;
         fn from_str(s: &str) -> Result<Self> {
-            // The `base64ct` crate only rejects invalid
-            // characters when the input is padded. Therefore,
-            // the input must be padded fist. For more info on
-            // this, take a look at this issue:
-            // `https://github.com/RustCrypto/utils/issues/576`
-            let mut string = s.to_string();
-            // Determine padding length
-            let offset = 4 - s.len() % 4;
-            match offset {
-                4 => (),
-                _ => {
-                    // Add pad to input
-                    string.push_str("=".repeat(offset).as_str());
-                }
-            }
-            let v = Base64::decode_vec(&string);
+            let v: core::result::Result<Vec<u8>, base64ct::Error> = match s.len() % 4 {
+                0 => Base64::decode_vec(s),
+                _ => Base64Unpadded::decode_vec(s),
+            };
             let v = v.map_err(|_| {
                 EK::BadArgument
                     .with_msg("Invalid base64")
@@ -83,6 +71,15 @@ mod b64impl {
             } else {
                 Err(EK::BadObjectVal.with_msg("Invalid length on base64 data"))
             }
+        }
+
+        /// Try to convert this object into an array of N bytes.
+        ///
+        /// Return an error if the length is wrong.
+        pub(crate) fn into_array<const N: usize>(self) -> Result<[u8; N]> {
+            self.0
+                .try_into()
+                .map_err(|_| EK::BadObjectVal.with_msg("Invalid length on base64 data"))
         }
     }
 
@@ -209,6 +206,7 @@ mod timeimpl {
     /// space between the date and time.
     ///
     /// (Example: "2020-10-09 17:38:12")
+    #[derive(derive_more::Into, derive_more::From)]
     pub(crate) struct Iso8601TimeSp(SystemTime);
 
     /// Formatting object for parsing the space-separated Iso8601 format.
@@ -227,9 +225,31 @@ mod timeimpl {
         }
     }
 
-    impl From<Iso8601TimeSp> for SystemTime {
-        fn from(t: Iso8601TimeSp) -> SystemTime {
-            t.0
+    /// A wall-clock time, encoded in ISO8601 format without an intervening
+    /// space.
+    ///
+    /// This represents a specific UTC instant (ie an instant in global civil time).
+    /// But it may not be able to represent leap seconds.
+    ///
+    /// The timezone is not included in the string representation; `+0000` is implicit.
+    ///
+    /// (Example: "2020-10-09T17:38:12")
+    #[derive(derive_more::Into, derive_more::From)]
+    pub(crate) struct Iso8601TimeNoSp(SystemTime);
+
+    /// Formatting object for parsing the space-separated Iso8601 format.
+    const ISO_8601NOSP_FMT: &[FormatItem] =
+        format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]");
+
+    impl std::str::FromStr for Iso8601TimeNoSp {
+        type Err = Error;
+        fn from_str(s: &str) -> Result<Iso8601TimeNoSp> {
+            let d = PrimitiveDateTime::parse(s, &ISO_8601NOSP_FMT).map_err(|e| {
+                EK::BadArgument
+                    .at_pos(Pos::at(s))
+                    .with_msg(format!("invalid time: {}", e))
+            })?;
+            Ok(Iso8601TimeNoSp(d.assume_utc().into()))
         }
     }
 }
@@ -327,7 +347,7 @@ mod edcert {
             Ok(self)
         }
         /// Give an error if this certificate's subject_key is not `pk`
-        pub(crate) fn check_subject_key_is(self, pk: &ed25519::PublicKey) -> Result<Self> {
+        pub(crate) fn check_subject_key_is(self, pk: &ed25519::Ed25519Identity) -> Result<Self> {
             if self.0.peek_subject_key().as_ed25519() != Some(pk) {
                 return Err(EK::BadObjectVal
                     .at_pos(self.1)
@@ -430,9 +450,9 @@ mod nickname {
     ///
     /// Nicknames are required to be ASCII, alphanumeric, and between 1 and 19
     /// characters inclusive.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     #[cfg_attr(feature = "dangerous-expose-struct-fields", visibility::make(pub))]
     #[derive(Clone, Debug)]
-
     pub(crate) struct Nickname(tinystr::TinyAsciiStr<MAX_NICKNAME_LEN>);
 
     impl Nickname {
@@ -471,7 +491,19 @@ mod nickname {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
+    use itertools::Itertools;
+    use std::iter;
+
     use base64ct::Encoding;
 
     use super::*;
@@ -486,7 +518,7 @@ mod test {
 
     #[test]
     fn base64() -> Result<()> {
-        // Test parsing succeess:
+        // Test parsing success:
         // Unpadded:
         assert_eq!("Mi43MTgyOA".parse::<B64>()?.as_bytes(), &b"2.71828"[..]);
         assert!("Mi43MTgyOA".parse::<B64>()?.check_len(7..8).is_ok());
@@ -533,8 +565,8 @@ mod test {
         assert!("B".parse::<B64>().is_err());
         assert!("B=".parse::<B64>().is_err());
         assert!("B==".parse::<B64>().is_err());
+        assert!("Bg=".parse::<B64>().is_err());
         assert_eq!("Bg".parse::<B64>()?.as_bytes(), b"\x06");
-        assert_eq!("Bg=".parse::<B64>()?.as_bytes(), b"\x06");
         assert_eq!("Bg==".parse::<B64>()?.as_bytes(), b"\x06");
         assert_eq!("BCg".parse::<B64>()?.as_bytes(), b"\x04\x28");
         assert_eq!("BCg=".parse::<B64>()?.as_bytes(), b"\x04\x28");
@@ -543,6 +575,46 @@ mod test {
         assert!("BCDE=".parse::<B64>().is_err());
         assert!("BCDE==".parse::<B64>().is_err());
         Ok(())
+    }
+
+    #[test]
+    fn base64_rev() {
+        use base64ct::{Base64, Base64Unpadded};
+
+        // Check that strings that we accept are precisely ones which
+        // can be generated by either Base64 or Base64Unpadded
+        for n in 0..=5 {
+            for c_vec in iter::repeat("ACEQg/=".chars())
+                .take(n)
+                .multi_cartesian_product()
+            {
+                let s: String = c_vec.into_iter().collect();
+                #[allow(clippy::print_stderr)]
+                let b = match s.parse::<B64>() {
+                    Ok(b) => {
+                        eprintln!("{:10} {:?}", &s, b.as_bytes());
+                        b
+                    }
+                    Err(_) => {
+                        eprintln!("{:10} Err", &s);
+                        continue;
+                    }
+                };
+                let b = b.as_bytes();
+
+                let ep = Base64::encode_string(b);
+                let eu = Base64Unpadded::encode_string(b);
+
+                assert!(
+                    s == ep || s == eu,
+                    "{:?} decoded to {:?} giving neither {:?} nor {:?}",
+                    s,
+                    b,
+                    ep,
+                    eu
+                );
+            }
+        }
     }
 
     #[test]
@@ -610,16 +682,26 @@ mod test {
 
     #[test]
     fn time() -> Result<()> {
-        use std::time::{Duration, SystemTime};
+        use humantime::parse_rfc3339;
+        use std::time::SystemTime;
 
         let t = "2020-09-29 13:36:33".parse::<Iso8601TimeSp>()?;
         let t: SystemTime = t.into();
-        assert_eq!(t, SystemTime::UNIX_EPOCH + Duration::new(1601386593, 0));
+        assert_eq!(t, parse_rfc3339("2020-09-29T13:36:33Z").unwrap());
 
         assert!("2020-FF-29 13:36:33".parse::<Iso8601TimeSp>().is_err());
         assert!("2020-09-29Q13:99:33".parse::<Iso8601TimeSp>().is_err());
         assert!("2020-09-29".parse::<Iso8601TimeSp>().is_err());
         assert!("too bad, waluigi time".parse::<Iso8601TimeSp>().is_err());
+
+        let t = "2020-09-29T13:36:33".parse::<Iso8601TimeNoSp>()?;
+        let t: SystemTime = t.into();
+        assert_eq!(t, parse_rfc3339("2020-09-29T13:36:33Z").unwrap());
+
+        assert!("2020-09-29 13:36:33".parse::<Iso8601TimeNoSp>().is_err());
+        assert!("2020-09-29Q13:99:33".parse::<Iso8601TimeNoSp>().is_err());
+        assert!("2020-09-29".parse::<Iso8601TimeNoSp>().is_err());
+        assert!("too bad, waluigi time".parse::<Iso8601TimeNoSp>().is_err());
 
         Ok(())
     }
@@ -685,7 +767,7 @@ mod test {
             .unwrap()
             .check_cert_type(tor_cert::CertType::IDENTITY_V_SIGNING)
             .unwrap()
-            .check_subject_key_is(&right_subject_key.try_into().unwrap())
+            .check_subject_key_is(&right_subject_key)
             .unwrap();
         // check wrong type.
         assert!(cert
@@ -693,9 +775,7 @@ mod test {
             .check_cert_type(tor_cert::CertType::RSA_ID_X509)
             .is_err());
         // check wrong key.
-        assert!(cert
-            .check_subject_key_is(&wrong_subject_key.try_into().unwrap())
-            .is_err());
+        assert!(cert.check_subject_key_is(&wrong_subject_key).is_err());
 
         // Try an invalid object that isn't a certificate.
         let failure = UnvalidatedEdCert::from_vec(vec![1, 2, 3], Pos::None);

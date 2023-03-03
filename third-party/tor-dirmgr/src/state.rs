@@ -1235,7 +1235,16 @@ impl DirState for PoisonedState {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     #![allow(clippy::cognitive_complexity)]
     use super::*;
     use crate::{Authority, AuthorityBuilder, DownloadScheduleConfig};
@@ -1542,7 +1551,7 @@ mod test {
             assert!(!state.is_ready(Readiness::Complete));
             assert!(!state.is_ready(Readiness::Usable));
             let consensus_expires: SystemTime = datetime!(2020-08-07 12:43:20 UTC).into();
-            let post_valid_tolerance = crate::DirSkewTolerance::default().post_valid_tolerance;
+            let post_valid_tolerance = crate::DirTolerance::default().post_valid_tolerance;
             assert_eq!(
                 state.reset_time(),
                 Some(consensus_expires + post_valid_tolerance)
@@ -1667,7 +1676,8 @@ mod test {
                 )
             }
             fn d64(s: &str) -> MdDigest {
-                base64::decode(s).unwrap().try_into().unwrap()
+                use base64ct::{Base64Unpadded, Encoding as _};
+                Base64Unpadded::decode_vec(s).unwrap().try_into().unwrap()
             }
 
             // If we start from scratch and reset, we're back in GetConsensus.

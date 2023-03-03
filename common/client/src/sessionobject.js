@@ -146,7 +146,7 @@ class SessionObject {
     return this.session
       .send_request(message, core.CoreResponse)
       .then((res) => {
-        console.log("CoreResponse is %o", res);
+        // console.log("CoreResponse is %o", res);
         if (
           res.msg.variant === core.CoreRequest.RELEASE_OBJECT &&
           res.msg.success

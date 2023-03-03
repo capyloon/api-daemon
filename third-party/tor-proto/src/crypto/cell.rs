@@ -48,7 +48,7 @@ pub(crate) trait CryptInit: Sized {
     /// Initialize this object from a key generator.
     fn construct<K: super::handshake::KeyGenerator>(keygen: K) -> Result<Self> {
         let seed = keygen.expand(Self::seed_len())?;
-        Self::initialize(&seed)
+        Self::initialize(&seed[..])
     }
 }
 
@@ -391,11 +391,20 @@ pub(crate) mod tor1 {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
-    use crate::SecretBytes;
     use rand::RngCore;
     use tor_basic_utils::test_rng::testing_rng;
+    use tor_bytes::SecretBuf;
 
     fn add_layers(
         cc_out: &mut OutboundClientCrypt,
@@ -411,10 +420,8 @@ mod test {
     fn roundtrip() {
         // Take canned keys and make sure we can do crypto correctly.
         use crate::crypto::handshake::ShakeKeyGenerator as KGen;
-        fn s(seed: &[u8]) -> SecretBytes {
-            let mut s: SecretBytes = SecretBytes::new(Vec::new());
-            s.extend(seed);
-            s
+        fn s(seed: &[u8]) -> SecretBuf {
+            seed.to_vec().into()
         }
 
         let seed1 = s(b"hidden we are free");
@@ -503,7 +510,7 @@ mod test {
         const SEED: &[u8;108] = b"'You mean to tell me that there's a version of Sha-3 with no limit on the output length?', said Tom shakily.";
 
         // These test vectors were generated from Tor.
-        let data: &[(usize, &str)] = &include!("../../testdata/cell_crypt.data");
+        let data: &[(usize, &str)] = &include!("../../testdata/cell_crypt.rs");
 
         let mut cc_out = OutboundClientCrypt::new();
         let mut cc_in = InboundClientCrypt::new();

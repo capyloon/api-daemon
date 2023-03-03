@@ -1,35 +1,5 @@
 //! Development-related functionality.
 
-use crate::hazmat::FromDigest;
-use elliptic_curve::{
-    bigint::Encoding as _,
-    consts::U32,
-    dev::{MockCurve, Scalar, ScalarBytes},
-    subtle::{ConditionallySelectable, ConstantTimeLess},
-    Curve,
-};
-use signature::digest::Digest;
-
-type UInt = <MockCurve as Curve>::UInt;
-
-impl FromDigest<MockCurve> for Scalar {
-    fn from_digest<D>(digest: D) -> Self
-    where
-        D: Digest<OutputSize = U32>,
-    {
-        let uint = UInt::from_be_bytes(digest.finalize().into());
-        let overflow = !uint.ct_lt(&MockCurve::ORDER);
-        let scalar = uint.wrapping_add(&UInt::conditional_select(
-            &UInt::ZERO,
-            &MockCurve::ORDER,
-            overflow,
-        ));
-
-        // TODO(tarcieri): simpler conversion
-        ScalarBytes::from_uint(&scalar).unwrap().into_scalar()
-    }
-}
-
 // TODO(tarcieri): implement full set of tests from ECDSA2VS
 // <https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/dss2/ecdsa2vs.pdf>
 
@@ -62,27 +32,29 @@ pub struct TestVector {
 #[cfg_attr(docsrs, doc(cfg(feature = "dev")))]
 macro_rules! new_signing_test {
     ($curve:path, $vectors:expr) => {
-        use core::convert::TryInto;
         use $crate::{
             elliptic_curve::{
-                generic_array::GenericArray, group::ff::PrimeField, ProjectiveArithmetic, Scalar,
+                bigint::Encoding, generic_array::GenericArray, group::ff::PrimeField, Curve,
+                ProjectiveArithmetic, Scalar,
             },
             hazmat::SignPrimitive,
         };
 
+        fn decode_scalar(bytes: &[u8]) -> Option<Scalar<$curve>> {
+            if bytes.len() == <$curve as Curve>::UInt::BYTE_SIZE {
+                Scalar::<$curve>::from_repr(GenericArray::clone_from_slice(bytes)).into()
+            } else {
+                None
+            }
+        }
+
         #[test]
         fn ecdsa_signing() {
             for vector in $vectors {
-                let d = Scalar::<$curve>::from_repr(GenericArray::clone_from_slice(vector.d))
-                    .expect("invalid vector.d");
-
-                let k = Scalar::<$curve>::from_repr(GenericArray::clone_from_slice(vector.k))
-                    .expect("invalid vector.m");
-
-                let z = Scalar::<$curve>::from_repr(GenericArray::clone_from_slice(vector.m))
-                    .expect("invalid vector.z");
-
-                let sig = d.try_sign_prehashed(&k, &z).unwrap();
+                let d = decode_scalar(vector.d).expect("invalid vector.d");
+                let k = decode_scalar(vector.k).expect("invalid vector.m");
+                let z = GenericArray::clone_from_slice(vector.m);
+                let sig = d.try_sign_prehashed(k, z).expect("ECDSA sign failed").0;
 
                 assert_eq!(vector.r, sig.r().to_bytes().as_slice());
                 assert_eq!(vector.s, sig.s().to_bytes().as_slice());
@@ -96,10 +68,11 @@ macro_rules! new_signing_test {
 #[cfg_attr(docsrs, doc(cfg(feature = "dev")))]
 macro_rules! new_verification_test {
     ($curve:path, $vectors:expr) => {
-        use core::convert::TryInto;
         use $crate::{
             elliptic_curve::{
-                generic_array::GenericArray, group::ff::PrimeField, sec1::EncodedPoint,
+                generic_array::GenericArray,
+                group::ff::PrimeField,
+                sec1::{EncodedPoint, FromEncodedPoint},
                 AffinePoint, ProjectiveArithmetic, Scalar,
             },
             hazmat::VerifyPrimitive,
@@ -109,16 +82,14 @@ macro_rules! new_verification_test {
         #[test]
         fn ecdsa_verify_success() {
             for vector in $vectors {
-                let q_encoded = EncodedPoint::from_affine_coordinates(
+                let q_encoded = EncodedPoint::<$curve>::from_affine_coordinates(
                     GenericArray::from_slice(vector.q_x),
                     GenericArray::from_slice(vector.q_y),
                     false,
                 );
 
-                let q: AffinePoint<$curve> = q_encoded.decode().unwrap();
-
-                let z = Scalar::<$curve>::from_repr(GenericArray::clone_from_slice(vector.m))
-                    .expect("invalid vector.m");
+                let q = AffinePoint::<$curve>::from_encoded_point(&q_encoded).unwrap();
+                let z = GenericArray::clone_from_slice(vector.m);
 
                 let sig = Signature::from_scalars(
                     GenericArray::clone_from_slice(vector.r),
@@ -126,7 +97,7 @@ macro_rules! new_verification_test {
                 )
                 .unwrap();
 
-                let result = q.verify_prehashed(&z, &sig);
+                let result = q.verify_prehashed(z, &sig);
                 assert!(result.is_ok());
             }
         }
@@ -134,16 +105,14 @@ macro_rules! new_verification_test {
         #[test]
         fn ecdsa_verify_invalid_s() {
             for vector in $vectors {
-                let q_encoded = EncodedPoint::from_affine_coordinates(
+                let q_encoded = EncodedPoint::<$curve>::from_affine_coordinates(
                     GenericArray::from_slice(vector.q_x),
                     GenericArray::from_slice(vector.q_y),
                     false,
                 );
 
-                let q: AffinePoint<$curve> = q_encoded.decode().unwrap();
-
-                let z = Scalar::<$curve>::from_repr(GenericArray::clone_from_slice(vector.m))
-                    .expect("invalid vector.m");
+                let q = AffinePoint::<$curve>::from_encoded_point(&q_encoded).unwrap();
+                let z = GenericArray::clone_from_slice(vector.m);
 
                 // Flip a bit in `s`
                 let mut s_tweaked = GenericArray::clone_from_slice(vector.s);
@@ -153,7 +122,7 @@ macro_rules! new_verification_test {
                     Signature::from_scalars(GenericArray::clone_from_slice(vector.r), s_tweaked)
                         .unwrap();
 
-                let result = q.verify_prehashed(&z, &sig);
+                let result = q.verify_prehashed(z, &sig);
                 assert!(result.is_err());
             }
         }
@@ -205,9 +174,11 @@ macro_rules! new_wycheproof_test {
             ) -> Option<&'static str> {
                 let x = element_from_padded_slice::<$curve>(wx);
                 let y = element_from_padded_slice::<$curve>(wy);
-                let q_encoded: EncodedPoint<$curve> =
-                    EncodedPoint::from_affine_coordinates(&x, &y, /* compress= */ false);
-                let verifying_key = $crate::VerifyingKey::from_encoded_point(&q_encoded).unwrap();
+                let q_encoded = EncodedPoint::<$curve>::from_affine_coordinates(
+                    &x, &y, /* compress= */ false,
+                );
+                let verifying_key =
+                    $crate::VerifyingKey::<$curve>::from_encoded_point(&q_encoded).unwrap();
 
                 let sig = match Signature::from_der(sig) {
                     Ok(s) => s,

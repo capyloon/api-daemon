@@ -10,8 +10,9 @@ use std::{
 
 use inotify_sys as ffi;
 
-use fd_guard::FdGuard;
-use watches::WatchDescriptor;
+use crate::fd_guard::FdGuard;
+use crate::watches::WatchDescriptor;
+use crate::util::align_buffer;
 
 
 /// Iterator over inotify events
@@ -21,6 +22,7 @@ use watches::WatchDescriptor;
 ///
 /// [`Inotify::read_events_blocking`]: struct.Inotify.html#method.read_events_blocking
 /// [`Inotify::read_events`]: struct.Inotify.html#method.read_events
+#[derive(Debug)]
 pub struct Events<'a> {
     fd       : Weak<FdGuard>,
     buffer   : &'a [u8],
@@ -98,7 +100,7 @@ pub struct Event<S> {
 
     /// The name of the file the event originates from
     ///
-    /// This field is set only if the subject of the event is a file in a
+    /// This field is set only if the subject of the event is a file or directory in a
     /// watched directory. If the event concerns a file or directory that is
     /// watched directly, `name` will be `None`.
     pub name: Option<S>,
@@ -111,7 +113,7 @@ impl<'a> Event<&'a OsStr> {
         let mask = EventMask::from_bits(event.mask)
             .expect("Failed to convert event mask. This indicates a bug.");
 
-        let wd = ::WatchDescriptor {
+        let wd = crate::WatchDescriptor {
             id: event.wd,
             fd,
         };
@@ -148,10 +150,18 @@ impl<'a> Event<&'a OsStr> {
         -> (usize, Self)
     {
         let event_size = mem::size_of::<ffi::inotify_event>();
+        let event_align = mem::align_of::<ffi::inotify_event>();
 
-        // Make sure that the buffer is big enough to contain an event, without
+        // Make sure that the buffer can satisfy the alignment requirements for `inotify_event`
+        assert!(buffer.len() >= event_align);
+
+        // Discard the unaligned portion, if any, of the supplied buffer
+        let buffer = align_buffer(buffer);
+
+        // Make sure that the aligned buffer is big enough to contain an event, without
         // the name. Otherwise we can't safely convert it to an `inotify_event`.
         assert!(buffer.len() >= event_size);
+
 
         let event = buffer.as_ptr() as *const ffi::inotify_event;
 
@@ -195,7 +205,9 @@ impl<'a> Event<&'a OsStr> {
         (bytes_consumed, event)
     }
 
-    pub(crate) fn into_owned(&self) -> EventOwned {
+    /// Returns an owned copy of the event.
+    #[must_use = "cloning is often expensive and is not expected to have side effects"]
+    pub fn into_owned(&self) -> EventOwned {
         Event {
             wd: self.wd.clone(),
             mask: self.mask,
@@ -389,6 +401,8 @@ mod tests {
         sync,
     };
 
+    use crate::util;
+
     use inotify_sys as ffi;
 
     use super::Event;
@@ -397,6 +411,9 @@ mod tests {
     #[test]
     fn from_buffer_should_not_mistake_next_event_for_name_of_previous_event() {
         let mut buffer = [0u8; 1024];
+
+        // Make sure the buffer is properly aligned before writing raw events into it
+        let buffer = util::align_buffer_mut(&mut buffer);
 
         // First, put a normal event into the buffer
         let event = ffi::inotify_event {

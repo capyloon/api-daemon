@@ -1,20 +1,42 @@
 //! ASN.1 `OBJECT IDENTIFIER`
 
-use crate::{asn1::Any, Encodable, Encoder, Error, Length, Result, Tag, Tagged};
+use crate::{
+    asn1::AnyRef, ord::OrdIsValueOrd, DecodeValue, EncodeValue, Error, FixedTag, Header, Length,
+    Reader, Result, Tag, Tagged, Writer,
+};
 use const_oid::ObjectIdentifier;
-use core::convert::{TryFrom, TryInto};
 
-impl TryFrom<Any<'_>> for ObjectIdentifier {
-    type Error = Error;
+impl<'a> DecodeValue<'a> for ObjectIdentifier {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        let mut buf = [0u8; ObjectIdentifier::MAX_SIZE];
+        let slice = buf
+            .get_mut(..header.length.try_into()?)
+            .ok_or_else(|| Self::TAG.length_error())?;
 
-    fn try_from(any: Any<'_>) -> Result<ObjectIdentifier> {
-        any.tag().assert_eq(Tag::ObjectIdentifier)?;
-        Ok(ObjectIdentifier::from_bytes(any.as_bytes())?)
+        let actual_len = reader.read_into(slice)?.len();
+        debug_assert_eq!(actual_len, header.length.try_into()?);
+        Ok(Self::from_bytes(slice)?)
     }
 }
 
-impl<'a> From<&'a ObjectIdentifier> for Any<'a> {
-    fn from(oid: &'a ObjectIdentifier) -> Any<'a> {
+impl EncodeValue for ObjectIdentifier {
+    fn value_len(&self) -> Result<Length> {
+        Length::try_from(self.as_bytes().len())
+    }
+
+    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+        writer.write(self.as_bytes())
+    }
+}
+
+impl FixedTag for ObjectIdentifier {
+    const TAG: Tag = Tag::ObjectIdentifier;
+}
+
+impl OrdIsValueOrd for ObjectIdentifier {}
+
+impl<'a> From<&'a ObjectIdentifier> for AnyRef<'a> {
+    fn from(oid: &'a ObjectIdentifier) -> AnyRef<'a> {
         // Note: ensuring an infallible conversion is possible relies on the
         // invariant that `const_oid::MAX_LEN <= Length::max()`.
         //
@@ -24,31 +46,25 @@ impl<'a> From<&'a ObjectIdentifier> for Any<'a> {
             .try_into()
             .expect("OID length invariant violated");
 
-        Any::from_tag_and_value(Tag::ObjectIdentifier, value)
+        AnyRef::from_tag_and_value(Tag::ObjectIdentifier, value)
     }
 }
 
-impl Encodable for ObjectIdentifier {
-    fn encoded_len(&self) -> Result<Length> {
-        Any::from(self).encoded_len()
-    }
+impl TryFrom<AnyRef<'_>> for ObjectIdentifier {
+    type Error = Error;
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Any::from(self).encode(encoder)
+    fn try_from(any: AnyRef<'_>) -> Result<ObjectIdentifier> {
+        any.tag().assert_eq(Tag::ObjectIdentifier)?;
+        Ok(ObjectIdentifier::from_bytes(any.value())?)
     }
-}
-
-impl<'a> Tagged for ObjectIdentifier {
-    const TAG: Tag = Tag::ObjectIdentifier;
 }
 
 #[cfg(test)]
 mod tests {
     use super::ObjectIdentifier;
-    use crate::{Decodable, Encodable, Length};
-    use core::convert::TryInto;
+    use crate::{Decode, Encode, Length};
 
-    const EXAMPLE_OID: ObjectIdentifier = ObjectIdentifier::new("1.2.840.113549");
+    const EXAMPLE_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549");
     const EXAMPLE_OID_BYTES: &[u8; 8] = &[0x06, 0x06, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d];
 
     #[test]
@@ -69,6 +85,6 @@ mod tests {
     #[test]
     fn length() {
         // Ensure an infallible `From` conversion to `Any` will never panic
-        assert!(ObjectIdentifier::MAX_LENGTH <= Length::MAX.try_into().unwrap());
+        assert!(ObjectIdentifier::MAX_SIZE <= Length::MAX.try_into().unwrap());
     }
 }

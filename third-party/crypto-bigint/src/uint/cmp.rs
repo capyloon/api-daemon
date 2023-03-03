@@ -3,35 +3,16 @@
 //! By default these are all constant-time and use the `subtle` crate.
 
 use super::UInt;
-use crate::limb::{Inner, SignedInner, SignedWide, BIT_SIZE};
-use crate::Limb;
+use crate::{limb::HI_BIT, Limb, SignedWord, WideSignedWord, Word, Zero};
 use core::cmp::Ordering;
 use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess};
 
 impl<const LIMBS: usize> UInt<LIMBS> {
-    /// Determine if this [`UInt`] is equal to zero.
-    ///
-    /// # Returns
-    ///
-    /// If zero, return `Choice(1)`.  Otherwise, return `Choice(0)`.
-    pub fn is_zero(&self) -> Choice {
-        self.ct_eq(&Self::ZERO)
-    }
-
-    /// Is this [`UInt`] an odd number?
-    #[inline]
-    pub fn is_odd(&self) -> Choice {
-        self.limbs
-            .first()
-            .map(|limb| limb.is_odd())
-            .unwrap_or_else(|| Choice::from(0))
-    }
-
-    /// Return `a` if `c`!=0 or `b` if `c`==0.
+    /// Return `a` if `c`==0 or `b` if `c`==`Word::MAX`.
     ///
     /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
     #[inline]
-    pub(crate) const fn ct_select(a: UInt<LIMBS>, b: UInt<LIMBS>, c: Inner) -> Self {
+    pub(crate) const fn ct_select(a: UInt<LIMBS>, b: UInt<LIMBS>, c: Word) -> Self {
         let mut limbs = [Limb::ZERO; LIMBS];
 
         let mut i = 0;
@@ -47,7 +28,7 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     ///
     /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
     #[inline]
-    pub(crate) const fn ct_is_nonzero(&self) -> Inner {
+    pub(crate) const fn ct_is_nonzero(&self) -> Word {
         let mut b = 0;
         let mut i = 0;
         while i < LIMBS {
@@ -63,32 +44,46 @@ impl<const LIMBS: usize> UInt<LIMBS> {
     ///
     /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
     #[inline]
-    pub(crate) const fn ct_cmp(&self, rhs: &Self) -> SignedInner {
+    pub(crate) const fn ct_cmp(&self, rhs: &Self) -> SignedWord {
         let mut gt = 0;
         let mut lt = 0;
         let mut i = LIMBS;
 
         while i > 0 {
-            let a = self.limbs[i - 1].0 as SignedWide;
-            let b = rhs.limbs[i - 1].0 as SignedWide;
-            gt |= ((b - a) >> BIT_SIZE) & 1 & !lt;
-            lt |= ((a - b) >> BIT_SIZE) & 1 & !gt;
+            let a = self.limbs[i - 1].0 as WideSignedWord;
+            let b = rhs.limbs[i - 1].0 as WideSignedWord;
+            gt |= ((b - a) >> Limb::BIT_SIZE) & 1 & !lt;
+            lt |= ((a - b) >> Limb::BIT_SIZE) & 1 & !gt;
             i -= 1;
         }
-        (gt as SignedInner) - (lt as SignedInner)
+        (gt as SignedWord) - (lt as SignedWord)
+    }
+
+    /// Returns 0 if self == rhs or Word::MAX if self != rhs.
+    /// Const-friendly: we can't yet use `subtle` in `const fn` contexts.
+    #[inline]
+    pub(crate) const fn ct_not_eq(&self, rhs: &Self) -> Word {
+        let mut acc = 0;
+        let mut i = 0;
+
+        while i < LIMBS {
+            acc |= self.limbs[i].0 ^ rhs.limbs[i].0;
+            i += 1;
+        }
+        let acc = acc as SignedWord;
+        ((acc | acc.wrapping_neg()) >> HI_BIT) as Word
     }
 }
 
 impl<const LIMBS: usize> ConstantTimeEq for UInt<LIMBS> {
+    #[inline]
     fn ct_eq(&self, other: &Self) -> Choice {
-        self.limbs
-            .iter()
-            .zip(other.limbs.iter())
-            .fold(Choice::from(1), |acc, (a, b)| acc & a.ct_eq(b))
+        Choice::from((!self.ct_not_eq(other) as u8) & 1)
     }
 }
 
 impl<const LIMBS: usize> ConstantTimeGreater for UInt<LIMBS> {
+    #[inline]
     fn ct_gt(&self, other: &Self) -> Choice {
         let underflow = other.sbb(self, Limb::ZERO).1;
         !underflow.is_zero()
@@ -96,6 +91,7 @@ impl<const LIMBS: usize> ConstantTimeGreater for UInt<LIMBS> {
 }
 
 impl<const LIMBS: usize> ConstantTimeLess for UInt<LIMBS> {
+    #[inline]
     fn ct_lt(&self, other: &Self) -> Choice {
         let underflow = self.sbb(other, Limb::ZERO).1;
         !underflow.is_zero()
@@ -106,14 +102,10 @@ impl<const LIMBS: usize> Eq for UInt<LIMBS> {}
 
 impl<const LIMBS: usize> Ord for UInt<LIMBS> {
     fn cmp(&self, other: &Self) -> Ordering {
-        let mut n = 0i8;
-        n -= self.ct_lt(other).unwrap_u8() as i8;
-        n += self.ct_gt(other).unwrap_u8() as i8;
-
-        match n {
+        match self.ct_cmp(other) {
             -1 => Ordering::Less,
             1 => Ordering::Greater,
-            _ => {
+            n => {
                 debug_assert_eq!(n, 0);
                 debug_assert!(bool::from(self.ct_eq(other)));
                 Ordering::Equal
@@ -136,7 +128,7 @@ impl<const LIMBS: usize> PartialEq for UInt<LIMBS> {
 
 #[cfg(test)]
 mod tests {
-    use crate::U128;
+    use crate::{Integer, Zero, U128};
     use subtle::{ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess};
 
     #[test]

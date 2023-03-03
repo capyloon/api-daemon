@@ -1,10 +1,9 @@
 //! X.509 `AlgorithmIdentifier`
 
-use core::convert::{TryFrom, TryInto};
-use der::{
-    asn1::{Any, ObjectIdentifier},
-    Decodable, Encodable, Error, ErrorKind, Message, Result,
-};
+use crate::{Error, Result};
+use core::cmp::Ordering;
+use der::asn1::{AnyRef, ObjectIdentifier};
+use der::{Decode, DecodeValue, DerOrd, Encode, Header, Reader, Sequence, ValueOrd};
 
 /// X.509 `AlgorithmIdentifier` as defined in [RFC 5280 Section 4.1.1.2].
 ///
@@ -15,14 +14,14 @@ use der::{
 /// ```
 ///
 /// [RFC 5280 Section 4.1.1.2]: https://tools.ietf.org/html/rfc5280#section-4.1.1.2
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct AlgorithmIdentifier<'a> {
     /// Algorithm OID, i.e. the `algorithm` field in the `AlgorithmIdentifier`
     /// ASN.1 schema.
     pub oid: ObjectIdentifier,
 
     /// Algorithm `parameters`.
-    pub parameters: Option<Any<'a>>,
+    pub parameters: Option<AnyRef<'a>>,
 }
 
 impl<'a> AlgorithmIdentifier<'a> {
@@ -31,7 +30,7 @@ impl<'a> AlgorithmIdentifier<'a> {
         if self.oid == expected_oid {
             Ok(expected_oid)
         } else {
-            Err(ErrorKind::UnknownOid { oid: expected_oid }.into())
+            Err(Error::OidUnknown { oid: expected_oid })
         }
     }
 
@@ -45,7 +44,7 @@ impl<'a> AlgorithmIdentifier<'a> {
         if actual_oid == expected_oid {
             Ok(actual_oid)
         } else {
-            Err(ErrorKind::UnknownOid { oid: expected_oid }.into())
+            Err(Error::OidUnknown { oid: expected_oid })
         }
     }
 
@@ -60,18 +59,58 @@ impl<'a> AlgorithmIdentifier<'a> {
         Ok(())
     }
 
-    /// Get the `parameters` field as an [`Any`].
+    /// Get the `parameters` field as an [`AnyRef`].
     ///
     /// Returns an error if `parameters` are `None`.
-    pub fn parameters_any(&self) -> Result<Any<'a>> {
-        self.parameters.ok_or_else(|| ErrorKind::Truncated.into())
+    pub fn parameters_any(&self) -> Result<AnyRef<'a>> {
+        self.parameters.ok_or(Error::AlgorithmParametersMissing)
     }
 
     /// Get the `parameters` field as an [`ObjectIdentifier`].
     ///
     /// Returns an error if it is absent or not an OID.
     pub fn parameters_oid(&self) -> Result<ObjectIdentifier> {
-        self.parameters_any().and_then(TryInto::try_into)
+        Ok(ObjectIdentifier::try_from(self.parameters_any()?)?)
+    }
+
+    /// Convert to a pair of [`ObjectIdentifier`]s.
+    ///
+    /// This method is helpful for decomposing in match statements. Note in
+    /// particular that `NULL` parameters are treated the same as missing
+    /// parameters.
+    ///
+    /// Returns an error if parameters are present but not an OID.
+    pub fn oids(&self) -> der::Result<(ObjectIdentifier, Option<ObjectIdentifier>)> {
+        Ok((
+            self.oid,
+            match self.parameters {
+                None => None,
+                Some(p) => match p {
+                    AnyRef::NULL => None,
+                    _ => Some(p.oid()?),
+                },
+            },
+        ))
+    }
+}
+
+impl<'a> DecodeValue<'a> for AlgorithmIdentifier<'a> {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> der::Result<Self> {
+        reader.read_nested(header.length, |reader| {
+            Ok(Self {
+                oid: reader.decode()?,
+                parameters: reader.decode()?,
+            })
+        })
+    }
+}
+
+impl<'a> Sequence<'a> for AlgorithmIdentifier<'a> {
+    fn fields<F, T>(&self, f: F) -> der::Result<T>
+    where
+        F: FnOnce(&[&dyn Encode]) -> der::Result<T>,
+    {
+        f(&[&self.oid, &self.parameters])
     }
 }
 
@@ -79,27 +118,15 @@ impl<'a> TryFrom<&'a [u8]> for AlgorithmIdentifier<'a> {
     type Error = Error;
 
     fn try_from(bytes: &'a [u8]) -> Result<Self> {
-        Self::from_der(bytes)
+        Ok(Self::from_der(bytes)?)
     }
 }
 
-impl<'a> TryFrom<Any<'a>> for AlgorithmIdentifier<'a> {
-    type Error = Error;
-
-    fn try_from(any: Any<'a>) -> Result<AlgorithmIdentifier<'a>> {
-        any.sequence(|decoder| {
-            let oid = decoder.decode()?;
-            let parameters = decoder.decode()?;
-            Ok(Self { oid, parameters })
-        })
-    }
-}
-
-impl<'a> Message<'a> for AlgorithmIdentifier<'a> {
-    fn fields<F, T>(&self, f: F) -> Result<T>
-    where
-        F: FnOnce(&[&dyn Encodable]) -> Result<T>,
-    {
-        f(&[&self.oid, &self.parameters])
+impl ValueOrd for AlgorithmIdentifier<'_> {
+    fn value_cmp(&self, other: &Self) -> der::Result<Ordering> {
+        match self.oid.der_cmp(&other.oid)? {
+            Ordering::Equal => self.parameters.der_cmp(&other.parameters),
+            other => Ok(other),
+        }
     }
 }

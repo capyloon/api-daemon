@@ -1,90 +1,97 @@
 //! ASN.1 `NULL` support.
 
 use crate::{
-    asn1::Any, ByteSlice, Encodable, Encoder, Error, ErrorKind, Length, Result, Tag, Tagged,
+    asn1::AnyRef, ord::OrdIsValueOrd, ByteSlice, DecodeValue, EncodeValue, Error, ErrorKind,
+    FixedTag, Header, Length, Reader, Result, Tag, Writer,
 };
-use core::convert::TryFrom;
 
 /// ASN.1 `NULL` type.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Null;
 
-impl TryFrom<Any<'_>> for Null {
-    type Error = Error;
-
-    fn try_from(any: Any<'_>) -> Result<Null> {
-        let tag = any.tag().assert_eq(Tag::Null)?;
-
-        if any.is_empty() {
+impl<'a> DecodeValue<'a> for Null {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        if header.length.is_zero() {
             Ok(Null)
         } else {
-            Err(ErrorKind::Length { tag }.into())
+            Err(reader.error(ErrorKind::Length { tag: Self::TAG }))
         }
     }
 }
 
-impl<'a> From<Null> for Any<'a> {
-    fn from(_: Null) -> Any<'a> {
-        Any::from_tag_and_value(Tag::Null, ByteSlice::default())
+impl EncodeValue for Null {
+    fn value_len(&self) -> Result<Length> {
+        Ok(Length::ZERO)
+    }
+
+    fn encode_value(&self, _writer: &mut dyn Writer) -> Result<()> {
+        Ok(())
     }
 }
 
-impl Encodable for Null {
-    fn encoded_len(&self) -> Result<Length> {
-        Any::from(*self).encoded_len()
-    }
+impl FixedTag for Null {
+    const TAG: Tag = Tag::Null;
+}
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Any::from(*self).encode(encoder)
+impl OrdIsValueOrd for Null {}
+
+impl<'a> From<Null> for AnyRef<'a> {
+    fn from(_: Null) -> AnyRef<'a> {
+        AnyRef::from_tag_and_value(Tag::Null, ByteSlice::default())
     }
 }
 
-impl Tagged for Null {
-    const TAG: Tag = Tag::Integer;
-}
-
-impl TryFrom<Any<'_>> for () {
+impl TryFrom<AnyRef<'_>> for Null {
     type Error = Error;
 
-    fn try_from(any: Any<'_>) -> Result<()> {
-        let tag = any.tag().assert_eq(Tag::Null)?;
-
-        if any.is_empty() {
-            Ok(())
-        } else {
-            Err(ErrorKind::Length { tag }.into())
-        }
+    fn try_from(any: AnyRef<'_>) -> Result<Null> {
+        any.decode_into()
     }
 }
 
-impl<'a> From<()> for Any<'a> {
-    fn from(_: ()) -> Any<'a> {
+impl TryFrom<AnyRef<'_>> for () {
+    type Error = Error;
+
+    fn try_from(any: AnyRef<'_>) -> Result<()> {
+        Null::try_from(any).map(|_| ())
+    }
+}
+
+impl<'a> From<()> for AnyRef<'a> {
+    fn from(_: ()) -> AnyRef<'a> {
         Null.into()
     }
 }
 
-impl Encodable for () {
-    fn encoded_len(&self) -> Result<Length> {
-        Any::from(()).encoded_len()
-    }
-
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        Any::from(()).encode(encoder)
+impl<'a> DecodeValue<'a> for () {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+        Null::decode_value(reader, header)?;
+        Ok(())
     }
 }
 
-impl Tagged for () {
+impl EncodeValue for () {
+    fn value_len(&self) -> Result<Length> {
+        Ok(Length::ZERO)
+    }
+
+    fn encode_value(&self, _writer: &mut dyn Writer) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl FixedTag for () {
     const TAG: Tag = Tag::Null;
 }
 
 #[cfg(test)]
 mod tests {
     use super::Null;
-    use crate::{Decodable, Encodable};
+    use crate::{Decode, Encode};
 
     #[test]
     fn decode() {
-        assert!(Null::from_der(&[0x05, 0x00]).is_ok());
+        Null::from_der(&[0x05, 0x00]).unwrap();
     }
 
     #[test]

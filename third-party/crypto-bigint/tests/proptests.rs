@@ -178,4 +178,32 @@ proptest! {
         }
     }
 
+    #[test]
+    fn wrapping_xor(a in uint(), b in uint()) {
+        let a_bi = to_biguint(&a);
+        let b_bi = to_biguint(&b);
+        if !b_bi.is_zero() {
+            let expected = to_uint(a_bi ^ b_bi);
+            let actual = a.wrapping_xor(&b);
+
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn encoding(a in uint()) {
+        assert_eq!(a, U256::from_be_bytes(a.to_be_bytes()));
+        assert_eq!(a, U256::from_le_bytes(a.to_le_bytes()));
+    }
+
+    #[test]
+    fn encoding_reverse(a in uint()) {
+        let mut bytes = a.to_be_bytes();
+        bytes.reverse();
+        assert_eq!(a, U256::from_le_bytes(bytes));
+
+        let mut bytes = a.to_le_bytes();
+        bytes.reverse();
+        assert_eq!(a, U256::from_be_bytes(bytes));
+}
 }

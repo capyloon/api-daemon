@@ -19,7 +19,8 @@
 //! missing.
 
 use tor_units::{
-    BoundedInt32, IntegerDays, IntegerMilliseconds, IntegerSeconds, Percentage, SendMeVersion,
+    BoundedInt32, IntegerDays, IntegerMilliseconds, IntegerMinutes, IntegerSeconds, Percentage,
+    SendMeVersion,
 };
 
 /// Upper limit for channel padding timeouts
@@ -65,6 +66,11 @@ impl<T: FromInt32Saturating + TryInto<u64>> FromInt32Saturating for IntegerMilli
     }
 }
 impl<T: FromInt32Saturating + TryInto<u64>> FromInt32Saturating for IntegerSeconds<T> {
+    fn from_saturating(val: i32) -> Self {
+        Self::new(T::from_saturating(val))
+    }
+}
+impl<T: FromInt32Saturating + TryInto<u64>> FromInt32Saturating for IntegerMinutes<T> {
     fn from_saturating(val: i32) -> Self {
         Self::new(T::from_saturating(val))
     }
@@ -276,6 +282,8 @@ pub struct NetParameters {
         from "min_paths_for_circs_pct",
 
     /// Channel padding, low end of random padding interval, milliseconds
+    ///
+    /// `nf_ito` stands for "netflow inactive timeout".
     pub nf_ito_low: IntegerMilliseconds<BoundedInt32<0, CHANNEL_PADDING_TIMEOUT_UPPER_BOUND>> = (1500)
         from "nf_ito_low",
     /// Channel padding, high end of random padding interval, milliseconds
@@ -304,6 +312,100 @@ pub struct NetParameters {
     pub unused_client_circ_timeout_while_learning_cbt: IntegerSeconds<BoundedInt32<10, 60_000>> = (3*60)
         from "cbtlearntimeout",
 
+    /// The minimum number of SENDME acks required to estimate RTT and/or bandwidth.
+    pub cc_min_sendme_acks: BoundedInt32<2, 20> = (5)
+        from "cc_bwe_min",
+    /// The "N" parameter in N-EWMA smoothing of RTT and/or bandwidth estimation, specified as a
+    /// percentage of the number of SENDME acks in a congestion window.
+    ///
+    /// A percentage over 100% indicates smoothing with more than one congestion window's worth
+    /// of SENDMEs.
+    pub cc_ewma_n_by_sendme_acks: Percentage<BoundedInt32<1, 255>> = (50)
+        from "cc_ewma_cwnd_pct",
+    /// The maximum value of the "N" parameter in N-EWMA smoothing of RTT and/or bandwidth
+    /// estimation.
+    pub cc_ewma_n_max: BoundedInt32<2, {i32::MAX}> = (10)
+        from "cc_ewma_max",
+    /// How many cells a SENDME acks under the congestion-control regime.
+    pub cc_sendme_cell_ack_count: BoundedInt32<1, 255> = (31)
+        from "cc_sendme_inc",
+    /// How often we update our congestion window, per congestion window worth of packets.
+    /// (For example, if this is 2, we will update the window twice every window.)
+    pub cc_cwnd_inc_rate: BoundedInt32<1, 250> = (1)
+        from "cc_cwnd_inc_rate",
+
+    /// Lower bound on the number of INTRODUCE2 cells to allow per introduction
+    /// circuit before the service decides to rotate to a new introduction
+    /// circuit.
+    pub hs_introcirc_requests_min: BoundedInt32<0, {i32::MAX}> = (16384)
+        from "hs_intro_min_introduce2",
+
+    /// Upper bound on the number of INTRODUCE2 cells to allow per introduction
+    /// circuit before the service decides to rotate to a new introduction
+    /// circuit.
+    pub hs_introcirc_requests_max: BoundedInt32<0, {i32::MAX}> = (32768)
+        from "hs_intro_max_introduce2",
+
+    /// Lower bound on the lifetime of an introduction circuit.
+    pub hs_introcirc_lifetime_min: IntegerSeconds<BoundedInt32<0, {i32::MAX}>> = (18 * 60 * 60)
+        from "hs_intro_min_lifetime",
+
+    /// Upper bound on the lifetime of an introduction circuit.
+    pub hs_introcirc_lifetime_max: IntegerSeconds<BoundedInt32<0, {i32::MAX}>> = (24 * 60 * 60)
+        from "hs_intro_max_lifetime",
+
+    /// Number of "extra" introduction points that an onion service is allowed
+    /// to open based on demand.
+    pub hs_intro_num_extra_intropoints: BoundedInt32<0, 128> = (2)
+        from "hs_intro_num_extra",
+
+    /// The duration of a time period, as used in the onion service directory
+    /// protocol.
+    ///
+    /// During each "time period", each onion service gets a different blinded
+    /// ID, and the hash ring gets a new layout.
+    pub hsdir_timeperiod_length: IntegerMinutes<BoundedInt32<30, 14400>> = (1440)
+        from "hsdir_interval",
+
+    /// The number of positions at the hash ring where an onion service
+    /// descriptor should be stored.
+    pub hsdir_n_replicas: BoundedInt32<1, 16> = (2)
+        from "hsdir_n_replicas",
+
+    /// The number of HSDir instances, at each position in the hash ring, that
+    /// should be considered when downloading an onion service descriptor.
+    pub hsdir_spread_fetch: BoundedInt32<1, 128> = (3)
+        from "hsdir_spread_fetch",
+
+    /// The number of HSDir instances, at each position in the hash ring, that
+    /// should be considered when uploading an onion service descriptor.
+    pub hsdir_spread_store: BoundedInt32<1,128> = (4)
+        from "hsdir_spread_store",
+
+    /// Largest allowable v3 onion service size (in bytes).
+    pub hsdir_max_desc_size: BoundedInt32<1, {i32::MAX}> = (50_000)
+        from "HSV3MaxDescriptorSize",
+
+    /// Largest number of failures to rendezvous that an onion service should
+    /// allow for a request.
+    pub hs_service_rendezvous_failures_max: BoundedInt32<1, 10> = (2)
+        from "hs_service_max_rdv_failures",
+
+    /// If set to 1, we use the IntroDoS defense when an intro point supports it.
+    ///
+    /// (Support is determined by subprotocol HSIntro=5).
+    pub hs_intro_dos_enabled: BoundedInt32<0, 1> = (0)
+        from "HiddenServiceEnableIntroDoSDefense",
+
+    /// The largest allowable value for a token burst when using the IntroDoS
+    /// defense.
+    pub hs_intro_dos_max_burst: BoundedInt32<0, {i32::MAX}> = (200)
+        from "HiddenServiceEnableIntroDoSBurstPerSec",
+
+    /// The refill rate to be used for a token bucket (in tokens per second)
+    /// when using the IntroDoS defense.
+    pub hs_intro_dos_rate: BoundedInt32<0, {i32::MAX}> = (25)
+        from  "HiddenServiceEnableIntroDoSRatePerSec",
 }
 
 }
@@ -311,6 +413,14 @@ pub struct NetParameters {
 impl Default for NetParameters {
     fn default() -> Self {
         NetParameters::default_values().expect("Default parameters were out-of-bounds")
+    }
+}
+
+// This impl is a bit silly, but it makes the `params` method on NetDirProvider
+// work out.
+impl AsRef<NetParameters> for NetParameters {
+    fn as_ref(&self) -> &NetParameters {
+        self
     }
 }
 
@@ -350,6 +460,16 @@ impl NetParameters {
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::cognitive_complexity)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use std::string::String;
 

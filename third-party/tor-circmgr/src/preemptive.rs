@@ -86,7 +86,16 @@ impl PreemptiveCircuitPredictor {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use crate::{PreemptiveCircuitConfig, PreemptiveCircuitPredictor, TargetCircUsage, TargetPort};
     use std::time::{Duration, Instant};
 
@@ -167,9 +176,10 @@ mod test {
         cfg.set_initial_predicted_ports(vec![]);
         cfg.prediction_lifetime(Duration::from_secs(2));
         let mut predictor = PreemptiveCircuitPredictor::new(cfg.build().unwrap());
-        let more_than_an_hour_ago = Instant::now() - Duration::from_secs(60 * 60 + 1);
+        let now = Instant::now();
+        let three_seconds_ago = now - Duration::from_secs(2 + 1);
 
-        predictor.note_usage(Some(TargetPort::ipv4(2345)), more_than_an_hour_ago);
+        predictor.note_usage(Some(TargetPort::ipv4(2345)), three_seconds_ago);
 
         assert_isoleq!(
             predictor.predict(),

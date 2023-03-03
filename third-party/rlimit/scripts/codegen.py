@@ -24,6 +24,7 @@ PREDICATES = {
     "unix/solarish/mod.rs": {"os": ["solaris", "illumos"]},
     "unix/linux_like/linux/gnu/mod.rs": {"os": ["linux"], "env": ["gnu"]},
     "unix/linux_like/linux/musl/mod.rs": {"os": ["linux"], "env": ["musl"]},
+    "unix/linux_like/linux/musl/b32/riscv32/mod.rs": {"os": ["linux"], "env": ["musl"], "arch": ["riscv32"]},
     "unix/linux_like/linux/uclibc/mod.rs": {"os": ["linux"], "env": ["uclibc"]},
     "unix/linux_like/android/b32/mod.rs": {"os": ["android"], "pointer_width": ["32"]},
     "unix/linux_like/android/b64/mod.rs": {"os": ["android"], "pointer_width": ["64"]},
@@ -34,6 +35,7 @@ PREDICATES = {
     "unix/hermit/mod.rs": {"os": ["hermit"]},
     "unix/newlib/mod.rs": {"env": ["newlib"]},
     "unix/redox/mod.rs": {"os": ["redox"]},
+    "unix/nto/mod.rs": {"os": ["nto"]},
 }
 
 
@@ -109,13 +111,8 @@ if __name__ == "__main__":
         "RLIMIT_VMEM",
     ]
 
-    print(
-        "#![allow("
-        "clippy::assertions_on_constants, "
-        "clippy::absurd_extreme_comparisons, "
-        "clippy::cast_possible_truncation, "
-        "unused_comparisons)]\n"
-    )
+    print("#![allow(clippy::cast_possible_truncation)]\n")
+    print("#![allow(clippy::unnecessary_cast)]\n")
 
     resource_cfgs = []
     for resource in resources:

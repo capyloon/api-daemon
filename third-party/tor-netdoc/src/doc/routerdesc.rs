@@ -41,6 +41,7 @@ use crate::types::policy::*;
 use crate::types::version::TorVersion;
 use crate::{doc, AllowAnnotations, Error, ParseErrorKind as EK, Result};
 
+use ll::pk::ed25519::Ed25519Identity;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use std::{net, time};
@@ -96,56 +97,79 @@ pub struct RouterAnnotation {
     visible::StructFields(pub),
     non_exhaustive
 )]
+#[derive(Clone, Debug)]
 pub struct RouterDesc {
     /// Human-readable nickname for this relay.
     ///
     /// This is not secure, and not guaranteed to be unique.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     nickname: Nickname,
     /// IPv4 address for this relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv4addr: Option<net::Ipv4Addr>,
     /// IPv4 ORPort for this relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     orport: u16,
     /// IPv6 address and port for this relay.
     // TODO: we don't use a socketaddrv6 because we don't care about
     // the flow and scope fields.  We should decide whether that's a
     // good idea.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv6addr: Option<(net::Ipv6Addr, u16)>,
     /// Directory port for contacting this relay for direct HTTP
     /// directory downloads.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     dirport: u16,
     /// Declared uptime for this relay, in seconds.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     uptime: Option<u64>,
     /// Time when this router descriptor was published.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     published: time::SystemTime,
     /// Ed25519 identity certificate (identity key authenticating a
     /// signing key)
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     identity_cert: tor_cert::Ed25519Cert,
-    /// RSA identity for this relay. (Deprecated; never use this without
+    /// RSA identity key for this relay. (Deprecated; never use this without
     /// the ed25519 identity as well).
-    rsa_identity: ll::pk::rsa::PublicKey,
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
+    rsa_identity_key: ll::pk::rsa::PublicKey,
+    /// RSA identity key for this relay. (Deprecated; never use this without
+    /// the ed25519 identity as well).
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
+    rsa_identity: ll::pk::rsa::RsaIdentity,
     /// Key for extending a circuit to this relay using the ntor protocol.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ntor_onion_key: ll::pk::curve25519::PublicKey,
     /// Key for extending a circuit to this relay using the
     /// (deprecated) TAP protocol.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     tap_onion_key: ll::pk::rsa::PublicKey,
     /// List of subprotocol versions supported by this relay.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     proto: Arc<tor_protover::Protocols>,
     /// True if this relay says it's a directory cache.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     is_dircache: bool,
     /// True if this relay says that it caches extrainfo documents.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     is_extrainfo_cache: bool,
     /// Declared family members for this relay.  If two relays are in the
     /// same family, they shouldn't be used in the same circuit.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     family: Arc<RelayFamily>,
     /// Software and version that this relay says it's running.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     platform: Option<RelayPlatform>,
     /// A complete address-level policy for which IPv4 addresses this relay
     /// says it supports.
     // TODO: these polices can get bulky too. Perhaps we should
     // de-duplicate them too.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv4_policy: AddrPolicy,
     /// A summary of which ports this relay is willing to connect to
     /// on IPv6.
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     ipv6_policy: Arc<PortPolicy>,
 }
 
@@ -333,6 +357,43 @@ const ROUTER_EXPIRY_SECONDS: u64 = 5 * 86400;
 const ROUTER_PRE_VALIDITY_SECONDS: u64 = 86400;
 
 impl RouterDesc {
+    /// Return a reference to this relay's RSA identity.
+    pub fn rsa_identity(&self) -> &RsaIdentity {
+        &self.rsa_identity
+    }
+
+    /// Return a reference to this relay's Ed25519 identity.
+    pub fn ed_identity(&self) -> &Ed25519Identity {
+        self.identity_cert
+            .signing_key()
+            .expect("No ed25519 identity key on identity cert")
+    }
+
+    /// Return a reference to the list of subprotocol versions supported by this
+    /// relay.
+    pub fn protocols(&self) -> &tor_protover::Protocols {
+        self.proto.as_ref()
+    }
+
+    /// Return a reference to this relay's Ntor onion key.
+    pub fn ntor_onion_key(&self) -> &ll::pk::curve25519::PublicKey {
+        &self.ntor_onion_key
+    }
+
+    /// Return the publication
+    pub fn published(&self) -> time::SystemTime {
+        self.published
+    }
+
+    /// Return an iterator of every `SocketAddr` at which this descriptor says
+    /// its relay can be reached.
+    pub fn or_ports(&self) -> impl Iterator<Item = net::SocketAddr> + '_ {
+        self.ipv4addr
+            .map(|a| net::SocketAddr::new(a.into(), self.orport))
+            .into_iter()
+            .chain(self.ipv6addr.map(net::SocketAddr::from))
+    }
+
     /// Helper: tokenize `s`, and divide it into three validated sections.
     fn parse_sections<'a>(
         reader: &mut NetDocReader<'a, RouterKwd>,
@@ -354,8 +415,9 @@ impl RouterDesc {
         let body = ROUTER_BODY_RULES.parse(&mut reader)?;
 
         // Parse the signature.
-        let mut reader =
-            reader.new_pred(|item| item.is_ok_with_annotation() || item.is_ok_with_kwd(ROUTER));
+        let mut reader = reader.new_pred(|item| {
+            item.is_ok_with_annotation() || item.is_ok_with_kwd(ROUTER) || item.is_empty_line()
+        });
         let sig = ROUTER_SIG_RULES.parse(&mut reader)?;
 
         Ok((header, body, sig))
@@ -368,7 +430,11 @@ impl RouterDesc {
     pub fn parse(s: &str) -> Result<UncheckedRouterDesc> {
         let mut reader = crate::parse::tokenize::NetDocReader::new(s);
         let result = Self::parse_internal(&mut reader).map_err(|e| e.within(s))?;
-        reader.should_be_exhausted().map_err(|e| e.within(s))?;
+        // We permit empty lines at the end of router descriptors, since there's
+        // a known issue in Tor relays that causes them to return them this way.
+        reader
+            .should_be_exhausted_but_for_empty_lines()
+            .map_err(|e| e.within(s))?;
         Ok(result)
     }
 
@@ -405,14 +471,23 @@ impl RouterDesc {
                 .parse_obj::<UnvalidatedEdCert>("ED25519 CERT")?
                 .check_cert_type(tor_cert::CertType::IDENTITY_V_SIGNING)?
                 .into_unchecked()
-                .check_key(&None)
-                .map_err(|err| EK::BadSignature.err().with_source(err))?;
-            let sk = cert.peek_subject_key().as_ed25519().ok_or_else(|| {
+                .check_key(None)
+                .map_err(|err| {
+                    EK::BadObjectVal
+                        .err()
+                        .with_source(err)
+                        .at_pos(cert_tok.pos())
+                })?;
+            let sk = *cert.peek_subject_key().as_ed25519().ok_or_else(|| {
                 EK::BadObjectVal
                     .at_pos(cert_tok.pos())
-                    .with_msg("no ed25519 signing key")
+                    .with_msg("wrong type for signing key in cert")
             })?;
-            let sk = *sk;
+            let sk: ll::pk::ed25519::PublicKey = sk.try_into().map_err(|_| {
+                EK::BadObjectVal
+                    .at_pos(cert_tok.pos())
+                    .with_msg("invalid ed25519 signing key")
+            })?;
             (cert, sk)
         };
 
@@ -421,7 +496,7 @@ impl RouterDesc {
             let master_key_tok = body.required(MASTER_KEY_ED25519)?;
             let ed_id: Ed25519Public = master_key_tok.parse_arg(0)?;
             let ed_id: ll::pk::ed25519::Ed25519Identity = ed_id.into();
-            if ed_id != identity_cert.peek_signing_key().into() {
+            if ed_id != *identity_cert.peek_signing_key() {
                 #[cfg(not(fuzzing))]
                 return Err(EK::BadObjectVal
                     .at_pos(master_key_tok.pos())
@@ -430,12 +505,13 @@ impl RouterDesc {
         }
 
         // Legacy RSA identity
-        let rsa_identity: ll::pk::rsa::PublicKey = body
+        let rsa_identity_key: ll::pk::rsa::PublicKey = body
             .required(SIGNING_KEY)?
             .parse_obj::<RsaPublic>("RSA PUBLIC KEY")?
             .check_len_eq(1024)?
             .check_exponent(65537)?
             .into();
+        let rsa_identity = rsa_identity_key.to_rsa_identity();
 
         let ed_sig = sig.required(ROUTER_SIG_ED25519)?;
         let rsa_sig = sig.required(ROUTER_SIGNATURE)?;
@@ -475,7 +551,7 @@ impl RouterDesc {
             let sig = rsa_sig.obj("SIGNATURE")?;
             // TODO: we need to accept prefixes here. COMPAT BLOCKER.
 
-            ll::pk::rsa::ValidatableRsaSignature::new(&rsa_identity, &sig, &d)
+            ll::pk::rsa::ValidatableRsaSignature::new(&rsa_identity_key, &sig, &d)
         };
 
         // router nickname ipv4addr orport socksport dirport
@@ -522,7 +598,7 @@ impl RouterDesc {
                 .check_cert_type(tor_cert::CertType::NTOR_CC_IDENTITY)?
                 .check_subject_key_is(identity_cert.peek_signing_key())?
                 .into_unchecked()
-                .check_key(&Some(ntor_as_ed))
+                .check_key(Some(&ntor_as_ed.into()))
                 .map_err(|err| EK::BadSignature.err().with_source(err))?
         };
 
@@ -539,7 +615,7 @@ impl RouterDesc {
             let cc_tok = body.required(ONION_KEY_CROSSCERT)?;
             let cc_val = cc_tok.obj("CROSSCERT")?;
             let mut signed = Vec::new();
-            signed.extend(rsa_identity.to_rsa_identity().as_bytes());
+            signed.extend(rsa_identity.as_bytes());
             signed.extend(identity_cert.peek_signing_key().as_bytes());
             ll::pk::rsa::ValidatableRsaSignature::new(&tap_onion_key, &cc_val, &signed)
         };
@@ -564,7 +640,7 @@ impl RouterDesc {
         // fingerprint: check for consistency with RSA identity.
         if let Some(fp_tok) = body.get(FINGERPRINT) {
             let fp: RsaIdentity = fp_tok.args_as_str().parse::<SpFingerprint>()?.into();
-            if fp != rsa_identity.to_rsa_identity() {
+            if fp != rsa_identity {
                 return Err(EK::BadArgument
                     .at_pos(fp_tok.pos())
                     .with_msg("fingerprint does not match RSA identity"));
@@ -583,7 +659,7 @@ impl RouterDesc {
                 // canonical family shared by all of the members of this family.
                 // If the family is empty, there's no point in adding our own ID
                 // to it, and doing so would only waste memory.
-                family.push(rsa_identity.to_rsa_identity());
+                family.push(rsa_identity);
             }
             family.intern()
         };
@@ -678,6 +754,7 @@ impl RouterDesc {
             uptime,
             published,
             identity_cert,
+            rsa_identity_key,
             rsa_identity,
             ntor_onion_key,
             tap_onion_key,
@@ -800,7 +877,16 @@ impl<'a> Iterator for RouterReader<'a> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     const TESTDATA: &str = include_str!("../../testdata/routerdesc1.txt");
 
@@ -817,17 +903,55 @@ mod test {
 
     #[test]
     fn parse_arbitrary() -> Result<()> {
+        use std::str::FromStr;
         use tor_checkable::{SelfSigned, Timebound};
         let rd = RouterDesc::parse(TESTDATA)?
             .check_signature()?
             .dangerously_assume_timely();
 
-        assert_eq!(rd.nickname.as_str(), "idun2");
-        assert_eq!(rd.orport, 9001);
+        assert_eq!(rd.nickname.as_str(), "Akka");
+        assert_eq!(rd.orport, 443);
         assert_eq!(rd.dirport, 0);
+        assert_eq!(rd.uptime, Some(1036923));
+        assert_eq!(
+            rd.family.as_ref(),
+            &RelayFamily::from_str(
+                "$303509ab910ef207b7438c27435c4a2fd579f1b1 \
+                 $56927e61b51e6f363fb55498150a6ddfcf7077f2"
+            )
+            .unwrap()
+        );
 
-        assert_eq!(rd.uptime, Some(1828391));
-        //assert_eq!(rd.platform.unwrap(), "Tor 0.4.2.6 on Linux");
+        assert_eq!(
+            rd.rsa_identity().to_string(),
+            "$56927e61b51e6f363fb55498150a6ddfcf7077f2"
+        );
+        assert_eq!(
+            rd.ed_identity().to_string(),
+            "CVTjf1oeaL616hH+1+UvYZ8OgkwF3z7UMITvJzm5r7A"
+        );
+        assert_eq!(
+            rd.protocols().to_string(),
+            "Cons=1-2 Desc=1-2 DirCache=2 FlowCtrl=1-2 HSDir=2 \
+             HSIntro=4-5 HSRend=1-2 Link=1-5 LinkAuth=1,3 Microdesc=1-2 \
+             Padding=2 Relay=1-4"
+        );
+
+        assert_eq!(
+            hex::encode(rd.ntor_onion_key().to_bytes()),
+            "329b3b52991613392e35d1a821dd6753e1210458ecc3337f7b7d39bfcf5da273"
+        );
+        assert_eq!(
+            rd.published(),
+            humantime::parse_rfc3339("2022-11-14T19:58:52Z").unwrap()
+        );
+        assert_eq!(
+            rd.or_ports().collect::<Vec<_>>(),
+            vec![
+                "95.216.33.58:443".parse().unwrap(),
+                "[2a01:4f9:2a:2145::2]:443".parse().unwrap(),
+            ]
+        );
 
         Ok(())
     }
@@ -875,6 +999,30 @@ mod test {
             &EK::BadPolicy
                 .at_pos(Pos::from_line(43, 1))
                 .with_source(PolicyError::InvalidPolicy),
+        );
+        check(
+            "no-ed-id-key-in-cert",
+            &EK::BadObjectVal
+                .at_pos(Pos::from_line(2, 1))
+                .with_source(tor_cert::CertError::MissingPubKey),
+        );
+        check(
+            "non-ed-sk-in-cert",
+            &EK::BadObjectVal
+                .at_pos(Pos::from_line(2, 1))
+                .with_msg("wrong type for signing key in cert"),
+        );
+        check(
+            "bad-ed-sk-in-cert",
+            &EK::BadObjectVal
+                .at_pos(Pos::from_line(2, 1))
+                .with_msg("invalid ed25519 signing key"),
+        );
+        check(
+            "mismatched-ed-sk-in-cert",
+            &EK::BadObjectVal
+                .at_pos(Pos::from_line(8, 1))
+                .with_msg("master-key-ed25519 does not match key in identity-ed25519"),
         );
     }
 

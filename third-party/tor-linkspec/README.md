@@ -1,6 +1,6 @@
 # tor-linkspec
 
-`tor-linkspec`: Descriptions of Tor relays, as used to connect to them.
+Descriptions of Tor relays, as used to connect to them.
 
 ## Overview
 
@@ -37,5 +37,27 @@ TODO: Possibly we should rename this crate.  "Linkspec" is a
 pretty esoteric term in the Tor protocols.
 
 TODO: Possibly the link specifiers and the `*Target` traits belong in different crates.
+
+## Compile-time features
+
+* `pt-client` -- Build with enhanced data types to support pluggable
+   transports.
+
+* `full` -- Build with all the features above.
+
+### Experimental and unstable features
+
+ Note that the APIs enabled by these features are NOT covered by
+ semantic versioning[^1] guarantees: we might break them or remove
+ them between patch versions.
+
+* `experimental` -- Build with all experimental features above. (Currently,
+  there are no experimental features in this crate, but there may be in the
+  future.)
+
+[^1]: Remember, semantic versioning is what makes various `cargo`
+features work reliably. To be explicit: if you want `cargo update`
+to _only_ make safe changes, then you cannot enable these
+features.
 
 License: MIT OR Apache-2.0

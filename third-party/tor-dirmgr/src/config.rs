@@ -131,11 +131,17 @@ pub struct DownloadScheduleConfig {
 
 impl_standard_builder! { DownloadScheduleConfig }
 
-/// Configuration for how much clock skew to tolerate in our directory information
+/// Configuration for how much much to extend the official tolerances of our
+/// directory information.
+///
+/// Because of possible clock skew, and because we want to tolerate possible
+/// failures of the directory authorities to reach a consensus, we want to
+/// consider a directory to be valid for a while before and after its official
+/// range of validity.
 #[derive(Debug, Clone, Builder, Eq, PartialEq)]
 #[builder(derive(Debug, Serialize, Deserialize))]
 #[builder(build_fn(error = "ConfigBuildError"))]
-pub struct DirSkewTolerance {
+pub struct DirTolerance {
     /// For how long before a directory document is valid should we accept it?
     ///
     /// Having a nonzero value here allows us to tolerate a little clock skew.
@@ -161,9 +167,9 @@ pub struct DirSkewTolerance {
     pub(crate) post_valid_tolerance: Duration,
 }
 
-impl_standard_builder! { DirSkewTolerance }
+impl_standard_builder! { DirTolerance }
 
-impl DirSkewTolerance {
+impl DirTolerance {
     /// Return a new [`TimerangeBound`] that extends the validity interval of
     /// `timebound` according to this configuration.
     pub(crate) fn extend_tolerance<B>(&self, timebound: TimerangeBound<B>) -> TimerangeBound<B> {
@@ -172,7 +178,7 @@ impl DirSkewTolerance {
             .extend_pre_tolerance(self.pre_valid_tolerance)
     }
 
-    /// Return a new consensus [`Lifetime`] that extgends the validity intervals
+    /// Return a new consensus [`Lifetime`] that extends the validity intervals
     /// of `lifetime` according to this configuration.
     pub(crate) fn extend_lifetime(&self, lifetime: &Lifetime) -> Lifetime {
         Lifetime::new(
@@ -201,7 +207,7 @@ impl DirSkewTolerance {
 //
 // However, here, the DirMgrConfig is just a subset of the fields of a
 // TorClientConfig, and it is important that all its fields are
-// initialised by arti-client.
+// initialized by arti-client.
 //
 // If it grows a field, arti-client ought not to compile any more.
 #[derive(Debug, Clone)]
@@ -233,7 +239,7 @@ pub struct DirMgrConfig {
     pub schedule: DownloadScheduleConfig,
 
     /// How much skew do we tolerate in directory validity times?
-    pub tolerance: DirSkewTolerance,
+    pub tolerance: DirTolerance,
 
     /// A map of network parameters that we're overriding from their settings in
     /// the consensus.
@@ -318,7 +324,16 @@ pub struct DirMgrExtensions {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     #![allow(clippy::unnecessary_wraps)]
     use super::*;
     use tempfile::tempdir;

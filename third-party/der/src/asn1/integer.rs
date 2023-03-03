@@ -1,27 +1,30 @@
 //! ASN.1 `INTEGER` support.
 
 pub(super) mod bigint;
-mod int;
-mod uint;
+pub(super) mod int;
+pub(super) mod uint;
 
-use crate::{asn1::Any, Encodable, Encoder, Error, Length, Result, Tag, Tagged};
-use core::convert::TryFrom;
+use crate::{
+    asn1::AnyRef, ByteSlice, DecodeValue, EncodeValue, Error, FixedTag, Header, Length, Reader,
+    Result, SliceWriter, Tag, ValueOrd, Writer,
+};
+use core::{cmp::Ordering, mem};
 
 macro_rules! impl_int_encoding {
     ($($int:ty => $uint:ty),+) => {
         $(
-            impl TryFrom<Any<'_>> for $int {
-                type Error = Error;
+            impl<'a> DecodeValue<'a> for $int {
+                fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+                    let bytes = ByteSlice::decode_value(reader, header)?.as_slice();
 
-                fn try_from(any: Any<'_>) -> Result<Self> {
-                    let result = if is_highest_bit_set(any.as_bytes()) {
-                        <$uint>::from_be_bytes(int::decode_array(any)?) as $int
+                    let result = if is_highest_bit_set(bytes) {
+                        <$uint>::from_be_bytes(int::decode_to_array(bytes)?) as $int
                     } else {
-                        Self::from_be_bytes(uint::decode_array(any)?)
+                        Self::from_be_bytes(uint::decode_to_array(bytes)?)
                     };
 
                     // Ensure we compute the same encoded length as the original any value
-                    if any.encoded_len()? != result.encoded_len()? {
+                    if header.length != result.value_len()? {
                         return Err(Self::TAG.non_canonical_error());
                     }
 
@@ -29,26 +32,40 @@ macro_rules! impl_int_encoding {
                 }
             }
 
-            impl Encodable for $int {
-                fn encoded_len(&self) -> Result<Length> {
+            impl EncodeValue for $int {
+                fn value_len(&self) -> Result<Length> {
                     if *self < 0 {
-                        int::encoded_len(&(*self as $uint).to_be_bytes())?.for_tlv()
+                        int::encoded_len(&(*self as $uint).to_be_bytes())
                     } else {
-                        uint::encoded_len(&self.to_be_bytes())?.for_tlv()
+                        uint::encoded_len(&self.to_be_bytes())
                     }
                 }
 
-                fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
+                fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
                     if *self < 0 {
-                        int::encode(encoder, &(*self as $uint).to_be_bytes())
+                        int::encode_bytes(writer, &(*self as $uint).to_be_bytes())
                     } else {
-                        uint::encode(encoder, &self.to_be_bytes())
+                        uint::encode_bytes(writer, &self.to_be_bytes())
                     }
                 }
             }
 
-            impl Tagged for $int {
+            impl FixedTag for $int {
                 const TAG: Tag = Tag::Integer;
+            }
+
+            impl ValueOrd for $int {
+                fn value_cmp(&self, other: &Self) -> Result<Ordering> {
+                    value_cmp(*self, *other)
+                }
+            }
+
+            impl TryFrom<AnyRef<'_>> for $int {
+                type Error = Error;
+
+                fn try_from(any: AnyRef<'_>) -> Result<Self> {
+                    any.decode_into()
+                }
             }
         )+
     };
@@ -57,14 +74,13 @@ macro_rules! impl_int_encoding {
 macro_rules! impl_uint_encoding {
     ($($uint:ty),+) => {
         $(
-            impl TryFrom<Any<'_>> for $uint {
-                type Error = Error;
-
-                fn try_from(any: Any<'_>) -> Result<Self> {
-                    let result = Self::from_be_bytes(uint::decode_array(any)?);
+            impl<'a> DecodeValue<'a> for $uint {
+                fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
+                    let bytes = ByteSlice::decode_value(reader, header)?.as_slice();
+                    let result = Self::from_be_bytes(uint::decode_to_array(bytes)?);
 
                     // Ensure we compute the same encoded length as the original any value
-                    if any.encoded_len()? != result.encoded_len()? {
+                    if header.length != result.value_len()? {
                         return Err(Self::TAG.non_canonical_error());
                     }
 
@@ -72,18 +88,32 @@ macro_rules! impl_uint_encoding {
                 }
             }
 
-            impl Encodable for $uint {
-                fn encoded_len(&self) -> Result<Length> {
-                    uint::encoded_len(&self.to_be_bytes())?.for_tlv()
+            impl EncodeValue for $uint {
+                fn value_len(&self) -> Result<Length> {
+                    uint::encoded_len(&self.to_be_bytes())
                 }
 
-                fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-                    uint::encode(encoder, &self.to_be_bytes())
+                fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+                    uint::encode_bytes(writer, &self.to_be_bytes())
                 }
             }
 
-            impl Tagged for $uint {
+            impl FixedTag for $uint {
                 const TAG: Tag = Tag::Integer;
+            }
+
+            impl ValueOrd for $uint {
+                fn value_cmp(&self, other: &Self) -> Result<Ordering> {
+                    value_cmp(*self, *other)
+                }
+            }
+
+            impl TryFrom<AnyRef<'_>> for $uint {
+                type Error = Error;
+
+                fn try_from(any: AnyRef<'_>) -> Result<Self> {
+                    any.decode_into()
+                }
             }
         )+
     };
@@ -101,9 +131,28 @@ fn is_highest_bit_set(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
+/// Compare two integer values
+fn value_cmp<T>(a: T, b: T) -> Result<Ordering>
+where
+    T: Copy + EncodeValue + Sized,
+{
+    const MAX_INT_SIZE: usize = 16;
+    debug_assert!(mem::size_of::<T>() <= MAX_INT_SIZE);
+
+    let mut buf1 = [0u8; MAX_INT_SIZE];
+    let mut encoder1 = SliceWriter::new(&mut buf1);
+    a.encode_value(&mut encoder1)?;
+
+    let mut buf2 = [0u8; MAX_INT_SIZE];
+    let mut encoder2 = SliceWriter::new(&mut buf2);
+    b.encode_value(&mut encoder2)?;
+
+    Ok(encoder1.finish()?.cmp(encoder2.finish()?))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::{Decodable, Encodable};
+    use crate::{Decode, Encode};
 
     // Vectors from Section 5.7 of:
     // https://luca.ntop.org/Teaching/Appunti/asn1.html

@@ -1,8 +1,9 @@
 //! Checked arithmetic.
 
-use crate::UInt;
-use core::ops::{Add, AddAssign, Deref, Mul, MulAssign, Sub, SubAssign};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
+
+#[cfg(feature = "serde")]
+use serdect::serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Provides intentionally-checked arithmetic on `T`.
 ///
@@ -27,14 +28,6 @@ where
     }
 }
 
-impl<T> Deref for Checked<T> {
-    type Target = CtOption<T>;
-
-    fn deref(&self) -> &CtOption<T> {
-        &self.0
-    }
-}
-
 impl<T: ConditionallySelectable> ConditionallySelectable for Checked<T> {
     #[inline]
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
@@ -49,44 +42,90 @@ impl<T: ConstantTimeEq> ConstantTimeEq for Checked<T> {
     }
 }
 
-impl<const LIMBS: usize> Add for Checked<UInt<LIMBS>> {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Checked<UInt<LIMBS>> {
-        Checked(self.0.and_then(|a| rhs.0.and_then(|b| a.checked_add(&b))))
+impl<T> From<Checked<T>> for CtOption<T> {
+    fn from(checked: Checked<T>) -> CtOption<T> {
+        checked.0
     }
 }
 
-impl<const LIMBS: usize> AddAssign for Checked<UInt<LIMBS>> {
-    fn add_assign(&mut self, other: Self) {
-        *self = *self + other;
+impl<T> From<CtOption<T>> for Checked<T> {
+    fn from(ct_option: CtOption<T>) -> Checked<T> {
+        Checked(ct_option)
     }
 }
 
-impl<const LIMBS: usize> Sub for Checked<UInt<LIMBS>> {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Checked<UInt<LIMBS>> {
-        Checked(self.0.and_then(|a| rhs.0.and_then(|b| a.checked_sub(&b))))
+impl<T> From<Checked<T>> for Option<T> {
+    fn from(checked: Checked<T>) -> Option<T> {
+        checked.0.into()
     }
 }
 
-impl<const LIMBS: usize> SubAssign for Checked<UInt<LIMBS>> {
-    fn sub_assign(&mut self, other: Self) {
-        *self = *self - other;
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+impl<'de, T: Default + Deserialize<'de>> Deserialize<'de> for Checked<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Option::<T>::deserialize(deserializer)?;
+        let choice = Choice::from(value.is_some() as u8);
+        Ok(Self(CtOption::new(value.unwrap_or_default(), choice)))
     }
 }
 
-impl<const LIMBS: usize> Mul for Checked<UInt<LIMBS>> {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Checked<UInt<LIMBS>> {
-        Checked(self.0.and_then(|a| rhs.0.and_then(|b| a.checked_mul(&b))))
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+impl<'de, T: Copy + Serialize> Serialize for Checked<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        Option::<T>::from(self.0).serialize(serializer)
     }
 }
 
-impl<const LIMBS: usize> MulAssign for Checked<UInt<LIMBS>> {
-    fn mul_assign(&mut self, other: Self) {
-        *self = *self * other;
+#[cfg(all(test, feature = "serde"))]
+mod tests {
+    use crate::{Checked, U64};
+    use subtle::{Choice, ConstantTimeEq, CtOption};
+
+    #[test]
+    fn serde() {
+        let test = Checked::new(U64::from_u64(0x0011223344556677));
+
+        let serialized = bincode::serialize(&test).unwrap();
+        let deserialized: Checked<U64> = bincode::deserialize(&serialized).unwrap();
+
+        assert!(bool::from(test.ct_eq(&deserialized)));
+
+        let test = Checked::new(U64::ZERO) - Checked::new(U64::ONE);
+        assert!(bool::from(
+            test.ct_eq(&Checked(CtOption::new(U64::ZERO, Choice::from(0))))
+        ));
+
+        let serialized = bincode::serialize(&test).unwrap();
+        let deserialized: Checked<U64> = bincode::deserialize(&serialized).unwrap();
+
+        assert!(bool::from(test.ct_eq(&deserialized)));
+    }
+
+    #[test]
+    fn serde_owned() {
+        let test = Checked::new(U64::from_u64(0x0011223344556677));
+
+        let serialized = bincode::serialize(&test).unwrap();
+        let deserialized: Checked<U64> = bincode::deserialize_from(serialized.as_slice()).unwrap();
+
+        assert!(bool::from(test.ct_eq(&deserialized)));
+
+        let test = Checked::new(U64::ZERO) - Checked::new(U64::ONE);
+        assert!(bool::from(
+            test.ct_eq(&Checked(CtOption::new(U64::ZERO, Choice::from(0))))
+        ));
+
+        let serialized = bincode::serialize(&test).unwrap();
+        let deserialized: Checked<U64> = bincode::deserialize_from(serialized.as_slice()).unwrap();
+
+        assert!(bool::from(test.ct_eq(&deserialized)));
     }
 }

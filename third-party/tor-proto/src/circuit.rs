@@ -41,6 +41,8 @@
 pub(crate) mod celltypes;
 pub(crate) mod halfcirc;
 mod halfstream;
+#[cfg(feature = "onion-common")]
+pub mod handshake;
 mod path;
 pub(crate) mod reactor;
 pub(crate) mod sendme;
@@ -62,7 +64,7 @@ use tor_cell::{
 };
 
 use tor_error::{bad_api_usage, internal, into_internal};
-use tor_linkspec::{CircTarget, LinkSpec, OwnedChanTarget};
+use tor_linkspec::{CircTarget, LinkSpec, OwnedChanTarget, RelayIdType};
 
 use futures::channel::{mpsc, oneshot};
 
@@ -228,6 +230,92 @@ impl ClientCirc {
         &self.channel
     }
 
+    /// Send a control message to the final hop on this circuit.
+    ///
+    /// Note that it is quite possible to use this function to violate the tor
+    /// protocol; most users of this API will not need to call it.  It is used
+    /// to implement most of the onion service handshake.
+    ///
+    /// (This function is not yet implemented. Right now it will always panic.)
+    //
+    // TODO hs: rename this. "control_messages" is kind of ambiguous; we use
+    //   "control" for a lot of other things. We say "meta" elsewhere in the
+    //   reactor code, but "meta messages" just sounds odd.
+    #[allow(clippy::missing_panics_doc, unused_variables)] // TODO hs remove
+    #[cfg(feature = "experimental-api")]
+    pub async fn send_control_message(&self, msg: RelayMsg) -> Result<()> {
+        todo!() // TODO hs
+    }
+
+    /// Begin accepting 'control' messages from the final hop on this circuit,
+    /// and return an asynchronous stream of any such messages that arrive.
+    ///
+    /// A "control" message is a message without a stream ID that `tor-proto`
+    /// does not handle on its own.  (The messages that `tor-proto` can handle
+    /// are DESTROY, DATA, SENDME, ...)  Ordinarily, any unexpected control
+    /// message will cause the circuit to exit with an error.
+    ///
+    /// There can only be one stream of this type created on a given circuit at
+    /// a time. If a such a stream already exists, this method will return an
+    /// error.
+    ///
+    /// The caller should be sure to close the circuit if a command that _it_
+    /// doesn't recognize shows up.
+    ///
+    /// (This function is not yet implemented; right now, it will always panic.)
+    //
+    // TODO hs: Possibly this function (and send_control_message) should use
+    // HopNum or similar to indicate which hop we're talking to, rather than
+    // just doing "the last hop".
+    //
+    // TODO hs: There is possibly some kind of type trickery we could do here so
+    // that the stream would return a chosen type that implements
+    // `TryFrom<RelayMsg>` or something like that. Not sure whether that's a
+    // good idea.
+    //
+    // TODO hs: Perhaps the stream here should yield a different type. Ian
+    // thinks maybe we should store a callback instead.
+    //
+    // TODO hs: rename this. "control_messages" is kind of ambiguous; we use
+    //   "control" for a lot of other things. We say "meta" elsewhere in the
+    //   reactor code, but "meta messages" just sounds odd.
+    #[cfg(feature = "experimental-api")]
+    #[allow(clippy::missing_panics_doc, unused_variables)] // TODO hs remove
+    pub fn receive_control_messages(
+        &self,
+    ) -> Result<impl futures::Stream<Item = Box<chancell::RawCellBody>>> {
+        if false {
+            return Ok(futures::stream::empty()); // TODO hs remove; this is just here for type inference.
+        }
+        todo!() // TODO hs implement.
+    }
+
+    /// Tell this circuit to begin allowing the final hop of the circuit to try
+    /// to create new Tor streams, and to return those pending requests in an
+    /// asynchronous stream.
+    ///
+    /// Ordinarily, these requests are rejected.  
+    ///
+    /// There can only be one stream of this type created on a given circuit at
+    /// a time. If a such a stream already exists, this method will return an
+    /// error.
+    ///
+    /// (This function is not yet implemented; right now, it will always panic.)
+    ///
+    /// Only onion services (and eventually) exit relays should call this
+    /// method.
+    #[cfg(feature = "onion-service")]
+    #[allow(clippy::missing_panics_doc, unused_variables)] // TODO hs remove
+    pub fn allow_stream_requests(
+        &self,
+        allow_commands: &[tor_cell::relaycell::RelayCmd],
+    ) -> Result<impl futures::Stream<Item = crate::stream::IncomingStream>> {
+        if false {
+            return Ok(futures::stream::empty()); // TODO hs remove; this is just here for type inference.
+        }
+        todo!() // TODO hs implement.
+    }
+
     /// Extend the circuit via the ntor handshake to a new target last
     /// hop.
     pub async fn extend_ntor<Tg>(&self, target: &Tg, params: &CircParameters) -> Result<()>
@@ -235,7 +323,9 @@ impl ClientCirc {
         Tg: CircTarget,
     {
         let key = NtorPublicKey {
-            id: *target.rsa_identity(),
+            id: *target
+                .rsa_identity()
+                .ok_or(Error::MissingId(RelayIdType::Ed25519))?,
             pk: *target.ntor_onion_key(),
         };
         let mut linkspecs = target.linkspecs();
@@ -262,6 +352,36 @@ impl ClientCirc {
         rx.await.map_err(|_| Error::CircuitClosed)??;
 
         Ok(())
+    }
+
+    /// Extend this circuit by a single, "virtual" hop.
+    ///
+    /// This is used to implement onion services: the client and the service
+    /// both build a circuit to a single rendezvous point, and tell the
+    /// rendezvous point to relay traffic between their two circuits.  Having
+    /// completed a [`handshake`] out of band[^1], the parties each extend their
+    /// circuits by a single "virtual" encryption hop that represents their
+    /// shared cryptographic context.
+    ///
+    /// Once a circuit has been extended in this way, it is an error to try to
+    /// extend it in any other way.
+    ///
+    /// [^1]: Technically, the handshake is only _mostly_ out of band: the
+    ///     client sends their half of the handshake in an ` message, and the
+    ///     service's response is inline in its `RENDEZVOUS2` message.
+    //
+    // TODO hs: let's try to enforce the "you can't extend a circuit again once
+    // it has been extended this way" property.  We could do that with internal
+    // state, or some kind of a type state pattern.
+    #[cfg(feature = "onion-common")]
+    #[allow(clippy::missing_panics_doc, unused_variables)]
+    pub async fn extend_virtual(
+        &self,
+        protocol: handshake::RelayProtocol,
+        role: handshake::HandshakeRole,
+        seed: impl handshake::KeyGenerator,
+    ) -> Result<()> {
+        todo!() // TODO hs implement
     }
 
     /// Helper, used to begin a stream.
@@ -549,10 +669,14 @@ impl PendingClientCirc {
                 recv_created: self.recvcreated,
                 handshake: CircuitHandshake::Ntor {
                     public_key: NtorPublicKey {
-                        id: *target.rsa_identity(),
+                        id: *target
+                            .rsa_identity()
+                            .ok_or(Error::MissingId(RelayIdType::Rsa))?,
                         pk: *target.ntor_onion_key(),
                     },
-                    ed_identity: *target.ed_identity(),
+                    ed_identity: *target
+                        .ed_identity()
+                        .ok_or(Error::MissingId(RelayIdType::Ed25519))?,
                 },
                 require_sendme_auth,
                 params: params.clone(),
@@ -586,12 +710,12 @@ impl CreateHandshakeWrap for CreateFastWrap {
     fn decode_chanmsg(&self, msg: CreateResponse) -> Result<Vec<u8>> {
         use CreateResponse::*;
         match msg {
-            CreatedFast(m) => Ok(m.into_body()),
+            CreatedFast(m) => Ok(m.into_handshake()),
             Destroy(_) => Err(Error::CircRefused(
                 "Relay replied to CREATE_FAST with DESTROY.",
             )),
             _ => Err(Error::CircProto(format!(
-                "Relay replied to CREATE_FAST with unexpected cell: {:?}",
+                "Relay replied to CREATE_FAST with unexpected cell: {}",
                 msg
             ))),
         }
@@ -613,7 +737,7 @@ impl CreateHandshakeWrap for Create2Wrap {
             Created2(m) => Ok(m.into_body()),
             Destroy(_) => Err(Error::CircRefused("Relay replied to CREATE2 with DESTROY.")),
             _ => Err(Error::CircProto(format!(
-                "Relay replied to CREATE2 with unexpected cell {:?}",
+                "Relay replied to CREATE2 with unexpected cell {}",
                 msg
             ))),
         }
@@ -663,7 +787,16 @@ fn resolvedval_to_result(val: ResolvedVal) -> Result<ResolvedVal> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
     use super::*;
     use crate::channel::{test::new_reactor, CodecError};
@@ -679,7 +812,7 @@ mod test {
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::chancell::{msg as chanmsg, ChanCell};
     use tor_cell::relaycell::{msg as relaymsg, RelayCell, StreamId};
-    use tor_llcrypto::pk;
+    use tor_linkspec::OwnedCircTarget;
     use tor_rtcompat::{Runtime, SleepProvider};
     use tracing::trace;
 
@@ -695,40 +828,20 @@ mod test {
         ClientCircChanMsg::Relay(chanmsg)
     }
 
-    struct ExampleTarget {
-        ntor_key: pk::curve25519::PublicKey,
-        protovers: tor_protover::Protocols,
-        ed_id: pk::ed25519::Ed25519Identity,
-        rsa_id: pk::rsa::RsaIdentity,
-    }
-    impl tor_linkspec::ChanTarget for ExampleTarget {
-        fn addrs(&self) -> &[std::net::SocketAddr] {
-            &[]
-        }
-        fn ed_identity(&self) -> &pk::ed25519::Ed25519Identity {
-            &self.ed_id
-        }
-        fn rsa_identity(&self) -> &pk::rsa::RsaIdentity {
-            &self.rsa_id
-        }
-    }
-    impl tor_linkspec::CircTarget for ExampleTarget {
-        fn ntor_onion_key(&self) -> &pk::curve25519::PublicKey {
-            &self.ntor_key
-        }
-        fn protovers(&self) -> &tor_protover::Protocols {
-            &self.protovers
-        }
-    }
-    /// return an ExampleTarget that can get used for an ntor handshake.
-    fn example_target() -> ExampleTarget {
-        ExampleTarget {
-            ntor_key: hex!("395cb26b83b3cd4b91dba9913e562ae87d21ecdd56843da7ca939a6a69001253")
-                .into(),
-            protovers: "FlowCtrl=1".parse().unwrap(),
-            ed_id: [6_u8; 32].into(),
-            rsa_id: [10_u8; 20].into(),
-        }
+    /// return an example OwnedCircTarget that can get used for an ntor handshake.
+    fn example_target() -> OwnedCircTarget {
+        let mut builder = OwnedCircTarget::builder();
+        builder
+            .chan_target()
+            .ed_identity([6; 32].into())
+            .rsa_identity([10; 20].into());
+        builder
+            .ntor_onion_key(
+                hex!("395cb26b83b3cd4b91dba9913e562ae87d21ecdd56843da7ca939a6a69001253").into(),
+            )
+            .protocols("FlowCtrl=1".parse().unwrap())
+            .build()
+            .unwrap()
     }
     fn example_ntor_key() -> crate::crypto::handshake::ntor::NtorSecretKey {
         crate::crypto::handshake::ntor::NtorSecretKey::new(
@@ -783,7 +896,7 @@ mod test {
                     ChanMsg::CreateFast(cf) => cf,
                     _ => panic!(),
                 };
-                let (_, rep) = CreateFastServer::server(&mut rng, &[()], cf.body()).unwrap();
+                let (_, rep) = CreateFastServer::server(&mut rng, &[()], cf.handshake()).unwrap();
                 CreateResponse::CreatedFast(CreatedFast::new(rep))
             } else {
                 let c2 = match create_cell.msg() {
@@ -1067,7 +1180,7 @@ mod test {
             // Do the path accessors report a reasonable outcome?
             let path = circ.path();
             assert_eq!(path.len(), 4);
-            use tor_linkspec::ChanTarget;
+            use tor_linkspec::HasRelayIds;
             assert_eq!(path[3].ed_identity(), example_target().ed_identity());
             assert_ne!(path[0].ed_identity(), example_target().ed_identity());
         });

@@ -3,9 +3,8 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
 use crate::{err::ErrorDetail, BootstrapBehavior, Result, TorClient, TorClientConfig};
-use fs_mistrust::Mistrust;
 use std::sync::Arc;
-use tor_dirmgr::DirMgrConfig;
+use tor_dirmgr::{DirMgrConfig, DirMgrStore};
 use tor_rtcompat::Runtime;
 
 /// An object that knows how to construct some kind of DirProvider.
@@ -13,10 +12,12 @@ use tor_rtcompat::Runtime;
 /// Note that this type is only actually exposed when the `experimental-api`
 /// feature is enabled.
 #[allow(unreachable_pub)]
+#[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
 pub trait DirProviderBuilder<R: Runtime> {
     fn build(
         &self,
         runtime: R,
+        store: DirMgrStore<R>,
         circmgr: Arc<tor_circmgr::CircMgr<R>>,
         config: DirMgrConfig,
     ) -> Result<Arc<dyn tor_dirmgr::DirProvider + 'static>>;
@@ -30,25 +31,14 @@ impl<R: Runtime> DirProviderBuilder<R> for DirMgrBuilder {
     fn build(
         &self,
         runtime: R,
+        store: DirMgrStore<R>,
         circmgr: Arc<tor_circmgr::CircMgr<R>>,
         config: DirMgrConfig,
     ) -> Result<Arc<dyn tor_dirmgr::DirProvider + 'static>> {
-        let dirmgr = tor_dirmgr::DirMgr::create_unbootstrapped(config, runtime, circmgr)
-            .map_err(ErrorDetail::from)?;
+        let dirmgr = tor_dirmgr::DirMgr::create_unbootstrapped(config, runtime, store, circmgr)
+            .map_err(ErrorDetail::DirMgrSetup)?;
         Ok(Arc::new(dirmgr))
     }
-}
-
-/// Rules about whether to replace the `Mistrust` from the configuration.
-#[derive(Clone, Debug)]
-enum FsMistrustOverride {
-    /// Disable the mistrust in the configuration if the the environment
-    /// variable `ARTI_FS_DISABLE_PERMISSION_CHECKS` is set.
-    FromEnvironment,
-    /// Disable the mistrust in the configuration unconditionally.
-    Disable,
-    /// Always use the mistrust in the configuration.
-    None,
 }
 
 /// An object for constructing a [`TorClient`].
@@ -64,8 +54,6 @@ pub struct TorClientBuilder<R: Runtime> {
     /// How the client should behave when it is asked to do something on the Tor
     /// network before `bootstrap()` is called.
     bootstrap_behavior: BootstrapBehavior,
-    /// How the client should decide which file permissions to trust.
-    fs_mistrust_override: FsMistrustOverride,
     /// Optional object to construct a DirProvider.
     ///
     /// Wrapped in an Arc so that we don't need to force DirProviderBuilder to
@@ -85,7 +73,6 @@ impl<R: Runtime> TorClientBuilder<R> {
             runtime,
             config: TorClientConfig::default(),
             bootstrap_behavior: BootstrapBehavior::default(),
-            fs_mistrust_override: FsMistrustOverride::FromEnvironment,
             dirmgr_builder: Arc::new(DirMgrBuilder {}),
             #[cfg(feature = "dirfilter")]
             dirfilter: None,
@@ -106,35 +93,6 @@ impl<R: Runtime> TorClientBuilder<R> {
     /// be used.
     pub fn bootstrap_behavior(mut self, bootstrap_behavior: BootstrapBehavior) -> Self {
         self.bootstrap_behavior = bootstrap_behavior;
-        self
-    }
-
-    /// Build an [`TorClient`] that will not validate permissions and ownership
-    /// on the filesystem.
-    ///
-    /// By default, these checks are configured with the `storage.permissions`
-    /// field of the configuration, and can be overridden with the
-    /// `ARTI_FS_DISABLE_PERMISSION_CHECKS` environment variable.
-    pub fn disable_fs_permission_checks(mut self) -> Self {
-        self.fs_mistrust_override = FsMistrustOverride::Disable;
-        self
-    }
-
-    /// Build a [`TorClient`] that will follow the permissions checks in
-    /// the `storage.permissions` field of the configuration, regardless of how the
-    /// environment is set.
-    pub fn ignore_fs_permission_checks_env_var(mut self) -> Self {
-        self.fs_mistrust_override = FsMistrustOverride::None;
-        self
-    }
-
-    /// Build a [`TorClient`] that will follow the permissions checks in the
-    /// `storage.permissions` field of the configuration, unless  the
-    /// `ARTI_FS_DISABLE_PERMISSION_CHECKS` environment variable is set.
-    ///
-    /// This is the default.
-    pub fn obey_fs_permission_checks_env_var(mut self) -> Self {
-        self.fs_mistrust_override = FsMistrustOverride::FromEnvironment;
         self
     }
 
@@ -187,21 +145,10 @@ impl<R: Runtime> TorClientBuilder<R> {
             dirmgr_extensions.filter = self.dirfilter;
         }
 
-        let override_mistrust: Option<Mistrust> = match self.fs_mistrust_override {
-            FsMistrustOverride::FromEnvironment
-                if crate::config::fs_permissions_checks_disabled_via_env() =>
-            {
-                Some(Mistrust::new_dangerously_trust_everyone())
-            }
-            FsMistrustOverride::Disable => Some(Mistrust::new_dangerously_trust_everyone()),
-            _ => None,
-        };
-
         TorClient::create_inner(
             self.runtime,
             self.config,
             self.bootstrap_behavior,
-            override_mistrust,
             self.dirmgr_builder.as_ref(),
             dirmgr_extensions,
         )

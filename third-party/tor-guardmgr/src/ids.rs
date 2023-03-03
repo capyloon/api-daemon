@@ -2,32 +2,36 @@
 
 use derive_more::AsRef;
 use serde::{Deserialize, Serialize};
+use tor_linkspec::{HasRelayIds, RelayIds};
+#[cfg(test)]
 use tor_llcrypto::pk;
 
-/// A pair of cryptographic identities used to distinguish a guard or fallback.
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub(crate) struct IdPair {
-    /// Ed25519 identity key for a guard
-    pub(crate) ed25519: pk::ed25519::Ed25519Identity,
-    /// RSA identity fingerprint for a guard
-    pub(crate) rsa: pk::rsa::RsaIdentity,
-}
+use crate::GuardSetSelector;
 
 /// An identifier for a fallback directory cache.
 ///
 /// This is a separate type from GuardId and FirstHopId to avoid confusion
 /// about what kind of object we're identifying.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, AsRef)]
-pub(crate) struct FallbackId(pub(crate) IdPair);
+pub(crate) struct FallbackId(pub(crate) RelayIds);
 
 impl FallbackId {
     /// Return a new, manually constructed `FallbackId`
-    pub(crate) fn new(ed25519: pk::ed25519::Ed25519Identity, rsa: pk::rsa::RsaIdentity) -> Self {
-        Self(IdPair { ed25519, rsa })
-    }
     /// Extract a `FallbackId` from a ChanTarget object.
-    pub(crate) fn from_chan_target<T: tor_linkspec::ChanTarget>(target: &T) -> Self {
-        Self::new(*target.ed_identity(), *target.rsa_identity())
+    pub(crate) fn from_relay_ids<T>(target: &T) -> Self
+    where
+        T: tor_linkspec::HasRelayIds + ?Sized,
+    {
+        Self(RelayIds::from_relay_ids(target))
+    }
+}
+
+impl HasRelayIds for FallbackId {
+    fn identity(
+        &self,
+        key_type: tor_linkspec::RelayIdType,
+    ) -> Option<tor_linkspec::RelayIdRef<'_>> {
+        self.0.identity(key_type)
     }
 }
 
@@ -37,16 +41,35 @@ impl FallbackId {
 /// about what kind of object we're identifying.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, AsRef)]
 #[serde(transparent)]
-pub(crate) struct GuardId(pub(crate) IdPair);
+pub(crate) struct GuardId(pub(crate) RelayIds);
 
 impl GuardId {
     /// Return a new, manually constructed `GuardId`
+    #[cfg(test)]
     pub(crate) fn new(ed25519: pk::ed25519::Ed25519Identity, rsa: pk::rsa::RsaIdentity) -> Self {
-        Self(IdPair { ed25519, rsa })
+        Self(
+            RelayIds::builder()
+                .ed_identity(ed25519)
+                .rsa_identity(rsa)
+                .build()
+                .expect("Couldn't build RelayIds"),
+        )
     }
     /// Extract a `GuardId` from a ChanTarget object.
-    pub(crate) fn from_chan_target<T: tor_linkspec::ChanTarget>(target: &T) -> Self {
-        Self::new(*target.ed_identity(), *target.rsa_identity())
+    pub(crate) fn from_relay_ids<T>(target: &T) -> Self
+    where
+        T: tor_linkspec::HasRelayIds + ?Sized,
+    {
+        Self(RelayIds::from_relay_ids(target))
+    }
+}
+
+impl HasRelayIds for GuardId {
+    fn identity(
+        &self,
+        key_type: tor_linkspec::RelayIdType,
+    ) -> Option<tor_linkspec::RelayIdRef<'_>> {
+        self.0.identity(key_type)
     }
 }
 
@@ -56,7 +79,7 @@ impl GuardId {
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum FirstHopIdInner {
     /// Identifies a guard.
-    Guard(GuardId),
+    Guard(GuardSetSelector, GuardId),
     /// Identifies a fallback.
     Fallback(FallbackId),
 }
@@ -64,31 +87,33 @@ pub(crate) enum FirstHopIdInner {
 /// A unique cryptographic identifier for a selected guard or fallback
 /// directory.
 ///
-/// (This is implemented internally using both of the guard's Ed25519 and RSA
-/// identities.)
+/// (This is implemented internally using all of the guard's known identities.)
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FirstHopId(pub(crate) FirstHopIdInner);
 
-impl From<GuardId> for FirstHopId {
-    fn from(id: GuardId) -> Self {
-        Self(FirstHopIdInner::Guard(id))
-    }
-}
 impl From<FallbackId> for FirstHopId {
     fn from(id: FallbackId) -> Self {
         Self(FirstHopIdInner::Fallback(id))
     }
 }
-impl AsRef<IdPair> for FirstHopId {
-    /// Return the inner IdPair for this object.
+impl AsRef<RelayIds> for FirstHopId {
+    /// Return the inner `RelayIds` for this object.
     ///
     /// Only use this when it's okay to erase the type information about
     /// whether this identifies a guard or a fallback.
-    fn as_ref(&self) -> &IdPair {
+    fn as_ref(&self) -> &RelayIds {
         match &self.0 {
-            FirstHopIdInner::Guard(id) => id.as_ref(),
+            FirstHopIdInner::Guard(_, id) => id.as_ref(),
             FirstHopIdInner::Fallback(id) => id.as_ref(),
         }
+    }
+}
+impl tor_linkspec::HasRelayIds for FirstHopId {
+    fn identity(
+        &self,
+        key_type: tor_linkspec::RelayIdType,
+    ) -> Option<tor_linkspec::RelayIdRef<'_>> {
+        self.as_ref().identity(key_type)
     }
 }
 
@@ -98,7 +123,11 @@ impl FirstHopId {
     //
     // We have to define this function so it'll be public.
     pub fn get_relay<'a>(&self, netdir: &'a tor_netdir::NetDir) -> Option<tor_netdir::Relay<'a>> {
-        let id = self.as_ref();
-        netdir.by_id_pair(&id.ed25519, &id.rsa)
+        netdir.by_ids(self)
+    }
+
+    /// Construct a FirstHopId for a guard in a given sample.
+    pub(crate) fn in_sample(sample: GuardSetSelector, id: GuardId) -> Self {
+        Self(FirstHopIdInner::Guard(sample, id))
     }
 }

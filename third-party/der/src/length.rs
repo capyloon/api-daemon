@@ -1,11 +1,15 @@
 //! Length calculations for encoded ASN.1 DER values
 
-use crate::{Decodable, Decoder, Encodable, Encoder, Error, ErrorKind, Result};
+use crate::{Decode, DerOrd, Encode, Error, ErrorKind, Reader, Result, SliceWriter, Writer};
 use core::{
-    convert::{TryFrom, TryInto},
+    cmp::Ordering,
     fmt,
-    ops::Add,
+    ops::{Add, Sub},
 };
+
+/// Maximum number of octets in a DER encoding of a [`Length`] using the
+/// rules implemented by this crate.
+const MAX_DER_OCTETS: usize = 5;
 
 /// Maximum length as a `u32` (256 MiB).
 const MAX_U32: u32 = 0xfff_ffff;
@@ -30,13 +34,28 @@ impl Length {
     ///
     /// This function is const-safe and therefore useful for [`Length`] constants.
     pub const fn new(value: u16) -> Self {
-        Length(value as u32)
+        Self(value as u32)
+    }
+
+    /// Is this length equal to zero?
+    pub fn is_zero(self) -> bool {
+        self == Self::ZERO
     }
 
     /// Get the length of DER Tag-Length-Value (TLV) encoded data if `self`
     /// is the length of the inner "value" portion of the message.
     pub fn for_tlv(self) -> Result<Self> {
-        Length(1) + self.encoded_len()? + self
+        Self::ONE + self.encoded_len()? + self
+    }
+
+    /// Perform saturating addition of two lengths.
+    pub fn saturating_add(self, rhs: Self) -> Self {
+        Self(self.0.saturating_add(rhs.0))
+    }
+
+    /// Perform saturating subtraction of two lengths.
+    pub fn saturating_sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
     }
 
     /// Get initial octet of the encoded length (if one is required).
@@ -55,7 +74,8 @@ impl Length {
         match self.0 {
             0x80..=0xFF => Some(0x81),
             0x100..=0xFFFF => Some(0x82),
-            0x10000..=MAX_U32 => Some(0x83),
+            0x10000..=0xFFFFFF => Some(0x83),
+            0x1000000..=MAX_U32 => Some(0x84),
             _ => None,
         }
     }
@@ -112,15 +132,40 @@ impl Add<Length> for Result<Length> {
     }
 }
 
+impl Sub for Length {
+    type Output = Result<Self>;
+
+    fn sub(self, other: Length) -> Result<Self> {
+        self.0
+            .checked_sub(other.0)
+            .ok_or_else(|| ErrorKind::Overflow.into())
+            .and_then(TryInto::try_into)
+    }
+}
+
+impl Sub<Length> for Result<Length> {
+    type Output = Self;
+
+    fn sub(self, other: Length) -> Self {
+        self? - other
+    }
+}
+
 impl From<u8> for Length {
     fn from(len: u8) -> Length {
-        Length(len as u32)
+        Length(len.into())
     }
 }
 
 impl From<u16> for Length {
     fn from(len: u16) -> Length {
-        Length(len as u32)
+        Length(len.into())
+    }
+}
+
+impl From<Length> for u32 {
+    fn from(length: Length) -> u32 {
+        length.0
     }
 }
 
@@ -154,9 +199,9 @@ impl TryFrom<Length> for usize {
     }
 }
 
-impl Decodable<'_> for Length {
-    fn decode(decoder: &mut Decoder<'_>) -> Result<Length> {
-        match decoder.byte()? {
+impl<'a> Decode<'a> for Length {
+    fn decode<R: Reader<'a>>(reader: &mut R) -> Result<Length> {
+        match reader.read_byte()? {
             // Note: per X.690 Section 8.1.3.6.1 the byte 0x80 encodes indefinite
             // lengths, which are not allowed in DER, so disallow that byte.
             len if len < 0x80 => Ok(len.into()),
@@ -165,9 +210,10 @@ impl Decodable<'_> for Length {
                 let nbytes = tag.checked_sub(0x80).ok_or(ErrorKind::Overlength)? as usize;
                 debug_assert!(nbytes <= 4);
 
-                let mut decoded_len = 0;
+                let mut decoded_len = 0u32;
                 for _ in 0..nbytes {
-                    decoded_len = (decoded_len << 8) | decoder.byte()? as u32;
+                    decoded_len = decoded_len.checked_shl(8).ok_or(ErrorKind::Overflow)?
+                        | u32::from(reader.read_byte()?);
                 }
 
                 let length = Length::try_from(decoded_len)?;
@@ -188,30 +234,49 @@ impl Decodable<'_> for Length {
     }
 }
 
-impl Encodable for Length {
+impl Encode for Length {
     fn encoded_len(&self) -> Result<Length> {
         match self.0 {
             0..=0x7F => Ok(Length(1)),
             0x80..=0xFF => Ok(Length(2)),
             0x100..=0xFFFF => Ok(Length(3)),
-            0x10000..=MAX_U32 => Ok(Length(4)),
+            0x10000..=0xFFFFFF => Ok(Length(4)),
+            0x1000000..=MAX_U32 => Ok(Length(5)),
             _ => Err(ErrorKind::Overflow.into()),
         }
     }
 
-    fn encode(&self, encoder: &mut Encoder<'_>) -> Result<()> {
-        if let Some(tag_byte) = self.initial_octet() {
-            encoder.byte(tag_byte)?;
+    fn encode(&self, writer: &mut dyn Writer) -> Result<()> {
+        match self.initial_octet() {
+            Some(tag_byte) => {
+                writer.write_byte(tag_byte)?;
 
-            match self.0.to_be_bytes() {
-                [0, 0, 0, byte] => encoder.byte(byte),
-                [0, 0, bytes @ ..] => encoder.bytes(&bytes),
-                [0, bytes @ ..] => encoder.bytes(&bytes),
-                _ => Err(ErrorKind::Overlength.into()),
+                // Strip leading zeroes
+                match self.0.to_be_bytes() {
+                    [0, 0, 0, byte] => writer.write_byte(byte),
+                    [0, 0, bytes @ ..] => writer.write(&bytes),
+                    [0, bytes @ ..] => writer.write(&bytes),
+                    bytes => writer.write(&bytes),
+                }
             }
-        } else {
-            encoder.byte(self.0 as u8)
+            #[allow(clippy::cast_possible_truncation)]
+            None => writer.write_byte(self.0 as u8),
         }
+    }
+}
+
+impl DerOrd for Length {
+    fn der_cmp(&self, other: &Self) -> Result<Ordering> {
+        let mut buf1 = [0u8; MAX_DER_OCTETS];
+        let mut buf2 = [0u8; MAX_DER_OCTETS];
+
+        let mut encoder1 = SliceWriter::new(&mut buf1);
+        encoder1.encode(self)?;
+
+        let mut encoder2 = SliceWriter::new(&mut buf2);
+        encoder2.encode(other)?;
+
+        Ok(encoder1.finish()?.cmp(encoder2.finish()?))
     }
 }
 
@@ -224,8 +289,8 @@ impl fmt::Display for Length {
 #[cfg(test)]
 mod tests {
     use super::Length;
-    use crate::{Decodable, Encodable, ErrorKind};
-    use core::convert::TryFrom;
+    use crate::{Decode, DerOrd, Encode, ErrorKind};
+    use core::cmp::Ordering;
 
     #[test]
     fn decode() {
@@ -301,5 +366,10 @@ mod tests {
             result.err().map(|err| err.kind()),
             Some(ErrorKind::Overflow)
         );
+    }
+
+    #[test]
+    fn der_ord() {
+        assert_eq!(Length::ONE.der_cmp(&Length::MAX).unwrap(), Ordering::Less);
     }
 }

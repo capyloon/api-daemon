@@ -10,19 +10,32 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.59.0"
 name = "rlimit"
-version = "0.8.3"
+version = "0.9.1"
 authors = ["Nugine <nugine@foxmail.com>"]
 description = "Resource limits"
 documentation = "https://docs.rs/rlimit"
 readme = "README.md"
-keywords = ["rlimit", "unix", "syscall"]
+keywords = [
+    "rlimit",
+    "unix",
+    "syscall",
+]
 categories = ["os::unix-apis"]
 license = "MIT"
 repository = "https://github.com/Nugine/rlimit/"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
 [dependencies.libc]
-version = "0.2"
+version = "0.2.139"
+
+[dev-dependencies.once_cell]
+version = "1.16.0"

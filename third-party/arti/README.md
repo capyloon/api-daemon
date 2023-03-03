@@ -1,22 +1,26 @@
 # arti
 
-A minimal command line program for connecting to the tor network
+A minimal command line program for connecting to the Tor network
 
 (If you want a more general Tor client library interface, use
 [`arti_client`].)
 
 This crate is the primary command-line interface for
 [Arti](https://gitlab.torproject.org/tpo/core/arti/), a project to implement
-[Tor](https://www.torproject.org/) in Rust. Many other crates in Arti depend
-on it.
+[Tor](https://www.torproject.org/) in Rust.
 
-Note that Arti is a work in progress; although we've tried to write all the
-critical security components, you probably shouldn't use Arti in production
-until it's a bit more mature.
+Currently Arti can run as a simple SOCKS proxy over the Tor network.
+It will listen on port 9150 by default,
+but you can override this in the configuration.
+You can direct programs to connect via that SOCKS port,
+and their connections will be anonymized via Tor.
+Note: you might not want to run a conventional web browser this way.
+Browsers leak much private information.
+To browse the web anonymously,
+we recommend [using Tor Browser](#using-arti-with-tor-browser).
 
-More documentation will follow as this program improves.  For now, just know
-that it can run as a simple SOCKS proxy over the Tor network. It will listen
-on port 9150 by default, but you can override this in the configuration.
+Arti is still advancing rapidly; we are adding features and eventually
+we hope it will be able to replace C Tor.
 
 ## Command-line interface
 
@@ -39,8 +43,67 @@ location.
 | macOS   | `~/Library/Application Support/arti/arti.toml`     |
 | Windows | `\Users\<USERNAME>\AppData\Roaming\arti\arti.toml` |
 
-The configuration file is TOML.  (We do not guarantee its stability.) For an
-example see [`arti_defaults.toml`](./arti_defaults.toml).
+The configuration file is TOML.
+For an example see `arti-example-config.toml`
+(a copy of which is in the source tree,
+and also
+[in the Arti repository](https://gitlab.torproject.org/tpo/core/arti/-/blob/main/crates/arti/src/arti-example-config.toml)).
+That example config file documents the configuration options.
+
+More detailed information about for the individual fields is available in the documentation
+for the Rust APIs [`ApplicationConfigBuilder`] and
+[`TorClientConfigBuilder`](arti_client::config::TorClientConfigBuilder).
+
+## Using Arti with Tor Browser
+
+It is possible to hook up Arti with
+[Tor Browser](https://www.torproject.org/download/).
+
+To do so, we will launch arti independently from Tor Browser. Build arti with
+`cargo build --release`.  After that launch it with some basic
+configuration parameters:
+
+```text
+$ ./target/release/arti proxy -l debug -p 9150
+```
+
+This will ensure that arti sets its SOCKS port on 9150. Now we need to launch
+Tor Browser and instruct it to use that SOCKS port.
+
+#### Linux
+
+```text
+$ TOR_SKIP_LAUNCH=1 TOR_SOCKS_PORT=9150 TOR_SKIP_CONTROLPORTTEST=1 ./start-tor-browser.desktop
+```
+
+#### OS X
+
+```text
+$ TOR_SKIP_LAUNCH=1 TOR_SOCKS_PORT=9150 TOR_SKIP_CONTROLPORTTEST=1 /path/to/Tor\ Browser/Contents/MacOS/firefox
+```
+
+#### Windows
+
+Create a shortcut with the `Target` set to:
+
+```text
+C:\Windows\System32\cmd.exe /c "SET TOR_SKIP_LAUNCH=1&& SET TOR_SOCKS_PORT=9150&& SET TOR_SKIP_CONTROLPORTTEST=1&& START /D ^"C:\path\to\Tor Browser\Browser^" firefox.exe"
+```
+
+and `Start in` set to:
+
+```text
+"C:\path\to\Tor Browser\Browser"
+```
+
+(You may need to adjust the actual path to wherever you have put your Tor
+Browser.)
+
+The resulting Tor Browser should be using arti.  Note that onion services
+and bridges won't work (Arti doesn't support them yet), and neither will
+any feature depending on Tor's control-port protocol. Features not depending
+on the control-port such as the "New circuit for this site" button should
+work.
 
 ## Compile-time features
 
@@ -54,6 +117,14 @@ example see [`arti_defaults.toml`](./arti_defaults.toml).
   (default)
 * `journald` -- Build with support for logging to the `journald` logging
   backend (available as part of systemd.)
+* `dns-proxy` (default) -- Build with support for proxying certain simple
+  DNS queries over the Tor network.
+* `harden` (default) -- Build with support for hardening the Arti process by
+  disabling debugger attachment and other local memory-inspection vectors.
+* `compression` (default) -- Build support for downloading compressed
+  documents. Requires a C compiler.
+* `bridge-client` (default) -- Build with support for bridges.
+* `pt-client` (default) -- Build with support for pluggable transports.
 
 * `full` -- Build with all features above, along with all stable additive
   features from other arti crates.  (This does not include experimental
@@ -90,11 +161,18 @@ implementation with another.
 ### Experimental features
 
  Note that the APIs enabled by these features are NOT covered by semantic
- versioning guarantees: we might break them or remove them between patch
+ versioning[^1] guarantees: we might break them or remove them between patch
  versions.
 
+* `experimental-api` -- build with experimental, unstable API support.
+   (Right now, most APIs in the `arti` crate are experimental, since this
+   crate was originally written to run as a binary only.)
 * `experimental` -- Build with all experimental features above, along with
   all experimental features from other arti crates.
+
+[^1]: Remember, semantic versioning is what makes various `cargo` features
+work reliably. To be explicit, if you want `cargo update` to _only_ make
+correct changes, then you cannot enable these features.
 
 ## Limitations
 
@@ -102,7 +180,7 @@ There are many missing features.  Among them: there's no onion service
 support yet. There's no anti-censorship support.  You can't be a relay.
 There isn't any kind of proxy besides SOCKS.
 
-See the [README
+See the [repository README
 file](https://gitlab.torproject.org/tpo/core/arti/-/blob/main/README.md) for
 a more complete list of missing features.
 

@@ -1,242 +1,5 @@
-//! # `fs-mistrust`: check whether file permissions are private.
-//!
-//! This crate provides a set of functionality to check the permissions on files
-//! and directories to ensure that they are effectively private—that is, that
-//! they are only readable or writable by trusted[^1] users.
-//!
-//! This kind of check can protect your users' data against misconfigurations,
-//! such as cases where they've accidentally made their home directory
-//! world-writable, or where they're using a symlink stored in a directory owned
-//! by another user.
-//!
-//! The checks in this crate try to guarantee that, after a path has been shown
-//! to be private, no action by a _non-trusted user_ can make that path private.
-//! It's still possible for a _trusted user_ to change a path after it has been
-//! checked.  Because of that, you may want to use other mechanisms if you are
-//! concerned about time-of-check/time-of-use issues caused by _trusted_ users
-//! altering the filesystem.
-//!
-//! Also see the [Limitations](#limitations) section below.
-//!
-//! [^1]: we define "trust" here in the computer-security sense of the word: a
-//!      user is "trusted" if they have the opportunity to break our security
-//!      guarantees.  For example, `root` on a Unix environment is "trusted",
-//!      whether you actually trust them or not.
-//!
-//! ## What's so hard about checking permissions?
-//!
-//! Suppose that we want to know whether a given path can be read or modified by
-//! an untrusted user. That's trickier than it sounds:
-//!
-//! * Even if the permissions on the file itself are correct, we also need to
-//!   check the permissions on the directory holding it, since they might allow
-//!   an untrusted user to replace the file, or change its permissions.  
-//! * Similarly, we need to check the permissions on the parent of _that_
-//!   directory, since they might let an untrusted user replace the directory or
-//!   change _its_ permissions.  (And so on!)
-//! * It can be tricky to define "a trusted user".  On Unix systems, we usually
-//!   say that each user is trusted by themself, and that root (UID 0) is
-//!   trusted.  But it's hard to say which _groups_ are trusted: even if a given
-//!   group contains only trusted users today, there's no OS-level guarantee
-//!   that untrusted users won't be added to that group in the future.
-//! * Symbolic links add another layer of confusion.  If there are any symlinks
-//!   in the path you're checking, then you need to check permissions on the
-//!   directory containing the symlink, and then the permissions on the target
-//!   path, _and all of its ancestors_ too.
-//! * Many programs first canonicalize the path being checked, removing all
-//!   `..`s and symlinks.  That's sufficient for telling whether the _final_
-//!   file can be modified by an untrusted user, but not for whether the _path_
-//!   can be modified by an untrusted user.  If there is a modifiable symlink in
-//!   the middle of the path, or at any stage of the path resolution, somebody
-//!   who can modify that symlink can change which file the path points to.
-//! * Even if you have checked a directory as being writeable only by a trusted
-//!   user, that doesn't mean that the objects _in_ that directory are only
-//!   writeable by trusted users.  Those objects might be symlinks to some other
-//!   (more writeable) place on the file system; or they might be accessible
-//!   with hard links stored elsewhere on the file system.
-//!
-//! Different programs try to solve this problem in different ways, often with
-//! very little rationale.  This crate tries to give a reasonable implementation
-//! for file privacy checking and enforcement, along with clear justifications
-//! in its source for why it behaves that way.
-//!
-//!
-//! ## What we actually do
-//!
-//! To make sure that every step in the file resolution process is checked, we
-//! emulate that process on our own.  We inspect each component in the provided
-//! path, to see whether it is modifiable by an untrusted user.  If we encounter
-//! one or more symlinks, then we resolve every component of the path added by
-//! those symlink, until we finally reach the target.
-//!
-//! In effect, we are emulating `realpath` (or `fs::canonicalize` if you
-//! prefer), and looking at the permissions on every part of the filesystem we
-//! touch in doing so, to see who has permissions to change our target file or
-//! the process that led us to it.
-//!
-//! For groups, we use the following heuristic: If there is a group with the
-//! same name as the current user, and the current user belongs to that group,
-//! we assume that group is trusted.  Otherwise, we treat all groups as
-//! untrusted.
-//!
-//! ## Examples
-//!
-//! ### Simple cases
-//!
-//! Make sure that a directory is only readable or writeable by us (simple
-//! case):
-//!
-//! ```no_run
-//! use fs_mistrust::Mistrust;
-//! match Mistrust::new().check_directory("/home/itchy/.local/hat-swap") {
-//!     Ok(()) => println!("directory is good"),
-//!     Err(e) => println!("problem with our hat-swap directory: {}", e),
-//! }
-//! ```
-//!
-//! As above, but create the directory, and its parents if they do not already
-//! exist.
-//!
-//! ```
-//! use fs_mistrust::Mistrust;
-//! match Mistrust::new().make_directory("/home/itchy/.local/hat-swap") {
-//!     Ok(()) => println!("directory exists (or was created without trouble"),
-//!     Err(e) => println!("problem with our hat-swap directory: {}", e),
-//! }
-//! ```
-//!
-//! ### Configuring a [`Mistrust`]
-//!
-//! You can adjust the [`Mistrust`] object to change what it permits:
-//!
-//! ```no_run
-//! # fn example() -> fs_mistrust::Result<()> {
-//! use fs_mistrust::Mistrust;
-//!
-//! let my_mistrust = Mistrust::builder()
-//!     // Assume that our home directory and its parents are all well-configured.
-//!     .ignore_prefix("/home/doze/")
-//!     // Assume that a given group will only contain trusted users.
-//!     .trust_group(413)
-//!     .build()?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! See [`Mistrust`] for more options.
-//!
-//! ### Using [`Verifier`] for more fine-grained checks
-//!
-//! For more fine-grained control over a specific check, you can use the
-//! [`Verifier`] API.  Unlike [`Mistrust`], which generally you'll want to
-//! configure for several requests, the changes in [`Verifier`] generally make
-//! sense only for one request at a time.
-//!
-//! ```no_run
-//! # fn example() -> fs_mistrust::Result<()> {
-//! use fs_mistrust::Mistrust;
-//! let mistrust = Mistrust::new();
-//!
-//! // Require that an object is a regular file; allow it to be world-
-//! // readable.
-//! mistrust
-//!     .verifier()
-//!     .permit_readable()
-//!     .require_file()
-//!     .check("/home/trace/.path_cfg")?;
-//!
-//! // Make sure that a directory _and all of its contents_ are private.
-//! // Create the directory if it does not exist.
-//! // Return an error object containing _all_ of the problems discovered.
-//! mistrust
-//!     .verifier()
-//!     .require_directory()
-//!     .check_content()
-//!     .all_errors()
-//!     .make_directory("/home/trace/private_keys/");
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! See [`Verifier`] for more options.
-//!
-//! ### Using [`CheckedDir`] for safety.
-//!
-//! You can use the [`CheckedDir`] API to ensure not only that a directory is
-//! private, but that all of your accesses to its contents continue to verify
-//! and enforce _their_ permissions.
-//!
-//! ```
-//! # fn example() -> anyhow::Result<()> {
-//! use fs_mistrust::{Mistrust, CheckedDir};
-//! use std::fs::{File, OpenOptions};
-//! let dir = Mistrust::new()
-//!     .verifier()
-//!     .secure_dir("/Users/clover/riddles")?;
-//!
-//! // You can use the CheckedDir object to access files and directories.
-//! // All of these must be relative paths within the path you used to
-//! // build the CheckedDir.
-//! dir.make_directory("timelines")?;
-//! let file = dir.open("timelines/vault-destroyed.md",
-//!     OpenOptions::new().write(true).create(true))?;
-//! // (... use file...)
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Limitations
-//!
-//! As noted above, this crate only checks whether a path can be changed by
-//! _non-trusted_ users.  After the path has been checked, a _trusted_ user can
-//! still change its permissions.  (For example, the user could make their home
-//! directory world-writable.)  This crate does not try to defend against _that
-//! kind_ of time-of-check/time-of-use issue.
-//!
-//! We currently assume a fairly vanilla Unix environment: we'll tolerate other
-//! systems, but we don't actually look at the details of any of these:
-//!    * Windows security (ACLs, SecurityDescriptors, etc)
-//!    * SELinux capabilities
-//!    * POSIX (and other) ACLs.
-//!
-//! We use a somewhat inaccurate heuristic when we're checking the permissions
-//! of items _inside_ a target directory (using [`Verifier::check_content`] or
-//! [`CheckedDir`]): we continue to forbid untrusted-writeable directories and
-//! files, but we still allow readable ones, even if we insisted that the target
-//! directory itself was required to to be unreadable.  This is too permissive
-//! in the case of readable objects with hard links: if there is a hard link to
-//! the file somewhere else, then an untrusted user can read it.  It is also too
-//! restrictive in the case of writeable objects _without_ hard links: if
-//! untrusted users have no path to those objects, they can't actually write
-//! them.
-//!
-//! On Windows, we accept all file permissions and owners.
-//!
-//! We don't check for mount-points and the privacy of filesystem devices
-//! themselves.  (For example, we don't distinguish between our local
-//! administrator and the administrator of a remote filesystem. We also don't
-//! distinguish between local filesystems and insecure networked filesystems.)
-//!
-//! This code has not been audited for correct operation in a setuid
-//! environment; there are almost certainly security holes in that case.
-//!
-//! This is fairly new software, and hasn't been audited yet.
-//!
-//! All of the above issues are considered "good to fix, if practical".
-//!
-//! ## Acknowledgements
-//!
-//! The list of checks performed here was inspired by the lists from OpenSSH's
-//! [safe_path], GnuPG's [check_permissions], and Tor's [check_private_dir]. All
-//! errors are my own.
-//!
-//! [safe_path]:
-//!     https://github.com/openssh/openssh-portable/blob/master/misc.c#L2177
-//! [check_permissions]:
-//!     https://github.com/gpg/gnupg/blob/master/g10/gpg.c#L1551
-//! [check_private_dir]:
-//!     https://gitlab.torproject.org/tpo/core/tor/-/blob/main/src/lib/fs/dir.c#L70
-
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg))]
+#![doc = include_str!("../README.md")]
 // TODO: Stuff to add before this crate is ready....
 //  - Test the absolute heck out of it.
 
@@ -276,15 +39,24 @@
 #![warn(clippy::unseparated_literal_suffix)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
 #![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
 mod dir;
+mod disable;
 mod err;
 mod imp;
-#[cfg(target_family = "unix")]
+#[cfg(all(
+    target_family = "unix",
+    not(target_os = "ios"),
+    not(target_os = "android")
+))]
 mod user;
 
+#[cfg(feature = "anon_home")]
+pub mod anon_home;
 #[cfg(test)]
 pub(crate) mod testing;
 pub mod walk;
@@ -298,12 +70,17 @@ use std::{
 };
 
 pub use dir::CheckedDir;
+pub use disable::GLOBAL_DISABLE_VAR;
 pub use err::Error;
 
 /// A result type as returned by this crate
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[cfg(target_family = "unix")]
+#[cfg(all(
+    target_family = "unix",
+    not(target_os = "ios"),
+    not(target_os = "android")
+))]
 pub use user::{TrustedGroup, TrustedUser};
 
 /// Configuration for verifying that a file or directory is really "private".
@@ -337,12 +114,33 @@ pub struct Mistrust {
     )]
     ignore_prefix: Option<PathBuf>,
 
-    /// Are we configured to enable all permission and ownership tests?
-    #[builder(default, setter(custom))]
-    dangerously_trust_everyone: bool,
+    /// Are we configured to disable all permission and ownership tests?
+    ///
+    /// (This field is present in the builder only.)
+    #[builder(setter(custom), field(type = "Option<bool>", build = "()"))]
+    dangerously_trust_everyone: (),
+
+    /// Should we check the environment to decide whether to disable permission
+    /// and ownership tests?
+    ///
+    /// (This field is present in the builder only.)
+    #[builder(setter(custom), field(type = "Option<disable::Disable>", build = "()"))]
+    #[cfg_attr(feature = "serde", builder_field_attr(serde(skip)))]
+    disable_by_environment: (),
+
+    /// Internal value combining `dangerously_trust_everyone` and
+    /// `disable_by_environment` to decide whether we're doing permissions
+    /// checks or not.
+    #[builder(setter(custom), field(build = "self.should_be_enabled()"))]
+    #[cfg_attr(feature = "serde", builder_field_attr(serde(skip)))]
+    status: disable::Status,
 
     /// What user ID do we trust by default (if any?)
-    #[cfg(target_family = "unix")]
+    #[cfg(all(
+        target_family = "unix",
+        not(target_os = "ios"),
+        not(target_os = "android")
+    ))]
     #[builder(
         setter(into),
         field(type = "TrustedUser", build = "self.trust_user.get_uid()?")
@@ -350,7 +148,11 @@ pub struct Mistrust {
     trust_user: Option<u32>,
 
     /// What group ID do we trust by default (if any?)
-    #[cfg(target_family = "unix")]
+    #[cfg(all(
+        target_family = "unix",
+        not(target_os = "ios"),
+        not(target_os = "android")
+    ))]
     #[builder(
         setter(into),
         field(type = "TrustedGroup", build = "self.trust_group.get_gid()?")
@@ -381,7 +183,11 @@ impl MistrustBuilder {
     /// trusted.
     ///
     /// This option disables the default group-trust behavior as well.
-    #[cfg(target_family = "unix")]
+    #[cfg(all(
+        target_family = "unix",
+        not(target_os = "ios"),
+        not(target_os = "android")
+    ))]
     pub fn trust_admin_only(&mut self) -> &mut Self {
         self.trust_user = TrustedUser::None;
         self.trust_group = TrustedGroup::None;
@@ -396,7 +202,11 @@ impl MistrustBuilder {
     /// With this option set, no group is trusted, and and any group-readable or
     /// group-writable objects are treated the same as world-readable and
     /// world-writable objects respectively.
-    #[cfg(target_family = "unix")]
+    #[cfg(all(
+        target_family = "unix",
+        not(target_os = "ios"),
+        not(target_os = "android")
+    ))]
     pub fn trust_no_group_id(&mut self) -> &mut Self {
         self.trust_group = TrustedGroup::None;
         self
@@ -412,6 +222,8 @@ impl MistrustBuilder {
     /// these checks optional, and still use [`CheckedDir`] without having to
     /// implement separate code paths for the "checking on" and "checking off"
     /// cases.
+    ///
+    /// Setting this flag will supersede any value set in the environment.
     pub fn dangerously_trust_everyone(&mut self) -> &mut Self {
         self.dangerously_trust_everyone = Some(true);
         self
@@ -422,6 +234,69 @@ impl MistrustBuilder {
     pub fn remove_ignored_prefix(&mut self) -> &mut Self {
         self.ignore_prefix = Some(None);
         self
+    }
+
+    /// Configure this [`MistrustBuilder`] to become disabled based on the
+    /// environment variable `var`.
+    ///
+    /// (If the variable is "false", "no", or "0", it will be treated as
+    /// false; other values are treated as true.)
+    ///
+    /// If `var` is not set, then we'll look at
+    /// `$FS_MISTRUST_DISABLE_PERMISSIONS_CHECKS`.
+    pub fn controlled_by_env_var(&mut self, var: &str) -> &mut Self {
+        self.disable_by_environment = Some(disable::Disable::OnUserEnvVar(var.to_string()));
+        self
+    }
+
+    /// Like `controlled_by_env_var`, but do not override any previously set
+    /// environment settings.
+    ///
+    /// (The `arti-client` wants this, so that it can inform a caller-supplied
+    /// `MistrustBuilder` about its Arti-specific env var, but only if the
+    /// caller has not already provided a variable of its own. Other code
+    /// embedding `fs-mistrust` may want it too.)
+    pub fn controlled_by_env_var_if_not_set(&mut self, var: &str) -> &mut Self {
+        if self.disable_by_environment.is_none() {
+            self.controlled_by_env_var(var)
+        } else {
+            self
+        }
+    }
+
+    /// Configure this [`MistrustBuilder`] to become disabled based on the
+    /// environment variable `$FS_MISTRUST_DISABLE_PERMISSIONS_CHECKS` only,
+    ///
+    /// (If the variable is "false", "no", "0", or "", it will be treated as
+    /// false; other values are treated as true.)
+    ///
+    /// This is the default.
+    pub fn controlled_by_default_env_var(&mut self) -> &mut Self {
+        self.disable_by_environment = Some(disable::Disable::OnGlobalEnvVar);
+        self
+    }
+
+    /// Configure this [`MistrustBuilder`] to never consult the environment to
+    /// see whether it should be disabled.
+    pub fn ignore_environment(&mut self) -> &mut Self {
+        self.disable_by_environment = Some(disable::Disable::Never);
+        self
+    }
+
+    /// Considering our settings, determine whether we should trust all users
+    /// (and thereby disable our permission checks.)
+    fn should_be_enabled(&self) -> disable::Status {
+        // If we've disabled checks in our configuration, then that settles it.
+        if self.dangerously_trust_everyone == Some(true) {
+            return disable::Status::DisableChecks;
+        }
+
+        // Otherwise, we use our "disable_by_environment" setting to see whether
+        // we should check the environment.
+        self.disable_by_environment
+            .as_ref()
+            .unwrap_or(&disable::Disable::default())
+            .should_disable_checks()
     }
 }
 
@@ -529,6 +404,12 @@ impl Mistrust {
     pub fn make_directory<P: AsRef<Path>>(&self, dir: P) -> Result<()> {
         self.verifier().make_directory(dir)
     }
+
+    /// Return true if this `Mistrust` object has been configured to trust all
+    /// users.
+    pub(crate) fn is_disabled(&self) -> bool {
+        self.status.disabled()
+    }
 }
 
 impl<'a> Verifier<'a> {
@@ -629,9 +510,8 @@ impl<'a> Verifier<'a> {
             next
         };
 
-        match opt_error {
-            Some(err) => return Err(err),
-            None => {}
+        if let Some(err) = opt_error {
+            return Err(err);
         }
 
         Ok(())
@@ -699,10 +579,23 @@ impl<'a> Verifier<'a> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
-    use testing::{Dir, LinkType};
+    use testing::{mistrust_build, Dir, MistrustOp};
 
+    #[cfg(target_family = "unix")]
+    use testing::LinkType;
+
+    #[cfg(target_family = "unix")]
     #[test]
     fn simple_cases() {
         let d = Dir::new();
@@ -715,12 +608,11 @@ mod test {
         d.chmod("e/f", 0o777);
         d.link_rel(LinkType::Dir, "a/b/c", "d");
 
-        let m = Mistrust::builder()
-            .trust_no_group_id()
-            // Ignore the permissions on /tmp/whatever-tempdir-gave-us
-            .ignore_prefix(d.canonical_root())
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustNoGroupId(),
+        ]);
+
         // /a/b/c should be fine...
         m.check_directory(d.path("a/b/c")).unwrap();
         // /e/f/g should not.
@@ -747,18 +639,14 @@ mod test {
         }
 
         // With normal settings should be okay...
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[MistrustOp::IgnorePrefix(d.canonical_root())]);
         m.check_directory(d.path("a/b")).unwrap();
 
         // With admin_only, it'll fail.
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .trust_admin_only()
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustAdminOnly(),
+        ]);
 
         let err = m.check_directory(d.path("a/b")).unwrap_err();
         assert!(matches!(err, Error::BadOwner(_, _)));
@@ -773,11 +661,10 @@ mod test {
         d.chmod("a", 0o700);
         d.chmod("b", 0o600);
 
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .trust_no_group_id()
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustNoGroupId(),
+        ]);
 
         // If we insist stuff is its own type, it works fine.
         m.verifier().require_directory().check(d.path("a")).unwrap();
@@ -799,6 +686,7 @@ mod test {
         // TODO: Possibly, make sure that a special file matches neither.
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn readable_ok() {
         let d = Dir::new();
@@ -808,11 +696,10 @@ mod test {
         d.chmod("a/b", 0o750);
         d.chmod("a/b/c", 0o640);
 
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .trust_no_group_id()
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustNoGroupId(),
+        ]);
 
         // These will fail, since the file or directory is readable.
         let e = m.verifier().check(d.path("a/b")).unwrap_err();
@@ -830,6 +717,7 @@ mod test {
             .unwrap();
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn multiple_errors() {
         let d = Dir::new();
@@ -837,11 +725,10 @@ mod test {
         d.chmod("a", 0o700);
         d.chmod("a/b", 0o700);
 
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .trust_no_group_id()
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustNoGroupId(),
+        ]);
 
         // Only one error occurs, so we get that error.
         let e = m
@@ -875,10 +762,7 @@ mod test {
         d.chmod("a/b", 0o755);
         d.chmod("a/b/c", 0o700);
 
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[MistrustOp::IgnorePrefix(d.canonical_root())]);
 
         // `a` is world-writable, so the first check will fail.
         m.check_directory(d.path("a/b/c")).unwrap_err();
@@ -904,11 +788,10 @@ mod test {
         d.chmod("a", 0o770);
         d.chmod("a/b", 0o770);
 
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .trust_no_group_id()
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustNoGroupId(),
+        ]);
 
         // By default, we shouldn't be accept this directory, since it is
         // group-writable.
@@ -918,20 +801,19 @@ mod test {
         // But we can make the group trusted, which will make it okay for the
         // directory to be group-writable.
         let gid = d.path("a/b").metadata().unwrap().gid();
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .trust_group(gid)
-            .build()
-            .unwrap();
+
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustGroup(gid),
+        ]);
 
         m.check_directory(d.path("a/b")).unwrap();
 
         // OTOH, if we made a _different_ group trusted, it'll fail.
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .trust_group(gid ^ 1)
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[
+            MistrustOp::IgnorePrefix(d.canonical_root()),
+            MistrustOp::TrustGroup(gid ^ 1),
+        ]);
 
         let e = m.check_directory(d.path("a/b")).unwrap_err();
         assert!(matches!(e, Error::BadPermission(..)));
@@ -942,10 +824,7 @@ mod test {
         let d = Dir::new();
         d.dir("a/b");
 
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[MistrustOp::IgnorePrefix(d.canonical_root())]);
 
         #[cfg(target_family = "unix")]
         {
@@ -969,6 +848,7 @@ mod test {
         m.make_directory(d.path("a/b/c/d")).unwrap();
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn check_contents() {
         let d = Dir::new();
@@ -979,10 +859,7 @@ mod test {
         d.chmod("a/b/c", 0o755);
         d.chmod("a/b/c/d", 0o666);
 
-        let m = Mistrust::builder()
-            .ignore_prefix(d.canonical_root())
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[MistrustOp::IgnorePrefix(d.canonical_root())]);
 
         // A check should work...
         m.check_directory(d.path("a/b")).unwrap();
@@ -1011,10 +888,7 @@ mod test {
         d.chmod("a/b/c", 0o777);
         d.chmod("a/b/c/d", 0o666);
 
-        let m = Mistrust::builder()
-            .dangerously_trust_everyone()
-            .build()
-            .unwrap();
+        let m = mistrust_build(&[MistrustOp::DangerouslyTrustEveryone()]);
 
         // This is fine.
         m.check_directory(d.path("a/b/c")).unwrap();

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use futures::task::SpawnError;
 
+use safelog::Sensitive;
 use thiserror::Error;
 use tor_circmgr::TargetPorts;
 use tor_error::{ErrorKind, HasKind};
@@ -105,46 +106,76 @@ pub_if_error_detail! {
 /// [`kind`](`tor_error::HasKind::kind`) trait method to distinguish among
 /// different kinds of [`Error`](crate::Error).  If that doesn't provide enough information
 /// for your use case, please let us know.
+#[cfg_attr(docsrs, doc(cfg(feature = "error_detail")))]
 #[derive(Error, Clone, Debug)]
 #[non_exhaustive]
 enum ErrorDetail {
     /// Error setting up the channel manager
+    // TODO: should "chanmgr setup error" be its own type in tor-chanmgr
     #[error("Error setting up the channel manager")]
-    ChanMgrSetup(#[source] tor_chanmgr::Error), // TODO should this be its own type?
+    ChanMgrSetup(#[source] tor_chanmgr::Error),
+
+    /// Error setting up the guard manager
+    // TODO: should "guardmgr setup error" be its own type in tor-guardmgr?
+    #[error("Error setting up the circuit manager")]
+    GuardMgrSetup(#[source] tor_guardmgr::GuardMgrError),
 
     /// Error setting up the circuit manager
+    // TODO: should "circmgr setup error" be its own type in tor-circmgr?
     #[error("Error setting up the circuit manager")]
-    CircMgrSetup(#[source] tor_circmgr::Error), // TODO should this be its own type?
+    CircMgrSetup(#[source] tor_circmgr::Error),
+
+    /// Error setting up the bridge descriptor manager
+    #[error("Error setting up the bridge descriptor manager")]
+    #[cfg(feature = "bridge-client")]
+    BridgeDescMgrSetup(#[from] tor_dirmgr::bridgedesc::StartupError),
+
+    /// Error setting up the directory manager
+    // TODO: should "dirmgr setup error" be its own type in tor-dirmgr?
+    #[error("Error setting up the directory manager")]
+    DirMgrSetup(#[source] tor_dirmgr::Error),
+
+    /// Error setting up the state manager.
+    #[error("Error setting up the persistent state manager")]
+    StateMgrSetup(#[source] tor_persist::Error),
 
     /// Failed to obtain exit circuit
-    #[error("Failed to obtain exit circuit for {exit_ports}")]
+    #[error("Failed to obtain exit circuit for ports {exit_ports}")]
     ObtainExitCircuit {
-        /// What for
-        exit_ports: TargetPorts,
+        /// The ports that we wanted a circuit for.
+        exit_ports: Sensitive<TargetPorts>,
 
         /// What went wrong
         #[source]
         cause: tor_circmgr::Error,
     },
 
-    /// Error while getting a circuit
-    #[error("Directory state error")]
-    DirMgr(#[from] tor_dirmgr::Error),
+    /// Directory manager was unable to bootstrap a working directory.
+    #[error("Unable to bootstrap a working directory")]
+    DirMgrBootstrap(#[source] tor_dirmgr::Error),
 
     /// A protocol error while launching a stream
-    #[error("Protocol error while launching a stream")]
-    Proto(#[from] tor_proto::Error),
+    #[error("Protocol error while launching a {kind} stream")]
+    StreamFailed {
+        /// What kind of stream we were trying to launch.
+        kind: &'static str,
+
+        /// The error that occurred.
+        #[source]
+        cause:  tor_proto::Error
+    },
 
     /// An error while interfacing with the persistent data layer.
-    #[error("Error from state manager")]
-    Persist(#[from] tor_persist::Error),
+    #[error("Error while trying to access persistent state")]
+    StateAccess(#[source] tor_persist::Error),
 
-    /// We asked an exit to do something, and waited too long for an answer..
-    #[error("exit timed out")]
+    /// We asked an exit to do something, and waited too long for an answer.
+    #[error("Timed out while waiting for answer from exit")]
     ExitTimeout,
 
-    /// Onion services not supported.
-    #[error("Rejecting .onion address as unsupported.")]
+    /// Onion services are not supported yet, but we were asked to connect to
+    /// one.
+    #[error("Rejecting .onion address as unsupported")]
     OnionAddressNotSupported,
 
     /// Unusable target address.
@@ -152,23 +183,32 @@ enum ErrorDetail {
     Address(#[from] crate::address::TorAddrError),
 
     /// Hostname not valid.
-    #[error("Rejecting hostname as invalid.")]
+    #[error("Rejecting hostname as invalid")]
     InvalidHostname,
 
-    /// Address was local, and that's not allowed.
+    /// Address was local, and we don't permit connecting to those over Tor.
     #[error("Cannot connect to a local-only address without enabling allow_local_addrs")]
     LocalAddress,
 
     /// Building configuration for the client failed.
-    #[error("Configuration failed")]
+    #[error("Problem with configuration")]
     Configuration(#[from] tor_config::ConfigBuildError),
 
     /// Unable to change configuration.
-    #[error("Reconfiguration failed")]
+    #[error("Unable to change configuration")]
     Reconfigure(#[from] tor_config::ReconfigureError),
 
+    /// Problem creating or launching a pluggable transport.
+    #[cfg(feature="pt-client")]
+    #[error("Problem with a pluggable transport")]
+    PluggableTransport(#[from] tor_ptmgr::err::PtError),
+
+    /// We encountered a problem while inspecting or creating a directory.
+    #[error("Filesystem permissions problem")]
+    FsMistrust(#[from] fs_mistrust::Error),
+
     /// Unable to spawn task
-    #[error("unable to spawn {spawning}")]
+    #[error("Unable to spawn {spawning}")]
     Spawn {
         /// What we were trying to spawn.
         spawning: &'static str,
@@ -177,13 +217,28 @@ enum ErrorDetail {
         cause: Arc<SpawnError>
     },
 
-    /// Attempted to use an unbootstrapped `TorClient` for something that requires bootstrapping
-    /// to have completed.
-    #[error("cannot {action} with unbootstrapped client")]
+    /// Attempted to use an unbootstrapped `TorClient` for something that
+    /// requires bootstrapping to have completed.
+    #[error("Cannot {action} with unbootstrapped client")]
     BootstrapRequired {
         /// What we were trying to do that required bootstrapping.
         action: &'static str
     },
+
+    /// Attempted to use a `TorClient` for something when it did not
+    /// have a valid directory.
+    #[error("Tried to {action} without a valid directory")]
+    NoDir {
+        /// The underlying error.
+        #[source]
+        error: tor_netdir::Error,
+        /// What we were trying to do that needed a directory.
+        action: &'static str,
+    },
+
+    /// A programming problem, either in our code or the code calling it.
+    #[error("Programming problem")]
+    Bug(#[from] tor_error::Bug),
 }
 
 // End of the use of $vis to refer to visibility according to `error_detail`
@@ -247,10 +302,17 @@ impl tor_error::HasKind for ErrorDetail {
             E::ObtainExitCircuit { cause, .. } => cause.kind(),
             E::ExitTimeout => EK::RemoteNetworkTimeout,
             E::BootstrapRequired { .. } => EK::BootstrapRequired,
+            E::GuardMgrSetup(e) => e.kind(),
+            #[cfg(feature = "bridge-client")]
+            E::BridgeDescMgrSetup(e) => e.kind(),
             E::CircMgrSetup(e) => e.kind(),
-            E::DirMgr(e) => e.kind(),
-            E::Proto(e) => e.kind(),
-            E::Persist(e) => e.kind(),
+            E::DirMgrSetup(e) => e.kind(),
+            E::StateMgrSetup(e) => e.kind(),
+            E::DirMgrBootstrap(e) => e.kind(),
+            #[cfg(feature = "pt-client")]
+            E::PluggableTransport(e) => e.kind(),
+            E::StreamFailed { cause, .. } => cause.kind(),
+            E::StateAccess(e) => e.kind(),
             E::Configuration(e) => e.kind(),
             E::Reconfigure(e) => e.kind(),
             E::Spawn { cause, .. } => cause.kind(),
@@ -258,6 +320,9 @@ impl tor_error::HasKind for ErrorDetail {
             E::Address(_) | E::InvalidHostname => EK::InvalidStreamTarget,
             E::LocalAddress => EK::ForbiddenStreamTarget,
             E::ChanMgrSetup(e) => e.kind(),
+            E::NoDir { error, .. } => error.kind(),
+            E::FsMistrust(_) => EK::FsPermissions,
+            E::Bug(e) => e.kind(),
         }
     }
 }
@@ -270,6 +335,16 @@ impl From<TorAddrError> for Error {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     /// This code makes sure that our errors implement all the traits we want.

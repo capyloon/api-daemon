@@ -26,14 +26,17 @@ using const generics.
 
 ## Minimum Supported Rust Version
 
-**Rust 1.51** at a minimum.
+This crate requires **Rust 1.57** at a minimum.
+
+We may change the MSRV in the future, but it will be accompanied by a minor
+version bump.
 
 ## License
 
 Licensed under either of:
 
- * [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
- * [MIT license](http://opensource.org/licenses/MIT)
+- [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+- [MIT license](http://opensource.org/licenses/MIT)
 
 at your option.
 
@@ -45,14 +48,14 @@ dual licensed as above, without any additional terms or conditions.
 
 [//]: # (badges)
 
-[crate-image]: https://img.shields.io/crates/v/crypto-bigint.svg
+[crate-image]: https://buildstats.info/crate/crypto-bigint
 [crate-link]: https://crates.io/crates/crypto-bigint
 [docs-image]: https://docs.rs/crypto-bigint/badge.svg
 [docs-link]: https://docs.rs/crypto-bigint/
 [build-image]: https://github.com/RustCrypto/crypto-bigint/actions/workflows/crypto-bigint.yml/badge.svg
 [build-link]: https://github.com/RustCrypto/crypto-bigint/actions/workflows/crypto-bigint.yml
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.51+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.57+-blue.svg
 [chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
 [chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/300602-crypto-bigint
 

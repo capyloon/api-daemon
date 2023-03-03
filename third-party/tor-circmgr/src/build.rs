@@ -12,9 +12,9 @@ use std::sync::{
     Arc,
 };
 use std::time::{Duration, Instant};
-use tor_chanmgr::{ChanMgr, ChanProvenance};
+use tor_chanmgr::{ChanMgr, ChanProvenance, ChannelUsage};
 use tor_guardmgr::GuardStatus;
-use tor_linkspec::{ChanTarget, OwnedChanTarget, OwnedCircTarget};
+use tor_linkspec::{ChanTarget, IntoOwnedChanTarget, OwnedChanTarget, OwnedCircTarget};
 use tor_proto::circuit::{CircParameters, ClientCirc, PendingClientCirc};
 use tor_rtcompat::{Runtime, SleepProviderExt};
 
@@ -42,6 +42,7 @@ pub(crate) trait Buildable: Sized {
         guard_status: &GuardStatusHandle,
         ct: &OwnedChanTarget,
         params: &CircParameters,
+        usage: ChannelUsage,
     ) -> Result<Self>;
 
     /// Launch a new circuit through a given relay, given a circuit target
@@ -52,6 +53,7 @@ pub(crate) trait Buildable: Sized {
         guard_status: &GuardStatusHandle,
         ct: &OwnedCircTarget,
         params: &CircParameters,
+        usage: ChannelUsage,
     ) -> Result<Self>;
 
     /// Extend this circuit-like object by one hop, to the location described
@@ -74,9 +76,10 @@ async fn create_common<RT: Runtime, CT: ChanTarget>(
     rt: &RT,
     target: &CT,
     guard_status: &GuardStatusHandle,
+    usage: ChannelUsage,
 ) -> Result<PendingClientCirc> {
     // Get or construct the channel.
-    let result = chanmgr.get_or_launch(target).await;
+    let result = chanmgr.get_or_launch(target, usage).await;
 
     // Report the clock skew if appropriate, and exit if there has been an error.
     let chan = match result {
@@ -90,7 +93,7 @@ async fn create_common<RT: Runtime, CT: ChanTarget>(
                 guard_status.skew(skew);
             }
             return Err(Error::Channel {
-                peer: OwnedChanTarget::from_chan_target(target),
+                peer: target.to_logged(),
                 cause,
             });
         }
@@ -99,6 +102,7 @@ async fn create_common<RT: Runtime, CT: ChanTarget>(
     let (pending_circ, reactor) = chan.new_circ().await.map_err(|error| Error::Protocol {
         error,
         peer: None, // we don't blame the peer, because new_circ() does no networking.
+        action: "initializing circuit",
     })?;
 
     rt.spawn(async {
@@ -117,13 +121,15 @@ impl Buildable for ClientCirc {
         guard_status: &GuardStatusHandle,
         ct: &OwnedChanTarget,
         params: &CircParameters,
+        usage: ChannelUsage,
     ) -> Result<Self> {
-        let circ = create_common(chanmgr, rt, ct, guard_status).await?;
+        let circ = create_common(chanmgr, rt, ct, guard_status, usage).await?;
         circ.create_firsthop_fast(params)
             .await
             .map_err(|error| Error::Protocol {
-                peer: Some(ct.clone()),
+                peer: Some(ct.to_logged()),
                 error,
+                action: "running CREATE_FAST handshake",
             })
     }
     async fn create<RT: Runtime>(
@@ -132,13 +138,15 @@ impl Buildable for ClientCirc {
         guard_status: &GuardStatusHandle,
         ct: &OwnedCircTarget,
         params: &CircParameters,
+        usage: ChannelUsage,
     ) -> Result<Self> {
-        let circ = create_common(chanmgr, rt, ct, guard_status).await?;
+        let circ = create_common(chanmgr, rt, ct, guard_status, usage).await?;
         circ.create_firsthop_ntor(ct, params.clone())
             .await
             .map_err(|error| Error::Protocol {
-                peer: Some(OwnedChanTarget::from_chan_target(ct)),
+                peer: Some(ct.to_logged()),
                 error,
+                action: "creating first hop",
             })
     }
     async fn extend<RT: Runtime>(
@@ -155,6 +163,7 @@ impl Buildable for ClientCirc {
                 // the hop we were extending from, or the hop we were extending
                 // to.
                 peer: None,
+                action: "extending circuit",
             })
     }
 }
@@ -204,6 +213,7 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
         start_time: Instant,
         n_hops_built: Arc<AtomicU32>,
         guard_status: Arc<GuardStatusHandle>,
+        usage: ChannelUsage,
     ) -> Result<C> {
         match path {
             OwnedPath::ChannelOnly(target) => {
@@ -215,6 +225,7 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
                     &guard_status,
                     &target,
                     &params,
+                    usage,
                 )
                 .await?;
                 self.timeouts
@@ -227,8 +238,15 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
                 let n_hops = p.len() as u8;
                 // If we fail now, it's the guard's fault.
                 guard_status.pending(GuardStatus::Failure);
-                let circ =
-                    C::create(&self.chanmgr, &self.runtime, &guard_status, &p[0], &params).await?;
+                let circ = C::create(
+                    &self.chanmgr,
+                    &self.runtime,
+                    &guard_status,
+                    &p[0],
+                    &params,
+                    usage,
+                )
+                .await?;
                 self.timeouts
                     .note_hop_completed(0, self.runtime.now() - start_time, n_hops == 0);
                 // If we fail after this point, we can't tell whether it's
@@ -257,6 +275,7 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
         path: OwnedPath,
         params: &CircParameters,
         guard_status: Arc<GuardStatusHandle>,
+        usage: ChannelUsage,
     ) -> Result<C> {
         let action = Action::BuildCircuit { length: path.len() };
         let (timeout, abandon_timeout) = self.timeouts.timeouts(&action);
@@ -276,6 +295,7 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
             start_time,
             Arc::clone(&hops_built),
             guard_status,
+            usage,
         );
 
         match double_timeout(&self.runtime, circuit_future, timeout, abandon_timeout).await {
@@ -393,8 +413,11 @@ impl<R: Runtime> CircuitBuilder<R> {
         path: OwnedPath,
         params: &CircParameters,
         guard_status: Arc<GuardStatusHandle>,
+        usage: ChannelUsage,
     ) -> Result<ClientCirc> {
-        self.builder.build_owned(path, params, guard_status).await
+        self.builder
+            .build_owned(path, params, guard_status, usage)
+            .await
     }
 
     /// Try to construct a new circuit from a given path, using appropriate
@@ -403,9 +426,15 @@ impl<R: Runtime> CircuitBuilder<R> {
     /// This circuit is _not_ automatically registered with any
     /// circuit manager; if you don't hang on it it, it will
     /// automatically go away when the last reference is dropped.
-    pub async fn build(&self, path: &TorPath<'_>, params: &CircParameters) -> Result<ClientCirc> {
+    pub async fn build(
+        &self,
+        path: &TorPath<'_>,
+        params: &CircParameters,
+        usage: ChannelUsage,
+    ) -> Result<ClientCirc> {
         let owned = path.try_into()?;
-        self.build_owned(owned, params, Arc::new(None.into())).await
+        self.build_owned(owned, params, Arc::new(None.into()), usage)
+            .await
     }
 
     /// Return true if this builder is currently learning timeout info.
@@ -473,11 +502,23 @@ where
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::timeouts::TimeoutEstimator;
     use futures::channel::oneshot;
     use std::sync::Mutex;
+    use tor_chanmgr::ChannelConfig;
+    use tor_chanmgr::ChannelUsage as CU;
+    use tor_linkspec::{HasRelayIds, RelayIdType, RelayIds};
     use tor_llcrypto::pk::ed25519::Ed25519Identity;
     use tor_rtcompat::{test_with_all_runtimes, SleepProvider};
     use tracing::trace;
@@ -629,10 +670,23 @@ mod test {
         bytes.into()
     }
 
+    /// As [`timeouts_from_key`], but first extract the relevant key from the
+    /// OwnedChanTarget.
+    fn timeouts_from_chantarget<CT: ChanTarget>(ct: &CT) -> (Duration, Duration) {
+        // Extracting the Ed25519 identity should always succeed in this case:
+        // we put it there ourselves!
+        let ed_id = ct
+            .identity(RelayIdType::Ed25519)
+            .expect("No ed25519 key was present for fake ChanTarget‽")
+            .try_into()
+            .expect("ChanTarget provided wrong key type");
+        timeouts_from_key(ed_id)
+    }
+
     /// Replacement type for circuit, to implement buildable.
     #[derive(Clone)]
     struct FakeCirc {
-        hops: Vec<Ed25519Identity>,
+        hops: Vec<RelayIds>,
         onehop: bool,
     }
     #[async_trait]
@@ -643,16 +697,16 @@ mod test {
             _guard_status: &GuardStatusHandle,
             ct: &OwnedChanTarget,
             _: &CircParameters,
+            _usage: ChannelUsage,
         ) -> Result<Self> {
-            let ed_id = ct.ed_identity();
-            let (d1, d2) = timeouts_from_key(ed_id);
+            let (d1, d2) = timeouts_from_chantarget(ct);
             rt.sleep(d1).await;
             if !d2.is_zero() {
                 rt.allow_one_advance(d2);
             }
 
             let c = FakeCirc {
-                hops: vec![*ct.ed_identity()],
+                hops: vec![RelayIds::from_relay_ids(ct)],
                 onehop: true,
             };
             Ok(Mutex::new(c))
@@ -663,16 +717,16 @@ mod test {
             _guard_status: &GuardStatusHandle,
             ct: &OwnedCircTarget,
             _: &CircParameters,
+            _usage: ChannelUsage,
         ) -> Result<Self> {
-            let ed_id = ct.ed_identity();
-            let (d1, d2) = timeouts_from_key(ed_id);
+            let (d1, d2) = timeouts_from_chantarget(ct);
             rt.sleep(d1).await;
             if !d2.is_zero() {
                 rt.allow_one_advance(d2);
             }
 
             let c = FakeCirc {
-                hops: vec![*ct.ed_identity()],
+                hops: vec![RelayIds::from_relay_ids(ct)],
                 onehop: false,
             };
             Ok(Mutex::new(c))
@@ -683,8 +737,7 @@ mod test {
             ct: &OwnedCircTarget,
             _: &CircParameters,
         ) -> Result<()> {
-            let ed_id = ct.ed_identity();
-            let (d1, d2) = timeouts_from_key(ed_id);
+            let (d1, d2) = timeouts_from_chantarget(ct);
             rt.sleep(d1).await;
             if !d2.is_zero() {
                 rt.allow_one_advance(d2);
@@ -692,7 +745,7 @@ mod test {
 
             {
                 let mut c = self.lock().unwrap();
-                c.hops.push(*ed_id);
+                c.hops.push(RelayIds::from_relay_ids(ct));
             }
             Ok(())
         }
@@ -768,11 +821,24 @@ mod test {
 
     /// Testing only: create a bogus circuit target
     fn circ_t(id: Ed25519Identity) -> OwnedCircTarget {
-        OwnedCircTarget::new(chan_t(id), [0x33; 32].into(), "".parse().unwrap())
+        let mut builder = OwnedCircTarget::builder();
+        builder
+            .chan_target()
+            .ed_identity(id)
+            .rsa_identity([0x20; 20].into());
+        builder
+            .ntor_onion_key([0x33; 32].into())
+            .protocols("".parse().unwrap())
+            .build()
+            .unwrap()
     }
     /// Testing only: create a bogus channel target
     fn chan_t(id: Ed25519Identity) -> OwnedChanTarget {
-        OwnedChanTarget::new(vec![], id, [0x20; 20].into())
+        OwnedChanTarget::builder()
+            .ed_identity(id)
+            .rsa_identity([0x20; 20].into())
+            .build()
+            .unwrap()
     }
 
     async fn run_builder_test<R: Runtime>(
@@ -780,8 +846,14 @@ mod test {
         advance_initial: Duration,
         path: OwnedPath,
         advance_on_timeout: Option<(Duration, Duration)>,
+        usage: ChannelUsage,
     ) -> (Result<FakeCirc>, Vec<(bool, u8, Duration)>) {
-        let chanmgr = Arc::new(ChanMgr::new(rt.clone()));
+        let chanmgr = Arc::new(ChanMgr::new(
+            rt.clone(),
+            &ChannelConfig::default(),
+            Default::default(),
+            &Default::default(),
+        ));
         // always has 3 second timeout, 100 second abandon.
         let timeouts = match advance_on_timeout {
             Some((d1, d2)) => TimeoutRecorder::with_delays(rt.clone(), d1, d2),
@@ -799,7 +871,7 @@ mod test {
         rt.block_advance("manually controlling advances");
         rt.allow_one_advance(advance_initial);
         let outcome = rt
-            .wait_for(Arc::new(builder).build_owned(path, &params, gs()))
+            .wait_for(Arc::new(builder).build_owned(path, &params, gs(), usage))
             .await;
 
         // Now we wait for a success to finally, finally be reported.
@@ -822,10 +894,11 @@ mod test {
             let path = OwnedPath::ChannelOnly(chan_t(id_100ms));
 
             let (outcome, timeouts) =
-                run_builder_test(rt, Duration::from_millis(100), path, None).await;
+                run_builder_test(rt, Duration::from_millis(100), path, None, CU::UserTraffic).await;
             let circ = outcome.unwrap();
             assert!(circ.onehop);
-            assert_eq!(circ.hops, [id_100ms]);
+            assert_eq!(circ.hops.len(), 1);
+            assert!(circ.hops[0].same_relay_ids(&chan_t(id_100ms)));
 
             assert_eq!(timeouts.len(), 1);
             assert!(timeouts[0].0); // success
@@ -847,10 +920,13 @@ mod test {
                 OwnedPath::Normal(vec![circ_t(id_100ms), circ_t(id_200ms), circ_t(id_300ms)]);
 
             let (outcome, timeouts) =
-                run_builder_test(rt, Duration::from_millis(100), path, None).await;
+                run_builder_test(rt, Duration::from_millis(100), path, None, CU::UserTraffic).await;
             let circ = outcome.unwrap();
             assert!(!circ.onehop);
-            assert_eq!(circ.hops, [id_100ms, id_200ms, id_300ms]);
+            assert_eq!(circ.hops.len(), 3);
+            assert!(circ.hops[0].same_relay_ids(&chan_t(id_100ms)));
+            assert!(circ.hops[1].same_relay_ids(&chan_t(id_200ms)));
+            assert!(circ.hops[2].same_relay_ids(&chan_t(id_300ms)));
 
             assert_eq!(timeouts.len(), 1);
             assert!(timeouts[0].0); // success
@@ -872,7 +948,7 @@ mod test {
             let path = OwnedPath::Normal(vec![circ_t(id_100ms), circ_t(id_200ms), circ_t(id_hour)]);
 
             let (outcome, timeouts) =
-                run_builder_test(rt, Duration::from_millis(100), path, None).await;
+                run_builder_test(rt, Duration::from_millis(100), path, None, CU::UserTraffic).await;
             assert!(matches!(outcome, Err(Error::CircTimeout)));
 
             assert_eq!(timeouts.len(), 1);
@@ -903,6 +979,7 @@ mod test {
                 Duration::from_millis(100),
                 path,
                 Some(timeout_advance),
+                CU::UserTraffic,
             )
             .await;
             assert!(matches!(outcome, Err(Error::CircTimeout)));

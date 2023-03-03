@@ -3,7 +3,8 @@
 use super::{ChanCmd, RawCellBody, CELL_DATA_LEN};
 use std::net::{IpAddr, Ipv4Addr};
 use tor_basic_utils::skip_fmt;
-use tor_bytes::{self, Error, Readable, Reader, Result, Writer};
+use tor_bytes::{self, EncodeError, EncodeResult, Error, Readable, Reader, Result, Writer};
+use tor_units::IntegerMilliseconds;
 
 use caret::caret_int;
 use educe::Educe;
@@ -16,7 +17,7 @@ pub trait Body: Readable {
     ///
     /// Does not encode anything _but_ the cell body, and does not pad
     /// to the cell length.
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W);
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()>;
 }
 
 /// Decoded message from a channel.
@@ -99,7 +100,7 @@ impl ChanMsg {
     }
 
     /// Write the body of this message (not including length or command).
-    pub fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    pub fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         use ChanMsg::*;
         match self {
             Padding(b) => b.write_body_onto(w),
@@ -173,7 +174,9 @@ impl Body for Padding {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Padding(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, _w: &mut W) {}
+    fn write_body_onto<W: Writer + ?Sized>(self, _w: &mut W) -> EncodeResult<()> {
+        Ok(())
+    }
 }
 impl Readable for Padding {
     fn take_from(_r: &mut Reader<'_>) -> Result<Self> {
@@ -199,8 +202,9 @@ impl Body for VPadding {
     fn into_message(self) -> ChanMsg {
         ChanMsg::VPadding(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_zeros(self.len as usize);
+        Ok(())
     }
 }
 impl Readable for VPadding {
@@ -214,9 +218,9 @@ impl Readable for VPadding {
     }
 }
 
-/// helper -- declare a fixed-width cell where a fixed number of bytes
-/// matter and the rest are ignored
-macro_rules! fixed_len {
+/// helper -- declare a fixed-width cell for handshake commands, in which
+/// a fixed number of bytes matter and the rest are ignored
+macro_rules! fixed_len_handshake {
     {
         $(#[$meta:meta])*
         $name:ident , $cmd:ident, $len:ident
@@ -239,8 +243,9 @@ macro_rules! fixed_len {
             fn into_message(self) -> ChanMsg {
                 ChanMsg::$name(self)
             }
-            fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
-                w.write_all(&self.handshake[..])
+            fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W)  -> EncodeResult<()> {
+                w.write_all(&self.handshake[..]);
+                Ok(())
             }
         }
         impl Readable for $name {
@@ -260,10 +265,10 @@ pub(crate) const TAP_S_HANDSHAKE_LEN: usize = 128 + 20;
 
 /// Number of bytes used for a CREATE_FAST handshake by the initiator
 const FAST_C_HANDSHAKE_LEN: usize = 20;
-/// Number of bytes used for a CRATE_FAST handshake response
+/// Number of bytes used for a CREATE_FAST handshake response
 const FAST_S_HANDSHAKE_LEN: usize = 20 + 20;
 
-fixed_len! {
+fixed_len_handshake! {
     /// A Create message creates a circuit, using the TAP handshake.
     ///
     /// TAP is an obsolete handshake based on RSA-1024 and DH-1024.
@@ -274,14 +279,14 @@ fixed_len! {
     /// service protocol.
     Create, CREATE, TAP_C_HANDSHAKE_LEN
 }
-fixed_len! {
+fixed_len_handshake! {
     /// A Created message responds to a Created message, using the TAP
     /// handshake.
     ///
     /// TAP is an obsolete handshake based on RSA-1024 and DH-1024.
     Created, CREATED, TAP_S_HANDSHAKE_LEN
 }
-fixed_len! {
+fixed_len_handshake! {
     /// A CreateFast message creates a circuit using no public-key crypto.
     ///
     /// CreateFast is safe only when used on an already-secure TLS
@@ -297,11 +302,11 @@ fixed_len! {
 }
 impl CreateFast {
     /// Return the content of this handshake
-    pub fn body(&self) -> &[u8] {
+    pub fn handshake(&self) -> &[u8] {
         &self.handshake
     }
 }
-fixed_len! {
+fixed_len_handshake! {
     /// A CreatedFast message responds to a CreateFast message
     ///
     /// Relays send this message back to indicate that the CrateFast handshake
@@ -310,7 +315,7 @@ fixed_len! {
 }
 impl CreatedFast {
     /// Consume this message and return the content of this handshake
-    pub fn into_body(self) -> Vec<u8> {
+    pub fn into_handshake(self) -> Vec<u8> {
         self.handshake
     }
 }
@@ -334,11 +339,16 @@ impl Body for Create2 {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Create2(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u16(self.handshake_type);
-        assert!(self.handshake.len() <= std::u16::MAX as usize);
-        w.write_u16(self.handshake.len() as u16);
+        let handshake_len = self
+            .handshake
+            .len()
+            .try_into()
+            .map_err(|_| EncodeError::BadLengthValue)?;
+        w.write_u16(handshake_len);
         w.write_all(&self.handshake[..]);
+        Ok(())
     }
 }
 impl Readable for Create2 {
@@ -403,10 +413,15 @@ impl Body for Created2 {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Created2(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
-        assert!(self.handshake.len() <= std::u16::MAX as usize);
-        w.write_u16(self.handshake.len() as u16);
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
+        let handshake_len = self
+            .handshake
+            .len()
+            .try_into()
+            .map_err(|_| EncodeError::BadLengthValue)?;
+        w.write_u16(handshake_len);
         w.write_all(&self.handshake[..]);
+        Ok(())
     }
 }
 impl Readable for Created2 {
@@ -433,7 +448,7 @@ pub struct Relay {
     /// The contents of the relay cell as encoded for transfer.
     ///
     /// TODO(nickm): It's nice that this is boxed, since we don't want to copy
-    /// cell data all over the place. But unfortunately, a there are some other
+    /// cell data all over the place. But unfortunately, there are some other
     /// places where we _don't_ Box things that we should, and more copies than
     /// necessary happen. We should refactor our data handling until we're mostly
     /// moving around pointers rather than copying data;  see ticket #7.
@@ -474,8 +489,9 @@ impl Body for Relay {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Relay(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_all(&self.body[..]);
+        Ok(())
     }
 }
 impl Readable for Relay {
@@ -510,8 +526,9 @@ impl Body for Destroy {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Destroy(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u8(self.reason.into());
+        Ok(())
     }
 }
 impl Readable for Destroy {
@@ -526,7 +543,7 @@ caret_int! {
     pub struct DestroyReason(u8) {
         /// No reason given.
         ///
-        /// (This is the only reason that clients send.
+        /// This is the only reason that clients send.
         NONE = 0,
         /// Protocol violation
         PROTOCOL = 1,
@@ -628,14 +645,12 @@ fn take_one_netinfo_addr(r: &mut Reader<'_>) -> Result<Option<IpAddr>> {
             bytes.copy_from_slice(abody);
             Ok(Some(IpAddr::V6(bytes.into())))
         }
-        (0x04, _) => Ok(None),
-        (0x06, _) => Ok(None),
         (_, _) => Ok(None),
     }
 }
 impl Netinfo {
     /// Construct a new Netinfo to be sent by a client.
-    pub fn for_client(their_addr: Option<IpAddr>) -> Self {
+    pub fn from_client(their_addr: Option<IpAddr>) -> Self {
         Netinfo {
             timestamp: 0, // clients don't report their timestamps.
             their_addr,
@@ -643,7 +658,7 @@ impl Netinfo {
         }
     }
     /// Construct a new Netinfo to be sent by a relay
-    pub fn for_relay<V>(timestamp: u32, their_addr: Option<IpAddr>, my_addrs: V) -> Self
+    pub fn from_relay<V>(timestamp: u32, their_addr: Option<IpAddr>, my_addrs: V) -> Self
     where
         V: Into<Vec<IpAddr>>,
     {
@@ -668,7 +683,7 @@ impl Body for Netinfo {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Netinfo(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u32(self.timestamp);
         let their_addr = self
             .their_addr
@@ -678,19 +693,20 @@ impl Body for Netinfo {
             .my_addr
             .len()
             .try_into()
-            .expect("Too many addrs in netinfo cell");
+            .map_err(|_| EncodeError::BadLengthValue)?;
         w.write_u8(n_addrs);
         for addr in &self.my_addr {
             enc_one_netinfo_addr(w, addr);
         }
+        Ok(())
     }
 }
 impl Readable for Netinfo {
     fn take_from(r: &mut Reader<'_>) -> Result<Self> {
         let timestamp = r.take_u32()?;
         let their_addr = take_one_netinfo_addr(r)?.filter(|a| !a.is_unspecified());
-        let mut my_addr = Vec::new();
         let my_n_addrs = r.take_u8()?;
+        let mut my_addr = Vec::with_capacity(my_n_addrs as usize);
         for _ in 0..my_n_addrs {
             if let Some(a) = take_one_netinfo_addr(r)? {
                 my_addr.push(a);
@@ -739,13 +755,13 @@ impl Versions {
     /// (That's different from a standard cell encoding, since we
     /// have not negotiated versions yet, and so our circuit-ID length
     /// is an obsolete 2 bytes).
-    pub fn encode_for_handshake(self) -> Vec<u8> {
+    pub fn encode_for_handshake(self) -> EncodeResult<Vec<u8>> {
         let mut v = Vec::new();
         v.write_u16(0); // obsolete circuit ID length.
         v.write_u8(ChanCmd::VERSIONS.into());
         v.write_u16((self.versions.len() * 2) as u16); // message length.
-        self.write_body_onto(&mut v);
-        v
+        self.write_body_onto(&mut v)?;
+        Ok(v)
     }
     /// Return the best (numerically highest) link protocol that is
     /// shared by this versions cell and my_protos.
@@ -767,10 +783,11 @@ impl Body for Versions {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Versions(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         for v in &self.versions {
             w.write_u16(*v);
         }
+        Ok(())
     }
 }
 impl Readable for Versions {
@@ -783,13 +800,33 @@ impl Readable for Versions {
     }
 }
 
+caret_int! {
+    /// A ChanCmd is the type of a channel cell.  The value of the ChanCmd
+    /// indicates the meaning of the cell, and (possibly) its length.
+    pub struct PaddingNegotiateCmd(u8) {
+        /// Start padding
+        START = 2,
+
+        /// Stop padding
+        STOP = 1,
+    }
+}
+
 /// A PaddingNegotiate message is used to negotiate channel padding.
 ///
-/// TODO: say more once we implement channel padding.
-#[derive(Clone, Debug)]
+/// Sent by a client to its guard node,
+/// to instruct the relay to enable/disable channel padding.
+/// (Not relevant for channels used only for directory lookups,
+/// nor inter-relay channels.)
+/// See `padding-spec.txt`, section 2.2.
+///
+/// This message is constructed in the channel manager and transmitted by the reactor.
+///
+/// The `Default` impl is the same as [`start_default()`](PaddingNegotiate::start_default`)
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaddingNegotiate {
     /// Whether to start or stop padding
-    command: u8,
+    command: PaddingNegotiateCmd,
     /// Suggested lower-bound value for inter-packet timeout in msec.
     // TODO(nickm) is that right?
     ito_low_ms: u16,
@@ -798,28 +835,66 @@ pub struct PaddingNegotiate {
     ito_high_ms: u16,
 }
 impl PaddingNegotiate {
-    /// Create a new PaddingNegotiate message.
+    /// Create a new PADDING_NEGOTIATE START message requesting consensus timing parameters.
     ///
-    /// If `start` is true, this is a message to enable padding. Otherwise
-    /// this is a message to disable padding.
-    pub fn new(start: bool, ito_low_ms: u16, ito_high_ms: u16) -> Self {
-        let command = if start { 2 } else { 1 };
+    /// This message restores the state to the one which exists at channel startup.
+    pub fn start_default() -> Self {
+        // Tor Spec section 7.3, padding-spec section 2.5.
         Self {
+            command: PaddingNegotiateCmd::START,
+            ito_low_ms: 0,
+            ito_high_ms: 0,
+        }
+    }
+
+    /// Create a new PADDING_NEGOTIATE START message.
+    pub fn start(ito_low: IntegerMilliseconds<u16>, ito_high: IntegerMilliseconds<u16>) -> Self {
+        // Tor Spec section 7.3
+        Self {
+            command: PaddingNegotiateCmd::START,
+            ito_low_ms: ito_low.as_millis(),
+            ito_high_ms: ito_high.as_millis(),
+        }
+    }
+
+    /// Create a new PADDING_NEGOTIATE STOP message.
+    pub fn stop() -> Self {
+        // Tor Spec section 7.3
+        Self {
+            command: PaddingNegotiateCmd::STOP,
+            ito_low_ms: 0,
+            ito_high_ms: 0,
+        }
+    }
+
+    /// Construct from the three fields: command, low_ms, high_ms, as a tupe
+    ///
+    /// For testing only
+    #[cfg(feature = "testing")]
+    pub fn from_raw(command: PaddingNegotiateCmd, ito_low_ms: u16, ito_high_ms: u16) -> Self {
+        PaddingNegotiate {
             command,
             ito_low_ms,
             ito_high_ms,
         }
     }
 }
+impl Default for PaddingNegotiate {
+    fn default() -> Self {
+        Self::start_default()
+    }
+}
+
 impl Body for PaddingNegotiate {
     fn into_message(self) -> ChanMsg {
         ChanMsg::PaddingNegotiate(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u8(0); // version
-        w.write_u8(self.command);
+        w.write_u8(self.command.get());
         w.write_u16(self.ito_low_ms);
         w.write_u16(self.ito_high_ms);
+        Ok(())
     }
 }
 impl Readable for PaddingNegotiate {
@@ -830,7 +905,7 @@ impl Readable for PaddingNegotiate {
                 "Unrecognized padding negotiation version",
             ));
         }
-        let command = r.take_u8()?;
+        let command = r.take_u8()?.into();
         let ito_low_ms = r.take_u16()?;
         let ito_high_ms = r.take_u16()?;
         Ok(PaddingNegotiate {
@@ -853,15 +928,16 @@ struct TorCert {
     cert: Vec<u8>,
 }
 /// encode a single TorCert `c` onto a Writer `w`.
-fn enc_one_tor_cert<W: Writer + ?Sized>(w: &mut W, c: &TorCert) {
+fn enc_one_tor_cert<W: Writer + ?Sized>(w: &mut W, c: &TorCert) -> EncodeResult<()> {
     w.write_u8(c.certtype);
     let cert_len: u16 = c
         .cert
         .len()
         .try_into()
-        .expect("Impossibly long certificate");
+        .map_err(|_| EncodeError::BadLengthValue)?;
     w.write_u16(cert_len);
     w.write_all(&c.cert[..]);
+    Ok(())
 }
 /// Try to extract a TorCert from the reader `r`.
 fn take_one_tor_cert(r: &mut Reader<'_>) -> Result<TorCert> {
@@ -939,16 +1015,17 @@ impl Body for Certs {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Certs(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         let n_certs: u8 = self
             .certs
             .len()
             .try_into()
-            .expect("Too many certs to encode in cell.");
+            .map_err(|_| EncodeError::BadLengthValue)?;
         w.write_u8(n_certs);
         for c in &self.certs {
-            enc_one_tor_cert(w, c);
+            enc_one_tor_cert(w, c)?;
         }
+        Ok(())
     }
 }
 impl Readable for Certs {
@@ -999,13 +1076,18 @@ impl Body for AuthChallenge {
     fn into_message(self) -> ChanMsg {
         ChanMsg::AuthChallenge(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_all(&self.challenge[..]);
-        assert!(self.methods.len() <= std::u16::MAX as usize);
-        w.write_u16(self.methods.len() as u16);
-        for m in &self.methods {
-            w.write_u16(*m);
+        let n_methods = self
+            .methods
+            .len()
+            .try_into()
+            .map_err(|_| EncodeError::BadLengthValue)?;
+        w.write_u16(n_methods);
+        for m in self.methods {
+            w.write_u16(m);
         }
+        Ok(())
     }
 }
 impl Readable for AuthChallenge {
@@ -1050,11 +1132,16 @@ impl Body for Authenticate {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Authenticate(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u16(self.authtype);
-        assert!(self.auth.len() <= std::u16::MAX as usize);
-        w.write_u16(self.auth.len() as u16);
+        let authlen = self
+            .auth
+            .len()
+            .try_into()
+            .map_err(|_| EncodeError::BadLengthValue)?;
+        w.write_u16(authlen);
         w.write_all(&self.auth[..]);
+        Ok(())
     }
 }
 impl Readable for Authenticate {
@@ -1086,8 +1173,9 @@ impl Body for Authorize {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Authorize(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_all(&self.content[..]);
+        Ok(())
     }
 }
 impl Readable for Authorize {
@@ -1137,8 +1225,9 @@ impl Body for Unrecognized {
     fn into_message(self) -> ChanMsg {
         ChanMsg::Unrecognized(self)
     }
-    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) {
+    fn write_body_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_all(&self.content[..]);
+        Ok(())
     }
 }
 impl Readable for Unrecognized {
@@ -1183,6 +1272,16 @@ msg_into_cell!(Authorize);
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     #[test]
     fn destroy_reason() {

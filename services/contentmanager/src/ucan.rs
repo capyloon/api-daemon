@@ -43,7 +43,11 @@ impl UcanCapabilities {
         let mut capabilities = vec![];
 
         for value in ucan.attenuation() {
-            let att: Att = serde_json::from_value(value.clone()).unwrap_or_else(|_| Att::default());
+            let att = Att {
+                with: value.with.clone(),
+                can: value.can.clone(),
+            };
+
             if att.is_superuser() {
                 superuser = true;
             } else {

@@ -9,7 +9,7 @@ use generic_array::GenericArray;
 
 // ----------------------------------------------------------------------
 
-/// Vec<u8> is the main type that implements Writer.
+/// `Vec<u8>` is the main type that implements [`Writer`].
 impl Writer for Vec<u8> {
     fn write_all(&mut self, bytes: &[u8]) {
         self.extend_from_slice(bytes);
@@ -34,14 +34,16 @@ impl Writer for bytes::BytesMut {
 // ----------------------------------------------------------------------
 
 impl Writeable for [u8] {
-    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
         b.write_all(self);
+        Ok(())
     }
 }
 
 impl Writeable for Vec<u8> {
-    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
         b.write_all(&self[..]);
+        Ok(())
     }
 }
 
@@ -49,7 +51,7 @@ impl Writeable for Vec<u8> {
 // type system.  Ideally we can get rid of GenericArray entirely at some
 // point down the line.
 //
-// For now, we only use GenericArray<u8>, so that's all we'll declare, since
+// For now, we only use `GenericArray<u8>`, so that's all we'll declare, since
 // it permits a faster implementation.
 impl<N> Readable for GenericArray<u8, N>
 where
@@ -65,8 +67,9 @@ impl<N> Writeable for GenericArray<u8, N>
 where
     N: generic_array::ArrayLength<u8>,
 {
-    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+    fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
         b.write_all(self.as_slice());
+        Ok(())
     }
 }
 
@@ -108,8 +111,9 @@ where
 macro_rules! impl_u {
     ( $t:ty, $wrfn:ident, $rdfn:ident ) => {
         impl Writeable for $t {
-            fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
-                b.$wrfn(*self)
+            fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
+                b.$wrfn(*self);
+                Ok(())
             }
         }
         impl Readable for $t {
@@ -128,7 +132,7 @@ impl_u!(u128, write_u128, take_u128);
 
 // ----------------------------------------------------------------------
 
-/// Implement Readable and Writeable for IPv4 and IPv6 addresses.
+/// Implement [`Readable`] and [`Writeable`] for IPv4 and IPv6 addresses.
 ///
 /// These are encoded as a sequence of octets, not as strings.
 mod net_impls {
@@ -136,8 +140,9 @@ mod net_impls {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     impl Writeable for Ipv4Addr {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(&self.octets()[..]);
+            Ok(())
         }
     }
 
@@ -148,8 +153,9 @@ mod net_impls {
     }
 
     impl Writeable for Ipv6Addr {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(&self.octets()[..]);
+            Ok(())
         }
     }
     impl Readable for Ipv6Addr {
@@ -159,7 +165,7 @@ mod net_impls {
     }
 }
 
-/// Implement Readable and Writeable for Ed25519 types.
+/// Implement [`Readable`] and [`Writeable`] for Ed25519 types.
 mod ed25519_impls {
     use super::*;
     #[allow(unused_imports)] // This `use` is needed with ed25519 < 1.3.0
@@ -167,8 +173,9 @@ mod ed25519_impls {
     use tor_llcrypto::pk::ed25519;
 
     impl Writeable for ed25519::PublicKey {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(self.as_bytes());
+            Ok(())
         }
     }
     impl Readable for ed25519::PublicKey {
@@ -180,8 +187,9 @@ mod ed25519_impls {
     }
 
     impl Writeable for ed25519::Ed25519Identity {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(self.as_bytes());
+            Ok(())
         }
     }
     impl Readable for ed25519::Ed25519Identity {
@@ -191,8 +199,9 @@ mod ed25519_impls {
         }
     }
     impl Writeable for ed25519::Signature {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(&self.to_bytes()[..]);
+            Ok(())
         }
     }
     impl Readable for ed25519::Signature {
@@ -210,8 +219,9 @@ mod curve25519_impls {
     use tor_llcrypto::pk::curve25519::{PublicKey, SharedSecret};
 
     impl Writeable for PublicKey {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(self.as_bytes());
+            Ok(())
         }
     }
     impl Readable for PublicKey {
@@ -221,8 +231,9 @@ mod curve25519_impls {
         }
     }
     impl Writeable for SharedSecret {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(self.as_bytes());
+            Ok(())
         }
     }
 }
@@ -233,8 +244,9 @@ mod rsa_impls {
     use tor_llcrypto::pk::rsa::*;
 
     impl Writeable for RsaIdentity {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(self.as_bytes());
+            Ok(())
         }
     }
     impl Readable for RsaIdentity {
@@ -251,9 +263,10 @@ mod digest_impls {
     use super::*;
     use digest::{CtOutput, OutputSizeUser};
     impl<T: OutputSizeUser> WriteableOnce for CtOutput<T> {
-        fn write_into<B: Writer + ?Sized>(self, b: &mut B) {
+        fn write_into<B: Writer + ?Sized>(self, b: &mut B) -> EncodeResult<()> {
             let code = self.into_bytes();
-            b.write(&code[..]);
+            b.write_all(&code[..]);
+            Ok(())
         }
     }
     impl<T: OutputSizeUser> Readable for CtOutput<T> {
@@ -268,8 +281,9 @@ mod digest_impls {
 mod u8_array_impls {
     use super::*;
     impl<const N: usize> Writeable for [u8; N] {
-        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) {
+        fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
             b.write_all(&self[..]);
+            Ok(())
         }
     }
 
@@ -292,7 +306,7 @@ mod tests {
     macro_rules! check_encode {
         ($e:expr, $e2:expr) => {
             let mut w = Vec::new();
-            w.write(&$e);
+            w.write(&$e).expect("encoding failed");
             assert_eq!(&w[..], &$e2[..]);
         };
     }

@@ -1,24 +1,13 @@
 //! PKCS#1 RSA Public Keys.
 
 use crate::{Error, Result};
-use core::convert::TryFrom;
-use der::{
-    asn1::{Any, UIntBytes},
-    Decodable, Encodable, Message,
-};
+use der::{asn1::UIntRef, Decode, DecodeValue, Encode, Header, Reader, Sequence};
 
 #[cfg(feature = "alloc")]
-use crate::RsaPublicKeyDocument;
+use der::Document;
 
 #[cfg(feature = "pem")]
-use {
-    crate::{pem, LineEnding},
-    alloc::string::String,
-};
-
-/// Type label for PEM-encoded private keys.
-#[cfg(feature = "pem")]
-pub(crate) const PEM_TYPE_LABEL: &str = "RSA PUBLIC KEY";
+use der::pem::PemLabel;
 
 /// PKCS#1 RSA Public Keys as defined in [RFC 8017 Appendix 1.1].
 ///
@@ -35,37 +24,29 @@ pub(crate) const PEM_TYPE_LABEL: &str = "RSA PUBLIC KEY";
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct RsaPublicKey<'a> {
     /// `n`: RSA modulus
-    pub modulus: UIntBytes<'a>,
+    pub modulus: UIntRef<'a>,
 
     /// `e`: RSA public exponent
-    pub public_exponent: UIntBytes<'a>,
+    pub public_exponent: UIntRef<'a>,
 }
 
-impl<'a> RsaPublicKey<'a> {
-    /// Encode this [`RsaPublicKey`] as ASN.1 DER.
-    #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    pub fn to_der(self) -> RsaPublicKeyDocument {
-        self.into()
+impl<'a> DecodeValue<'a> for RsaPublicKey<'a> {
+    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> der::Result<Self> {
+        reader.read_nested(header.length, |reader| {
+            Ok(Self {
+                modulus: reader.decode()?,
+                public_exponent: reader.decode()?,
+            })
+        })
     }
+}
 
-    /// Encode this [`RsaPublicKey`] as PEM-encoded ASN.1 DER.
-    #[cfg(feature = "pem")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
-    pub fn to_pem(self) -> Result<String> {
-        self.to_pem_with_le(LineEnding::default())
-    }
-
-    /// Encode this [`RsaPublicKey`] as PEM-encoded ASN.1 DER with the given
-    /// [`LineEnding`].
-    #[cfg(feature = "pem")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
-    pub fn to_pem_with_le(self, line_ending: LineEnding) -> Result<String> {
-        Ok(pem::encode_string(
-            PEM_TYPE_LABEL,
-            line_ending,
-            self.to_der().as_ref(),
-        )?)
+impl<'a> Sequence<'a> for RsaPublicKey<'a> {
+    fn fields<F, T>(&self, f: F) -> der::Result<T>
+    where
+        F: FnOnce(&[&dyn Encode]) -> der::Result<T>,
+    {
+        f(&[&self.modulus, &self.public_exponent])
     }
 }
 
@@ -77,24 +58,28 @@ impl<'a> TryFrom<&'a [u8]> for RsaPublicKey<'a> {
     }
 }
 
-impl<'a> TryFrom<Any<'a>> for RsaPublicKey<'a> {
-    type Error = der::Error;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl TryFrom<RsaPublicKey<'_>> for Document {
+    type Error = Error;
 
-    fn try_from(any: Any<'a>) -> der::Result<RsaPublicKey<'a>> {
-        any.sequence(|decoder| {
-            Ok(Self {
-                modulus: decoder.decode()?,
-                public_exponent: decoder.decode()?,
-            })
-        })
+    fn try_from(spki: RsaPublicKey<'_>) -> Result<Document> {
+        Self::try_from(&spki)
     }
 }
 
-impl<'a> Message<'a> for RsaPublicKey<'a> {
-    fn fields<F, T>(&self, f: F) -> der::Result<T>
-    where
-        F: FnOnce(&[&dyn Encodable]) -> der::Result<T>,
-    {
-        f(&[&self.modulus, &self.public_exponent])
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl TryFrom<&RsaPublicKey<'_>> for Document {
+    type Error = Error;
+
+    fn try_from(spki: &RsaPublicKey<'_>) -> Result<Document> {
+        Ok(Self::encode_msg(spki)?)
     }
+}
+
+#[cfg(feature = "pem")]
+#[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
+impl PemLabel for RsaPublicKey<'_> {
+    const PEM_LABEL: &'static str = "RSA PUBLIC KEY";
 }

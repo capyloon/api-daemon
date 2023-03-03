@@ -23,12 +23,14 @@ use tor_protover::Protocols;
     visible::StructFields(pub),
     non_exhaustive
 )]
+#[cfg_attr(docsrs, doc(cfg(feature = "ns_consensus")))]
 #[derive(Debug, Clone)]
 pub struct NsConsensusRouterStatus {
     /// Underlying generic routerstatus object.
     ///
     /// This is private because we don't want to leak that these two
     /// types have the same implementation "under the hood".
+    #[cfg_attr(docsrs, doc(cfg(feature = "dangerous-expose-struct-fields")))]
     rs: GenericRouterStatus<RdDigest>,
 }
 
@@ -68,7 +70,7 @@ impl ParseRouterStatus for NsConsensusRouterStatus {
     }
 
     fn from_section(sec: &Section<'_, NetstatusKwd>) -> Result<NsConsensusRouterStatus> {
-        let rs = GenericRouterStatus::from_section(sec, false)?;
+        let rs = GenericRouterStatus::from_section(sec, ConsensusFlavor::Ns)?;
         Ok(NsConsensusRouterStatus { rs })
     }
 }

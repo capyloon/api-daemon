@@ -58,7 +58,7 @@ impl<'a, K: Keyword> TokVal<'a, K> {
     /// Return the Item for this value, if there is exactly one.
     fn singleton(&self) -> Option<&Item<'a, K>> {
         match &*self.0 {
-            &[ref x] => Some(x),
+            [x] => Some(x),
             _ => None,
         }
     }
@@ -212,7 +212,7 @@ impl<T: Keyword> SectionRules<T> {
 
     /// Check whether the tokens in a section we've parsed conform to
     /// these rules.
-    fn validate<'a>(&self, s: &Section<'a, T>) -> Result<()> {
+    fn validate(&self, s: &Section<'_, T>) -> Result<()> {
         // These vectors are both generated from T::n_vals().
         assert_eq!(s.v.len(), self.rules.len());
 
@@ -246,7 +246,7 @@ impl<T: Keyword> SectionRules<T> {
     ///
     /// We use this to validate objects on unrecognized items, since
     /// otherwise nothing would check that they are well-formed.
-    fn validate_objects<'a>(&self, s: &Section<'a, T>, kwd: T) -> Result<()> {
+    fn validate_objects(&self, s: &Section<'_, T>, kwd: T) -> Result<()> {
         for item in s.slice(kwd).iter() {
             let _ = item.obj_raw()?;
         }
@@ -269,7 +269,16 @@ impl<T: Keyword> SectionRules<T> {
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::SectionRules;
     use crate::parse::keyword::Keyword;
     use crate::parse::macros::test::Fruit;
@@ -412,7 +421,9 @@ lemon
         // oranges don't take an object.
         check(
             "@tasty yes\norange no\n-----BEGIN ORANGE-----\naaa\n-----END ORANGE-----\n",
-            &EK::UnexpectedObject.with_msg("orange"),
+            &EK::UnexpectedObject
+                .with_msg("orange")
+                .at_pos(Pos::from_line(2, 1)),
         );
     }
 }

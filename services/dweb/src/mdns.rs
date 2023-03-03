@@ -166,21 +166,27 @@ impl MdnsDiscovery {
 }
 
 impl crate::DiscoveryMechanism for MdnsDiscovery {
-    fn with_state(state: Shared<State>, peer: &Peer) -> Option<Self>
+    fn with_state(state: Shared<State>) -> Option<Self>
     where
         Self: Sized,
     {
         Some(Self {
             broadcaster: None,
             discovery: None,
-            peer: peer.clone(),
+            peer: Peer {
+                did: Default::default(),
+                device_desc: Default::default(),
+                device_id: Default::default(),
+            },
             handshake_server: false,
             state,
         })
     }
 
-    fn start(&mut self) -> Result<(), ()> {
+    fn start(&mut self, peer: &Peer) -> Result<(), ()> {
         info!("mdns: start");
+
+        self.peer = peer.clone();
 
         self.start_broadcaster()?;
 

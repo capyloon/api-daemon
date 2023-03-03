@@ -12,8 +12,7 @@ path = "src/main.rs"
 [features]
 default = [
   "apps-service",
-  "audiovolumemanager-service",
-#  "breakpad",
+  "audiovolumemanager-service", #  "breakpad",
   "contacts-service",
   "contentmanager-service",
   "devicecapability-service",
@@ -68,7 +67,7 @@ actix-web = "4.0"
 actix-web-actors = "4.0"
 anyhow = "1.0"
 apps_service = {path = "../services/apps", optional = true}
-arti = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}
+arti = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls", "dns-proxy", "experimental-api"]}
 arti-client = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}
 arti-config = {git = "https://github.com/capyloon/arti.git"}
 tor-rtcompat = {git = "https://github.com/capyloon/arti.git", default-features = false, features = ["tokio", "rustls"]}

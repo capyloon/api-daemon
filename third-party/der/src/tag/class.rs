@@ -32,8 +32,9 @@ pub enum Class {
 
 impl Class {
     /// Compute the identifier octet for a tag number of this class.
-    pub(super) fn octet(self, number: TagNumber, constructed: bool) -> u8 {
-        self as u8 | number.value() | (constructed as u8 * CONSTRUCTED_FLAG)
+    #[allow(clippy::integer_arithmetic)]
+    pub(super) fn octet(self, constructed: bool, number: TagNumber) -> u8 {
+        self as u8 | number.value() | (u8::from(constructed) * CONSTRUCTED_FLAG)
     }
 }
 

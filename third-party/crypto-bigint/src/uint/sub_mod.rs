@@ -5,7 +5,7 @@ use crate::{Limb, SubMod, UInt};
 impl<const LIMBS: usize> UInt<LIMBS> {
     /// Computes `self - rhs mod p` in constant time.
     ///
-    /// Assumes `self` and `rhs` are `< p`.
+    /// Assumes `self - rhs` as unbounded signed integer is in `[-p, p)`.
     pub const fn sub_mod(&self, rhs: &UInt<LIMBS>, p: &UInt<LIMBS>) -> UInt<LIMBS> {
         let (mut out, borrow) = self.sbb(rhs, Limb::ZERO);
 
@@ -23,40 +23,47 @@ impl<const LIMBS: usize> UInt<LIMBS> {
 
         out
     }
+
+    /// Computes `self - rhs mod p` in constant time for the special modulus
+    /// `p = MAX+1-c` where `c` is small enough to fit in a single [`Limb`].
+    ///
+    /// Assumes `self - rhs` as unbounded signed integer is in `[-p, p)`.
+    pub const fn sub_mod_special(&self, rhs: &Self, c: Limb) -> Self {
+        let (out, borrow) = self.sbb(rhs, Limb::ZERO);
+
+        // If underflow occurred, then we need to subtract `c` to account for
+        // the underflow. This cannot underflow due to the assumption
+        // `self - rhs >= -p`.
+        let l = borrow.0 & c.0;
+        let (out, _) = out.sbb(&UInt::from_word(l), Limb::ZERO);
+        out
+    }
 }
 
-macro_rules! impl_sub_mod {
-    ($($size:expr),+) => {
-        $(
-            impl SubMod for UInt<$size> {
-                type Output = Self;
+impl<const LIMBS: usize> SubMod for UInt<LIMBS> {
+    type Output = Self;
 
-                fn sub_mod(&self, rhs: &Self, p: &Self) -> Self {
-                    debug_assert!(self < p);
-                    debug_assert!(rhs < p);
-                    self.sub_mod(rhs, p)
-                }
-            }
-        )+
-    };
+    fn sub_mod(&self, rhs: &Self, p: &Self) -> Self {
+        debug_assert!(self < p);
+        debug_assert!(rhs < p);
+        self.sub_mod(rhs, p)
+    }
 }
-
-impl_sub_mod!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
 
 #[cfg(all(test, feature = "rand"))]
 mod tests {
-    use crate::UInt;
+    use crate::{Limb, NonZero, Random, RandomMod, UInt};
+    use rand_core::SeedableRng;
 
     macro_rules! test_sub_mod {
         ($size:expr, $test_name:ident) => {
             #[test]
             fn $test_name() {
-                use crate::Limb;
-                use rand_core::SeedableRng;
-
                 let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1);
-
-                let moduli = [UInt::<$size>::random(&mut rng), UInt::random(&mut rng)];
+                let moduli = [
+                    NonZero::<UInt<$size>>::random(&mut rng),
+                    NonZero::<UInt<$size>>::random(&mut rng),
+                ];
 
                 for p in &moduli {
                     let base_cases = [
@@ -79,7 +86,7 @@ mod tests {
                             let (a, b) = if a < b { (b, a) } else { (a, b) };
 
                             let c = a.sub_mod(&b, p);
-                            assert!(c < *p, "not reduced");
+                            assert!(c < **p, "not reduced");
                             assert_eq!(c, a.wrapping_sub(&b), "result incorrect");
                         }
                     }
@@ -89,12 +96,55 @@ mod tests {
                         let b = UInt::<$size>::random_mod(&mut rng, p);
 
                         let c = a.sub_mod(&b, p);
-                        assert!(c < *p, "not reduced: {} >= {} ", c, p);
+                        assert!(c < **p, "not reduced: {} >= {} ", c, p);
 
                         let x = a.wrapping_sub(&b);
-                        if a >= b && x < *p {
+                        if a >= b && x < **p {
                             assert_eq!(c, x, "incorrect result");
                         }
+                    }
+                }
+            }
+        };
+    }
+
+    macro_rules! test_sub_mod_special {
+        ($size:expr, $test_name:ident) => {
+            #[test]
+            fn $test_name() {
+                let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1);
+                let moduli = [
+                    NonZero::<Limb>::random(&mut rng),
+                    NonZero::<Limb>::random(&mut rng),
+                ];
+
+                for special in &moduli {
+                    let p = &NonZero::new(UInt::ZERO.wrapping_sub(&UInt::from_word(special.0)))
+                        .unwrap();
+
+                    let minus_one = p.wrapping_sub(&UInt::ONE);
+
+                    let base_cases = [
+                        (UInt::ZERO, UInt::ZERO, UInt::ZERO),
+                        (UInt::ONE, UInt::ZERO, UInt::ONE),
+                        (UInt::ZERO, UInt::ONE, minus_one),
+                        (minus_one, minus_one, UInt::ZERO),
+                        (UInt::ZERO, minus_one, UInt::ONE),
+                    ];
+                    for (a, b, c) in &base_cases {
+                        let x = a.sub_mod_special(&b, *special.as_ref());
+                        assert_eq!(*c, x, "{} - {} mod {} = {} != {}", a, b, p, x, c);
+                    }
+
+                    for _i in 0..100 {
+                        let a = UInt::<$size>::random_mod(&mut rng, p);
+                        let b = UInt::<$size>::random_mod(&mut rng, p);
+
+                        let c = a.sub_mod_special(&b, *special.as_ref());
+                        assert!(c < **p, "not reduced: {} >= {} ", c, p);
+
+                        let expected = a.sub_mod(&b, p);
+                        assert_eq!(c, expected, "incorrect result");
                     }
                 }
             }
@@ -116,4 +166,17 @@ mod tests {
     test_sub_mod!(10, sub10);
     test_sub_mod!(11, sub11);
     test_sub_mod!(12, sub12);
+
+    test_sub_mod_special!(1, sub_mod_special_1);
+    test_sub_mod_special!(2, sub_mod_special_2);
+    test_sub_mod_special!(3, sub_mod_special_3);
+    test_sub_mod_special!(4, sub_mod_special_4);
+    test_sub_mod_special!(5, sub_mod_special_5);
+    test_sub_mod_special!(6, sub_mod_special_6);
+    test_sub_mod_special!(7, sub_mod_special_7);
+    test_sub_mod_special!(8, sub_mod_special_8);
+    test_sub_mod_special!(9, sub_mod_special_9);
+    test_sub_mod_special!(10, sub_mod_special_10);
+    test_sub_mod_special!(11, sub_mod_special_11);
+    test_sub_mod_special!(12, sub_mod_special_12);
 }

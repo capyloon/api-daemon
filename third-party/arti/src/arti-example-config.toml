@@ -11,16 +11,31 @@
 # change for some other reason.)
 #watch_configuration = false
 
+# If true, we should allow other processes run by the same user to inspect this
+# process's memory.
+#
+# (By default, assuming arti has been built with the `harden` feature flag, we
+# take what step we can, including disabling core dumps, to keep its memory and
+# state secret from other processes.)
+#
+#permit_debugging = false
+
+# If true, then we allow Arti to start even if the current user is root.
+#
+# (By default, we exit if we are running as root, since this is usually a
+# mistake.)
+#allow_running_as_root = false
+
 # Set up the Arti program to run as a proxy.
 [proxy]
 # Default port to use when listening to SOCKS connections.  We always
 # listen on localhost.
 #
 # Note that only one process can listen on a given port at a time.
-#socks_port = 9150
+#socks_listen = 9150
 
 # Port to use to listen for DNS requests.  0 means disabled.
-#dns_port = 0
+#dns_listen = 0
 
 # Configure logging
 [logging]
@@ -37,7 +52,7 @@
 #     trace_filter = "info,tor_proto::channel=trace"
 #
 # For more information, see https://docs.rs/tracing-subscriber/0.2.20/tracing_subscriber/filter/struct.EnvFilter.html
-#console = "debug"
+#console = "info"
 
 # As above, but specify filtering directives for sending trace messages to 
 # the journald logging system.  Empty string means not to use journald.
@@ -99,6 +114,55 @@
 #     ignore_prefix = "/home/"
 #ignore_prefix = ""
 
+# Bridges (for anticensorship support)
+[bridges]
+
+# Should we use configured bridges?
+#     If set to false, we will ignore the configured bridges.
+#     If set to "auto", we will use any bridges that are configured.
+#     If set to true, bridges must be configured and will be used.
+#enabled = "auto"
+
+# What bridges (including pluggable transports) to use, in this syntax:
+#  bridges = [ 
+#      "<IP>:<ORPort> <fingerprint> [<fingerprint> ...]",
+#      "<transport> <host>:<ORPort>|- <fingerprint> [...] [<key>=<val> ...]",
+#  ]
+#
+# For example:
+#  bridges = [ 
+#      "192.0.2.83:80 $0bac39417268b96b9f514ef763fa6fba1a788956",
+#      "[2001:db8::3150]:8080 $0bac39417268b96b9f514e7f63fa6fb1aa788957",
+#      "obfs4 bridge.example.net:80 $0bac39417268b69b9f514e7f63fa6fba1a788958 ed25519:dGhpcyBpcyBbpmNyZWRpYmx5IHNpbGx5ISEhISEhISA iat-mode=1",
+#  ]
+#
+# You may specify all the bridge lines in one multi-line string:
+#  bridges = '''
+#  192.0.2.83:80 $0bac39417268b96b9f514ef763fa6fba1a788956
+#  [2001:db8::3150]:8080 $0bac39417268b96b9f514e7f63fa6fb1aa788957
+#  obfs4 bridge.example.net:80 $0bac39417268b69b9f514e7f63fa6fba1a788958 ed25519:dGhpcyBpcyBbpmNyZWRpYmx5IHNpbGx5ISEhISEhISA iat-mode=1
+#  '''
+#
+# (Note that these are just examples, not real bridges - they will not work.)
+#
+#bridges = []
+
+# An example pluggable transport binary.
+# [[bridges.transports]]
+
+# Which pluggable transports does this binary provide?
+# protocols = ["obfs4", "obfs5"]
+
+# Path to the binary to be run.
+# path = "/usr/bin/obfsproxy"
+
+# Any command-line arguments to pass to the binary (empty if not specified).
+# arguments = ["-obfs4", "-obfs5"]
+
+# Should we run this binary on startup? If false or unspecified, the binary will be
+# launched when we first attempt to use any of the transports it provides instead.
+# run_on_startup = true
+
 # Replacement values for consensus parameters.  This is an advanced option
 # and you probably should leave it alone. Not all parameters are supported.
 # These are case-sensitive.
@@ -130,8 +194,11 @@
 # How to retry a set of microdescriptor downloads.
 #retry_microdescs = { attempts = 3, initial_delay = "1 sec", parallelism = 4 }
 
-# Configuration for how much clock skew to tolerate in our directory information
-[download_tolerance]
+# Information about how premature or expired our directories are allowed to be.
+#
+# These options help us tolerate clock skew, and help survive the case where the
+# directory authorities are unable to reach consensus for a while.
+[directory_tolerance]
 # For how long before a directory document is valid should we accept it?
 #pre_valid_tolerance = "1 day"
 
@@ -193,6 +260,22 @@
 
 # List of directory authorities which we expect to sign consensus documents.
 #   authorities = [ <default list is compiled-in > ]
+
+# Channels and their behaviour
+[channel]
+
+# Should we use reduced channel padding?  (This roughly halves the padding
+# cell frequency, and makes the padding unidrecteional, increasing the
+# traceability of the client connections.)
+# Or disable it entirely?
+#
+#padding = "normal"
+#   padding = "reduced"
+#   padding = "none"
+
+# Full manual control of the precise padding timing parameters is available
+# by setting `override_net_params.nf_ito_low` et al.
+# (See torpsec/padding-spec.txt section 3.4.)
 
 # Rules for how long circuits should survive, and how long pending
 # requests should wait for a circuit.

@@ -1,6 +1,6 @@
 # fs-mistrust
 
-## `fs-mistrust`: check whether file permissions are private.
+Check whether file permissions are private.
 
 This crate provides a set of functionality to check the permissions on files
 and directories to ensure that they are effectively private—that is, that
@@ -111,15 +111,19 @@ match Mistrust::new().make_directory("/home/itchy/.local/hat-swap") {
 
 You can adjust the [`Mistrust`] object to change what it permits:
 
-```rust
+```rust,no_run
+# fn main() -> Result<(), fs_mistrust::Error> {
 use fs_mistrust::Mistrust;
 
 let my_mistrust = Mistrust::builder()
     // Assume that our home directory and its parents are all well-configured.
     .ignore_prefix("/home/doze/")
-    // Assume that a given group will only contain trusted users.
-    .trust_group(413)
+    // Assume that a given group will only contain trusted users (this feature is only
+    // available on Unix-like platforms).
+    // .trust_group(413)
     .build()?;
+# Ok(())
+# }
 ```
 
 See [`Mistrust`] for more options.
@@ -131,7 +135,8 @@ For more fine-grained control over a specific check, you can use the
 configure for several requests, the changes in [`Verifier`] generally make
 sense only for one request at a time.
 
-```rust
+```rust,no_run
+# fn main() -> Result<(), fs_mistrust::Error> {
 use fs_mistrust::Mistrust;
 let mistrust = Mistrust::new();
 
@@ -152,6 +157,8 @@ mistrust
     .check_content()
     .all_errors()
     .make_directory("/home/trace/private_keys/");
+# Ok(())
+# }
 ```
 
 See [`Verifier`] for more options.
@@ -162,7 +169,8 @@ You can use the [`CheckedDir`] API to ensure not only that a directory is
 private, but that all of your accesses to its contents continue to verify
 and enforce _their_ permissions.
 
-```rust
+```rust,no_run
+# fn main() -> Result<(), fs_mistrust::Error> {
 use fs_mistrust::{Mistrust, CheckedDir};
 use std::fs::{File, OpenOptions};
 let dir = Mistrust::new()
@@ -176,6 +184,8 @@ dir.make_directory("timelines")?;
 let file = dir.open("timelines/vault-destroyed.md",
     OpenOptions::new().write(true).create(true))?;
 // (... use file...)
+# Ok(())
+# }
 ```
 
 ### Limitations

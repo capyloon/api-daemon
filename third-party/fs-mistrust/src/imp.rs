@@ -42,7 +42,7 @@ impl<'a> super::Verifier<'a> {
     // to the code.  It's not urgent, since the allocations won't cost much
     // compared to the filesystem access.
     pub(crate) fn check_errors(&self, path: &Path) -> impl Iterator<Item = Error> + '_ {
-        if self.mistrust.dangerously_trust_everyone {
+        if self.mistrust.is_disabled() {
             // We don't want to walk the path in this case at all: we'll just
             // look at the last element.
 
@@ -88,7 +88,7 @@ impl<'a> super::Verifier<'a> {
     pub(crate) fn check_content_errors(&self, path: &Path) -> impl Iterator<Item = Error> + '_ {
         use std::sync::Arc;
 
-        if !self.check_contents || self.mistrust.dangerously_trust_everyone {
+        if !self.check_contents || self.mistrust.is_disabled() {
             return boxed(std::iter::empty());
         }
 
@@ -166,6 +166,8 @@ impl<'a> super::Verifier<'a> {
     /// Check whether a given file has the correct ownership and permissions,
     /// and push errors into `errors` if not. Other inputs are as for
     /// `check_one`.
+    ///
+    /// On iOS, check permissions but assumes the owner is the current user.
     #[cfg(target_family = "unix")]
     fn check_permissions(
         &self,
@@ -178,9 +180,13 @@ impl<'a> super::Verifier<'a> {
         // always change the permissions of the object.  (If we're talking
         // about a directory, the owner cah change the permissions and owner
         // of anything in the directory.)
-        let uid = meta.uid();
-        if uid != 0 && Some(uid) != self.mistrust.trust_user {
-            errors.push(Error::BadOwner(path.into(), uid));
+
+        #[cfg(all(not(target_os = "ios"), not(target_os = "android")))]
+        {
+            let uid = meta.uid();
+            if uid != 0 && Some(uid) != self.mistrust.trust_user {
+                errors.push(Error::BadOwner(path.into(), uid));
+            }
         }
 
         // On Unix-like platforms, symlink permissions are ignored (and usually
@@ -219,9 +225,27 @@ impl<'a> super::Verifier<'a> {
             }
         };
         // If we trust the GID, then we allow even more bits to be set.
+        #[cfg(all(not(target_os = "ios"), not(target_os = "android")))]
         if self.mistrust.trust_group == Some(meta.gid()) {
             forbidden_bits &= !0o070;
         }
+
+        // Both iOS and Android have some directory on the path for application data directory
+        // which is group writeable. However both system already offer some guarantees regarding
+        // application data being kept away from other apps.
+        //
+        // iOS: https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/FileSystemOverview/FileSystemOverview.html
+        // > For security purposes, an iOS app’s interactions with the file system are limited
+        // to the directories inside the app’s sandbox directory
+        //
+        // Android: https://developer.android.com/training/data-storage
+        // > App-specific storage: [...] Use the directories within internal storage to save
+        // sensitive information that other apps shouldn't access.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        {
+            forbidden_bits &= !0o070;
+        }
+
         let bad_bits = meta.mode() & forbidden_bits;
         if bad_bits != 0 {
             errors.push(Error::BadPermission(

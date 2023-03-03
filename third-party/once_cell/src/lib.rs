@@ -208,7 +208,6 @@
 //! ```
 //! use once_cell::sync::OnceCell;
 //!
-//! #[derive(Debug)]
 //! pub struct LateInit<T> { cell: OnceCell<T> }
 //!
 //! impl<T> LateInit<T> {
@@ -228,22 +227,24 @@
 //!     }
 //! }
 //!
-//! #[derive(Default, Debug)]
+//! #[derive(Default)]
 //! struct A<'a> {
 //!     b: LateInit<&'a B<'a>>,
 //! }
 //!
-//! #[derive(Default, Debug)]
+//! #[derive(Default)]
 //! struct B<'a> {
 //!     a: LateInit<&'a A<'a>>
 //! }
+//!
 //!
 //! fn build_cycle() {
 //!     let a = A::default();
 //!     let b = B::default();
 //!     a.b.init(&b);
 //!     b.a.init(&a);
-//!     println!("{:?}", a.b.a.b.a);
+//!     
+//!     let _a = &a.b.a.b.a;
 //! }
 //! ```
 //!
@@ -267,9 +268,9 @@
 //!
 //! # Minimum Supported `rustc` Version
 //!
-//! This crate's minimum supported `rustc` version is `1.36.0`.
+//! This crate's minimum supported `rustc` version is `1.56.0`.
 //!
-//! If only the `std` feature is enabled, MSRV will be updated conservatively.
+//! If only the `std` feature is enabled, MSRV will be updated conservatively, supporting at least latest 8 versions of the compiler.
 //! When using other features, like `parking_lot`, MSRV might be updated more frequently, up to the latest stable.
 //! In both cases, increasing MSRV is *not* considered a semver-breaking change.
 //!
@@ -315,6 +316,10 @@
 //!
 //! No, but you can use [`async_once_cell`](https://crates.io/crates/async_once_cell) instead.
 //!
+//! **Can I bring my own mutex?**
+//!
+//! There is [generic_once_cell](https://crates.io/crates/generic_once_cell) to allow just that.
+//!
 //! # Related crates
 //!
 //! * [double-checked-cell](https://github.com/niklasf/double-checked-cell)
@@ -323,6 +328,7 @@
 //! * [mitochondria](https://crates.io/crates/mitochondria)
 //! * [lazy_static](https://crates.io/crates/lazy_static)
 //! * [async_once_cell](https://crates.io/crates/async_once_cell)
+//! * [generic_once_cell](https://crates.io/crates/generic_once_cell) (bring your own mutex)
 //!
 //! Most of this crate's functionality is available in `std` in nightly Rust.
 //! See the [tracking issue](https://github.com/rust-lang/rust/issues/74465).
@@ -332,13 +338,15 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(feature = "std")]
-#[cfg(feature = "parking_lot")]
+#[cfg(all(feature = "critical-section", not(feature = "std")))]
+#[path = "imp_cs.rs"]
+mod imp;
+
+#[cfg(all(feature = "std", feature = "parking_lot"))]
 #[path = "imp_pl.rs"]
 mod imp;
 
-#[cfg(feature = "std")]
-#[cfg(not(feature = "parking_lot"))]
+#[cfg(all(feature = "std", not(feature = "parking_lot")))]
 #[path = "imp_std.rs"]
 mod imp;
 
@@ -346,12 +354,12 @@ mod imp;
 pub mod unsync {
     use core::{
         cell::{Cell, UnsafeCell},
-        fmt, hint, mem,
+        fmt, mem,
         ops::{Deref, DerefMut},
+        panic::{RefUnwindSafe, UnwindSafe},
     };
 
-    #[cfg(feature = "std")]
-    use std::panic::{RefUnwindSafe, UnwindSafe};
+    use super::unwrap_unchecked;
 
     /// A cell which can be written to only once. It is not thread safe.
     ///
@@ -382,9 +390,7 @@ pub mod unsync {
     // `&unsync::OnceCell` to sneak a `T` through `catch_unwind`,
     // by initializing the cell in closure and extracting the value in the
     // `Drop`.
-    #[cfg(feature = "std")]
     impl<T: RefUnwindSafe + UnwindSafe> RefUnwindSafe for OnceCell<T> {}
-    #[cfg(feature = "std")]
     impl<T: UnwindSafe> UnwindSafe for OnceCell<T> {}
 
     impl<T> Default for OnceCell<T> {
@@ -446,8 +452,12 @@ pub mod unsync {
         /// Gets a reference to the underlying value.
         ///
         /// Returns `None` if the cell is empty.
+        #[inline]
         pub fn get(&self) -> Option<&T> {
-            // Safe due to `inner`'s invariant
+            // Safe due to `inner`'s invariant of being written to at most once.
+            // Had multiple writes to `inner` been allowed, a reference to the
+            // value we return now would become dangling by a write of a
+            // different value later.
             unsafe { &*self.inner.get() }.as_ref()
         }
 
@@ -464,8 +474,10 @@ pub mod unsync {
         ///
         /// let mut cell: OnceCell<u32> = OnceCell::new();
         /// cell.set(92).unwrap();
-        /// cell = OnceCell::new();
+        /// *cell.get_mut().unwrap() = 93;
+        /// assert_eq!(cell.get(), Some(&93));
         /// ```
+        #[inline]
         pub fn get_mut(&mut self) -> Option<&mut T> {
             // Safe because we have unique access
             unsafe { &mut *self.inner.get() }.as_mut()
@@ -513,16 +525,14 @@ pub mod unsync {
             if let Some(old) = self.get() {
                 return Err((old, value));
             }
+
             let slot = unsafe { &mut *self.inner.get() };
             // This is the only place where we set the slot, no races
             // due to reentrancy/concurrency are possible, and we've
             // checked that slot is currently `None`, so this write
             // maintains the `inner`'s invariant.
             *slot = Some(value);
-            Ok(match &*slot {
-                Some(value) => value,
-                None => unsafe { hint::unreachable_unchecked() },
-            })
+            Ok(unsafe { unwrap_unchecked(slot.as_ref()) })
         }
 
         /// Gets the contents of the cell, initializing it with `f`
@@ -595,7 +605,7 @@ pub mod unsync {
             // `assert`, while keeping `set/get` would be sound, but it seems
             // better to panic, rather than to silently use an old value.
             assert!(self.set(val).is_ok(), "reentrant init");
-            Ok(self.get().unwrap())
+            Ok(unsafe { unwrap_unchecked(self.get()) })
         }
 
         /// Takes the value out of this `OnceCell`, moving it back to an uninitialized state.
@@ -679,7 +689,6 @@ pub mod unsync {
         init: Cell<Option<F>>,
     }
 
-    #[cfg(feature = "std")]
     impl<T, F: RefUnwindSafe> RefUnwindSafe for Lazy<T, F> where OnceCell<T>: RefUnwindSafe {}
 
     impl<T: fmt::Debug, F> fmt::Debug for Lazy<T, F> {
@@ -740,6 +749,59 @@ pub mod unsync {
                 None => panic!("Lazy instance has previously been poisoned"),
             })
         }
+
+        /// Forces the evaluation of this lazy value and returns a mutable reference to
+        /// the result.
+        ///
+        /// This is equivalent to the `DerefMut` impl, but is explicit.
+        ///
+        /// # Example
+        /// ```
+        /// use once_cell::unsync::Lazy;
+        ///
+        /// let mut lazy = Lazy::new(|| 92);
+        ///
+        /// assert_eq!(Lazy::force_mut(&mut lazy), &92);
+        /// assert_eq!(*lazy, 92);
+        /// ```
+        pub fn force_mut(this: &mut Lazy<T, F>) -> &mut T {
+            Self::force(this);
+            Self::get_mut(this).unwrap_or_else(|| unreachable!())
+        }
+
+        /// Gets the reference to the result of this lazy value if
+        /// it was initialized, otherwise returns `None`.
+        ///
+        /// # Example
+        /// ```
+        /// use once_cell::unsync::Lazy;
+        ///
+        /// let lazy = Lazy::new(|| 92);
+        ///
+        /// assert_eq!(Lazy::get(&lazy), None);
+        /// assert_eq!(&*lazy, &92);
+        /// assert_eq!(Lazy::get(&lazy), Some(&92));
+        /// ```
+        pub fn get(this: &Lazy<T, F>) -> Option<&T> {
+            this.cell.get()
+        }
+
+        /// Gets the mutable reference to the result of this lazy value if
+        /// it was initialized, otherwise returns `None`.
+        ///
+        /// # Example
+        /// ```
+        /// use once_cell::unsync::Lazy;
+        ///
+        /// let mut lazy = Lazy::new(|| 92);
+        ///
+        /// assert_eq!(Lazy::get_mut(&mut lazy), None);
+        /// assert_eq!(*lazy, 92);
+        /// assert_eq!(Lazy::get_mut(&mut lazy), Some(&mut 92));
+        /// ```
+        pub fn get_mut(this: &mut Lazy<T, F>) -> Option<&mut T> {
+            this.cell.get_mut()
+        }
     }
 
     impl<T, F: FnOnce() -> T> Deref for Lazy<T, F> {
@@ -765,16 +827,16 @@ pub mod unsync {
 }
 
 /// Thread-safe, blocking version of `OnceCell`.
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "critical-section"))]
 pub mod sync {
-    use std::{
+    use core::{
         cell::Cell,
         fmt, mem,
         ops::{Deref, DerefMut},
         panic::RefUnwindSafe,
     };
 
-    use crate::{imp::OnceCell as Imp, take_unchecked};
+    use super::{imp::OnceCell as Imp, unwrap_unchecked};
 
     /// A thread-safe cell which can be written to only once.
     ///
@@ -893,8 +955,9 @@ pub mod sync {
         /// // Will return 92, but might block until the other thread does `.set`.
         /// let value: &u32 = cell.wait();
         /// assert_eq!(*value, 92);
-        /// t.join().unwrap();;
+        /// t.join().unwrap();
         /// ```
+        #[cfg(feature = "std")]
         pub fn wait(&self) -> &T {
             if !self.0.is_initialized() {
                 self.0.wait()
@@ -920,6 +983,7 @@ pub mod sync {
         /// cell.set(92).unwrap();
         /// cell = OnceCell::new();
         /// ```
+        #[inline]
         pub fn get_mut(&mut self) -> Option<&mut T> {
             self.0.get_mut()
         }
@@ -931,6 +995,7 @@ pub mod sync {
         ///
         /// Caller must ensure that the cell is in initialized state, and that
         /// the contents are acquired by (synchronized to) this thread.
+        #[inline]
         pub unsafe fn get_unchecked(&self) -> &T {
             self.0.get_unchecked()
         }
@@ -982,7 +1047,7 @@ pub mod sync {
         /// ```
         pub fn try_insert(&self, value: T) -> Result<&T, (&T, T)> {
             let mut value = Some(value);
-            let res = self.get_or_init(|| unsafe { take_unchecked(&mut value) });
+            let res = self.get_or_init(|| unsafe { unwrap_unchecked(value.take()) });
             match value {
                 None => Ok(res),
                 Some(value) => Err((res, value)),
@@ -1060,6 +1125,7 @@ pub mod sync {
             if let Some(value) = self.get() {
                 return Ok(value);
             }
+
             self.0.initialize(f)?;
 
             // Safe b/c value is initialized.
@@ -1115,6 +1181,7 @@ pub mod sync {
         /// cell.set("hello".to_string()).unwrap();
         /// assert_eq!(cell.into_inner(), Some("hello".to_string()));
         /// ```
+        #[inline]
         pub fn into_inner(self) -> Option<T> {
             self.0.into_inner()
         }
@@ -1171,7 +1238,6 @@ pub mod sync {
     unsafe impl<T, F: Send> Sync for Lazy<T, F> where OnceCell<T>: Sync {}
     // auto-derived `Send` impl is OK.
 
-    #[cfg(feature = "std")]
     impl<T, F: RefUnwindSafe> RefUnwindSafe for Lazy<T, F> where OnceCell<T>: RefUnwindSafe {}
 
     impl<T, F> Lazy<T, F> {
@@ -1212,6 +1278,57 @@ pub mod sync {
                 Some(f) => f(),
                 None => panic!("Lazy instance has previously been poisoned"),
             })
+        }
+
+        /// Forces the evaluation of this lazy value and
+        /// returns a mutable reference to the result. This is equivalent
+        /// to the `Deref` impl, but is explicit.
+        ///
+        /// # Example
+        /// ```
+        /// use once_cell::sync::Lazy;
+        ///
+        /// let mut lazy = Lazy::new(|| 92);
+        ///
+        /// assert_eq!(Lazy::force_mut(&mut lazy), &mut 92);
+        /// ```
+        pub fn force_mut(this: &mut Lazy<T, F>) -> &mut T {
+            Self::force(this);
+            Self::get_mut(this).unwrap_or_else(|| unreachable!())
+        }
+
+        /// Gets the reference to the result of this lazy value if
+        /// it was initialized, otherwise returns `None`.
+        ///
+        /// # Example
+        /// ```
+        /// use once_cell::sync::Lazy;
+        ///
+        /// let lazy = Lazy::new(|| 92);
+        ///
+        /// assert_eq!(Lazy::get(&lazy), None);
+        /// assert_eq!(&*lazy, &92);
+        /// assert_eq!(Lazy::get(&lazy), Some(&92));
+        /// ```
+        pub fn get(this: &Lazy<T, F>) -> Option<&T> {
+            this.cell.get()
+        }
+
+        /// Gets the reference to the result of this lazy value if
+        /// it was initialized, otherwise returns `None`.
+        ///
+        /// # Example
+        /// ```
+        /// use once_cell::sync::Lazy;
+        ///
+        /// let mut lazy = Lazy::new(|| 92);
+        ///
+        /// assert_eq!(Lazy::get_mut(&mut lazy), None);
+        /// assert_eq!(&*lazy, &92);
+        /// assert_eq!(Lazy::get_mut(&mut lazy), Some(&mut 92));
+        /// ```
+        pub fn get_mut(this: &mut Lazy<T, F>) -> Option<&mut T> {
+            this.cell.get_mut()
         }
     }
 
@@ -1257,13 +1374,14 @@ pub mod sync {
 #[cfg(feature = "race")]
 pub mod race;
 
-#[cfg(feature = "std")]
-unsafe fn take_unchecked<T>(val: &mut Option<T>) -> T {
-    match val.take() {
-        Some(it) => it,
+// Remove once MSRV is at least 1.58.
+#[inline]
+unsafe fn unwrap_unchecked<T>(val: Option<T>) -> T {
+    match val {
+        Some(value) => value,
         None => {
             debug_assert!(false);
-            std::hint::unreachable_unchecked()
+            core::hint::unreachable_unchecked()
         }
     }
 }

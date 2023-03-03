@@ -1,15 +1,6 @@
 //! Types and functions to configure a Tor client.
 //!
 //! Some of these are re-exported from lower-level crates.
-//!
-//! # ⚠ Stability Warning ⚠
-//!
-//! The design of this structure, and of the configuration system for
-//! Arti, is likely to change significantly before the release of Arti
-//! 1.0.0. The layout of options within this structure is also likely
-//! to change. For more information see ticket [#285].
-//!
-//! [#285]: https://gitlab.torproject.org/tpo/core/arti/-/issues/285
 
 use derive_builder::Builder;
 use derive_more::AsRef;
@@ -19,8 +10,21 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
+pub use tor_chanmgr::{ChannelConfig, ChannelConfigBuilder};
+pub use tor_config::convert_helper_via_multi_line_list_builder;
 pub use tor_config::impl_standard_builder;
-pub use tor_config::{CfgPath, CfgPathError, ConfigBuildError, Reconfigure};
+pub use tor_config::list_builder::{MultilineListBuilder, MultilineListBuilderError};
+pub use tor_config::{define_list_builder_accessors, define_list_builder_helper};
+pub use tor_config::{BoolOrAuto, ConfigError};
+pub use tor_config::{CfgPath, CfgPathError, ConfigBuildError, ConfigurationSource, Reconfigure};
+
+pub use tor_guardmgr::bridge::BridgeConfigBuilder;
+
+#[cfg(feature = "bridge-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bridge-client")))]
+pub use tor_guardmgr::bridge::BridgeParseError;
+
+use tor_guardmgr::bridge::BridgeConfig;
 
 /// Types for configuring how Tor circuits are built.
 pub mod circ {
@@ -33,10 +37,16 @@ pub mod circ {
 /// Types for configuring how Tor accesses its directory information.
 pub mod dir {
     pub use tor_dirmgr::{
-        Authority, AuthorityBuilder, DirMgrConfig, DirSkewTolerance, DirSkewToleranceBuilder,
+        Authority, AuthorityBuilder, DirMgrConfig, DirTolerance, DirToleranceBuilder,
         DownloadSchedule, DownloadScheduleConfig, DownloadScheduleConfigBuilder, FallbackDir,
         FallbackDirBuilder, NetworkConfig, NetworkConfigBuilder,
     };
+}
+
+/// Types for configuring pluggable transports.
+#[cfg(feature = "pt-client")]
+pub mod pt {
+    pub use tor_ptmgr::config::{ManagedTransportConfig, ManagedTransportConfigBuilder};
 }
 
 /// Configuration for client behavior relating to addresses.
@@ -120,10 +130,13 @@ impl BuilderExt for MistrustBuilder {
     type Built = Mistrust;
 
     fn build_for_arti(&self) -> Result<Self::Built, ConfigBuildError> {
-        self.build().map_err(|e| ConfigBuildError::Invalid {
-            field: "permissions".to_string(),
-            problem: e.to_string(),
-        })
+        self.clone()
+            .controlled_by_env_var_if_not_set(FS_PERMISSIONS_CHECKS_DISABLE_VAR)
+            .build()
+            .map_err(|e| ConfigBuildError::Invalid {
+                field: "permissions".to_string(),
+                problem: e.to_string(),
+            })
     }
 }
 
@@ -195,6 +208,127 @@ impl StorageConfig {
     }
 }
 
+/// Configuration for bridges and pluggable transports
+//
+// We leave this as an empty struct even when bridge support is disabled,
+// as otherwise the default config file would generate an unknown section warning.
+#[derive(Debug, Clone, Builder, Eq, PartialEq)]
+#[builder(build_fn(validate = "validate_bridges_config", error = "ConfigBuildError"))]
+#[builder(derive(Debug, Serialize, Deserialize))]
+#[non_exhaustive]
+#[builder_struct_attr(non_exhaustive)] // This struct can be empty.
+pub struct BridgesConfig {
+    /// Should we use configured bridges?
+    ///
+    /// The default (`Auto`) is to use bridges if they are configured.
+    /// `false` means to not use even configured bridges.
+    /// `true` means to insist on the use of bridges;
+    /// if none are configured, that's then an error.
+    #[builder(default)]
+    pub(crate) enabled: BoolOrAuto,
+
+    /// Configured list of bridges (possibly via pluggable transports)
+    #[builder(sub_builder, setter(custom))]
+    #[builder_field_attr(serde(default))]
+    bridges: BridgeList,
+
+    /// Configured list of pluggable transports.
+    #[builder(sub_builder, setter(custom))]
+    #[builder_field_attr(serde(default))]
+    #[cfg(feature = "pt-client")]
+    pub(crate) transports: TransportConfigList,
+}
+
+/// A list of configured transport binaries (type alias for macrology).
+#[cfg(feature = "pt-client")]
+type TransportConfigList = Vec<pt::ManagedTransportConfig>;
+
+#[cfg(feature = "pt-client")]
+define_list_builder_helper! {
+    pub(crate) struct TransportConfigListBuilder {
+        transports: [pt::ManagedTransportConfigBuilder],
+    }
+    built: TransportConfigList = transports;
+    default = vec![];
+}
+
+impl_standard_builder! { BridgesConfig }
+
+/// Check that the bridge configuration is right
+#[allow(clippy::unnecessary_wraps)]
+fn validate_bridges_config(bridges: &BridgesConfigBuilder) -> Result<(), ConfigBuildError> {
+    let _ = bridges; // suppresses unused variable for just that argument
+
+    #[cfg(feature = "bridge-client")]
+    use BoolOrAuto as BoA;
+
+    // Ideally we would run this post-build, rather than pre-build;
+    // doing it here means we have to recapitulate the defaulting.
+    // Happily the defaulting is obvious, cheap, and not going to change.
+    //
+    // Alternatively we could have derive_builder provide `build_unvalidated`,
+    // but that involves re-setting the build fn name for every field.
+    #[cfg(feature = "bridge-client")]
+    match (
+        bridges.enabled.unwrap_or_default(),
+        bridges.bridges.bridges.as_deref().unwrap_or_default(),
+    ) {
+        (BoA::Auto, _) | (BoA::Explicit(false), _) | (BoA::Explicit(true), [_, ..]) => {}
+        (BoA::Explicit(true), []) => {
+            return Err(ConfigBuildError::Inconsistent {
+                fields: ["enabled", "bridges"].map(Into::into).into_iter().collect(),
+                problem: "bridges enabled=true, but no bridges defined".into(),
+            })
+        }
+    }
+
+    Ok(())
+}
+
+impl BridgesConfig {
+    /// Should the bridges be used?
+    fn bridges_enabled(&self) -> bool {
+        #[cfg(feature = "bridge-client")]
+        {
+            self.enabled.as_bool().unwrap_or(!self.bridges.is_empty())
+        }
+
+        #[cfg(not(feature = "bridge-client"))]
+        {
+            false
+        }
+    }
+}
+
+/// List of configured bridges, as found in the built configuration
+//
+// This type alias arranges that we can put `BridgeList` in `BridgesConfig`
+// and have derive_builder put a `BridgeListBuilder` in `BridgesConfigBuilder`.
+pub type BridgeList = Vec<BridgeConfig>;
+
+define_list_builder_helper! {
+    struct BridgeListBuilder {
+        bridges: [BridgeConfigBuilder],
+    }
+    built: BridgeList = bridges;
+    default = vec![];
+    #[serde(try_from="MultilineListBuilder<BridgeConfigBuilder>")]
+    #[serde(into="MultilineListBuilder<BridgeConfigBuilder>")]
+}
+
+convert_helper_via_multi_line_list_builder! {
+    struct BridgeListBuilder {
+        bridges: [BridgeConfigBuilder],
+    }
+}
+
+#[cfg(feature = "bridge-client")]
+define_list_builder_accessors! {
+    struct BridgesConfigBuilder {
+        pub bridges: [BridgeConfigBuilder],
+    }
+}
+
 /// A configuration used to bootstrap a [`TorClient`](crate::TorClient).
 ///
 /// In order to connect to the Tor network, Arti needs to know a few
@@ -212,15 +346,6 @@ impl StorageConfig {
 ///
 /// Finally, you can get fine-grained control over the members of a a
 /// TorClientConfig using [`TorClientConfigBuilder`].
-///
-/// # ⚠ Stability Warning ⚠
-///
-/// The design of this structure, and of the configuration system for
-/// Arti, is likely to change significantly before the release of Arti
-/// 1.0.0. The layout of options within this structure is also likely
-/// to change. For more information see ticket [#285].
-///
-/// [#285]: https://gitlab.torproject.org/tpo/core/arti/-/issues/285
 #[derive(Clone, Builder, Debug, Eq, PartialEq, AsRef)]
 #[builder(build_fn(error = "ConfigBuildError"))]
 #[builder(derive(Serialize, Deserialize, Debug))]
@@ -241,10 +366,15 @@ pub struct TorClientConfig {
     #[builder_field_attr(serde(default))]
     download_schedule: dir::DownloadScheduleConfig,
 
-    /// Information about how much clock skew to tolerate in our directory information
+    /// Information about how premature or expired our directories are allowed
+    /// to be.
+    ///
+    /// These options help us tolerate clock skew, and help survive the case
+    /// where the directory authorities are unable to reach consensus for a
+    /// while.
     #[builder(sub_builder)]
     #[builder_field_attr(serde(default))]
-    download_tolerance: dir::DirSkewTolerance,
+    directory_tolerance: dir::DirTolerance,
 
     /// Facility to override network parameters from the values set in the
     /// consensus.
@@ -256,7 +386,17 @@ pub struct TorClientConfig {
         )
     )]
     #[builder_field_attr(serde(default))]
-    override_net_params: tor_netdoc::doc::netstatus::NetParams<i32>,
+    pub(crate) override_net_params: tor_netdoc::doc::netstatus::NetParams<i32>,
+
+    /// Information about bridges, pluggable transports, and so on
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
+    pub(crate) bridges: BridgesConfig,
+
+    /// Information about how to build paths through the network.
+    #[builder(sub_builder)]
+    #[builder_field_attr(serde(default))]
+    pub(crate) channel: ChannelConfig,
 
     /// Information about how to build paths through the network.
     #[as_ref]
@@ -310,17 +450,35 @@ impl AsRef<tor_guardmgr::fallback::FallbackList> for TorClientConfig {
         self.tor_network.fallback_caches()
     }
 }
+impl AsRef<[BridgeConfig]> for TorClientConfig {
+    fn as_ref(&self) -> &[BridgeConfig] {
+        #[cfg(feature = "bridge-client")]
+        {
+            &self.bridges.bridges
+        }
+
+        #[cfg(not(feature = "bridge-client"))]
+        {
+            &[]
+        }
+    }
+}
+impl tor_guardmgr::GuardMgrConfig for TorClientConfig {
+    fn bridges_enabled(&self) -> bool {
+        self.bridges.bridges_enabled()
+    }
+}
 
 impl TorClientConfig {
     /// Try to create a DirMgrConfig corresponding to this object.
     #[rustfmt::skip]
-    pub(crate) fn dir_mgr_config(&self, mistrust: fs_mistrust::Mistrust) -> Result<dir::DirMgrConfig, ConfigBuildError> {
+    pub(crate) fn dir_mgr_config(&self) -> Result<dir::DirMgrConfig, ConfigBuildError> {
         Ok(dir::DirMgrConfig {
             network:             self.tor_network        .clone(),
             schedule:            self.download_schedule  .clone(),
-            tolerance:           self.download_tolerance .clone(),
+            tolerance:           self.directory_tolerance.clone(),
             cache_path:          self.storage.expand_cache_dir()?,
-            cache_trust:         mistrust,
+            cache_trust:         self.storage.permissions.clone(),
             override_net_params: self.override_net_params.clone(),
             extensions:          Default::default(),
         })
@@ -364,10 +522,19 @@ impl TorClientConfigBuilder {
     }
 }
 
-/// Return a filename for the default user configuration file.
-pub fn default_config_file() -> Result<PathBuf, CfgPathError> {
-    CfgPath::new("${ARTI_CONFIG}/arti.toml".into()).path()
+/// Return the filenames for the default user configuration files
+pub fn default_config_files() -> Result<Vec<ConfigurationSource>, CfgPathError> {
+    ["${ARTI_CONFIG}/arti.toml", "${ARTI_CONFIG}/arti.d/"]
+        .into_iter()
+        .map(|f| {
+            let path = CfgPath::new(f.into()).path()?;
+            Ok(ConfigurationSource::from_path(path))
+        })
+        .collect()
 }
+
+/// The environment variable we look at when deciding whether to disable FS permissions checking.
+pub const FS_PERMISSIONS_CHECKS_DISABLE_VAR: &str = "ARTI_FS_DISABLE_PERMISSION_CHECKS";
 
 /// Return true if the environment has been set up to disable FS permissions
 /// checking.
@@ -375,13 +542,23 @@ pub fn default_config_file() -> Result<PathBuf, CfgPathError> {
 /// This function is exposed so that other tools can use the same checking rules
 /// as `arti-client`.  For more information, see
 /// [`TorClientBuilder`](crate::TorClientBuilder).
+#[deprecated(since = "0.5.0")]
 pub fn fs_permissions_checks_disabled_via_env() -> bool {
-    std::env::var_os("ARTI_FS_DISABLE_PERMISSION_CHECKS").is_some()
+    std::env::var_os(FS_PERMISSIONS_CHECKS_DISABLE_VAR).is_some()
 }
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
 
     #[test]
@@ -443,7 +620,9 @@ mod test {
         // We don't want to second-guess the directories crate too much
         // here, so we'll just make sure it does _something_ plausible.
 
-        let dflt = default_config_file().unwrap();
-        assert!(dflt.ends_with("arti.toml"));
+        let dflt = default_config_files().unwrap();
+        assert!(dflt[0].as_path().ends_with("arti.toml"));
+        assert!(dflt[1].as_path().ends_with("arti.d"));
+        assert_eq!(dflt.len(), 2);
     }
 }

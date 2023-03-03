@@ -27,6 +27,7 @@ use crate::{DirInfo, Error, Result};
 
 use retry_error::RetryError;
 use tor_basic_utils::retry::RetryDelay;
+use tor_chanmgr::ChannelUsage;
 use tor_config::MutCfg;
 use tor_error::{internal, AbsRetryTime, HasRetryTime};
 use tor_rtcompat::{Runtime, SleepProviderExt};
@@ -114,6 +115,9 @@ pub(crate) trait AbstractSpec: Clone + Debug {
     ) -> Vec<&'b mut OpenEntry<Self, C>> {
         abstract_spec_find_supported(list, usage)
     }
+
+    /// How the circuit will be used, for use by the channel
+    fn channel_usage(&self) -> ChannelUsage;
 }
 
 /// An error type returned by [`AbstractSpec::restrict_mut`]
@@ -484,14 +488,36 @@ struct CircBuildPlan<B: AbstractCircBuilder> {
 struct CircList<B: AbstractCircBuilder> {
     /// A map from circuit ID to [`OpenEntry`] values for all managed
     /// open circuits.
+    ///
+    /// A circuit is added here from [`AbstractCircMgr::do_launch`] when we find
+    /// that it completes successfully, and has not been cancelled.  
+    /// When we decide that such a circuit should no longer be handed out for
+    /// any new requests, we "retire" the circuit by removing it from this map.
     #[allow(clippy::type_complexity)]
     open_circs: HashMap<<B::Circ as AbstractCirc>::Id, OpenEntry<B::Spec, B::Circ>>,
     /// Weak-set of PendingEntry for circuits that are being built.
     ///
-    /// Because this set only holds weak references, and the only
-    /// strong reference to the PendingEntry is held by the task
-    /// building the circuit, this set's members are lazily removed
-    /// after the circuit is either built or fails to build.
+    /// Because this set only holds weak references, and the only strong
+    /// reference to the PendingEntry is held by the task building the circuit,
+    /// this set's members are lazily removed after the circuit is either built
+    /// or fails to build.
+    ///
+    /// This set is used for two purposes:
+    ///
+    /// 1. When a circuit request finds that there is no open circuit for its
+    ///    purposes, it checks here to see if there is a pending circuit that it
+    ///    could wait for.
+    /// 2. When a pending circuit finishes building, it checks here to make sure
+    ///    that it has not been cancelled. (Removing an entry from this set marks
+    ///    it as cancelled.)
+    ///
+    /// An entry is added here in [`AbstractCircMgr::prepare_action`] when we
+    /// decide that a circuit needs to be launched.
+    ///
+    /// Later, in [`AbstractCircMgr::do_launch`], once the circuit has finished
+    /// (or failed), we remove the entry (by pointer identity).  
+    /// If we cannot find the entry, we conclude that the request has been
+    /// _cancelled_, and so we discard any circuit that was created.
     pending_circs: PtrWeakHashSet<Weak<PendingEntry<B>>>,
     /// Weak-set of PendingRequest for requests that are waiting for a
     /// circuit to be built.
@@ -636,7 +662,14 @@ impl<B: AbstractCircBuilder> CircList<B> {
     }
 
     /// Clear all pending circuits and open circuits.
+    ///
+    /// Calling `clear_all_circuits` ensures that any request that is answered _after
+    /// this method runs_ will receive a circuit that was launched _after this
+    /// method runs_.
     fn clear_all_circuits(&mut self) {
+        // Note that removing entries from pending_circs will also cause the
+        // circuit tasks to realize that they are cancelled when they
+        // go to tell anybody about their results.
         self.pending_circs.clear();
         self.open_circs.clear();
     }
@@ -775,15 +808,29 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         fn div_ceil(a: usize, b: usize) -> usize {
             (a + b - 1) / b
         }
+        /// Largest number of "resets" that we will accept in this attempt.
+        ///
+        /// A "reset" is an internally generated error that does not represent a
+        /// real problem; only a "whoops, got to try again" kind of a situation.
+        /// For example, if we reconfigure in the middle of an attempt and need
+        /// to re-launch the circuit, that counts as a "reset", since there was
+        /// nothing actually _wrong_ with the circuit we were building.
+        ///
+        /// We accept more resets than we do real failures. However,
+        /// we don't accept an unlimited number: we don't want to inadvertently
+        /// permit infinite loops here. If we ever bump against this limit, we
+        /// should not automatically increase it: we should instead figure out
+        /// why it is happening and try to make it not happen.
+        const MAX_RESETS: usize = 8;
 
         let circuit_timing = self.circuit_timing();
         let wait_for_circ = circuit_timing.request_timeout;
         let timeout_at = self.runtime.now() + wait_for_circ;
         let max_tries = circuit_timing.request_max_retries;
-        // We compute the maximum number of times through this loop by dividing
-        // the maximum number of circuits to attempt by the number that will be
-        // launched in parallel for each iteration.
-        let max_iterations = div_ceil(
+        // We compute the maximum number of failures by dividing the maximum
+        // number of circuits to attempt by the number that will be launched in
+        // parallel for each iteration.
+        let max_failures = div_ceil(
             max_tries as usize,
             std::cmp::max(1, self.builder.launch_parallelism(usage)),
         );
@@ -791,7 +838,10 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         let mut retry_schedule = RetryDelay::from_msec(100);
         let mut retry_err = RetryError::<Box<Error>>::in_attempt_to("find or build a circuit");
 
-        for n in 1..(max_iterations + 1) {
+        let mut n_failures = 0;
+        let mut n_resets = 0;
+
+        for attempt_num in 1.. {
             // How much time is remaining?
             let remaining = match timeout_at.checked_duration_since(self.runtime.now()) {
                 None => {
@@ -812,7 +862,7 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                     match outcome {
                         Ok(Ok(circ)) => return Ok(circ),
                         Ok(Err(e)) => {
-                            info!("Circuit attempt {} failed.", n);
+                            info!("Circuit attempt {} failed.", attempt_num);
                             Error::RequestFailed(e)
                         }
                         Err(_) => {
@@ -825,7 +875,10 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                 }
                 Err(e) => {
                     // We couldn't pick the action!
-                    info!("Couldn't pick action for circuit attempt {}: {}", n, &e);
+                    info!(
+                        "Couldn't pick action for circuit attempt {}: {}",
+                        attempt_num, &e
+                    );
                     e
                 }
             };
@@ -835,14 +888,20 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
             let retry_time =
                 error.abs_retry_time(now, || retry_schedule.next_delay(&mut rand::thread_rng()));
 
+            let (count, count_limit) = if error.is_internal_reset() {
+                (&mut n_resets, MAX_RESETS)
+            } else {
+                (&mut n_failures, max_failures)
+            };
             // Record the error, flattening it if needed.
             match error {
                 Error::RequestFailed(e) => retry_err.extend(e),
                 e => retry_err.push(e),
             }
 
-            // If this is the last iteration, don't bother waiting, since we won't retry.
-            if n == max_iterations {
+            *count += 1;
+            // If we have reached our limit of this kind of problem, we're done.
+            if *count >= count_limit {
                 break;
             }
 
@@ -1283,6 +1342,12 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                 let open_ent = OpenEntry::new(new_spec.clone(), circ, use_before);
                 {
                     let mut list = self.circs.lock().expect("poisoned lock");
+                    // Finally, before we return this circuit, we need to make
+                    // sure that this pending circuit is still pending.  (If it
+                    // is not pending, then it was cancelled through a call to
+                    // `retire_all_circuits`, and the configuration that we used
+                    // to launch it is now sufficiently outdated that we should
+                    // no longer give this circuit to a client.)
                     if list.circ_is_pending(&pending) {
                         list.add_open(open_ent);
                         // We drop our reference to 'pending' here:
@@ -1291,7 +1356,8 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                         drop(pending);
                         (Some(new_spec), Ok(id))
                     } else {
-                        // This circuit is no longer pending! It must have been cancelled.
+                        // This circuit is no longer pending! It must have been cancelled, probably
+                        // by a call to retire_all_circuits()
                         drop(pending); // ibid
                         (None, Err(Error::CircCanceled))
                     }
@@ -1311,8 +1377,19 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         list.take_open(id).map(|e| e.circ)
     }
 
-    /// Remove all circuits from this manager, to ensure they can't be given out for any more
-    /// requests.
+    /// Remove all open and pending circuits and from this manager, to ensure
+    /// they can't be given out for any more requests.
+    ///
+    /// Calling `retire_all_circuits` ensures that any circuit request that gets
+    /// an  answer _after this method runs_ will receive a circuit that was
+    /// launched _after this method runs_.
+    ///
+    /// We call this method this when our configuration changes in such a way
+    /// that we want to make sure that any new (or pending) requests will
+    /// receive circuits that are built using the new configuration.
+    //
+    // For more information, see documentation on [`CircuitList::open_circs`],
+    // [`CircuitList::pending_circs`], and comments in `do_launch`.
     pub(crate) fn retire_all_circuits(&self) {
         let mut list = self.circs.lock().expect("poisoned lock");
         list.clear_all_circuits();
@@ -1325,16 +1402,18 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
     /// no longer be given out for new circuits.
     pub(crate) fn expire_circs(&self, now: Instant) {
         let mut list = self.circs.lock().expect("poisoned lock");
-        let dirty_cutoff = now - self.circuit_timing().max_dirtiness;
-        list.expire_circs(now, dirty_cutoff);
+        if let Some(dirty_cutoff) = now.checked_sub(self.circuit_timing().max_dirtiness) {
+            list.expire_circs(now, dirty_cutoff);
+        }
     }
 
     /// Consider expiring the circuit with given circuit `id`,
     /// according to the rules in `config` and the current time `now`.
     pub(crate) fn expire_circ(&self, circ_id: &<B::Circ as AbstractCirc>::Id, now: Instant) {
         let mut list = self.circs.lock().expect("poisoned lock");
-        let dirty_cutoff = now - self.circuit_timing().max_dirtiness;
-        list.expire_circ(circ_id, now, dirty_cutoff);
+        if let Some(dirty_cutoff) = now.checked_sub(self.circuit_timing().max_dirtiness) {
+            list.expire_circ(circ_id, now, dirty_cutoff);
+        }
     }
 
     /// Return the number of open circuits held by this circuit manager.
@@ -1429,7 +1508,16 @@ fn spawn_expiration_task<B, R>(
 
 #[cfg(test)]
 mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use crate::isolation::test::{assert_isoleq, IsolationTokenEq};
     use crate::usage::{ExitPolicy, SupportedCircUsage};
@@ -1437,7 +1525,9 @@ mod test {
     use once_cell::sync::Lazy;
     use std::collections::BTreeSet;
     use std::sync::atomic::{self, AtomicUsize};
+    use tor_basic_utils::iter::FilterCount;
     use tor_guardmgr::fallback::FallbackList;
+    use tor_llcrypto::pk::ed25519::Ed25519Identity;
     use tor_netdir::testnet;
     use tor_rtcompat::SleepProvider;
     use tor_rtmock::MockSleepRuntime;
@@ -1507,6 +1597,9 @@ mod test {
 
             self.isolation = new_iso;
             Ok(())
+        }
+        fn channel_usage(&self) -> ChannelUsage {
+            ChannelUsage::UserTraffic
         }
     }
 
@@ -1578,7 +1671,11 @@ mod test {
         fn plan_circuit(&self, spec: &FakeSpec, _dir: DirInfo<'_>) -> Result<(FakePlan, FakeSpec)> {
             let next_op = self.next_op(spec);
             if matches!(next_op, FakeOp::NoPlan) {
-                return Err(Error::NoPath("No relays for you".into()));
+                return Err(Error::NoPath {
+                    role: "relay",
+                    can_share: FilterCount::default(),
+                    correct_usage: FilterCount::default(),
+                });
             }
             let plan = FakePlan {
                 spec: spec.clone(),
@@ -2107,9 +2204,9 @@ mod test {
         // Nodes with ID 0x0a through 0x13 and 0x1e through 0x27 are
         // exits.  Odd-numbered ones allow only ports 80 and 443;
         // even-numbered ones allow all ports.
-        let id_noexit = [0x05; 32].into();
-        let id_webexit = [0x11; 32].into();
-        let id_fullexit = [0x20; 32].into();
+        let id_noexit: Ed25519Identity = [0x05; 32].into();
+        let id_webexit: Ed25519Identity = [0x11; 32].into();
+        let id_fullexit: Ed25519Identity = [0x20; 32].into();
 
         let not_exit = network.by_id(&id_noexit).unwrap();
         let web_exit = network.by_id(&id_webexit).unwrap();

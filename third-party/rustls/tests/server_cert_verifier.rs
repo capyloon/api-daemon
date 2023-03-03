@@ -10,8 +10,8 @@ use crate::common::{
 use rustls::client::{
     HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier, WebPkiVerifier,
 };
-use rustls::internal::msgs::enums::AlertDescription;
 use rustls::internal::msgs::handshake::DigitallySignedStruct;
+use rustls::AlertDescription;
 use rustls::{Certificate, Error, SignatureScheme};
 use std::sync::Arc;
 
@@ -64,6 +64,7 @@ fn client_can_override_certificate_verification_and_reject_certificate() {
     }
 }
 
+#[cfg(feature = "tls12")]
 #[test]
 fn client_can_override_certificate_verification_and_reject_tls12_signatures() {
     for kt in ALL_KEY_TYPES.iter() {
