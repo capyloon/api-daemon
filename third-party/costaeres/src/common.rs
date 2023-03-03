@@ -350,10 +350,12 @@ impl ResourceMetadata {
         self.variants = variants;
     }
 
-    pub fn add_variant(&mut self, variant: VariantMetadata) {
-        if !self.has_variant(&variant.name()) {
-            self.variants.push(variant);
+    pub fn add_or_update_variant(&mut self, variant: VariantMetadata) {
+        if self.has_variant(&variant.name()) {
+            self.delete_variant(&variant.name());
         }
+
+        self.variants.push(variant);
     }
 
     pub fn delete_variant(&mut self, name: &str) {

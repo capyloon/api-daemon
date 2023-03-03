@@ -1395,3 +1395,56 @@ async fn move_resource() {
         assert_eq!(children.len(), 1);
     }
 }
+
+#[async_std::test]
+async fn update_variant() {
+    let (config, store) = prepare_test(28).await;
+
+    let mut manager = Manager::<()>::new(config, Box::new(store)).await.unwrap();
+    manager.add_indexer(Box::new(create_places_indexer()));
+
+    manager.create_root().await.unwrap();
+
+    let places1 = fs::File::open("./test-fixtures/places-1.json")
+        .await
+        .unwrap();
+
+    let mut leaf_meta = ResourceMetadata::new(
+        &1.into(),
+        &ROOT_ID,
+        ResourceKind::Leaf,
+        "default-wallpaper",
+        vec![],
+        vec![],
+    );
+
+    manager
+        .create(
+            &mut leaf_meta,
+            Some(Variant::new(
+                VariantMetadata::new("default", "application/x-places+json", 110),
+                Box::new(places1),
+            )),
+        )
+        .await
+        .unwrap();
+
+    let meta = manager.get_metadata(&leaf_meta.id()).await.unwrap();
+    let variant = &meta.variants()[0];
+    assert_eq!(variant.mime_type(), "application/x-places+json");
+    assert_eq!(variant.size(), 110);
+
+    // Update the object with new content.
+    let text = fs::File::open("./test-fixtures/import.txt").await.unwrap();
+    manager
+        .update_variant(
+            &leaf_meta.id(),
+            Variant::new(VariantMetadata::new("default", "text/plain", 13), Box::new(text)),
+        )
+        .await
+        .unwrap();
+    let meta = manager.get_metadata(&leaf_meta.id()).await.unwrap();
+    let variant = &meta.variants()[0];
+    assert_eq!(variant.mime_type(), "text/plain");
+    assert_eq!(variant.size(), 13);
+}

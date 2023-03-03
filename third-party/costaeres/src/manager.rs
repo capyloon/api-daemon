@@ -721,7 +721,7 @@ impl<T> Manager<T> {
             .await?;
 
         if let Some(content) = &content {
-            metadata.add_variant(content.metadata.clone());
+            metadata.add_or_update_variant(content.metadata.clone());
         }
 
         // Start a transaction to store the new metadata.
@@ -769,7 +769,7 @@ impl<T> Manager<T> {
     ) -> Result<(), ResourceStoreError> {
         let mut metadata = self.get_metadata(id).await?;
 
-        metadata.add_variant(content.metadata.clone());
+        metadata.add_or_update_variant(content.metadata.clone());
         metadata.modify_now();
 
         let mut tx = self.db_pool.begin().await?;

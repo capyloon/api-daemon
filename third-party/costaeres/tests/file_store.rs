@@ -91,7 +91,7 @@ async fn file_store() {
     assert!(store.get_variant(&ROOT_ID, "not-default").await.is_err());
 
     // Add a variant.
-    meta.add_variant(named_variant("new-variant"));
+    meta.add_or_update_variant(named_variant("new-variant"));
     store
         .update(&meta, Some(named_content("new-variant").await))
         .await
