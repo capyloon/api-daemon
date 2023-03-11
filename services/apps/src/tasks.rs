@@ -204,7 +204,10 @@ impl AppMgmtTask for UpdateTask {
                 let mut shared = request.shared_data.lock();
                 shared.vhost_api.app_updated(&app.name);
                 responder.resolve(app.clone());
-                shared.registry.event_broadcaster.broadcast_app_updated(&app);
+                shared
+                    .registry
+                    .event_broadcaster
+                    .broadcast_app_updated(&app);
             }
             Err(err) => {
                 request.broadcast_download_failed(url, err);

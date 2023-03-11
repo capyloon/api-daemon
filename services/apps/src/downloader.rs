@@ -1,5 +1,7 @@
 //! Downloader with HAWK authentication supported.
 
+use hyper::{body::HttpBody, Body, Client, Request};
+use hyperlocal::{UnixClientExt, Uri};
 use log::{debug, error, info};
 use reqwest::header::{self, HeaderMap};
 use std::env::temp_dir;
@@ -11,6 +13,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+use tokio::runtime::Runtime;
 use url::Url;
 
 #[derive(Debug)]
@@ -26,6 +29,8 @@ pub enum DownloadError {
     Unauthorized,
     #[error("Reqwest")]
     Reqwest(reqwest::Error),
+    #[error("Hyper")]
+    Hyper(hyper::Error),
     #[error("Http")]
     Http(String),
     #[error("Io")]
@@ -41,6 +46,71 @@ impl PartialEq for DownloadError {
         format!("{:?}", self) == format!("{:?}", right)
     }
 }
+
+struct DownloadProgress {
+    progress_sender: Sender<Result<DownloaderInfo, DownloadError>>,
+    content_length: Option<usize>,
+    downloaded: usize,
+    progress: u8, // In %
+    last_check: SystemTime,
+    interval: Duration,
+}
+
+impl DownloadProgress {
+    fn new(
+        progress_sender: Sender<Result<DownloaderInfo, DownloadError>>,
+        content_length: Option<usize>,
+    ) -> Self {
+        Self {
+            progress_sender,
+            content_length,
+            downloaded: 0,
+            progress: 0,
+            last_check: UNIX_EPOCH,
+            interval: Duration::from_secs(1),
+        }
+    }
+
+    fn update(&mut self, amount: usize) {
+        self.downloaded += amount;
+
+        let now = SystemTime::now();
+        if let Some(full_size) = self.content_length {
+            if full_size > 0 && now - self.interval >= self.last_check {
+                self.last_check = now;
+                let current_progress =
+                    f64::trunc(((self.downloaded as f64) / (full_size as f64)) * 100.0) as u8;
+
+                if current_progress > self.progress {
+                    self.progress = current_progress;
+                    debug!("Progress send {:?}", self.progress);
+                    let _ = self
+                        .progress_sender
+                        .send(Ok(DownloaderInfo::Progress(self.progress)));
+                }
+            }
+        }
+    }
+
+    fn downloaded(&self) -> usize {
+        self.downloaded
+    }
+
+    fn done(&self) {
+        // If the downloading finishs within 1 second,
+        // We could miss the last 100 progress, send extra here if not sent
+        if self.progress != 100 {
+            let _ = self.progress_sender.send(Ok(DownloaderInfo::Progress(100)));
+        }
+    }
+}
+
+
+// TODO: move to the config.
+#[cfg(not(target_os = "android"))]
+static IPFS_SOCKET_PATH: &str = "/tmp/ipfsd.http";
+#[cfg(target_os = "android")]
+static IPFS_SOCKET_PATH: &str = "/dev/socket/ipfsd.http";
 
 #[derive(Clone)]
 pub struct Downloader {
@@ -88,19 +158,115 @@ impl Downloader {
         thread::Builder::new()
             .name("apps_download".into())
             .spawn(move || {
-                let result = self.single_download(
-                    &url,
-                    &file_path_buf,
-                    canceled_recv,
-                    sender.clone(),
-                    extra_headers,
-                );
+                let scheme = url.scheme();
+                let result = match scheme {
+                    "http" | "https" => self.single_download(
+                        &url,
+                        &file_path_buf,
+                        canceled_recv,
+                        sender.clone(),
+                        extra_headers,
+                    ),
+                    "ipfs" | "ipns" | "tile" => self.ipfs_download(
+                        &url,
+                        &file_path_buf,
+                        canceled_recv,
+                        sender.clone(),
+                        extra_headers,
+                        IPFS_SOCKET_PATH,
+                    ),
+                    _ => Err(DownloadError::Other("UnsupportedUrl".into())),
+                };
                 debug!("result {:?}", result);
                 let _ = sender.send(result);
             })
             .expect("Failed to start downloading thread");
 
         (receiver, cancel_sender)
+    }
+
+    fn ipfs_download<P: AsRef<Path>>(
+        &mut self,
+        url: &Url,
+        path: P,
+        canceled_recv: Receiver<()>,
+        progress_sender: Sender<Result<DownloaderInfo, DownloadError>>,
+        extra_headers: Option<HeaderMap>,
+        socket_path: &str,
+    ) -> Result<DownloaderInfo, DownloadError> {
+        let rt = Runtime::new().unwrap();
+
+        rt.block_on(async move {
+            // Build the UDS path from the URL.
+            let parts: Vec<&str> = url.as_str().split("://").collect();
+            let scheme = match url.scheme() {
+                "ipfs" | "tile" => "ipfs",
+                "ipns" => "ipns",
+                _ => return Err(DownloadError::Other("UnsupportedUrl".into())),
+            };
+
+            let ipfs_url = format!("/{}/{}", scheme, parts[1]);
+            debug!("ipfs_url is {}", ipfs_url);
+            let uds_url = Uri::new(socket_path, &ipfs_url);
+
+            let client = Client::unix();
+
+            let mut builder = Request::builder().method("GET").uri(uds_url);
+
+            if let Some(headers) = extra_headers {
+                for (maybe_name, value) in headers {
+                    if let Some(name) = maybe_name {
+                        builder = builder.header(name, value);
+                    }
+                }
+            }
+            let req = builder
+                .body(Body::empty())
+                .map_err(|e| DownloadError::Other(e.to_string()))?;
+
+            let mut response = client.request(req).await.map_err(DownloadError::Hyper)?;
+
+            let content_length = if let Some(val) = response.headers().get(header::CONTENT_LENGTH) {
+                match val.to_str() {
+                    Ok(len) => Some(len.parse::<usize>().unwrap_or(0)),
+                    _ => Some(0),
+                }
+            } else {
+                None
+            };
+
+            let mut progress = DownloadProgress::new(progress_sender.clone(), content_length);
+
+            let mut tmp_file = get_tmp_file()?;
+            let tmp_file_path = tmp_file.path().to_string();
+            debug!("tmp_path is  {:?}", &tmp_file_path);
+            let mut file = io::BufWriter::new(tmp_file.inner());
+
+            while let Some(next) = response.data().await {
+                if canceled_recv.try_recv().is_ok() {
+                    info!("cancel received while downloading {}", url.as_str());
+                    return Err(DownloadError::Canceled);
+                }
+
+                let chunk = next.map_err(DownloadError::Hyper)?;
+                progress.update(chunk.len());
+                file.write_all(&chunk)?;
+            }
+
+            progress.done();
+
+            if let Some(val) = response.headers().get(header::ETAG) {
+                if let Ok(etag) = val.to_str() {
+                    let _ = progress_sender.send(Ok(DownloaderInfo::Etag(etag.into())));
+                }
+            }
+
+            file.flush().map_err(DownloadError::Io)?;
+
+            fs::copy(&tmp_file_path, path).map_err(DownloadError::Io)?;
+
+            Ok(DownloaderInfo::Done)
+        })
     }
 
     fn single_download<P: AsRef<Path>>(
@@ -124,7 +290,7 @@ impl Downloader {
             return Err(DownloadError::Http(response.status().as_str().into()));
         }
 
-        let ct_len = if let Some(val) = response.headers().get(header::CONTENT_LENGTH) {
+        let content_length = if let Some(val) = response.headers().get(header::CONTENT_LENGTH) {
             match val.to_str() {
                 Ok(len) => Some(len.parse::<usize>().unwrap_or(0)),
                 _ => Some(0),
@@ -132,11 +298,8 @@ impl Downloader {
         } else {
             None
         };
-        debug!("ct_len is  {:?}", ct_len);
-        let mut cnt = 0;
-        let mut progress = 0;
-        let mut last_check = UNIX_EPOCH;
-        let interval = Duration::from_secs(1);
+
+        let mut progress = DownloadProgress::new(progress_sender.clone(), content_length);
 
         let mut tmp_file = get_tmp_file()?;
         let tmp_file_path = tmp_file.path().to_string();
@@ -150,40 +313,23 @@ impl Downloader {
 
             let mut buffer = vec![0; 4 * 1024];
             let bcount = response.read(&mut buffer[..])?;
-            cnt += bcount;
 
-            let now = SystemTime::now();
-            if let Some(full_size) = ct_len {
-                if full_size > 0 && now - interval >= last_check {
-                    last_check = now;
-                    let current_progress =
-                        f64::trunc(((cnt as f64) / (full_size as f64)) * 100.0) as u8;
+            progress.update(bcount);
 
-                    if current_progress > progress {
-                        progress = current_progress;
-                        debug!("progress send {:?}", progress);
-                        let _ = progress_sender.send(Ok(DownloaderInfo::Progress(progress)));
-                    }
-                }
-            }
-
-            debug!("single_download in loop, cnt is {:?}", cnt);
             buffer.truncate(bcount);
             if !buffer.is_empty() {
                 file.write_all(&buffer)?;
             } else {
                 break;
             }
-            if Some(cnt) == ct_len {
-                break;
+            if let Some(max) = content_length {
+                if max == progress.downloaded() {
+                    break;
+                }
             }
         }
 
-        // If the downloading finishs within 1 second,
-        // We could miss the last 100 progress, send extra here if not sent
-        if progress != 100 {
-            let _ = progress_sender.send(Ok(DownloaderInfo::Progress(100)));
-        }
+        progress.done();
 
         file.flush().map_err(DownloadError::Io)?;
 

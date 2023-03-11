@@ -434,6 +434,8 @@ dependencies = [
  "geckobridge",
  "hawk",
  "http",
+ "hyper",
+ "hyperlocal",
  "log",
  "mime_guess",
  "mkstemp-rs",
@@ -447,6 +449,7 @@ dependencies = [
  "thiserror",
  "threadpool",
  "time 0.3.11",
+ "tokio",
  "url",
  "version-compare",
  "vhost_server",
@@ -1904,7 +1907,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "powermanager_service",
  "procmanager_service",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reqwest",
  "rusty-s3",
  "serde",
@@ -3168,6 +3171,19 @@ dependencies = [
  "native-tls",
  "tokio",
  "tokio-native-tls",
+]
+
+[[package]]
+name = "hyperlocal"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fafdf7b2b2de7c9784f76e02c0935e65a8117ec3b768644379983ab333ac98c"
+dependencies = [
+ "futures-util",
+ "hex",
+ "hyper",
+ "pin-project",
+ "tokio",
 ]
 
 [[package]]

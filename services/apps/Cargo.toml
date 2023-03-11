@@ -14,6 +14,8 @@ common = { path = "../../common" }
 file-rotate = "0.6"
 geckobridge = { path = "../geckobridge" }
 http = "0.2.1"
+hyper = "0.14"
+hyperlocal = "0.8"
 log = "0.4"
 mkstemp-rs = "1.0.0"
 nix = "0.23"
@@ -26,6 +28,7 @@ sqlite-utils = {path = "../../support/sqlite-utils"}
 thiserror = "1.0"
 threadpool = "1.8"
 time = {version = "0.3", features = ["local-offset"]}
+tokio = "1.0"
 url = "2.1"
 version-compare = "0.0.10"
 vhost_server = {path = "../../vhost"}
