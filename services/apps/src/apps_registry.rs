@@ -61,6 +61,8 @@ pub enum AppsError {
     RegistryDb(#[from] crate::registry_db::Error),
     #[error("No db available")]
     NoDb,
+    #[error("Gecko Bridge error")]
+    BridgeError,
 }
 
 #[derive(Error, Debug)]
@@ -541,11 +543,13 @@ impl AppsRegistry {
         if is_update {
             bridge
                 .lock()
-                .apps_service_on_update(&manifest_url, manifest.into());
+                .apps_service_on_update(&manifest_url, manifest.into())
+                .map_err(|_| AppsServiceError::UnknownError)?;
         } else {
             bridge
                 .lock()
-                .apps_service_on_install(&manifest_url, manifest.into());
+                .apps_service_on_install(&manifest_url, manifest.into())
+                .map_err(|_| AppsServiceError::UnknownError)?;
         }
 
         Ok(())
@@ -588,11 +592,13 @@ impl AppsRegistry {
         if is_update {
             bridge
                 .lock()
-                .apps_service_on_update(&runtime_url, manifest.into());
+                .apps_service_on_update(&runtime_url, manifest.into())
+                .map_err(|_| AppsServiceError::UnknownError)?;
         } else {
             bridge
                 .lock()
-                .apps_service_on_install(&runtime_url, manifest.into());
+                .apps_service_on_install(&runtime_url, manifest.into())
+                .map_err(|_| AppsServiceError::UnknownError)?;
         }
         Ok(())
     }
@@ -736,7 +742,10 @@ impl AppsRegistry {
         if self.unregister(&app).is_ok() && AppsStorage::remove_app(&app, &self.data_path).is_ok() {
             // Relay the request to Gecko using the bridge.
             let bridge = GeckoBridgeService::shared_state();
-            bridge.lock().apps_service_on_uninstall(&runtime_url);
+            bridge
+                .lock()
+                .apps_service_on_uninstall(&runtime_url)
+                .map_err(|_| AppsServiceError::UnknownError)?;
             return Ok(manifest_url.clone());
         }
         error!("Unregister app failed: {}", manifest_url);
@@ -874,7 +883,10 @@ impl AppsRegistry {
                                 // Relay the request to Gecko using the bridge.
                                 let bridge = GeckoBridgeService::shared_state();
                                 if let Some(runtime_url) = app.runtime_url() {
-                                    bridge.lock().apps_service_on_uninstall(&runtime_url);
+                                    bridge
+                                        .lock()
+                                        .apps_service_on_uninstall(&runtime_url)
+                                        .map_err(|_| AppsError::BridgeError)?;
                                 }
                             }
                             Err(err) => {

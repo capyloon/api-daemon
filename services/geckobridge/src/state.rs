@@ -401,6 +401,18 @@ impl GeckoBridgeState {
         self.notify_readyness_observers();
     }
 
+    fn check_delegate_call(rx: &Receiver<Result<(), ()>>) -> Result<(), DelegateError> {
+        if let Ok(result) = rx.recv() {
+            match result {
+                Ok(_) => Ok(()),
+                Err(_) => Err(DelegateError::InvalidWebRuntimeService),
+            }
+        } else {
+            error!("Apps service delegate rx channel error!");
+            Err(DelegateError::InvalidChannel)
+        }
+    }
+
     pub fn apps_service_on_clear(
         &mut self,
         manifest_url: &Url,
@@ -410,15 +422,7 @@ impl GeckoBridgeState {
         debug!("apps_service_on_clear: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
             let rx = service.on_clear(&manifest_url.as_str().to_string(), &data_type, &value);
-            if let Ok(result) = rx.recv() {
-                match result {
-                    Ok(_) => Ok(()),
-                    Err(_) => Err(DelegateError::InvalidWebRuntimeService),
-                }
-            } else {
-                error!("The apps service delegate rx channel error!");
-                Err(DelegateError::InvalidChannel)
-            }
+            Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
             Err(DelegateError::InvalidDelegate)
@@ -447,38 +451,52 @@ impl GeckoBridgeState {
         }
     }
 
-    pub fn apps_service_on_install(&mut self, manifest_url: &Url, value: JsonValue) {
+    pub fn apps_service_on_install(
+        &mut self,
+        manifest_url: &Url,
+        value: JsonValue,
+    ) -> Result<(), DelegateError> {
         debug!(
             "apps_service_on_install: {} - {:?}",
             manifest_url.as_str(),
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_install(&manifest_url.as_str().to_string(), &value);
+            let rx = service.on_install(&manifest_url.as_str().to_string(), &value);
+            Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
+            Err(DelegateError::InvalidDelegate)
         }
     }
 
-    pub fn apps_service_on_update(&mut self, manifest_url: &Url, value: JsonValue) {
+    pub fn apps_service_on_update(
+        &mut self,
+        manifest_url: &Url,
+        value: JsonValue,
+    ) -> Result<(), DelegateError> {
         debug!(
             "apps_service_on_update: {} - {:?}",
             manifest_url.as_str(),
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_update(&manifest_url.as_str().to_string(), &value);
+            let rx = service.on_update(&manifest_url.as_str().to_string(), &value);
+            Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
+            Err(DelegateError::InvalidDelegate)
         }
     }
 
-    pub fn apps_service_on_uninstall(&mut self, manifest_url: &Url) {
+    pub fn apps_service_on_uninstall(&mut self, manifest_url: &Url) -> Result<(), DelegateError> {
         debug!("apps_service_on_uninstall: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_uninstall(&manifest_url.as_str().to_string());
+            let rx = service.on_uninstall(&manifest_url.as_str().to_string());
+            Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
+            Err(DelegateError::InvalidDelegate)
         }
     }
 
