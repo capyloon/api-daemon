@@ -190,6 +190,8 @@ pub struct Manifest {
     orientation: String,
     #[serde(default = "String::new")]
     theme_color: String,
+    #[serde(default = "String::new")]
+    description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     shortcuts: Option<Vec<Shortcut>>,
 }
