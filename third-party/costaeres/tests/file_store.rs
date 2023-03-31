@@ -99,6 +99,23 @@ async fn file_store() {
     // Get the new variant.
     store.get_variant(&ROOT_ID, "new-variant").await.unwrap();
 
+    // Get the native path for the new variant.
+    let path = store
+        .get_native_path(&ROOT_ID, "new-variant")
+        .await
+        .unwrap();
+    assert_eq!(
+        path,
+        async_std::path::PathBuf::from(
+            "./test-content/0/9e48b88d-4ab5-496b-ad7f-9ecc685128db.variant.new-variant"
+        )
+    );
+
+    assert!(store
+        .get_native_path(&ROOT_ID, "unknown-variant")
+        .await
+        .is_none());
+
     // Update with an invalid variant.
     let res = store
         .update(&meta, Some(named_content("invalid-variant").await))

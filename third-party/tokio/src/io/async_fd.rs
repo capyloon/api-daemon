@@ -1,4 +1,6 @@
-use crate::io::driver::{Handle, Interest, ReadyEvent, Registration};
+use crate::io::Interest;
+use crate::runtime::io::{ReadyEvent, Registration};
+use crate::runtime::scheduler;
 
 use mio::unix::SourceFd;
 use std::io;
@@ -63,8 +65,8 @@ use std::{task::Context, task::Poll};
 /// # Examples
 ///
 /// This example shows how to turn [`std::net::TcpStream`] asynchronous using
-/// `AsyncFd`.  It implements `read` as an async fn, and `AsyncWrite` as a trait
-/// to show how to implement both approaches.
+/// `AsyncFd`.  It implements the read/write operations both as an `async fn`
+/// and using the IO traits [`AsyncRead`] and [`AsyncWrite`].
 ///
 /// ```no_run
 /// use futures::ready;
@@ -72,7 +74,7 @@ use std::{task::Context, task::Poll};
 /// use std::net::TcpStream;
 /// use std::pin::Pin;
 /// use std::task::{Context, Poll};
-/// use tokio::io::AsyncWrite;
+/// use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 /// use tokio::io::unix::AsyncFd;
 ///
 /// pub struct AsyncTcpStream {
@@ -93,6 +95,39 @@ use std::{task::Context, task::Poll};
 ///
 ///             match guard.try_io(|inner| inner.get_ref().read(out)) {
 ///                 Ok(result) => return result,
+///                 Err(_would_block) => continue,
+///             }
+///         }
+///     }
+///
+///     pub async fn write(&self, buf: &[u8]) -> io::Result<usize> {
+///         loop {
+///             let mut guard = self.inner.writable().await?;
+///
+///             match guard.try_io(|inner| inner.get_ref().write(buf)) {
+///                 Ok(result) => return result,
+///                 Err(_would_block) => continue,
+///             }
+///         }
+///     }
+/// }
+///
+/// impl AsyncRead for AsyncTcpStream {
+///     fn poll_read(
+///         self: Pin<&mut Self>,
+///         cx: &mut Context<'_>,
+///         buf: &mut ReadBuf<'_>
+///     ) -> Poll<io::Result<()>> {
+///         loop {
+///             let mut guard = ready!(self.inner.poll_read_ready(cx))?;
+///
+///             let unfilled = buf.initialize_unfilled();
+///             match guard.try_io(|inner| inner.get_ref().read(unfilled)) {
+///                 Ok(Ok(len)) => {
+///                     buf.advance(len);
+///                     return Poll::Ready(Ok(()));
+///                 },
+///                 Ok(Err(err)) => return Poll::Ready(Err(err)),
 ///                 Err(_would_block) => continue,
 ///             }
 ///         }
@@ -137,6 +172,8 @@ use std::{task::Context, task::Poll};
 /// [`writable`]: method@Self::writable
 /// [`AsyncFdReadyGuard`]: struct@self::AsyncFdReadyGuard
 /// [`TcpStream::poll_read_ready`]: struct@crate::net::TcpStream
+/// [`AsyncRead`]: trait@crate::io::AsyncRead
+/// [`AsyncWrite`]: trait@crate::io::AsyncWrite
 pub struct AsyncFd<T: AsRawFd> {
     registration: Registration,
     inner: Option<T>,
@@ -167,12 +204,18 @@ pub struct AsyncFdReadyMutGuard<'a, T: AsRawFd> {
 const ALL_INTEREST: Interest = Interest::READABLE.add(Interest::WRITABLE);
 
 impl<T: AsRawFd> AsyncFd<T> {
-    #[inline]
     /// Creates an AsyncFd backed by (and taking ownership of) an object
     /// implementing [`AsRawFd`]. The backing file descriptor is cached at the
     /// time of creation.
     ///
     /// This method must be called in the context of a tokio runtime.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if there is no current reactor set, or if the `rt`
+    /// feature flag is not enabled.
+    #[inline]
+    #[track_caller]
     pub fn new(inner: T) -> io::Result<Self>
     where
         T: AsRawFd,
@@ -180,19 +223,26 @@ impl<T: AsRawFd> AsyncFd<T> {
         Self::with_interest(inner, ALL_INTEREST)
     }
 
-    #[inline]
     /// Creates new instance as `new` with additional ability to customize interest,
     /// allowing to specify whether file descriptor will be polled for read, write or both.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if there is no current reactor set, or if the `rt`
+    /// feature flag is not enabled.
+    #[inline]
+    #[track_caller]
     pub fn with_interest(inner: T, interest: Interest) -> io::Result<Self>
     where
         T: AsRawFd,
     {
-        Self::new_with_handle_and_interest(inner, Handle::current(), interest)
+        Self::new_with_handle_and_interest(inner, scheduler::Handle::current(), interest)
     }
 
+    #[track_caller]
     pub(crate) fn new_with_handle_and_interest(
         inner: T,
-        handle: Handle,
+        handle: scheduler::Handle,
         interest: Interest,
     ) -> io::Result<Self> {
         let fd = inner.as_raw_fd();
@@ -463,6 +513,13 @@ impl<T: AsRawFd> AsyncFd<T> {
 impl<T: AsRawFd> AsRawFd for AsyncFd<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.as_ref().unwrap().as_raw_fd()
+    }
+}
+
+#[cfg(not(tokio_no_as_fd))]
+impl<T: AsRawFd> std::os::unix::io::AsFd for AsyncFd<T> {
+    fn as_fd(&self) -> std::os::unix::io::BorrowedFd<'_> {
+        unsafe { std::os::unix::io::BorrowedFd::borrow_raw(self.as_raw_fd()) }
     }
 }
 

@@ -12,17 +12,37 @@
 [package]
 edition = "2018"
 name = "awc"
-version = "3.0.0"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>", "fakeshadow <24548779@qq.com>"]
+version = "3.1.1"
+authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
 description = "Async HTTP and WebSocket client library"
 homepage = "https://actix.rs"
-keywords = ["actix", "http", "framework", "async", "web"]
-categories = ["network-programming", "asynchronous", "web-programming::http-client", "web-programming::websocket"]
+readme = "README.md"
+keywords = [
+    "actix",
+    "http",
+    "framework",
+    "async",
+    "web",
+]
+categories = [
+    "network-programming",
+    "asynchronous",
+    "web-programming::http-client",
+    "web-programming::websocket",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-web.git"
 resolver = "2"
+
 [package.metadata.docs.rs]
-features = ["openssl", "rustls", "compress-brotli", "compress-gzip", "compress-zstd", "cookies"]
+features = [
+    "openssl",
+    "rustls",
+    "compress-brotli",
+    "compress-gzip",
+    "compress-zstd",
+    "cookies",
+]
 
 [lib]
 name = "awc"
@@ -31,12 +51,16 @@ path = "src/lib.rs"
 [[example]]
 name = "client"
 required-features = ["rustls"]
+
 [dependencies.actix-codec]
 version = "0.5"
 
 [dependencies.actix-http]
-version = "3"
-features = ["http2", "ws"]
+version = "3.3"
+features = [
+    "http2",
+    "ws",
+]
 
 [dependencies.actix-rt]
 version = "2.1"
@@ -47,7 +71,10 @@ version = "2"
 
 [dependencies.actix-tls]
 version = "3"
-features = ["connect", "uri"]
+features = [
+    "connect",
+    "uri",
+]
 
 [dependencies.actix-utils]
 version = "3"
@@ -56,7 +83,7 @@ version = "3"
 version = "0.7"
 
 [dependencies.base64]
-version = "0.13"
+version = "0.21"
 
 [dependencies.bytes]
 version = "1"
@@ -73,13 +100,16 @@ optional = true
 version = "0.99.5"
 
 [dependencies.futures-core]
-version = "0.3.7"
+version = "0.3.17"
 features = ["alloc"]
 default-features = false
 
 [dependencies.futures-util]
-version = "0.3.7"
-features = ["alloc", "sink"]
+version = "0.3.17"
+features = [
+    "alloc",
+    "sink",
+]
 default-features = false
 
 [dependencies.h2]
@@ -127,21 +157,41 @@ optional = true
 package = "rustls"
 
 [dependencies.tokio]
-version = "1.8.4"
+version = "1.18.5"
 features = ["sync"]
 
 [dependencies.trust-dns-resolver]
-version = "0.20.0"
+version = "0.22"
 optional = true
 
 [features]
 __compress = []
-compress-brotli = ["actix-http/compress-brotli", "__compress"]
-compress-gzip = ["actix-http/compress-gzip", "__compress"]
-compress-zstd = ["actix-http/compress-zstd", "__compress"]
+compress-brotli = [
+    "actix-http/compress-brotli",
+    "__compress",
+]
+compress-gzip = [
+    "actix-http/compress-gzip",
+    "__compress",
+]
+compress-zstd = [
+    "actix-http/compress-zstd",
+    "__compress",
+]
 cookies = ["cookie"]
 dangerous-h2c = []
-default = ["compress-brotli", "compress-gzip", "compress-zstd", "cookies"]
-openssl = ["tls-openssl", "actix-tls/openssl"]
-rustls = ["tls-rustls", "actix-tls/rustls"]
+default = [
+    "compress-brotli",
+    "compress-gzip",
+    "compress-zstd",
+    "cookies",
+]
+openssl = [
+    "tls-openssl",
+    "actix-tls/openssl",
+]
+rustls = [
+    "tls-rustls",
+    "actix-tls/rustls",
+]
 trust-dns = ["trust-dns-resolver"]

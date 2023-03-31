@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use std::{
     collections::HashMap,
     convert::Infallible,
@@ -11,6 +13,7 @@ use std::{
 };
 
 use actix_utils::future::ok;
+use base64::prelude::*;
 use bytes::Bytes;
 use cookie::Cookie;
 use futures_util::stream;
@@ -139,7 +142,7 @@ async fn timeout_override() {
 
 #[actix_rt::test]
 async fn response_timeout() {
-    use futures_util::stream::{once, StreamExt as _};
+    use futures_util::{stream::once, StreamExt as _};
 
     let srv = actix_test::start(|| {
         App::new().service(web::resource("/").route(web::to(|| async {
@@ -707,8 +710,7 @@ async fn client_cookie_handling() {
 
                 async move {
                     // Check cookies were sent correctly
-                    let res: Result<(), Error> = req
-                        .cookie("cookie1")
+                    req.cookie("cookie1")
                         .ok_or(())
                         .and_then(|c1| {
                             if c1.value() == "value1" {
@@ -725,16 +727,10 @@ async fn client_cookie_handling() {
                                 Err(())
                             }
                         })
-                        .map_err(|_| Error::from(IoError::from(ErrorKind::NotFound)));
+                        .map_err(|_| Error::from(IoError::from(ErrorKind::NotFound)))?;
 
-                    if let Err(e) = res {
-                        Err(e)
-                    } else {
-                        // Send some cookies back
-                        Ok::<_, Error>(
-                            HttpResponse::Ok().cookie(cookie1).cookie(cookie2).finish(),
-                        )
-                    }
+                    // Send some cookies back
+                    Ok::<_, Error>(HttpResponse::Ok().cookie(cookie1).cookie(cookie2).finish())
                 }
             }),
         )
@@ -788,7 +784,7 @@ async fn client_basic_auth() {
                     .unwrap()
                     .to_str()
                     .unwrap()
-                    == format!("Basic {}", base64::encode("username:password"))
+                    == format!("Basic {}", BASE64_STANDARD.encode("username:password"))
                 {
                     HttpResponse::Ok()
                 } else {

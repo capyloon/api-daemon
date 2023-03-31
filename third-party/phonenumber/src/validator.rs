@@ -90,23 +90,20 @@ pub fn is_viable<S: AsRef<str>>(string: S) -> bool {
 
 /// Check if the phone number is valid.
 pub fn is_valid(number: &PhoneNumber) -> bool {
-    is_valid_with(&*DATABASE, number)
+    is_valid_with(&DATABASE, number)
 }
 
 /// Check if the phone number is valid with the given `Database`.
 pub fn is_valid_with(database: &Database, number: &PhoneNumber) -> bool {
     let code = number.country().code();
     let national = number.national.to_string();
-    let source = try_opt!(false; source_for(database, code, &national));
-    let meta = try_opt!(false; match source {
-        Left(region) =>
-            database.by_id(region.as_ref()),
-
-        Right(code) =>
-            database.by_code(&code).and_then(|m| m.into_iter().next()),
-    });
-
-    number_type(meta, &national) != Type::Unknown
+    source_for(database, code, &national)
+        .and_then(|meta| match meta {
+            Left(region) => database.by_id(region.as_ref()),
+            Right(code) => database.by_code(&code).and_then(|m| m.into_iter().next()),
+        })
+        .map(|meta| number_type(meta, &national) != Type::Unknown)
+        .unwrap_or(false)
 }
 
 pub fn length(meta: &Metadata, number: &ParseNumber, kind: Type) -> Validation {
@@ -152,7 +149,6 @@ pub fn source_for(
     national: &str,
 ) -> Option<Either<country::Id, u16>> {
     let regions = database.region(&code)?;
-
     if regions.len() == 1 {
         return if regions[0] == "001" {
             Some(Right(code))

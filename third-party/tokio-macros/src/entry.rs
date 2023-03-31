@@ -1,10 +1,10 @@
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span};
+use proc_macro2::Span;
 use quote::{quote, quote_spanned, ToTokens};
-use syn::parse::Parser;
+use syn::{parse::Parser, Ident, Path};
 
 // syn::AttributeArgs does not implement syn::Parse
-type AttributeArgs = syn::punctuated::Punctuated<syn::NestedMeta, syn::Token![,]>;
+type AttributeArgs = syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>;
 
 #[derive(Clone, Copy, PartialEq)]
 enum RuntimeFlavor {
@@ -29,7 +29,7 @@ struct FinalConfig {
     flavor: RuntimeFlavor,
     worker_threads: Option<usize>,
     start_paused: Option<bool>,
-    crate_name: Option<String>,
+    crate_name: Option<Path>,
 }
 
 /// Config used in case of the attribute not being able to build a valid config
@@ -47,7 +47,7 @@ struct Configuration {
     worker_threads: Option<(usize, Span)>,
     start_paused: Option<(bool, Span)>,
     is_test: bool,
-    crate_name: Option<String>,
+    crate_name: Option<Path>,
 }
 
 impl Configuration {
@@ -112,8 +112,8 @@ impl Configuration {
         if self.crate_name.is_some() {
             return Err(syn::Error::new(span, "`crate` set multiple times."));
         }
-        let name_ident = parse_ident(name, span, "crate")?;
-        self.crate_name = Some(name_ident.to_string());
+        let name_path = parse_path(name, span, "crate")?;
+        self.crate_name = Some(name_path);
         Ok(())
     }
 
@@ -199,23 +199,22 @@ fn parse_string(int: syn::Lit, span: Span, field: &str) -> Result<String, syn::E
     }
 }
 
-fn parse_ident(lit: syn::Lit, span: Span, field: &str) -> Result<Ident, syn::Error> {
+fn parse_path(lit: syn::Lit, span: Span, field: &str) -> Result<Path, syn::Error> {
     match lit {
         syn::Lit::Str(s) => {
             let err = syn::Error::new(
                 span,
                 format!(
-                    "Failed to parse value of `{}` as ident: \"{}\"",
+                    "Failed to parse value of `{}` as path: \"{}\"",
                     field,
                     s.value()
                 ),
             );
-            let path = s.parse::<syn::Path>().map_err(|_| err.clone())?;
-            path.get_ident().cloned().ok_or(err)
+            s.parse::<syn::Path>().map_err(|_| err.clone())
         }
         _ => Err(syn::Error::new(
             span,
-            format!("Failed to parse value of `{}` as ident.", field),
+            format!("Failed to parse value of `{}` as path.", field),
         )),
     }
 }
@@ -246,7 +245,7 @@ fn build_config(
 
     for arg in args {
         match arg {
-            syn::NestedMeta::Meta(syn::Meta::NameValue(namevalue)) => {
+            syn::Meta::NameValue(namevalue) => {
                 let ident = namevalue
                     .path
                     .get_ident()
@@ -255,34 +254,26 @@ fn build_config(
                     })?
                     .to_string()
                     .to_lowercase();
+                let lit = match &namevalue.value {
+                    syn::Expr::Lit(syn::ExprLit { lit, .. }) => lit,
+                    expr => return Err(syn::Error::new_spanned(expr, "Must be a literal")),
+                };
                 match ident.as_str() {
                     "worker_threads" => {
-                        config.set_worker_threads(
-                            namevalue.lit.clone(),
-                            syn::spanned::Spanned::span(&namevalue.lit),
-                        )?;
+                        config.set_worker_threads(lit.clone(), syn::spanned::Spanned::span(lit))?;
                     }
                     "flavor" => {
-                        config.set_flavor(
-                            namevalue.lit.clone(),
-                            syn::spanned::Spanned::span(&namevalue.lit),
-                        )?;
+                        config.set_flavor(lit.clone(), syn::spanned::Spanned::span(lit))?;
                     }
                     "start_paused" => {
-                        config.set_start_paused(
-                            namevalue.lit.clone(),
-                            syn::spanned::Spanned::span(&namevalue.lit),
-                        )?;
+                        config.set_start_paused(lit.clone(), syn::spanned::Spanned::span(lit))?;
                     }
                     "core_threads" => {
                         let msg = "Attribute `core_threads` is renamed to `worker_threads`";
                         return Err(syn::Error::new_spanned(namevalue, msg));
                     }
                     "crate" => {
-                        config.set_crate_name(
-                            namevalue.lit.clone(),
-                            syn::spanned::Spanned::span(&namevalue.lit),
-                        )?;
+                        config.set_crate_name(lit.clone(), syn::spanned::Spanned::span(lit))?;
                     }
                     name => {
                         let msg = format!(
@@ -293,7 +284,7 @@ fn build_config(
                     }
                 }
             }
-            syn::NestedMeta::Meta(syn::Meta::Path(path)) => {
+            syn::Meta::Path(path) => {
                 let name = path
                     .get_ident()
                     .ok_or_else(|| syn::Error::new_spanned(&path, "Must have specified ident"))?
@@ -354,16 +345,17 @@ fn parse_knobs(mut input: syn::ItemFn, is_test: bool, config: FinalConfig) -> To
         (start, end)
     };
 
-    let crate_name = config.crate_name.as_deref().unwrap_or("tokio");
-
-    let crate_ident = Ident::new(crate_name, last_stmt_start_span);
+    let crate_path = config
+        .crate_name
+        .map(ToTokens::into_token_stream)
+        .unwrap_or_else(|| Ident::new("tokio", last_stmt_start_span).into_token_stream());
 
     let mut rt = match config.flavor {
         RuntimeFlavor::CurrentThread => quote_spanned! {last_stmt_start_span=>
-            #crate_ident::runtime::Builder::new_current_thread()
+            #crate_path::runtime::Builder::new_current_thread()
         },
         RuntimeFlavor::Threaded => quote_spanned! {last_stmt_start_span=>
-            #crate_ident::runtime::Builder::new_multi_thread()
+            #crate_path::runtime::Builder::new_multi_thread()
         },
     };
     if let Some(v) = config.worker_threads {
@@ -383,17 +375,50 @@ fn parse_knobs(mut input: syn::ItemFn, is_test: bool, config: FinalConfig) -> To
 
     let body = &input.block;
     let brace_token = input.block.brace_token;
-    input.block = syn::parse2(quote_spanned! {last_stmt_end_span=>
+    let body_ident = quote! { body };
+    let block_expr = quote_spanned! {last_stmt_end_span=>
+        #[allow(clippy::expect_used, clippy::diverging_sub_expression)]
         {
+            return #rt
+                .enable_all()
+                .build()
+                .expect("Failed building the Runtime")
+                .block_on(#body_ident);
+        }
+    };
+
+    // For test functions pin the body to the stack and use `Pin<&mut dyn
+    // Future>` to reduce the amount of `Runtime::block_on` (and related
+    // functions) copies we generate during compilation due to the generic
+    // parameter `F` (the future to block on). This could have an impact on
+    // performance, but because it's only for testing it's unlikely to be very
+    // large.
+    //
+    // We don't do this for the main function as it should only be used once so
+    // there will be no benefit.
+    let body = if is_test {
+        let output_type = match &input.sig.output {
+            // For functions with no return value syn doesn't print anything,
+            // but that doesn't work as `Output` for our boxed `Future`, so
+            // default to `()` (the same type as the function output).
+            syn::ReturnType::Default => quote! { () },
+            syn::ReturnType::Type(_, ret_type) => quote! { #ret_type },
+        };
+        quote! {
             let body = async #body;
-            #[allow(clippy::expect_used, clippy::diverging_sub_expression)]
-            {
-                return #rt
-                    .enable_all()
-                    .build()
-                    .expect("Failed building the Runtime")
-                    .block_on(body);
-            }
+            #crate_path::pin!(body);
+            let body: ::std::pin::Pin<&mut dyn ::std::future::Future<Output = #output_type>> = body;
+        }
+    } else {
+        quote! {
+            let body = async #body;
+        }
+    };
+
+    input.block = syn::parse2(quote! {
+        {
+            #body
+            #block_expr
         }
     })
     .expect("Parsing failure");
@@ -445,9 +470,13 @@ pub(crate) fn test(args: TokenStream, item: TokenStream, rt_multi_thread: bool) 
         Ok(it) => it,
         Err(e) => return token_stream_with_error(item, e),
     };
-    let config = if let Some(attr) = input.attrs.iter().find(|attr| attr.path.is_ident("test")) {
+    let config = if let Some(attr) = input
+        .attrs
+        .iter()
+        .find(|attr| attr.meta.path().is_ident("test"))
+    {
         let msg = "second test attribute is supplied";
-        Err(syn::Error::new_spanned(&attr, msg))
+        Err(syn::Error::new_spanned(attr, msg))
     } else {
         AttributeArgs::parse_terminated
             .parse(args)

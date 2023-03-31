@@ -15,6 +15,7 @@ macro_rules! easy_fmt {
 			O: $crate::order::BitOrder,
 			A: $crate::view::BitViewSized,
 		{
+			#[inline]
 			#[cfg(not(tarpaulin_include))]
 			fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
 				core::fmt::$fmt::fmt(self.as_bitslice(), fmt)
@@ -27,6 +28,7 @@ macro_rules! easy_fmt {
 			O: $crate::order::BitOrder,
 			T: $crate::store::BitStore,
 		{
+			#[inline]
 			#[cfg(not(tarpaulin_include))]
 			fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
 				core::fmt::$fmt::fmt(self.as_bitslice(), fmt)
@@ -38,15 +40,18 @@ macro_rules! easy_fmt {
 /// Implements some `Iterator` functions that have boilerplate behavior.
 macro_rules! easy_iter {
 	() => {
+		#[inline]
 		fn size_hint(&self) -> (usize, Option<usize>) {
 			let len = self.len();
 			(len, Some(len))
 		}
 
+		#[inline]
 		fn count(self) -> usize {
 			self.len()
 		}
 
+		#[inline]
 		fn last(mut self) -> Option<Self::Item> {
 			self.next_back()
 		}
@@ -54,6 +59,7 @@ macro_rules! easy_iter {
 }
 
 /// Tests if two `BitOrder` implementors are the same.
+#[inline]
 pub fn match_order<O, P>() -> bool
 where
 	O: BitOrder,
@@ -63,6 +69,7 @@ where
 }
 
 /// Tests if two `BitStore` implementors are the same.
+#[inline]
 pub fn match_store<T, U>() -> bool
 where
 	T: BitStore,
@@ -72,6 +79,7 @@ where
 }
 
 /// Tests if two `BitSlice` type parameter pairs match each other.
+#[inline]
 pub fn match_types<T1, O1, T2, O2>() -> bool
 where
 	O1: BitOrder,
@@ -85,6 +93,7 @@ where
 /// Tests if a type is known to be an unsigned integer.
 ///
 /// Returns `true` for `u{8,16,32,64,128,size}` and `false` for all others.
+#[inline]
 pub fn is_unsigned<T>() -> bool
 where T: 'static {
 	eq_types::<T, u8>()
@@ -96,6 +105,7 @@ where T: 'static {
 }
 
 /// Tests if two types are identical, even through different names.
+#[inline]
 fn eq_types<T, U>() -> bool
 where
 	T: 'static,

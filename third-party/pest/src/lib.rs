@@ -7,7 +7,6 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 #![no_std]
-#![cfg_attr(feature = "const_prec_climber", feature(const_fn))]
 
 //! # pest. The Elegant Parser
 //!
@@ -75,13 +74,15 @@ extern crate serde;
 #[cfg(feature = "pretty-print")]
 extern crate serde_json;
 
+pub use crate::parser::Parser;
+pub use crate::parser_state::{
+    set_call_limit, state, Atomicity, Lookahead, MatchDir, ParseResult, ParserState,
+};
+pub use crate::position::Position;
+pub use crate::span::{Lines, LinesSpan, Span};
+pub use crate::token::Token;
 use core::fmt::Debug;
 use core::hash::Hash;
-pub use parser::Parser;
-pub use parser_state::{state, Atomicity, Lookahead, MatchDir, ParseResult, ParserState};
-pub use position::Position;
-pub use span::{Lines, Span};
-pub use token::Token;
 
 pub mod error;
 pub mod iterators;
@@ -89,6 +90,12 @@ mod macros;
 mod parser;
 mod parser_state;
 mod position;
+pub mod pratt_parser;
+#[deprecated(
+    since = "2.4.0",
+    note = "Use `pest::pratt_parser` instead (it is an equivalent which also supports unary prefix/suffix operators).
+While prec_climber is going to be kept in 2.x minor and patch releases, it may be removed in a future major release."
+)]
 pub mod prec_climber;
 mod span;
 mod stack;

@@ -305,8 +305,8 @@ fn verify_callback_gives_failed_cert() {
         .domain("self-signed.badssl.com")
         .verify_callback(|validation_result| {
             let expected_finger = vec![
-                0x30, 0x3e, 0xab, 0xd4, 0xef, 0xe3, 0xb1, 0x29, 0xe5, 0x6b, 0xb5, 0x41, 0x32, 0x49,
-                0x27, 0x77, 0xd5, 0x7b, 0x71, 0x16,
+                0xec, 0x4a, 0x07, 0x99, 0xb0, 0x2d, 0xe6, 0x88, 0xdd, 0x27,
+                0xbf, 0x78, 0x53, 0x6b, 0xba, 0xea, 0xc5, 0x5a, 0x12, 0x37,
             ];
             assert_eq!(
                 validation_result
@@ -405,12 +405,7 @@ fn session_resumption_thread_safety() {
 
 const FRIENDLY_NAME: &str = "schannel-rs localhost testing cert";
 
-lazy_static! {
-    static ref szOID_RSA_SHA256RSA: Vec<u8> = Cryptography::szOID_RSA_SHA256RSA
-        .bytes()
-        .chain(Some(0))
-        .collect();
-}
+static szOID_RSA_SHA256RSA: &[u8] = null_terminate!(Cryptography::szOID_RSA_SHA256RSA);
 
 fn install_certificate() -> io::Result<CertContext> {
     unsafe {

@@ -143,7 +143,7 @@ impl<'a, Num: ArgNumber> From<Option<&'a CStr>> for ArgReg<'a, Num> {
 impl<'a, Num: ArgNumber> From<BorrowedFd<'a>> for ArgReg<'a, Num> {
     #[inline]
     fn from(fd: BorrowedFd<'a>) -> Self {
-        // Safety: `BorrowedFd` ensures that the file descriptor is valid, and the
+        // SAFETY: `BorrowedFd` ensures that the file descriptor is valid, and the
         // lifetime parameter on the resulting `ArgReg` ensures that the result is
         // bounded by the `BorrowedFd`'s lifetime.
         unsafe { raw_fd(fd.as_raw_fd()) }
@@ -309,6 +309,22 @@ impl<'a, Num: ArgNumber> From<(Mode, FileType)> for ArgReg<'a, Num> {
 impl<'a, Num: ArgNumber> From<crate::fs::AtFlags> for ArgReg<'a, Num> {
     #[inline]
     fn from(flags: crate::fs::AtFlags) -> Self {
+        c_uint(flags.bits())
+    }
+}
+
+#[cfg(feature = "fs")]
+impl<'a, Num: ArgNumber> From<crate::fs::inotify::CreateFlags> for ArgReg<'a, Num> {
+    #[inline]
+    fn from(flags: crate::fs::inotify::CreateFlags) -> Self {
+        c_uint(flags.bits())
+    }
+}
+
+#[cfg(feature = "fs")]
+impl<'a, Num: ArgNumber> From<crate::fs::inotify::WatchFlags> for ArgReg<'a, Num> {
+    #[inline]
+    fn from(flags: crate::fs::inotify::WatchFlags) -> Self {
         c_uint(flags.bits())
     }
 }
@@ -671,6 +687,29 @@ impl<'a, Num: ArgNumber> From<crate::backend::fs::types::MountFlagsArg> for ArgR
     #[inline]
     fn from(flags: crate::backend::fs::types::MountFlagsArg) -> Self {
         c_uint(flags.0)
+    }
+}
+
+#[cfg(feature = "fs")]
+#[cfg(any(target_os = "android", target_os = "linux"))]
+impl<'a, Num: ArgNumber> From<crate::backend::fs::types::UnmountFlags> for ArgReg<'a, Num> {
+    #[inline]
+    fn from(flags: crate::backend::fs::types::UnmountFlags) -> Self {
+        c_uint(flags.bits())
+    }
+}
+
+impl<'a, Num: ArgNumber> From<crate::process::Uid> for ArgReg<'a, Num> {
+    #[inline]
+    fn from(t: crate::process::Uid) -> Self {
+        c_uint(t.as_raw())
+    }
+}
+
+impl<'a, Num: ArgNumber> From<crate::process::Gid> for ArgReg<'a, Num> {
+    #[inline]
+    fn from(t: crate::process::Gid) -> Self {
+        c_uint(t.as_raw())
     }
 }
 

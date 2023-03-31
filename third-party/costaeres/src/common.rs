@@ -1,6 +1,7 @@
 /// Shared traits and structs.
 use crate::scorer::{Scorer, VisitEntry};
 use async_std::io::{Read, Seek};
+use async_std::path::PathBuf;
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 use speedy::{Context, Readable, Reader, Writable, Writer};
@@ -497,6 +498,9 @@ pub trait ResourceStore {
         id: &ResourceId,
         variant: &str,
     ) -> Result<(ResourceMetadata, BoxedReader), ResourceStoreError>;
+
+    /// Returns the path for a given resource variant or None if the store implementation can't provide one.
+    async fn get_native_path(&self, id: &ResourceId, variant: &str) -> Option<PathBuf>;
 }
 
 /// A trait to implement that makes it possible to assign non-default

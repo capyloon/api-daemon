@@ -1,6 +1,6 @@
 use super::super::c;
 use super::super::conv::owned_fd;
-#[cfg(not(any(target_os = "haiku", target_os = "illumos", target_os = "solaris")))]
+#[cfg(not(any(solarish, target_os = "haiku")))]
 use super::types::FileType;
 use crate::fd::{AsFd, BorrowedFd};
 use crate::ffi::CStr;
@@ -8,48 +8,25 @@ use crate::ffi::CStr;
 use crate::ffi::CString;
 use crate::fs::{fcntl_getfl, fstat, openat, Mode, OFlags, Stat};
 #[cfg(not(any(
+    solarish,
     target_os = "haiku",
-    target_os = "illumos",
     target_os = "netbsd",
     target_os = "redox",
-    target_os = "solaris",
     target_os = "wasi",
 )))]
 use crate::fs::{fstatfs, StatFs};
-#[cfg(not(any(
-    target_os = "haiku",
-    target_os = "illumos",
-    target_os = "redox",
-    target_os = "solaris",
-    target_os = "wasi",
-)))]
+#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 use crate::fs::{fstatvfs, StatVfs};
 use crate::io;
 #[cfg(not(any(target_os = "fuchsia", target_os = "wasi")))]
 use crate::process::fchdir;
 #[cfg(target_os = "wasi")]
 use alloc::borrow::ToOwned;
-#[cfg(not(any(
-    target_os = "android",
-    target_os = "emscripten",
-    target_os = "l4re",
-    target_os = "linux",
-    target_os = "openbsd",
-)))]
+#[cfg(not(any(linux_like, target_os = "openbsd")))]
 use c::dirent as libc_dirent;
-#[cfg(not(any(
-    target_os = "android",
-    target_os = "emscripten",
-    target_os = "l4re",
-    target_os = "linux",
-)))]
+#[cfg(not(linux_like))]
 use c::readdir as libc_readdir;
-#[cfg(any(
-    target_os = "android",
-    target_os = "emscripten",
-    target_os = "l4re",
-    target_os = "linux",
-))]
+#[cfg(linux_like)]
 use c::{dirent64 as libc_dirent, readdir64 as libc_readdir};
 use core::fmt;
 use core::mem::zeroed;
@@ -139,11 +116,10 @@ impl Dir {
 
     /// `fstatfs(self)`
     #[cfg(not(any(
+        solarish,
         target_os = "haiku",
-        target_os = "illumos",
         target_os = "netbsd",
         target_os = "redox",
-        target_os = "solaris",
         target_os = "wasi",
     )))]
     #[inline]
@@ -152,13 +128,7 @@ impl Dir {
     }
 
     /// `fstatvfs(self)`
-    #[cfg(not(any(
-        target_os = "haiku",
-        target_os = "illumos",
-        target_os = "redox",
-        target_os = "solaris",
-        target_os = "wasi",
-    )))]
+    #[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
     #[inline]
     pub fn statvfs(&self) -> io::Result<StatVfs> {
         fstatvfs(unsafe { BorrowedFd::borrow_raw(c::dirfd(self.0.as_ptr())) })
@@ -176,21 +146,14 @@ impl Dir {
 // struct, as the name is NUL-terminated and memory may not be allocated for
 // the full extent of the struct. Copy the fields one at a time.
 unsafe fn read_dirent(input: &libc_dirent) -> libc_dirent {
-    #[cfg(not(any(
-        target_os = "aix",
-        target_os = "haiku",
-        target_os = "illumos",
-        target_os = "solaris"
-    )))]
+    #[cfg(not(any(solarish, target_os = "aix", target_os = "haiku")))]
     let d_type = input.d_type;
 
     #[cfg(not(any(
+        apple,
+        freebsdlike,
         target_os = "aix",
-        target_os = "dragonfly",
-        target_os = "freebsd",
         target_os = "haiku",
-        target_os = "ios",
-        target_os = "macos",
         target_os = "netbsd",
         target_os = "wasi",
     )))]
@@ -199,36 +162,19 @@ unsafe fn read_dirent(input: &libc_dirent) -> libc_dirent {
     #[cfg(target_os = "aix")]
     let d_offset = input.d_offset;
 
-    #[cfg(not(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-    )))]
+    #[cfg(not(any(freebsdlike, netbsdlike)))]
     let d_ino = input.d_ino;
 
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(freebsdlike, netbsdlike))]
     let d_fileno = input.d_fileno;
 
     #[cfg(not(any(target_os = "dragonfly", target_os = "wasi")))]
     let d_reclen = input.d_reclen;
 
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "ios",
-        target_os = "macos",
-    ))]
+    #[cfg(bsd)]
     let d_namlen = input.d_namlen;
 
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(apple)]
     let d_seekoff = input.d_seekoff;
 
     #[cfg(target_os = "haiku")]
@@ -242,43 +188,30 @@ unsafe fn read_dirent(input: &libc_dirent) -> libc_dirent {
     // with a field that we missed here. And we can avoid blindly copying the
     // whole `d_name` field, which may not be entirely allocated.
     #[cfg_attr(target_os = "wasi", allow(unused_mut))]
-    #[cfg(not(any(target_os = "freebsd", target_os = "dragonfly")))]
+    #[cfg(not(freebsdlike))]
     let mut dirent = libc_dirent {
-        #[cfg(not(any(
-            target_os = "aix",
-            target_os = "haiku",
-            target_os = "illumos",
-            target_os = "solaris"
-        )))]
+        #[cfg(not(any(solarish, target_os = "aix", target_os = "haiku")))]
         d_type,
         #[cfg(not(any(
+            apple,
             target_os = "aix",
             target_os = "freebsd",  // Until FreeBSD 12
             target_os = "haiku",
-            target_os = "ios",
-            target_os = "macos",
             target_os = "netbsd",
             target_os = "wasi",
         )))]
         d_off,
         #[cfg(target_os = "aix")]
         d_offset,
-        #[cfg(not(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
+        #[cfg(not(any(netbsdlike, target_os = "freebsd")))]
         d_ino,
-        #[cfg(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+        #[cfg(any(netbsdlike, target_os = "freebsd"))]
         d_fileno,
         #[cfg(not(target_os = "wasi"))]
         d_reclen,
-        #[cfg(any(
-            target_os = "aix",
-            target_os = "freebsd",
-            target_os = "ios",
-            target_os = "macos",
-            target_os = "netbsd",
-            target_os = "openbsd",
-        ))]
+        #[cfg(any(apple, netbsdlike, target_os = "aix", target_os = "freebsd"))]
         d_namlen,
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        #[cfg(apple)]
         d_seekoff,
         // The `d_name` field is NUL-terminated, and we need to be careful not
         // to read bytes past the NUL, even though they're within the nominal
@@ -304,11 +237,11 @@ unsafe fn read_dirent(input: &libc_dirent) -> libc_dirent {
     pub d_pino: i64,
     pub d_reclen: ::c_ushort,
     pub d_name: [::c_char; 1024], // Max length is _POSIX_PATH_MAX
-                                  // */
+    */
 
     // On dragonfly and FreeBSD 12, `dirent` has some non-public padding fields
     // so we can't directly initialize it.
-    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+    #[cfg(freebsdlike)]
     let mut dirent = {
         let mut dirent: libc_dirent = zeroed();
         dirent.d_fileno = d_fileno;
@@ -386,36 +319,21 @@ impl DirEntry {
     }
 
     /// Returns the type of this directory entry.
-    #[cfg(not(any(
-        target_os = "aix",
-        target_os = "haiku",
-        target_os = "illumos",
-        target_os = "solaris"
-    )))]
+    #[cfg(not(any(solarish, target_os = "aix", target_os = "haiku")))]
     #[inline]
     pub fn file_type(&self) -> FileType {
         FileType::from_dirent_d_type(self.dirent.d_type)
     }
 
     /// Return the inode number of this directory entry.
-    #[cfg(not(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-    )))]
+    #[cfg(not(any(freebsdlike, netbsdlike)))]
     #[inline]
     pub fn ino(&self) -> u64 {
         self.dirent.d_ino as u64
     }
 
     /// Return the inode number of this directory entry.
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-    ))]
+    #[cfg(any(freebsdlike, netbsdlike))]
     #[inline]
     pub fn ino(&self) -> u64 {
         #[allow(clippy::useless_conversion)]

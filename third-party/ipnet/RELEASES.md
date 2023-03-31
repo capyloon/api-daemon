@@ -1,8 +1,26 @@
 # Releases
 
+## Version 2.7.2
+
+* Inline constructors and field getters #48 
+* Use Serializer::collect_str to serialize output of Display #39 
+
+## Version 2.7.1
+
+* Fix overflow in mask to prefix conversion #47
+
+## Version 2.7.0
+
+* Allow to invoke some functions as const fn #43 
+
+## Version 2.6.0
+
+* Add IP netmask to prefix conversion functions and new `with_netmask()` constructors.
+
 ## Version 2.5.0
 
 * Manually implement JsonSchema for IpNet, Ipv4Net, Ipv6Net #41 because default derived JsonSchema does not correspond to Serde representation #40
+* Migrate to edition 2018
 
 ## Version 2.4.0
 

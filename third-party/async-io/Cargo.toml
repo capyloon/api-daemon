@@ -11,9 +11,9 @@
 
 [package]
 edition = "2018"
-rust-version = "1.46"
+rust-version = "1.48"
 name = "async-io"
-version = "1.7.0"
+version = "1.13.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Async I/O and timers"
@@ -23,7 +23,6 @@ keywords = [
     "epoll",
     "kqueue",
     "iocp",
-    "wepoll",
 ]
 categories = [
     "asynchronous",
@@ -33,8 +32,22 @@ categories = [
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-io"
 
+[[bench]]
+name = "io"
+harness = false
+
+[[bench]]
+name = "timer"
+harness = false
+
+[dependencies.async-lock]
+version = "2.6"
+
+[dependencies.cfg-if]
+version = "1"
+
 [dependencies.concurrent-queue]
-version = "1.2.2"
+version = "2"
 
 [dependencies.futures-lite]
 version = "1.11.0"
@@ -42,14 +55,19 @@ version = "1.11.0"
 [dependencies.log]
 version = "0.4.11"
 
-[dependencies.once_cell]
-version = "1.4.1"
-
 [dependencies.parking]
 version = "2.0.0"
 
 [dependencies.polling]
 version = "2.0.0"
+
+[dependencies.rustix]
+version = "0.37.1"
+features = [
+    "std",
+    "fs",
+]
+default-features = false
 
 [dependencies.slab]
 version = "0.4.2"
@@ -70,28 +88,29 @@ version = "1"
 [dev-dependencies.blocking]
 version = "1"
 
+[dev-dependencies.criterion]
+version = "0.4"
+features = ["cargo_bench_support"]
+default-features = false
+
+[dev-dependencies.getrandom]
+version = "0.2.7"
+
 [dev-dependencies.signal-hook]
 version = "0.3"
 
 [dev-dependencies.tempfile]
 version = "3"
 
+[build-dependencies.autocfg]
+version = "1"
+
 [target."cfg(target_os = \"linux\")".dev-dependencies.inotify]
 version = "0.10"
 default-features = false
 
-[target."cfg(target_os = \"linux\")".dev-dependencies.nix]
-version = "0.24"
-
 [target."cfg(target_os = \"linux\")".dev-dependencies.timerfd]
 version = "1"
-
-[target."cfg(unix)".dependencies.libc]
-version = "0.2.77"
-
-[target."cfg(windows)".dependencies.winapi]
-version = "0.3.9"
-features = ["winsock2"]
 
 [target."cfg(windows)".dev-dependencies.uds_windows]
 version = "1"

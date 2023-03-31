@@ -6,7 +6,7 @@
 //!   DragonFly BSD
 //! - [event ports](https://illumos.org/man/port_create): illumos, Solaris
 //! - [poll](https://en.wikipedia.org/wiki/Poll_(Unix)): VxWorks, Fuchsia, other Unix systems
-//! - [wepoll](https://github.com/piscisaureus/wepoll): Windows
+//! - [wepoll](https://github.com/piscisaureus/wepoll): Windows, Wine (version 7.13+)
 //!
 //! Polling is done in oneshot mode, which means interest in I/O events needs to be re-enabled
 //! after an event is delivered if we're interested in the next event of the same kind.
@@ -50,6 +50,8 @@
 #![cfg(feature = "std")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
+#![allow(clippy::useless_conversion, clippy::unnecessary_cast)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 use std::fmt;
 use std::io;
@@ -96,6 +98,7 @@ cfg_if! {
     } else if #[cfg(any(
         target_os = "vxworks",
         target_os = "fuchsia",
+        target_os = "horizon",
         unix,
     ))] {
         mod poll;
@@ -437,6 +440,77 @@ impl Poller {
             self.poller.notify()?;
         }
         Ok(())
+    }
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "illumos",
+    target_os = "solaris",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly",
+))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "illumos",
+        target_os = "solaris",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+    )))
+)]
+mod raw_fd_impl {
+    use crate::Poller;
+    use std::os::unix::io::{AsRawFd, RawFd};
+
+    #[cfg(not(polling_no_io_safety))]
+    use std::os::unix::io::{AsFd, BorrowedFd};
+
+    impl AsRawFd for Poller {
+        fn as_raw_fd(&self) -> RawFd {
+            self.poller.as_raw_fd()
+        }
+    }
+
+    #[cfg(not(polling_no_io_safety))]
+    impl AsFd for Poller {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            self.poller.as_fd()
+        }
+    }
+}
+
+#[cfg(windows)]
+#[cfg_attr(docsrs, doc(cfg(windows)))]
+mod raw_handle_impl {
+    use crate::Poller;
+    use std::os::windows::io::{AsRawHandle, RawHandle};
+
+    #[cfg(not(polling_no_io_safety))]
+    use std::os::windows::io::{AsHandle, BorrowedHandle};
+
+    impl AsRawHandle for Poller {
+        fn as_raw_handle(&self) -> RawHandle {
+            self.poller.as_raw_handle()
+        }
+    }
+
+    #[cfg(not(polling_no_io_safety))]
+    impl AsHandle for Poller {
+        fn as_handle(&self) -> BorrowedHandle<'_> {
+            self.poller.as_handle()
+        }
     }
 }
 

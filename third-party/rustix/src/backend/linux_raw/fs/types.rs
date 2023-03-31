@@ -198,6 +198,9 @@ bitflags! {
 
         /// `O_NOATIME`
         const NOATIME = linux_raw_sys::general::O_NOATIME;
+
+        /// `O_DIRECT`
+        const DIRECT = linux_raw_sys::general::O_DIRECT;
     }
 }
 
@@ -515,9 +518,10 @@ bitflags! {
     }
 }
 
-/// `LOCK_*` constants for use with [`flock`]
+/// `LOCK_*` constants for use with [`flock`] and [`fcntl_lock`].
 ///
 /// [`flock`]: crate::fs::flock
+/// [`fcntl_lock`]: crate::fs::fcntl_lock
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum FlockOperation {
@@ -637,14 +641,6 @@ pub type FsWord = linux_raw_sys::general::__fsword_t;
 #[cfg(target_arch = "mips64")]
 pub type FsWord = i64;
 
-pub use linux_raw_sys::general::{UTIME_NOW, UTIME_OMIT};
-
-/// `PROC_SUPER_MAGIC`—The magic number for the procfs filesystem.
-pub const PROC_SUPER_MAGIC: FsWord = linux_raw_sys::general::PROC_SUPER_MAGIC as FsWord;
-
-/// `NFS_SUPER_MAGIC`—The magic number for the NFS filesystem.
-pub const NFS_SUPER_MAGIC: FsWord = linux_raw_sys::general::NFS_SUPER_MAGIC as FsWord;
-
 #[cfg(any(target_os = "android", target_os = "linux"))]
 bitflags! {
     /// `MS_*` constants for use with [`mount`][crate::fs::mount].
@@ -727,3 +723,18 @@ bitflags! {
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub(crate) struct MountFlagsArg(pub(crate) c::c_uint);
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+bitflags! {
+    /// `MNT_*` constants for use with [`unmount`][crate::fs::mount::unmount].
+    pub struct UnmountFlags: c::c_uint {
+        /// `MNT_FORCE`
+        const FORCE = linux_raw_sys::general::MNT_FORCE;
+        /// `MNT_DETACH`
+        const DETACH = linux_raw_sys::general::MNT_DETACH;
+        /// `MNT_EXPIRE`
+        const EXPIRE = linux_raw_sys::general::MNT_EXPIRE;
+        /// `UMOUNT_NOFOLLOW`
+        const NOFOLLOW = linux_raw_sys::general::UMOUNT_NOFOLLOW;
+    }
+}

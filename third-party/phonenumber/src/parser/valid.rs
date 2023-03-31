@@ -22,7 +22,7 @@ pub fn phone_number(i: &str) -> IResult<&str, &str> {
 fn short(i: &str) -> IResult<&str, ()> {
     parse! { i =>
         count(digit, 2);
-        eof;
+        ieof;
     };
 
     Ok((i, ()))
@@ -35,7 +35,7 @@ fn long(i: &str) -> IResult<&str, ()> {
         count(digit, 3);
         many0(digit);
         many0(alt((punctuation, star, digit, alpha)));
-        eof;
+        ieof;
     };
 
     Ok((i, ()))
@@ -47,10 +47,10 @@ mod test {
 
     #[test]
     fn phone() {
-        assert!(!phone_number("1").is_ok());
+        assert!(phone_number("1").is_err());
         // Only one or two digits before strange non-possible punctuation.
-        assert!(!phone_number("1+1+1").is_ok());
-        assert!(!phone_number("80+0").is_ok());
+        assert!(phone_number("1+1+1").is_err());
+        assert!(phone_number("80+0").is_err());
         // Two digits is viable.
         assert!(phone_number("00").is_ok());
         assert!(phone_number("111").is_ok());
@@ -58,8 +58,8 @@ mod test {
         assert!(phone_number("0800-4-pizza").is_ok());
         assert!(phone_number("0800-4-PIZZA").is_ok());
         // We need at least three digits before any alpha characters.
-        assert!(!phone_number("08-PIZZA").is_ok());
-        assert!(!phone_number("8-PIZZA").is_ok());
-        assert!(!phone_number("12. March").is_ok());
+        assert!(phone_number("08-PIZZA").is_err());
+        assert!(phone_number("8-PIZZA").is_err());
+        assert!(phone_number("12. March").is_err());
     }
 }

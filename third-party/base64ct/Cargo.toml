@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 name = "base64ct"
-version = "1.5.1"
+version = "1.6.0"
 authors = ["RustCrypto Developers"]
 description = """
 Pure Rust implementation of Base64 (RFC 4648) which avoids any usages of
@@ -36,7 +36,6 @@ categories = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/base64ct"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -46,7 +45,7 @@ rustdoc-args = [
 ]
 
 [dev-dependencies.base64]
-version = "0.13"
+version = "0.21"
 
 [dev-dependencies.proptest]
 version = "1"

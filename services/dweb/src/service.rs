@@ -101,6 +101,10 @@ impl State {
 
         session
     }
+
+    fn iroh_provide(&mut self, path: &str, mime_type: &str) -> Option<String> {
+        None
+    }
 }
 
 #[allow(clippy::from_over_into)]
@@ -698,6 +702,25 @@ impl DwebMethods for DWebServiceImpl {
 
         let sessions = self.state.lock().sessions.values().cloned().collect();
         responder.resolve(Some(sessions));
+    }
+
+    fn iroh_provide(
+        &mut self,
+        responder: DwebIrohProvideResponder,
+        path: String,
+        mime_type: String,
+    ) {
+        if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "iroh provide") {
+            return;
+        }
+
+        let mut state = self.state.lock();
+        if let Some(ticket) = state.iroh_provide(&path, &mime_type) {
+            responder.resolve(ticket);
+        } else {
+            responder.reject();
+        }
+
     }
 }
 

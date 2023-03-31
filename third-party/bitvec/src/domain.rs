@@ -123,6 +123,7 @@ where
 	/// just a shorthand for explicit destructuring.
 	///
 	/// [`Enclave`]: Self::Enclave
+	#[inline]
 	pub fn enclave(self) -> Option<Reference<'a, M, BitSlice<T, O>>> {
 		match self {
 			Self::Enclave(bits) => Some(bits),
@@ -134,6 +135,7 @@ where
 	/// a shorthand for explicit destructuring.
 	///
 	/// [`Region`]: Self::Region
+	#[inline]
 	pub fn region(
 		self,
 	) -> Option<(
@@ -158,6 +160,7 @@ where
 	Reference<'a, M, BitSlice<T, O>>: Default,
 	Reference<'a, M, BitSlice<T::Unalias, O>>: Default,
 {
+	#[inline]
 	fn default() -> Self {
 		Self::Region {
 			head: Default::default(),
@@ -177,6 +180,7 @@ where
 	Reference<'a, M, BitSlice<T, O>>: Debug,
 	Reference<'a, M, BitSlice<T::Unalias, O>>: Debug,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		write!(
 			fmt,
@@ -205,6 +209,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn clone(&self) -> Self {
 		*self
 	}
@@ -269,6 +274,7 @@ where
 	/// just a shorthand for explicit destructuring.
 	///
 	/// [`Enclave`]: Self::Enclave
+	#[inline]
 	pub fn enclave(self) -> Option<PartialElement<'a, M, T, O>> {
 		match self {
 			Self::Enclave(elem) => Some(elem),
@@ -280,6 +286,7 @@ where
 	/// a shorthand for explicit destructuring.
 	///
 	/// [`Region`]: Self::Region
+	#[inline]
 	pub fn region(
 		self,
 	) -> Option<(
@@ -297,6 +304,7 @@ where
 	///
 	/// This transform replaces each memory reference with an equivalent
 	/// `BitSlice` reference.
+	#[inline]
 	pub fn into_bit_domain(self) -> BitDomain<'a, M, T, O>
 	where
 		Address<M, BitSlice<T, O>>: Referential<'a>,
@@ -312,10 +320,23 @@ where
 					Default::default,
 					PartialElement::into_bitslice,
 				),
-				body: body
-					.try_into()
-					.map_err(drop)
-					.expect("this conversion will never fail"),
+				body: body.try_into().unwrap_or_else(|_| {
+					match option_env!("CARGO_PKG_REPOSITORY") {
+						Some(env) => unreachable!(
+							"Construction of a slice with length {} should not \
+							 be possible. If this assumption is outdated, \
+							 please file an issue at {}",
+							(isize::MIN as usize) >> 3,
+							env,
+						),
+						None => unreachable!(
+							"Construction of a slice with length {} should not \
+							 be possible. If this assumption is outdated, \
+							 please consider filing an issue",
+							(isize::MIN as usize) >> 3
+						),
+					}
+				}),
 				tail: tail.map_or_else(
 					Default::default,
 					PartialElement::into_bitslice,
@@ -372,6 +393,7 @@ where
 	}
 
 	/// Produces the canonical empty `Domain`.
+	#[inline]
 	fn empty(
 		_: Address<M, T>,
 		_: usize,
@@ -383,6 +405,7 @@ where
 
 	/// Produces a `Domain::Region` that contains both `head` and `tail` partial
 	/// elements as well as a `body` slice (which may be empty).
+	#[inline]
 	fn major(
 		addr: Address<M, T>,
 		elts: usize,
@@ -405,6 +428,7 @@ where
 	}
 
 	/// Produces a `Domain::Enclave`.
+	#[inline]
 	fn minor(
 		addr: Address<M, T>,
 		_: usize,
@@ -417,6 +441,7 @@ where
 
 	/// Produces a `Domain::Region` with a partial `head` and a `body`, but no
 	/// `tail`.
+	#[inline]
 	fn partial_head(
 		addr: Address<M, T>,
 		elts: usize,
@@ -439,6 +464,7 @@ where
 
 	/// Produces a `Domain::Region` with a partial `tail` and a `body`, but no
 	/// `head`.
+	#[inline]
 	fn partial_tail(
 		addr: Address<M, T>,
 		elts: usize,
@@ -461,6 +487,7 @@ where
 
 	/// Produces a `Domain::Region` with neither `head` nor `tail`, but only a
 	/// `body`.
+	#[inline]
 	fn spanning(
 		addr: Address<M, T>,
 		elts: usize,
@@ -489,6 +516,7 @@ where
 	Address<M, [T::Unalias]>: SliceReferential<'a>,
 	Reference<'a, M, [T::Unalias]>: Default,
 {
+	#[inline]
 	fn default() -> Self {
 		Self::Region {
 			head: None,
@@ -507,6 +535,7 @@ where
 	Address<M, [T::Unalias]>: SliceReferential<'a>,
 	Reference<'a, M, [T::Unalias]>: Debug,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		write!(
 			fmt,
@@ -535,6 +564,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn clone(&self) -> Self {
 		*self
 	}
@@ -547,6 +577,7 @@ where
 {
 	type Item = T::Mem;
 
+	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
 			Self::Enclave(elem) => {
@@ -574,6 +605,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn next_back(&mut self) -> Option<Self::Item> {
 		match self {
 			Self::Enclave(elem) => {
@@ -601,6 +633,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn len(&self) -> usize {
 		match self {
 			Self::Enclave(_) => 1,
@@ -633,6 +666,7 @@ macro_rules! fmt {
 			O: BitOrder,
 			T: BitStore,
 		{
+			#[inline]
 			fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 				fmt.debug_list()
 					.entries(self.into_iter().map(FmtForward::$fwd))
@@ -692,6 +726,7 @@ where
 	/// - `elem`: the element to which this partially points.
 	/// - `head`: the index at which the partial region begins.
 	/// - `tail`: the index at which the partial region ends.
+	#[inline]
 	fn new(
 		elem: Address<M, T>,
 		head: impl Into<Option<BitIdx<T::Mem>>>,
@@ -717,6 +752,7 @@ where
 	///
 	/// A bit-map containing any bits set to `1` in the governed bits. All other
 	/// bits are cleared to `0`.
+	#[inline]
 	pub fn load_value(&self) -> T::Mem {
 		self.elem
 			.pipe(|addr| unsafe { &*addr.to_const() })
@@ -725,12 +761,14 @@ where
 	}
 
 	/// Gets the starting index of the live bits in the element.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn head(&self) -> BitIdx<T::Mem> {
 		self.head
 	}
 
 	/// Gets the ending index of the live bits in the element.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn tail(&self) -> BitEnd<T::Mem> {
 		self.tail
@@ -738,18 +776,21 @@ where
 
 	/// Gets the semantic head and tail indices that constrain which bits of the
 	/// referent element may be accessed.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn bounds(&self) -> (BitIdx<T::Mem>, BitEnd<T::Mem>) {
 		(self.head, self.tail)
 	}
 
 	/// Gets the bit-mask over all accessible bits.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn mask(&self) -> BitMask<T::Mem> {
 		self.mask
 	}
 
 	/// Converts the partial element into a bit-slice over its governed bits.
+	#[inline]
 	pub fn into_bitslice(self) -> Reference<'a, M, BitSlice<T, O>>
 	where Address<M, BitSlice<T, O>>: Referential<'a> {
 		unsafe {
@@ -782,6 +823,7 @@ where
 	/// ## Returns
 	///
 	/// The previous value of the governed bits.
+	#[inline]
 	pub fn store_value(&mut self, value: T::Mem) -> T::Mem {
 		let this = self.access();
 		let prev = this.clear_bits(self.mask);
@@ -794,6 +836,7 @@ where
 	/// ## Returns
 	///
 	/// The previous value of the governed bits.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn invert(&mut self) -> T::Mem {
 		self.access().invert_bits(self.mask) & self.mask.into_inner()
@@ -804,6 +847,7 @@ where
 	/// ## Returns
 	///
 	/// The previous value of the governed bits.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn clear(&mut self) -> T::Mem {
 		self.access().clear_bits(self.mask) & self.mask.into_inner()
@@ -814,6 +858,7 @@ where
 	/// ## Returns
 	///
 	/// The previous value of the governed bits.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn set(&mut self) -> T::Mem {
 		self.access().set_bits(self.mask) & self.mask.into_inner()
@@ -821,6 +866,7 @@ where
 
 	/// Produces a reference capable of tolerating other handles viewing the
 	/// same *memory element*.
+	#[inline]
 	fn access(&self) -> &T::Access {
 		unsafe { &*self.elem.to_const().cast::<T::Access>() }
 	}
@@ -834,6 +880,7 @@ where
 {
 	/// Performs a store operation on a partial-element whose bits might be
 	/// observed by another handle.
+	#[inline]
 	pub fn store_value_aliased(&self, value: T::Mem) -> T::Mem {
 		let this = unsafe { &*self.elem.to_const().cast::<T::Access>() };
 		let prev = this.clear_bits(self.mask);
@@ -849,6 +896,7 @@ where
 	O: BitOrder,
 	Address<Const, T>: Referential<'a>,
 {
+	#[inline]
 	fn clone(&self) -> Self {
 		*self
 	}
@@ -860,6 +908,7 @@ where
 	T: 'a + BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		write!(
 			fmt,
@@ -884,6 +933,7 @@ where
 	T: 'a + BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn hash<H>(&self, hasher: &mut H)
 	where H: Hasher {
 		self.load_value().hash(hasher);

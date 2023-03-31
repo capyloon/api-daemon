@@ -28,6 +28,7 @@ use wyz::{
 };
 
 /// Ensures that an address is well-aligned to its referent type width.
+#[inline]
 pub fn check_alignment<M, T>(
 	addr: Address<M, T>,
 ) -> Result<Address<M, T>, MisalignError<T>>
@@ -137,6 +138,7 @@ impl<T> MisalignError<T> {
 
 #[cfg(not(tarpaulin_include))]
 impl<T> Debug for MisalignError<T> {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		fmt.debug_tuple("MisalignError")
 			.field(&self.ptr.fmt_pointer())
@@ -147,6 +149,7 @@ impl<T> Debug for MisalignError<T> {
 
 #[cfg(not(tarpaulin_include))]
 impl<T> Display for MisalignError<T> {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		write!(
 			fmt,

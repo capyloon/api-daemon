@@ -1,0 +1,15 @@
+# Changelog
+## [0.5.0] - 2023-01-28
+### Breaking changes
+ - All public struct and enum are marked as `non_exhaustive`. Please check
+   https://doc.rust-lang.org/reference/attributes/type_system.html for more
+   detail. (53a4c4e)
+
+ - Removed the reexport `netlink-packet-core::utils`, please use
+   `netlink_packet_utils` directly. (a76010a)
+
+### New features
+ - N/A
+
+### Bug fixes
+ - N/A

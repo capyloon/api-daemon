@@ -70,7 +70,7 @@ impl Signals {
                         .map(|tokio_sig| (*sig, tokio_sig))
                         .map_err(|e| {
                             tracing::error!(
-                                "Can not initialize stream handler for {:?} err: {}",
+                                "can not initialize stream handler for {:?} err: {}",
                                 sig,
                                 e
                             )
@@ -96,7 +96,7 @@ impl Future for Signals {
         #[cfg(unix)]
         {
             for (sig, fut) in self.signals.iter_mut() {
-                if Pin::new(fut).poll_recv(cx).is_ready() {
+                if fut.poll_recv(cx).is_ready() {
                     trace!("{} received", sig);
                     return Poll::Ready(*sig);
                 }

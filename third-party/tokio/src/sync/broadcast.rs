@@ -4,7 +4,7 @@
 //! A [`Sender`] is used to broadcast values to **all** connected [`Receiver`]
 //! values. [`Sender`] handles are clone-able, allowing concurrent send and
 //! receive actions. [`Sender`] and [`Receiver`] are both `Send` and `Sync` as
-//! long as `T` is also `Send` or `Sync` respectively.
+//! long as `T` is `Send`.
 //!
 //! When a value is sent, **all** [`Receiver`] handles are notified and will
 //! receive the value. The value is stored once inside the channel and cloned on
@@ -17,6 +17,9 @@
 //! New [`Receiver`] handles are created by calling [`Sender::subscribe`]. The
 //! returned [`Receiver`] will receive values sent **after** the call to
 //! `subscribe`.
+//!
+//! This channel is also suitable for the single-producer multi-consumer
+//! use-case, where a single sender broadcasts values to many receivers.
 //!
 //! ## Lagging
 //!
@@ -50,6 +53,10 @@
 //! sent. At this point, the channel is "closed". Once a receiver has received
 //! all values retained by the channel, the next call to [`recv`] will return
 //! with [`RecvError::Closed`].
+//!
+//! When a [`Receiver`] handle is dropped, any messages not read by the receiver
+//! will be marked as read. If this receiver was the only one not to have read
+//! that message, the message will be dropped at this point.
 //!
 //! [`Sender`]: crate::sync::broadcast::Sender
 //! [`Sender::subscribe`]: crate::sync::broadcast::Sender::subscribe
@@ -230,7 +237,7 @@ pub mod error {
     ///
     /// [`recv`]: crate::sync::broadcast::Receiver::recv
     /// [`Receiver`]: crate::sync::broadcast::Receiver
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum RecvError {
         /// There are no more active senders implying no further messages will ever
         /// be sent.
@@ -258,7 +265,7 @@ pub mod error {
     ///
     /// [`try_recv`]: crate::sync::broadcast::Receiver::try_recv
     /// [`Receiver`]: crate::sync::broadcast::Receiver
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum TryRecvError {
         /// The channel is currently empty. There are still active
         /// [`Sender`] handles, so data may yet become available.
@@ -336,9 +343,6 @@ struct Slot<T> {
     /// Uniquely identifies the `send` stored in the slot.
     pos: u64,
 
-    /// True signals the channel is closed.
-    closed: bool,
-
     /// The value being broadcast.
     ///
     /// The value is set by `send` when the write lock is held. When a reader
@@ -359,6 +363,14 @@ struct Waiter {
 
     /// Should not be `Unpin`.
     _p: PhantomPinned,
+}
+
+generate_addr_of_methods! {
+    impl<> Waiter {
+        unsafe fn addr_of_pointers(self: NonNull<Self>) -> NonNull<linked_list::Pointers<Waiter>> {
+            &self.pointers
+        }
+    }
 }
 
 struct RecvGuard<'a, T> {
@@ -430,6 +442,7 @@ const MAX_RECEIVERS: usize = usize::MAX >> 2;
 ///
 /// This will panic if `capacity` is equal to `0` or larger
 /// than `usize::MAX / 2`.
+#[track_caller]
 pub fn channel<T: Clone>(mut capacity: usize) -> (Sender<T>, Receiver<T>) {
     assert!(capacity > 0, "capacity is empty");
     assert!(capacity <= usize::MAX >> 1, "requested capacity too large");
@@ -443,7 +456,6 @@ pub fn channel<T: Clone>(mut capacity: usize) -> (Sender<T>, Receiver<T>) {
         buffer.push(RwLock::new(Slot {
             rem: AtomicUsize::new(0),
             pos: (i as u64).wrapping_sub(capacity as u64),
-            closed: false,
             val: UnsafeCell::new(None),
         }));
     }
@@ -528,8 +540,43 @@ impl<T> Sender<T> {
     /// }
     /// ```
     pub fn send(&self, value: T) -> Result<usize, SendError<T>> {
-        self.send2(Some(value))
-            .map_err(|SendError(maybe_v)| SendError(maybe_v.unwrap()))
+        let mut tail = self.shared.tail.lock();
+
+        if tail.rx_cnt == 0 {
+            return Err(SendError(value));
+        }
+
+        // Position to write into
+        let pos = tail.pos;
+        let rem = tail.rx_cnt;
+        let idx = (pos & self.shared.mask as u64) as usize;
+
+        // Update the tail position
+        tail.pos = tail.pos.wrapping_add(1);
+
+        // Get the slot
+        let mut slot = self.shared.buffer[idx].write().unwrap();
+
+        // Track the position
+        slot.pos = pos;
+
+        // Set remaining receivers
+        slot.rem.with_mut(|v| *v = rem);
+
+        // Write the value
+        slot.val = UnsafeCell::new(Some(value));
+
+        // Release the slot lock before notifying the receivers.
+        drop(slot);
+
+        tail.notify_rx();
+
+        // Release the mutex. This must happen after the slot lock is released,
+        // otherwise the writer lock bit could be cleared while another thread
+        // is in the critical section.
+        drop(tail);
+
+        Ok(rem)
     }
 
     /// Creates a new [`Receiver`] handle that will receive values sent **after**
@@ -558,6 +605,97 @@ impl<T> Sender<T> {
     pub fn subscribe(&self) -> Receiver<T> {
         let shared = self.shared.clone();
         new_receiver(shared)
+    }
+
+    /// Returns the number of queued values.
+    ///
+    /// A value is queued until it has either been seen by all receivers that were alive at the time
+    /// it was sent, or has been evicted from the queue by subsequent sends that exceeded the
+    /// queue's capacity.
+    ///
+    /// # Note
+    ///
+    /// In contrast to [`Receiver::len`], this method only reports queued values and not values that
+    /// have been evicted from the queue before being seen by all receivers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokio::sync::broadcast;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let (tx, mut rx1) = broadcast::channel(16);
+    ///     let mut rx2 = tx.subscribe();
+    ///
+    ///     tx.send(10).unwrap();
+    ///     tx.send(20).unwrap();
+    ///     tx.send(30).unwrap();
+    ///
+    ///     assert_eq!(tx.len(), 3);
+    ///
+    ///     rx1.recv().await.unwrap();
+    ///
+    ///     // The len is still 3 since rx2 hasn't seen the first value yet.
+    ///     assert_eq!(tx.len(), 3);
+    ///
+    ///     rx2.recv().await.unwrap();
+    ///
+    ///     assert_eq!(tx.len(), 2);
+    /// }
+    /// ```
+    pub fn len(&self) -> usize {
+        let tail = self.shared.tail.lock();
+
+        let base_idx = (tail.pos & self.shared.mask as u64) as usize;
+        let mut low = 0;
+        let mut high = self.shared.buffer.len();
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let idx = base_idx.wrapping_add(mid) & self.shared.mask;
+            if self.shared.buffer[idx].read().unwrap().rem.load(SeqCst) == 0 {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+
+        self.shared.buffer.len() - low
+    }
+
+    /// Returns true if there are no queued values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokio::sync::broadcast;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let (tx, mut rx1) = broadcast::channel(16);
+    ///     let mut rx2 = tx.subscribe();
+    ///
+    ///     assert!(tx.is_empty());
+    ///
+    ///     tx.send(10).unwrap();
+    ///
+    ///     assert!(!tx.is_empty());
+    ///
+    ///     rx1.recv().await.unwrap();
+    ///
+    ///     // The queue is still not empty since rx2 hasn't seen the value.
+    ///     assert!(!tx.is_empty());
+    ///
+    ///     rx2.recv().await.unwrap();
+    ///
+    ///     assert!(tx.is_empty());
+    /// }
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        let tail = self.shared.tail.lock();
+
+        let idx = (tail.pos.wrapping_sub(1) & self.shared.mask as u64) as usize;
+        self.shared.buffer[idx].read().unwrap().rem.load(SeqCst) == 0
     }
 
     /// Returns the number of active receivers
@@ -601,49 +739,11 @@ impl<T> Sender<T> {
         tail.rx_cnt
     }
 
-    fn send2(&self, value: Option<T>) -> Result<usize, SendError<Option<T>>> {
+    fn close_channel(&self) {
         let mut tail = self.shared.tail.lock();
-
-        if tail.rx_cnt == 0 {
-            return Err(SendError(value));
-        }
-
-        // Position to write into
-        let pos = tail.pos;
-        let rem = tail.rx_cnt;
-        let idx = (pos & self.shared.mask as u64) as usize;
-
-        // Update the tail position
-        tail.pos = tail.pos.wrapping_add(1);
-
-        // Get the slot
-        let mut slot = self.shared.buffer[idx].write().unwrap();
-
-        // Track the position
-        slot.pos = pos;
-
-        // Set remaining receivers
-        slot.rem.with_mut(|v| *v = rem);
-
-        // Set the closed bit if the value is `None`; otherwise write the value
-        if value.is_none() {
-            tail.closed = true;
-            slot.closed = true;
-        } else {
-            slot.val.with_mut(|ptr| unsafe { *ptr = value });
-        }
-
-        // Release the slot lock before notifying the receivers.
-        drop(slot);
+        tail.closed = true;
 
         tail.notify_rx();
-
-        // Release the mutex. This must happen after the slot lock is released,
-        // otherwise the writer lock bit could be cleared while another thread
-        // is in the critical section.
-        drop(tail);
-
-        Ok(rem)
     }
 }
 
@@ -691,7 +791,7 @@ impl<T> Clone for Sender<T> {
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
         if 1 == self.shared.num_tx.fetch_sub(1, SeqCst) {
-            let _ = self.send2(None);
+            self.close_channel();
         }
     }
 }
@@ -726,7 +826,7 @@ impl<T> Receiver<T> {
     ///     assert_eq!(rx1.len(), 2);
     ///     assert_eq!(rx1.recv().await.unwrap(), 10);
     ///     assert_eq!(rx1.len(), 1);
-    ///     assert_eq!(rx1.recv().await.unwrap(), 20);     
+    ///     assert_eq!(rx1.recv().await.unwrap(), 20);
     ///     assert_eq!(rx1.len(), 0);
     /// }
     /// ```
@@ -756,7 +856,7 @@ impl<T> Receiver<T> {
     ///
     ///     assert!(!rx1.is_empty());
     ///     assert_eq!(rx1.recv().await.unwrap(), 10);
-    ///     assert_eq!(rx1.recv().await.unwrap(), 20);     
+    ///     assert_eq!(rx1.recv().await.unwrap(), 20);
     ///     assert!(rx1.is_empty());
     /// }
     /// ```
@@ -775,14 +875,6 @@ impl<T> Receiver<T> {
         let mut slot = self.shared.buffer[idx].read().unwrap();
 
         if slot.pos != self.next {
-            let next_pos = slot.pos.wrapping_add(self.shared.buffer.len() as u64);
-
-            // The receiver has read all current values in the channel and there
-            // is no waiter to register
-            if waiter.is_none() && next_pos == self.next {
-                return Err(TryRecvError::Empty);
-            }
-
             // Release the `slot` lock before attempting to acquire the `tail`
             // lock. This is required because `send2` acquires the tail lock
             // first followed by the slot lock. Acquiring the locks in reverse
@@ -804,6 +896,13 @@ impl<T> Receiver<T> {
                 let next_pos = slot.pos.wrapping_add(self.shared.buffer.len() as u64);
 
                 if next_pos == self.next {
+                    // At this point the channel is empty for *this* receiver. If
+                    // it's been closed, then that's what we return, otherwise we
+                    // set a waker and return empty.
+                    if tail.closed {
+                        return Err(TryRecvError::Closed);
+                    }
+
                     // Store the waker
                     if let Some((waiter, waker)) = waiter {
                         // Safety: called while locked.
@@ -837,22 +936,7 @@ impl<T> Receiver<T> {
                 // catch up by skipping dropped messages and setting the
                 // internal cursor to the **oldest** message stored by the
                 // channel.
-                //
-                // However, finding the oldest position is a bit more
-                // complicated than `tail-position - buffer-size`. When
-                // the channel is closed, the tail position is incremented to
-                // signal a new `None` message, but `None` is not stored in the
-                // channel itself (see issue #2425 for why).
-                //
-                // To account for this, if the channel is closed, the tail
-                // position is decremented by `buffer-size + 1`.
-                let mut adjust = 0;
-                if tail.closed {
-                    adjust = 1
-                }
-                let next = tail
-                    .pos
-                    .wrapping_sub(self.shared.buffer.len() as u64 + adjust);
+                let next = tail.pos.wrapping_sub(self.shared.buffer.len() as u64);
 
                 let missed = next.wrapping_sub(self.next);
 
@@ -872,10 +956,6 @@ impl<T> Receiver<T> {
         }
 
         self.next = self.next.wrapping_add(1);
-
-        if slot.closed {
-            return Err(TryRecvError::Closed);
-        }
 
         Ok(RecvGuard { slot })
     }
@@ -1139,8 +1219,8 @@ unsafe impl linked_list::Link for Waiter {
         ptr
     }
 
-    unsafe fn pointers(mut target: NonNull<Waiter>) -> NonNull<linked_list::Pointers<Waiter>> {
-        NonNull::from(&mut target.as_mut().pointers)
+    unsafe fn pointers(target: NonNull<Waiter>) -> NonNull<linked_list::Pointers<Waiter>> {
+        Waiter::addr_of_pointers(target)
     }
 }
 

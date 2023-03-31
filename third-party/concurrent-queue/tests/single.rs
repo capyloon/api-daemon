@@ -1,3 +1,5 @@
+#![allow(clippy::bool_assert_comparison)]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use concurrent_queue::{ConcurrentQueue, PopError, PushError};
@@ -60,7 +62,7 @@ fn close() {
 
 #[test]
 fn spsc() {
-    const COUNT: usize = 100_000;
+    const COUNT: usize = if cfg!(miri) { 100 } else { 100_000 };
 
     let q = ConcurrentQueue::bounded(1);
 
@@ -86,7 +88,7 @@ fn spsc() {
 
 #[test]
 fn mpmc() {
-    const COUNT: usize = 25_000;
+    const COUNT: usize = if cfg!(miri) { 100 } else { 25_000 };
     const THREADS: usize = 1;
 
     let q = ConcurrentQueue::<usize>::bounded(THREADS);
@@ -117,7 +119,8 @@ fn mpmc() {
 
 #[test]
 fn drops() {
-    const RUNS: usize = 100;
+    const RUNS: usize = if cfg!(miri) { 20 } else { 100 };
+    const STEPS: usize = if cfg!(miri) { 100 } else { 10_000 };
 
     static DROPS: AtomicUsize = AtomicUsize::new(0);
 
@@ -131,7 +134,7 @@ fn drops() {
     }
 
     for _ in 0..RUNS {
-        let steps = fastrand::usize(..10_000);
+        let steps = fastrand::usize(..STEPS);
         let additional = fastrand::usize(0..=1);
 
         DROPS.store(0, Ordering::SeqCst);
@@ -164,7 +167,7 @@ fn drops() {
 
 #[test]
 fn linearizable() {
-    const COUNT: usize = 25_000;
+    const COUNT: usize = if cfg!(miri) { 500 } else { 25_000 };
     const THREADS: usize = 4;
 
     let q = ConcurrentQueue::bounded(1);

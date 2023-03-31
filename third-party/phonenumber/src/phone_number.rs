@@ -17,8 +17,6 @@ use std::fmt;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
-
 use crate::carrier::Carrier;
 use crate::country;
 use crate::error;
@@ -193,7 +191,7 @@ impl PhoneNumber {
     ///
     /// assert_eq!("030 123456", number);
     /// ```
-    pub fn format<'n>(&'n self) -> formatter::Formatter<'n, 'static, 'static> {
+    pub fn format(&self) -> formatter::Formatter<'_, 'static, 'static> {
         formatter::format(self)
     }
 
@@ -210,7 +208,6 @@ impl PhoneNumber {
     pub fn metadata<'a>(&self, database: &'a Database) -> Option<&'a Metadata> {
         match validator::source_for(database, self.code.value(), &self.national.to_string())? {
             Left(region) => database.by_id(region.as_ref()),
-
             Right(code) => database.by_code(&code).and_then(|m| m.into_iter().next()),
         }
     }
@@ -232,7 +229,7 @@ impl<'a> Country<'a> {
     }
 
     pub fn id(&self) -> Option<country::Id> {
-        self.0.metadata(&*DATABASE).map(|m| m.id().parse().unwrap())
+        self.0.metadata(&DATABASE).map(|m| m.id().parse().unwrap())
     }
 }
 

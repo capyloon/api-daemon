@@ -1,13 +1,13 @@
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc(
-    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/meta/master/logo.svg",
-    html_root_url = "https://docs.rs/base64ct/1.4.1"
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg"
 )]
 #![doc = include_str!("../README.md")]
 #![warn(
     clippy::integer_arithmetic,
+    clippy::mod_module_files,
     clippy::panic,
     clippy::panic_in_result_fn,
     clippy::unwrap_used,
@@ -90,6 +90,7 @@ pub use crate::{
     alphabet::{
         bcrypt::Base64Bcrypt,
         crypt::Base64Crypt,
+        shacrypt::Base64ShaCrypt,
         standard::{Base64, Base64Unpadded},
         url::{Base64Url, Base64UrlUnpadded},
     },

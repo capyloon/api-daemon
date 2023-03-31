@@ -94,6 +94,7 @@ where
 	///
 	/// This is the only safe way to access `(&self).ptr`. Do not perform field
 	/// access on `.ptr` through a reference except through this method.
+	#[inline]
 	fn get_addr(&self) -> Address<M, T> {
 		unsafe { ptr::addr_of!(self.ptr).read_unaligned() }
 	}
@@ -123,6 +124,7 @@ where
 	/// [`::from_ref()`]: Self::from_ref
 	/// [`::from_slice()`]: Self::from_slice
 	/// [`::from_slice_mut()`]: Self::from_slice_mut
+	#[inline]
 	pub fn new(
 		ptr: Address<M, T>,
 		bit: BitIdx<T::Mem>,
@@ -157,6 +159,7 @@ where
 	/// not specified.
 	///
 	/// [0]: crate::ptr::check_alignment.
+	#[inline]
 	pub unsafe fn new_unchecked(
 		ptr: Address<M, T>,
 		bit: BitIdx<T::Mem>,
@@ -174,11 +177,13 @@ where
 	}
 
 	/// Gets the address of the base storage element.
+	#[inline]
 	pub fn address(self) -> Address<M, T> {
 		self.get_addr()
 	}
 
 	/// Gets the `BitIdx` that selects the bit within the memory element.
+	#[inline]
 	pub fn bit(self) -> BitIdx<T::Mem> {
 		self.bit
 	}
@@ -194,6 +199,7 @@ where
 	/// - `.0`: The memory address in which the referent bit is located.
 	/// - `.1`: The index of the referent bit in `*.0` according to the `O` type
 	///   parameter.
+	#[inline]
 	pub fn raw_parts(self) -> (Address<M, T>, BitIdx<T::Mem>) {
 		(self.address(), self.bit())
 	}
@@ -256,6 +262,7 @@ where
 	}
 
 	/// Removes write permissions from a bit-pointer.
+	#[inline]
 	pub fn to_const(self) -> BitPtr<Const, T, O> {
 		let Self {
 			ptr: addr,
@@ -274,6 +281,7 @@ where
 	/// ## Safety
 	///
 	/// This pointer must have been derived from a `*mut` pointer.
+	#[inline]
 	pub unsafe fn to_mut(self) -> BitPtr<Mut, T, O> {
 		let Self {
 			ptr: addr,
@@ -312,6 +320,7 @@ where
 	O: BitOrder,
 {
 	/// Constructs a `BitPtr` to the zeroth bit in a single element.
+	#[inline]
 	pub fn from_ref(elem: &T) -> Self {
 		unsafe { Self::new_unchecked(elem.into(), BitIdx::MIN) }
 	}
@@ -323,6 +332,7 @@ where
 	/// ensures that the returned bit-pointer has provenance over the entire
 	/// slice. Indexing within a slice narrows the provenance range, and makes
 	/// departure from the subslice, *even within the original slice*, illegal.
+	#[inline]
 	pub fn from_slice(slice: &[T]) -> Self {
 		unsafe {
 			Self::new_unchecked(slice.as_ptr().into_address(), BitIdx::MIN)
@@ -330,6 +340,7 @@ where
 	}
 
 	/// Gets a raw pointer to the memory element containing the selected bit.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn pointer(&self) -> *const T {
 		self.get_addr().to_const()
@@ -342,6 +353,7 @@ where
 	O: BitOrder,
 {
 	/// Constructs a mutable `BitPtr` to the zeroth bit in a single element.
+	#[inline]
 	pub fn from_mut(elem: &mut T) -> Self {
 		unsafe { Self::new_unchecked(elem.into(), BitIdx::MIN) }
 	}
@@ -353,6 +365,7 @@ where
 	/// ensures that the returned bit-pointer has provenance over the entire
 	/// slice. Indexing within a slice narrows the provenance range, and makes
 	/// departure from the subslice, *even within the original slice*, illegal.
+	#[inline]
 	pub fn from_mut_slice(slice: &mut [T]) -> Self {
 		unsafe {
 			Self::new_unchecked(slice.as_mut_ptr().into_address(), BitIdx::MIN)
@@ -366,6 +379,7 @@ where
 	/// ensures that the returned bit-pointer has provenance over the entire
 	/// slice. Indexing within a slice narrows the provenance range, and makes
 	/// departure from the subslice, *even within the original slice*, illegal.
+	#[inline]
 	pub fn from_slice_mut(slice: &mut [T]) -> Self {
 		unsafe {
 			Self::new_unchecked(slice.as_mut_ptr().into_address(), BitIdx::MIN)
@@ -373,6 +387,7 @@ where
 	}
 
 	/// Gets a raw pointer to the memory location containing the selected bit.
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn pointer(&self) -> *mut T {
 		self.get_addr().to_mut()
@@ -394,6 +409,7 @@ where
 	/// ## Original
 	///
 	/// [`pointer::is_null`](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_null)
+	#[inline]
 	#[deprecated = "`BitPtr` is never null"]
 	pub fn is_null(self) -> bool {
 		false
@@ -411,6 +427,7 @@ where
 	/// ## Original
 	///
 	/// [`pointer::cast`](https://doc.rust-lang.org/std/primitive.pointer.html#method.cast)
+	#[inline]
 	pub fn cast<U>(self) -> BitPtr<M, U, O>
 	where U: BitStore {
 		let (addr, head, _) =
@@ -431,6 +448,7 @@ where
 	/// Prefer [`.raw_parts()`] until the original inherent stabilizes.
 	///
 	/// [`.raw_parts()`]: Self::raw_parts
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn to_raw_parts(self) -> (Address<M, T>, BitIdx<T::Mem>) {
 		self.raw_parts()
@@ -474,6 +492,7 @@ where
 	/// let val = unsafe { ptr.as_ref() }.unwrap();
 	/// assert!(*val);
 	/// ```
+	#[inline]
 	pub unsafe fn as_ref<'a>(self) -> Option<BitRef<'a, Const, T, O>> {
 		Some(BitRef::from_bitptr(self.to_const()))
 	}
@@ -521,6 +540,7 @@ where
 	/// ```
 	///
 	/// [`.wrapping_offset()`]: Self::wrapping_offset
+	#[inline]
 	#[must_use = "returns a new bit-pointer rather than modifying its argument"]
 	pub unsafe fn offset(self, count: isize) -> Self {
 		let (elts, head) = self.bit.offset(count);
@@ -580,6 +600,7 @@ where
 	///   ptr = ptr.wrapping_offset(3);
 	/// }
 	/// ```
+	#[inline]
 	#[must_use = "returns a new bit-pointer rather than modifying its argument"]
 	pub fn wrapping_offset(self, count: isize) -> Self {
 		let (elts, head) = self.bit.offset(count);
@@ -643,7 +664,7 @@ where
 	/// let a_ptr = BitPtr::<_, _, Lsb0>::from_ref(&a);
 	/// let b_ptr = BitPtr::<_, _, Lsb0>::from_ref(&b);
 	/// let diff = (b_ptr.pointer() as isize)
-	///   .wrapping_mul(a_ptr.pointer() as isize)
+	///   .wrapping_sub(a_ptr.pointer() as isize)
 	///   // Remember: raw pointers are byte-stepped,
 	///   // but bit-pointers are bit-stepped.
 	///   .wrapping_mul(8);
@@ -657,6 +678,7 @@ where
 	/// ```
 	///
 	/// [`.offset()`]: Self::offset
+	#[inline]
 	pub unsafe fn offset_from<U>(self, origin: BitPtr<M, U, O>) -> isize
 	where U: BitStore<Mem = T::Mem> {
 		self.get_addr()
@@ -679,6 +701,7 @@ where
 	/// ## Safety
 	///
 	/// See [`.offset()`](Self::offset).
+	#[inline]
 	#[must_use = "returns a new bit-pointer rather than modifying its argument"]
 	pub unsafe fn add(self, count: usize) -> Self {
 		self.offset(count as isize)
@@ -696,6 +719,7 @@ where
 	/// ## Safety
 	///
 	/// See [`.offset()`](Self::offset).
+	#[inline]
 	#[must_use = "returns a new bit-pointer rather than modifying its argument"]
 	pub unsafe fn sub(self, count: usize) -> Self {
 		self.offset((count as isize).wrapping_neg())
@@ -713,6 +737,7 @@ where
 	/// ## Safety
 	///
 	/// See [`.wrapping_offset()`](Self::wrapping_offset).
+	#[inline]
 	#[must_use = "returns a new bit-pointer rather than modifying its argument"]
 	pub fn wrapping_add(self, count: usize) -> Self {
 		self.wrapping_offset(count as isize)
@@ -731,6 +756,7 @@ where
 	/// ## Safety
 	///
 	/// See [`.wrapping_offset()`](Self::wrapping_offset).
+	#[inline]
 	#[must_use = "returns a new bit-pointer rather than modifying its argument"]
 	pub fn wrapping_sub(self, count: usize) -> Self {
 		self.wrapping_offset((count as isize).wrapping_neg())
@@ -745,8 +771,9 @@ where
 	/// ## Safety
 	///
 	/// See [`ptr::read`](crate::ptr::read).
+	#[inline]
 	pub unsafe fn read(self) -> bool {
-		(&*self.ptr.to_const()).load_value().get_bit::<O>(self.bit)
+		(*self.ptr.to_const()).load_value().get_bit::<O>(self.bit)
 	}
 
 	/// Reads the bit from `*self` using a volatile load.
@@ -764,6 +791,7 @@ where
 	/// See [`ptr::read_volatile`](crate::ptr::read_volatile).
 	///
 	/// [0]: https://docs.rs/voladdress/later/voladdress
+	#[inline]
 	pub unsafe fn read_volatile(self) -> bool {
 		self.ptr.to_const().read_volatile().get_bit::<O>(self.bit)
 	}
@@ -782,6 +810,7 @@ where
 	/// ## Safety
 	///
 	/// See [`ptr::read_unaligned`](crate::ptr::read_unaligned)
+	#[inline]
 	#[deprecated = "`BitPtr` does not have unaligned addresses"]
 	pub unsafe fn read_unaligned(self) -> bool {
 		self.ptr.to_const().read_unaligned().get_bit::<O>(self.bit)
@@ -801,6 +830,7 @@ where
 	/// ## Safety
 	///
 	/// See [`ptr::copy`](crate::ptr::copy).
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub unsafe fn copy_to<T2, O2>(self, dest: BitPtr<Mut, T2, O2>, count: usize)
 	where
@@ -820,6 +850,7 @@ where
 	/// ## Safety
 	///
 	/// See [`ptr::copy_nonoverlapping`](crate::ptr::copy_nonoverlapping).
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub unsafe fn copy_to_nonoverlapping<T2, O2>(
 		self,
@@ -889,6 +920,7 @@ where
 	///
 	/// [`.add()`]: Self::add
 	/// [`.wrapping_add()`]: Self::wrapping_add
+	#[inline]
 	pub fn align_offset(self, align: usize) -> usize {
 		let width = mem::bits_of::<T::Mem>();
 		match (
@@ -955,6 +987,7 @@ where
 	/// ```
 	///
 	/// [`.commit()`]: crate::ptr::BitRef::commit
+	#[inline]
 	pub unsafe fn as_mut<'a>(self) -> Option<BitRef<'a, Mut, T, O>> {
 		Some(BitRef::from_bitptr(self))
 	}
@@ -977,6 +1010,7 @@ where
 	/// See [`ptr::copy`].
 	///
 	/// [`ptr::copy`]: crate::ptr::copy
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub unsafe fn copy_from<T2, O2>(
 		self,
@@ -1008,6 +1042,7 @@ where
 	/// See [`ptr::copy_nonoverlapping`].
 	///
 	/// [`.copy_from()`]: Self::copy_from
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub unsafe fn copy_from_nonoverlapping<T2, O2>(
 		self,
@@ -1033,6 +1068,7 @@ where
 	/// See [`ptr::drop_in_place`].
 	///
 	/// [`ptr::drop_in_place`]: crate::ptr::drop_in_place
+	#[inline]
 	#[deprecated = "this has no effect, and should not be called"]
 	pub fn drop_in_place(self) {}
 
@@ -1047,6 +1083,7 @@ where
 	/// See [`ptr::write`].
 	///
 	/// [`ptr::write`]: crate::ptr::write
+	#[inline]
 	pub unsafe fn write(self, value: bool) {
 		self.replace(value);
 	}
@@ -1079,6 +1116,8 @@ where
 	///
 	/// [`ptr::write_volatile`]: crate::ptr::write_volatile
 	/// [`voladdr`]: https://docs.rs/voladdr/latest/voladdr
+	#[inline]
+	#[allow(clippy::needless_borrow)] // Clippy is wrong.
 	pub unsafe fn write_volatile(self, value: bool) {
 		let ptr = self.ptr.to_mut();
 		let mut tmp = ptr.read_volatile();
@@ -1101,6 +1140,8 @@ where
 	/// See [`ptr::write_unaligned`].
 	///
 	/// [`ptr::write_unaligned`]: crate::ptr::write_unaligned
+	#[inline]
+	#[allow(clippy::needless_borrow)] // Clippy is wrong.
 	#[deprecated = "`BitPtr` does not have unaligned addresses"]
 	pub unsafe fn write_unaligned(self, value: bool) {
 		let ptr = self.ptr.to_mut();
@@ -1121,6 +1162,7 @@ where
 	/// See [`ptr::replace`].
 	///
 	/// [`ptr::replace`]: crate::ptr::replace
+	#[inline]
 	pub unsafe fn replace(self, value: bool) -> bool {
 		self.freeze().frozen_write_bit(value)
 	}
@@ -1136,6 +1178,7 @@ where
 	/// See [`ptr::swap`].
 	///
 	/// [`ptr::swap`]: crate::ptr::swap
+	#[inline]
 	pub unsafe fn swap<T2, O2>(self, with: BitPtr<Mut, T2, O2>)
 	where
 		T2: BitStore,
@@ -1157,7 +1200,7 @@ where
 	/// This is used to allow `BitPtr<Const, _, AliasSafe<T>>` pointers, which
 	/// are not `Mut` but may still modify memory, to do so.
 	pub(crate) unsafe fn frozen_write_bit(self, value: bool) -> bool {
-		(&*self.ptr.cast::<T::Access>().to_const())
+		(*self.ptr.cast::<T::Access>().to_const())
 			.write_bit::<O>(self.bit, value)
 	}
 }
@@ -1169,6 +1212,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn clone(&self) -> Self {
 		Self {
 			ptr: self.get_addr(),
@@ -1191,6 +1235,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn cmp(&self, other: &Self) -> cmp::Ordering {
 		self.partial_cmp(other).expect(
 			"BitPtr has a total ordering when type parameters are identical",
@@ -1225,6 +1270,7 @@ where
 	T2: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn partial_cmp(&self, other: &BitPtr<M2, T2, O>) -> Option<cmp::Ordering> {
 		if !dvl::match_store::<T1::Mem, T2::Mem>() {
 			return None;
@@ -1246,6 +1292,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn from(elem: &T) -> Self {
 		Self::from_ref(elem)
 	}
@@ -1257,6 +1304,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn from(elem: &mut T) -> Self {
 		Self::from_mut(elem)
 	}
@@ -1269,6 +1317,7 @@ where
 {
 	type Error = BitPtrError<T>;
 
+	#[inline]
 	fn try_from(elem: *const T) -> Result<Self, Self::Error> {
 		elem.try_conv::<Address<Const, T>>()?
 			.pipe(|ptr| Self::new(ptr, BitIdx::MIN))?
@@ -1283,6 +1332,7 @@ where
 {
 	type Error = BitPtrError<T>;
 
+	#[inline]
 	fn try_from(elem: *mut T) -> Result<Self, Self::Error> {
 		elem.try_conv::<Address<Mut, T>>()?
 			.pipe(|ptr| Self::new(ptr, BitIdx::MIN))?
@@ -1296,6 +1346,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		write!(
 			fmt,
@@ -1314,6 +1365,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		fmt.debug_tuple("")
 			.field(&self.get_addr().fmt_pointer())
@@ -1329,6 +1381,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn hash<H>(&self, state: &mut H)
 	where H: Hasher {
 		self.get_addr().hash(state);
@@ -1360,6 +1413,7 @@ where T: BitStore
 impl<T> From<MisalignError<T>> for BitPtrError<T>
 where T: BitStore
 {
+	#[inline]
 	fn from(err: MisalignError<T>) -> Self {
 		Self::Misaligned(err)
 	}
@@ -1369,6 +1423,7 @@ where T: BitStore
 impl<T> From<NullPtrError> for BitPtrError<T>
 where T: BitStore
 {
+	#[inline]
 	fn from(err: NullPtrError) -> Self {
 		Self::Null(err)
 	}

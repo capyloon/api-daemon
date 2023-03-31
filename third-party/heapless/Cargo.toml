@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "heapless"
-version = "0.7.14"
+version = "0.7.16"
 authors = [
     "Jorge Aparicio <jorge@japaric.io>",
     "Per Lindgren <per.lindgren@ltu.se>",
@@ -20,6 +20,7 @@ authors = [
 ]
 description = "`static` friendly data structures that don't require dynamic memory allocation"
 documentation = "https://docs.rs/heapless"
+readme = "README.md"
 keywords = [
     "static",
     "no-heap",

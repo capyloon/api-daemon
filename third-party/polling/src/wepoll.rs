@@ -2,13 +2,16 @@
 
 use std::convert::TryInto;
 use std::io;
-use std::os::windows::io::RawSocket;
+use std::os::raw::c_int;
+use std::os::windows::io::{AsRawHandle, RawHandle, RawSocket};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+#[cfg(not(polling_no_io_safety))]
+use std::os::windows::io::{AsHandle, BorrowedHandle};
+
 use wepoll_ffi as we;
-use winapi::ctypes;
 
 use crate::Event;
 
@@ -39,7 +42,16 @@ impl Poller {
     pub fn new() -> io::Result<Poller> {
         let handle = unsafe { we::epoll_create1(0) };
         if handle.is_null() {
-            return Err(io::Error::last_os_error());
+            return Err(io::Error::new(
+                #[cfg(not(polling_no_unsupported_error_kind))]
+                io::ErrorKind::Unsupported,
+                #[cfg(polling_no_unsupported_error_kind)]
+                io::ErrorKind::Other,
+                format!(
+                    "Failed to initialize Wepoll: {}\nThis usually only happens for old Windows or Wine.",
+                    io::Error::last_os_error()
+                )
+            ));
         }
         let notified = AtomicBool::new(false);
         log::trace!("new: handle={:?}", handle);
@@ -97,7 +109,7 @@ impl Poller {
             events.len = wepoll!(epoll_wait(
                 self.handle,
                 events.list.as_mut_ptr(),
-                events.list.len() as ctypes::c_int,
+                events.list.len() as c_int,
                 timeout_ms,
             ))? as usize;
             log::trace!("new events: handle={:?}, len={}", self.handle, events.len);
@@ -126,8 +138,8 @@ impl Poller {
                 //
                 // The original wepoll does not support notifications triggered this way, which is
                 // why wepoll-sys includes a small patch to support them.
-                winapi::um::ioapiset::PostQueuedCompletionStatus(
-                    self.handle as winapi::um::winnt::HANDLE,
+                windows_sys::Win32::System::IO::PostQueuedCompletionStatus(
+                    self.handle as _,
                     0,
                     0,
                     ptr::null_mut(),
@@ -149,18 +161,34 @@ impl Poller {
             }
             we::epoll_event {
                 events: flags as u32,
-                data: we::epoll_data { u64_: ev.key as u64 },
+                data: we::epoll_data {
+                    u64_: ev.key as u64,
+                },
             }
         });
         wepoll!(epoll_ctl(
             self.handle,
-            op as ctypes::c_int,
+            op as c_int,
             sock as we::SOCKET,
             ev.as_mut()
                 .map(|ev| ev as *mut we::epoll_event)
                 .unwrap_or(ptr::null_mut()),
         ))?;
         Ok(())
+    }
+}
+
+impl AsRawHandle for Poller {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.handle as RawHandle
+    }
+}
+
+#[cfg(not(polling_no_io_safety))]
+impl AsHandle for Poller {
+    fn as_handle(&self) -> BorrowedHandle<'_> {
+        // SAFETY: lifetime is bound by "self"
+        unsafe { BorrowedHandle::borrow_raw(self.as_raw_handle()) }
     }
 }
 
@@ -181,7 +209,7 @@ const WRITE_FLAGS: u32 = we::EPOLLOUT | we::EPOLLHUP | we::EPOLLERR;
 
 /// A list of reported I/O events.
 pub struct Events {
-    list: Box<[we::epoll_event]>,
+    list: Box<[we::epoll_event; 1024]>,
     len: usize,
 }
 
@@ -194,10 +222,8 @@ impl Events {
             events: 0,
             data: we::epoll_data { u64_: 0 },
         };
-        Events {
-            list: vec![ev; 1000].into_boxed_slice(),
-            len: 0,
-        }
+        let list = Box::new([ev; 1024]);
+        Events { list, len: 0 }
     }
 
     /// Iterates over I/O events.

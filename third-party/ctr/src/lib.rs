@@ -37,7 +37,7 @@
 //! }
 //! assert_eq!(buf[..], plaintext[..]);
 //!
-//! // CTR mode supports seeking
+//! // CTR mode supports seeking. The parameter is zero-based _bytes_ counter (not _blocks_).
 //! cipher.seek(0u32);
 //!
 //! // encrypt/decrypt from buffer to buffer
@@ -58,9 +58,8 @@
 
 #![no_std]
 #![doc(
-    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/26acc39f/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/26acc39f/logo.svg",
-    html_root_url = "https://docs.rs/ctr/0.9.1"
+    html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg"
 )]
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]

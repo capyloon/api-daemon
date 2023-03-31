@@ -7,7 +7,10 @@ use core::{
 		Debug,
 		Formatter,
 	},
-	iter::FusedIterator,
+	iter::{
+		FusedIterator,
+		Map,
+	},
 	marker::PhantomData,
 	mem,
 };
@@ -44,6 +47,7 @@ where
 	type IntoIter = Iter<'a, T, O>;
 	type Item = <Self::IntoIter as Iterator>::Item;
 
+	#[inline]
 	fn into_iter(self) -> Self::IntoIter {
 		Iter::new(self)
 	}
@@ -59,6 +63,7 @@ where
 	type IntoIter = IterMut<'a, T, O>;
 	type Item = <Self::IntoIter as Iterator>::Item;
 
+	#[inline]
 	fn into_iter(self) -> Self::IntoIter {
 		IterMut::new(self)
 	}
@@ -116,11 +121,13 @@ where
 	/// assert!(!*iter.nth(1).unwrap());
 	/// assert_eq!(iter.as_bitslice(), bits![1, 1]);
 	/// ```
+	#[inline]
 	#[allow(missing_docs, clippy::missing_docs_in_private_items)]
 	pub fn as_bitslice(&self) -> &'a BitSlice<T, O> {
 		unsafe { self.range.clone().into_bitspan().into_bitslice_ref() }
 	}
 
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[deprecated = "use `.as_bitslice()` instead"]
 	#[allow(missing_docs, clippy::missing_docs_in_private_items)]
@@ -149,13 +156,8 @@ where
 	/// ```
 	///
 	/// [0]: crate::ptr::BitRef
-	pub fn by_refs(
-		self,
-	) -> impl 'a
-	+ Iterator<Item = &'a bool>
-	+ DoubleEndedIterator
-	+ ExactSizeIterator
-	+ FusedIterator {
+	#[inline]
+	pub fn by_refs(self) -> BitRefIter<'a, T, O> {
 		self.by_vals().map(|bit| match bit {
 			true => &true,
 			false => &false,
@@ -195,14 +197,12 @@ where
 	/// ```
 	///
 	/// [0]: crate::ptr::BitRef
-	pub fn by_vals(
-		self,
-	) -> impl 'a
-	+ Iterator<Item = bool>
-	+ DoubleEndedIterator
-	+ ExactSizeIterator
-	+ FusedIterator {
-		self.range.map(|bp| unsafe { bp.read() })
+	#[inline]
+	pub fn by_vals(self) -> BitValIter<'a, T, O> {
+		BitValIter {
+			range: self.range,
+			_life: PhantomData,
+		}
 	}
 
 	/// Yields `bool` values directly, rather than [proxy references][0].
@@ -217,16 +217,11 @@ where
 	/// [`Iterator::copied`]: core::iter::Iterator::copied
 	/// [`.by_vals()`]: Self::by_vals
 	/// [0]: crate::ptr::BitRef
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[deprecated = "`Iterator::copied` does not exist on this type. Use \
 	                `.by_vals()` instead"]
-	pub fn copied(
-		self,
-	) -> impl 'a
-	+ Iterator<Item = bool>
-	+ DoubleEndedIterator
-	+ ExactSizeIterator
-	+ FusedIterator {
+	pub fn copied(self) -> BitValIter<'a, T, O> {
 		self.by_vals()
 	}
 }
@@ -238,6 +233,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn clone(&self) -> Self {
 		Self {
 			range: self.range.clone(),
@@ -253,6 +249,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn as_ref(&self) -> &BitSlice<T, O> {
 		self.as_bitslice()
 	}
@@ -265,6 +262,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		fmt.debug_tuple("Iter").field(&self.as_bitslice()).finish()
 	}
@@ -323,11 +321,13 @@ where
 	/// assert_eq!(iter.into_bitslice(), bits![0, 1, 1]);
 	/// assert!(bits[0]);
 	/// ```
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn into_bitslice(self) -> &'a mut BitSlice<T::Alias, O> {
 		unsafe { self.range.into_bitspan().into_bitslice_mut() }
 	}
 
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[deprecated = "use `.into_bitslice()` instead"]
 	#[allow(missing_docs, clippy::missing_docs_in_private_items)]
@@ -361,11 +361,13 @@ where
 	///
 	/// assert_eq!(bits, bits![1, 1, 0, 0]);
 	/// ```
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn as_bitslice(&self) -> &BitSlice<T::Alias, O> {
 		unsafe { self.range.clone().into_bitspan().into_bitslice_ref() }
 	}
 
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[deprecated = "use `.as_bitslice()` instead"]
 	#[allow(missing_docs, clippy::missing_docs_in_private_items)]
@@ -381,6 +383,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn as_ref(&self) -> &BitSlice<T::Alias, O> {
 		self.as_bitslice()
 	}
@@ -393,6 +396,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		fmt.debug_tuple("IterMut")
 			.field(&self.as_bitslice())
@@ -412,10 +416,12 @@ macro_rules! iter {
 		{
 			type Item = $item;
 
+			#[inline]
 			fn next(&mut self) -> Option<Self::Item> {
 				self.range.next().map(|bp| unsafe { BitRef::from_bitptr(bp) })
 			}
 
+			#[inline]
 			fn nth(&mut self, n: usize) -> Option<Self::Item> {
 				self.range.nth(n).map(|bp| unsafe { BitRef::from_bitptr(bp) })
 			}
@@ -430,12 +436,14 @@ macro_rules! iter {
 			T: 'a + BitStore,
 			O: BitOrder,
 		{
+			#[inline]
 			fn next_back(&mut self) -> Option<Self::Item> {
 				self.range
 					.next_back()
 					.map(|bp| unsafe { BitRef::from_bitptr(bp) })
 			}
 
+			#[inline]
 			fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
 				self.range
 					.nth_back(n)
@@ -450,6 +458,7 @@ macro_rules! iter {
 			T: BitStore,
 			O: BitOrder,
 		{
+			#[inline]
 			fn len(&self) -> usize {
 				self.range.len()
 			}
@@ -510,8 +519,10 @@ macro_rules! group {
 		{
 			type Item = $item;
 
+			#[inline]
 			$next
 
+			#[inline]
 			$nth
 
 			easy_iter!();
@@ -522,8 +533,10 @@ macro_rules! group {
 			T: BitStore,
 			O: BitOrder,
 		{
+			#[inline]
 			$next_back
 
+			#[inline]
 			$nth_back
 		}
 
@@ -532,6 +545,7 @@ macro_rules! group {
 			T: BitStore,
 			O: BitOrder,
 		{
+			#[inline]
 			$len
 		}
 
@@ -543,6 +557,43 @@ macro_rules! group {
 		}
 	};
 }
+
+/// An iterator over `BitSlice` that yields `&bool` directly.
+pub type BitRefIter<'a, T, O> = Map<BitValIter<'a, T, O>, fn(bool) -> &'a bool>;
+
+/// An iterator over `BitSlice` that yields `bool` directly.
+pub struct BitValIter<'a, T, O>
+where
+	T: 'a + BitStore,
+	O: BitOrder,
+{
+	/// The start and end bit-pointers in the iteration region.
+	range: BitPtrRange<Const, T, O>,
+	/// Hold the lifetime of the source region, so that this does not cause UAF.
+	_life: PhantomData<&'a BitSlice<T, O>>,
+}
+
+group!(BitValIter => bool {
+	fn next(&mut self) -> Option<Self::Item> {
+		self.range.next().map(|bp| unsafe { bp.read() })
+	}
+
+	fn nth(&mut self, n: usize) -> Option<Self::Item> {
+		self.range.nth(n).map(|bp| unsafe { bp.read() })
+	}
+
+	fn next_back(&mut self) -> Option<Self::Item> {
+		self.range.next_back().map(|bp| unsafe { bp.read() })
+	}
+
+	fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+		self.range.nth_back(n).map(|bp| unsafe { bp.read() })
+	}
+
+	fn len(&self) -> usize {
+		self.range.len()
+	}
+});
 
 #[derive(Clone, Debug)]
 #[doc = include_str!("../../doc/slice/iter/Windows.md")]
@@ -829,6 +880,7 @@ where
 	/// ## Original
 	///
 	/// [`ChunksExact::remainder`](core::slice::ChunksExact::remainder)
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn remainder(&self) -> &'a BitSlice<T, O> {
 		self.extra
@@ -933,6 +985,7 @@ where
 	/// [`ChunksExactMut::into_remainder`][0]
 	///
 	/// [0]: core::slice::ChunksExactMut::into_remainder
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn into_remainder(self) -> &'a mut BitSlice<T::Alias, O> {
 		self.extra
@@ -954,6 +1007,7 @@ where
 	/// assert_eq!(chunks.take_remainder(), bits![0; 2]);
 	/// assert!(chunks.take_remainder().is_empty());
 	/// ```
+	#[inline]
 	pub fn take_remainder(&mut self) -> &'a mut BitSlice<T::Alias, O> {
 		mem::take(&mut self.extra)
 	}
@@ -1237,6 +1291,7 @@ where
 	/// ## Original
 	///
 	/// [`RChunksExact::remainder`](core::slice::RChunksExact::remainder)
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn remainder(&self) -> &'a BitSlice<T, O> {
 		self.extra
@@ -1341,6 +1396,7 @@ where
 	/// [`RChunksExactMut::into_remainder`][0]
 	///
 	/// [0]: core::slice::RChunksExactMut::into_remainder
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	pub fn into_remainder(self) -> &'a mut BitSlice<T::Alias, O> {
 		self.extra
@@ -1362,6 +1418,7 @@ where
 	/// assert_eq!(chunks.take_remainder(), bits![0; 2]);
 	/// assert!(chunks.take_remainder().is_empty());
 	/// ```
+	#[inline]
 	pub fn take_remainder(&mut self) -> &'a mut BitSlice<T::Alias, O> {
 		mem::take(&mut self.extra)
 	}
@@ -1436,6 +1493,7 @@ macro_rules! new_group {
 			T: 'a + BitStore,
 			O: BitOrder,
 		{
+			#[inline]
 			#[allow(missing_docs, clippy::missing_docs_in_private_items)]
 			pub(super) fn new(
 				slice: &'a $($m)? BitSlice<T, O>,
@@ -1485,6 +1543,7 @@ macro_rules! split {
 			O: BitOrder,
 			P: FnMut(usize, &bool) -> bool,
 		{
+			#[inline]
 			fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 				fmt.debug_struct(stringify!($iter))
 					.field("slice", &self.slice)
@@ -1501,8 +1560,10 @@ macro_rules! split {
 		{
 			type Item = $item;
 
+			#[inline]
 			$next
 
+			#[inline]
 			fn size_hint(&self) -> (usize, Option<usize>) {
 				if self.done {
 					(0, Some(0))
@@ -1519,6 +1580,7 @@ macro_rules! split {
 			O: BitOrder,
 			P: FnMut(usize, &bool) -> bool,
 		{
+			#[inline]
 			$next_back
 		}
 
@@ -1536,6 +1598,7 @@ macro_rules! split {
 			O: BitOrder,
 			P: FnMut(usize, &bool) -> bool,
 		{
+			#[inline]
 			fn finish(&mut self) -> Option<Self::Item> {
 				if self.done {
 					None
@@ -1797,7 +1860,7 @@ split!(SplitInclusiveMut => &'a mut BitSlice<T::Alias, O> {
 			mem::take(&mut self.slice)
 				.split_at_unchecked_mut_noalias(idx)
 		};
-		self.slice =  rest;
+		self.slice = rest;
 		Some(out)
 	}
 });
@@ -1961,6 +2024,7 @@ macro_rules! split_n {
 			O: BitOrder,
 			P: FnMut(usize, &bool) -> bool,
 		{
+			#[inline]
 			#[allow(missing_docs, clippy::missing_docs_in_private_items)]
 			pub(super) fn new(
 				slice: $item,
@@ -1998,6 +2062,7 @@ macro_rules! split_n {
 		{
 			type Item = <$inner <'a, T, O, P> as Iterator>::Item;
 
+			#[inline]
 			fn next(&mut self) -> Option<Self::Item> {
 				match self.count {
 					0 => None,
@@ -2012,6 +2077,7 @@ macro_rules! split_n {
 				}
 			}
 
+			#[inline]
 			fn size_hint(&self) -> (usize, Option<usize>) {
 				let (low, hi) = self.inner.size_hint();
 				(low, hi.map(|h| cmp::min(h, self.count)).or(Some(self.count)))
@@ -2055,6 +2121,7 @@ where
 	T: 'a + BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	#[allow(missing_docs, clippy::missing_docs_in_private_items)]
 	pub(super) fn new(slice: &'a BitSlice<T, O>) -> Self {
 		Self {
@@ -2069,6 +2136,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn default() -> Self {
 		Self {
 			inner: Default::default(),
@@ -2086,6 +2154,7 @@ where
 
 	easy_iter!();
 
+	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
 		let pos = if let Some(bits) = self.inner.coerce::<T, Lsb0>() {
 			bits.sp_first_one()
@@ -2121,6 +2190,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn next_back(&mut self) -> Option<Self::Item> {
 		let pos = if let Some(bits) = self.inner.coerce::<T, Lsb0>() {
 			bits.sp_last_one()
@@ -2151,6 +2221,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn len(&self) -> usize {
 		self.inner.count_ones()
 	}
@@ -2196,6 +2267,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn default() -> Self {
 		Self {
 			inner: Default::default(),
@@ -2213,6 +2285,7 @@ where
 
 	easy_iter!();
 
+	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
 		let pos = if let Some(bits) = self.inner.coerce::<T, Lsb0>() {
 			bits.sp_first_zero()
@@ -2245,6 +2318,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn next_back(&mut self) -> Option<Self::Item> {
 		let pos = if let Some(bits) = self.inner.coerce::<T, Lsb0>() {
 			bits.sp_last_zero()
@@ -2350,6 +2424,7 @@ macro_rules! noalias {
 			///
 			/// [`T::Alias`]: crate::store::BitStore::Alias
 			/// [`T::Mem`]: crate::store::BitStore::Mem
+			#[inline]
 			#[must_use = "You must consume this object, preferably immediately \
 			              upon creation"]
 			pub unsafe fn remove_alias(self) -> $to<'a, T, O$(, $p)?> {
@@ -2365,22 +2440,27 @@ macro_rules! noalias {
 		{
 			type Item = $item;
 
+			#[inline]
 			fn next(&mut self) -> Option<Self::Item> {
 				self.inner.next().map(|item| unsafe { $map(item) })
 			}
 
+			#[inline]
 			fn nth(&mut self, n: usize) -> Option<Self::Item> {
 				self.inner.nth(n).map(|item| unsafe { $map(item) })
 			}
 
+			#[inline]
 			fn size_hint(&self) -> (usize, Option<usize>) {
 				self.inner.size_hint()
 			}
 
+			#[inline]
 			fn count(self) -> usize {
 				self.inner.count()
 			}
 
+			#[inline]
 			fn last(self) -> Option<Self::Item> {
 				self.inner.last().map(|item| unsafe { $map(item) })
 			}
@@ -2393,10 +2473,12 @@ macro_rules! noalias {
 			$($p: FnMut(usize, &bool) -> bool,)?
 			$from<'a, T, O$(, $p)?>: DoubleEndedIterator<Item = $alias>,
 		{
+			#[inline]
 			fn next_back(&mut self) -> Option<Self::Item> {
 				self.inner.next_back().map(|item| unsafe { $map(item) })
 			}
 
+			#[inline]
 			fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
 				self.inner.nth_back(n).map(|item| unsafe { $map(item) })
 			}
@@ -2409,6 +2491,7 @@ macro_rules! noalias {
 			$($p: FnMut(usize, &bool) -> bool,)?
 			$from<'a, T, O$(, $p)?>: ExactSizeIterator,
 		{
+			#[inline]
 			fn len(&self) -> usize {
 				self.inner.len()
 			}
@@ -2475,6 +2558,7 @@ where
 	/// See [`ChunksExactMut::into_remainder()`][0].
 	///
 	/// [0]: crate::slice::ChunksExactMut::into_remainder
+	#[inline]
 	pub fn into_remainder(self) -> &'a mut BitSlice<T, O> {
 		unsafe { BitSlice::unalias_mut(self.inner.into_remainder()) }
 	}
@@ -2482,6 +2566,7 @@ where
 	/// See [`ChunksExactMut::take_remainder()`][0]
 	///
 	/// [0]: crate::slice::ChunksExactMut::take_remainder
+	#[inline]
 	pub fn take_remainder(&mut self) -> &'a mut BitSlice<T, O> {
 		unsafe { BitSlice::unalias_mut(self.inner.take_remainder()) }
 	}
@@ -2495,6 +2580,7 @@ where
 	/// See [`RChunksExactMut::into_remainder()`][0]
 	///
 	/// [0]: crate::slice::RChunksExactMut::into_remainder
+	#[inline]
 	pub fn into_remainder(self) -> &'a mut BitSlice<T, O> {
 		unsafe { BitSlice::unalias_mut(self.inner.into_remainder()) }
 	}
@@ -2502,6 +2588,7 @@ where
 	/// See [`RChunksExactMut::take_remainder()`][0]
 	///
 	/// [0]:  crate::slice::RChunksExactMut::take_remainder
+	#[inline]
 	pub fn take_remainder(&mut self) -> &'a mut BitSlice<T, O> {
 		unsafe { BitSlice::unalias_mut(self.inner.take_remainder()) }
 	}

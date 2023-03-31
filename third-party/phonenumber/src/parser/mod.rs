@@ -35,7 +35,7 @@ pub fn parse<S: AsRef<str>>(
     country: Option<country::Id>,
     string: S,
 ) -> Result<PhoneNumber, error::Parse> {
-    parse_with(&*DATABASE, country, string)
+    parse_with(&DATABASE, country, string)
 }
 
 /// Parse a phone number using a specific `Database`.
@@ -100,12 +100,6 @@ mod test {
     use crate::national_number::NationalNumber;
     use crate::parser;
     use crate::phone_number::PhoneNumber;
-
-    #[test]
-    fn panic_issue_43() {
-        let res = parser::parse(None, " 2 22#:");
-        assert!(res.is_err());
-    }
 
     #[test]
     fn parse() {
@@ -291,5 +285,11 @@ mod test {
             },
             parser::parse(Some(country::BR), "012 3121286979").unwrap()
         );
+    }
+
+    #[test]
+    fn issue_43() {
+        let res = parser::parse(None, " 2 22#:");
+        assert!(res.is_err());
     }
 }

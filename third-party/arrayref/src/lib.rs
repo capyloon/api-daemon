@@ -105,10 +105,10 @@ macro_rules! array_ref {
 macro_rules! array_refs {
     ( $arr:expr, $( $pre:expr ),* ; .. ;  $( $post:expr ),* ) => {{
         {
-            use std::slice;
+            use core::slice;
             #[inline]
             #[allow(unused_assignments)]
-            #[allow(eval_order_dependence)]
+            #[allow(clippy::eval_order_dependence)]
             unsafe fn as_arrays<T>(a: &[T]) -> ( $( &[T; $pre], )* &[T],  $( &[T; $post], )*) {
                 let min_len = $( $pre + )* $( $post + )* 0;
                 let var_len = a.len() - min_len;
@@ -116,17 +116,17 @@ macro_rules! array_refs {
                 let mut p = a.as_ptr();
                 ( $( {
                     let aref = & *(p as *const [T; $pre]);
-                    p = p.offset($pre as isize);
+                    p = p.add($pre);
                     aref
-                } ),* , {
+                }, )* {
                     let sl = slice::from_raw_parts(p as *const T, var_len);
-                    p = p.offset(var_len as isize);
+                    p = p.add(var_len);
                     sl
                 }, $( {
                     let aref = & *(p as *const [T; $post]);
-                    p = p.offset($post as isize);
+                    p = p.add($post);
                     aref
-                } ),*)
+                }, )*)
             }
             let input = $arr;
             #[allow(unused_unsafe)]
@@ -139,14 +139,14 @@ macro_rules! array_refs {
         {
             #[inline]
             #[allow(unused_assignments)]
-            #[allow(eval_order_dependence)]
+            #[allow(clippy::eval_order_dependence)]
             unsafe fn as_arrays<T>(a: &[T; $( $len + )* 0 ]) -> ( $( &[T; $len], )* ) {
                 let mut p = a.as_ptr();
                 ( $( {
                     let aref = &*(p as *const [T; $len]);
                     p = p.offset($len as isize);
                     aref
-                } ),* )
+                }, )* )
             }
             let input = $arr;
             #[allow(unused_unsafe)]
@@ -202,10 +202,10 @@ macro_rules! array_refs {
 macro_rules! mut_array_refs {
     ( $arr:expr, $( $pre:expr ),* ; .. ;  $( $post:expr ),* ) => {{
         {
-            use std::slice;
+            use core::slice;
             #[inline]
             #[allow(unused_assignments)]
-            #[allow(eval_order_dependence)]
+            #[allow(clippy::eval_order_dependence)]
             unsafe fn as_arrays<T>(a: &mut [T]) -> ( $( &mut [T; $pre], )* &mut [T],  $( &mut [T; $post], )*) {
                 let min_len = $( $pre + )* $( $post + )* 0;
                 let var_len = a.len() - min_len;
@@ -213,17 +213,17 @@ macro_rules! mut_array_refs {
                 let mut p = a.as_mut_ptr();
                 ( $( {
                     let aref = &mut *(p as *mut [T; $pre]);
-                    p = p.offset($pre as isize);
+                    p = p.add($pre);
                     aref
-                } ),* , {
+                }, )* {
                     let sl = slice::from_raw_parts_mut(p as *mut T, var_len);
-                    p = p.offset(var_len as isize);
+                    p = p.add(var_len);
                     sl
                 }, $( {
                     let aref = &mut *(p as *mut [T; $post]);
-                    p = p.offset($post as isize);
+                    p = p.add($post);
                     aref
-                } ),*)
+                }, )*)
             }
             let input = $arr;
             #[allow(unused_unsafe)]
@@ -236,14 +236,14 @@ macro_rules! mut_array_refs {
         {
             #[inline]
             #[allow(unused_assignments)]
-            #[allow(eval_order_dependence)]
+            #[allow(clippy::eval_order_dependence)]
             unsafe fn as_arrays<T>(a: &mut [T; $( $len + )* 0 ]) -> ( $( &mut [T; $len], )* ) {
                 let mut p = a.as_mut_ptr();
                 ( $( {
                     let aref = &mut *(p as *mut [T; $len]);
-                    p = p.offset($len as isize);
+                    p = p.add($len);
                     aref
-                } ),* )
+                }, )* )
             }
             let input = $arr;
             #[allow(unused_unsafe)]
@@ -297,6 +297,7 @@ macro_rules! array_mut_ref {
 }
 
 
+#[allow(clippy::all)]
 #[cfg(test)]
 mod test {
 
@@ -473,4 +474,29 @@ fn test_5_mut_xarray_refs_with_dotdot() {
     assert_eq!(&[10;10], array_ref![data, 118, 10]);
 }
 
+#[forbid(clippy::ptr_offset_with_cast)]
+#[test]
+fn forbidden_clippy_lints_do_not_fire() {
+    let mut data = [0u8; 32];
+    let _ = array_refs![&data, 8; .. ;];
+    let _ = mut_array_refs![&mut data, 8; .. ; 10];
+}
+
+#[test]
+fn single_arg_refs() {
+    let mut data = [0u8; 8];
+    let (_, ) = array_refs![&data, 8];
+    let (_, ) = mut_array_refs![&mut data, 8];
+
+    let (_, _) = array_refs![&data, 4; ..;];
+    let (_, _) = mut_array_refs![&mut data, 4; ..;];
+
+    let (_, _) = array_refs![&data,; ..; 4];
+    let (_, _) = mut_array_refs![&mut data,; ..; 4];
+
+    let (_,) = array_refs![&data,; ..;];
+    let (_,) = mut_array_refs![&mut data,; ..;];
+}
+
 } // mod test
+

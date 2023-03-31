@@ -15,8 +15,6 @@
 use std::fmt;
 use std::ops::Deref;
 
-use serde::{Deserialize, Serialize};
-
 /// A phone number extension.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
 pub struct Extension(pub(crate) String);

@@ -19,7 +19,7 @@ use actix_rt::time::{sleep, Sleep};
 use actix_service::Service;
 use ahash::AHashMap;
 use futures_core::future::LocalBoxFuture;
-use futures_util::FutureExt;
+use futures_util::FutureExt as _;
 use http::uri::Authority;
 use pin_project_lite::pin_project;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -97,7 +97,7 @@ where
     type Target = ConnectionPoolInnerPriv<Io>;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 

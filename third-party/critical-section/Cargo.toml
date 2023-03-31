@@ -12,37 +12,22 @@
 [package]
 edition = "2018"
 name = "critical-section"
-version = "0.2.7"
-authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
-description = "Critical section abstraction"
+version = "1.1.1"
+description = "Cross-platform critical section"
 readme = "README.md"
-categories = ["embedded", "no-std", "concurrency"]
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/embassy-rs/critical-section"
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
-[dependencies.bare-metal]
-version = "1.0.0"
-
-[dependencies.cfg-if]
-version = "1.0.0"
+repository = "https://github.com/rust-embedded/critical-section"
 
 [features]
-custom-impl = []
-[target."cfg(target_arch = \"riscv32\")".dependencies.riscv]
-version = "0.7.0"
-[target.thumbv6m-none-eabi.dependencies.cortex-m]
-version = "0.7.2"
-[target.thumbv7em-none-eabi.dependencies.cortex-m]
-version = "0.7.2"
-[target.thumbv7em-none-eabihf.dependencies.cortex-m]
-version = "0.7.2"
-[target.thumbv7m-none-eabi.dependencies.cortex-m]
-version = "0.7.2"
-[target."thumbv8m.base-none-eabi".dependencies.cortex-m]
-version = "0.7.2"
-[target."thumbv8m.main-none-eabi".dependencies.cortex-m]
-version = "0.7.2"
-[target."thumbv8m.main-none-eabihf".dependencies.cortex-m]
-version = "0.7.2"
+restore-state-bool = []
+restore-state-none = []
+restore-state-u16 = []
+restore-state-u32 = []
+restore-state-u64 = []
+restore-state-u8 = []
+std = ["restore-state-bool"]

@@ -250,4 +250,13 @@ impl ResourceStore for FileStore {
             .transformer
             .transform_from(Box::new(BufReader::new(file))))
     }
+
+    async fn get_native_path(&self, id: &ResourceId, variant: &str) -> Option<PathBuf> {
+        let path = self.variant_path(id, variant);
+        if path.exists().await {
+            Some(path)
+        } else {
+            None
+        }
+    }
 }

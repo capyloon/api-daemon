@@ -73,11 +73,13 @@ where
 	};
 
 	/// Explicitly converts a `Range<BitPtr>` into a `BitPtrRange`.
+	#[inline]
 	pub fn from_range(Range { start, end }: Range<BitPtr<M, T, O>>) -> Self {
 		Self { start, end }
 	}
 
 	/// Explicitly converts a `BitPtrRange` into a `Range<BitPtr>`.
+	#[inline]
 	pub fn into_range(self) -> Range<BitPtr<M, T, O>> {
 		let Self { start, end } = self;
 		start .. end
@@ -107,6 +109,7 @@ where
 	/// assert!(range.is_empty());
 	/// assert_eq!(range.start, range.end);
 	/// ```
+	#[inline]
 	pub fn is_empty(&self) -> bool {
 		self.start == self.end
 	}
@@ -149,6 +152,7 @@ where
 	/// Casting to a different `BitStore` type whose `Mem` parameter differs
 	/// from the range always results in a `false` response, even if the pointer
 	/// being tested is numerically within the range.
+	#[inline]
 	pub fn contains<M2, T2>(&self, pointer: &BitPtr<M2, T2, O>) -> bool
 	where
 		M2: Mutability,
@@ -176,6 +180,7 @@ where
 	/// Snapshots `.start`, then increments it.
 	///
 	/// This method is only safe to call when the range is non-empty.
+	#[inline]
 	fn take_front(&mut self) -> BitPtr<M, T, O> {
 		let start = self.start;
 		self.start = start.wrapping_add(1);
@@ -187,6 +192,7 @@ where
 	/// The bit-pointer returned by this method is always to an alive bit.
 	///
 	/// This method is only safe to call when the range is non-empty.
+	#[inline]
 	fn take_back(&mut self) -> BitPtr<M, T, O> {
 		let prev = self.end.wrapping_sub(1);
 		self.end = prev;
@@ -201,6 +207,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn clone(&self) -> Self {
 		Self { ..*self }
 	}
@@ -223,6 +230,7 @@ where
 	T1: BitStore,
 	T2: BitStore,
 {
+	#[inline]
 	fn eq(&self, other: &BitPtrRange<M2, T2, O>) -> bool {
 		//  Pointers over different element types are never equal
 		dvl::match_store::<T1::Mem, T2::Mem>()
@@ -238,6 +246,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn default() -> Self {
 		Self::EMPTY
 	}
@@ -250,6 +259,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn from(range: Range<BitPtr<M, T, O>>) -> Self {
 		Self::from_range(range)
 	}
@@ -262,6 +272,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn from(range: BitPtrRange<M, T, O>) -> Self {
 		range.into_range()
 	}
@@ -274,6 +285,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		let Range { start, end } = self.clone().into_range();
 		Debug::fmt(&start, fmt)?;
@@ -289,6 +301,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn hash<H>(&self, state: &mut H)
 	where H: Hasher {
 		self.start.hash(state);
@@ -306,6 +319,7 @@ where
 
 	easy_iter!();
 
+	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
 		if Self::is_empty(&*self) {
 			return None;
@@ -313,6 +327,7 @@ where
 		Some(self.take_front())
 	}
 
+	#[inline]
 	fn nth(&mut self, n: usize) -> Option<Self::Item> {
 		if n >= self.len() {
 			self.start = self.end;
@@ -329,6 +344,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn next_back(&mut self) -> Option<Self::Item> {
 		if Self::is_empty(&*self) {
 			return None;
@@ -336,6 +352,7 @@ where
 		Some(self.take_back())
 	}
 
+	#[inline]
 	fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
 		if n >= self.len() {
 			self.end = self.start;
@@ -353,6 +370,7 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn len(&self) -> usize {
 		(unsafe { self.end.offset_from(self.start) }) as usize
 	}
@@ -373,10 +391,12 @@ where
 	T: BitStore,
 	O: BitOrder,
 {
+	#[inline]
 	fn start_bound(&self) -> Bound<&BitPtr<M, T, O>> {
 		Bound::Included(&self.start)
 	}
 
+	#[inline]
 	fn end_bound(&self) -> Bound<&BitPtr<M, T, O>> {
 		Bound::Excluded(&self.end)
 	}

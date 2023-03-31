@@ -36,13 +36,6 @@ members = [
 [patch.crates-io]
 # Use our fork with the extra feature for vhost
 zip = {path = "support/zip"}
-# For the sha-1 update
-pest = {git = "https://github.com/fabricedesre/pest.git"}
-pest_derive = {git = "https://github.com/fabricedesre/pest.git"}
-pest_generator = {git = "https://github.com/fabricedesre/pest.git"}
-pest_meta = {git = "https://github.com/fabricedesre/pest.git"}
-# For the zeroize version bump
-x25519-dalek = {git = "https://github.com/capyloon/x25519-dalek.git" }
 
 [profile.release]
 codegen-units = 1

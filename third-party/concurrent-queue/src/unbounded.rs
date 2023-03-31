@@ -1,12 +1,14 @@
-use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
-use std::ptr;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
-use std::thread;
+use alloc::boxed::Box;
+use core::mem::MaybeUninit;
+use core::ptr;
 
-use cache_padded::CachePadded;
+use crossbeam_utils::CachePadded;
 
-use crate::{PopError, PushError};
+use crate::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use crate::sync::cell::UnsafeCell;
+#[allow(unused_imports)]
+use crate::sync::prelude::*;
+use crate::{busy_wait, PopError, PushError};
 
 // Bits indicating the state of a slot:
 // * If a value has been written into the slot, `WRITE` is set.
@@ -37,15 +39,40 @@ struct Slot<T> {
 }
 
 impl<T> Slot<T> {
+    #[cfg(not(loom))]
     const UNINIT: Slot<T> = Slot {
         value: UnsafeCell::new(MaybeUninit::uninit()),
         state: AtomicUsize::new(0),
     };
 
+    #[cfg(not(loom))]
+    fn uninit_block() -> [Slot<T>; BLOCK_CAP] {
+        [Self::UNINIT; BLOCK_CAP]
+    }
+
+    #[cfg(loom)]
+    fn uninit_block() -> [Slot<T>; BLOCK_CAP] {
+        // Repeat this expression 31 times.
+        // Update if we change BLOCK_CAP
+        macro_rules! repeat_31 {
+            ($e: expr) => {
+                [
+                    $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e,
+                    $e, $e, $e, $e, $e, $e, $e, $e, $e, $e, $e,
+                ]
+            };
+        }
+
+        repeat_31!(Slot {
+            value: UnsafeCell::new(MaybeUninit::uninit()),
+            state: AtomicUsize::new(0),
+        })
+    }
+
     /// Waits until a value is written into the slot.
     fn wait_write(&self) {
         while self.state.load(Ordering::Acquire) & WRITE == 0 {
-            thread::yield_now();
+            busy_wait();
         }
     }
 }
@@ -66,7 +93,7 @@ impl<T> Block<T> {
     fn new() -> Block<T> {
         Block {
             next: AtomicPtr::new(ptr::null_mut()),
-            slots: [Slot::UNINIT; BLOCK_CAP],
+            slots: Slot::uninit_block(),
         }
     }
 
@@ -77,7 +104,7 @@ impl<T> Block<T> {
             if !next.is_null() {
                 return next;
             }
-            thread::yield_now();
+            busy_wait();
         }
     }
 
@@ -152,7 +179,7 @@ impl<T> Unbounded<T> {
 
             // If we reached the end of the block, wait until the next one is installed.
             if offset == BLOCK_CAP {
-                thread::yield_now();
+                busy_wait();
                 tail = self.tail.index.load(Ordering::Acquire);
                 block = self.tail.block.load(Ordering::Acquire);
                 continue;
@@ -172,8 +199,8 @@ impl<T> Unbounded<T> {
                 if self
                     .tail
                     .block
-                    .compare_and_swap(block, new, Ordering::Release)
-                    == block
+                    .compare_exchange(block, new, Ordering::Release, Ordering::Relaxed)
+                    .is_ok()
                 {
                     self.head.block.store(new, Ordering::Release);
                     block = new;
@@ -205,7 +232,9 @@ impl<T> Unbounded<T> {
 
                     // Write the value into the slot.
                     let slot = (*block).slots.get_unchecked(offset);
-                    slot.value.get().write(MaybeUninit::new(value));
+                    slot.value.with_mut(|slot| {
+                        slot.write(MaybeUninit::new(value));
+                    });
                     slot.state.fetch_or(WRITE, Ordering::Release);
                     return Ok(());
                 },
@@ -228,7 +257,7 @@ impl<T> Unbounded<T> {
 
             // If we reached the end of the block, wait until the next one is installed.
             if offset == BLOCK_CAP {
-                thread::yield_now();
+                busy_wait();
                 head = self.head.index.load(Ordering::Acquire);
                 block = self.head.block.load(Ordering::Acquire);
                 continue;
@@ -258,7 +287,7 @@ impl<T> Unbounded<T> {
 
             // The block can be null here only if the first push operation is in progress.
             if block.is_null() {
-                thread::yield_now();
+                busy_wait();
                 head = self.head.index.load(Ordering::Acquire);
                 block = self.head.block.load(Ordering::Acquire);
                 continue;
@@ -287,7 +316,7 @@ impl<T> Unbounded<T> {
                     // Read the value.
                     let slot = (*block).slots.get_unchecked(offset);
                     slot.wait_write();
-                    let value = slot.value.get().read().assume_init();
+                    let value = slot.value.with_mut(|slot| slot.read().assume_init());
 
                     // Destroy the block if we've reached the end, or if another thread wanted to
                     // destroy but couldn't because we were busy reading from the slot.
@@ -371,38 +400,49 @@ impl<T> Unbounded<T> {
 
 impl<T> Drop for Unbounded<T> {
     fn drop(&mut self) {
-        let mut head = self.head.index.load(Ordering::Relaxed);
-        let mut tail = self.tail.index.load(Ordering::Relaxed);
-        let mut block = self.head.block.load(Ordering::Relaxed);
+        let Self { head, tail } = self;
+        let Position { index: head, block } = &mut **head;
 
-        // Erase the lower bits.
-        head &= !((1 << SHIFT) - 1);
-        tail &= !((1 << SHIFT) - 1);
+        head.with_mut(|&mut mut head| {
+            tail.index.with_mut(|&mut mut tail| {
+                // Erase the lower bits.
+                head &= !((1 << SHIFT) - 1);
+                tail &= !((1 << SHIFT) - 1);
 
-        unsafe {
-            // Drop all values between `head` and `tail` and deallocate the heap-allocated blocks.
-            while head != tail {
-                let offset = (head >> SHIFT) % LAP;
+                unsafe {
+                    // Drop all values between `head` and `tail` and deallocate the heap-allocated blocks.
+                    while head != tail {
+                        let offset = (head >> SHIFT) % LAP;
 
-                if offset < BLOCK_CAP {
-                    // Drop the value in the slot.
-                    let slot = (*block).slots.get_unchecked(offset);
-                    let value = slot.value.get().read().assume_init();
-                    drop(value);
-                } else {
-                    // Deallocate the block and move to the next one.
-                    let next = (*block).next.load(Ordering::Relaxed);
-                    drop(Box::from_raw(block));
-                    block = next;
+                        if offset < BLOCK_CAP {
+                            // Drop the value in the slot.
+                            block.with_mut(|block| {
+                                let slot = (**block).slots.get_unchecked(offset);
+                                slot.value.with_mut(|slot| {
+                                    let value = &mut *slot;
+                                    value.as_mut_ptr().drop_in_place();
+                                });
+                            });
+                        } else {
+                            // Deallocate the block and move to the next one.
+                            block.with_mut(|block| {
+                                let next_block = (**block).next.with_mut(|next| *next);
+                                drop(Box::from_raw(*block));
+                                *block = next_block;
+                            });
+                        }
+
+                        head = head.wrapping_add(1 << SHIFT);
+                    }
+
+                    // Deallocate the last remaining block.
+                    block.with_mut(|block| {
+                        if !block.is_null() {
+                            drop(Box::from_raw(*block));
+                        }
+                    });
                 }
-
-                head = head.wrapping_add(1 << SHIFT);
-            }
-
-            // Deallocate the last remaining block.
-            if !block.is_null() {
-                drop(Box::from_raw(block));
-            }
-        }
+            });
+        });
     }
 }

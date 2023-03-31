@@ -13,23 +13,38 @@
 edition = "2021"
 rust-version = "1.56"
 name = "aes"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["RustCrypto Developers"]
 description = "Pure Rust implementation of the Advanced Encryption Standard (a.k.a. Rijndael)"
 documentation = "https://docs.rs/aes"
 readme = "README.md"
-keywords = ["crypto", "aes", "rijndael", "block-cipher"]
-categories = ["cryptography", "no-std"]
+keywords = [
+    "crypto",
+    "aes",
+    "rijndael",
+    "block-cipher",
+]
+categories = [
+    "cryptography",
+    "no-std",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/RustCrypto/block-ciphers"
+resolver = "1"
+
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
 [dependencies.cfg-if]
 version = "1"
 
 [dependencies.cipher]
 version = "0.4.2"
+
 [dev-dependencies.cipher]
 version = "0.4.2"
 features = ["dev"]
@@ -39,6 +54,17 @@ version = "0.3"
 
 [features]
 hazmat = []
-zeroize = ["cipher/zeroize"]
+
+[target."cfg(all(aes_armv8, target_arch = \"aarch64\"))".dependencies.zeroize]
+version = "1.5.6"
+features = ["aarch64"]
+optional = true
+default_features = false
+
 [target."cfg(any(target_arch = \"aarch64\", target_arch = \"x86_64\", target_arch = \"x86\"))".dependencies.cpufeatures]
 version = "0.2"
+
+[target."cfg(not(all(aes_armv8, target_arch = \"aarch64\")))".dependencies.zeroize]
+version = "1.5.6"
+optional = true
+default_features = false
