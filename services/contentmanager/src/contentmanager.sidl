@@ -158,6 +158,9 @@ interface ContentStore {
     // Copy a resource to another container.
     // Returns the metadata of the copy.
     fn copy_resource(source: str, target: str) -> Metadata
+
+    // Get the native path for a resource variant.
+    fn native_path(id: str, variant: str) -> str
 }
 
 #[rust:shared-tracker]

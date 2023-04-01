@@ -15,7 +15,7 @@ chrono = "0.4"
 common = {path = "../../common"} 
 did-key = "0.2.1" 
 ed25519-zebra = "3.0" 
-hostname = "0.3" 
+hostname = "0.3"
 if-addrs = "0.7" # To match the version used in searchlight
 iroh = {version = "0.4", default-features = false} 
 lazy_static = "1.4" 

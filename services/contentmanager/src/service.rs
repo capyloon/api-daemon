@@ -1060,6 +1060,26 @@ impl ContentStoreMethods for ContentManagerService {
             responder.reject();
         }
     }
+
+    fn native_path(
+        &mut self,
+        responder: ContentStoreNativePathResponder,
+        id: String,
+        variant: String,
+    ) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+            match manager.get_native_path(&id.clone().into(), &variant).await {
+                Some(path) => responder.resolve(path.display().to_string()),
+                None => {
+                    println!("Failed to get native path for {} / {}", id, variant);
+                    responder.reject();
+                }
+            }
+        });
+    }
 }
 
 common::impl_shared_state!(ContentManagerService, State, Config);

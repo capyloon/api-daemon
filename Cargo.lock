@@ -1628,7 +1628,7 @@ dependencies = [
 [[package]]
 name = "costaeres"
 version = "0.1.3"
-source = "git+https://github.com/capyloon/costaeres.git#fccfb943e2b636cb37df774bc0018490f6da63c5"
+source = "git+https://github.com/capyloon/costaeres.git#8a7a2d6108d4963d56fdbba713bedc87ec4bb091"
 dependencies = [
  "actix-rt",
  "actix-web",
@@ -1906,7 +1906,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "powermanager_service",
  "procmanager_service",
- "rand 0.8.5",
+ "rand 0.7.3",
  "reqwest",
  "rusty-s3",
  "serde",

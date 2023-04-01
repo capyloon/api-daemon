@@ -25,7 +25,7 @@ use crate::indexer::Indexer;
 use crate::scorer::sqlite_frecency;
 use crate::scorer::VisitEntry;
 use crate::timer::Timer;
-use async_std::path::Path;
+use async_std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use libsqlite3_sys::{
     sqlite3_create_function, SQLITE_DETERMINISTIC, SQLITE_DIRECTONLY, SQLITE_INNOCUOUS, SQLITE_UTF8,
@@ -1284,5 +1284,10 @@ impl<T> Manager<T> {
         }
 
         Ok(new_meta)
+    }
+
+    /// Returns the native path of a resource variant.
+    pub async fn get_native_path(&self, id: &ResourceId, variant: &str) -> Option<PathBuf> {
+        self.store.get_native_path(id, variant).await
     }
 }
