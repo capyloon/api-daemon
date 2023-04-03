@@ -58,6 +58,8 @@ impl Collection {
 pub(crate) struct Blob {
     /// The name of this blob of data
     pub(crate) name: String,
+    /// The mime type of this blob of data, if known.
+    pub(crate) mime: Option<String>,
     /// The hash of the blob of data
     pub(crate) hash: Hash,
 }
@@ -75,6 +77,7 @@ mod tests {
             )
             .unwrap()
             .into(),
+            mime: Some("text/plain".into()),
         };
 
         let mut buf = bytes::BytesMut::zeroed(1024);

@@ -1906,7 +1906,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "powermanager_service",
  "procmanager_service",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reqwest",
  "rusty-s3",
  "serde",
@@ -2284,6 +2284,7 @@ dependencies = [
 name = "dweb_service"
 version = "0.1.0"
 dependencies = [
+ "actix-web",
  "anyhow",
  "async-std",
  "async-trait",
@@ -2293,6 +2294,7 @@ dependencies = [
  "common",
  "did-key",
  "ed25519-zebra",
+ "futures-core",
  "hostname",
  "if-addrs",
  "iroh",
@@ -2306,6 +2308,7 @@ dependencies = [
  "sqlite-utils",
  "thiserror",
  "tokio",
+ "tokio-util",
  "ucan",
  "ucan-key-support",
  "url",
@@ -3401,8 +3404,7 @@ checksum = "12b6ee2129af8d4fb011108c73d99a1b83a85977f23b82460c0ae2e25bb4b57f"
 [[package]]
 name = "iroh"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c019223f5af15f978ff44ae02b8b83d21d53df4c42d4475aa80670819c3ecdce"
+source = "git+https://github.com/capyloon/iroh.git?branch=capyloon#88d0e020e9f5fb340afe69b8f7be7c5a81e190ce"
 dependencies = [
  "abao",
  "anyhow",

@@ -309,6 +309,7 @@ pub fn start(
     telemetry: TelemetrySender,
 ) {
     use contentmanager_service::{cmgr_http::*, service::ContentManagerService};
+    use dweb_service::http::*;
 
     let config = global_context.config.clone();
     let port = config.general.port;
@@ -340,6 +341,11 @@ pub fn start(
                     .app_data(content_manager_data.clone())
                     .route("{tail}*", web::post().to(HttpResponse::MethodNotAllowed))
                     .route(RESOURCE_PATTERN, web::get().to(resource_handler)),
+            )
+            .service(
+                web::scope("/dweb")
+                    .route("{tail}*", web::post().to(HttpResponse::MethodNotAllowed))
+                    .route(TICKET_PATTERN, web::get().to(ticket_handler)),
             )
             .service(
                 web::scope("")

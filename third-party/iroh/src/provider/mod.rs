@@ -26,7 +26,7 @@ use quic_rpc::server::RpcChannel;
 use quic_rpc::transport::flume::FlumeConnection;
 use quic_rpc::transport::misc::DummyServerEndpoint;
 use quic_rpc::{RpcClient, RpcServer, ServiceConnection, ServiceEndpoint};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinError;
 use tokio_util::io::SyncIoBridge;
@@ -443,6 +443,14 @@ impl Provider {
     pub fn cancel_token(&self) -> CancellationToken {
         self.inner.cancel_token.clone()
     }
+
+    /// Add data sources to this provider
+    pub async fn add_sources(&self, data_sources: Vec<DataSource>) -> Result<Hash> {
+        let (db, hash) = create_collection_inner(data_sources, Progress::none()).await?;
+
+        self.inner.db.union_with(db);
+        Ok(hash)
+    }
 }
 
 /// The future completes when the spawned tokio task finishes.
@@ -516,7 +524,11 @@ impl RpcHandler {
                     }
                     let path = entry.into_path();
                     let name = canonicalize_path(path.strip_prefix(&root)?)?;
-                    anyhow::Ok(Some(DataSource::NamedFile { name, path }))
+                    anyhow::Ok(Some(DataSource::NamedFile {
+                        name,
+                        path,
+                        mime: None,
+                    }))
                 }
             });
             let data_sources: Vec<anyhow::Result<DataSource>> =
@@ -529,6 +541,7 @@ impl RpcHandler {
             vec![DataSource::NamedFile {
                 name: canonicalize_path(root.file_name().context("path must be a file")?)?,
                 path: root,
+                mime: None,
             }]
         };
         // create the collection
@@ -749,8 +762,7 @@ async fn transfer_collection(
     )
     .await?;
 
-    let mut data = BytesMut::from(&encoded[..]);
-    writer.write_buf(&mut data).await?;
+    writer.write_all(&encoded).await?;
     for (i, blob) in c.blobs().iter().enumerate() {
         debug!("writing blob {}/{}", i, c.blobs().len());
         tokio::task::yield_now().await;
@@ -931,7 +943,7 @@ pub(crate) struct Data {
 pub enum DataSource {
     /// A blob of data originating from the filesystem. The name of the blob is derived from
     /// the filename.
-    File(PathBuf),
+    File((PathBuf, Option<String>)),
     /// NamedFile is treated the same as [`DataSource::File`], except you can pass in a custom
     /// name. Passing in the empty string will explicitly _not_ persist the filename.
     NamedFile {
@@ -939,29 +951,31 @@ pub enum DataSource {
         name: String,
         /// Path to the file
         path: PathBuf,
+        /// Mime type of the file
+        mime: Option<String>,
     },
 }
 
 impl DataSource {
     /// Creates a new [`DataSource`] from a [`PathBuf`].
-    pub fn new(path: PathBuf) -> Self {
-        DataSource::File(path)
+    pub fn new(path: PathBuf, mime: Option<String>) -> Self {
+        DataSource::File((path, mime))
     }
     /// Creates a new [`DataSource`] from a [`PathBuf`] and a custom name.
-    pub fn with_name(path: PathBuf, name: String) -> Self {
-        DataSource::NamedFile { path, name }
+    pub fn with_name(path: PathBuf, name: String, mime: Option<String>) -> Self {
+        DataSource::NamedFile { path, name, mime }
     }
 }
 
 impl From<PathBuf> for DataSource {
     fn from(value: PathBuf) -> Self {
-        DataSource::new(value)
+        DataSource::new(value, None)
     }
 }
 
 impl From<&std::path::Path> for DataSource {
     fn from(value: &std::path::Path) -> Self {
-        DataSource::new(value.to_path_buf())
+        DataSource::new(value.to_path_buf(), None)
     }
 }
 
@@ -1048,9 +1062,9 @@ async fn create_collection_inner(
         .enumerate()
         .map(|(id, data)| {
             let id = id as u64;
-            let (path, name) = match data {
-                DataSource::File(path) => (path, None),
-                DataSource::NamedFile { path, name } => (path, Some(name)),
+            let (path, name, mime) = match data {
+                DataSource::File((path, mime)) => (path, None, mime),
+                DataSource::NamedFile { path, name, mime } => (path, Some(name), mime),
             };
             let size = path.metadata().unwrap().len();
             let find_progress = outboard_progress.clone();
@@ -1064,6 +1078,7 @@ async fn create_collection_inner(
                         name: pname,
                         id,
                         size,
+                        mime: mime.clone(),
                     })
                     .await?;
                 let rpath = path.clone();
@@ -1077,7 +1092,7 @@ async fn create_collection_inner(
                 done_progress
                     .send(ProvideProgress::Done { id, hash })
                     .await?;
-                anyhow::Ok((rpath, name, hash, outboard))
+                anyhow::Ok((rpath, name, mime, hash, outboard))
             }
         })
         // allow at most num_cpus tasks at a time, otherwise we might get too many open files
@@ -1095,7 +1110,7 @@ async fn create_collection_inner(
     outboards.sort();
 
     // insert outboards into the database and build collection
-    for (path, name, hash, outboard) in outboards {
+    for (path, name, mime, hash, outboard) in outboards {
         debug_assert!(outboard.len() >= 8, "outboard must at least contain size");
         let size = u64::from_le_bytes(outboard[..8].try_into().unwrap());
         db.insert(
@@ -1114,7 +1129,7 @@ async fn create_collection_inner(
                 .unwrap_or_default()
                 .to_string()
         });
-        blobs.push(Blob { name, hash });
+        blobs.push(Blob { name, hash, mime });
     }
 
     let c = Collection::new(blobs, total_blobs_size)?;
@@ -1209,6 +1224,7 @@ mod tests {
                 cblobs.push(Blob {
                     name: hash.to_string(),
                     hash,
+                    mime: None,
                 });
                 map.insert(
                     hash,
@@ -1265,28 +1281,31 @@ mod tests {
         // DataSource::File
         let foo = dir.join("foo");
         tokio::fs::write(&foo, vec![]).await?;
-        let foo = DataSource::new(foo);
+        let foo = DataSource::new(foo, Some("text/plain".to_owned()));
         expect_blobs.push(Blob {
             name: "foo".to_string(),
             hash,
+            mime: Some("text/plain".to_owned()),
         });
 
         // DataSource::NamedFile
         let bar = dir.join("bar");
         tokio::fs::write(&bar, vec![]).await?;
-        let bar = DataSource::with_name(bar, "bat".to_string());
+        let bar = DataSource::with_name(bar, "bat".to_string(), None);
         expect_blobs.push(Blob {
             name: "bat".to_string(),
             hash,
+            mime: None,
         });
 
         // DataSource::NamedFile, empty string name
         let baz = dir.join("baz");
         tokio::fs::write(&baz, vec![]).await?;
-        let baz = DataSource::with_name(baz, "".to_string());
+        let baz = DataSource::with_name(baz, "".to_string(), None);
         expect_blobs.push(Blob {
             name: "".to_string(),
             hash,
+            mime: None,
         });
 
         let expect_collection = Collection::new(expect_blobs, 0).unwrap();

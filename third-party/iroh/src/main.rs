@@ -372,8 +372,13 @@ where
     let mut mp = Some(ProvideProgressState::new());
     while let Some(item) = stream.next().await {
         match item? {
-            ProvideProgress::Found { name, id, size } => {
-                tracing::info!("Found({},{},{})", id, name, size);
+            ProvideProgress::Found {
+                name,
+                id,
+                size,
+                mime,
+            } => {
+                tracing::info!("Found({},{},{},{:?})", id, name, size, mime);
                 if let Some(mp) = mp.as_mut() {
                     mp.found(name.clone(), id, size);
                 }

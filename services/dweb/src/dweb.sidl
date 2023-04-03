@@ -177,7 +177,7 @@ interface Dweb {
 
     // Returns the full ticket to use to retrieve a file at that path
     // using iroh. 
-    fn broadcast_file(path: str) -> str
+    fn broadcast_file(path: str, mime: str?) -> str, str
 }
 
 service DwebService: Dweb

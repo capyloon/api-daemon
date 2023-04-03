@@ -61,7 +61,13 @@ mod tests {
         let num_files = [10, 100, 1000, 10000];
         for num in num_files {
             println!("NUM_FILES: {num}");
-            let file_opts = (0..num).map(|i| (i.to_string(), 10)).collect();
+            let file_opts = (0..num)
+                .map(|i| {
+                    // use a long file name to test large collections
+                    let name = i.to_string().repeat(50);
+                    (name, 10)
+                })
+                .collect();
             transfer_random_data(file_opts).await?;
         }
         Ok(())
@@ -114,7 +120,7 @@ mod tests {
         let expect_name = filename.to_string();
 
         let (db, hash) =
-            provider::create_collection(vec![provider::DataSource::File(path)]).await?;
+            provider::create_collection(vec![provider::DataSource::File((path, None))]).await?;
         let provider = provider::Provider::builder(db).bind_addr(addr).spawn()?;
 
         async fn run_client(
@@ -211,7 +217,7 @@ mod tests {
             let hash = Hash::from(hash);
 
             tokio::fs::write(&path, data).await?;
-            files.push(provider::DataSource::File(path.clone()));
+            files.push(provider::DataSource::File((path.clone(), None)));
 
             // keep track of expected values
             expects.push((name, path, hash));

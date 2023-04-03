@@ -6,6 +6,7 @@ name = "dweb_service"
 version = "0.1.0"
 
 [dependencies]
+actix-web = "4.3" 
 anyhow = "1.0" 
 async-std = {version = "1.9", features = ["attributes"]} 
 async-trait = "0.1" 
@@ -15,9 +16,10 @@ chrono = "0.4"
 common = {path = "../../common"} 
 did-key = "0.2.1" 
 ed25519-zebra = "3.0" 
-hostname = "0.3"
+futures-core = "0.3" 
+hostname = "0.3" 
 if-addrs = "0.7" # To match the version used in searchlight
-iroh = {version = "0.4", default-features = false} 
+iroh = {git = "https://github.com/capyloon/iroh.git", default-features = false, branch = "capyloon"} 
 lazy_static = "1.4" 
 log = "0.4" 
 parking_lot = "0.12" 
@@ -28,6 +30,7 @@ serde_json = "1.0"
 sqlite-utils = {path = "../../support/sqlite-utils"} 
 thiserror = "1.0" 
 tokio = "1" 
+tokio-util = "0.7" 
 ucan = "0.1" 
 ucan-key-support = "0.1" 
 url = "2.2" 

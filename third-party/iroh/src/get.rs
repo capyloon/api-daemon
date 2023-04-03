@@ -372,6 +372,90 @@ where
     }
 }
 
+/// Gets only the first blob in a collection from a provider on the established connection.
+pub async fn get_first_blob(
+    ticket: &Ticket,
+    keylog: bool,
+    max_concurrent: u8,
+) -> Result<(DataStream, Option<String>, u64)> {
+    let connection = dial_ticket(ticket, keylog, max_concurrent.into()).await?;
+    let (mut writer, mut reader) = connection.open_bi().await?;
+
+    let mut out_buffer = BytesMut::zeroed(std::cmp::max(
+        Request::POSTCARD_MAX_SIZE,
+        Handshake::POSTCARD_MAX_SIZE,
+    ));
+
+    // 1. Send Handshake
+    {
+        debug!("sending handshake");
+        let handshake = Handshake::new(ticket.token());
+        let used = postcard::to_slice(&handshake, &mut out_buffer)?;
+        write_lp(&mut writer, used).await?;
+    }
+
+    // 2. Send Request
+    {
+        debug!("sending request");
+        let req = Request {
+            name: ticket.hash(),
+        };
+
+        let used = postcard::to_slice(&req, &mut out_buffer)?;
+        write_lp(&mut writer, used).await?;
+    }
+    writer.finish().await?;
+    drop(writer);
+
+    // 3. Read response
+    {
+        debug!("reading response");
+        let mut in_buffer = BytesMut::with_capacity(1024);
+
+        // read next message
+        match read_lp(&mut reader, &mut in_buffer).await? {
+            Some(response_buffer) => {
+                let response: Response = postcard::from_bytes(&response_buffer)?;
+                match response.data {
+                    // server is sending over a collection of blobs
+                    Res::FoundCollection { .. } => {
+                        // read entire collection data into buffer
+                        let data = read_bao_encoded(&mut reader, ticket.hash()).await?;
+
+                        // decode the collection
+                        let collection = Collection::from_bytes(&data)?;
+                        if collection.total_entries() != 1 {
+                            bail!("Only single blob collections are supported.");
+                        }
+
+                        // expect to get blob data in the order they appear in the collection
+                        let blob = collection.into_inner().pop().unwrap();
+
+                        let mut blob_reader =
+                            handle_blob_response(blob.hash, reader, &mut in_buffer).await?;
+
+                        let size = blob_reader.read_size().await?;
+                        Ok((blob_reader, blob.mime, size))
+                    }
+
+                    // unexpected message
+                    Res::Found { .. } => {
+                        // we should only receive `Res::FoundCollection` or `Res::NotFound` from the
+                        // provider at this point in the exchange
+                        bail!("Unexpected message from provider. Ending transfer early.");
+                    }
+
+                    // data associated with the hash is not found
+                    Res::NotFound => Err(anyhow!("data not found")),
+                }
+            }
+            None => {
+                bail!("provider closed stream");
+            }
+        }
+    }
+}
+
 /// Read next response, and if `Res::Found`, reads the next blob of data off the reader.
 ///
 /// Returns an `AsyncReader`

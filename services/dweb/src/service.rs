@@ -41,6 +41,61 @@ fn new_session_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+#[derive(Default)]
+pub struct Iroh {
+    tickets: BTreeMap<String, Hash>, // The key is the shared path.
+    provider: Option<Provider>,      // Lazily instantiated provider.
+}
+
+impl Iroh {
+    async fn ensure_provider(&mut self) -> Result<(), String> {
+        if self.provider.is_some() {
+            return Ok(());
+        }
+
+        let (db, _hash) = create_collection(vec![])
+            .await
+            .map_err(|err| err.to_string())?;
+
+        self.provider = Some(
+            Builder::with_db(db)
+                .spawn()
+                .map_err(|err| err.to_string())?,
+        );
+        Ok(())
+    }
+
+    async fn broadcast_file(&mut self, path: &str, mime: Option<String>) -> Result<String, String> {
+        println!("ZZZ broadcast_file {} {:?}", path, mime);
+
+        self.ensure_provider().await?;
+
+        let provider = self.provider.as_ref().unwrap();
+
+        // Check if we are already providing this file, and return its ticket.
+        if let Some(hash) = self.tickets.get(path) {
+            return match provider.ticket(*hash) {
+                Ok(ticket) => Ok(ticket.to_string()),
+                Err(err) => Err(format!("provider.ticket() error: {}", err)),
+            };
+        }
+
+        // Create a new collection and get its ticket.
+
+        let hash = provider
+            .add_sources(vec![DataSource::File((path.into(), mime))])
+            .await
+            .map_err(|err| err.to_string())?;
+        match provider.ticket(hash) {
+            Ok(ticket) => {
+                self.tickets.insert(path.to_owned(), hash);
+                Ok(ticket.to_string())
+            }
+            Err(err) => Err(err.to_string()),
+        }
+    }
+}
+
 pub struct State {
     pub dweb_store: DwebStorage,
     event_broadcaster: DwebEventBroadcaster,
@@ -49,7 +104,7 @@ pub struct State {
     known_peers: BTreeMap<String, KnownPeer>, // The key is the device id.
     mdns: Option<MdnsDiscovery>,
     sessions: BTreeMap<String, Session>, // The key is the session id.
-    tickets: BTreeMap<String, (Hash, Provider)>, // The key is the shared path.
+    iroh: Iroh,
 }
 
 impl StateLogger for State {}
@@ -106,36 +161,9 @@ impl State {
         session
     }
 
-    async fn broadcast_file(&mut self, path: &str) -> Result<String, ()> {
-        // Check if we are already providing this file, and return its ticket.
-        if let Some((hash, provider)) = self.tickets.get(path) {
-            return match provider.ticket(*hash) {
-                Ok(ticket) => Ok(ticket.to_string()),
-                Err(_) => Err(()),
-            };
-        }
-
-        // Create a new collection provider and get its ticket.
-        let res =
-            if let Ok((db, hash)) = create_collection(vec![DataSource::File(path.into())]).await {
-                let provider = Builder::with_db(db).spawn().map_err(|_| ())?;
-                Ok((hash, provider))
-            } else {
-                Err(())
-            };
-
-        match res {
-            Ok((hash, provider)) => {
-                return match provider.ticket(hash) {
-                    Ok(ticket) => {
-                        self.tickets.insert(path.to_owned(), (hash, provider));
-                        Ok(ticket.to_string())
-                    }
-                    Err(_) => Err(()),
-                };
-            }
-            Err(_) => return Err(()),
-        }
+    async fn broadcast_file(&mut self, path: &str, mime: Option<String>) -> Result<String, String> {
+        println!("ZZZ broadcast_file {} {:?}", path, mime);
+        self.iroh.broadcast_file(path, mime).await
     }
 }
 
@@ -153,7 +181,7 @@ impl Into<State> for &Config {
             known_peers: BTreeMap::new(),
             mdns: None,
             sessions: BTreeMap::new(),
-            tickets: BTreeMap::new(),
+            iroh: Iroh::default(),
         }
     }
 }
@@ -737,7 +765,12 @@ impl DwebMethods for DWebServiceImpl {
         responder.resolve(Some(sessions));
     }
 
-    fn broadcast_file(&mut self, responder: DwebBroadcastFileResponder, path: String) {
+    fn broadcast_file(
+        &mut self,
+        responder: DwebBroadcastFileResponder,
+        path: String,
+        mime: Option<String>,
+    ) {
         if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "iroh provide") {
             return;
         }
@@ -747,11 +780,10 @@ impl DwebMethods for DWebServiceImpl {
         std::thread::spawn(move || {
             // Using Handle::block_on to run async code in the new thread.
             handle.block_on(async {
-                if let Ok(ticket) = state.lock().broadcast_file(&path).await {
-                    responder.resolve(ticket);
-                } else {
-                    responder.reject();
-                }
+                match state.lock().broadcast_file(&path, mime).await {
+                    Ok(ticket) => responder.resolve(ticket),
+                    Err(err) => responder.reject(err),
+                };
             });
         });
     }
