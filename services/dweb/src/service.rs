@@ -57,17 +57,22 @@ impl Iroh {
             .await
             .map_err(|err| err.to_string())?;
 
+        // Bind to 0.0.0.0 to let all the local addresses be used in tickets.
         self.provider = Some(
             Builder::with_db(db)
+                .bind_addr("0.0.0.0:4433".parse().unwrap())
                 .spawn()
                 .map_err(|err| err.to_string())?,
+        );
+
+        info!(
+            "provider addrs={:?}",
+            self.provider.as_ref().unwrap().listen_addresses()
         );
         Ok(())
     }
 
     async fn broadcast_file(&mut self, path: &str, mime: Option<String>) -> Result<String, String> {
-        println!("ZZZ broadcast_file {} {:?}", path, mime);
-
         self.ensure_provider().await?;
 
         let provider = self.provider.as_ref().unwrap();
@@ -162,7 +167,6 @@ impl State {
     }
 
     async fn broadcast_file(&mut self, path: &str, mime: Option<String>) -> Result<String, String> {
-        println!("ZZZ broadcast_file {} {:?}", path, mime);
         self.iroh.broadcast_file(path, mime).await
     }
 }
