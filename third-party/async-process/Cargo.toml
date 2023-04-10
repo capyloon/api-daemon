@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.46"
 name = "async-process"
-version = "1.4.0"
+version = "1.6.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Async interface for working with processes"
@@ -32,6 +32,9 @@ categories = [
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-process"
 
+[dependencies.async-lock]
+version = "2.6.0"
+
 [dependencies.cfg-if]
 version = "1.0"
 
@@ -41,11 +44,11 @@ version = "2.4.0"
 [dependencies.futures-lite]
 version = "1.11.0"
 
-[dependencies.once_cell]
-version = "1.4.1"
+[build-dependencies.autocfg]
+version = "1"
 
 [target."cfg(unix)".dependencies.async-io]
-version = "1.0.0"
+version = "1.8"
 
 [target."cfg(unix)".dependencies.libc]
 version = "0.2.88"
@@ -58,10 +61,11 @@ default-features = false
 [target."cfg(windows)".dependencies.blocking]
 version = "1.0.0"
 
-[target."cfg(windows)".dependencies.winapi]
-version = "0.3.9"
+[target."cfg(windows)".dependencies.windows-sys]
+version = "0.42"
 features = [
-    "winbase",
-    "winnt",
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
 ]
 default-features = false

@@ -31,6 +31,7 @@ where
 	type IntoIter = IntoIter<A, O>;
 	type Item = <IntoIter<A, O> as Iterator>::Item;
 
+	#[inline]
 	fn into_iter(self) -> Self::IntoIter {
 		IntoIter::new(self)
 	}
@@ -46,6 +47,7 @@ where
 	type IntoIter = <&'a BitSlice<A::Store, O> as IntoIterator>::IntoIter;
 	type Item = <&'a BitSlice<A::Store, O> as IntoIterator>::Item;
 
+	#[inline]
 	fn into_iter(self) -> Self::IntoIter {
 		self.as_bitslice().into_iter()
 	}
@@ -61,6 +63,7 @@ where
 	type IntoIter = <&'a mut BitSlice<A::Store, O> as IntoIterator>::IntoIter;
 	type Item = <&'a mut BitSlice<A::Store, O> as IntoIterator>::Item;
 
+	#[inline]
 	fn into_iter(self) -> Self::IntoIter {
 		self.as_mut_bitslice().into_iter()
 	}
@@ -96,6 +99,7 @@ where
 	/// ## Original
 	///
 	/// [`IntoIter::new`](core::array::IntoIter::new)s
+	#[inline]
 	pub fn new(array: BitArray<A, O>) -> Self {
 		Self {
 			array,
@@ -108,10 +112,12 @@ where
 	/// ## Original
 	///
 	/// [`IntoIter::as_slice`](core::array::IntoIter::as_slice)
+	#[inline]
 	pub fn as_bitslice(&self) -> &BitSlice<A::Store, O> {
 		unsafe { self.array.as_bitslice().get_unchecked(self.alive.clone()) }
 	}
 
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[deprecated = "use `.as_bitslice()` instead"]
 	#[allow(missing_docs, clippy::missing_docs_in_private_items)]
@@ -124,6 +130,7 @@ where
 	/// ## Original
 	///
 	/// [`IntoIter::as_mut_slice`](core::array::IntoIter::as_mut_slice)
+	#[inline]
 	pub fn as_mut_bitslice(&mut self) -> &mut BitSlice<A::Store, O> {
 		unsafe {
 			self.array
@@ -132,6 +139,7 @@ where
 		}
 	}
 
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[deprecated = "use `.as_bitslice_mut()` instead"]
 	#[allow(missing_docs, clippy::missing_docs_in_private_items)]
@@ -140,6 +148,7 @@ where
 	}
 
 	/// Gets a bit from the bit-array.
+	#[inline]
 	fn get(&self, index: usize) -> bool {
 		unsafe {
 			self.array
@@ -157,6 +166,7 @@ where
 	A: BitViewSized,
 	O: BitOrder,
 {
+	#[inline]
 	fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
 		fmt.debug_tuple("IntoIter")
 			.field(&self.as_bitslice())
@@ -173,10 +183,12 @@ where
 
 	easy_iter!();
 
+	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
 		self.alive.next().map(|idx| self.get(idx))
 	}
 
+	#[inline]
 	fn nth(&mut self, n: usize) -> Option<Self::Item> {
 		self.alive.nth(n).map(|idx| self.get(idx))
 	}
@@ -187,10 +199,12 @@ where
 	A: BitViewSized,
 	O: BitOrder,
 {
+	#[inline]
 	fn next_back(&mut self) -> Option<Self::Item> {
 		self.alive.next_back().map(|idx| self.get(idx))
 	}
 
+	#[inline]
 	fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
 		self.alive.nth_back(n).map(|idx| self.get(idx))
 	}
@@ -201,6 +215,7 @@ where
 	A: BitViewSized,
 	O: BitOrder,
 {
+	#[inline]
 	fn len(&self) -> usize {
 		self.alive.len()
 	}

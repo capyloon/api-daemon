@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
+use async_lock::OnceCell;
 use concurrent_queue::ConcurrentQueue;
 use futures_lite::ready;
-use once_cell::sync::Lazy;
 use polling::{Event, Poller};
 use slab::Slab;
 
@@ -29,7 +29,7 @@ const WRITE: usize = 1;
 ///
 /// There is only one global instance of this type, accessible by [`Reactor::get()`].
 pub(crate) struct Reactor {
-    /// Portable bindings to epoll/kqueue/event ports/wepoll.
+    /// Portable bindings to epoll/kqueue/event ports/IOCP.
     ///
     /// This is where I/O is polled, producing I/O events.
     poller: Poller,
@@ -67,7 +67,9 @@ pub(crate) struct Reactor {
 impl Reactor {
     /// Returns a reference to the reactor.
     pub(crate) fn get() -> &'static Reactor {
-        static REACTOR: Lazy<Reactor> = Lazy::new(|| {
+        static REACTOR: OnceCell<Reactor> = OnceCell::new();
+
+        REACTOR.get_or_init_blocking(|| {
             crate::driver::init();
             Reactor {
                 poller: Poller::new().expect("cannot initialize I/O event notification"),
@@ -77,8 +79,7 @@ impl Reactor {
                 timers: Mutex::new(BTreeMap::new()),
                 timer_ops: ConcurrentQueue::bounded(1000),
             }
-        });
-        &REACTOR
+        })
     }
 
     /// Returns the current ticker.
@@ -475,7 +476,7 @@ impl Source {
             dir,
             ticks: None,
             index: None,
-            _guard: None,
+            _capture: PhantomData,
         }
     }
 }
@@ -565,7 +566,7 @@ struct Ready<H: Borrow<crate::Async<T>>, T> {
     dir: usize,
     ticks: Option<(usize, usize)>,
     index: Option<usize>,
-    _guard: Option<RemoveOnDrop<H, T>>,
+    _capture: PhantomData<fn() -> T>,
 }
 
 impl<H: Borrow<crate::Async<T>>, T> Unpin for Ready<H, T> {}
@@ -579,7 +580,6 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
             dir,
             ticks,
             index,
-            _guard,
             ..
         } = &mut *self;
 
@@ -601,12 +601,6 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
             Some(i) => i,
             None => {
                 let i = state[*dir].wakers.insert(None);
-                *_guard = Some(RemoveOnDrop {
-                    handle: handle.clone(),
-                    dir: *dir,
-                    key: i,
-                    _marker: PhantomData,
-                });
                 *index = Some(i);
                 *ticks = Some((Reactor::get().ticker(), state[*dir].tick));
                 i
@@ -630,20 +624,15 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
     }
 }
 
-/// Remove waker when dropped.
-struct RemoveOnDrop<H: Borrow<crate::Async<T>>, T> {
-    handle: H,
-    dir: usize,
-    key: usize,
-    _marker: PhantomData<fn() -> T>,
-}
-
-impl<H: Borrow<crate::Async<T>>, T> Drop for RemoveOnDrop<H, T> {
+impl<H: Borrow<crate::Async<T>>, T> Drop for Ready<H, T> {
     fn drop(&mut self) {
-        let mut state = self.handle.borrow().source.state.lock().unwrap();
-        let wakers = &mut state[self.dir].wakers;
-        if wakers.contains(self.key) {
-            wakers.remove(self.key);
+        // Remove our waker when dropped.
+        if let Some(key) = self.index {
+            let mut state = self.handle.borrow().source.state.lock().unwrap();
+            let wakers = &mut state[self.dir].wakers;
+            if wakers.contains(key) {
+                wakers.remove(key);
+            }
         }
     }
 }

@@ -42,12 +42,87 @@ use crate::{
 	view::BitViewSized,
 };
 
+/// A zero-sized type that deserializes from any string as long as it is equal
+/// to `any::type_name::<T>()`.
+pub(super) struct TypeName<T>(PhantomData<T>);
+
+impl<T> TypeName<T> {
+	/// Creates a type-name ghost for any type.
+	fn new() -> Self {
+		TypeName(PhantomData)
+	}
+}
+
+impl<'de, T> Deserialize<'de> for TypeName<T> {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where D: Deserializer<'de> {
+		deserializer.deserialize_str(Self::new())
+	}
+}
+
+impl<'de, T> Visitor<'de> for TypeName<T> {
+	type Value = Self;
+
+	fn expecting(&self, fmt: &mut Formatter) -> fmt::Result {
+		write!(fmt, "the string {:?}", any::type_name::<T>())
+	}
+
+	fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+	where E: serde::de::Error {
+		if value == any::type_name::<T>() {
+			Ok(self)
+		}
+		else {
+			Err(serde::de::Error::invalid_value(
+				Unexpected::Str(value),
+				&self,
+			))
+		}
+	}
+}
+
 /// Fields used in the `BitIdx` transport format.
 static FIELDS: &[&str] = &["width", "index"];
+
+/// The components of a bit-idx in wire format.
+enum Field {
+	/// Denotes the maximum allowable value of the bit-idx.
+	Width,
+	/// Denotes the value of the bit-idx.
+	Index,
+}
+
+/// Visits field tokens of a bit-idx wire format.
+struct FieldVisitor;
+
+impl<'de> Deserialize<'de> for Field {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where D: Deserializer<'de> {
+		deserializer.deserialize_identifier(FieldVisitor)
+	}
+}
+
+impl<'de> Visitor<'de> for FieldVisitor {
+	type Value = Field;
+
+	fn expecting(&self, fmt: &mut Formatter) -> fmt::Result {
+		fmt.write_str("field identifier")
+	}
+
+	fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+	where E: serde::de::Error {
+		match value {
+			"width" => Ok(Field::Width),
+			"index" => Ok(Field::Index),
+			_ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+		}
+	}
+}
 
 impl<R> Serialize for BitIdx<R>
 where R: BitRegister
 {
+	#[inline]
 	fn serialize<S>(&self, serializer: S) -> super::Result<S>
 	where S: Serializer {
 		let mut state = serializer.serialize_struct("BitIdx", FIELDS.len())?;
@@ -64,6 +139,7 @@ where R: BitRegister
 impl<'de, R> Deserialize<'de> for BitIdx<R>
 where R: BitRegister
 {
+	#[inline]
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where D: Deserializer<'de> {
 		deserializer.deserialize_struct(
@@ -80,6 +156,7 @@ where
 	O: BitOrder,
 	T::Mem: Serialize,
 {
+	#[inline]
 	fn serialize<S>(&self, serializer: S) -> super::Result<S>
 	where S: Serializer {
 		//  Domain<T> is functionally equivalent to `[T::Mem]`.
@@ -122,6 +199,7 @@ where
 	T: BitStore,
 	T::Mem: Serialize,
 {
+	#[inline]
 	fn serialize<S>(&self, serializer: S) -> super::Result<S>
 	where S: Serializer {
 		//  `serde` serializes arrays as a tuple, so that transport formats can
@@ -139,6 +217,7 @@ where
 	T: BitStore,
 	T::Mem: Deserialize<'de>,
 {
+	#[inline]
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where D: Deserializer<'de> {
 		deserializer.deserialize_tuple(N, ArrayVisitor::<T, N>::THIS)
@@ -167,10 +246,12 @@ where
 {
 	type Value = Array<T, N>;
 
+	#[inline]
 	fn expecting(&self, fmt: &mut Formatter) -> fmt::Result {
 		write!(fmt, "a [{}; {}]", any::type_name::<T>(), N)
 	}
 
+	#[inline]
 	fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
 	where V: SeqAccess<'de> {
 		let mut uninit = [MaybeUninit::<T::Mem>::uninit(); N];
@@ -203,6 +284,7 @@ where R: BitRegister
 	const THIS: Self = Self { inner: PhantomData };
 
 	/// Attempts to assemble deserialized components into an output value.
+	#[inline]
 	fn assemble<E>(self, width: u8, index: u8) -> Result<BitIdx<R>, E>
 	where E: Error {
 		//  Fail if the transported type width does not match the destination.
@@ -225,10 +307,12 @@ where R: BitRegister
 {
 	type Value = BitIdx<R>;
 
+	#[inline]
 	fn expecting(&self, fmt: &mut Formatter) -> fmt::Result {
 		write!(fmt, "a valid `BitIdx<u{}>`", bits_of::<R>())
 	}
 
+	#[inline]
 	fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
 	where V: SeqAccess<'de> {
 		let width = seq
@@ -241,26 +325,23 @@ where R: BitRegister
 		self.assemble(width, index)
 	}
 
+	#[inline]
 	fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
 	where V: MapAccess<'de> {
 		let mut width = None;
 		let mut index = None;
 
-		while let Some(key) = map.next_key::<&'de str>()? {
+		while let Some(key) = map.next_key()? {
 			match key {
-				"width" => {
+				Field::Width => {
 					if width.replace(map.next_value::<u8>()?).is_some() {
 						return Err(<V::Error>::duplicate_field("width"));
 					}
 				},
-				"index" => {
+				Field::Index => {
 					if index.replace(map.next_value::<u8>()?).is_some() {
 						return Err(<V::Error>::duplicate_field("index"));
 					}
-				},
-				f => {
-					let _ = map.next_value::<()>();
-					return Err(<V::Error>::unknown_field(f, FIELDS));
 				},
 			}
 		}
@@ -362,8 +443,6 @@ mod tests {
 					len:  1,
 				},
 				Token::BorrowedStr("unknown"),
-				Token::BorrowedStr("field"),
-				Token::StructEnd,
 			],
 			"unknown field `unknown`, expected `width` or `index`",
 		);

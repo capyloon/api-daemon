@@ -1,5 +1,9 @@
+use std::cell::Cell;
 use std::iter;
+use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::Arc;
+use std::task::Context;
 
 use futures::channel::mpsc;
 use futures::executor::block_on;
@@ -9,6 +13,8 @@ use futures::sink::SinkExt;
 use futures::stream::{self, StreamExt};
 use futures::task::Poll;
 use futures::{ready, FutureExt};
+use futures_core::Stream;
+use futures_executor::ThreadPool;
 use futures_test::task::noop_context;
 
 #[test]
@@ -60,6 +66,7 @@ fn flatten_unordered() {
     use futures::task::*;
     use std::convert::identity;
     use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
     use std::time::Duration;
 
@@ -317,6 +324,78 @@ fn flatten_unordered() {
             assert_eq!(values, (0..60).collect::<Vec<u8>>());
         });
     }
+
+    fn timeout<I: Clone>(time: Duration, value: I) -> impl Future<Output = I> {
+        let ready = Arc::new(AtomicBool::new(false));
+        let mut spawned = false;
+
+        future::poll_fn(move |cx| {
+            if !spawned {
+                let waker = cx.waker().clone();
+                let ready = ready.clone();
+
+                std::thread::spawn(move || {
+                    std::thread::sleep(time);
+                    ready.store(true, Ordering::Release);
+
+                    waker.wake_by_ref()
+                });
+                spawned = true;
+            }
+
+            if ready.load(Ordering::Acquire) {
+                Poll::Ready(value.clone())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
+    fn build_nested_fu<S: Stream + Unpin>(st: S) -> impl Stream<Item = S::Item> + Unpin
+    where
+        S::Item: Clone,
+    {
+        let inner = st
+            .then(|item| timeout(Duration::from_millis(50), item))
+            .enumerate()
+            .map(|(idx, value)| {
+                stream::once(if idx % 2 == 0 {
+                    future::ready(value).left_future()
+                } else {
+                    timeout(Duration::from_millis(100), value).right_future()
+                })
+            })
+            .flatten_unordered(None);
+
+        stream::once(future::ready(inner)).flatten_unordered(None)
+    }
+
+    // nested `flatten_unordered`
+    let te = ThreadPool::new().unwrap();
+    let base_handle = te
+        .spawn_with_handle(async move {
+            let fu = build_nested_fu(stream::iter(1..=10));
+
+            assert_eq!(fu.count().await, 10);
+        })
+        .unwrap();
+
+    block_on(base_handle);
+
+    let empty_state_move_handle = te
+        .spawn_with_handle(async move {
+            let mut fu = build_nested_fu(stream::iter(1..10));
+            {
+                let mut cx = noop_context();
+                let _ = fu.poll_next_unpin(&mut cx);
+                let _ = fu.poll_next_unpin(&mut cx);
+            }
+
+            assert_eq!(fu.count().await, 9);
+        })
+        .unwrap();
+
+    block_on(empty_state_move_handle);
 }
 
 #[test]
@@ -418,4 +497,41 @@ fn ready_chunks() {
         assert_eq!(s.next().await.unwrap(), vec![2, 3]);
         assert_eq!(s.next().await.unwrap(), vec![4]);
     });
+}
+
+struct SlowStream {
+    times_should_poll: usize,
+    times_polled: Rc<Cell<usize>>,
+}
+impl Stream for SlowStream {
+    type Item = usize;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.times_polled.set(self.times_polled.get() + 1);
+        if self.times_polled.get() % 2 == 0 {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        if self.times_polled.get() >= self.times_should_poll {
+            return Poll::Ready(None);
+        }
+        Poll::Ready(Some(self.times_polled.get()))
+    }
+}
+
+#[test]
+fn select_with_strategy_doesnt_terminate_early() {
+    for side in [stream::PollNext::Left, stream::PollNext::Right] {
+        let times_should_poll = 10;
+        let count = Rc::new(Cell::new(0));
+        let b = stream::iter([10, 20]);
+
+        let mut selected = stream::select_with_strategy(
+            SlowStream { times_should_poll, times_polled: count.clone() },
+            b,
+            |_: &mut ()| side,
+        );
+        block_on(async move { while selected.next().await.is_some() {} });
+        assert_eq!(count.get(), times_should_poll + 1);
+    }
 }

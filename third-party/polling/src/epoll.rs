@@ -2,9 +2,12 @@
 
 use std::convert::TryInto;
 use std::io;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::ptr;
 use std::time::Duration;
+
+#[cfg(not(polling_no_io_safety))]
+use std::os::unix::io::{AsFd, BorrowedFd};
 
 use crate::Event;
 
@@ -113,15 +116,16 @@ impl Poller {
                 it_interval: TS_ZERO,
                 it_value: match timeout {
                     None => TS_ZERO,
-                    Some(t) => libc::timespec {
-                        tv_sec: t.as_secs() as libc::time_t,
-                        tv_nsec: (t.subsec_nanos() as libc::c_long).into(),
-                    },
+                    Some(t) => {
+                        let mut ts = TS_ZERO;
+                        ts.tv_sec = t.as_secs() as libc::time_t;
+                        ts.tv_nsec = (t.subsec_nanos() as libc::c_long).into();
+                        ts
+                    }
                 },
             };
 
-            syscall!(syscall(
-                libc::SYS_timerfd_settime,
+            syscall!(timerfd_settime(
                 timer_fd as libc::c_int,
                 0 as libc::c_int,
                 &new_val as *const libc::itimerspec,
@@ -225,6 +229,20 @@ impl Poller {
     }
 }
 
+impl AsRawFd for Poller {
+    fn as_raw_fd(&self) -> RawFd {
+        self.epoll_fd
+    }
+}
+
+#[cfg(not(polling_no_io_safety))]
+impl AsFd for Poller {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        // SAFETY: lifetime is bound by "self"
+        unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
+    }
+}
+
 impl Drop for Poller {
     fn drop(&mut self) {
         log::trace!(
@@ -245,10 +263,8 @@ impl Drop for Poller {
 }
 
 /// `timespec` value that equals zero.
-const TS_ZERO: libc::timespec = libc::timespec {
-    tv_sec: 0,
-    tv_nsec: 0,
-};
+const TS_ZERO: libc::timespec =
+    unsafe { std::mem::transmute([0u8; std::mem::size_of::<libc::timespec>()]) };
 
 /// Epoll flags for all possible readability events.
 fn read_flags() -> libc::c_int {
@@ -262,7 +278,7 @@ fn write_flags() -> libc::c_int {
 
 /// A list of reported I/O events.
 pub struct Events {
-    list: Box<[libc::epoll_event]>,
+    list: Box<[libc::epoll_event; 1024]>,
     len: usize,
 }
 
@@ -272,7 +288,7 @@ impl Events {
     /// Creates an empty list.
     pub fn new() -> Events {
         let ev = libc::epoll_event { events: 0, u64: 0 };
-        let list = vec![ev; 1000].into_boxed_slice();
+        let list = Box::new([ev; 1024]);
         let len = 0;
         Events { list, len }
     }

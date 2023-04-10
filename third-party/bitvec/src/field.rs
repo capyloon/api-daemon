@@ -1,7 +1,6 @@
 #![doc = include_str!("../doc/field.md")]
 
 use core::{
-	cmp,
 	mem,
 	ptr,
 };
@@ -41,6 +40,7 @@ mod tests;
 
 #[doc = include_str!("../doc/field/BitField.md")]
 pub trait BitField {
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[doc = include_str!("../doc/field/BitField_load.md")]
 	fn load<I>(&self) -> I
@@ -52,13 +52,21 @@ pub trait BitField {
 			self.load_be::<I>()
 		}
 		else {
-			unreachable!(concat!(
-				"This architecture is not supported! Please file an issue at ",
-				env!("CARGO_PKG_REPOSITORY")
-			));
+			match option_env!("CARGO_PKG_REPOSITORY") {
+				Some(env) => unreachable!(
+					"This architecture is not supported! Please consider \
+					 filing an issue at {}",
+					env
+				),
+				None => unreachable!(
+					"This architecture is not supported! Please consider \
+					 filing an issue"
+				),
+			}
 		}
 	}
 
+	#[inline]
 	#[cfg(not(tarpaulin_include))]
 	#[doc = include_str!("../doc/field/BitField_store.md")]
 	fn store<I>(&mut self, value: I)
@@ -70,10 +78,17 @@ pub trait BitField {
 			self.store_be::<I>(value);
 		}
 		else {
-			unreachable!(concat!(
-				"This architecture is not supported! File an issue at ",
-				env!("CARGO_PKG_REPOSITORY")
-			));
+			match option_env!("CARGO_PKG_REPOSITORY") {
+				Some(env) => unreachable!(
+					"This architecture is not supported! Please consider \
+					 filing an issue at {}",
+					env
+				),
+				None => unreachable!(
+					"This architecture is not supported! Please consider \
+					 filing an issue"
+				),
+			}
 		}
 	}
 
@@ -98,6 +113,7 @@ pub trait BitField {
 impl<T> BitField for BitSlice<T, Lsb0>
 where T: BitStore
 {
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Lsb0_load_le.md")]
 	fn load_le<I>(&self) -> I
 	where I: Integral {
@@ -134,6 +150,7 @@ where T: BitStore
 		.pipe(|elem| sign(elem, len))
 	}
 
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Lsb0_load_be.md")]
 	fn load_be<I>(&self) -> I
 	where I: Integral {
@@ -166,6 +183,7 @@ where T: BitStore
 		.pipe(|elem| sign(elem, len))
 	}
 
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Lsb0_store_le.md")]
 	fn store_le<I>(&mut self, mut value: I)
 	where I: Integral {
@@ -196,6 +214,7 @@ where T: BitStore
 		}
 	}
 
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Lsb0_store_be.md")]
 	fn store_be<I>(&mut self, mut value: I)
 	where I: Integral {
@@ -227,9 +246,11 @@ where T: BitStore
 	}
 }
 
+#[doc = include_str!("../doc/field/BitField_Msb0.md")]
 impl<T> BitField for BitSlice<T, Msb0>
 where T: BitStore
 {
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Msb0_load_le.md")]
 	fn load_le<I>(&self) -> I
 	where I: Integral {
@@ -267,6 +288,7 @@ where T: BitStore
 		.pipe(|elem| sign(elem, len))
 	}
 
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Msb0_load_be.md")]
 	fn load_be<I>(&self) -> I
 	where I: Integral {
@@ -302,6 +324,7 @@ where T: BitStore
 		.pipe(|elem| sign(elem, len))
 	}
 
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Msb0_store_le.md")]
 	fn store_le<I>(&mut self, mut value: I)
 	where I: Integral {
@@ -333,6 +356,7 @@ where T: BitStore
 		}
 	}
 
+	#[inline]
 	#[doc = include_str!("../doc/field/BitField_Msb0_store_be.md")]
 	fn store_be<I>(&mut self, mut value: I)
 	where I: Integral {
@@ -586,7 +610,7 @@ unsafe fn resize_inner<T, U>(
 	ptr::copy_nonoverlapping(
 		src as *const T as *const u8,
 		dst as *mut U as *mut u8,
-		cmp::min(size_t, size_u),
+		size_t.min(size_u),
 	);
 }
 
@@ -612,9 +636,3 @@ unsafe fn resize_inner<T, U>(
 		ptr::copy_nonoverlapping(src, dst.add(size_u - size_t), size_t);
 	}
 }
-
-#[cfg(not(any(target_endian = "big", target_endian = "little")))]
-compile_fail!(concat!(
-	"This architecture is not supported! File an issue at ",
-	env!("CARGO_PKG_REPOSITORY")
-));

@@ -1,8 +1,8 @@
 // Copyright 2015 The Rust Project Developers.
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
@@ -11,7 +11,9 @@ use std::io::{self, Read, Write};
 #[cfg(not(target_os = "redox"))]
 use std::io::{IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
-use std::net::{self, Ipv4Addr, Ipv6Addr, Shutdown};
+#[cfg(not(target_os = "nto"))]
+use std::net::Ipv6Addr;
+use std::net::{self, Ipv4Addr, Shutdown};
 #[cfg(unix)]
 use std::os::unix::io::{FromRawFd, IntoRawFd};
 #[cfg(windows)]
@@ -562,9 +564,34 @@ impl Socket {
     /// `peek_from` makes the same safety guarantees regarding the `buf`fer as
     /// [`recv`].
     ///
+    /// # Note: Datagram Sockets
+    /// For datagram sockets, the behavior of this method when `buf` is smaller than
+    /// the datagram at the head of the receive queue differs between Windows and
+    /// Unix-like platforms (Linux, macOS, BSDs, etc: colloquially termed "*nix").
+    ///
+    /// On *nix platforms, the datagram is truncated to the length of `buf`.
+    ///
+    /// On Windows, an error corresponding to `WSAEMSGSIZE` will be returned.
+    ///
+    /// For consistency between platforms, be sure to provide a sufficiently large buffer to avoid
+    /// truncation; the exact size required depends on the underlying protocol.
+    ///
+    /// If you just want to know the sender of the data, try [`peek_sender`].
+    ///
     /// [`recv`]: Socket::recv
+    /// [`peek_sender`]: Socket::peek_sender
     pub fn peek_from(&self, buf: &mut [MaybeUninit<u8>]) -> io::Result<(usize, SockAddr)> {
         self.recv_from_with_flags(buf, sys::MSG_PEEK)
+    }
+
+    /// Retrieve the sender for the data at the head of the receive queue.
+    ///
+    /// This is equivalent to calling [`peek_from`] with a zero-sized buffer,
+    /// but suppresses the `WSAEMSGSIZE` error on Windows.
+    ///
+    /// [`peek_from`]: Socket::peek_from
+    pub fn peek_sender(&self) -> io::Result<SockAddr> {
+        sys::peek_sender(self.as_raw())
     }
 
     /// Sends data on the socket to a connected peer.
@@ -1135,8 +1162,10 @@ impl Socket {
         target_os = "haiku",
         target_os = "illumos",
         target_os = "netbsd",
+        target_os = "openbsd",
         target_os = "redox",
         target_os = "solaris",
+        target_os = "nto",
     )))]
     pub fn join_multicast_v4_n(
         &self,
@@ -1163,8 +1192,10 @@ impl Socket {
         target_os = "haiku",
         target_os = "illumos",
         target_os = "netbsd",
+        target_os = "openbsd",
         target_os = "redox",
         target_os = "solaris",
+        target_os = "nto",
     )))]
     pub fn leave_multicast_v4_n(
         &self,
@@ -1178,6 +1209,78 @@ impl Socket {
                 sys::IPPROTO_IP,
                 sys::IP_DROP_MEMBERSHIP,
                 mreqn,
+            )
+        }
+    }
+
+    /// Join a multicast SSM channel using `IP_ADD_SOURCE_MEMBERSHIP` option on this socket.
+    ///
+    /// This function specifies a new multicast channel for this socket to join.
+    /// The group must be a valid SSM group address, the source must be the address of the sender
+    /// and `interface` is the address of the local interface with which the system should join the
+    /// multicast group. If it's [`Ipv4Addr::UNSPECIFIED`] (`INADDR_ANY`) then
+    /// an appropriate interface is chosen by the system.
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "haiku",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "fuchsia",
+        target_os = "nto",
+    )))]
+    pub fn join_ssm_v4(
+        &self,
+        source: &Ipv4Addr,
+        group: &Ipv4Addr,
+        interface: &Ipv4Addr,
+    ) -> io::Result<()> {
+        let mreqs = sys::IpMreqSource {
+            imr_multiaddr: sys::to_in_addr(group),
+            imr_interface: sys::to_in_addr(interface),
+            imr_sourceaddr: sys::to_in_addr(source),
+        };
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_ADD_SOURCE_MEMBERSHIP,
+                mreqs,
+            )
+        }
+    }
+
+    /// Leave a multicast group using `IP_DROP_SOURCE_MEMBERSHIP` option on this socket.
+    ///
+    /// For more information about this option, see [`join_ssm_v4`].
+    ///
+    /// [`join_ssm_v4`]: Socket::join_ssm_v4
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "haiku",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "fuchsia",
+        target_os = "nto",
+    )))]
+    pub fn leave_ssm_v4(
+        &self,
+        source: &Ipv4Addr,
+        group: &Ipv4Addr,
+        interface: &Ipv4Addr,
+    ) -> io::Result<()> {
+        let mreqs = sys::IpMreqSource {
+            imr_multiaddr: sys::to_in_addr(group),
+            imr_interface: sys::to_in_addr(interface),
+            imr_sourceaddr: sys::to_in_addr(source),
+        };
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_DROP_SOURCE_MEMBERSHIP,
+                mreqs,
             )
         }
     }
@@ -1292,7 +1395,7 @@ impl Socket {
     /// NOTE: <https://docs.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options>
     /// documents that not all versions of windows support `IP_TOS`.
     #[cfg(not(any(
-        target_os = "fuschia",
+        target_os = "fuchsia",
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
@@ -1310,7 +1413,7 @@ impl Socket {
     ///
     /// [`set_tos`]: Socket::set_tos
     #[cfg(not(any(
-        target_os = "fuschia",
+        target_os = "fuchsia",
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
@@ -1318,6 +1421,58 @@ impl Socket {
     pub fn tos(&self) -> io::Result<u32> {
         unsafe {
             getsockopt::<c_int>(self.as_raw(), sys::IPPROTO_IP, sys::IP_TOS).map(|tos| tos as u32)
+        }
+    }
+
+    /// Set the value of the `IP_RECVTOS` option for this socket.
+    ///
+    /// If enabled, the IP_TOS ancillary message is passed with
+    /// incoming packets. It contains a byte which specifies the
+    /// Type of Service/Precedence field of the packet header.
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "solaris",
+        target_os = "windows",
+        target_os = "nto",
+    )))]
+    pub fn set_recv_tos(&self, recv_tos: bool) -> io::Result<()> {
+        let recv_tos = if recv_tos { 1 } else { 0 };
+
+        unsafe {
+            setsockopt(
+                self.as_raw(),
+                sys::IPPROTO_IP,
+                sys::IP_RECVTOS,
+                recv_tos as c_int,
+            )
+        }
+    }
+
+    /// Get the value of the `IP_RECVTOS` option for this socket.
+    ///
+    /// For more information about this option, see [`set_recv_tos`].
+    ///
+    /// [`set_recv_tos`]: Socket::set_recv_tos
+    #[cfg(not(any(
+        target_os = "dragonfly",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox",
+        target_os = "solaris",
+        target_os = "windows",
+        target_os = "nto",
+    )))]
+    pub fn recv_tos(&self) -> io::Result<bool> {
+        unsafe {
+            getsockopt::<c_int>(self.as_raw(), sys::IPPROTO_IP, sys::IP_RECVTOS)
+                .map(|recv_tos| recv_tos > 0)
         }
     }
 }
@@ -1335,6 +1490,7 @@ impl Socket {
     /// This function specifies a new multicast group for this socket to join.
     /// The address must be a valid multicast address, and `interface` is the
     /// index of the interface to join/leave (or 0 to indicate any interface).
+    #[cfg(not(target_os = "nto"))]
     pub fn join_multicast_v6(&self, multiaddr: &Ipv6Addr, interface: u32) -> io::Result<()> {
         let mreq = sys::Ipv6Mreq {
             ipv6mr_multiaddr: sys::to_in6_addr(multiaddr),
@@ -1358,6 +1514,7 @@ impl Socket {
     /// For more information about this option, see [`join_multicast_v6`].
     ///
     /// [`join_multicast_v6`]: Socket::join_multicast_v6
+    #[cfg(not(target_os = "nto"))]
     pub fn leave_multicast_v6(&self, multiaddr: &Ipv6Addr, interface: u32) -> io::Result<()> {
         let mreq = sys::Ipv6Mreq {
             ipv6mr_multiaddr: sys::to_in6_addr(multiaddr),

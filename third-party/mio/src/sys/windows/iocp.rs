@@ -224,7 +224,12 @@ impl CompletionStatus {
 #[inline]
 fn duration_millis(dur: Option<Duration>) -> u32 {
     if let Some(dur) = dur {
-        std::cmp::min(dur.as_millis(), u32::MAX as u128) as u32
+        // `Duration::as_millis` truncates, so round up. This avoids
+        // turning sub-millisecond timeouts into a zero timeout, unless
+        // the caller explicitly requests that by specifying a zero
+        // timeout.
+        let dur_ms = (dur + Duration::from_nanos(999_999)).as_millis();
+        cmp::min(dur_ms, u32::MAX as u128) as u32
     } else {
         u32::MAX
     }

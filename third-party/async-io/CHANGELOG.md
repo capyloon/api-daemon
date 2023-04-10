@@ -1,3 +1,36 @@
+# Version 1.13.0
+
+- Use [`rustix`] instead of [`libc`]/[`windows-sys`] for system calls (#76)
+- Add a `will_fire` method to `Timer` to test if it will ever fire (#106)
+- Reduce syscalls in `Async::new` (#107)
+- Improve the drop ergonomics of `Readable` and `Writable` (#109)
+- Change the "`wepoll`" in documentation to "`IOCP`" (#116)
+
+[`rustix`]: https://crates.io/crates/rustix/
+[`libc`]: https://crates.io/crates/libc/
+[`windows-sys`]: https://crates.io/crates/windows-sys/
+
+# Version 1.12.0
+
+- Switch from `winapi` to `windows-sys` (#102)
+
+# Version 1.11.0
+
+- Update `concurrent-queue` to v2. (#99)
+
+# Version 1.10.0
+
+- Remove the dependency on the `once_cell` crate to restore the MSRV. (#95)
+
+# Version 1.9.0
+
+- Fix panic on very large durations. (#87)
+- Add `Timer::never` (#87)
+
+# Version 1.8.0
+
+- Implement I/O safety traits on Rust 1.63+ (#84)
+
 # Version 1.7.0
 
 - Process timers set for exactly `now`. (#73)

@@ -176,7 +176,7 @@ pub fn new() -> io::Result<(Sender, Receiver)> {
                 || libc::fcntl(*fd, libc::F_SETFD, libc::FD_CLOEXEC) != 0
             {
                 let err = io::Error::last_os_error();
-                // Don't leak file descriptors. Can't handle error though.
+                // Don't leak file descriptors. Can't handle closing error though.
                 let _ = libc::close(fds[0]);
                 let _ = libc::close(fds[1]);
                 return Err(err);
@@ -188,19 +188,20 @@ pub fn new() -> io::Result<(Sender, Receiver)> {
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
+        target_os = "illumos",
+        target_os = "ios",
         target_os = "linux",
+        target_os = "macos",
         target_os = "netbsd",
         target_os = "openbsd",
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "illumos",
         target_os = "redox",
     )))]
     compile_error!("unsupported target for `mio::unix::pipe`");
 
-    // Safety: we just initialised the `fds` above.
+    // SAFETY: we just initialised the `fds` above.
     let r = unsafe { Receiver::from_raw_fd(fds[0]) };
     let w = unsafe { Sender::from_raw_fd(fds[1]) };
+
     Ok((w, r))
 }
 
@@ -313,29 +314,29 @@ impl event::Source for Sender {
 
 impl Write for Sender {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).write(buf))
+        self.inner.do_io(|mut sender| sender.write(buf))
     }
 
     fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).write_vectored(bufs))
+        self.inner.do_io(|mut sender| sender.write_vectored(bufs))
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.inner.do_io(|sender| (&*sender).flush())
+        self.inner.do_io(|mut sender| sender.flush())
     }
 }
 
 impl Write for &Sender {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).write(buf))
+        self.inner.do_io(|mut sender| sender.write(buf))
     }
 
     fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).write_vectored(bufs))
+        self.inner.do_io(|mut sender| sender.write_vectored(bufs))
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.inner.do_io(|sender| (&*sender).flush())
+        self.inner.do_io(|mut sender| sender.flush())
     }
 }
 
@@ -478,21 +479,21 @@ impl event::Source for Receiver {
 
 impl Read for Receiver {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).read(buf))
+        self.inner.do_io(|mut sender| sender.read(buf))
     }
 
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).read_vectored(bufs))
+        self.inner.do_io(|mut sender| sender.read_vectored(bufs))
     }
 }
 
 impl Read for &Receiver {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).read(buf))
+        self.inner.do_io(|mut sender| sender.read(buf))
     }
 
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        self.inner.do_io(|sender| (&*sender).read_vectored(bufs))
+        self.inner.do_io(|mut sender| sender.read_vectored(bufs))
     }
 }
 

@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "webdriver"
-version = "0.45.0"
+version = "0.46.0"
 authors = ["Mozilla"]
 description = "Library implementing the wire protocol for the W3C WebDriver specification."
 documentation = "https://docs.rs/webdriver"
@@ -22,13 +22,13 @@ license = "MPL-2.0"
 repository = "https://hg.mozilla.org/mozilla-central/file/tip/testing/webdriver"
 resolver = "2"
 [dependencies.base64]
-version = "0.12"
+version = "0.13"
 
 [dependencies.bytes]
-version = "0.5"
+version = "1.0"
 
 [dependencies.cookie]
-version = "0.12"
+version = "0.16"
 default-features = false
 
 [dependencies.http]
@@ -47,11 +47,16 @@ version = "1.0"
 version = "1.0"
 
 [dependencies.time]
-version = "0.1"
+version = "0.3"
 
 [dependencies.tokio]
-version = "0.2"
-features = ["rt-core"]
+version = "1.0"
+features = ["rt", "net"]
+optional = true
+
+[dependencies.tokio-stream]
+version = "0.1"
+features = ["net"]
 optional = true
 
 [dependencies.unicode-segmentation]
@@ -61,10 +66,10 @@ version = "1.2"
 version = "2.0"
 
 [dependencies.warp]
-version = "0.2"
+version = "0.3"
 optional = true
 default-features = false
 
 [features]
 default = ["server"]
-server = ["tokio", "warp"]
+server = ["tokio", "tokio-stream", "warp"]

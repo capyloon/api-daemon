@@ -66,7 +66,7 @@ pub(crate) enum ServerCommand {
 /// server has fully shut down.
 ///
 /// # Shutdown Signals
-/// On UNIX systems, `SIGQUIT` will start a graceful shutdown and `SIGTERM` or `SIGINT` will start a
+/// On UNIX systems, `SIGTERM` will start a graceful shutdown and `SIGQUIT` or `SIGINT` will start a
 /// forced shutdown. On Windows, a Ctrl-C signal will start a forced shutdown.
 ///
 /// A graceful shutdown will wait for all workers to stop first.
@@ -200,7 +200,7 @@ impl ServerInner {
 
         for (_, name, lst) in &builder.sockets {
             info!(
-                r#"Starting service: "{}", workers: {}, listening on: {}"#,
+                r#"starting service: "{}", workers: {}, listening on: {}"#,
                 name,
                 builder.threads,
                 lst.local_addr()
@@ -283,7 +283,7 @@ impl ServerInner {
                 // TODO: maybe just return with warning log if not found ?
                 assert!(self.worker_handles.iter().any(|wrk| wrk.idx == idx));
 
-                error!("Worker {} has died; restarting", idx);
+                error!("worker {} has died; restarting", idx);
 
                 let factories = self
                     .services
@@ -363,6 +363,6 @@ impl Stream for ServerEventMultiplexer {
             }
         }
 
-        Pin::new(&mut this.cmd_rx).poll_recv(cx)
+        this.cmd_rx.poll_recv(cx)
     }
 }

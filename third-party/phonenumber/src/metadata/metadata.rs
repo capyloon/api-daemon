@@ -96,7 +96,9 @@ impl Metadata {
     /// is not present, and multiple international prefixes are present, then "+"
     /// will be used instead.
     pub fn preferred_international_prefix(&self) -> Option<&str> {
-        self.preferred_extension_prefix.as_ref().map(AsRef::as_ref)
+        self.preferred_international_prefix
+            .as_ref()
+            .map(AsRef::as_ref)
     }
 
     /// The national prefix of country A is the number that needs to be dialled

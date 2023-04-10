@@ -25,7 +25,7 @@ use crate::indexer::Indexer;
 use crate::scorer::sqlite_frecency;
 use crate::scorer::VisitEntry;
 use crate::timer::Timer;
-use async_std::path::Path;
+use async_std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use libsqlite3_sys::{
     sqlite3_create_function, SQLITE_DETERMINISTIC, SQLITE_DIRECTONLY, SQLITE_INNOCUOUS, SQLITE_UTF8,
@@ -1195,10 +1195,16 @@ impl<T> Manager<T> {
             return Err(ResourceStoreError::InvalidResourceId);
         }
 
+        let source_meta = self.get_metadata(source).await?;
+
+        if source_meta.parent() == *target {
+           // Nothing to do, but not an error either.
+           return Ok(source_meta);
+        }
+
         self.evict_from_cache(source);
 
         // Update the source metadata with the new parent id.
-        let source_meta = self.get_metadata(source).await?;
         let old_parent = source_meta.parent();
         let new_meta = source_meta.reparent(target);
 
@@ -1284,5 +1290,57 @@ impl<T> Manager<T> {
         }
 
         Ok(new_meta)
+    }
+
+    /// Returns the native path of a resource variant.
+    pub async fn get_native_path(&self, id: &ResourceId, variant: &str) -> Option<PathBuf> {
+        self.store.get_native_path(id, variant).await
+    }
+
+    /// Renames a resource. Will fail if a resource with the same name already exists in this
+    /// container.
+    pub async fn rename_resource(
+        &mut self,
+        id: &ResourceId,
+        name: &str,
+    ) -> Result<ResourceMetadata, ResourceStoreError> {
+        let mut current = self.get_metadata(id).await?;
+
+        if let Err(ResourceStoreError::NoSuchResource) =
+            self.child_by_name(&current.parent(), name).await
+        {
+            current.set_name(name);
+            current.modify_now();
+
+            self.evict_from_cache(id);
+
+            let modified = *current.modified();
+            // We only need to update the name and modified date, so not doing a full update here.
+            sqlx::query!(
+                "UPDATE OR REPLACE resources SET name = ?, modified = ? WHERE id = ?",
+                name,
+                modified,
+                id
+            )
+            .execute(&self.db_pool)
+            .await?;
+
+            // Update the metadata in the store.
+            self.store.update(&current, None).await?;
+
+            self.update_cache(&current);
+
+            // Trigger modification observers for the resource and its parent.
+            self.notify_observers(&ResourceModification::ChildModified(ParentChild::new(
+                &current.parent(),
+                id,
+            )));
+
+            self.notify_observers(&ResourceModification::Modified(id.clone()));
+
+            Ok(current)
+        } else {
+            Err(ResourceStoreError::ResourceAlreadyExists)
+        }
     }
 }

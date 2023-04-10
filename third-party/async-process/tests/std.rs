@@ -23,10 +23,9 @@ fn smoke() {
 
 #[test]
 fn smoke_failure() {
-    match Command::new("if-this-is-a-binary-then-the-world-has-ended").spawn() {
-        Ok(..) => panic!(),
-        Err(..) => {}
-    }
+    assert!(Command::new("if-this-is-a-binary-then-the-world-has-ended")
+        .spawn()
+        .is_err());
 }
 
 #[test]
@@ -77,7 +76,7 @@ pub async fn run_output(mut cmd: Command) -> String {
         .await
         .unwrap();
     assert!(p.status().await.unwrap().success());
-    return ret;
+    ret
 }
 
 #[test]
@@ -386,7 +385,7 @@ fn child_status_preserved_with_kill_on_drop() {
 #[cfg(windows)]
 fn child_as_raw_handle() {
     use std::os::windows::io::AsRawHandle;
-    use winapi::um::processthreadsapi::GetProcessId;
+    use windows_sys::Win32::System::Threading::GetProcessId;
 
     future::block_on(async {
         let p = Command::new("cmd.exe")

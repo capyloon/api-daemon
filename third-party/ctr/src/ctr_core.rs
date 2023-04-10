@@ -9,8 +9,7 @@ use core::fmt;
 #[cfg(feature = "zeroize")]
 use cipher::zeroize::ZeroizeOnDrop;
 
-/// Generic CTR block mode isntance.
-#[derive(Clone)]
+/// Generic CTR block mode instance.
 pub struct CtrCore<C, F>
 where
     C: BlockEncryptMut + BlockCipher,
@@ -115,6 +114,20 @@ where
         f.write_str("<")?;
         <C as AlgorithmName>::write_alg_name(f)?;
         f.write_str(">")
+    }
+}
+
+impl<C, F> Clone for CtrCore<C, F>
+where
+    C: BlockEncryptMut + BlockCipher + Clone,
+    F: CtrFlavor<C::BlockSize>,
+{
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            cipher: self.cipher.clone(),
+            ctr_nonce: self.ctr_nonce.clone(),
+        }
     }
 }
 

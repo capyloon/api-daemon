@@ -14,8 +14,6 @@
 
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
-
 /// The national number part of a phone number.
 #[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
 pub struct NationalNumber {
@@ -53,8 +51,8 @@ impl NationalNumber {
 }
 
 impl From<NationalNumber> for u64 {
-    fn from(val: NationalNumber) -> u64 {
-        val.value
+    fn from(n: NationalNumber) -> u64 {
+        n.value
     }
 }
 

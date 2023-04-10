@@ -19,12 +19,13 @@ use core::cmp;
 use core::fmt;
 use core::mem;
 
-use position::Position;
-use span::Span;
-use RuleType;
+use crate::position::Position;
+use crate::span::Span;
+use crate::RuleType;
 
 /// Parse-related error type.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub struct Error<R> {
     /// Variant of the error
     pub variant: ErrorVariant<R>,
@@ -39,6 +40,7 @@ pub struct Error<R> {
 
 /// Different kinds of parsing errors.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum ErrorVariant<R> {
     /// Generated parsing error with expected and unexpected `Rule`s
     ParsingError {
@@ -99,13 +101,19 @@ impl<R: RuleType> Error<R> {
     ///
     /// println!("{}", error);
     /// ```
-    #[allow(clippy::needless_pass_by_value)]
     pub fn new_from_pos(variant: ErrorVariant<R>, pos: Position) -> Error<R> {
+        let visualize_ws = pos.match_char('\n') || pos.match_char('\r');
+        let line_of = pos.line_of();
+        let line = if visualize_ws {
+            visualize_whitespace(line_of)
+        } else {
+            line_of.replace(&['\r', '\n'][..], "")
+        };
         Error {
             variant,
             location: InputLocation::Pos(pos.pos()),
             path: None,
-            line: visualize_whitespace(pos.line_of()),
+            line,
             continued_line: None,
             line_col: LineColLocation::Pos(pos.line_col()),
         }
@@ -139,22 +147,33 @@ impl<R: RuleType> Error<R> {
     ///
     /// println!("{}", error);
     /// ```
-    #[allow(clippy::needless_pass_by_value)]
     pub fn new_from_span(variant: ErrorVariant<R>, span: Span) -> Error<R> {
         let end = span.end_pos();
-
         let mut end_line_col = end.line_col();
         // end position is after a \n, so we want to point to the visual lf symbol
         if end_line_col.1 == 1 {
-            let mut visual_end = end.clone();
+            let mut visual_end = end;
             visual_end.skip_back(1);
             let lc = visual_end.line_col();
             end_line_col = (lc.0, lc.1 + 1);
         };
 
         let mut line_iter = span.lines();
-        let start_line = visualize_whitespace(line_iter.next().unwrap_or(""));
-        let continued_line = line_iter.last().map(visualize_whitespace);
+        let sl = line_iter.next().unwrap_or("");
+        let mut chars = span.as_str().chars();
+        let visualize_ws = matches!(chars.next(), Some('\n') | Some('\r'))
+            || matches!(chars.last(), Some('\n') | Some('\r'));
+        let start_line = if visualize_ws {
+            visualize_whitespace(sl)
+        } else {
+            sl.to_owned().replace(&['\r', '\n'][..], "")
+        };
+        let ll = line_iter.last();
+        let continued_line = if visualize_ws {
+            ll.map(&str::to_owned)
+        } else {
+            ll.map(visualize_whitespace)
+        };
 
         Error {
             variant,
@@ -223,6 +242,11 @@ impl<R: RuleType> Error<R> {
     /// ```
     pub fn path(&self) -> Option<&str> {
         self.path.as_deref()
+    }
+
+    /// Returns the line that the error is on.
+    pub fn line(&self) -> &str {
+        self.line.as_str()
     }
 
     /// Renames all `Rule`s if this is a [`ParsingError`]. It does nothing when called on a
@@ -331,13 +355,11 @@ impl<R: RuleType> Error<R> {
         }
 
         if let Some(end) = end {
+            underline.push('^');
             if end - start > 1 {
-                underline.push('^');
                 for _ in 2..(end - start) {
                     underline.push('-');
                 }
-                underline.push('^');
-            } else {
                 underline.push('^');
             }
         } else {
@@ -375,13 +397,14 @@ impl<R: RuleType> Error<R> {
             1 => f(&rules[0]),
             2 => format!("{} or {}", f(&rules[0]), f(&rules[1])),
             l => {
+                let non_separated = f(&rules[l - 1]);
                 let separated = rules
                     .iter()
                     .take(l - 1)
-                    .map(|r| f(r))
+                    .map(f)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{}, or {}", separated, f(&rules[l - 1]))
+                format!("{}, or {}", separated, non_separated)
             }
         }
     }
@@ -465,7 +488,7 @@ impl<R: RuleType> ErrorVariant<R> {
     ///
     /// If [`ErrorVariant`] is [`CustomError`], it returns a
     /// [`Cow::Borrowed`] reference to [`message`]. If [`ErrorVariant`] is [`ParsingError`], a
-    /// [`Cow::Owned`] containing "expected [positives] [negatives]" is returned.
+    /// [`Cow::Owned`] containing "expected [ErrorVariant::ParsingError::positives] [ErrorVariant::ParsingError::negatives]" is returned.
     ///
     /// [`ErrorVariant`]: enum.ErrorVariant.html
     /// [`CustomError`]: enum.ErrorVariant.html#variant.CustomError
@@ -501,12 +524,11 @@ impl<R: RuleType> fmt::Display for Error<R> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<'i, R: RuleType> std::error::Error for Error<R> {
-    fn description(&self) -> &str {
-        match self.variant {
-            ErrorVariant::ParsingError { .. } => "parsing error",
-            ErrorVariant::CustomError { ref message } => message,
+impl<R: RuleType> fmt::Display for ErrorVariant<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ErrorVariant::ParsingError { .. } => write!(f, "parsing error: {}", self.message()),
+            ErrorVariant::CustomError { .. } => write!(f, "{}", self.message()),
         }
     }
 }
@@ -538,7 +560,7 @@ mod tests {
             vec![
                 " --> 2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "  |  ^---",
                 "  |",
                 "  = unexpected 4, 5, or 6; expected 1, 2, or 3",
@@ -564,7 +586,7 @@ mod tests {
             vec![
                 " --> 2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "  |  ^---",
                 "  |",
                 "  = expected 1 or 2",
@@ -590,7 +612,7 @@ mod tests {
             vec![
                 " --> 2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "  |  ^---",
                 "  |",
                 "  = unexpected 4, 5, or 6",
@@ -616,7 +638,7 @@ mod tests {
             vec![
                 " --> 2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "  |  ^---",
                 "  |",
                 "  = unknown parsing error",
@@ -641,7 +663,7 @@ mod tests {
             vec![
                 " --> 2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "  |  ^---",
                 "  |",
                 "  = error: big one",
@@ -667,7 +689,7 @@ mod tests {
             vec![
                 " --> 2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "3 | efgh",
                 "  |  ^^",
                 "  |",
@@ -694,7 +716,7 @@ mod tests {
             vec![
                 " --> 1:2",
                 "  |",
-                "1 | ab␊",
+                "1 | ab",
                 "  | ...",
                 "3 | efgh",
                 "  |  ^^",
@@ -722,7 +744,7 @@ mod tests {
             vec![
                 " --> 1:6",
                 "  |",
-                "1 | abcdef␊",
+                "1 | abcdef",
                 "2 | gh",
                 "  | ^----^",
                 "  |",
@@ -808,7 +830,7 @@ mod tests {
             vec![
                 " --> 2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "  |  ^---",
                 "  |",
                 "  = unexpected 5, 6, or 7; expected 2, 3, or 4",
@@ -835,7 +857,7 @@ mod tests {
             vec![
                 " --> file.rs:2:2",
                 "  |",
-                "2 | cd␊",
+                "2 | cd",
                 "  |  ^---",
                 "  |",
                 "  = unexpected 4, 5, or 6; expected 1, 2, or 3",

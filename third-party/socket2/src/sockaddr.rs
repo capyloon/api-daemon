@@ -13,6 +13,7 @@ use winapi::shared::ws2ipdef::SOCKADDR_IN6_LH_u;
 ///
 /// `SockAddr`s may be constructed directly to and from the standard library
 /// [`SocketAddr`], [`SocketAddrV4`], and [`SocketAddrV6`] types.
+#[derive(Clone)]
 pub struct SockAddr {
     storage: sockaddr_storage,
     len: socklen_t,
@@ -301,6 +302,7 @@ impl fmt::Debug for SockAddr {
             target_os = "netbsd",
             target_os = "openbsd",
             target_os = "vxworks",
+            target_os = "nto",
         ))]
         f.field("ss_len", &self.storage.ss_len);
         f.field("ss_family", &self.storage.ss_family)

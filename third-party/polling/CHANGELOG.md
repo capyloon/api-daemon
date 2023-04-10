@@ -1,3 +1,29 @@
+# Version 2.5.2
+
+- Update use of `libc::timespec` to prepare for future libc version (#55)
+- Update use of `libc::kevent` to prepare for future libc version (#56)
+- Add error message for Wepoll (#54)
+
+# Version 2.5.1
+
+- Fix the build error with MSRV on Windows
+
+# Version 2.5.0
+
+- Switch from `winapi` to `windows-sys` (#47)
+
+# Version 2.4.0
+
+- Fix the build error on illumos and Solaris (#43)
+- Bump MSRV to 1.47 (#40)
+- Optimize `Poller` internal representation (#40)
+
+# Version 2.3.0
+
+- Implement `AsRawFd` for `Poller` on most Unix systems (#39)
+- Implement `AsRawHandle` for `Poller` on Windows (#39)
+- Implement I/O safety traits on Rust 1.63+ (#39)
+
 # Version 2.2.0
 
 - Support VxWorks, Fuchsia and other Unix systems by using poll. (#26)

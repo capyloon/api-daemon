@@ -74,6 +74,17 @@
 
 extern crate alloc;
 
+/// We can't use `?` in const contexts yet, so this macro acts
+/// as a workaround.
+macro_rules! leap {
+    ($x: expr) => {{
+        match ($x) {
+            Some(val) => val,
+            None => return None,
+        }
+    }};
+}
+
 mod header;
 mod raw;
 mod runnable;
@@ -81,7 +92,9 @@ mod state;
 mod task;
 mod utils;
 
-pub use crate::runnable::{spawn, spawn_unchecked, Runnable};
+pub use crate::runnable::{
+    spawn, spawn_unchecked, Builder, Runnable, Schedule, ScheduleInfo, WithInfo,
+};
 pub use crate::task::{FallibleTask, Task};
 
 #[cfg(feature = "std")]

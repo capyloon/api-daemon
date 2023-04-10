@@ -5,8 +5,8 @@ use std::fmt::{self, Display};
 use url::{ParseError, Url};
 
 use crate::actions::{
-    AbortMultipartUpload, CreateBucket, DeleteBucket, DeleteObject, GetObject, HeadObject,
-    PutObject, UploadPart,
+    AbortMultipartUpload, CreateBucket, DeleteBucket, DeleteObject, GetObject, HeadBucket,
+    HeadObject, PutObject, UploadPart,
 };
 #[cfg(feature = "full")]
 use crate::actions::{
@@ -48,7 +48,7 @@ use crate::Credentials;
 /// assert_eq!(bucket.region(), "eu-west-1");
 /// assert_eq!(bucket.object_url("duck.jpg").expect("url is valid").as_str(), "https://rusty-s3.s3.dualstack.eu-west-1.amazonaws.com/duck.jpg");
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bucket {
     base_url: Url,
     name: Cow<'static, str>,
@@ -58,18 +58,19 @@ pub struct Bucket {
 /// The request url format of a S3 bucket.
 #[derive(Debug, Clone, Copy)]
 pub enum UrlStyle {
-    /// requests use the following format
-    /// `https://s3.Region.amazonaws.com/bucket-name/key_name`.
+    /// Requests will use "path-style" url: i.e:
+    /// `https://s3.<region>.amazonaws.com/<bucket>/<key>`.
     ///
-    /// Path style requests are strongly not raccomended,
-    /// AWS is plannnig to deprecate them, see [Virtual hosting of buckets](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html#virtual-hosted-style-access) for more information.
+    /// This style should be considered deprecated and is **NOT RECOMMENDED**.
+    /// Check [Amazon S3 Path Deprecation Plan](https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/)
+    /// for more informations.
     Path,
-    /// requests use the following format
-    /// `https://bucket-name.s3.Region.amazonaws.com/key_name`.
+    /// Requests will use "virtual-hosted-style" urls, i.e:
+    /// `https://<bucket>.s3.<region>.amazonaws.com/<key>`.
     VirtualHost,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BucketError {
     UnsupportedScheme,
     MissingHost,
@@ -130,7 +131,7 @@ impl Bucket {
 fn base_url(mut endpoint: Url, name: &str, path_style: UrlStyle) -> Url {
     match path_style {
         UrlStyle::Path => {
-            let path = format!("{}/", name);
+            let path = format!("{name}/");
             endpoint.join(&path).unwrap()
         }
         UrlStyle::VirtualHost => {
@@ -171,6 +172,13 @@ impl Bucket {
         object: &'a str,
     ) -> HeadObject<'a> {
         HeadObject::new(self, credentials, object)
+    }
+
+    /// Retrieve an bucket's metadata from S3, using a `HEAD` request.
+    ///
+    /// See [`HeadBucket`] for more details.
+    pub fn head_bucket<'a>(&'a self, credentials: Option<&'a Credentials>) -> HeadBucket<'a> {
+        HeadBucket::new(self, credentials)
     }
 
     /// Retrieve an object from S3, using a `GET` request.

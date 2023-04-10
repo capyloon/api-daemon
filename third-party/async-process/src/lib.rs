@@ -60,15 +60,19 @@ use std::thread;
 
 #[cfg(unix)]
 use async_io::Async;
+#[cfg(all(not(async_process_no_io_safety), unix))]
+use std::convert::{TryFrom, TryInto};
+#[cfg(all(not(async_process_no_io_safety), unix))]
+use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 #[cfg(unix)]
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 
 #[cfg(windows)]
 use blocking::Unblock;
 
+use async_lock::OnceCell;
 use event_listener::Event;
 use futures_lite::{future, io, prelude::*};
-use once_cell::sync::Lazy;
 
 #[doc(no_inline)]
 pub use std::process::{ExitStatus, Output, Stdio};
@@ -141,28 +145,39 @@ impl Child {
 
         cfg_if::cfg_if! {
             if #[cfg(windows)] {
+                use std::ffi::c_void;
                 use std::os::windows::io::AsRawHandle;
                 use std::sync::mpsc;
 
-                use winapi::um::{
-                    winbase::{RegisterWaitForSingleObject, INFINITE},
-                    winnt::{BOOLEAN, HANDLE, PVOID, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE},
+                use windows_sys::Win32::{
+                    System::{
+                        Threading::{RegisterWaitForSingleObject, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE},
+                        WindowsProgramming::INFINITE,
+                    },
+                    Foundation::{BOOLEAN, HANDLE},
                 };
 
                 // This channel is used to simulate SIGCHLD on Windows.
-                static CALLBACK: Lazy<(mpsc::SyncSender<()>, Mutex<mpsc::Receiver<()>>)> =
-                    Lazy::new(|| {
+                fn callback_channel() -> (&'static mpsc::SyncSender<()>, &'static Mutex<mpsc::Receiver<()>>) {
+                    static CALLBACK: OnceCell<(mpsc::SyncSender<()>, Mutex<mpsc::Receiver<()>>)> =
+                        OnceCell::new();
+
+                    let (s, r) = CALLBACK.get_or_init_blocking(|| {
                         let (s, r) = mpsc::sync_channel(1);
                         (s, Mutex::new(r))
                     });
 
+                    (s, r)
+                }
+
+
                 // Called when a child exits.
-                unsafe extern "system" fn callback(_: PVOID, _: BOOLEAN) {
-                    CALLBACK.0.try_send(()).ok();
+                unsafe extern "system" fn callback(_: *mut c_void, _: BOOLEAN) {
+                    callback_channel().0.try_send(()).ok();
                 }
 
                 // Register this child process to invoke `callback` on exit.
-                let mut wait_object = std::ptr::null_mut();
+                let mut wait_object = 0;
                 let ret = unsafe {
                     RegisterWaitForSingleObject(
                         &mut wait_object,
@@ -179,7 +194,7 @@ impl Child {
 
                 // Waits for the next SIGCHLD signal.
                 fn wait_sigchld() {
-                    CALLBACK.1.lock().unwrap().recv().ok();
+                    callback_channel().1.lock().unwrap().recv().ok();
                 }
 
                 // Wraps a sync I/O type into an async I/O type.
@@ -188,19 +203,17 @@ impl Child {
                 }
 
             } else if #[cfg(unix)] {
-                static SIGNALS: Lazy<Mutex<signal_hook::iterator::Signals>> = Lazy::new(|| {
-                    Mutex::new(
-                        signal_hook::iterator::Signals::new(&[signal_hook::consts::SIGCHLD])
-                            .expect("cannot set signal handler for SIGCHLD"),
-                    )
-                });
+                static SIGNALS: OnceCell<Mutex<signal_hook::iterator::Signals>> = OnceCell::new();
 
                 // Make sure the signal handler is registered before interacting with the process.
-                Lazy::force(&SIGNALS);
+                SIGNALS.get_or_init_blocking(|| Mutex::new(
+                    signal_hook::iterator::Signals::new(&[signal_hook::consts::SIGCHLD])
+                        .expect("cannot set signal handler for SIGCHLD"),
+                ));
 
                 // Waits for the next SIGCHLD signal.
                 fn wait_sigchld() {
-                    SIGNALS.lock().unwrap().forever().next();
+                    SIGNALS.get().expect("Signals not registered").lock().unwrap().forever().next();
                 }
 
                 // Wraps a sync I/O type into an async I/O type.
@@ -210,7 +223,10 @@ impl Child {
             }
         }
 
-        static ZOMBIES: Lazy<Mutex<Vec<std::process::Child>>> = Lazy::new(|| {
+        static ZOMBIES: OnceCell<Mutex<Vec<std::process::Child>>> = OnceCell::new();
+
+        // Make sure the thread is started.
+        ZOMBIES.get_or_init_blocking(|| {
             // Start a thread that handles SIGCHLD and notifies tasks when child processes exit.
             thread::Builder::new()
                 .name("async-process".to_string())
@@ -223,7 +239,7 @@ impl Child {
                         SIGCHLD.notify(std::usize::MAX);
 
                         // Reap zombie processes.
-                        let mut zombies = ZOMBIES.lock().unwrap();
+                        let mut zombies = ZOMBIES.get().unwrap().lock().unwrap();
                         let mut i = 0;
                         while i < zombies.len() {
                             if let Ok(None) = zombies[i].try_wait() {
@@ -239,9 +255,6 @@ impl Child {
             Mutex::new(Vec::new())
         });
 
-        // Make sure the thread is started.
-        Lazy::force(&ZOMBIES);
-
         // When the last reference to the child process is dropped, push it into the zombie list.
         impl Drop for ChildGuard {
             fn drop(&mut self) {
@@ -249,7 +262,7 @@ impl Child {
                     self.get_mut().kill().ok();
                 }
                 if self.reap_on_drop {
-                    let mut zombies = ZOMBIES.lock().unwrap();
+                    let mut zombies = ZOMBIES.get().unwrap().lock().unwrap();
                     if let Ok(None) = self.get_mut().try_wait() {
                         zombies.push(self.inner.take().unwrap());
                     }
@@ -497,6 +510,36 @@ impl io::AsyncWrite for ChildStdin {
     }
 }
 
+#[cfg(unix)]
+impl AsRawFd for ChildStdin {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+#[cfg(all(not(async_process_no_io_safety), unix))]
+impl AsFd for ChildStdin {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+#[cfg(all(not(async_process_no_io_safety), unix))]
+impl TryFrom<ChildStdin> for OwnedFd {
+    type Error = io::Error;
+
+    fn try_from(value: ChildStdin) -> Result<Self, Self::Error> {
+        value.0.try_into()
+    }
+}
+
+// TODO(notgull): Add mirroring AsRawHandle impls for all of the child handles
+//
+// at the moment this is pretty hard to do because of how they're wrapped in
+// Unblock, meaning that we can't always access the underlying handle. async-fs
+// gets around this by putting the handle in an Arc, but there's still some decision
+// to be made about how to handle this (no pun intended)
+
 /// A handle to a child process's standard output (stdout).
 ///
 /// When a [`ChildStdout`] is dropped, the underlying handle gets closed.
@@ -551,6 +594,29 @@ impl io::AsyncRead for ChildStdout {
     }
 }
 
+#[cfg(unix)]
+impl AsRawFd for ChildStdout {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+#[cfg(all(not(async_process_no_io_safety), unix))]
+impl AsFd for ChildStdout {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+#[cfg(all(not(async_process_no_io_safety), unix))]
+impl TryFrom<ChildStdout> for OwnedFd {
+    type Error = io::Error;
+
+    fn try_from(value: ChildStdout) -> Result<Self, Self::Error> {
+        value.0.try_into()
+    }
+}
+
 /// A handle to a child process's standard error (stderr).
 ///
 /// When a [`ChildStderr`] is dropped, the underlying handle gets closed.
@@ -598,6 +664,29 @@ impl io::AsyncRead for ChildStderr {
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+#[cfg(unix)]
+impl AsRawFd for ChildStderr {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+#[cfg(all(not(async_process_no_io_safety), unix))]
+impl AsFd for ChildStderr {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+#[cfg(all(not(async_process_no_io_safety), unix))]
+impl TryFrom<ChildStderr> for OwnedFd {
+    type Error = io::Error;
+
+    fn try_from(value: ChildStderr) -> Result<Self, Self::Error> {
+        value.0.try_into()
     }
 }
 

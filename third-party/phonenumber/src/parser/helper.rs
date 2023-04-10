@@ -71,6 +71,14 @@ pub struct Number<'a> {
     pub carrier: Option<Cow<'a, str>>,
 }
 
+pub fn ieof(i: &str) -> IResult<&str, ()> {
+    if i.is_empty() {
+        Ok((i, ()))
+    } else {
+        Err(nom::Err::Error(make_error(i, ErrorKind::LengthValue)))
+    }
+}
+
 pub fn punctuation(i: &str) -> IResult<&str, char> {
     one_of("-x\u{2010}\u{2011}\u{2012}\u{2013}\u{2014}\u{2015}\u{2212}\u{30FC}\u{FF0D}-\u{FF0F} \u{00A0}\u{00AD}\u{200B}\u{2060}\u{3000}()\u{FF08}\u{FF09}\u{FF3B}\u{FF3D}.[]/~\u{2053}\u{223C}\u{FF5E}")(i)
 }
@@ -301,23 +309,17 @@ pub fn national_number<'a>(meta: &Metadata, mut number: Number<'a>) -> Number<'a
             return number;
         }
 
-        if let Some(last) = last {
-            if groups > 0 {
-                number.carrier = Some(last.into());
-            }
-        }
+        number.carrier = last.filter(|_| groups > 0).map(Into::into);
 
         number.national = trim(number.national, end);
     } else if let Some(transform) = transform {
-        let transformed = parsing.replace(&number.national, &**transform).into_owned();
+        let transformed = parsing.replace(&number.national, transform).into_owned();
 
         if viable && !meta.descriptors.general.is_match(&transformed) {
             return number;
         }
 
-        if let Some(first) = first {
-            number.carrier = Some(first.into());
-        }
+        number.carrier = Some(first.unwrap().into());
         number.national = transformed.into();
     }
 
@@ -345,7 +347,7 @@ pub fn normalize<'a>(mut number: Number<'a>, mappings: &FnvHashMap<char, char>) 
                         string.push(ch);
                     }
 
-                    for (_, ch) in &mut chars {
+                    for (_, ch) in chars.by_ref() {
                         if let Some(ch) = ch.as_dec_digit() {
                             string.push(ch);
                         } else if let Some(&ch) = mappings.get(&ch) {
@@ -379,6 +381,7 @@ pub fn trim(value: Cow<str>, start: usize) -> Cow<str> {
     }
 }
 
+#[allow(clippy::wrong_self_convention)]
 pub trait AsCharExt {
     fn is_wide_digit(self) -> bool;
     fn is_punctuation(self) -> bool;
@@ -391,8 +394,7 @@ pub trait AsCharExt {
 
 impl<T: AsChar> AsCharExt for T {
     fn is_wide_digit(self) -> bool {
-        let ch = self.as_char();
-        ('０'..='９').contains(&ch)
+        self.as_char().is_ascii_digit()
     }
 
     fn is_punctuation(self) -> bool {
@@ -521,7 +523,7 @@ mod test {
             helper::extract("Num-\u{FF11}\u{FF12}\u{FF13}").unwrap().1
         );
         // If not possible number present, return empty string.
-        assert!(!helper::extract("Num-....").is_ok());
+        assert!(helper::extract("Num-....").is_err());
         // Leading brackets are stripped - these are not used when parsing.
         assert_eq!(
             "650) 253-0000",
@@ -555,7 +557,7 @@ mod test {
                 ..Default::default()
             },
             helper::country_code(
-                &*DATABASE,
+                &DATABASE,
                 Some(country::US),
                 Number {
                     national: "011112-3456789".into(),
@@ -575,7 +577,7 @@ mod test {
                 ..Default::default()
             },
             helper::country_code(
-                &*DATABASE,
+                &DATABASE,
                 Some(country::US),
                 Number {
                     national: "+6423456789".into(),
@@ -595,7 +597,7 @@ mod test {
                 ..Default::default()
             },
             helper::country_code(
-                &*DATABASE,
+                &DATABASE,
                 Some(country::US),
                 Number {
                     national: "+80012345678".into(),
@@ -615,7 +617,7 @@ mod test {
                 ..Default::default()
             },
             helper::country_code(
-                &*DATABASE,
+                &DATABASE,
                 Some(country::US),
                 Number {
                     national: "2345-6789".into(),
@@ -627,7 +629,7 @@ mod test {
         );
 
         assert!(helper::country_code(
-            &*DATABASE,
+            &DATABASE,
             Some(country::US),
             Number {
                 national: "0119991123456789".into(),
@@ -646,7 +648,7 @@ mod test {
                 ..Default::default()
             },
             helper::country_code(
-                &*DATABASE,
+                &DATABASE,
                 Some(country::US),
                 Number {
                     national: "(1 610) 619 4466".into(),
@@ -666,7 +668,7 @@ mod test {
                 ..Default::default()
             },
             helper::country_code(
-                &*DATABASE,
+                &DATABASE,
                 Some(country::IT),
                 Number {
                     national: "393298888888".into(),

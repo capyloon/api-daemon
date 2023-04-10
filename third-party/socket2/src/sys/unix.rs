@@ -1,8 +1,8 @@
 // Copyright 2015 The Rust Project Developers.
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
@@ -75,10 +75,24 @@ pub(crate) use libc::{
 #[cfg(not(target_os = "redox"))]
 pub(crate) use libc::{MSG_TRUNC, SO_OOBINLINE};
 // Used in `Socket`.
+#[cfg(not(target_os = "nto"))]
+pub(crate) use libc::ipv6_mreq as Ipv6Mreq;
 #[cfg(all(feature = "all", not(target_os = "redox")))]
 pub(crate) use libc::IP_HDRINCL;
 #[cfg(not(any(
-    target_os = "fuschia",
+    target_os = "dragonfly",
+    target_os = "fuchsia",
+    target_os = "illumos",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris",
+    target_os = "haiku",
+    target_os = "nto",
+)))]
+pub(crate) use libc::IP_RECVTOS;
+#[cfg(not(any(
+    target_os = "fuchsia",
     target_os = "redox",
     target_os = "solaris",
     target_os = "illumos",
@@ -89,11 +103,23 @@ pub(crate) use libc::SO_LINGER;
 #[cfg(target_vendor = "apple")]
 pub(crate) use libc::SO_LINGER_SEC as SO_LINGER;
 pub(crate) use libc::{
-    ip_mreq as IpMreq, ipv6_mreq as Ipv6Mreq, linger, IPPROTO_IP, IPPROTO_IPV6,
-    IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
-    IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL,
-    IP_TTL, MSG_OOB, MSG_PEEK, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_RCVBUF,
-    SO_RCVTIMEO, SO_REUSEADDR, SO_SNDBUF, SO_SNDTIMEO, SO_TYPE, TCP_NODELAY,
+    ip_mreq as IpMreq, linger, IPPROTO_IP, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF,
+    IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP,
+    IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TTL, MSG_OOB, MSG_PEEK, SOL_SOCKET,
+    SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_RCVBUF, SO_RCVTIMEO, SO_REUSEADDR, SO_SNDBUF,
+    SO_SNDTIMEO, SO_TYPE, TCP_NODELAY,
+};
+#[cfg(not(any(
+    target_os = "dragonfly",
+    target_os = "haiku",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "fuchsia",
+    target_os = "nto",
+)))]
+pub(crate) use libc::{
+    ip_mreq_source as IpMreqSource, IP_ADD_SOURCE_MEMBERSHIP, IP_DROP_SOURCE_MEMBERSHIP,
 };
 #[cfg(not(any(
     target_os = "dragonfly",
@@ -103,6 +129,7 @@ pub(crate) use libc::{
     target_os = "netbsd",
     target_os = "openbsd",
     target_os = "solaris",
+    target_os = "nto",
     target_vendor = "apple"
 )))]
 pub(crate) use libc::{IPV6_ADD_MEMBERSHIP, IPV6_DROP_MEMBERSHIP};
@@ -137,9 +164,14 @@ pub(crate) use libc::{TCP_KEEPCNT, TCP_KEEPINTVL};
 // See this type in the Windows file.
 pub(crate) type Bool = c_int;
 
-#[cfg(target_vendor = "apple")]
+#[cfg(any(target_vendor = "apple", target_os = "nto"))]
 use libc::TCP_KEEPALIVE as KEEPALIVE_TIME;
-#[cfg(not(any(target_vendor = "apple", target_os = "haiku", target_os = "openbsd")))]
+#[cfg(not(any(
+    target_vendor = "apple",
+    target_os = "haiku",
+    target_os = "openbsd",
+    target_os = "nto",
+)))]
 use libc::TCP_KEEPIDLE as KEEPALIVE_TIME;
 
 /// Helper macro to execute a system call that returns an `io::Result`.
@@ -198,6 +230,7 @@ type IovLen = usize;
     target_os = "netbsd",
     target_os = "openbsd",
     target_os = "solaris",
+    target_os = "nto",
     target_vendor = "apple",
 ))]
 type IovLen = c_int;
@@ -719,6 +752,15 @@ pub(crate) fn recv_from(
     }
 }
 
+pub(crate) fn peek_sender(fd: Socket) -> io::Result<SockAddr> {
+    // Unix-like platforms simply truncate the returned data, so this implementation is trivial.
+    // However, for Windows this requires suppressing the `WSAEMSGSIZE` error,
+    // so that requires a different approach.
+    // NOTE: macOS does not populate `sockaddr` if you pass a zero-sized buffer.
+    let (_, sender) = recv_from(fd, &mut [MaybeUninit::uninit(); 8], MSG_PEEK)?;
+    Ok(sender)
+}
+
 #[cfg(not(target_os = "redox"))]
 pub(crate) fn recv_vectored(
     fd: Socket,
@@ -882,7 +924,7 @@ pub(crate) fn keepalive_time(fd: Socket) -> io::Result<Duration> {
 
 #[allow(unused_variables)]
 pub(crate) fn set_tcp_keepalive(fd: Socket, keepalive: &TcpKeepalive) -> io::Result<()> {
-    #[cfg(not(any(target_os = "haiku", target_os = "openbsd")))]
+    #[cfg(not(any(target_os = "haiku", target_os = "openbsd", target_os = "nto")))]
     if let Some(time) = keepalive.time {
         let secs = into_secs(time);
         unsafe { setsockopt(fd, libc::IPPROTO_TCP, KEEPALIVE_TIME, secs)? }
@@ -909,10 +951,16 @@ pub(crate) fn set_tcp_keepalive(fd: Socket, keepalive: &TcpKeepalive) -> io::Res
         }
     }
 
+    #[cfg(target_os = "nto")]
+    if let Some(time) = keepalive.time {
+        let secs = into_timeval(Some(time));
+        unsafe { setsockopt(fd, libc::IPPROTO_TCP, KEEPALIVE_TIME, secs)? }
+    }
+
     Ok(())
 }
 
-#[cfg(not(any(target_os = "haiku", target_os = "openbsd")))]
+#[cfg(not(any(target_os = "haiku", target_os = "openbsd", target_os = "nto")))]
 fn into_secs(duration: Duration) -> c_int {
     min(duration.as_secs(), c_int::max_value() as u64) as c_int
 }
@@ -1004,8 +1052,10 @@ pub(crate) fn from_in6_addr(addr: in6_addr) -> Ipv6Addr {
     target_os = "haiku",
     target_os = "illumos",
     target_os = "netbsd",
+    target_os = "openbsd",
     target_os = "redox",
     target_os = "solaris",
+    target_os = "nto",
 )))]
 pub(crate) fn to_mreqn(
     multiaddr: &Ipv4Addr,
@@ -1438,7 +1488,7 @@ impl crate::Socket {
     }
 
     /// Set the value of the `TCP_THIN_LINEAR_TIMEOUTS` option on this socket.
-    ///    
+    ///
     /// If set, the kernel will dynamically detect a thin-stream connection if there are less than four packets in flight.
     /// With less than four packets in flight the normal TCP fast retransmission will not be effective.
     /// The kernel will modify the retransmission to avoid the very high latencies that thin stream suffer because of exponential backoff.
@@ -1483,15 +1533,13 @@ impl crate::Socket {
         let mut buf: [MaybeUninit<u8>; libc::IFNAMSIZ] =
             unsafe { MaybeUninit::uninit().assume_init() };
         let mut len = buf.len() as libc::socklen_t;
-        unsafe {
-            syscall!(getsockopt(
-                self.as_raw(),
-                libc::SOL_SOCKET,
-                libc::SO_BINDTODEVICE,
-                buf.as_mut_ptr().cast(),
-                &mut len,
-            ))?;
-        }
+        syscall!(getsockopt(
+            self.as_raw(),
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            buf.as_mut_ptr().cast(),
+            &mut len,
+        ))?;
         if len == 0 {
             Ok(None)
         } else {

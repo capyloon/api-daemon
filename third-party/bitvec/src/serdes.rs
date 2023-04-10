@@ -5,14 +5,66 @@ mod array;
 mod slice;
 mod utils;
 
-/// A list of fields in the `BitSeq` and `BitArr` transport format.
-static FIELDS: &[&str] = &["order", "head", "bits", "data"];
+use core::fmt::{
+	self,
+	Formatter,
+};
+
+use serde::de::{
+	Deserialize,
+	Deserializer,
+	Visitor,
+};
 
 /// A result of serialization.
 type Result<S> = core::result::Result<
 	<S as serde::Serializer>::Ok,
 	<S as serde::Serializer>::Error,
 >;
+
+/// A list of fields in the `BitSeq` and `BitArr` transport format.
+static FIELDS: &[&str] = &["order", "head", "bits", "data"];
+
+/// The components of a bit-slice in wire format.
+enum Field {
+	/// Denotes the `<O: BitOrder>` type parameter.
+	Order,
+	/// Denotes the head-bit index in the first `Data` element.
+	Head,
+	/// Denotes the count of all live bits in the `Data` sequence.
+	Bits,
+	/// Denotes the raw storage sequence.
+	Data,
+}
+
+/// Visits field tokens without attempting to deserialize into real data.
+struct FieldVisitor;
+
+impl<'de> Deserialize<'de> for Field {
+	fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
+	where D: Deserializer<'de> {
+		deserializer.deserialize_identifier(FieldVisitor)
+	}
+}
+
+impl<'de> Visitor<'de> for FieldVisitor {
+	type Value = Field;
+
+	fn expecting(&self, fmt: &mut Formatter) -> fmt::Result {
+		fmt.write_str("field_identifier")
+	}
+
+	fn visit_str<E>(self, value: &str) -> core::result::Result<Self::Value, E>
+	where E: serde::de::Error {
+		match value {
+			"order" => Ok(Field::Order),
+			"head" => Ok(Field::Head),
+			"bits" => Ok(Field::Bits),
+			"data" => Ok(Field::Data),
+			_ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+		}
+	}
+}
 
 #[cfg(test)]
 mod tests {

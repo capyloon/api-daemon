@@ -17,7 +17,6 @@ use pest_meta::ast::*;
 use pest_meta::optimizer::*;
 use pest_meta::UNICODE_PROPERTY_NAMES;
 
-#[allow(clippy::needless_pass_by_value)]
 pub fn generate(
     name: Ident,
     generics: &Generics,
@@ -52,13 +51,15 @@ pub fn generate(
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
+    let result = result_type();
+
     let parser_impl = quote! {
         #[allow(clippy::all)]
         impl #impl_generics ::pest::Parser<Rule> for #name #ty_generics #where_clause {
             fn parse<'i>(
                 rule: Rule,
                 input: &'i str
-            ) -> ::std::result::Result<
+            ) -> #result<
                 ::pest::iterators::Pairs<'i, Rule>,
                 ::pest::error::Error<Rule>
             > {
@@ -99,7 +100,7 @@ fn generate_builtin_rules() -> Vec<(&'static str, TokenStream)> {
     let mut builtins = Vec::new();
 
     insert_builtin!(builtins, ANY, state.skip(1));
-    insert_public_builtin!(
+    insert_builtin!(
         builtins,
         EOI,
         state.rule(Rule::EOI, |state| state.end_of_input())
@@ -150,13 +151,15 @@ fn generate_builtin_rules() -> Vec<(&'static str, TokenStream)> {
             .or_else(|state| state.match_string("\r"))
     );
 
+    let box_ty = box_type();
+
     for property in UNICODE_PROPERTY_NAMES {
         let property_ident: Ident = syn::parse_str(property).unwrap();
         // insert manually for #property substitution
         builtins.push((property, quote! {
             #[inline]
             #[allow(dead_code, non_snake_case, unused_variables)]
-            fn #property_ident(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+            fn #property_ident(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                 state.match_char_by(::pest::unicode::#property_ident)
             }
         }));
@@ -240,11 +243,13 @@ fn generate_rule(rule: OptimizedRule) -> TokenStream {
         generate_expr(rule.expr)
     };
 
+    let box_ty = box_type();
+
     match rule.ty {
         RuleType::Normal => quote! {
             #[inline]
             #[allow(non_snake_case, unused_variables)]
-            pub fn #name(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+            pub fn #name(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                 state.rule(Rule::#name, |state| {
                     #expr
                 })
@@ -253,14 +258,14 @@ fn generate_rule(rule: OptimizedRule) -> TokenStream {
         RuleType::Silent => quote! {
             #[inline]
             #[allow(non_snake_case, unused_variables)]
-            pub fn #name(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+            pub fn #name(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                 #expr
             }
         },
         RuleType::Atomic => quote! {
             #[inline]
             #[allow(non_snake_case, unused_variables)]
-            pub fn #name(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+            pub fn #name(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                 state.rule(Rule::#name, |state| {
                     state.atomic(::pest::Atomicity::Atomic, |state| {
                         #expr
@@ -271,7 +276,7 @@ fn generate_rule(rule: OptimizedRule) -> TokenStream {
         RuleType::CompoundAtomic => quote! {
             #[inline]
             #[allow(non_snake_case, unused_variables)]
-            pub fn #name(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+            pub fn #name(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                 state.atomic(::pest::Atomicity::CompoundAtomic, |state| {
                     state.rule(Rule::#name, |state| {
                         #expr
@@ -282,7 +287,7 @@ fn generate_rule(rule: OptimizedRule) -> TokenStream {
         RuleType::NonAtomic => quote! {
             #[inline]
             #[allow(non_snake_case, unused_variables)]
-            pub fn #name(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+            pub fn #name(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                 state.atomic(::pest::Atomicity::NonAtomic, |state| {
                     state.rule(Rule::#name, |state| {
                         #expr
@@ -620,11 +625,36 @@ struct QuoteOption<T>(Option<T>);
 
 impl<T: ToTokens> ToTokens for QuoteOption<T> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        let option = option_type();
         tokens.append_all(match self.0 {
-            Some(ref t) => quote! { ::std::option::Option::Some(#t) },
-            None => quote! { ::std::option::Option::None },
+            Some(ref t) => quote! { #option::Some(#t) },
+            None => quote! { #option::None },
         });
     }
+}
+
+fn box_type() -> TokenStream {
+    #[cfg(feature = "std")]
+    quote! { ::std::boxed::Box }
+
+    #[cfg(not(feature = "std"))]
+    quote! { ::alloc::boxed::Box }
+}
+
+fn result_type() -> TokenStream {
+    #[cfg(feature = "std")]
+    quote! { ::std::result::Result }
+
+    #[cfg(not(feature = "std"))]
+    quote! { ::core::result::Result }
+}
+
+fn option_type() -> TokenStream {
+    #[cfg(feature = "std")]
+    quote! { ::std::option::Option }
+
+    #[cfg(not(feature = "std"))]
+    quote! { ::core::option::Option }
 }
 
 #[cfg(test)]
@@ -936,6 +966,8 @@ mod tests {
             expr: OptimizedExpr::Str("b".to_owned()),
         }];
         let defaults = vec!["ANY"];
+        let result = result_type();
+        let box_ty = box_type();
         let mut current_dir = std::env::current_dir().expect("Unable to get current directory");
         current_dir.push("test.pest");
         let test_path = current_dir.to_str().expect("path contains invalid unicode");
@@ -956,7 +988,7 @@ mod tests {
                     fn parse<'i>(
                         rule: Rule,
                         input: &'i str
-                    ) -> ::std::result::Result<
+                    ) -> #result<
                         ::pest::iterators::Pairs<'i, Rule>,
                         ::pest::error::Error<Rule>
                     > {
@@ -967,7 +999,7 @@ mod tests {
 
                                 #[inline]
                                 #[allow(dead_code, non_snake_case, unused_variables)]
-                                pub fn skip(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+                                pub fn skip(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                                     Ok(state)
                                 }
                             }
@@ -977,13 +1009,13 @@ mod tests {
 
                                 #[inline]
                                 #[allow(non_snake_case, unused_variables)]
-                                pub fn a(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+                                pub fn a(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                                     state.match_string("b")
                                 }
 
                                 #[inline]
                                 #[allow(dead_code, non_snake_case, unused_variables)]
-                                pub fn ANY(state: Box<::pest::ParserState<Rule>>) -> ::pest::ParseResult<Box<::pest::ParserState<Rule>>> {
+                                pub fn ANY(state: #box_ty<::pest::ParserState<Rule>>) -> ::pest::ParseResult<#box_ty<::pest::ParserState<Rule>>> {
                                     state.skip(1)
                                 }
                             }

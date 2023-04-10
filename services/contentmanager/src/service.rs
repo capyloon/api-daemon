@@ -1052,6 +1052,29 @@ impl ContentStoreMethods for ContentManagerService {
         });
     }
 
+    fn move_resource(
+        &mut self,
+        responder: ContentStoreMoveResourceResponder,
+        source: String,
+        target: String,
+    ) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+            match manager
+                .move_resource(&source.clone().into(), &target.clone().into())
+                .await
+            {
+                Ok(metadata) => responder.resolve(metadata.into()),
+                Err(err) => {
+                    error!("Failed to move resource {} to {} : {}", source, target, err);
+                    responder.reject();
+                }
+            }
+        });
+    }
+
     fn with_ucan(&mut self, responder: ContentStoreWithUcanResponder, token: String) {
         if let Ok(ucan) = self.validate_ucan_token(&token) {
             self.ucan = UcanCapabilities::from_ucan(&ucan, &self.origin_attributes.identity());
@@ -1059,6 +1082,44 @@ impl ContentStoreMethods for ContentManagerService {
         } else {
             responder.reject();
         }
+    }
+
+    fn native_path(
+        &mut self,
+        responder: ContentStoreNativePathResponder,
+        id: String,
+        variant: String,
+    ) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+            match manager.get_native_path(&id.clone().into(), &variant).await {
+                Some(path) => responder.resolve(path.display().to_string()),
+                None => {
+                    println!("Failed to get native path for {} / {}", id, variant);
+                    responder.reject();
+                }
+            }
+        });
+    }
+
+    fn rename_resource(
+        &mut self,
+        responder: ContentStoreRenameResourceResponder,
+        id: String,
+        name: String,
+    ) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+
+            match manager.rename_resource(&id.clone().into(), &name).await {
+                Ok(metadata) => responder.resolve(metadata.into()),
+                Err(_) => responder.reject(),
+            }
+        });
     }
 }
 

@@ -1,5 +1,7 @@
 use std::{convert::TryFrom, fmt, net::IpAddr, rc::Rc, time::Duration};
 
+use base64::prelude::*;
+
 use actix_http::{
     error::HttpError,
     header::{self, HeaderMap, HeaderName, TryIntoHeaderPair},
@@ -165,7 +167,7 @@ where
 
     /// Add default header.
     ///
-    /// Headers added by this method get added to every request unless overriden by .
+    /// Headers added by this method get added to every request unless overridden by other methods.
     ///
     /// # Panics
     /// Panics if header name or value is invalid.
@@ -210,7 +212,7 @@ where
         };
         self.add_default_header((
             header::AUTHORIZATION,
-            format!("Basic {}", base64::encode(&auth)),
+            format!("Basic {}", BASE64_STANDARD.encode(auth)),
         ))
     }
 

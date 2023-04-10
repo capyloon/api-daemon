@@ -231,6 +231,11 @@ macro_rules! __parse_ensure {
         $crate::__parse_ensure!(atom $stack $bail ($($fuel)*) {($($buf)* $unsafe $block) $($parse)*} ($($rest)*) $($rest)*)
     };
 
+    (0 $stack:tt $bail:tt (~$($fuel:tt)*) {($($buf:tt)*) $($parse:tt)*} ($const:tt $block:tt $($dup:tt)*) const {$($body:tt)*} $($rest:tt)*) => {
+        // TODO: this is mostly useless due to https://github.com/rust-lang/rust/issues/86730
+        $crate::__parse_ensure!(atom $stack $bail ($($fuel)*) {($($buf)* $const $block) $($parse)*} ($($rest)*) $($rest)*)
+    };
+
     (0 $stack:tt $bail:tt (~$($fuel:tt)*) {($($buf:tt)*) $($parse:tt)*} $dup:tt $lit:literal $($rest:tt)*) => {
         $crate::__parse_ensure!(atom $stack $bail ($($fuel)*) {($($buf)* $lit) $($parse)*} ($($rest)*) $($rest)*)
     };
@@ -788,15 +793,15 @@ macro_rules! __fancy_ensure {
             (lhs, rhs) => {
                 if !(lhs $op rhs) {
                     #[allow(unused_imports)]
-                    use $crate::private::{BothDebug, NotBothDebug};
+                    use $crate::__private::{BothDebug, NotBothDebug};
                     return Err((lhs, rhs).__dispatch_ensure(
-                        $crate::private::concat!(
+                        $crate::__private::concat!(
                             "Condition failed: `",
-                            $crate::private::stringify!($lhs),
+                            $crate::__private::stringify!($lhs),
                             " ",
-                            $crate::private::stringify!($op),
+                            $crate::__private::stringify!($op),
                             " ",
-                            $crate::private::stringify!($rhs),
+                            $crate::__private::stringify!($rhs),
                             "`",
                         ),
                     ));
@@ -811,24 +816,24 @@ macro_rules! __fancy_ensure {
 macro_rules! __fallback_ensure {
     ($cond:expr $(,)?) => {
         if !$cond {
-            return $crate::private::Err($crate::Error::msg(
-                $crate::private::concat!("Condition failed: `", $crate::private::stringify!($cond), "`")
+            return $crate::__private::Err($crate::Error::msg(
+                $crate::__private::concat!("Condition failed: `", $crate::__private::stringify!($cond), "`")
             ));
         }
     };
     ($cond:expr, $msg:literal $(,)?) => {
         if !$cond {
-            return $crate::private::Err($crate::__anyhow!($msg));
+            return $crate::__private::Err($crate::__anyhow!($msg));
         }
     };
     ($cond:expr, $err:expr $(,)?) => {
         if !$cond {
-            return $crate::private::Err($crate::__anyhow!($err));
+            return $crate::__private::Err($crate::__anyhow!($err));
         }
     };
     ($cond:expr, $fmt:expr, $($arg:tt)*) => {
         if !$cond {
-            return $crate::private::Err($crate::__anyhow!($fmt, $($arg)*));
+            return $crate::__private::Err($crate::__anyhow!($fmt, $($arg)*));
         }
     };
 }

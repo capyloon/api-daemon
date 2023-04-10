@@ -12,10 +12,10 @@
 [package]
 edition = "2018"
 name = "ctor"
-version = "0.1.22"
+version = "0.1.26"
 authors = ["Matt Mastracci <matthew@mastracci.com>"]
 description = "__attribute__((constructor)) for Rust"
-readme = "../README.md"
+readme = "README.md"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/mmastrac/rust-ctor"
 
@@ -26,15 +26,23 @@ proc-macro = true
 [[example]]
 name = "example"
 path = "src/example.rs"
+
 [dependencies.quote]
-version = "1.0.9"
+version = "1.0.20"
 
 [dependencies.syn]
-version = "1.0.73"
-features = ["full", "parsing", "printing", "proc-macro"]
+version = "1.0.98"
+features = [
+    "full",
+    "parsing",
+    "printing",
+    "proc-macro",
+]
 default-features = false
+
 [dev-dependencies.libc-print]
-version = "0.1.15"
+version = "0.1.20"
+
 [badges.travis-ci]
 branch = "master"
 repository = "mmastrac/rust-ctor"

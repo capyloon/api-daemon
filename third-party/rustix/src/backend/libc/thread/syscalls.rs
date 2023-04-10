@@ -3,7 +3,7 @@
 use super::super::c;
 use super::super::conv::ret;
 #[cfg(any(target_os = "android", target_os = "linux"))]
-use super::super::conv::{borrowed_fd, ret_c_int};
+use super::super::conv::{borrowed_fd, ret_c_int, syscall_ret};
 use super::super::time::types::LibcTimespec;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use crate::fd::BorrowedFd;
@@ -14,12 +14,10 @@ use crate::process::{Pid, RawNonZeroPid};
 use crate::thread::{NanosleepRelativeResult, Timespec};
 use core::mem::MaybeUninit;
 #[cfg(not(any(
-    target_os = "dragonfly",
+    apple,
+    freebsdlike,
     target_os = "emscripten",
-    target_os = "freebsd",
     target_os = "haiku",
-    target_os = "ios",
-    target_os = "macos",
     target_os = "openbsd",
     target_os = "redox",
     target_os = "wasi",
@@ -38,12 +36,11 @@ weak!(fn __clock_nanosleep_time64(c::clockid_t, c::c_int, *const LibcTimespec, *
 weak!(fn __nanosleep64(*const LibcTimespec, *mut LibcTimespec) -> c::c_int);
 
 #[cfg(not(any(
+    apple,
     target_os = "dragonfly",
     target_os = "emscripten",
     target_os = "freebsd", // FreeBSD 12 has clock_nanosleep, but libc targets FreeBSD 11.
     target_os = "haiku",
-    target_os = "ios",
-    target_os = "macos",
     target_os = "openbsd",
     target_os = "redox",
     target_os = "wasi",
@@ -132,12 +129,11 @@ unsafe fn clock_nanosleep_relative_old(id: ClockId, request: &Timespec) -> Nanos
 }
 
 #[cfg(not(any(
+    apple,
     target_os = "dragonfly",
     target_os = "emscripten",
     target_os = "freebsd", // FreeBSD 12 has clock_nanosleep, but libc targets FreeBSD 11.
     target_os = "haiku",
-    target_os = "ios",
-    target_os = "macos",
     target_os = "openbsd",
     target_os = "redox",
     target_os = "wasi",
@@ -291,11 +287,49 @@ pub(crate) fn gettid() -> Pid {
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[inline]
 pub(crate) fn setns(fd: BorrowedFd, nstype: c::c_int) -> io::Result<c::c_int> {
-    unsafe { ret_c_int(c::setns(borrowed_fd(fd), nstype)) }
+    // `setns` wasn't supported in glibc until 2.14, and musl until 0.9.5,
+    // so use `syscall`.
+    weak_or_syscall! {
+        fn setns(fd: c::c_int, nstype: c::c_int) via SYS_setns -> c::c_int
+    }
+
+    unsafe { ret_c_int(setns(borrowed_fd(fd), nstype)) }
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[inline]
 pub(crate) fn unshare(flags: crate::thread::UnshareFlags) -> io::Result<()> {
     unsafe { ret(c::unshare(flags.bits() as i32)) }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[inline]
+pub(crate) fn capget(
+    header: &mut linux_raw_sys::general::__user_cap_header_struct,
+    data: &mut [MaybeUninit<linux_raw_sys::general::__user_cap_data_struct>],
+) -> io::Result<()> {
+    let header: *mut _ = header;
+    unsafe { syscall_ret(c::syscall(c::SYS_capget, header, data.as_mut_ptr())) }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[inline]
+pub(crate) fn capset(
+    header: &mut linux_raw_sys::general::__user_cap_header_struct,
+    data: &[linux_raw_sys::general::__user_cap_data_struct],
+) -> io::Result<()> {
+    let header: *mut _ = header;
+    unsafe { syscall_ret(c::syscall(c::SYS_capset, header, data.as_ptr())) }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[inline]
+pub(crate) fn setuid_thread(uid: crate::process::Uid) -> io::Result<()> {
+    unsafe { syscall_ret(c::syscall(c::SYS_setuid, uid.as_raw())) }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[inline]
+pub(crate) fn setgid_thread(gid: crate::process::Gid) -> io::Result<()> {
+    unsafe { syscall_ret(c::syscall(c::SYS_setgid, gid.as_raw())) }
 }

@@ -1,3 +1,5 @@
+#![allow(clippy::bool_assert_comparison)]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
@@ -19,6 +21,22 @@ fn smoke() {
 
     future::block_on(s.send(8)).unwrap();
     assert_eq!(future::block_on(r.recv()), Ok(8));
+    assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+fn smoke_blocking() {
+    let (s, r) = unbounded();
+
+    s.send_blocking(7).unwrap();
+    assert_eq!(r.try_recv(), Ok(7));
+
+    s.send_blocking(8).unwrap();
+    assert_eq!(future::block_on(r.recv()), Ok(8));
+
+    future::block_on(s.send(9)).unwrap();
+    assert_eq!(r.recv_blocking(), Ok(9));
+
     assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
 }
 
@@ -296,5 +314,30 @@ fn mpmc_stream() {
 
     for c in v {
         assert_eq!(c.load(Ordering::SeqCst), THREADS);
+    }
+}
+
+#[test]
+fn weak() {
+    let (s, r) = unbounded::<usize>();
+
+    // Create a weak sender/receiver pair.
+    let (weak_s, weak_r) = (s.downgrade(), r.downgrade());
+
+    // Upgrade and send.
+    {
+        let s = weak_s.upgrade().unwrap();
+        s.send_blocking(3).unwrap();
+        let r = weak_r.upgrade().unwrap();
+        assert_eq!(r.recv_blocking(), Ok(3));
+    }
+
+    // Drop the original sender/receiver pair.
+    drop((s, r));
+
+    // Try to upgrade again.
+    {
+        assert!(weak_s.upgrade().is_none());
+        assert!(weak_r.upgrade().is_none());
     }
 }

@@ -24,7 +24,7 @@
 //!
 //! // setting up the credentials
 //! let key = env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID is set and a valid String");
-//! let secret = env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_ACCESS_KEY_ID is set and a valid String");
+//! let secret = env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY is set and a valid String");
 //! let credentials = Credentials::new(key, secret);
 //!
 //! // signing a request
@@ -42,12 +42,14 @@
 #![forbid(unsafe_code)]
 
 pub use self::actions::S3Action;
-pub use self::bucket::{Bucket, UrlStyle};
+pub use self::bucket::{Bucket, BucketError, UrlStyle};
 pub use self::credentials::Credentials;
 pub use self::map::Map;
 pub use self::method::Method;
 
 pub mod actions;
+#[cfg(feature = "full")]
+pub(crate) mod base64;
 mod bucket;
 pub mod credentials;
 mod map;

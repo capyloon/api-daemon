@@ -10,8 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
+edition = "2018"
+rust-version = "1.56"
 name = "pest_derive"
-version = "2.1.0"
+version = "2.4.0"
 authors = ["Dragoș Tiselice <dragostiselice@gmail.com>"]
 description = "pest's derive macro"
 homepage = "https://pest-parser.github.io/"
@@ -32,18 +34,16 @@ name = "pest_derive"
 proc-macro = true
 
 [dependencies.pest]
-version = "2.1.0"
-path = "../pest"
+version = "2.4.0"
+default-features = false
 
 [dependencies.pest_generator]
-version = "2.1.0"
-path = "../generator"
+version = "2.4.0"
+default-features = false
 
-[badges.codecov]
-repository = "pest-parser/pest"
-
-[badges.maintenance]
-status = "actively-developed"
-
-[badges.travis-ci]
-repository = "pest-parser/pest"
+[features]
+default = ["std"]
+std = [
+    "pest/std",
+    "pest_generator/std",
+]

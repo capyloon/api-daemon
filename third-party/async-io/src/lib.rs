@@ -18,7 +18,7 @@
 //! wake appropriate futures blocked on I/O or timers when they can be resumed.
 //!
 //! To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
-//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows. That
+//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [IOCP] on Windows. That
 //! functionality is provided by the [`polling`] crate.
 //!
 //! However, note that you can also process I/O events and wake futures on any thread using the
@@ -28,7 +28,7 @@
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [event ports]: https://illumos.org/man/port_create
-//! [wepoll]: https://github.com/piscisaureus/wepoll
+//! [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
 //! [`polling`]: https://docs.rs/polling
 //!
 //! # Examples
@@ -64,6 +64,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
+#[cfg(all(not(async_io_no_io_safety), unix))]
+use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 #[cfg(unix)]
 use std::{
     os::unix::io::{AsRawFd, RawFd},
@@ -73,6 +75,8 @@ use std::{
 
 #[cfg(windows)]
 use std::os::windows::io::{AsRawSocket, RawSocket};
+#[cfg(all(not(async_io_no_io_safety), windows))]
+use std::os::windows::io::{AsSocket, BorrowedSocket, OwnedSocket};
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -97,6 +101,13 @@ fn duration_max() -> Duration {
 /// Timers are futures that output a single [`Instant`] when they fire.
 ///
 /// Timers are also streams that can output [`Instant`]s periodically.
+///
+/// # Precision
+///
+/// There is a limit on the maximum precision that a `Timer` can provide. This limit is
+/// dependent on the current platform; for instance, on Windows, the maximum precision is
+/// about 16 milliseconds. Because of this limit, the timer may sleep for longer than the
+/// requested duration. It will never sleep for less.
 ///
 /// # Examples
 ///
@@ -135,13 +146,57 @@ pub struct Timer {
     id_and_waker: Option<(usize, Waker)>,
 
     /// The next instant at which this timer fires.
-    when: Instant,
+    ///
+    /// If this timer is a blank timer, this value is None. If the timer
+    /// must be set, this value contains the next instant at which the
+    /// timer must fire.
+    when: Option<Instant>,
 
     /// The period.
     period: Duration,
 }
 
 impl Timer {
+    /// Creates a timer that will never fire.
+    ///
+    /// # Examples
+    ///
+    /// This function may also be useful for creating a function with an optional timeout.
+    ///
+    /// ```
+    /// # futures_lite::future::block_on(async {
+    /// use async_io::Timer;
+    /// use futures_lite::prelude::*;
+    /// use std::time::Duration;
+    ///
+    /// async fn run_with_timeout(timeout: Option<Duration>) {
+    ///     let timer = timeout
+    ///         .map(|timeout| Timer::after(timeout))
+    ///         .unwrap_or_else(Timer::never);
+    ///
+    ///     run_lengthy_operation().or(timer).await;
+    /// }
+    /// # // Note that since a Timer as a Future returns an Instant,
+    /// # // this function needs to return an Instant to be used
+    /// # // in "or".
+    /// # async fn run_lengthy_operation() -> std::time::Instant {
+    /// #    std::time::Instant::now()
+    /// # }
+    ///
+    /// // Times out after 5 seconds.
+    /// run_with_timeout(Some(Duration::from_secs(5))).await;
+    /// // Does not time out.
+    /// run_with_timeout(None).await;
+    /// # });
+    /// ```
+    pub fn never() -> Timer {
+        Timer {
+            id_and_waker: None,
+            when: None,
+            period: duration_max(),
+        }
+    }
+
     /// Creates a timer that emits an event once after the given duration of time.
     ///
     /// # Examples
@@ -155,7 +210,9 @@ impl Timer {
     /// # });
     /// ```
     pub fn after(duration: Duration) -> Timer {
-        Timer::at(Instant::now() + duration)
+        Instant::now()
+            .checked_add(duration)
+            .map_or_else(Timer::never, Timer::at)
     }
 
     /// Creates a timer that emits an event once at the given time instant.
@@ -192,7 +249,9 @@ impl Timer {
     /// # });
     /// ```
     pub fn interval(period: Duration) -> Timer {
-        Timer::interval_at(Instant::now() + period, period)
+        Instant::now()
+            .checked_add(period)
+            .map_or_else(Timer::never, |at| Timer::interval_at(at, period))
     }
 
     /// Creates a timer that emits events periodically, starting at `start`.
@@ -213,9 +272,32 @@ impl Timer {
     pub fn interval_at(start: Instant, period: Duration) -> Timer {
         Timer {
             id_and_waker: None,
-            when: start,
+            when: Some(start),
             period,
         }
+    }
+
+    /// Indicates whether or not this timer will ever fire.
+    ///
+    /// [`never()`] will never fire, and timers created with [`after()`] or [`at()`] will fire
+    /// if the duration is not too large.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use std::time::Duration;
+    ///
+    /// // `never` will never fire.
+    /// assert!(!Timer::never().will_fire());
+    ///
+    /// // `after` will fire if the duration is not too large.
+    /// assert!(Timer::after(Duration::from_secs(1)).will_fire());
+    /// assert!(!Timer::after(Duration::MAX).will_fire());
+    /// ```
+    #[inline]
+    pub fn will_fire(&self) -> bool {
+        self.when.is_some()
     }
 
     /// Sets the timer to emit an en event once after the given duration of time.
@@ -236,7 +318,14 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_after(&mut self, duration: Duration) {
-        self.set_at(Instant::now() + duration);
+        match Instant::now().checked_add(duration) {
+            Some(instant) => self.set_at(instant),
+            None => {
+                // Overflow to never going off.
+                self.clear();
+                self.when = None;
+            }
+        }
     }
 
     /// Sets the timer to emit an event once at the given time instant.
@@ -260,17 +349,14 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_at(&mut self, instant: Instant) {
-        if let Some((id, _)) = self.id_and_waker.as_ref() {
-            // Deregister the timer from the reactor.
-            Reactor::get().remove_timer(self.when, *id);
-        }
+        self.clear();
 
         // Update the timeout.
-        self.when = instant;
+        self.when = Some(instant);
 
         if let Some((id, waker)) = self.id_and_waker.as_mut() {
             // Re-register the timer with the new timeout.
-            *id = Reactor::get().insert_timer(self.when, waker);
+            *id = Reactor::get().insert_timer(instant, waker);
         }
     }
 
@@ -295,7 +381,14 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_interval(&mut self, period: Duration) {
-        self.set_interval_at(Instant::now() + period, period);
+        match Instant::now().checked_add(period) {
+            Some(instant) => self.set_interval_at(instant, period),
+            None => {
+                // Overflow to never going off.
+                self.clear();
+                self.when = None;
+            }
+        }
     }
 
     /// Sets the timer to emit events periodically, starting at `start`.
@@ -320,26 +413,31 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_interval_at(&mut self, start: Instant, period: Duration) {
-        if let Some((id, _)) = self.id_and_waker.as_ref() {
-            // Deregister the timer from the reactor.
-            Reactor::get().remove_timer(self.when, *id);
-        }
+        self.clear();
 
-        self.when = start;
+        self.when = Some(start);
         self.period = period;
 
         if let Some((id, waker)) = self.id_and_waker.as_mut() {
             // Re-register the timer with the new timeout.
-            *id = Reactor::get().insert_timer(self.when, waker);
+            *id = Reactor::get().insert_timer(start, waker);
+        }
+    }
+
+    /// Helper function to clear the current timer.
+    fn clear(&mut self) {
+        if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.as_ref()) {
+            // Deregister the timer from the reactor.
+            Reactor::get().remove_timer(when, *id);
         }
     }
 }
 
 impl Drop for Timer {
     fn drop(&mut self) {
-        if let Some((id, _)) = self.id_and_waker.take() {
+        if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.take()) {
             // Deregister the timer from the reactor.
-            Reactor::get().remove_timer(self.when, id);
+            Reactor::get().remove_timer(when, id);
         }
     }
 }
@@ -359,39 +457,44 @@ impl Future for Timer {
 impl Stream for Timer {
     type Item = Instant;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Check if the timer has already fired.
-        if Instant::now() >= self.when {
-            if let Some((id, _)) = self.id_and_waker.take() {
-                // Deregister the timer from the reactor.
-                Reactor::get().remove_timer(self.when, id);
-            }
-            let when = self.when;
-            if let Some(next) = when.checked_add(self.period) {
-                self.when = next;
-                // Register the timer in the reactor.
-                let id = Reactor::get().insert_timer(self.when, cx.waker());
-                self.id_and_waker = Some((id, cx.waker().clone()));
-            }
-            return Poll::Ready(Some(when));
-        } else {
-            match &self.id_and_waker {
-                None => {
-                    // Register the timer in the reactor.
-                    let id = Reactor::get().insert_timer(self.when, cx.waker());
-                    self.id_and_waker = Some((id, cx.waker().clone()));
-                }
-                Some((id, w)) if !w.will_wake(cx.waker()) => {
-                    // Deregister the timer from the reactor to remove the old waker.
-                    Reactor::get().remove_timer(self.when, *id);
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
 
-                    // Register the timer in the reactor with the new waker.
-                    let id = Reactor::get().insert_timer(self.when, cx.waker());
-                    self.id_and_waker = Some((id, cx.waker().clone()));
+        if let Some(ref mut when) = this.when {
+            // Check if the timer has already fired.
+            if Instant::now() >= *when {
+                if let Some((id, _)) = this.id_and_waker.take() {
+                    // Deregister the timer from the reactor.
+                    Reactor::get().remove_timer(*when, id);
                 }
-                Some(_) => {}
+                let result_time = *when;
+                if let Some(next) = (*when).checked_add(this.period) {
+                    *when = next;
+                    // Register the timer in the reactor.
+                    let id = Reactor::get().insert_timer(next, cx.waker());
+                    this.id_and_waker = Some((id, cx.waker().clone()));
+                }
+                return Poll::Ready(Some(result_time));
+            } else {
+                match &this.id_and_waker {
+                    None => {
+                        // Register the timer in the reactor.
+                        let id = Reactor::get().insert_timer(*when, cx.waker());
+                        this.id_and_waker = Some((id, cx.waker().clone()));
+                    }
+                    Some((id, w)) if !w.will_wake(cx.waker()) => {
+                        // Deregister the timer from the reactor to remove the old waker.
+                        Reactor::get().remove_timer(*when, *id);
+
+                        // Register the timer in the reactor with the new waker.
+                        let id = Reactor::get().insert_timer(*when, cx.waker());
+                        this.id_and_waker = Some((id, cx.waker().clone()));
+                    }
+                    Some(_) => {}
+                }
             }
         }
+
         Poll::Pending
     }
 }
@@ -399,12 +502,12 @@ impl Stream for Timer {
 /// Async adapter for I/O types.
 ///
 /// This type puts an I/O handle into non-blocking mode, registers it in
-/// [epoll]/[kqueue]/[event ports]/[wepoll], and then provides an async interface for it.
+/// [epoll]/[kqueue]/[event ports]/[IOCP], and then provides an async interface for it.
 ///
 /// [epoll]: https://en.wikipedia.org/wiki/Epoll
 /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 /// [event ports]: https://illumos.org/man/port_create
-/// [wepoll]: https://github.com/piscisaureus/wepoll
+/// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
 ///
 /// # Caveats
 ///
@@ -503,7 +606,7 @@ impl<T: AsRawFd> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This method will put the handle in non-blocking mode and register it in
-    /// [epoll]/[kqueue]/[event ports]/[wepoll].
+    /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
@@ -511,7 +614,7 @@ impl<T: AsRawFd> Async<T> {
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
     /// [event ports]: https://illumos.org/man/port_create
-    /// [wepoll]: https://github.com/piscisaureus/wepoll
+    /// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
     ///
     /// # Examples
     ///
@@ -525,21 +628,34 @@ impl<T: AsRawFd> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
-        let fd = io.as_raw_fd();
+        let raw = io.as_raw_fd();
 
         // Put the file descriptor in non-blocking mode.
-        unsafe {
-            let mut res = libc::fcntl(fd, libc::F_GETFL);
-            if res != -1 {
-                res = libc::fcntl(fd, libc::F_SETFL, res | libc::O_NONBLOCK);
-            }
-            if res == -1 {
-                return Err(io::Error::last_os_error());
+        //
+        // Safety: We assume `as_raw_fd()` returns a valid fd. When we can
+        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
+        // `TimerFd` implements it, we can remove this unsafe and simplify this.
+        let fd = unsafe { rustix::fd::BorrowedFd::borrow_raw(raw) };
+        cfg_if::cfg_if! {
+            // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
+            // for now, as with the standard library, because it seems to behave
+            // differently depending on the platform.
+            // https://github.com/rust-lang/rust/commit/efeb42be2837842d1beb47b51bb693c7474aba3d
+            // https://github.com/libuv/libuv/blob/e9d91fccfc3e5ff772d5da90e1c4a24061198ca0/src/unix/poll.c#L78-L80
+            // https://github.com/tokio-rs/mio/commit/0db49f6d5caf54b12176821363d154384357e70a
+            if #[cfg(target_os = "linux")] {
+                rustix::io::ioctl_fionbio(fd, true)?;
+            } else {
+                let previous = rustix::fs::fcntl_getfl(fd)?;
+                let new = previous | rustix::fs::OFlags::NONBLOCK;
+                if new != previous {
+                    rustix::fs::fcntl_setfl(fd, new)?;
+                }
             }
         }
 
         Ok(Async {
-            source: Reactor::get().insert_io(fd)?,
+            source: Reactor::get().insert_io(raw)?,
             io: Some(io),
         })
     }
@@ -552,12 +668,37 @@ impl<T: AsRawFd> AsRawFd for Async<T> {
     }
 }
 
+#[cfg(all(not(async_io_no_io_safety), unix))]
+impl<T: AsFd> AsFd for Async<T> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.get_ref().as_fd()
+    }
+}
+
+#[cfg(all(not(async_io_no_io_safety), unix))]
+impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Async<T> {
+    type Error = io::Error;
+
+    fn try_from(value: OwnedFd) -> Result<Self, Self::Error> {
+        Async::new(value.into())
+    }
+}
+
+#[cfg(all(not(async_io_no_io_safety), unix))]
+impl<T: Into<OwnedFd>> TryFrom<Async<T>> for OwnedFd {
+    type Error = io::Error;
+
+    fn try_from(value: Async<T>) -> Result<Self, Self::Error> {
+        value.into_inner().map(Into::into)
+    }
+}
+
 #[cfg(windows)]
 impl<T: AsRawSocket> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This method will put the handle in non-blocking mode and register it in
-    /// [epoll]/[kqueue]/[event ports]/[wepoll].
+    /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
@@ -565,7 +706,7 @@ impl<T: AsRawSocket> Async<T> {
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
     /// [event ports]: https://illumos.org/man/port_create
-    /// [wepoll]: https://github.com/piscisaureus/wepoll
+    /// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
     ///
     /// # Examples
     ///
@@ -580,22 +721,14 @@ impl<T: AsRawSocket> Async<T> {
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
         let sock = io.as_raw_socket();
+        let borrowed = unsafe { rustix::fd::BorrowedFd::borrow_raw(sock) };
 
         // Put the socket in non-blocking mode.
-        unsafe {
-            use winapi::ctypes;
-            use winapi::um::winsock2;
-
-            let mut nonblocking = true as ctypes::c_ulong;
-            let res = winsock2::ioctlsocket(
-                sock as winsock2::SOCKET,
-                winsock2::FIONBIO,
-                &mut nonblocking,
-            );
-            if res != 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
+        //
+        // Safety: We assume `as_raw_socket()` returns a valid fd. When we can
+        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
+        // `TimerFd` implements it, we can remove this unsafe and simplify this.
+        rustix::io::ioctl_fionbio(borrowed, true)?;
 
         Ok(Async {
             source: Reactor::get().insert_io(sock)?,
@@ -608,6 +741,31 @@ impl<T: AsRawSocket> Async<T> {
 impl<T: AsRawSocket> AsRawSocket for Async<T> {
     fn as_raw_socket(&self) -> RawSocket {
         self.source.raw
+    }
+}
+
+#[cfg(all(not(async_io_no_io_safety), windows))]
+impl<T: AsSocket> AsSocket for Async<T> {
+    fn as_socket(&self) -> BorrowedSocket<'_> {
+        self.get_ref().as_socket()
+    }
+}
+
+#[cfg(all(not(async_io_no_io_safety), windows))]
+impl<T: AsRawSocket + From<OwnedSocket>> TryFrom<OwnedSocket> for Async<T> {
+    type Error = io::Error;
+
+    fn try_from(value: OwnedSocket) -> Result<Self, Self::Error> {
+        Async::new(value.into())
+    }
+}
+
+#[cfg(all(not(async_io_no_io_safety), windows))]
+impl<T: Into<OwnedSocket>> TryFrom<Async<T>> for OwnedSocket {
+    type Error = io::Error;
+
+    fn try_from(value: Async<T>) -> Result<Self, Self::Error> {
+        value.into_inner().map(Into::into)
     }
 }
 
@@ -962,7 +1120,7 @@ impl<T: Read> AsyncRead for Async<T> {
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().read(buf) {
+            match (*self).get_mut().read(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -976,7 +1134,7 @@ impl<T: Read> AsyncRead for Async<T> {
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().read_vectored(bufs) {
+            match (*self).get_mut().read_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1025,7 +1183,7 @@ impl<T: Write> AsyncWrite for Async<T> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().write(buf) {
+            match (*self).get_mut().write(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1039,7 +1197,7 @@ impl<T: Write> AsyncWrite for Async<T> {
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().write_vectored(bufs) {
+            match (*self).get_mut().write_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1049,7 +1207,7 @@ impl<T: Write> AsyncWrite for Async<T> {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         loop {
-            match (&mut *self).get_mut().flush() {
+            match (*self).get_mut().flush() {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1778,7 +1936,7 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
     match socket.connect(&addr) {
         Ok(_) => {}
         #[cfg(unix)]
-        Err(err) if err.raw_os_error() == Some(libc::EINPROGRESS) => {}
+        Err(err) if err.raw_os_error() == Some(rustix::io::Errno::INPROGRESS.raw_os_error()) => {}
         Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
         Err(err) => return Err(err),
     }

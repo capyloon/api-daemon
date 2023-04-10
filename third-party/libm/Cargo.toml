@@ -12,19 +12,25 @@
 [package]
 edition = "2018"
 name = "libm"
-version = "0.2.2"
+version = "0.2.6"
 authors = ["Jorge Aparicio <jorge@japaric.io>"]
 description = "libm in pure Rust"
 documentation = "https://docs.rs/libm"
 readme = "README.md"
-keywords = ["libm", "math"]
+keywords = [
+    "libm",
+    "math",
+]
 categories = ["no-std"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-lang/libm"
+
 [profile.release]
 lto = "fat"
+
 [dev-dependencies.no-panic]
 version = "0.1.8"
+
 [build-dependencies.rand]
 version = "0.6.5"
 optional = true

@@ -12,20 +12,35 @@
 [package]
 edition = "2018"
 name = "actix-server"
-version = "2.1.1"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>", "fakeshadow <24548779@qq.com>", "Rob Ede <robjtede@icloud.com>", "Ali MJ Al-Nasrawy <alimjalnasrawy@gmail.com>"]
+version = "2.2.0"
+authors = [
+    "Nikolay Kim <fafhrd91@gmail.com>",
+    "Rob Ede <robjtede@icloud.com>",
+    "Ali MJ Al-Nasrawy <alimjalnasrawy@gmail.com>",
+]
 description = "General purpose TCP server built for the Actix ecosystem"
 homepage = "https://actix.rs"
-keywords = ["network", "tcp", "server", "framework", "async"]
-categories = ["network-programming", "asynchronous"]
+readme = "README.md"
+keywords = [
+    "network",
+    "tcp",
+    "server",
+    "framework",
+    "async",
+]
+categories = [
+    "network-programming",
+    "asynchronous",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-net.git"
 
 [lib]
 name = "actix_server"
 path = "src/lib.rs"
+
 [dependencies.actix-rt]
-version = "2.7"
+version = "2.8"
 default-features = false
 
 [dependencies.actix-service]
@@ -35,18 +50,21 @@ version = "2"
 version = "3"
 
 [dependencies.futures-core]
-version = "0.3.7"
+version = "0.3.17"
 features = ["alloc"]
 default-features = false
 
 [dependencies.futures-util]
-version = "0.3.7"
+version = "0.3.17"
 features = ["alloc"]
 default-features = false
 
 [dependencies.mio]
 version = "0.8"
-features = ["os-poll", "net"]
+features = [
+    "os-poll",
+    "net",
+]
 
 [dependencies.num_cpus]
 version = "1.13"
@@ -55,7 +73,7 @@ version = "1.13"
 version = "0.4.2"
 
 [dependencies.tokio]
-version = "1.13.1"
+version = "1.18.4"
 features = ["sync"]
 
 [dependencies.tracing]
@@ -65,7 +83,11 @@ default-features = false
 
 [features]
 default = []
-io-uring = ["tokio-uring", "actix-rt/io-uring"]
+io-uring = [
+    "tokio-uring",
+    "actix-rt/io-uring",
+]
+
 [target."cfg(target_os = \"linux\")".dependencies.tokio-uring]
-version = "0.3"
+version = "0.4"
 optional = true

@@ -3,7 +3,7 @@ use crate::location::LineColumn;
 use crate::parse::{self, Cursor};
 use crate::rcvec::{RcVec, RcVecBuilder, RcVecIntoIter, RcVecMut};
 use crate::{Delimiter, Spacing, TokenTree};
-#[cfg(span_locations)]
+#[cfg(all(span_locations, not(fuzzing)))]
 use core::cell::RefCell;
 #[cfg(span_locations)]
 use core::cmp;
@@ -13,8 +13,6 @@ use core::mem::ManuallyDrop;
 use core::ops::RangeBounds;
 use core::ptr;
 use core::str::FromStr;
-#[cfg(procmacro2_semver_exempt)]
-use std::path::Path;
 use std::path::PathBuf;
 
 /// Force use of proc-macro2's fallback implementation of the API for now, even
@@ -94,7 +92,7 @@ fn push_token_from_proc_macro(mut vec: RcVecMut<TokenTree>, token: TokenTree) {
             if literal.repr.starts_with('-') {
                 push_negative_literal(vec, literal);
             } else {
-                vec.push(TokenTree::Literal(crate::Literal::_new_stable(literal)));
+                vec.push(TokenTree::Literal(crate::Literal::_new_fallback(literal)));
             }
         }
         _ => vec.push(token),
@@ -104,9 +102,9 @@ fn push_token_from_proc_macro(mut vec: RcVecMut<TokenTree>, token: TokenTree) {
     fn push_negative_literal(mut vec: RcVecMut<TokenTree>, mut literal: Literal) {
         literal.repr.remove(0);
         let mut punct = crate::Punct::new('-', Spacing::Alone);
-        punct.set_span(crate::Span::_new_stable(literal.span));
+        punct.set_span(crate::Span::_new_fallback(literal.span));
         vec.push(TokenTree::Punct(punct));
-        vec.push(TokenTree::Literal(crate::Literal::_new_stable(literal)));
+        vec.push(TokenTree::Literal(crate::Literal::_new_fallback(literal)));
     }
 }
 
@@ -162,11 +160,14 @@ impl TokenStreamBuilder {
 
 #[cfg(span_locations)]
 fn get_cursor(src: &str) -> Cursor {
+    #[cfg(fuzzing)]
+    return Cursor { rest: src, off: 1 };
+
     // Create a dummy file & add it to the source map
+    #[cfg(not(fuzzing))]
     SOURCE_MAP.with(|cm| {
         let mut cm = cm.borrow_mut();
-        let name = format!("<parsed string {}>", cm.files.len());
-        let span = cm.add_file(&name, src);
+        let span = cm.add_file(src);
         Cursor {
             rest: src,
             off: span.lo,
@@ -334,29 +335,27 @@ impl Debug for SourceFile {
     }
 }
 
-#[cfg(span_locations)]
+#[cfg(all(span_locations, not(fuzzing)))]
 thread_local! {
     static SOURCE_MAP: RefCell<SourceMap> = RefCell::new(SourceMap {
         // NOTE: We start with a single dummy file which all call_site() and
         // def_site() spans reference.
         files: vec![FileInfo {
-            #[cfg(procmacro2_semver_exempt)]
-            name: "<unspecified>".to_owned(),
+            source_text: String::new(),
             span: Span { lo: 0, hi: 0 },
             lines: vec![0],
         }],
     });
 }
 
-#[cfg(span_locations)]
+#[cfg(all(span_locations, not(fuzzing)))]
 struct FileInfo {
-    #[cfg(procmacro2_semver_exempt)]
-    name: String,
+    source_text: String,
     span: Span,
     lines: Vec<usize>,
 }
 
-#[cfg(span_locations)]
+#[cfg(all(span_locations, not(fuzzing)))]
 impl FileInfo {
     fn offset_line_column(&self, offset: usize) -> LineColumn {
         assert!(self.span_within(Span {
@@ -379,11 +378,17 @@ impl FileInfo {
     fn span_within(&self, span: Span) -> bool {
         span.lo >= self.span.lo && span.hi <= self.span.hi
     }
+
+    fn source_text(&self, span: Span) -> String {
+        let lo = (span.lo - self.span.lo) as usize;
+        let hi = (span.hi - self.span.lo) as usize;
+        self.source_text[lo..hi].to_owned()
+    }
 }
 
 /// Computes the offsets of each line in the given source string
 /// and the total number of characters
-#[cfg(span_locations)]
+#[cfg(all(span_locations, not(fuzzing)))]
 fn lines_offsets(s: &str) -> (usize, Vec<usize>) {
     let mut lines = vec![0];
     let mut total = 0;
@@ -398,12 +403,12 @@ fn lines_offsets(s: &str) -> (usize, Vec<usize>) {
     (total, lines)
 }
 
-#[cfg(span_locations)]
+#[cfg(all(span_locations, not(fuzzing)))]
 struct SourceMap {
     files: Vec<FileInfo>,
 }
 
-#[cfg(span_locations)]
+#[cfg(all(span_locations, not(fuzzing)))]
 impl SourceMap {
     fn next_start_pos(&self) -> u32 {
         // Add 1 so there's always space between files.
@@ -413,7 +418,7 @@ impl SourceMap {
         self.files.last().unwrap().span.hi + 1
     }
 
-    fn add_file(&mut self, name: &str, src: &str) -> Span {
+    fn add_file(&mut self, src: &str) -> Span {
         let (len, lines) = lines_offsets(src);
         let lo = self.next_start_pos();
         // XXX(nika): Should we bother doing a checked cast or checked add here?
@@ -423,16 +428,26 @@ impl SourceMap {
         };
 
         self.files.push(FileInfo {
-            #[cfg(procmacro2_semver_exempt)]
-            name: name.to_owned(),
+            source_text: src.to_owned(),
             span,
             lines,
         });
 
-        #[cfg(not(procmacro2_semver_exempt))]
-        let _ = name;
-
         span
+    }
+
+    #[cfg(procmacro2_semver_exempt)]
+    fn filepath(&self, span: Span) -> PathBuf {
+        for (i, file) in self.files.iter().enumerate() {
+            if file.span_within(span) {
+                return PathBuf::from(if i == 0 {
+                    "<unspecified>".to_owned()
+                } else {
+                    format!("<parsed string {}>", i)
+                });
+            }
+        }
+        unreachable!("Invalid span with no related FileInfo!");
     }
 
     fn fileinfo(&self, span: Span) -> &FileInfo {
@@ -441,7 +456,7 @@ impl SourceMap {
                 return file;
             }
         }
-        panic!("Invalid span with no related FileInfo!");
+        unreachable!("Invalid span with no related FileInfo!");
     }
 }
 
@@ -487,17 +502,25 @@ impl Span {
 
     #[cfg(procmacro2_semver_exempt)]
     pub fn source_file(&self) -> SourceFile {
+        #[cfg(fuzzing)]
+        return SourceFile {
+            path: PathBuf::from("<unspecified>"),
+        };
+
+        #[cfg(not(fuzzing))]
         SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
-            let fi = cm.fileinfo(*self);
-            SourceFile {
-                path: Path::new(&fi.name).to_owned(),
-            }
+            let path = cm.filepath(*self);
+            SourceFile { path }
         })
     }
 
     #[cfg(span_locations)]
     pub fn start(&self) -> LineColumn {
+        #[cfg(fuzzing)]
+        return LineColumn { line: 0, column: 0 };
+
+        #[cfg(not(fuzzing))]
         SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
             let fi = cm.fileinfo(*self);
@@ -507,6 +530,10 @@ impl Span {
 
     #[cfg(span_locations)]
     pub fn end(&self) -> LineColumn {
+        #[cfg(fuzzing)]
+        return LineColumn { line: 0, column: 0 };
+
+        #[cfg(not(fuzzing))]
         SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
             let fi = cm.fileinfo(*self);
@@ -541,6 +568,13 @@ impl Span {
 
     #[cfg(span_locations)]
     pub fn join(&self, other: Span) -> Option<Span> {
+        #[cfg(fuzzing)]
+        return {
+            let _ = other;
+            None
+        };
+
+        #[cfg(not(fuzzing))]
         SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
             // If `other` is not within the same FileInfo as us, return None.
@@ -555,12 +589,32 @@ impl Span {
     }
 
     #[cfg(not(span_locations))]
-    fn first_byte(self) -> Self {
+    pub fn source_text(&self) -> Option<String> {
+        None
+    }
+
+    #[cfg(span_locations)]
+    pub fn source_text(&self) -> Option<String> {
+        #[cfg(fuzzing)]
+        return None;
+
+        #[cfg(not(fuzzing))]
+        {
+            if self.is_call_site() {
+                None
+            } else {
+                Some(SOURCE_MAP.with(|cm| cm.borrow().fileinfo(*self).source_text(*self)))
+            }
+        }
+    }
+
+    #[cfg(not(span_locations))]
+    pub(crate) fn first_byte(self) -> Self {
         self
     }
 
     #[cfg(span_locations)]
-    fn first_byte(self) -> Self {
+    pub(crate) fn first_byte(self) -> Self {
         Span {
             lo: self.lo,
             hi: cmp::min(self.lo.saturating_add(1), self.hi),
@@ -568,16 +622,21 @@ impl Span {
     }
 
     #[cfg(not(span_locations))]
-    fn last_byte(self) -> Self {
+    pub(crate) fn last_byte(self) -> Self {
         self
     }
 
     #[cfg(span_locations)]
-    fn last_byte(self) -> Self {
+    pub(crate) fn last_byte(self) -> Self {
         Span {
             lo: cmp::max(self.hi.saturating_sub(1), self.lo),
             hi: self.hi,
         }
+    }
+
+    #[cfg(span_locations)]
+    fn is_call_site(&self) -> bool {
+        self.lo == 0 && self.hi == 0
     }
 }
 
@@ -594,7 +653,7 @@ impl Debug for Span {
 pub(crate) fn debug_span_field_if_nontrivial(debug: &mut fmt::DebugStruct, span: Span) {
     #[cfg(span_locations)]
     {
-        if span.lo == 0 && span.hi == 0 {
+        if span.is_call_site() {
             return;
         }
     }

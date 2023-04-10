@@ -12,26 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use nom::error::{Error, ErrorKind};
+use nom::error::ErrorKind;
 use nom::IResult;
 
 use crate::consts;
 use crate::parser::helper::*;
 
-pub fn phone_number(input: &str) -> IResult<&str, Number> {
-    let i = extract(input)?.1;
-
+pub fn phone_number(i: &str) -> IResult<&str, Number> {
+    let (_, i) = extract(i)?;
     let extension = consts::EXTN_PATTERN.captures(i);
 
     if let Some(c) = extension.as_ref() {
-        match (c.get(0), c.get(2)) {
-            (Some(_), Some(_)) => {}
-            _ => {
-                return Err(nom::Err::Failure(Error::new(
-                    "invalid phone number",
-                    ErrorKind::Fail,
-                )));
-            }
+        if c.get(0).is_none() || c.get(2).is_none() {
+            return Err(nom::Err::Failure(nom::error::Error::new(i, ErrorKind::Eof)));
         }
     }
 

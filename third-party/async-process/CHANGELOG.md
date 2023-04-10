@@ -1,3 +1,14 @@
+# Version 1.6.0
+
+- Switch from `winapi` to `windows-sys` (#27)
+- Remove the dependency on the `once_cell` crate to restore the MSRV (#26)
+- Fix build failure with minimal-versions (#28)
+
+# Version 1.5.0
+
+- Implement `AsRawFd` for `ChildStd*` on Unix (#23)
+- Implement I/O safety traits on Rust 1.63+ on Unix (#23)
+
 # Version 1.4.0
 
 - `Command::spawn` and `Command::output` no longer unconfigure stdio streams (#20)

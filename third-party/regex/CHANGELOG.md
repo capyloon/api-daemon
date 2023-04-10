@@ -1,3 +1,71 @@
+1.7.3 (2023-03-24)
+==================
+This is a small release that fixes a bug in `Regex::shortest_match_at` that
+could cause it to panic, even when the offset given is valid.
+
+Bug fixes:
+
+* [BUG #969](https://github.com/rust-lang/regex/issues/969):
+  Fix a bug in how the reverse DFA was called for `Regex::shortest_match_at`.
+
+
+1.7.2 (2023-03-21)
+==================
+This is a small release that fixes a failing test on FreeBSD.
+
+Bug fixes:
+
+* [BUG #967](https://github.com/rust-lang/regex/issues/967):
+  Fix "no stack overflow" test which can fail due to the small stack size.
+
+
+1.7.1 (2023-01-09)
+==================
+This release was done principally to try and fix the doc.rs rendering for the
+regex crate.
+
+Performance improvements:
+
+* [PERF #930](https://github.com/rust-lang/regex/pull/930):
+  Optimize `replacen`. This also applies to `replace`, but not `replace_all`.
+
+Bug fixes:
+
+* [BUG #945](https://github.com/rust-lang/regex/issues/945):
+  Maybe fix rustdoc rendering by just bumping a new release?
+
+
+1.7.0 (2022-11-05)
+==================
+This release principally includes an upgrade to Unicode 15.
+
+New features:
+
+* [FEATURE #832](https://github.com/rust-lang/regex/issues/916):
+  Upgrade to Unicode 15.
+
+
+1.6.0 (2022-07-05)
+==================
+This release principally includes an upgrade to Unicode 14.
+
+New features:
+
+* [FEATURE #832](https://github.com/rust-lang/regex/pull/832):
+  Clarify that `Captures::len` includes all groups, not just matching groups.
+* [FEATURE #857](https://github.com/rust-lang/regex/pull/857):
+  Add an `ExactSizeIterator` impl for `SubCaptureMatches`.
+* [FEATURE #861](https://github.com/rust-lang/regex/pull/861):
+  Improve `RegexSet` documentation examples.
+* [FEATURE #877](https://github.com/rust-lang/regex/issues/877):
+  Upgrade to Unicode 14.
+
+Bug fixes:
+
+* [BUG #792](https://github.com/rust-lang/regex/issues/792):
+  Fix error message rendering bug.
+
+
 1.5.6 (2022-05-20)
 ==================
 This release includes a few bug fixes, including a bug that produced incorrect

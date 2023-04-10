@@ -6,9 +6,9 @@
 //! `__attribute__((constructor))` in C/C++) for Linux, OSX, and Windows via
 //! the `#[ctor]` and `#[dtor]` macros.
 //!
-//! This library works and has been tested for Linux, OSX and Windows. This
-//! library will also work as expected in both `bin` and `cdylib` outputs,
-//! ie: the `ctor` and `dtor` will run at executable or library
+//! This library works and is regularly tested on Linux, OSX and Windows, with both `+crt-static` and `-crt-static`.
+//! Other platforms are supported but not tested as part of the automatic builds. This library will also work as expected in both
+//! `bin` and `cdylib` outputs, ie: the `ctor` and `dtor` will run at executable or library
 //! startup/shutdown respectively.
 //!
 //! This library currently requires Rust > `1.31.0` at a minimum for the
@@ -22,12 +22,36 @@
 
 // https://github.com/Alexpux/mingw-w64/blob/d0d7f784833bbb0b2d279310ddc6afb52fe47a46/mingw-w64-crt/crt/crtdll.c
 
+// In addition, OSX has removed support for section-based shutdown hooks after
+// warning about it for a number of years:
+
+// https://reviews.llvm.org/D45578
+
 extern crate proc_macro;
 extern crate syn;
 #[macro_use]
 extern crate quote;
 
-use proc_macro::TokenStream;
+use proc_macro::{TokenStream};
+
+/// Attributes required to mark a function as a constructor. This may be exposed in the future if we determine
+/// it to be stable.
+#[doc(hidden)]
+macro_rules! ctor_attributes {
+    () => {
+        quote!(
+            #[cfg_attr(any(target_os = "linux", target_os = "android"), link_section = ".init_array")]
+            #[cfg_attr(target_os = "freebsd", link_section = ".init_array")]
+            #[cfg_attr(target_os = "netbsd", link_section = ".init_array")]
+            #[cfg_attr(target_os = "openbsd", link_section = ".init_array")]
+            #[cfg_attr(target_os = "dragonfly", link_section = ".init_array")]
+            #[cfg_attr(target_os = "illumos", link_section = ".init_array")]
+            #[cfg_attr(target_os = "haiku", link_section = ".init_array")]
+            #[cfg_attr(any(target_os = "macos", target_os = "ios"), link_section = "__DATA,__mod_init_func")]
+            #[cfg_attr(windows, link_section = ".CRT$XCU")]
+        )
+    };
+}
 
 /// Marks a function or static variable as a library/executable constructor.
 /// This uses OS-specific linker sections to call a specific function at
@@ -38,11 +62,13 @@ use proc_macro::TokenStream;
 ///
 /// # Examples
 ///
-/// Print a startup message:
+/// Print a startup message (using `libc_print` for safety):
 ///
 /// ```rust
 /// # extern crate ctor;
 /// # use ctor::*;
+/// use libc_print::std_name::println;
+///
 /// #[ctor]
 /// fn foo() {
 ///   println!("Hello, world!");
@@ -142,6 +168,7 @@ pub fn ctor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
             syn::parse_str::<syn::Ident>(format!("{}___rust_ctor___ctor", ident).as_ref())
                 .expect("Unable to create identifier");
 
+        let tokens = ctor_attributes!();
         let output = quote!(
             #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly", target_os = "illumos", target_os = "haiku", target_os = "macos", target_os = "ios", windows)))]
             compile_error!("#[ctor] is not supported on the current target");
@@ -152,15 +179,7 @@ pub fn ctor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
             #[used]
             #[allow(non_upper_case_globals)]
             #[doc(hidden)]
-            #[cfg_attr(any(target_os = "linux", target_os = "android"), link_section = ".init_array")]
-            #[cfg_attr(target_os = "freebsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "netbsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "openbsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "dragonfly", link_section = ".init_array")]
-            #[cfg_attr(target_os = "illumos", link_section = ".init_array")]
-            #[cfg_attr(target_os = "haiku", link_section = ".init_array")]
-            #[cfg_attr(any(target_os = "macos", target_os = "ios"), link_section = "__DATA,__mod_init_func")]
-            #[cfg_attr(windows, link_section = ".CRT$XCU")]
+            #tokens
             static #ctor_ident
             :
             unsafe extern "C" fn() =
@@ -186,7 +205,7 @@ pub fn ctor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
             ..
         } = var;
 
-        if let Some(_) = mutability {
+        if mutability.is_some() {
             panic!("#[ctor]-annotated static objects must not be mutable");
         }
 
@@ -206,6 +225,7 @@ pub fn ctor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
             syn::parse_str::<syn::Ident>(format!("{}___rust_ctor___storage", ident).as_ref())
                 .expect("Unable to create identifier");
 
+        let tokens = ctor_attributes!();
         let output = quote!(
             #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly", target_os = "illumos", target_os = "haiku", target_os = "macos", target_os = "ios", windows)))]
             compile_error!("#[ctor] is not supported on the current target");
@@ -235,15 +255,7 @@ pub fn ctor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
 
             #[used]
             #[allow(non_upper_case_globals)]
-            #[cfg_attr(any(target_os = "linux", target_os = "android"), link_section = ".init_array")]
-            #[cfg_attr(target_os = "freebsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "netbsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "openbsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "dragonfly", link_section = ".init_array")]
-            #[cfg_attr(target_os = "illumos", link_section = ".init_array")]
-            #[cfg_attr(target_os = "haiku", link_section = ".init_array")]
-            #[cfg_attr(any(target_os = "macos", target_os = "ios"), link_section = "__DATA,__mod_init_func")]
-            #[cfg_attr(windows, link_section = ".CRT$XCU")]
+            #tokens
             static #ctor_ident
             :
             unsafe extern "C" fn() = {
@@ -307,6 +319,7 @@ pub fn dtor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
     let dtor_ident = syn::parse_str::<syn::Ident>(format!("{}___rust_dtor___dtor", ident).as_ref())
         .expect("Unable to create identifier");
 
+    let tokens = ctor_attributes!();
     let output = quote!(
         #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly", target_os = "illumos", target_os = "haiku", target_os = "macos", target_os = "ios", windows)))]
         compile_error!("#[dtor] is not supported on the current target");
@@ -314,29 +327,34 @@ pub fn dtor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
         #(#attrs)*
         #vis #unsafety extern #abi #constness fn #ident() #block
 
-        // Targets that use `atexit`.
-        #[cfg(not(any(
-            target_os = "macos",
-            target_os = "ios",
-        )))]
         mod #mod_ident {
             use super::#ident;
 
-            // Avoid a dep on libc by linking directly
-            extern "C" {
-                fn atexit(cb: unsafe extern fn());
+            // Note that we avoid a dep on the libc crate by linking directly to atexit functions
+
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            #[inline(always)]
+            unsafe fn do_atexit(cb: unsafe extern fn()) {
+                extern "C" {
+                    fn atexit(cb: unsafe extern fn());
+                }
+                atexit(cb);
+            }
+
+            // For platforms that have __cxa_atexit, we register the dtor as scoped to dso_handle
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            #[inline(always)]
+            unsafe fn do_atexit(cb: unsafe extern fn()) {
+                extern "C" {
+                    static __dso_handle: *const u8;
+                    fn __cxa_atexit(cb: unsafe extern fn(), arg: *const u8, dso_handle: *const u8);
+                }
+                __cxa_atexit(cb, std::ptr::null(), __dso_handle);
             }
 
             #[used]
             #[allow(non_upper_case_globals)]
-            #[cfg_attr(any(target_os = "linux", target_os = "android"), link_section = ".init_array")]
-            #[cfg_attr(target_os = "freebsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "netbsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "openbsd", link_section = ".init_array")]
-            #[cfg_attr(target_os = "dragonfly", link_section = ".init_array")]
-            #[cfg_attr(target_os = "illumos", link_section = ".init_array")]
-            #[cfg_attr(target_os = "haiku", link_section = ".init_array")]
-            #[cfg_attr(windows, link_section = ".CRT$XCU")]
+            #tokens
             static __dtor_export
             :
             unsafe extern "C" fn() =
@@ -345,29 +363,9 @@ pub fn dtor(_attribute: TokenStream, function: TokenStream) -> TokenStream {
                 unsafe extern "C" fn #dtor_ident() { #ident() };
                 #[cfg_attr(any(target_os = "linux", target_os = "android"), link_section = ".text.startup")]
                 unsafe extern fn __dtor_atexit() {
-                    atexit(#dtor_ident);
+                    do_atexit(#dtor_ident);
                 };
                 __dtor_atexit
-            };
-        }
-
-        // Targets that don't rely on `atexit`.
-        #[cfg(any(
-            target_os = "macos",
-            target_os = "ios",
-        ))]
-        mod #mod_ident {
-            use super::#ident;
-
-            #[used]
-            #[allow(non_upper_case_globals)]
-            #[cfg_attr(any(target_os = "macos", target_os = "ios"), link_section = "__DATA,__mod_term_func")]
-            static __dtor_export
-            :
-            unsafe extern "C" fn() =
-            {
-                unsafe extern fn __dtor() { #ident() };
-                __dtor
             };
         }
     );
@@ -387,7 +385,7 @@ fn validate_item(typ: &str, item: &syn::ItemFn) {
     }
 
     // No parameters allowed
-    if sig.inputs.len() > 0 {
+    if !sig.inputs.is_empty() {
         panic!("#[{}] methods may not have parameters", typ);
     }
 

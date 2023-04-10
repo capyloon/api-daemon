@@ -10,6 +10,7 @@ pub use self::delete_object::DeleteObject;
 #[cfg(feature = "full")]
 pub use self::delete_objects::{DeleteObjects, ObjectIdentifier};
 pub use self::get_object::GetObject;
+pub use self::head_bucket::HeadBucket;
 pub use self::head_object::HeadObject;
 #[cfg(feature = "full")]
 #[doc(inline)]
@@ -31,6 +32,7 @@ mod delete_object;
 #[cfg(feature = "full")]
 mod delete_objects;
 mod get_object;
+mod head_bucket;
 mod head_object;
 #[cfg(feature = "full")]
 pub mod list_objects_v2;

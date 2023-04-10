@@ -10,8 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
+edition = "2018"
+rust-version = "1.56"
 name = "pest_generator"
-version = "2.1.3"
+version = "2.4.0"
 authors = ["Dragoș Tiselice <dragostiselice@gmail.com>"]
 description = "pest code generator"
 homepage = "https://pest-parser.github.io/"
@@ -25,24 +27,22 @@ categories = ["parsing"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/pest-parser/pest"
 
-[dependencies]
-proc-macro2 = "1.0"
-quote = "1.0"
-syn = "1.0"
-
 [dependencies.pest]
-version = "2.1.0"
-path = "../pest"
+version = "2.4.0"
+default-features = false
 
 [dependencies.pest_meta]
-version = "2.1.0"
-path = "../meta"
+version = "2.4.0"
 
-[badges.codecov]
-repository = "pest-parser/pest"
+[dependencies.proc-macro2]
+version = "1.0"
 
-[badges.maintenance]
-status = "actively-developed"
+[dependencies.quote]
+version = "1.0"
 
-[badges.travis-ci]
-repository = "pest-parser/pest"
+[dependencies.syn]
+version = "1.0"
+
+[features]
+default = ["std"]
+std = ["pest/std"]

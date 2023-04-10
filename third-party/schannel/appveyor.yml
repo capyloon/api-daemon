@@ -7,12 +7,12 @@ environment:
   - TARGET: x86_64-pc-windows-gnu
     VERSION: nightly
   - TARGET: i686-pc-windows-gnu
-    VERSION: 1.40.0
+    VERSION: 1.46.0
   access_token:
     secure: ZxcrtxQXwszRYNN6c1ZIagczEqzmQQZeYHY58izcmF0jdq/cptxJvFUoVxDmnoqj
 install:
-  - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-${env:VERSION}-${env:TARGET}.exe" -FileName "rust-nightly.exe"
-  - ps: .\rust-nightly.exe /VERYSILENT /NORESTART /DIR="C:\rust" | Out-Null
+  - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-${env:VERSION}-${env:TARGET}.msi" -FileName "rust-install.msi"
+  - ps: msiexec /i "rust-install.msi" /qn /norestart INSTALLDIR="C:\rust" | Out-Null
   - ps: $env:PATH="$env:PATH;C:\rust\bin"
   - rustc -vV
   - cargo -vV

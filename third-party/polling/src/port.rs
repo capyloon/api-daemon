@@ -6,6 +6,9 @@ use std::os::unix::net::UnixStream;
 use std::ptr;
 use std::time::Duration;
 
+#[cfg(not(polling_no_io_safety))]
+use std::os::unix::io::{AsFd, BorrowedFd};
+
 use crate::Event;
 
 /// Interface to event ports.
@@ -143,6 +146,20 @@ impl Poller {
     }
 }
 
+impl AsRawFd for Poller {
+    fn as_raw_fd(&self) -> RawFd {
+        self.port_fd
+    }
+}
+
+#[cfg(not(polling_no_io_safety))]
+impl AsFd for Poller {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        // SAFETY: lifetime is bound by self
+        unsafe { BorrowedFd::borrow_raw(self.port_fd) }
+    }
+}
+
 impl Drop for Poller {
     fn drop(&mut self) {
         let _ = self.delete(self.read_stream.as_raw_fd());
@@ -162,7 +179,7 @@ fn write_flags() -> libc::c_short {
 
 /// A list of reported I/O events.
 pub struct Events {
-    list: Box<[libc::port_event]>,
+    list: Box<[libc::port_event; 1024]>,
     len: usize,
 }
 
@@ -178,7 +195,7 @@ impl Events {
             portev_object: 0,
             portev_user: 0 as _,
         };
-        let list = vec![ev; 1000].into_boxed_slice();
+        let list = Box::new([ev; 1024]);
         let len = 0;
         Events { list, len }
     }
