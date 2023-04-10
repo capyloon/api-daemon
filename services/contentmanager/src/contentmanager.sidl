@@ -159,6 +159,10 @@ interface ContentStore {
     // Returns the metadata of the copy.
     fn copy_resource(source: str, target: str) -> Metadata
 
+    // Move a resource to another container.
+    // Returns the metadata of the copy.
+    fn move_resource(source: str, target: str) -> Metadata
+
     // Rename a resource.
     // Returns the update metadata.
     fn rename_resource(id: str, name: str) -> Metadata
