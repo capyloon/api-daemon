@@ -1195,10 +1195,16 @@ impl<T> Manager<T> {
             return Err(ResourceStoreError::InvalidResourceId);
         }
 
+        let source_meta = self.get_metadata(source).await?;
+
+        if source_meta.parent() == *target {
+           // Nothing to do, but not an error either.
+           return Ok(source_meta);
+        }
+
         self.evict_from_cache(source);
 
         // Update the source metadata with the new parent id.
-        let source_meta = self.get_metadata(source).await?;
         let old_parent = source_meta.parent();
         let new_meta = source_meta.reparent(target);
 
@@ -1303,7 +1309,7 @@ impl<T> Manager<T> {
         if let Err(ResourceStoreError::NoSuchResource) =
             self.child_by_name(&current.parent(), name).await
         {
-            current.set_name(&name);
+            current.set_name(name);
             current.modify_now();
 
             self.evict_from_cache(id);
