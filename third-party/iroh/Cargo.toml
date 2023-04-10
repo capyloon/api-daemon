@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.63"
 name = "iroh"
-version = "0.4.0"
+version = "0.4.1"
 authors = [
     "dignifiedquire <me@dignifiedquire.com>",
     "n0 team",
@@ -48,6 +48,7 @@ num_cpus = "1.15.0"
 portable-atomic = "1"
 quinn = "0.9.3"
 rand = "0.7"
+range-collections = "0.4.0"
 rcgen = "0.10"
 ring = "0.16.20"
 serde-error = "0.1.2"
@@ -61,17 +62,14 @@ webpki = "0.22"
 x509-parser = "0.14"
 zeroize = "1.5"
 
-[dependencies.abao]
-version = "0.2.0"
-features = [
-    "group_size_16k",
-    "tokio_io",
-]
-default-features = false
-
 [dependencies.anyhow]
 version = "1"
 features = ["backtrace"]
+
+[dependencies.bao-tree]
+version = "0.1.5"
+features = ["tokio_io"]
+default-features = false
 
 [dependencies.clap]
 version = "4"
@@ -97,6 +95,15 @@ features = [
 version = "1.0.1"
 features = ["serde"]
 
+[dependencies.hyper]
+version = "0.14.16"
+features = [
+    "server",
+    "http1",
+    "tcp",
+]
+optional = true
+
 [dependencies.indicatif]
 version = "0.17"
 features = ["tokio"]
@@ -104,6 +111,14 @@ optional = true
 
 [dependencies.multibase]
 version = "0.9.1"
+optional = true
+
+[dependencies.once_cell]
+version = "1.17.1"
+optional = true
+
+[dependencies.paste]
+version = "1.0.12"
 optional = true
 
 [dependencies.postcard]
@@ -114,6 +129,10 @@ features = [
     "experimental-derive",
 ]
 default-features = false
+
+[dependencies.prometheus-client]
+version = "0.18.0"
+optional = true
 
 [dependencies.quic-rpc]
 version = "0.5"
@@ -173,5 +192,14 @@ cli = [
     "data-encoding",
     "multibase",
 ]
-default = ["cli"]
+default = [
+    "cli",
+    "metrics",
+]
+metrics = [
+    "paste",
+    "hyper",
+    "prometheus-client",
+    "once_cell",
+]
 test = []

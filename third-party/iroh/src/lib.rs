@@ -3,6 +3,8 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 pub mod blobs;
 pub mod get;
+#[cfg(feature = "metrics")]
+pub mod metrics;
 pub mod net;
 pub mod progress;
 pub mod protocol;
@@ -15,6 +17,13 @@ mod util;
 
 pub use tls::{Keypair, PeerId, PeerIdError, PublicKey, SecretKey, Signature};
 pub use util::Hash;
+
+use bao_tree::BlockSize;
+
+pub(crate) const IROH_BLOCK_SIZE: BlockSize = match BlockSize::new(4) {
+    Some(bs) => bs,
+    None => panic!(),
+};
 
 #[cfg(test)]
 mod tests {
@@ -58,6 +67,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_files() -> Result<()> {
+        setup_logging();
         let num_files = [10, 100, 1000, 10000];
         for num in num_files {
             println!("NUM_FILES: {num}");
@@ -116,7 +126,7 @@ mod tests {
         tokio::fs::write(&path, content).await?;
         // hash of the transfer file
         let data = tokio::fs::read(&path).await?;
-        let (_, expect_hash) = abao::encode::outboard(&data);
+        let expect_hash = blake3::hash(&data);
         let expect_name = filename.to_string();
 
         let (db, hash) =
@@ -213,7 +223,7 @@ mod tests {
             let name = name.into();
             let path = dir.join(name.clone());
             // get expected hash of file
-            let (_, hash) = abao::encode::outboard(&data);
+            let hash = blake3::hash(&data);
             let hash = Hash::from(hash);
 
             tokio::fs::write(&path, data).await?;

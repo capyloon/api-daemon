@@ -293,6 +293,10 @@ impl ResourceMetadata {
         self.name.clone()
     }
 
+    pub fn set_name(&mut self, name: &str) {
+        self.name = name.to_owned();
+    }
+
     pub fn scorer(&self) -> &Scorer {
         &self.scorer
     }

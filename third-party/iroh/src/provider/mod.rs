@@ -7,35 +7,37 @@
 //! You can monitor what is happening in the provider using [`Provider::subscribe`].
 //!
 //! To shut down the provider, call [`Provider::shutdown`].
+use std::borrow::Cow;
 use std::future::Future;
-use std::io::{BufReader, Read};
+use std::io::Cursor;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
-use std::{collections::HashMap, sync::Arc};
 
-use abao::encode::SliceExtractor;
 use anyhow::{ensure, Context, Result};
+use bao_tree::io::sync::encode_ranges_validated;
+use bao_tree::outboard::PreOrderMemOutboardRef;
 use bytes::{Bytes, BytesMut};
 use futures::future::{BoxFuture, Shared};
-use futures::{stream, FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use postcard::experimental::max_size::MaxSize;
 use quic_rpc::server::RpcChannel;
 use quic_rpc::transport::flume::FlumeConnection;
 use quic_rpc::transport::misc::DummyServerEndpoint;
 use quic_rpc::{RpcClient, RpcServer, ServiceConnection, ServiceEndpoint};
+use range_collections::RangeSet2;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinError;
-use tokio_util::io::SyncIoBridge;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, debug_span, warn};
+use tracing::{debug, debug_span, trace, warn};
 use tracing_futures::Instrument;
 use walkdir::WalkDir;
 
-use crate::blobs::{Blob, Collection};
+use crate::blobs::Collection;
 use crate::net::find_local_addresses;
 use crate::protocol::{
     read_lp, write_lp, AuthToken, Closed, Handshake, Request, Res, Response, VERSION,
@@ -47,8 +49,10 @@ use crate::rpc_protocol::{
     WatchResponse,
 };
 use crate::tls::{self, Keypair, PeerId};
-use crate::util::{canonicalize_path, Hash, Progress, ProgressReader, ProgressReaderUpdate};
+use crate::util::{canonicalize_path, Hash, Progress};
+use crate::IROH_BLOCK_SIZE;
 
+mod collection;
 mod database;
 mod ticket;
 
@@ -80,20 +84,38 @@ pub struct Builder<E: ServiceEndpoint<ProviderService> = DummyServerEndpoint> {
     keylog: bool,
 }
 
+/// A [`Database`] entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum BlobOrCollection {
-    Blob(Data),
-    Collection { outboard: Bytes, data: Bytes },
+    Blob {
+        /// The bao outboard data.
+        outboard: Bytes,
+        /// Path to the original data, which must not change while in use.
+        ///
+        /// Note that when adding multiple files with the same content, only one of them
+        /// will get added to the store. So the path is not that useful for information.  It
+        /// is just a place to look for the data correspoding to the hash and outboard.
+        // TODO: Change this to a list of paths.
+        path: PathBuf,
+        /// Size of the original data.
+        size: u64,
+    },
+    Collection {
+        /// The bao outboard data of the serialised [`Collection`].
+        outboard: Bytes,
+        /// The serialised [`Collection`].
+        data: Bytes,
+    },
 }
 
 impl BlobOrCollection {
     pub fn is_blob(&self) -> bool {
-        matches!(self, BlobOrCollection::Blob(_))
+        matches!(self, BlobOrCollection::Blob { .. })
     }
 
-    pub fn data(&self) -> Option<&Data> {
+    pub fn blob_path(&self) -> Option<&Path> {
         match self {
-            BlobOrCollection::Blob(data) => Some(data),
+            BlobOrCollection::Blob { path, .. } => Some(path),
             BlobOrCollection::Collection { .. } => None,
         }
     }
@@ -104,7 +126,7 @@ impl BlobOrCollection {
     /// For blobs it is the blob size.
     pub fn size(&self) -> u64 {
         match self {
-            BlobOrCollection::Blob(data) => data.size,
+            BlobOrCollection::Blob { size, .. } => *size,
             BlobOrCollection::Collection { data, .. } => data.len() as u64,
         }
     }
@@ -446,7 +468,7 @@ impl Provider {
 
     /// Add data sources to this provider
     pub async fn add_sources(&self, data_sources: Vec<DataSource>) -> Result<Hash> {
-        let (db, hash) = create_collection_inner(data_sources, Progress::none()).await?;
+        let (db, hash) = collection::create_collection(data_sources, Progress::none()).await?;
 
         self.inner.db.union_with(db);
         Ok(hash)
@@ -546,7 +568,7 @@ impl RpcHandler {
         };
         // create the collection
         // todo: provide feedback for progress
-        let (db, _) = create_collection_inner(data_sources, Progress::new(progress)).await?;
+        let (db, _) = collection::create_collection(data_sources, Progress::new(progress)).await?;
         self.inner.db.union_with(db);
 
         Ok(())
@@ -715,6 +737,7 @@ async fn read_request(mut reader: quinn::RecvStream, buffer: &mut BytesMut) -> R
 /// If the transfer does _not_ end in error, the buffer will be empty and the writer is gracefully closed.
 #[allow(clippy::too_many_arguments)]
 async fn transfer_collection(
+    hash: Hash,
     // Database from which to fetch blobs.
     db: &Database,
     // Quinn stream.
@@ -730,17 +753,12 @@ async fn transfer_collection(
     request_id: u64,
 ) -> Result<SentStatus> {
     // We only respond to requests for collections, not individual blobs
-    let mut extractor = SliceExtractor::new_outboard(
-        std::io::Cursor::new(&data[..]),
-        std::io::Cursor::new(&outboard[..]),
-        0,
-        data.len() as u64,
-    );
-    let encoded_size: usize = abao::encode::encoded_size(data.len() as u64)
+    let encoded_size: usize = bao_tree::encoded_size(data.len() as u64, IROH_BLOCK_SIZE)
         .try_into()
         .unwrap();
     let mut encoded = Vec::with_capacity(encoded_size);
-    extractor.read_to_end(&mut encoded)?;
+    let outboard = PreOrderMemOutboardRef::new(hash.into(), IROH_BLOCK_SIZE, outboard);
+    encode_ranges_validated(Cursor::new(data), outboard, &RangeSet2::all(), &mut encoded)?;
 
     let c: Collection = postcard::from_bytes(data)?;
 
@@ -764,7 +782,7 @@ async fn transfer_collection(
 
     writer.write_all(&encoded).await?;
     for (i, blob) in c.blobs().iter().enumerate() {
-        debug!("writing blob {}/{}", i, c.blobs().len());
+        trace!("writing blob {}/{}", i, c.blobs().len());
         tokio::task::yield_now().await;
         let (status, writer1, size) = send_blob(db.clone(), blob.hash, writer, buffer).await?;
         writer = writer1;
@@ -825,7 +843,7 @@ async fn handle_stream(
     };
 
     let hash = request.name;
-    debug!("got request for ({hash})");
+    debug!(%hash, "received request");
     let _ = events.send(Event::RequestReceived {
         connection_id,
         hash,
@@ -837,7 +855,7 @@ async fn handle_stream(
         // We only respond to requests for collections, not individual blobs
         Some(BlobOrCollection::Collection { outboard, data }) => (outboard, data),
         _ => {
-            debug!("not found {}", hash);
+            debug!("not found");
             notify_transfer_aborted(events, connection_id, request_id);
             write_response(&mut writer, &mut out_buffer, Res::NotFound).await?;
             writer.finish().await?;
@@ -848,6 +866,7 @@ async fn handle_stream(
 
     // 5. Transfer data!
     match transfer_collection(
+        hash,
         &db,
         writer,
         &mut out_buffer,
@@ -891,29 +910,22 @@ async fn send_blob<W: AsyncWrite + Unpin + Send + 'static>(
     buffer: &mut BytesMut,
 ) -> Result<(SentStatus, W, u64)> {
     match db.get(&name) {
-        Some(BlobOrCollection::Blob(Data {
+        Some(BlobOrCollection::Blob {
             outboard,
             path,
             size,
-        })) => {
+        }) => {
             write_response(&mut writer, buffer, Res::Found).await?;
-            // need to thread the writer though the spawn_blocking, since
-            // taking a reference does not work. spawn_blocking requires
-            // 'static lifetime.
-            writer = tokio::task::spawn_blocking(move || {
-                let file_reader = std::fs::File::open(&path)?;
-                let outboard_reader = std::io::Cursor::new(outboard);
-                let mut wrapper = SyncIoBridge::new(&mut writer);
-                let mut slice_extractor = abao::encode::SliceExtractor::new_outboard(
-                    file_reader,
-                    outboard_reader,
-                    0,
-                    size,
-                );
-                let _copied = std::io::copy(&mut slice_extractor, &mut wrapper)?;
-                std::io::Result::Ok(writer)
-            })
-            .await??;
+
+            let outboard = PreOrderMemOutboardRef::new(name.into(), IROH_BLOCK_SIZE, &outboard);
+            let file_reader = tokio::fs::File::open(&path).await?;
+            bao_tree::io::tokio::encode_ranges_validated(
+                file_reader,
+                outboard,
+                &RangeSet2::all(),
+                &mut writer,
+            )
+            .await?;
 
             Ok((SentStatus::Sent, writer, size))
         }
@@ -965,6 +977,35 @@ impl DataSource {
     pub fn with_name(path: PathBuf, name: String, mime: Option<String>) -> Self {
         DataSource::NamedFile { path, name, mime }
     }
+
+    /// Returns blob name for this data source.
+    ///
+    /// If no name was provided when created it is derived from the path name.
+    pub(crate) fn name(&self) -> Cow<'_, str> {
+        match self {
+            DataSource::File((path, _mime)) => path
+                .file_name()
+                .map(|s| s.to_string_lossy())
+                .unwrap_or_default(),
+            DataSource::NamedFile { name, .. } => Cow::Borrowed(name),
+        }
+    }
+
+    /// Returns the path of this data source.
+    pub(crate) fn path(&self) -> &Path {
+        match self {
+            DataSource::File((path, _mime)) => path,
+            DataSource::NamedFile { path, .. } => path,
+        }
+    }
+
+    /// Returns the mime type of this data source.
+    pub(crate) fn mime(&self) -> Option<String> {
+        match self {
+            DataSource::File((_path, mime)) => mime.clone(),
+            DataSource::NamedFile { mime, .. } => mime.clone(),
+        }
+    }
 }
 
 impl From<PathBuf> for DataSource {
@@ -979,174 +1020,11 @@ impl From<&std::path::Path> for DataSource {
     }
 }
 
-/// Synchronously compute the outboard of a file, and return hash and outboard.
-///
-/// It is assumed that the file is not modified while this is running.
-///
-/// If it is modified while or after this is running, the outboard will be
-/// invalid, so any attempt to compute a slice from it will fail.
-///
-/// If the size of the file is changed while this is running, an error will be
-/// returned.
-fn compute_outboard(
-    path: PathBuf,
-    size: u64,
-    progress: impl Fn(u64) + Send + Sync + 'static,
-) -> anyhow::Result<(Hash, Vec<u8>)> {
-    ensure!(
-        path.is_file(),
-        "can only transfer blob data: {}",
-        path.display()
-    );
-    tracing::debug!("computing outboard for {}", path.display());
-    let file = std::fs::File::open(&path)?;
-    // compute outboard size so we can pre-allocate the buffer.
-    //
-    // outboard is ~1/16 of data size, so this will fail for really large files
-    // on really small devices. E.g. you want to transfer a 1TB file from a pi4 with 1gb ram.
-    //
-    // The way to solve this would be to have larger blocks than the blake3 chunk size of 1024.
-    // I think we really want to keep the outboard in memory for simplicity.
-    let outboard_size = usize::try_from(abao::encode::outboard_size(size))
-        .context("outboard too large to fit in memory")?;
-    let mut outboard = Vec::with_capacity(outboard_size);
-
-    // copy the file into the encoder. Data will be skipped by the encoder in outboard mode.
-    let outboard_cursor = std::io::Cursor::new(&mut outboard);
-    let mut encoder = abao::encode::Encoder::new_outboard(outboard_cursor);
-
-    // wrap the reader in a progress reader, so we can report progress.
-    let reader = ProgressReader::new(file, |p| {
-        if let ProgressReaderUpdate::Progress(offset) = p {
-            progress(offset);
-        }
-    });
-
-    // wrap the reader in a buffered reader, so we read in large chunks
-    // this reduces the number of io ops and also the number of progress reports
-    let mut reader = BufReader::with_capacity(1024 * 1024, reader);
-    // the length we have actually written, should be the same as the length of the file.
-    let size2 = std::io::copy(&mut reader, &mut encoder)?;
-    // this can fail if the file was appended to during encoding.
-    ensure!(size == size2, "file changed during encoding");
-    // this flips the outboard encoding from post-order to pre-order
-    let hash = encoder.finalize()?;
-    tracing::debug!("done. hash for {} is {hash}", path.display());
-
-    Ok((hash.into(), outboard))
-}
-
 /// Creates a database of blobs (stored in outboard storage) and Collections, stored in memory.
 /// Returns a the hash of the collection created by the given list of DataSources
 pub async fn create_collection(data_sources: Vec<DataSource>) -> Result<(Database, Hash)> {
-    let (db, hash) = create_collection_inner(data_sources, Progress::none()).await?;
+    let (db, hash) = collection::create_collection(data_sources, Progress::none()).await?;
     Ok((Database::from(db), hash))
-}
-
-/// The actual implementation of create_collection, except for the wrapping into arc and mutex to make
-/// a public Database.
-async fn create_collection_inner(
-    mut data_sources: Vec<DataSource>,
-    progress: Progress<ProvideProgress>,
-) -> Result<(HashMap<Hash, BlobOrCollection>, Hash)> {
-    // +1 is for the collection itself
-    let mut db = HashMap::with_capacity(data_sources.len() + 1);
-    let mut blobs = Vec::with_capacity(data_sources.len());
-    let mut total_blobs_size: u64 = 0;
-
-    data_sources.sort();
-
-    let outboard_progress = progress.clone();
-    // compute outboards in parallel, using tokio's blocking thread pool
-    let outboards = stream::iter(data_sources)
-        .enumerate()
-        .map(|(id, data)| {
-            let id = id as u64;
-            let (path, name, mime) = match data {
-                DataSource::File((path, mime)) => (path, None, mime),
-                DataSource::NamedFile { path, name, mime } => (path, Some(name), mime),
-            };
-            let size = path.metadata().unwrap().len();
-            let find_progress = outboard_progress.clone();
-            let outboard_progress = outboard_progress.clone();
-            let done_progress = outboard_progress.clone();
-            async move {
-                // found events must be sent
-                let pname = name.clone().unwrap_or_else(|| path.display().to_string());
-                find_progress
-                    .send(ProvideProgress::Found {
-                        name: pname,
-                        id,
-                        size,
-                        mime: mime.clone(),
-                    })
-                    .await?;
-                let rpath = path.clone();
-                let (hash, outboard) = tokio::task::spawn_blocking(move || {
-                    compute_outboard(path, size, move |offset| {
-                        outboard_progress.try_send(ProvideProgress::Progress { id, offset })
-                    })
-                })
-                .await??;
-                // done events must be sent
-                done_progress
-                    .send(ProvideProgress::Done { id, hash })
-                    .await?;
-                anyhow::Ok((rpath, name, mime, hash, outboard))
-            }
-        })
-        // allow at most num_cpus tasks at a time, otherwise we might get too many open files
-        // todo: this assumes that this is 100% cpu bound, which is likely not true.
-        // we might get better performance by using a larger number here.
-        .buffer_unordered(num_cpus::get());
-    // wait for completion and collect results
-    // weird massaging of the output to get rid of the results
-    let mut outboards = outboards
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
-
-    outboards.sort();
-
-    // insert outboards into the database and build collection
-    for (path, name, mime, hash, outboard) in outboards {
-        debug_assert!(outboard.len() >= 8, "outboard must at least contain size");
-        let size = u64::from_le_bytes(outboard[..8].try_into().unwrap());
-        db.insert(
-            hash,
-            BlobOrCollection::Blob(Data {
-                outboard: Bytes::from(outboard),
-                path: path.clone(),
-                size,
-            }),
-        );
-        total_blobs_size += size;
-        // if the given name is `None`, use the filename from the given path as the name
-        let name = name.unwrap_or_else(|| {
-            path.file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or_default()
-                .to_string()
-        });
-        blobs.push(Blob { name, hash, mime });
-    }
-
-    let c = Collection::new(blobs, total_blobs_size)?;
-
-    let data = postcard::to_stdvec(&c).context("blob encoding")?;
-    let (outboard, hash) = abao::encode::outboard(&data);
-    let hash = Hash::from(hash);
-    db.insert(
-        hash,
-        BlobOrCollection::Collection {
-            outboard: Bytes::from(outboard),
-            data: Bytes::from(data.to_vec()),
-        },
-    );
-    progress.send(ProvideProgress::AllDone { hash }).await?;
-
-    Ok((db, hash))
 }
 
 async fn write_response<W: AsyncWrite + Unpin>(
@@ -1164,7 +1042,7 @@ async fn write_response<W: AsyncWrite + Unpin>(
 
     write_lp(&mut writer, used).await?;
 
-    debug!("written response of length {}", used.len());
+    trace!(len = used.len(), "wrote response message frame");
     Ok(())
 }
 
@@ -1191,11 +1069,13 @@ pub fn make_server_config(
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
+    use std::collections::HashMap;
     use std::net::Ipv4Addr;
     use std::path::Path;
     use std::str::FromStr;
     use testdir::testdir;
 
+    use crate::blobs::Blob;
     use crate::provider::database::Snapshot;
 
     use super::*;
@@ -1217,7 +1097,7 @@ mod tests {
             for blob in blobs {
                 let size = blob.len() as u64;
                 total_blobs_size += size;
-                let (outboard, hash) = abao::encode::outboard(&blob);
+                let (outboard, hash) = bao_tree::outboard(&blob, IROH_BLOCK_SIZE);
                 let outboard = Bytes::from(outboard);
                 let hash = Hash::from(hash);
                 let path = PathBuf::from_str(&hash.to_string()).unwrap();
@@ -1228,18 +1108,18 @@ mod tests {
                 });
                 map.insert(
                     hash,
-                    BlobOrCollection::Blob(Data {
+                    BlobOrCollection::Blob {
                         outboard,
                         size,
                         path,
-                    }),
+                    },
                 );
             }
             let collection = Collection::new(cblobs, total_blobs_size).unwrap();
             // encode collection and add it
             {
                 let data = Bytes::from(postcard::to_stdvec(&collection).unwrap());
-                let (outboard, hash) = abao::encode::outboard(&data);
+                let (outboard, hash) = bao_tree::outboard(&data, IROH_BLOCK_SIZE);
                 let outboard = Bytes::from(outboard);
                 let hash = Hash::from(hash);
                 map.insert(hash, BlobOrCollection::Collection { outboard, data });
@@ -1275,7 +1155,7 @@ mod tests {
     async fn test_create_collection() -> Result<()> {
         let dir: PathBuf = testdir!();
         let mut expect_blobs = vec![];
-        let (_, hash) = abao::encode::outboard(vec![]);
+        let hash = blake3::hash(&[]);
         let hash = Hash::from(hash);
 
         // DataSource::File

@@ -3,17 +3,10 @@
 version = 3
 
 [[package]]
-name = "abao"
-version = "0.2.0"
+name = "Inflector"
+version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2daa0989489b05a455a9707adbbbc17443edf7bbc902ce499cd3b84148d68a40"
-dependencies = [
- "arrayref",
- "arrayvec",
- "blake3",
- "futures",
- "tokio",
-]
+checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
 
 [[package]]
 name = "actix"
@@ -367,6 +360,12 @@ checksum = "1e37cfd5e7657ada45f742d6e99ca5788580b5c529dc78faf11ece6dc702656f"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "aliasable"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "250f629c0161ad8107cf89319e990051fae62832fd343083bea452d93e2205fd"
 
 [[package]]
 name = "alloc-no-stdlib"
@@ -968,6 +967,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "bao-tree"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f475e39fc0ee53faefa68805aa234de8034e1317a7fabd15f4b908db55285396"
+dependencies = [
+ "blake3",
+ "bytes",
+ "futures",
+ "ouroboros",
+ "range-collections",
+ "smallvec",
+ "tokio",
+]
+
+[[package]]
 name = "base-x"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1002,6 +1016,12 @@ name = "bencher"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dfdb4953a096c551ce9ace855a604d702e6e62d77fac690575ae347571717f5"
+
+[[package]]
+name = "binary-merge"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "597bb81c80a54b6a4381b23faba8d7774b144c94cbd1d6fe3f1329bd776554ab"
 
 [[package]]
 name = "bincode"
@@ -1628,7 +1648,7 @@ dependencies = [
 [[package]]
 name = "costaeres"
 version = "0.1.3"
-source = "git+https://github.com/capyloon/costaeres.git#8a7a2d6108d4963d56fdbba713bedc87ec4bb091"
+source = "git+https://github.com/capyloon/costaeres.git#7b4ed0b7360daa4433d478fe1f6e954bc2bf44fa"
 dependencies = [
  "actix-rt",
  "actix-web",
@@ -3364,6 +3384,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inplace-vec-builder"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf64c2edc8226891a71f127587a2861b132d2b942310843814d5001d99a1d307"
+dependencies = [
+ "smallvec",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3403,11 +3432,11 @@ checksum = "12b6ee2129af8d4fb011108c73d99a1b83a85977f23b82460c0ae2e25bb4b57f"
 
 [[package]]
 name = "iroh"
-version = "0.4.0"
-source = "git+https://github.com/capyloon/iroh.git?branch=capyloon#88d0e020e9f5fb340afe69b8f7be7c5a81e190ce"
+version = "0.4.1"
+source = "git+https://github.com/capyloon/iroh.git?branch=capyloon#4f4d1542f0e17b3e79fbd117d512b8525c37d6ca"
 dependencies = [
- "abao",
  "anyhow",
+ "bao-tree",
  "base64 0.21.0",
  "blake3",
  "bytes",
@@ -3424,6 +3453,7 @@ dependencies = [
  "quic-rpc",
  "quinn",
  "rand 0.7.3",
+ "range-collections",
  "rcgen",
  "ring",
  "rustls",
@@ -4422,6 +4452,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21326818e99cfe6ce1e524c2a805c189a99b5ae555a35d19f9a284b427d86afa"
 
 [[package]]
+name = "ouroboros"
+version = "0.15.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1358bd1558bd2a083fed428ffeda486fbfb323e698cdda7794259d592ca72db"
+dependencies = [
+ "aliasable",
+ "ouroboros_macro",
+]
+
+[[package]]
+name = "ouroboros_macro"
+version = "0.15.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f7d21ccd03305a674437ee1248f3ab5d4b1db095cf1caf49f1713ddf61956b7"
+dependencies = [
+ "Inflector",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.107",
+]
+
+[[package]]
 name = "p256"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5138,6 +5191,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "range-collections"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2151d0cda6f7cee2de547749cccca65dffbe1a292a1176fd914083acd21190ff"
+dependencies = [
+ "binary-merge",
+ "inplace-vec-builder",
+ "ref-cast",
+ "smallvec",
+]
+
+[[package]]
 name = "rcgen"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5183,6 +5248,26 @@ dependencies = [
  "getrandom 0.2.7",
  "redox_syscall 0.2.13",
  "thiserror",
+]
+
+[[package]]
+name = "ref-cast"
+version = "1.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f43faa91b1c8b36841ee70e97188a869d37ae21759da6846d4be66de5bf7b12c"
+dependencies = [
+ "ref-cast-impl",
+]
+
+[[package]]
+name = "ref-cast-impl"
+version = "1.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d2275aab483050ab2a7364c1a46604865ee7d6906684e08db0f090acf74f9e7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.12",
 ]
 
 [[package]]

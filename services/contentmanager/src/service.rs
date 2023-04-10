@@ -1080,6 +1080,24 @@ impl ContentStoreMethods for ContentManagerService {
             }
         });
     }
+
+    fn rename_resource(
+        &mut self,
+        responder: ContentStoreRenameResourceResponder,
+        id: String,
+        name: String,
+    ) {
+        let state = self.state.clone();
+        task::block_on(async {
+            let mut lock = state.lock();
+            let manager = &mut lock.manager;
+
+            match manager.rename_resource(&id.clone().into(), &name).await {
+                Ok(metadata) => responder.resolve(metadata),
+                Err(_) => responder.reject(),
+            }
+        });
+    }
 }
 
 common::impl_shared_state!(ContentManagerService, State, Config);

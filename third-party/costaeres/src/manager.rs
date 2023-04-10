@@ -1290,4 +1290,51 @@ impl<T> Manager<T> {
     pub async fn get_native_path(&self, id: &ResourceId, variant: &str) -> Option<PathBuf> {
         self.store.get_native_path(id, variant).await
     }
+
+    /// Renames a resource. Will fail if a resource with the same name already exists in this
+    /// container.
+    pub async fn rename_resource(
+        &mut self,
+        id: &ResourceId,
+        name: &str,
+    ) -> Result<ResourceMetadata, ResourceStoreError> {
+        let mut current = self.get_metadata(id).await?;
+
+        if let Err(ResourceStoreError::NoSuchResource) =
+            self.child_by_name(&current.parent(), name).await
+        {
+            current.set_name(&name);
+            current.modify_now();
+
+            self.evict_from_cache(id);
+
+            let modified = *current.modified();
+            // We only need to update the name and modified date, so not doing a full update here.
+            sqlx::query!(
+                "UPDATE OR REPLACE resources SET name = ?, modified = ? WHERE id = ?",
+                name,
+                modified,
+                id
+            )
+            .execute(&self.db_pool)
+            .await?;
+
+            // Update the metadata in the store.
+            self.store.update(&current, None).await?;
+
+            self.update_cache(&current);
+
+            // Trigger modification observers for the resource and its parent.
+            self.notify_observers(&ResourceModification::ChildModified(ParentChild::new(
+                &current.parent(),
+                id,
+            )));
+
+            self.notify_observers(&ResourceModification::Modified(id.clone()));
+
+            Ok(current)
+        } else {
+            Err(ResourceStoreError::ResourceAlreadyExists)
+        }
+    }
 }

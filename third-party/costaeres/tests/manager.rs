@@ -1439,7 +1439,10 @@ async fn update_variant() {
     manager
         .update_variant(
             &leaf_meta.id(),
-            Variant::new(VariantMetadata::new("default", "text/plain", 13), Box::new(text)),
+            Variant::new(
+                VariantMetadata::new("default", "text/plain", 13),
+                Box::new(text),
+            ),
         )
         .await
         .unwrap();
@@ -1447,4 +1450,74 @@ async fn update_variant() {
     let variant = &meta.variants()[0];
     assert_eq!(variant.mime_type(), "text/plain");
     assert_eq!(variant.size(), 13);
+}
+
+#[async_std::test]
+async fn rename_resource() {
+    let (config, store) = prepare_test(29).await;
+
+    {
+        let mut manager = Manager::<()>::new(config.clone(), Box::new(store))
+            .await
+            .unwrap();
+
+        manager.create_root().await.unwrap();
+
+        let mut leaf_meta = ResourceMetadata::new(
+            &1.into(),
+            &ROOT_ID,
+            ResourceKind::Leaf,
+            "default-wallpaper",
+            vec![],
+            vec![],
+        );
+        manager.create(&mut leaf_meta, None).await.unwrap();
+
+        // Check the initial name.
+        let meta = manager.get_metadata(&leaf_meta.id()).await.unwrap();
+        assert_eq!(meta.name(), "default-wallpaper");
+
+        // Check the renamed value.
+        manager
+            .rename_resource(&leaf_meta.id(), "new-wallpaper")
+            .await
+            .unwrap();
+        let meta = manager.get_metadata(&leaf_meta.id()).await.unwrap();
+        assert_eq!(meta.name(), "new-wallpaper");
+
+        // Add a second leaf.
+        let mut second_leaf_meta = ResourceMetadata::new(
+            &2.into(),
+            &ROOT_ID,
+            ResourceKind::Leaf,
+            "second-wallpaper",
+            vec![],
+            vec![],
+        );
+        manager.create(&mut second_leaf_meta, None).await.unwrap();
+
+        // Check that we can't rename to an existing name.
+        assert!(manager
+            .rename_resource(&leaf_meta.id(), "second-wallpaper")
+            .await
+            .is_err());
+    }
+
+    // Check that the new name persisted.
+    {
+        let path = format!("./test-content/{}", 29);
+        let store = FileStore::new(
+            &path,
+            Box::new(DefaultResourceNameProvider),
+            Box::new(IdentityTransformer),
+        )
+        .await
+        .unwrap();
+
+        let mut manager = Manager::<()>::new(config, Box::new(store)).await.unwrap();
+
+        // Check the leaf name.
+        let meta = manager.get_metadata(&1.into()).await.unwrap();
+        assert_eq!(meta.name(), "new-wallpaper");
+    }
 }
