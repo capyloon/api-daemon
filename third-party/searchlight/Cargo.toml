@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "searchlight"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["William Venner <william@venner.io>"]
 description = "📡 Rust mDNS server & client library designed with user interfaces in mind"
 readme = "README.md"

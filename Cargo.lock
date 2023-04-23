@@ -1926,7 +1926,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "powermanager_service",
  "procmanager_service",
- "rand 0.8.5",
+ "rand 0.7.3",
  "reqwest",
  "rusty-s3",
  "serde",
@@ -5640,9 +5640,9 @@ dependencies = [
 
 [[package]]
 name = "searchlight"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c87e34e2547a04a0216a51f5d8619d923ccdc5da590b9693c173d0cd7bcc03c"
+checksum = "14cd87706ebef136495945c034f182811ec7db29d761cd1e5f56ca8ba945123b"
 dependencies = [
  "if-addrs",
  "libc",
