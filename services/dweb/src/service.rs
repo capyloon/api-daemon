@@ -117,10 +117,10 @@ impl StateLogger for State {}
 impl State {
     pub fn on_peer_found(&mut self, peer: KnownPeer) {
         let key = peer.peer.device_id.clone();
-        if !self.known_peers.contains_key(&key) {
+        if let std::collections::btree_map::Entry::Vacant(e) = self.known_peers.entry(key.clone()) {
             info!("Peer added: {}", key);
             self.event_broadcaster.broadcast_peerfound(&peer.peer);
-            self.known_peers.insert(key, peer);
+            e.insert(peer);
         }
     }
 
@@ -270,8 +270,7 @@ fn build_ucan_token(
         .dweb_store
         .did_by_name(&granted.issuer.name)
         .map_err(|_| ())?
-        .ok_or(())?
-        .clone();
+        .ok_or(())?;
 
     let not_before = granted
         .not_before
@@ -446,7 +445,7 @@ impl DwebMethods for DWebServiceImpl {
             let granted = GrantedCapabilities {
                 issuer: audience.clone().into(),
                 capabilities: Some(vec![Capability {
-                    scope: StdUrl::parse("my:*").unwrap().into(),
+                    scope: StdUrl::parse("my:*").unwrap(),
                     action: "*".into(),
                 }]),
                 not_before: SystemTime::now().into(),

@@ -8,7 +8,7 @@ use ucan::ucan::Ucan;
 pub struct SidlUcan {
     inner: Ucan,
     id: TrackerId,
-    state: Shared<State>,
+    // state: Shared<State>,
 }
 
 impl SimpleObjectTracker for SidlUcan {
@@ -18,11 +18,11 @@ impl SimpleObjectTracker for SidlUcan {
 }
 
 impl SidlUcan {
-    pub fn new(id: TrackerId, ucan: Ucan, state: Shared<State>) -> Self {
+    pub fn new(id: TrackerId, ucan: Ucan, _state: Shared<State>) -> Self {
         Self {
             id,
             inner: ucan,
-            state: state.clone(),
+            // state: state.clone(),
         }
     }
 
@@ -44,9 +44,9 @@ impl UcanMethods for SidlUcan {
         }
     }
 
-    fn remove(&mut self, responder: UcanRemoveResponder) {}
+    fn remove(&mut self, _responder: UcanRemoveResponder) {}
 
-    fn get_blocked(&mut self, responder: UcanGetBlockedResponder) {}
+    fn get_blocked(&mut self, _responder: UcanGetBlockedResponder) {}
 
-    fn set_blocked(&mut self, value: bool) {}
+    fn set_blocked(&mut self, _value: bool) {}
 }

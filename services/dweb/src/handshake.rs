@@ -182,32 +182,28 @@ impl HandshakeHandler {
                 // Process the call to pair
                 if let Ok(result) = provider.hello(&peer).recv() {
                     match result {
-                        Ok(false) => {
-                            return Self::send_response(
-                                stream,
-                                Response::Pairing(PairingResponse::with_status(Status::Denied)),
-                            )
-                        }
+                        Ok(false) => Self::send_response(
+                            stream,
+                            Response::Pairing(PairingResponse::with_status(Status::Denied)),
+                        ),
                         Ok(true) => {
                             // Create a session with this peer since we accepter the connection.
                             state.lock().create_session(peer);
-                            return Self::send_response(
+                            Self::send_response(
                                 stream,
                                 Response::Pairing(PairingResponse::with_status(Status::Granted)),
-                            );
-                        }
-                        Err(_) => {
-                            return Self::send_response(
-                                stream,
-                                Response::Pairing(PairingResponse::with_status(Status::Denied)),
                             )
                         }
+                        Err(_) => Self::send_response(
+                            stream,
+                            Response::Pairing(PairingResponse::with_status(Status::Denied)),
+                        ),
                     }
                 } else {
-                    return Self::send_response(
+                    Self::send_response(
                         stream,
                         Response::Pairing(PairingResponse::with_status(Status::InternalError)),
-                    );
+                    )
                 }
             }
             Request::Action(DialRequest { peer, params }) => {
@@ -227,10 +223,10 @@ impl HandshakeHandler {
                         ),
                     }
                 } else {
-                    return Self::send_response(
+                    Self::send_response(
                         stream,
                         Response::Action(DialResponse::with_status(Status::InternalError)),
-                    );
+                    )
                 }
             }
         }
@@ -270,7 +266,7 @@ pub struct HandshakeClient {
 
 impl HandshakeClient {
     pub fn new(addr: &SocketAddr) -> Self {
-        Self { addr: addr.clone() }
+        Self { addr: *addr }
     }
 
     // Manages a request / response flow.
@@ -315,16 +311,13 @@ impl HandshakeClient {
 
     // Blocking call to send a pairing request.
     pub fn pair_with(&self, peer: Peer) -> Result<(), Status> {
-        let request = PairingRequest { peer: peer.clone() };
+        let request = PairingRequest { peer };
         self.request::<PairingRequest, PairingResponse>(request)
     }
 
     // Blocking call to send a dial request.
     pub fn dial(&self, peer: Peer, params: JsonValue) -> Result<JsonValue, Status> {
-        let request = DialRequest {
-            peer: peer.clone(),
-            params: params.clone(),
-        };
+        let request = DialRequest { peer, params };
         self.request::<DialRequest, DialResponse>(request)
     }
 }

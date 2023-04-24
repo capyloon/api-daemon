@@ -57,9 +57,9 @@ impl Did {
             VerificationKey::try_from(self.key_pair.public_key_bytes().as_slice()).unwrap();
         let mut pk_slice: [u8; 32] = [0; 32];
         let pk_bytes = self.key_pair.private_key_bytes();
-        for i in 0..32 {
-            pk_slice[i] = pk_bytes[i];
-        }
+
+        pk_slice[..32].copy_from_slice(&pk_bytes[..32]);
+
         let private_key: SigningKey = SigningKey::from(pk_slice);
         Ed25519KeyMaterial(pub_key, Some(private_key))
     }
