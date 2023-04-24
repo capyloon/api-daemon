@@ -71,7 +71,7 @@ pub fn build_service_with_config(sidl_name: &str) {
     // 4. Generate the Javascript client from the sidl representation.
     sidl_codegen::generate_javascript_code(
         Path::new(&sidl_path),
-        Path::new(&format!("client/generated/service.js")),
+        Path::new("client/generated/service.js"),
     )
     .expect("Generating Javascript client.");
 
