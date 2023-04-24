@@ -88,7 +88,7 @@ geckobridge = {path = "../services/geckobridge", optional = true}
 libsignal_service = {path = "../services/libsignal", optional = true}
 log = "0.4"
 new_mime_guess = "4.0"
-nix = "0.23"
+nix = "0.25"
 parking_lot = "0.12"
 powermanager_service = {path = "../services/powermanager", optional = true}
 procmanager_service = {path = "../services/procmanager", optional = true}

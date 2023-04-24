@@ -10,7 +10,7 @@ android_utils = { path = "../../support/android-utils" }
 common = { path = "../../common" }
 libc = "0.2.70"
 log = "0.4"
-nix = "0.23"
+nix = "0.25"
 serde = "1.0"
 settings_service = { path = "../settings" }
 threadpool = "1.8"

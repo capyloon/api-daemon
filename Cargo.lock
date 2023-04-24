@@ -456,7 +456,7 @@ dependencies = [
  "log",
  "mime_guess",
  "mkstemp-rs",
- "nix 0.23.1",
+ "nix",
  "reqwest",
  "rusqlite",
  "serde",
@@ -917,7 +917,7 @@ dependencies = [
  "clap 3.2.23",
  "env_logger 0.9.3",
  "log",
- "nix 0.25.1",
+ "nix",
  "serde",
 ]
 
@@ -1313,7 +1313,7 @@ dependencies = [
  "env_logger 0.8.4",
  "futures",
  "log",
- "nix 0.23.1",
+ "nix",
  "parking_lot 0.12.1",
  "test_service",
 ]
@@ -1465,7 +1465,7 @@ dependencies = [
  "file-rotate",
  "libc",
  "log",
- "nix 0.23.1",
+ "nix",
  "parking_lot 0.12.1",
  "serde",
  "serde_bytes",
@@ -1891,7 +1891,7 @@ dependencies = [
  "libsignal_service",
  "log",
  "new_mime_guess",
- "nix 0.23.1",
+ "nix",
  "parking_lot 0.12.1",
  "powermanager_service",
  "procmanager_service",
@@ -4143,19 +4143,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77a5d83df9f36fe23f0c3648c6bbb8b0298bb5f1939c8f2704431371f4b84d43"
 dependencies = [
  "smallvec",
-]
-
-[[package]]
-name = "nix"
-version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
-dependencies = [
- "bitflags",
- "cc",
- "cfg-if 1.0.0",
- "libc",
- "memoffset",
 ]
 
 [[package]]
@@ -6511,7 +6498,7 @@ dependencies = [
  "common",
  "libc",
  "log",
- "nix 0.23.1",
+ "nix",
  "serde",
  "settings_service",
  "threadpool",
@@ -8075,7 +8062,7 @@ dependencies = [
  "futures-util",
  "libc",
  "log",
- "nix 0.25.1",
+ "nix",
  "pretty-hex",
  "serde",
  "serde_json",
