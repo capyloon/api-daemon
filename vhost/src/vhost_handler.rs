@@ -83,8 +83,8 @@ fn update_response_encoding(mime: &Mime, builder: &mut HttpResponseBuilder) {
 
 // Naive conversion of a ZipFile into an HttpResponse.
 // TODO: streaming version.
-fn response_from_zip<'a>(
-    zip: &mut ZipFile<'a>,
+fn response_from_zip(
+    zip: &mut ZipFile<'_>,
     csp: &str,
     if_none_match: Option<&HeaderValue>,
 ) -> HttpResponse {
@@ -217,9 +217,8 @@ impl<'a> LangChecker for FileLangChecker<'a> {
     }
 }
 
-use std::sync::Arc;
 struct ZipLangChecker<'a> {
-    archive: Arc<&'a mut ZipArchive<std::fs::File>>,
+    archive: &'a mut ZipArchive<std::fs::File>,
     csp: String,
     if_none_match: Option<&'a HeaderValue>,
 }
@@ -227,11 +226,12 @@ struct ZipLangChecker<'a> {
 #[async_trait(?Send)]
 impl<'a> LangChecker for ZipLangChecker<'a> {
     async fn check(&mut self, lang_file: &str) -> Option<HttpResponse> {
-        if let Some(archive) = Arc::get_mut(&mut self.archive) {
-            if let Ok(mut zip) = archive.by_name_maybe_raw(lang_file, CompressionMethod::Deflated) {
-                debug!("Opening {}", lang_file);
-                return Some(response_from_zip(&mut zip, &self.csp, self.if_none_match));
-            }
+        if let Ok(mut zip) = self
+            .archive
+            .by_name_maybe_raw(lang_file, CompressionMethod::Deflated)
+        {
+            debug!("Opening {}", lang_file);
+            return Some(response_from_zip(&mut zip, &self.csp, self.if_none_match));
         }
         None
     }
@@ -355,7 +355,7 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                     root_path: root_path.clone(),
                     host: host.clone(),
                     csp: csp.clone(),
-                    if_none_match: if_none_match.clone(),
+                    if_none_match,
                 };
 
                 return match check_lang_files(&languages, &filename, lang_checker).await {
@@ -384,9 +384,9 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                 let filename = req.match_info().query("filename");
 
                 let lang_checker = ZipLangChecker {
-                    archive: Arc::new(archive),
+                    archive,
                     csp: csp.clone(),
-                    if_none_match: if_none_match.clone(),
+                    if_none_match,
                 };
                 match check_lang_files(&languages, filename, lang_checker).await {
                     Ok(response) => response,
