@@ -125,11 +125,7 @@ impl Codegen {
     }
 
     // Interfaces are mapped to traits.
-    pub fn generate_interface<'a, W: Write>(
-        &self,
-        interface: &Interface,
-        sink: &'a mut W,
-    ) -> Result<()> {
+    pub fn generate_interface<W: Write>(&self, interface: &Interface, sink: &mut W) -> Result<()> {
         writeln!(sink, "// Annotation is {:?}", interface.annotation)?;
         let traits = match &interface.annotation {
             Some(annotation) => {
@@ -339,11 +335,7 @@ impl Codegen {
         Ok(())
     }
 
-    pub fn generate_responders<'a, W: Write>(
-        &self,
-        service: &Service,
-        sink: &'a mut W,
-    ) -> Result<()> {
+    pub fn generate_responders<W: Write>(&self, service: &Service, sink: &mut W) -> Result<()> {
         for interface in self.ast.interfaces.values() {
             let enum_name = format!("{}ToClient", service.name);
 
@@ -382,11 +374,8 @@ impl Codegen {
                 }
                 writeln!(sink, ") {{")?;
 
-                let is_interface = if let ConcreteType::Interface(_) = &method.returns.success.typ {
-                    true
-                } else {
-                    false
-                };
+                let is_interface =
+                    matches!(&method.returns.success.typ, ConcreteType::Interface(_));
 
                 let value_name = if is_interface && method.returns.success.arity != Arity::Unary {
                     writeln!(
@@ -449,11 +438,7 @@ impl Codegen {
                 }
                 writeln!(sink, ") {{")?;
 
-                let is_interface = if let ConcreteType::Interface(_) = &method.returns.error.typ {
-                    true
-                } else {
-                    false
-                };
+                let is_interface = matches!(&method.returns.error.typ, ConcreteType::Interface(_));
 
                 let value_name = if is_interface && method.returns.error.arity != Arity::Unary {
                     writeln!(
@@ -578,11 +563,11 @@ impl Codegen {
     }
 
     // Generates the proxy object used to deal with client-side objects
-    fn generate_proxy<'a, W: Write>(
+    fn generate_proxy<W: Write>(
         &self,
         service_name: &str,
         callback: &Callback,
-        sink: &'a mut W,
+        sink: &mut W,
     ) -> Result<()> {
         writeln!(sink, "#[derive(Clone)]")?;
         writeln!(sink, "pub struct {}Proxy {{", callback.name)?;
@@ -630,7 +615,13 @@ impl Codegen {
             for param in &method.params {
                 let stype = rust_type_for_param(&param.typ);
                 let do_clone = needs_clone(&param.typ);
-                write!(sink, "{}: {}{},", param.name, if do_clone { "&" } else { "" }, stype)?;
+                write!(
+                    sink,
+                    "{}: {}{},",
+                    param.name,
+                    if do_clone { "&" } else { "" },
+                    stype
+                )?;
             }
 
             // Get the return type to build the Sender/Receiver type.
@@ -665,7 +656,12 @@ impl Codegen {
                 writeln!(sink, "(")?;
                 for param in &method.params {
                     let do_clone = needs_clone(&param.typ);
-                    write!(sink, "{}{},", param.name, if do_clone { ".clone()" } else { "" })?;
+                    write!(
+                        sink,
+                        "{}{},",
+                        param.name,
+                        if do_clone { ".clone()" } else { "" }
+                    )?;
                 }
                 writeln!(sink, ")")?;
             }
