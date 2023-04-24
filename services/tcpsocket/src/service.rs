@@ -30,7 +30,7 @@ type Msocket<'a> = parking_lot::lock_api::MutexGuard<
     (dyn PrivateTrait + std::marker::Send + 'static),
 >;
 
-fn read_on_socket<'a>(socket: &mut Msocket<'a>, buf: &mut [u8], len: usize) {
+fn read_on_socket(socket: &mut Msocket<'_>, buf: &mut [u8], len: usize) {
     // Data
     debug!("Reading data len={}", len);
     let mut v = buf[0..len].to_vec();
