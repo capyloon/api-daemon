@@ -4,7 +4,7 @@ use futures::SinkExt;
 use futures::StreamExt;
 use futures_util::stream::{SplitSink, SplitStream};
 use log::{debug, error};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

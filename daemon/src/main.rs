@@ -131,7 +131,7 @@ fn start_wspty() {
         .name("wspty server".into())
         .spawn(move || {
             debug!("start_wspty start");
-            let _ = tokio::runtime::Runtime::new().unwrap().block_on(async {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
                 let _ = wspty::start_server()
                     .await
                     .map_err(|e| error!("wspty server exit with error: {:?}", e));
@@ -157,7 +157,7 @@ impl DbObserver for VhostSettingObserver {
         let shared = apps_service::service::AppsService::shared_state();
 
         if let serde_json::Value::String(new_value) = &*(*value) {
-            shared.lock().vhost_api.set_host_mapping(host, &new_value);
+            shared.lock().vhost_api.set_host_mapping(host, new_value);
         }
     }
 }
@@ -240,7 +240,7 @@ fn main() {
                                 shared
                                     .lock()
                                     .vhost_api
-                                    .set_host_mapping(setting, &setting_value);
+                                    .set_host_mapping(setting, setting_value);
                             }
                         } else {
                             warn!("No initial value for setting '{}'", setting_name);
@@ -290,7 +290,7 @@ fn main() {
             .expect("Failed to start uds server thread");
 
         // Start the wspty server
-        let _ = start_wspty();
+        start_wspty();
 
         // Start the Tor support.
         tor::start();

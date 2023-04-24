@@ -1,13 +1,14 @@
 /// Shared traits and structs.
 use crate::scorer::{Scorer, VisitEntry};
-use async_std::io::{Read, Seek};
-use async_std::path::PathBuf;
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 use speedy::{Context, Readable, Reader, Writable, Writer};
 use sqlx::{sqlite::SqliteRow, FromRow, Row, Sqlite, Transaction};
 use std::fmt;
+use std::path::PathBuf;
 use thiserror::Error;
+use tokio::fs::File;
+use tokio::io::{AsyncRead, AsyncSeek, BufReader};
 
 #[derive(sqlx::Type, Clone, Debug, PartialEq, Eq, Hash, Readable, Writable)]
 #[sqlx(transparent)]
@@ -406,7 +407,7 @@ pub enum ResourceStoreError {
     #[error("Serde JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("I/O Error: {0}")]
-    Io(#[from] async_std::io::Error),
+    Io(#[from] std::io::Error),
     #[error("Invalid Container Id")]
     InvalidContainerId,
     #[error("Invalid Resource Id")]
@@ -433,17 +434,20 @@ impl PartialEq for ResourceStoreError {
     }
 }
 
-pub trait ReaderTrait: Read + Seek {}
+pub trait ReaderTrait: AsyncRead + AsyncSeek {}
 
 // Generic implementation.
-impl<T: Seek + Unpin + Read + ?Sized> ReaderTrait for Box<T> {}
+impl<T: AsyncSeek + Unpin + AsyncRead + ?Sized> ReaderTrait for Box<T> {}
 
 // Special case for files and BufReader<File>
-impl ReaderTrait for async_std::fs::File {}
-impl ReaderTrait for async_std::io::BufReader<async_std::fs::File> {}
+impl ReaderTrait for File {}
+impl ReaderTrait for BufReader<File> {}
 
 // Special case for slices.
-impl ReaderTrait for async_std::io::Cursor<&[u8]> {}
+impl ReaderTrait for std::io::Cursor<&[u8]> {}
+
+// Special case for Vec<u8>.
+impl ReaderTrait for std::io::Cursor<Vec<u8>> {}
 
 pub type BoxedReader = Box<dyn ReaderTrait + Unpin>;
 

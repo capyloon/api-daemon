@@ -132,7 +132,7 @@ impl AppMgmtTask for UninstallTask {
         shared
             .registry
             .event_broadcaster
-            .broadcast_app_uninstalled(&url);
+            .broadcast_app_uninstalled(url);
     }
 }
 

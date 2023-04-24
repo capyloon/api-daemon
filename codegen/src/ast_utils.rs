@@ -327,7 +327,7 @@ pub fn normalize_rust_case<N: CaseNormalizer>(ast: &Ast, normalizer: &N) -> Ast 
                 new_m.params.push(new_p);
             }
 
-            other.methods.insert(name.into(), new_m);
+            other.methods.insert(name, new_m);
         }
 
         other.events.clear();

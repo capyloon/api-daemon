@@ -376,12 +376,12 @@ impl SessionContext {
 
     pub fn leave_high_priority_service(&mut self) {
         self.high_priority_services_count -= 1;
-        match self.high_priority_services_count.cmp(&0) {
-            std::cmp::Ordering::Less => error!(
+
+        if self.high_priority_services_count.cmp(&0) == std::cmp::Ordering::Less {
+            error!(
                 "High priority services count is now {} !!",
                 self.high_priority_services_count
-            ),
-            _ => {}
+            )
         }
     }
 }

@@ -6,7 +6,6 @@ use crate::handshake::{HandshakeClient, Status};
 use crate::mdns::MdnsDiscovery;
 use crate::storage::DwebStorage;
 use crate::DiscoveryMechanism;
-use async_std::path::Path;
 use common::core::BaseMessage;
 use common::traits::{
     CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
@@ -18,6 +17,7 @@ use iroh::provider::{create_collection, Builder, DataSource, Provider};
 use log::{debug, error, info};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use tokio::runtime::Handle;
@@ -117,10 +117,10 @@ impl StateLogger for State {}
 impl State {
     pub fn on_peer_found(&mut self, peer: KnownPeer) {
         let key = peer.peer.device_id.clone();
-        if !self.known_peers.contains_key(&key) {
+        if let std::collections::btree_map::Entry::Vacant(e) = self.known_peers.entry(key.clone()) {
             info!("Peer added: {}", key);
             self.event_broadcaster.broadcast_peerfound(&peer.peer);
-            self.known_peers.insert(key, peer);
+            e.insert(peer);
         }
     }
 
@@ -270,8 +270,7 @@ fn build_ucan_token(
         .dweb_store
         .did_by_name(&granted.issuer.name)
         .map_err(|_| ())?
-        .ok_or(())?
-        .clone();
+        .ok_or(())?;
 
     let not_before = granted
         .not_before
@@ -299,7 +298,7 @@ fn build_ucan_token(
 
     let signable = ucan.build().map_err(|_| ())?;
 
-    async_std::task::block_on(async { signable.sign().await.map_err(|_| ()) })
+    Handle::current().block_on(async { signable.sign().await.map_err(|_| ()) })
 }
 
 impl DwebMethods for DWebServiceImpl {
@@ -446,7 +445,7 @@ impl DwebMethods for DWebServiceImpl {
             let granted = GrantedCapabilities {
                 issuer: audience.clone().into(),
                 capabilities: Some(vec![Capability {
-                    scope: StdUrl::parse("my:*").unwrap().into(),
+                    scope: StdUrl::parse("my:*").unwrap(),
                     action: "*".into(),
                 }]),
                 not_before: SystemTime::now().into(),

@@ -22,9 +22,9 @@ impl From<ResourceKindC> for ResourceKind {
     }
 }
 
-impl Into<ResourceKindC> for ResourceKind {
-    fn into(self) -> ResourceKindC {
-        match self {
+impl From<ResourceKind> for ResourceKindC {
+    fn from(val: ResourceKind) -> Self {
+        match val {
             ResourceKind::Container => ResourceKindC::Container,
             ResourceKind::Leaf => ResourceKindC::Leaf,
         }
@@ -84,21 +84,21 @@ impl From<ResourceMetadata> for Metadata {
     }
 }
 
-impl Into<ResourceMetadata> for Metadata {
-    fn into(self) -> ResourceMetadata {
-        let variants: Vec<VariantMetadata> = self.variants.iter().map(|item| item.into()).collect();
+impl From<Metadata> for ResourceMetadata {
+    fn from(val: Metadata) -> Self {
+        let variants: Vec<VariantMetadata> = val.variants.iter().map(|item| item.into()).collect();
 
         let mut meta = ResourceMetadata::new(
-            &self.id.into(),
-            &self.parent.into(),
-            self.kind.into(),
-            &self.name,
-            self.tags,
+            &val.id.into(),
+            &val.parent.into(),
+            val.kind.into(),
+            &val.name,
+            val.tags,
             variants,
         );
 
-        meta.set_created(system_time_to_chrono(self.created).into());
-        meta.set_modified(system_time_to_chrono(self.modified).into());
+        meta.set_created(system_time_to_chrono(val.created).into());
+        meta.set_modified(system_time_to_chrono(val.modified).into());
 
         meta
     }

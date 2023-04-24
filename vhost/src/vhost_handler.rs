@@ -3,7 +3,6 @@ use crate::etag::*;
 use actix_web::http::header::{self, Header, HeaderValue};
 use actix_web::{http, web, HttpRequest, HttpResponse, HttpResponseBuilder, Responder};
 use async_trait::async_trait;
-use common::traits::Shared;
 use log::debug;
 use new_mime_guess::{Mime, MimeGuess};
 use std::collections::HashMap;
@@ -11,6 +10,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use tokio::fs::File as AsyncFile;
+use tokio::sync::Mutex;
 use tokio_util::io::ReaderStream;
 use zip::read::{ZipArchive, ZipFile};
 use zip::CompressionMethod;
@@ -83,8 +83,8 @@ fn update_response_encoding(mime: &Mime, builder: &mut HttpResponseBuilder) {
 
 // Naive conversion of a ZipFile into an HttpResponse.
 // TODO: streaming version.
-fn response_from_zip<'a>(
-    zip: &mut ZipFile<'a>,
+fn response_from_zip(
+    zip: &mut ZipFile<'_>,
     csp: &str,
     if_none_match: Option<&HeaderValue>,
 ) -> HttpResponse {
@@ -217,9 +217,8 @@ impl<'a> LangChecker for FileLangChecker<'a> {
     }
 }
 
-use std::sync::Arc;
 struct ZipLangChecker<'a> {
-    archive: Arc<&'a mut ZipArchive<std::fs::File>>,
+    archive: &'a mut ZipArchive<std::fs::File>,
     csp: String,
     if_none_match: Option<&'a HeaderValue>,
 }
@@ -227,11 +226,12 @@ struct ZipLangChecker<'a> {
 #[async_trait(?Send)]
 impl<'a> LangChecker for ZipLangChecker<'a> {
     async fn check(&mut self, lang_file: &str) -> Option<HttpResponse> {
-        if let Some(archive) = Arc::get_mut(&mut self.archive) {
-            if let Ok(mut zip) = archive.by_name_maybe_raw(lang_file, CompressionMethod::Deflated) {
-                debug!("Opening {}", lang_file);
-                return Some(response_from_zip(&mut zip, &self.csp, self.if_none_match));
-            }
+        if let Ok(mut zip) = self
+            .archive
+            .by_name_maybe_raw(lang_file, CompressionMethod::Deflated)
+        {
+            debug!("Opening {}", lang_file);
+            return Some(response_from_zip(&mut zip, &self.csp, self.if_none_match));
         }
         None
     }
@@ -241,7 +241,7 @@ impl<'a> LangChecker for ZipLangChecker<'a> {
 // http://host:port/path/to/file.ext -> $root_path/host/application.zip!path/to/file.ext
 // When using a Gaia debug profile, applications are not packaged so if application.zip doesn't
 // exist we try to map to $root_path/host/path/to/file.ext instead.
-pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl Responder {
+pub async fn vhost(data: web::Data<Mutex<AppData>>, req: HttpRequest) -> impl Responder {
     let if_none_match = req.headers().get(header::IF_NONE_MATCH);
 
     if let Some(host) = req.headers().get(header::HOST) {
@@ -286,7 +286,7 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
         };
 
         let (root_path, csp, has_zip, mapped_host) = {
-            let data = data.lock();
+            let data = data.lock().await;
             (
                 data.root_path.clone(),
                 data.csp.clone(),
@@ -339,7 +339,7 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                     Ok(archive) => archive,
                     Err(_) => return HttpResponse::BadRequest().finish(),
                 };
-                let mut data = data.lock();
+                let mut data = data.lock().await;
                 data.zips.insert(host.clone(), archive);
             } else {
                 // No application.zip found, try a direct path mapping.
@@ -355,7 +355,7 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
                     root_path: root_path.clone(),
                     host: host.clone(),
                     csp: csp.clone(),
-                    if_none_match: if_none_match.clone(),
+                    if_none_match,
                 };
 
                 return match check_lang_files(&languages, &filename, lang_checker).await {
@@ -377,16 +377,16 @@ pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl R
 
         // Now we are sure the zip archive is in our hashmap.
         // We still need a write lock because ZipFile.by_name_maybe_raw()takes a `&mut self` parameter :(
-        let mut readlock = data.lock();
+        let mut readlock = data.lock().await;
 
         match readlock.zips.get_mut(&host) {
             Some(archive) => {
                 let filename = req.match_info().query("filename");
 
                 let lang_checker = ZipLangChecker {
-                    archive: Arc::new(archive),
+                    archive,
                     csp: csp.clone(),
-                    if_none_match: if_none_match.clone(),
+                    if_none_match,
                 };
                 match check_lang_files(&languages, filename, lang_checker).await {
                     Ok(response) => response,

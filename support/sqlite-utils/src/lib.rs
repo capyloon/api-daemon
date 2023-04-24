@@ -62,7 +62,7 @@ impl SqliteDb {
                     return Err(SqliteDbError::SchemaUpgrade(current_version, version));
                 } else {
                     // The upgrade went fine, so we can set the new version number.
-                    if let Err(err) = transaction.pragma_update(None, "user_version", &version) {
+                    if let Err(err) = transaction.pragma_update(None, "user_version", version) {
                         error!(
                             "Failed to update user_version in {:?}: {}",
                             path.as_ref(),
@@ -117,7 +117,7 @@ impl SqliteDb {
     /// Enable WAL on this database (https://sqlite.org/wal.html).
     pub fn enable_wal(&self) -> Result<(), SqliteDbError> {
         self.connection
-            .pragma_update(None, "journal_mode", &"WAL".to_string())?;
+            .pragma_update(None, "journal_mode", "WAL".to_string())?;
         Ok(())
     }
 

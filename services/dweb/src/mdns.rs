@@ -3,6 +3,7 @@
 use crate::generated::common::Peer;
 use crate::handshake::HandshakeHandler;
 use crate::service::{KnownPeer, State};
+use crate::DiscoveryError;
 use common::traits::Shared;
 use log::{error, info};
 use searchlight::{
@@ -27,8 +28,9 @@ pub struct MdnsDiscovery {
 const MDNS_DOMAIN: &str = "_capyloon._tcp.local.";
 const MDNS_PORT: u16 = 4242;
 
-fn to_empty_err<E: std::error::Error>(err: E) -> () {
+fn to_empty_err<E: std::error::Error>(err: E) -> DiscoveryError {
     log::error!("mdns error: {}", err);
+    DiscoveryError::Error
 }
 
 fn get_ipaddrs() -> Vec<IpAddr> {
@@ -53,7 +55,7 @@ fn get_device_props(dns_packet: &DnsResponse) -> (BTreeMap<String, String>, u16)
         if let Some(RData::TXT(txt)) = record.data() {
             for prop in txt.iter() {
                 let parts: Vec<String> = String::from_utf8_lossy(prop)
-                    .split("=")
+                    .split('=')
                     .map(|item| item.to_owned())
                     .collect();
                 if parts.len() == 2 {
@@ -73,7 +75,7 @@ fn get_device_id(dns_packet: &DnsResponse) -> Option<String> {
         if let Some(RData::SRV(_)) = record.data() {
             let name = record.name().to_utf8();
             let name = name.strip_suffix(MDNS_DOMAIN).unwrap_or(&name);
-            let name = name.strip_suffix('.').unwrap_or(&name);
+            let name = name.strip_suffix('.').unwrap_or(name);
             Some(name.to_string())
         } else {
             None
@@ -86,7 +88,7 @@ fn get_addr(dns_packet: &DnsResponse) -> Option<Ipv4Addr> {
     dns_packet.additionals().iter().find_map(|record| {
         if let Some(RData::A(addr)) = record.data() {
             if addr.is_private() {
-                Some(addr.clone())
+                Some(*addr)
             } else {
                 None
             }
@@ -143,7 +145,7 @@ impl MdnsDiscovery {
         }
     }
 
-    fn start_broadcaster(&mut self) -> Result<(), ()> {
+    fn start_broadcaster(&mut self) -> Result<(), DiscoveryError> {
         let mut service_builder = ServiceBuilder::new(MDNS_DOMAIN, &self.peer.device_id, MDNS_PORT)
             .map_err(to_empty_err)?
             .ttl(30)
@@ -183,7 +185,7 @@ impl crate::DiscoveryMechanism for MdnsDiscovery {
         })
     }
 
-    fn start(&mut self, peer: &Peer) -> Result<(), ()> {
+    fn start(&mut self, peer: &Peer) -> Result<(), DiscoveryError> {
         info!("mdns: start");
 
         self.peer = peer.clone();
@@ -208,21 +210,17 @@ impl crate::DiscoveryMechanism for MdnsDiscovery {
         let _ = thread::Builder::new()
             .name("mdns events".into())
             .spawn(move || {
-                loop {
-                    if let Ok(event) = found_rx.recv() {
-                        match event {
-                            DiscoveryEvent::ResponderFound(responder) => {
-                                Self::on_peer_found(responder, state.clone());
-                            }
-                            DiscoveryEvent::ResponderLost(responder) => {
-                                Self::on_peer_lost(responder, state.clone());
-                            }
-                            _ => {
-                                // Nothing to do for ResponseUpdate
-                            }
+                while let Ok(event) = found_rx.recv() {
+                    match event {
+                        DiscoveryEvent::ResponderFound(responder) => {
+                            Self::on_peer_found(responder, state.clone());
                         }
-                    } else {
-                        break;
+                        DiscoveryEvent::ResponderLost(responder) => {
+                            Self::on_peer_lost(responder, state.clone());
+                        }
+                        _ => {
+                            // Nothing to do for ResponseUpdate
+                        }
                     }
                 }
                 info!("mdns thread complete");
@@ -244,7 +242,7 @@ impl crate::DiscoveryMechanism for MdnsDiscovery {
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<(), ()> {
+    fn stop(&mut self) -> Result<(), DiscoveryError> {
         info!("mdns: stop");
 
         // The drop implementation of the handles will call shutdown() for us.

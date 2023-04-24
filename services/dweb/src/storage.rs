@@ -88,7 +88,7 @@ impl DwebStorage {
         }
 
         let path = path.as_ref().join("dweb.sqlite");
-        let db = SqliteDb::open(&path, &mut DwebSchemaManager {}, DB_VERSION).unwrap();
+        let db = SqliteDb::open(path, &mut DwebSchemaManager {}, DB_VERSION).unwrap();
         if let Err(err) = db.enable_wal() {
             error!("Failed to enable WAL mode on dweb db: {}", err);
         }
@@ -107,7 +107,7 @@ impl DwebStorage {
         let mut stmt = self
             .db
             .connection()
-            .prepare(&format!("SELECT count(name) FROM dids"))?;
+            .prepare("SELECT count(name) FROM dids")?;
 
         let count = stmt.query_row([], |r| Ok(r.get_unwrap(0)))?;
         Ok(count)
@@ -118,7 +118,7 @@ impl DwebStorage {
             .db
             .connection()
             .prepare("INSERT INTO dids(name, uri, pubkey, privkey) VALUES(?, ?, ?, ?)")?;
-        let size = stmt.execute(&[&did.name, &did.uri(), &did.pubkey_b64(), &did.privkey_b64()])?;
+        let size = stmt.execute([&did.name, &did.uri(), &did.pubkey_b64(), &did.privkey_b64()])?;
         Ok(size > 0)
     }
 
@@ -126,7 +126,7 @@ impl DwebStorage {
         let mut stmt = self
             .db
             .connection()
-            .prepare(&format!("DELETE FROM dids WHERE uri=:uri"))?;
+            .prepare("DELETE FROM dids WHERE uri=:uri")?;
         stmt.execute(named_params! {":uri": uri})?;
 
         Ok(true)
@@ -148,13 +148,14 @@ impl DwebStorage {
     }
 
     pub fn did_by_name(&self, name: &str) -> Result<Option<Did>, rusqlite::Error> {
-        let mut stmt = self.db.connection().prepare(&format!(
-            "SELECT name, pubkey, privkey FROM dids WHERE name = ?",
-        ))?;
-        let mut rows = stmt.query(&[name])?;
+        let mut stmt = self
+            .db
+            .connection()
+            .prepare("SELECT name, pubkey, privkey FROM dids WHERE name = ?")?;
+        let mut rows = stmt.query([name])?;
         if let Some(row) = rows.next()? {
             if let Ok(did) = Did::from_row(row) {
-                return Ok(Some(did.into()));
+                return Ok(Some(did));
             }
         }
 
@@ -162,13 +163,14 @@ impl DwebStorage {
     }
 
     pub fn did_by_uri(&self, uri: &str) -> Result<Option<Did>, rusqlite::Error> {
-        let mut stmt = self.db.connection().prepare(&format!(
-            "SELECT name, pubkey, privkey FROM dids WHERE uri = ?",
-        ))?;
-        let mut rows = stmt.query(&[uri])?;
+        let mut stmt = self
+            .db
+            .connection()
+            .prepare("SELECT name, pubkey, privkey FROM dids WHERE uri = ?")?;
+        let mut rows = stmt.query([uri])?;
         if let Some(row) = rows.next()? {
             if let Ok(did) = Did::from_row(row) {
-                return Ok(Some(did.into()));
+                return Ok(Some(did));
             }
         }
 
@@ -185,27 +187,27 @@ impl DwebStorage {
         let mut stmt = self.db.connection().prepare(
             "INSERT INTO ucans(signature, issuer, origin, token, blocked) VALUES(?, ?, ?, ?, ?)",
         )?;
-        let signature = encoded.split('.').into_iter().collect::<Vec<&str>>()[2];
+        let signature = encoded.split('.').collect::<Vec<&str>>()[2];
         let issuer = ucan.issuer();
 
-        let size = stmt.execute(&[
-            &signature,
+        let size = stmt.execute([
+            signature,
             issuer,
             origin,
             &encoded,
-            if blocked { &"1" } else { &"0" },
+            if blocked { "1" } else { "0" },
         ])?;
         Ok(size > 0)
     }
 
     pub fn remove_ucan(&mut self, ucan: &Ucan) -> Result<bool, rusqlite::Error> {
         let encoded = ucan.encode().unwrap();
-        let signature = encoded.split('.').into_iter().collect::<Vec<&str>>()[2];
+        let signature = encoded.split('.').collect::<Vec<&str>>()[2];
 
         let mut stmt = self
             .db
             .connection()
-            .prepare(&format!("DELETE FROM ucans WHERE signature=:signature"))?;
+            .prepare("DELETE FROM ucans WHERE signature=:signature")?;
         stmt.execute(named_params! {":signature": signature})?;
 
         Ok(true)
@@ -215,9 +217,9 @@ impl DwebStorage {
         let mut stmt = self
             .db
             .connection()
-            .prepare(&format!("SELECT blocked FROM ucans WHERE signature = ?",))?;
-        let signature = token.split('.').into_iter().collect::<Vec<&str>>()[2];
-        let mut rows = stmt.query(&[signature])?;
+            .prepare("SELECT blocked FROM ucans WHERE signature = ?")?;
+        let signature = token.split('.').collect::<Vec<&str>>()[2];
+        let mut rows = stmt.query([signature])?;
         if let Some(row) = rows.next()? {
             let blocked: bool = row.get(0)?;
             return Ok(Some(blocked));
@@ -229,8 +231,8 @@ impl DwebStorage {
         let mut stmt = self
             .db
             .connection()
-            .prepare(&format!("SELECT token FROM ucans WHERE origin = ?",))?;
-        let mut rows = stmt.query(&[origin])?;
+            .prepare("SELECT token FROM ucans WHERE origin = ?")?;
+        let mut rows = stmt.query([origin])?;
 
         let mut result = vec![];
         while let Some(row) = rows.next()? {
@@ -243,12 +245,12 @@ impl DwebStorage {
 
     pub fn set_ucan_blocked(&mut self, ucan: &Ucan, blocked: bool) -> Result<(), rusqlite::Error> {
         let encoded = ucan.encode().unwrap();
-        let signature = encoded.split('.').into_iter().collect::<Vec<&str>>()[2];
+        let signature = encoded.split('.').collect::<Vec<&str>>()[2];
         let mut stmt = self
             .db
             .connection()
             .prepare("UPDATE ucans SET blocked = ? where signature = ?")?;
-        let _ = stmt.execute(&[if blocked { &"1" } else { &"0" }, signature])?;
+        let _ = stmt.execute([if blocked { "1" } else { "0" }, signature])?;
 
         Ok(())
     }

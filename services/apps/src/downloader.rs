@@ -105,7 +105,6 @@ impl DownloadProgress {
     }
 }
 
-
 // TODO: move to the config.
 #[cfg(not(target_os = "android"))]
 static IPFS_SOCKET_PATH: &str = "/tmp/ipfsd.http";

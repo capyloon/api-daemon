@@ -206,7 +206,7 @@ impl AppsStorage {
                 stat.blocks_free(),
                 stat.blocks_available()
             );
-            #[allow(clippy::useless_conversion)]
+            #[allow(clippy::unnecessary_cast)]
             return stat.block_size() as u64 * stat.blocks_available() as u64;
         }
         0

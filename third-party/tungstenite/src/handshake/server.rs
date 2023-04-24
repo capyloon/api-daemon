@@ -208,7 +208,7 @@ pub struct ServerHandshake<S, C> {
 
 impl<S: Read + Write, C: Callback> ServerHandshake<S, C> {
     /// Start server handshake. `callback` specifies a custom callback which the user can pass to
-    /// the handshake, this callback will be called when the a websocket client connnects to the
+    /// the handshake, this callback will be called when the a websocket client connects to the
     /// server, you can specify the callback if you want to add additional header to the client
     /// upon join based on the incoming headers.
     pub fn start(stream: S, callback: C, config: Option<WebSocketConfig>) -> MidHandshake<Self> {
@@ -277,7 +277,10 @@ impl<S: Read + Write, C: Callback> HandshakeRole for ServerHandshake<S, C> {
             StageResult::DoneWriting(stream) => {
                 if let Some(err) = self.error_response.take() {
                     debug!("Server handshake failed.");
-                    return Err(Error::Http(err));
+
+                    let (parts, body) = err.into_parts();
+                    let body = body.map(|b| b.as_bytes().to_vec());
+                    return Err(Error::Http(http::Response::from_parts(parts, body)));
                 } else {
                     debug!("Server handshake done.");
                     let websocket = WebSocket::from_raw_socket(stream, Role::Server, self.config);

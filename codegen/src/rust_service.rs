@@ -72,10 +72,10 @@ impl Codegen {
 
     // Services are mapped to trait that implement both their defining interface and the
     // core common one.
-    pub fn generate_service<'a, W: Write>(
+    pub fn generate_service<W: Write>(
         &mut self,
         service: &Service,
-        sink: &'a mut W,
+        sink: &mut W,
         wrote_shared: bool,
     ) -> Result<()> {
         // Find all interfaces that will be tracked objects for this service.
@@ -136,8 +136,8 @@ impl Codegen {
             } else {
                 sink.write_all(
                     b"let identity = origin_attributes.identity();
-                                if identity == \"uds\" {
-                                    // Grant all permissions to uds sessions.
+                                if identity == \"uds\" || identity.starts_with(\"tile://\") {
+                                    // Grant all permissions to uds sessions and Tiles.
                                     true
                                 } else {\n",
                 )?;

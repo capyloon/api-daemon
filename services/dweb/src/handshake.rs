@@ -24,22 +24,18 @@ struct DialRequest {
 #[derive(Deserialize, Serialize, Debug)]
 enum Request {
     Pairing(PairingRequest),
-    Action(DialRequest),
+    Dial(DialRequest),
 }
 
-trait AsRequest {
-    fn as_request(self) -> Request;
-}
-
-impl AsRequest for PairingRequest {
-    fn as_request(self) -> Request {
-        Request::Pairing(self)
+impl From<PairingRequest> for Request {
+    fn from(val: PairingRequest) -> Request {
+        Request::Pairing(val)
     }
 }
 
-impl AsRequest for DialRequest {
-    fn as_request(self) -> Request {
-        Request::Action(self)
+impl From<DialRequest> for Request {
+    fn from(val: DialRequest) -> Request {
+        Request::Dial(val)
     }
 }
 
@@ -114,7 +110,7 @@ impl ResponseOut for DialResponse {
     }
 
     fn from_response(req: Response) -> Option<Self> {
-        if let Response::Action(action) = req {
+        if let Response::Dial(action) = req {
             Some(action)
         } else {
             None
@@ -125,7 +121,7 @@ impl ResponseOut for DialResponse {
 #[derive(Deserialize, Serialize, Debug)]
 enum Response {
     Pairing(PairingResponse),
-    Action(DialResponse),
+    Dial(DialResponse),
 }
 
 pub struct HandshakeHandler {
@@ -169,8 +165,8 @@ impl HandshakeHandler {
                     Request::Pairing(_) => {
                         Response::Pairing(PairingResponse::with_status(Status::InternalError))
                     }
-                    Request::Action(_) => {
-                        Response::Action(DialResponse::with_status(Status::InternalError))
+                    Request::Dial(_) => {
+                        Response::Dial(DialResponse::with_status(Status::InternalError))
                     }
                 };
                 return Self::send_response(stream, response);
@@ -182,55 +178,51 @@ impl HandshakeHandler {
                 // Process the call to pair
                 if let Ok(result) = provider.hello(&peer).recv() {
                     match result {
-                        Ok(false) => {
-                            return Self::send_response(
-                                stream,
-                                Response::Pairing(PairingResponse::with_status(Status::Denied)),
-                            )
-                        }
+                        Ok(false) => Self::send_response(
+                            stream,
+                            Response::Pairing(PairingResponse::with_status(Status::Denied)),
+                        ),
                         Ok(true) => {
                             // Create a session with this peer since we accepter the connection.
                             state.lock().create_session(peer);
-                            return Self::send_response(
+                            Self::send_response(
                                 stream,
                                 Response::Pairing(PairingResponse::with_status(Status::Granted)),
-                            );
-                        }
-                        Err(_) => {
-                            return Self::send_response(
-                                stream,
-                                Response::Pairing(PairingResponse::with_status(Status::Denied)),
                             )
                         }
+                        Err(_) => Self::send_response(
+                            stream,
+                            Response::Pairing(PairingResponse::with_status(Status::Denied)),
+                        ),
                     }
                 } else {
-                    return Self::send_response(
+                    Self::send_response(
                         stream,
                         Response::Pairing(PairingResponse::with_status(Status::InternalError)),
-                    );
+                    )
                 }
             }
-            Request::Action(DialRequest { peer, params }) => {
+            Request::Dial(DialRequest { peer, params }) => {
                 // Process the call to provide_answer();
                 if let Ok(result) = provider.on_dialed(&peer, &params).recv() {
                     match result {
                         Ok(result) => Self::send_response(
                             stream,
-                            Response::Action(DialResponse {
+                            Response::Dial(DialResponse {
                                 status: Status::Granted,
                                 result,
                             }),
                         ),
                         Err(_) => Self::send_response(
                             stream,
-                            Response::Action(DialResponse::with_status(Status::Denied)),
+                            Response::Dial(DialResponse::with_status(Status::Denied)),
                         ),
                     }
                 } else {
-                    return Self::send_response(
+                    Self::send_response(
                         stream,
-                        Response::Action(DialResponse::with_status(Status::InternalError)),
-                    );
+                        Response::Dial(DialResponse::with_status(Status::InternalError)),
+                    )
                 }
             }
         }
@@ -270,11 +262,11 @@ pub struct HandshakeClient {
 
 impl HandshakeClient {
     pub fn new(addr: &SocketAddr) -> Self {
-        Self { addr: addr.clone() }
+        Self { addr: *addr }
     }
 
     // Manages a request / response flow.
-    fn request<I: Serialize + AsRequest, O: DeserializeOwned + ResponseOut>(
+    fn request<I: Serialize + Into<Request>, O: DeserializeOwned + ResponseOut>(
         &self,
         input: I,
     ) -> Result<O::Out, Status> {
@@ -284,7 +276,7 @@ impl HandshakeClient {
             Status::NotConnected
         })?;
 
-        let encoded = bincode::serialize(&input.as_request()).map_err(|_| Status::InternalError)?;
+        let encoded = bincode::serialize(&input.into()).map_err(|_| Status::InternalError)?;
         stream
             .write_all(&encoded)
             .map_err(|_| Status::InternalError)?;
@@ -315,16 +307,13 @@ impl HandshakeClient {
 
     // Blocking call to send a pairing request.
     pub fn pair_with(&self, peer: Peer) -> Result<(), Status> {
-        let request = PairingRequest { peer: peer.clone() };
+        let request = PairingRequest { peer };
         self.request::<PairingRequest, PairingResponse>(request)
     }
 
     // Blocking call to send a dial request.
     pub fn dial(&self, peer: Peer, params: JsonValue) -> Result<JsonValue, Status> {
-        let request = DialRequest {
-            peer: peer.clone(),
-            params: params.clone(),
-        };
+        let request = DialRequest { peer, params };
         self.request::<DialRequest, DialResponse>(request)
     }
 }

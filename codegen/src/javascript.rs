@@ -460,13 +460,13 @@ impl Codegen {
     }
 
     // Returns the updated index for requests and responses.
-    pub fn generate_messages_for_interface<'a, W: Write>(
+    pub fn generate_messages_for_interface<W: Write>(
         &mut self,
         name: &str,
         messages: &[TypedMessage],
         req_index: usize,
         resp_index: usize,
-        sink: &'a mut W,
+        sink: &mut W,
     ) -> Result<(usize, usize)> {
         let print_timing = !std::env::var("API_DAEMON_PRINT_TIMING")
             .unwrap_or_default()
@@ -575,12 +575,12 @@ impl Codegen {
 
     // Interfaces are mapped to a class extending SessionObject.
     // Returns the updated index for requests and responses.
-    pub fn generate_interface<'a, W: Write>(
+    pub fn generate_interface<W: Write>(
         &mut self,
         interface: &Interface,
         req_index: usize,
         resp_index: usize,
-        sink: &'a mut W,
+        sink: &mut W,
     ) -> Result<(usize, usize)> {
         let mut messages: Vec<TypedMessage> = vec![];
 
@@ -818,12 +818,12 @@ impl Codegen {
 
     // Callbacks are mapped to a class extending SessionObject.
     // Returns the updated index for requests and responses.
-    pub fn generate_callback<'a, W: Write>(
+    pub fn generate_callback<W: Write>(
         &mut self,
         callback: &Callback,
         req_index: usize,
         resp_index: usize,
-        sink: &'a mut W,
+        sink: &mut W,
     ) -> Result<(usize, usize)> {
         writeln!(
             sink,
@@ -986,7 +986,7 @@ impl Codegen {
 
     // Services are mapped to trait that implement both their defining interface and the
     // core common one.
-    pub fn generate_service<'a, W: Write>(&self, service: &Service, sink: &'a mut W) -> Result<()> {
+    pub fn generate_service<W: Write>(&self, service: &Service, sink: &mut W) -> Result<()> {
         // Write the main entry point used to instanciate the service.
         let name = &service.name;
         write!(
@@ -1007,10 +1007,10 @@ impl Codegen {
         Ok(())
     }
 
-    fn generate_enumeration<'a, W: Write>(
+    fn generate_enumeration<W: Write>(
         &self,
         enumeration: &Enumeration,
-        sink: &'a mut W,
+        sink: &mut W,
     ) -> Result<()> {
         writeln!(sink, "export const {} = {{", enumeration.name)?;
         for member in &enumeration.members {
@@ -1020,10 +1020,7 @@ impl Codegen {
         Ok(())
     }
 
-    pub fn generate<W: Write>(
-        &mut self,
-        sink: &mut W,
-    ) -> Result<()> {
+    pub fn generate<W: Write>(&mut self, sink: &mut W) -> Result<()> {
         writeln!(
             sink,
             r#"// This file is generated. Do not edit.

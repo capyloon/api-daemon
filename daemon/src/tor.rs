@@ -193,7 +193,7 @@ pub fn start() {
 
         // Setup a setting listener.
         let _id = db.add_observer(
-            &TOR_ENABLED_SETTING,
+            TOR_ENABLED_SETTING,
             ObserverType::FuncPtr(Box::new(observer)),
         );
     }

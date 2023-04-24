@@ -49,10 +49,7 @@ pub fn generate_rust_service(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn generate_javascript_code(
-    src: &Path,
-    dest: &Path,
-) -> Result<()> {
+pub fn generate_javascript_code(src: &Path, dest: &Path) -> Result<()> {
     info!("Generating Javascript code {:?} -> {:?}", src, dest);
     let ast = ast::Ast::parse_file(src, None)?;
 

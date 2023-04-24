@@ -6,16 +6,12 @@ use crate::common::{
     BoxedReader, ResourceId, ResourceKind, ResourceMetadata, ResourceNameProvider, ResourceStore,
     ResourceStoreError, ResourceTransformer, Variant,
 };
-use async_std::{
-    fs,
-    fs::File,
-    io::prelude::WriteExt,
-    io::BufReader,
-    path::{Path, PathBuf},
-};
 use async_trait::async_trait;
 use log::error;
 use speedy::{Readable, Writable};
+use std::path::{Path, PathBuf};
+use tokio::fs::{self, File};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 
 macro_rules! custom_error {
     ($error:expr) => {
@@ -69,7 +65,7 @@ impl FileStore {
         use std::os::unix::fs::PermissionsExt;
 
         let file = File::create(&path).await?;
-        file.set_permissions(async_std::fs::Permissions::from_mode(0o600))
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .await?;
 
         Ok(file)
@@ -116,8 +112,8 @@ impl FileStore {
             }
             let mut file = Self::create_file(&self.variant_path(&id, &name)).await?;
             file.set_len(content.metadata.size() as _).await?;
-            let writer = self.transformer.transform_to(content.reader);
-            futures::io::copy(writer, &mut file).await?;
+            let mut writer = self.transformer.transform_to(content.reader);
+            tokio::io::copy(&mut writer, &mut file).await?;
             file.sync_all().await?;
         }
 
@@ -150,11 +146,8 @@ impl ResourceStore for FileStore {
     ) -> Result<(), ResourceStoreError> {
         let content_path = self.variant_path(id, "default");
         let mut file = Self::create_file(&content_path).await?;
-        futures::io::copy(
-            self.transformer.transform_array_to(content).as_slice(),
-            &mut file,
-        )
-        .await?;
+        let mut cursor = std::io::Cursor::new(self.transformer.transform_array_to(content));
+        tokio::io::copy(&mut cursor, &mut file).await?;
         file.sync_all().await?;
 
         Ok(())
@@ -171,7 +164,7 @@ impl ResourceStore for FileStore {
         // 3. remove variants.
         for variant in metadata.variants() {
             let path = self.variant_path(id, &variant.name());
-            if Path::new(&path).exists().await {
+            if Path::new(&path).exists() {
                 fs::remove_file(&path).await?;
             }
         }
@@ -184,15 +177,13 @@ impl ResourceStore for FileStore {
         variant: &str,
     ) -> Result<(), ResourceStoreError> {
         let path = self.variant_path(id, variant);
-        if Path::new(&path).exists().await {
+        if Path::new(&path).exists() {
             fs::remove_file(&path).await?;
         }
         Ok(())
     }
 
     async fn get_metadata(&self, id: &ResourceId) -> Result<ResourceMetadata, ResourceStoreError> {
-        use async_std::io::ReadExt;
-
         let meta_path = self.metadata_path(id);
 
         let mut file = File::open(&meta_path)
@@ -211,8 +202,6 @@ impl ResourceStore for FileStore {
         id: &ResourceId,
         name: &str,
     ) -> Result<(ResourceMetadata, BoxedReader), ResourceStoreError> {
-        use async_std::io::ReadExt;
-
         let meta_path = self.metadata_path(id);
 
         let mut file = File::open(&meta_path)
@@ -253,7 +242,7 @@ impl ResourceStore for FileStore {
 
     async fn get_native_path(&self, id: &ResourceId, variant: &str) -> Option<PathBuf> {
         let path = self.variant_path(id, variant);
-        if path.exists().await {
+        if path.exists() {
             Some(path)
         } else {
             None

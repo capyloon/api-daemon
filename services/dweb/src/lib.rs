@@ -60,7 +60,7 @@ fn bytes_to_ed25519_key(bytes: Vec<u8>) -> Result<Box<dyn KeyMaterial>> {
 }
 
 pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
-    let ucan = Ucan::from_str(&token).map_err(|_| ())?;
+    let ucan = Ucan::from_str(token).map_err(|_| ())?;
     // Parse the token, check time bounds and signature.
     let mut parser = DidParser::new(SUPPORTED_UCAN_KEYS);
     ucan.validate(&mut parser).await.map_err(|_| ())?;
@@ -87,11 +87,16 @@ pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
 }
 
 // Trait to implement by peer discovery mechanisms.
+
+pub enum DiscoveryError {
+    Error,
+}
+
 pub trait DiscoveryMechanism {
     fn with_state(state: common::traits::Shared<service::State>) -> Option<Self>
     where
         Self: Sized;
 
-    fn start(&mut self, peer: &Peer) -> Result<(), ()>;
-    fn stop(&mut self) -> Result<(), ()>;
+    fn start(&mut self, peer: &Peer) -> Result<(), DiscoveryError>;
+    fn stop(&mut self) -> Result<(), DiscoveryError>;
 }

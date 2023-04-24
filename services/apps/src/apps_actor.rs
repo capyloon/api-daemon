@@ -498,7 +498,7 @@ pub fn uninstall(
     shared
         .registry
         .event_broadcaster
-        .broadcast_app_uninstalled(&manifest_url);
+        .broadcast_app_uninstalled(manifest_url);
 
     shared.vhost_api.app_uninstalled(&app.name);
 

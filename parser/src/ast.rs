@@ -114,18 +114,13 @@ impl ConcreteType {
 /// `+` means `OneOrMore`
 /// `*` means `ZeroOrMore`
 /// `?` means `Optional`
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub enum Arity {
+    #[default]
     Unary,
     OneOrMore,
     ZeroOrMore,
     Optional,
-}
-
-impl Default for Arity {
-    fn default() -> Self {
-        Arity::Unary
-    }
 }
 
 impl Arity {

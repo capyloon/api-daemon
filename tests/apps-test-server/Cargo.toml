@@ -7,7 +7,7 @@ license = "Apache-2.0"
 
 [dependencies]
 actix-web = "4.0"
-env_logger = "0.8"
+env_logger = "0.9"
 mime_guess = "2.0"
 log = "0.4"
 base64 = "0.13"

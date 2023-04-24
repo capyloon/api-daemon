@@ -1,8 +1,8 @@
+use crate::ast::TypeExtraDecorator;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use thiserror::Error;
-use crate::ast::TypeExtraDecorator;
 
 #[derive(Error, Debug)]
 pub enum ParserError {
@@ -35,7 +35,11 @@ pub struct ParserContext {
 }
 
 impl ParserContext {
-    pub fn from_str(source: &str, content: &str, decorator: Option<TypeExtraDecorator>) -> Result<ParserContext> {
+    pub fn from_str(
+        source: &str,
+        content: &str,
+        decorator: Option<TypeExtraDecorator>,
+    ) -> Result<ParserContext> {
         Ok(ParserContext {
             state: ParserState {
                 path: source.to_owned(),
@@ -48,7 +52,10 @@ impl ParserContext {
         })
     }
 
-    pub fn from_file<P: AsRef<Path>>(path: P, decorator: Option<TypeExtraDecorator>) -> Result<ParserContext> {
+    pub fn from_file<P: AsRef<Path>>(
+        path: P,
+        decorator: Option<TypeExtraDecorator>,
+    ) -> Result<ParserContext> {
         let mut file = File::open(path.as_ref())?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
