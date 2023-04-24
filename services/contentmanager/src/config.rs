@@ -18,7 +18,7 @@ impl Config {
     pub fn new(path: &str, metadata_cache_capacity: usize) -> Self {
         Self {
             storage_path: path.into(),
-            metadata_cache_capacity
+            metadata_cache_capacity,
         }
     }
 

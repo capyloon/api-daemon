@@ -1,6 +1,6 @@
 /// UCAN Capabilities specific to the content manager.
 /// TODO: use the ucan-rs types?
-use log::{error, debug};
+use log::{debug, error};
 use serde::Deserialize;
 use ucan::ucan::Ucan;
 

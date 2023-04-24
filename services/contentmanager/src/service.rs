@@ -65,9 +65,9 @@ pub struct State {
 
 impl StateLogger for State {}
 
-impl Into<State> for &Config {
-    fn into(self) -> State {
-        let config_path = self.storage_path();
+impl From<&Config> for State {
+    fn from(val: &Config) -> Self {
+        let config_path = val.storage_path();
         let config_path = Path::new(&config_path);
         let store_path = config_path.join("data");
         let _ = std::fs::create_dir_all(&store_path);
@@ -84,7 +84,7 @@ impl Into<State> for &Config {
             let config = CoConfig {
                 db_path: sqlite_path.to_string_lossy().into(),
                 data_dir: store_path.to_string_lossy().into(),
-                metadata_cache_capacity: self.metadata_cache_capacity(),
+                metadata_cache_capacity: val.metadata_cache_capacity(),
             };
 
             let mut manager = match Manager::new(config, Box::new(store)).await {
@@ -148,7 +148,7 @@ fn variant_content_for_blob(variant: &str, blob: Blob) -> Variant {
 
 impl ContentManagerService {
     pub fn get_http_state() -> costaeres::http::HttpData {
-        let shared_data = Self::shared_state().clone();
+        let shared_data = Self::shared_state();
         let shared_data = shared_data.lock();
         let keys = shared_data.active_keys.clone();
         let store_path = shared_data.store_path.clone();
@@ -218,7 +218,7 @@ impl ContentManagerService {
         let manager = &mut lock.manager;
 
         manager
-            .update_variant(&id, variant_content_for_blob(variant, blob))
+            .update_variant(id, variant_content_for_blob(variant, blob))
             .await?;
 
         Ok(())
@@ -291,7 +291,7 @@ impl ContentManagerService {
         let mut lock = state.lock();
         let manager = &mut lock.manager;
 
-        Ok(manager.get_full_path(id).await?)
+        manager.get_full_path(id).await
     }
 
     async fn get_full_path_str(
@@ -375,14 +375,14 @@ impl ContentStoreMethods for ContentManagerService {
                 state.manager.with_observer(1, &mut |observer: &mut Box<
                     dyn ModificationObserver<Inner = Rc<ObserverItems>>,
                 >| {
-                    let mut inner = observer.get_inner();
-                    let items = Rc::get_mut(&mut inner).unwrap();
+                    let inner = observer.get_inner();
+                    let items = Rc::get_mut(inner).unwrap();
                     id = items
                         .resource_observers
                         .add(resource_id2.clone(), proxy.clone());
                 });
 
-                self.observers.add(observer.into(), resource_id.clone(), id);
+                self.observers.add(observer.into(), resource_id, id);
                 responder.resolve();
             }
             _ => {
@@ -411,14 +411,14 @@ impl ContentStoreMethods for ContentManagerService {
                 .with_observer(1, &mut |content_observer: &mut Box<
                     dyn ModificationObserver<Inner = Rc<ObserverItems>>,
                 >| {
-                    let mut inner = content_observer.get_inner();
-                    let items = Rc::get_mut(&mut inner).unwrap();
+                    let inner = content_observer.get_inner();
+                    let items = Rc::get_mut(inner).unwrap();
                     obt = items.resource_observers.clone();
                 });
 
             let removed = self
                 .observers
-                .remove(observer.into(), resource_id.clone(), &mut obt);
+                .remove(observer.into(), resource_id, &mut obt);
 
             // Put back the modified `obt`in items...
             state
@@ -426,8 +426,8 @@ impl ContentStoreMethods for ContentManagerService {
                 .with_observer(1, &mut |content_observer: &mut Box<
                     dyn ModificationObserver<Inner = Rc<ObserverItems>>,
                 >| {
-                    let mut inner = content_observer.get_inner();
-                    let items = Rc::get_mut(&mut inner).unwrap();
+                    let inner = content_observer.get_inner();
+                    let items = Rc::get_mut(inner).unwrap();
                     items.resource_observers = obt.clone();
                 });
 
@@ -1125,9 +1125,9 @@ impl ContentStoreMethods for ContentManagerService {
 
 common::impl_shared_state!(ContentManagerService, State, Config);
 
-impl Into<ResourceModification> for &ResourceModificationC {
-    fn into(self) -> ResourceModification {
-        let (kind, id, parent) = match &self {
+impl From<&ResourceModificationC> for ResourceModification {
+    fn from(val: &ResourceModificationC) -> Self {
+        let (kind, id, parent) = match &val {
             ResourceModificationC::Created(id) => (ModificationKind::Created, id.clone(), None),
             ResourceModificationC::Modified(id) => (ModificationKind::Modified, id.clone(), None),
             ResourceModificationC::Deleted(id) => (ModificationKind::Deleted, id.clone(), None),
@@ -1197,7 +1197,7 @@ impl ModificationObserver for Observer {
         });
     }
 
-    fn get_inner<'a>(&'a mut self) -> &'a mut Self::Inner {
+    fn get_inner(&mut self) -> &mut Self::Inner {
         &mut self.inner
     }
 }
@@ -1228,8 +1228,8 @@ impl Service<ContentManagerService> for ContentManagerService {
         manager.with_observer(1, &mut |observer: &mut Box<
             dyn ModificationObserver<Inner = Rc<ObserverItems>>,
         >| {
-            let mut inner = observer.get_inner();
-            let items = Rc::get_mut(&mut inner).unwrap();
+            let inner = observer.get_inner();
+            let items = Rc::get_mut(inner).unwrap();
             dispatcher_id = items.event_broadcaster.add(&event_dispatcher);
         });
 
@@ -1280,8 +1280,8 @@ impl Drop for ContentManagerService {
         state.manager.with_observer(1, &mut |observer: &mut Box<
             dyn ModificationObserver<Inner = Rc<ObserverItems>>,
         >| {
-            let mut inner = observer.get_inner();
-            let items = Rc::get_mut(&mut inner).unwrap();
+            let inner = observer.get_inner();
+            let items = Rc::get_mut(inner).unwrap();
             items.event_broadcaster.remove(dispatcher_id);
         });
 
