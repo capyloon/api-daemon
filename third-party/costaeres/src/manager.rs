@@ -25,7 +25,6 @@ use crate::indexer::Indexer;
 use crate::scorer::sqlite_frecency;
 use crate::scorer::VisitEntry;
 use crate::timer::Timer;
-use async_std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use libsqlite3_sys::{
     sqlite3_create_function, SQLITE_DETERMINISTIC, SQLITE_DIRECTONLY, SQLITE_INNOCUOUS, SQLITE_UTF8,
@@ -41,7 +40,10 @@ use sqlx::{
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug)]
 pub struct ParentChild {
@@ -1049,8 +1051,6 @@ impl<T> Manager<T> {
         &mut self,
         id: &ResourceId,
     ) -> Result<(ResourceMetadata, Vec<ResourceMetadata>), ResourceStoreError> {
-        use async_std::io::ReadExt;
-
         let meta = self.get_metadata(id).await?;
 
         if meta.kind() != ResourceKind::Container {
@@ -1083,8 +1083,6 @@ impl<T> Manager<T> {
         path: P,
         delete_file: bool,
     ) -> Result<ResourceMetadata, ResourceStoreError> {
-        use async_std::fs::File;
-
         if !self.is_container(parent).await? {
             return Err(ResourceStoreError::InvalidContainerId);
         }
@@ -1142,7 +1140,7 @@ impl<T> Manager<T> {
                 .await?;
 
             if delete_file {
-                async_std::fs::remove_file(path).await?;
+                tokio::fs::remove_file(path).await?;
             }
 
             return Ok(meta);
@@ -1198,8 +1196,8 @@ impl<T> Manager<T> {
         let source_meta = self.get_metadata(source).await?;
 
         if source_meta.parent() == *target {
-           // Nothing to do, but not an error either.
-           return Ok(source_meta);
+            // Nothing to do, but not an error either.
+            return Ok(source_meta);
         }
 
         self.evict_from_cache(source);

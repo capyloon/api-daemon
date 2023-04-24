@@ -1,6 +1,6 @@
-use async_std::fs;
 use costaeres::common::*;
 use costaeres::file_store::*;
+use tokio::fs;
 
 fn named_variant(name: &str) -> VariantMetadata {
     VariantMetadata::new(name, "application/octet-stream", 42)
@@ -19,7 +19,7 @@ async fn default_content() -> Variant {
     named_content("default").await
 }
 
-#[async_std::test]
+#[tokio::test]
 async fn file_store() {
     let _ = fs::remove_dir_all("./test-content/0").await;
     let _ = fs::create_dir_all("./test-content/0").await;
@@ -106,7 +106,7 @@ async fn file_store() {
         .unwrap();
     assert_eq!(
         path,
-        async_std::path::PathBuf::from(
+        std::path::PathBuf::from(
             "./test-content/0/9e48b88d-4ab5-496b-ad7f-9ecc685128db.variant.new-variant"
         )
     );

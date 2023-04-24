@@ -11,7 +11,6 @@ use crate::file_store::FileStore;
 use actix_web::http::header;
 use actix_web::web::{self, Bytes};
 use actix_web::{HttpResponse, Responder};
-use async_std::io::ReadExt;
 use futures_core::{
     future::Future,
     ready,
@@ -24,6 +23,7 @@ use speedy::Readable;
 use std::collections::HashSet;
 use std::pin::Pin;
 use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 
 pub static RESOURCE_PATTERN: &str = "/{access_key}/{resource_id}/{variant}";
 
@@ -45,10 +45,9 @@ impl Stream for ChunkedReader {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let mut buffer: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
 
-        let read = ready!(Future::poll(
-            Pin::new(&mut self.reader.read(&mut buffer)),
-            cx
-        ))?;
+        let fut = self.reader.read(&mut buffer);
+        tokio::pin!(fut);
+        let read = ready!(Future::poll(fut, cx))?;
 
         if read == 0 {
             // We reached EOF
@@ -163,8 +162,8 @@ mod test {
     use actix_web::http::StatusCode;
     use actix_web::web::{Bytes, Data};
     use actix_web::{test, App};
-    use async_std::fs;
     use speedy::Writable;
+    use tokio::fs;
 
     fn named_variant(name: &str) -> VariantMetadata {
         VariantMetadata::new(name, "application/octet-stream", 42)

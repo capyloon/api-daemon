@@ -640,16 +640,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-attributes"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3203e79f4dd9bdda415ed03cf14dae5a2bf775c683a00f94e9cd1faf0f596e5"
-dependencies = [
- "quote",
- "syn 1.0.107",
-]
-
-[[package]]
 name = "async-channel"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -733,24 +723,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-process"
-version = "1.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6381ead98388605d0d9ff86371043b5aa922a3905824244de40dc263a14fcba4"
-dependencies = [
- "async-io",
- "async-lock",
- "autocfg",
- "blocking",
- "cfg-if 1.0.0",
- "event-listener",
- "futures-lite",
- "libc",
- "signal-hook",
- "windows-sys 0.42.0",
-]
-
-[[package]]
 name = "async-recursion"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,12 +750,10 @@ version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62565bb4402e926b29953c785397c6dc0391b7b446e45008b0049eb43cec6f5d"
 dependencies = [
- "async-attributes",
  "async-channel",
  "async-global-executor",
  "async-io",
  "async-lock",
- "async-process",
  "crossbeam-utils",
  "futures-channel",
  "futures-core",
@@ -1587,7 +1557,6 @@ dependencies = [
 name = "contentmanager_service"
 version = "0.1.0"
 dependencies = [
- "async-std",
  "chrono",
  "common",
  "costaeres",
@@ -1648,11 +1617,10 @@ dependencies = [
 [[package]]
 name = "costaeres"
 version = "0.1.3"
-source = "git+https://github.com/capyloon/costaeres.git#73f61c3e9f9be3f6827c650338129595db112d63"
+source = "git+https://github.com/capyloon/costaeres.git#30ccfe2b95a262db7ac408ee4c2b4174315c2da4"
 dependencies = [
  "actix-rt",
  "actix-web",
- "async-std",
  "async-trait",
  "base64 0.21.0",
  "chrono",
@@ -1671,6 +1639,7 @@ dependencies = [
  "speedy",
  "sqlx",
  "thiserror",
+ "tokio",
  "toml 0.6.0",
  "uuid",
 ]
@@ -2306,7 +2275,6 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "anyhow",
- "async-std",
  "async-trait",
  "base64 0.13.1",
  "bincode",
@@ -2803,17 +2771,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.12",
-]
-
-[[package]]
-name = "futures-rustls"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e01fe9932a224b72b45336d96040aa86386d674a31d0af27d800ea7bc8ca97fe"
-dependencies = [
- "futures-io",
- "rustls",
- "webpki",
 ]
 
 [[package]]
@@ -6173,6 +6130,7 @@ dependencies = [
  "sqlx-rt",
  "stringprep",
  "thiserror",
+ "tokio-stream",
  "url",
  "webpki-roots",
 ]
@@ -6200,8 +6158,9 @@ name = "sqlx-rt"
 version = "0.6.2"
 source = "git+https://github.com/launchbadge/sqlx.git?rev=4b7053807c705df312bcb9b6281e184bf7534eb3#4b7053807c705df312bcb9b6281e184bf7534eb3"
 dependencies = [
- "async-std",
- "futures-rustls",
+ "once_cell",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]

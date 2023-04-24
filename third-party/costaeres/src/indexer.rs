@@ -1,11 +1,10 @@
 /// Indexers for recognized mime types.
 use crate::common::{ResourceMetadata, TransactionResult, Variant};
 use crate::fts::Fts;
-use async_std::io::{ReadExt, SeekFrom};
 use async_trait::async_trait;
-use futures::AsyncSeekExt;
 use serde_json::Value;
 use sqlx::{Sqlite, Transaction};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 
 #[async_trait(?Send)]
 pub trait Indexer {
