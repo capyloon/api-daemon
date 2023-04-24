@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "ucan"
-version = "0.1.0"
+version = "0.1.2"
 description = "Implement UCAN-based authorization with conciseness and ease!"
 homepage = "https://github.com/cdata/rs-ucan"
 documentation = "https://docs.rs/ucan"
@@ -24,7 +24,7 @@ keywords = [
     "pki",
 ]
 categories = [
-    "authorization",
+    "authentication",
     "cryptography",
     "encoding",
     "web-programming",
@@ -46,13 +46,13 @@ version = "1.0"
 version = "0.1"
 
 [dependencies.base64]
-version = "0.13"
+version = "0.21"
 
 [dependencies.bs58]
 version = "0.4"
 
 [dependencies.cid]
-version = "0.9"
+version = "0.10"
 
 [dependencies.futures]
 version = "0.3"
@@ -65,14 +65,14 @@ features = [
 ]
 
 [dependencies.libipld-core]
-version = "0.15"
+version = "0.16"
 features = [
     "serde-codec",
     "serde",
 ]
 
 [dependencies.libipld-json]
-version = "0.15"
+version = "0.16"
 
 [dependencies.log]
 version = "0.4"
@@ -103,7 +103,7 @@ version = "2.0"
 version = "0.2"
 
 [dev-dependencies.serde_ipld_dagcbor]
-version = "0.2"
+version = "0.3"
 
 [dev-dependencies.wasm-bindgen-test]
 version = "0.3"
