@@ -436,7 +436,10 @@ mod test {
         let port = start_server();
 
         // Check that GET requests return a ok status, do not auto gzip decompression.
-        let client = reqwest::blocking::Client::builder().gzip(false).build().unwrap();
+        let client = reqwest::blocking::Client::builder()
+            .gzip(false)
+            .build()
+            .unwrap();
         let resp = client
             .get(format!("http://127.0.0.1:{}/core/index.js", port))
             .send()
@@ -457,7 +460,10 @@ mod test {
         let port = start_server();
 
         // Check that GET requests return a ok status, do not auto gzip decompression.
-        let client = reqwest::blocking::Client::builder().gzip(false).build().unwrap();
+        let client = reqwest::blocking::Client::builder()
+            .gzip(false)
+            .build()
+            .unwrap();
         let resp = client
             .get(format!("http://127.0.0.1:{}/core/data.dat", port))
             .send()
@@ -477,7 +483,10 @@ mod test {
         let port = start_server();
 
         // Check that GET requests return a ok status with a gzip ContentEncoding
-        let client = reqwest::blocking::Client::builder().gzip(false).build().unwrap();
+        let client = reqwest::blocking::Client::builder()
+            .gzip(false)
+            .build()
+            .unwrap();
 
         let resp = client
             .get(format!("http://127.0.0.1:{}/core/data.dat", port))

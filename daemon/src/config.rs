@@ -133,16 +133,16 @@ impl From<&Config> for AppsConfig {
 }
 
 #[cfg(feature = "contentmanager-service")]
-impl Into<CmConfig> for &Config {
-    fn into(self) -> CmConfig {
-        self.content_manager.clone()
+impl From<&Config> for CmConfig {
+    fn from(val: &Config) -> Self {
+        val.content_manager.clone()
     }
 }
 
 #[cfg(feature = "dweb-service")]
-impl Into<DwebConfig> for &Config {
-    fn into(self) -> DwebConfig {
-        self.dweb.clone()
+impl From<&Config> for DwebConfig {
+    fn from(val: &Config) -> Self {
+        val.dweb.clone()
     }
 }
 
