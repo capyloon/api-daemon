@@ -234,7 +234,10 @@ impl<A: Read + Write + io::Seek> ZipWriter<A> {
         let (archive_offset, directory_start, number_of_files) =
             ZipArchive::get_directory_counts(&mut readwriter, &footer, cde_start_pos)?;
 
-        if readwriter.seek(io::SeekFrom::Start(directory_start)).is_err() {
+        if readwriter
+            .seek(io::SeekFrom::Start(directory_start))
+            .is_err()
+        {
             return Err(ZipError::InvalidArchive(
                 "Could not seek to start of central directory",
             ));
@@ -304,7 +307,7 @@ impl<W: Write + io::Seek> ZipWriter<W> {
     {
         self.finish_file()?;
 
-        let raw_values = raw_values.unwrap_or_else(|| ZipRawValues {
+        let raw_values = raw_values.unwrap_or(ZipRawValues {
             crc32: 0,
             compressed_size: 0,
             uncompressed_size: 0,
@@ -312,7 +315,7 @@ impl<W: Write + io::Seek> ZipWriter<W> {
 
         {
             let writer = self.inner.get_plain();
-            let header_start = writer.seek(io::SeekFrom::Current(0))?;
+            let header_start = writer.stream_position()?;
 
             let permissions = options.permissions.unwrap_or(0o100644);
             let mut file = ZipFileData {
@@ -337,7 +340,7 @@ impl<W: Write + io::Seek> ZipWriter<W> {
             };
             write_local_file_header(writer, &file)?;
 
-            let header_end = writer.seek(io::SeekFrom::Current(0))?;
+            let header_end = writer.stream_position()?;
             self.stats.start = header_end;
             file.data_start = header_end;
 
@@ -366,7 +369,7 @@ impl<W: Write + io::Seek> ZipWriter<W> {
             file.crc32 = self.stats.hasher.clone().finalize();
             file.uncompressed_size = self.stats.bytes_written;
 
-            let file_end = writer.seek(io::SeekFrom::Current(0))?;
+            let file_end = writer.stream_position()?;
             file.compressed_size = file_end - self.stats.start;
 
             update_local_file_header(writer, file)?;
@@ -545,7 +548,7 @@ impl<W: Write + io::Seek> ZipWriter<W> {
         }
         let file = self.files.last_mut().unwrap();
 
-        validate_extra_data(&file)?;
+        validate_extra_data(file)?;
 
         if !self.writing_to_central_extra_field_only {
             let writer = self.inner.get_plain();
@@ -710,11 +713,11 @@ impl<W: Write + io::Seek> ZipWriter<W> {
         {
             let writer = self.inner.get_plain();
 
-            let central_start = writer.seek(io::SeekFrom::Current(0))?;
+            let central_start = writer.stream_position()?;
             for file in self.files.iter() {
                 write_central_directory_header(writer, file)?;
             }
-            let central_size = writer.seek(io::SeekFrom::Current(0))? - central_start;
+            let central_size = writer.stream_position()? - central_start;
 
             if self.files.len() > 0xFFFF || central_size > 0xFFFFFFFF || central_start > 0xFFFFFFFF
             {
@@ -929,7 +932,7 @@ fn write_local_file_header<T: Write>(writer: &mut T, file: &ZipFileData) -> ZipR
     writer.write_all(file.file_name.as_bytes())?;
     // zip64 extra field
     if file.large_file {
-        write_local_zip64_extra_field(writer, &file)?;
+        write_local_zip64_extra_field(writer, file)?;
     }
 
     Ok(())
@@ -1047,7 +1050,7 @@ fn validate_extra_data(file: &ZipFileData) -> ZipResult<()> {
         )));
     }
 
-    while data.len() > 0 {
+    while !data.is_empty() {
         let left = data.len();
         if left < 4 {
             return Err(ZipError::Io(io::Error::new(
