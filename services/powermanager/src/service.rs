@@ -103,8 +103,7 @@ impl PowerManagerState {
             self.screen_enabled = state;
         }
 
-        self.inner
-            .set_screen_state(state, u8::from(is_external))
+        self.inner.set_screen_state(state, u8::from(is_external))
     }
 }
 

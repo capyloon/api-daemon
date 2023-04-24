@@ -25,5 +25,5 @@ pub fn get_platform_support() -> Box<dyn PowerManagerSupport> {
     }
 
     // Fallback for error cases and unsupported platforms.
-    return Box::new(FallbackPowerManager);
+    Box::new(FallbackPowerManager)
 }
