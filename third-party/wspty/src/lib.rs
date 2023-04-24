@@ -279,13 +279,13 @@ impl PtyCommand {
         let mut child = self.inner.spawn()?;
         let mut master_cl = pty_master.clone();
         let fut = async move {
-            let _ = tokio::select! {
-                _exit_st = (&mut child).wait() => (),
+            tokio::select! {
+                _exit_st = child.wait() => (),
                 _ = stopper.recv() => {
-                    let _ = (&mut child).start_kill().map_err(|e| {
+                    let _ = child.start_kill().map_err(|e| {
                         error!("failed to kill pty child: {:?}", e);
                     });
-                    let _ = (&mut child).wait().await.map_err(|e| {
+                    let _ = child.wait().await.map_err(|e| {
                         error!("kill wait pty child error: {:?}", e);
                     });
                 },

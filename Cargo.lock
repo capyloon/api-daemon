@@ -2467,7 +2467,11 @@ version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a12e6657c4c97ebab115a42dcee77225f7f482cdd841cf7088c657a42e9e00e7"
 dependencies = [
+ "atty",
+ "humantime",
  "log",
+ "regex",
+ "termcolor",
 ]
 
 [[package]]
@@ -5806,17 +5810,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha-1"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "028f48d513f9678cda28f6e4064755b3fbb2af6acd672f2c209b62323f7aea0f"
-dependencies = [
- "cfg-if 1.0.0",
- "cpufeatures",
- "digest 0.10.6",
-]
-
-[[package]]
 name = "sha1"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6638,9 +6631,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.17.1"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06cda1232a49558c46f8a504d5b93101d42c0bf7f911f12a105ba48168f821ae"
+checksum = "54319c93411147bced34cb5609a80e0a8e44c5999c93903a81cd866630ec0bfd"
 dependencies = [
  "futures-util",
  "log",
@@ -7402,9 +7395,9 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "tungstenite"
-version = "0.17.2"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d96a2dea40e7570482f28eb57afbe42d97551905da6a9400acc5c328d24004f5"
+checksum = "30ee6ab729cd4cf0fd55218530c4522ed30b7b6081752839b68fcec8d0960788"
 dependencies = [
  "base64 0.13.1",
  "byteorder",
@@ -7413,7 +7406,7 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.8.5",
- "sha-1",
+ "sha1 0.10.1",
  "thiserror",
  "url",
  "utf-8",
@@ -8073,19 +8066,18 @@ dependencies = [
 [[package]]
 name = "wspty"
 version = "0.1.2"
-source = "git+https://github.com/capyloon/wspty.git#a91aadf0a8ee21e22e55170aaab161b38f76456c"
+source = "git+https://github.com/capyloon/wspty.git#33f4401b39d6303ca9e6dfdfcaf0aa82a9609a0f"
 dependencies = [
  "anyhow",
  "bytes",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "futures",
  "futures-util",
  "libc",
  "log",
- "nix 0.23.1",
+ "nix 0.25.1",
  "pretty-hex",
  "serde",
- "serde_derive",
  "serde_json",
  "tokio",
  "tokio-tungstenite",
