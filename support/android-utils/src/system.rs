@@ -1,7 +1,9 @@
 //! Various system level utilities.
 
 use crate::{total_memory, AndroidProperties, PropertyGetter};
-use libc::{pid_t, sysconf};
+use libc::pid_t;
+#[cfg(target_os = "android")]
+use libc::sysconf;
 use log::{debug, error};
 use procfs::process::Process;
 use std::fs;
@@ -79,7 +81,7 @@ impl Default for SystemState {
         debug!("Total usable memory is {}M", total_memory());
         SystemState {
             #[cfg(target_os = "android")]
-            minfree: None
+            minfree: None,
         }
     }
 }
