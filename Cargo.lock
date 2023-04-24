@@ -446,7 +446,7 @@ dependencies = [
  "base64 0.13.1",
  "blake2",
  "common",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "file-rotate",
  "geckobridge",
  "hawk",
@@ -480,7 +480,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "base64 0.13.1",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "hawk",
  "log",
  "mime_guess",
@@ -493,7 +493,7 @@ version = "0.3.2"
 dependencies = [
  "clap 3.2.23",
  "dirs",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "log",
  "mozdevice",
  "prettytable-rs",
@@ -1310,7 +1310,7 @@ dependencies = [
  "android_logger",
  "bincode",
  "common",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "futures",
  "log",
  "nix",
@@ -1539,7 +1539,7 @@ dependencies = [
  "android_utils",
  "chrono",
  "common",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "ical",
  "lazy_static",
  "log",
@@ -1883,7 +1883,7 @@ dependencies = [
  "daemonize",
  "devicecapability_service",
  "dweb_service",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "flate2",
  "futures",
  "futures-util",
@@ -2259,7 +2259,7 @@ checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
 name = "driver"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "fantoccini",
  "log",
  "procfs",
@@ -5885,7 +5885,7 @@ name = "sidl_codegen"
 version = "0.1.0"
 dependencies = [
  "clap 3.2.23",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "handlebars",
  "heck 0.4.0",
  "log",
@@ -6054,7 +6054,7 @@ dependencies = [
 name = "sqlite-utils"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "log",
  "rusqlite",
  "thiserror",
@@ -7643,7 +7643,7 @@ dependencies = [
  "awc",
  "blake2",
  "common",
- "env_logger 0.8.4",
+ "env_logger 0.9.3",
  "futures",
  "log",
  "new_mime_guess",

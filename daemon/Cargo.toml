@@ -109,7 +109,7 @@ vhost_server = {path = "../vhost", optional = true}
 wspty = {git = "https://github.com/capyloon/wspty.git"}
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-env_logger = "0.8"
+env_logger = "0.9"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.5"

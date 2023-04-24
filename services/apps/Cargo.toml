@@ -41,7 +41,7 @@ common = {path = "../../common"}
 [dev-dependencies]
 actix-rt = "2.6"
 actix-web = {version = "4.0", features = ["rustls"]}
-env_logger = "0.8"
+env_logger = "0.9"
 hawk = {git = "https://github.com/fabricedesre/rust-hawk.git", rev = "4da77e4a7ced4ddc081669f05352b7314dd9bebc"}
 mime_guess = "2.0"
 vhost_server = {path = "../../vhost"}
