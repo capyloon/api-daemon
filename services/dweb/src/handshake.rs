@@ -24,18 +24,22 @@ struct DialRequest {
 #[derive(Deserialize, Serialize, Debug)]
 enum Request {
     Pairing(PairingRequest),
-    Dial(DialRequest),
+    Action(DialRequest),
 }
 
-impl From<PairingRequest> for Request {
-    fn from(val: PairingRequest) -> Request {
-        Request::Pairing(val)
+trait AsRequest {
+    fn as_request(self) -> Request;
+}
+
+impl AsRequest for PairingRequest {
+    fn as_request(self) -> Request {
+        Request::Pairing(self)
     }
 }
 
-impl From<DialRequest> for Request {
-    fn from(val: DialRequest) -> Request {
-        Request::Dial(val)
+impl AsRequest for DialRequest {
+    fn as_request(self) -> Request {
+        Request::Action(self)
     }
 }
 
@@ -110,7 +114,7 @@ impl ResponseOut for DialResponse {
     }
 
     fn from_response(req: Response) -> Option<Self> {
-        if let Response::Dial(action) = req {
+        if let Response::Action(action) = req {
             Some(action)
         } else {
             None
@@ -121,7 +125,7 @@ impl ResponseOut for DialResponse {
 #[derive(Deserialize, Serialize, Debug)]
 enum Response {
     Pairing(PairingResponse),
-    Dial(DialResponse),
+    Action(DialResponse),
 }
 
 pub struct HandshakeHandler {
@@ -165,8 +169,8 @@ impl HandshakeHandler {
                     Request::Pairing(_) => {
                         Response::Pairing(PairingResponse::with_status(Status::InternalError))
                     }
-                    Request::Dial(_) => {
-                        Response::Dial(DialResponse::with_status(Status::InternalError))
+                    Request::Action(_) => {
+                        Response::Action(DialResponse::with_status(Status::InternalError))
                     }
                 };
                 return Self::send_response(stream, response);
@@ -202,26 +206,26 @@ impl HandshakeHandler {
                     )
                 }
             }
-            Request::Dial(DialRequest { peer, params }) => {
+            Request::Action(DialRequest { peer, params }) => {
                 // Process the call to provide_answer();
                 if let Ok(result) = provider.on_dialed(&peer, &params).recv() {
                     match result {
                         Ok(result) => Self::send_response(
                             stream,
-                            Response::Dial(DialResponse {
+                            Response::Action(DialResponse {
                                 status: Status::Granted,
                                 result,
                             }),
                         ),
                         Err(_) => Self::send_response(
                             stream,
-                            Response::Dial(DialResponse::with_status(Status::Denied)),
+                            Response::Action(DialResponse::with_status(Status::Denied)),
                         ),
                     }
                 } else {
                     Self::send_response(
                         stream,
-                        Response::Dial(DialResponse::with_status(Status::InternalError)),
+                        Response::Action(DialResponse::with_status(Status::InternalError)),
                     )
                 }
             }
@@ -266,7 +270,7 @@ impl HandshakeClient {
     }
 
     // Manages a request / response flow.
-    fn request<I: Serialize + Into<Request>, O: DeserializeOwned + ResponseOut>(
+    fn request<I: Serialize + AsRequest, O: DeserializeOwned + ResponseOut>(
         &self,
         input: I,
     ) -> Result<O::Out, Status> {
@@ -276,7 +280,7 @@ impl HandshakeClient {
             Status::NotConnected
         })?;
 
-        let encoded = bincode::serialize(&input.into()).map_err(|_| Status::InternalError)?;
+        let encoded = bincode::serialize(&input.as_request()).map_err(|_| Status::InternalError)?;
         stream
             .write_all(&encoded)
             .map_err(|_| Status::InternalError)?;

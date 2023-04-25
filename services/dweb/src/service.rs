@@ -6,6 +6,7 @@ use crate::handshake::{HandshakeClient, Status};
 use crate::mdns::MdnsDiscovery;
 use crate::storage::DwebStorage;
 use crate::DiscoveryMechanism;
+use async_std::path::Path;
 use common::core::BaseMessage;
 use common::traits::{
     CommonResponder, DispatcherId, ObjectTrackerMethods, OriginAttributes, Service, SessionSupport,
@@ -17,7 +18,6 @@ use iroh::provider::{create_collection, Builder, DataSource, Provider};
 use log::{debug, error, info};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use tokio::runtime::Handle;
@@ -298,7 +298,7 @@ fn build_ucan_token(
 
     let signable = ucan.build().map_err(|_| ())?;
 
-    Handle::current().block_on(async { signable.sign().await.map_err(|_| ()) })
+    async_std::task::block_on(async { signable.sign().await.map_err(|_| ()) })
 }
 
 impl DwebMethods for DWebServiceImpl {

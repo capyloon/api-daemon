@@ -1,6 +1,6 @@
 use async_std::fs;
 use costaeres::common::*;
-use costaeres::file_store::*;
+use costaeres::xor_store::*;
 
 fn named_variant(name: &str) -> VariantMetadata {
     VariantMetadata::new(name, "application/octet-stream", 42)
@@ -20,17 +20,13 @@ async fn default_content() -> Variant {
 }
 
 #[async_std::test]
-async fn file_store() {
-    let _ = fs::remove_dir_all("./test-content/0").await;
-    let _ = fs::create_dir_all("./test-content/0").await;
+async fn xor_store() {
+    env_logger::init();
 
-    let store = FileStore::new(
-        "./test-content/0",
-        Box::new(DefaultResourceNameProvider),
-        Box::new(IdentityTransformer),
-    )
-    .await
-    .unwrap();
+    let _ = fs::remove_dir_all("./test-content/100").await;
+    let _ = fs::create_dir_all("./test-content/100").await;
+
+    let store = new_xor_store("./test-content/100", 32).await.unwrap();
 
     // Starting with no content.
     let res = store.get_full(&ROOT_ID, "default").await.err();
@@ -57,6 +53,11 @@ async fn file_store() {
     assert!(res.id().is_root());
     assert_eq!(*res.tags(), vec!["one".to_owned(), "two".to_owned()]);
     assert_eq!(&res.name(), "object 0");
+
+    // But that with the wrong xor value we would not get it.
+    let store2 = new_xor_store("./test-content/100", 5).await.unwrap();
+    let res = store2.get_full(&ROOT_ID, "default").await;
+    assert!(res.is_err());
 
     // Check we can't add another object with the same id.
     let res = store
@@ -98,23 +99,6 @@ async fn file_store() {
         .unwrap();
     // Get the new variant.
     store.get_variant(&ROOT_ID, "new-variant").await.unwrap();
-
-    // Get the native path for the new variant.
-    let path = store
-        .get_native_path(&ROOT_ID, "new-variant")
-        .await
-        .unwrap();
-    assert_eq!(
-        path,
-        async_std::path::PathBuf::from(
-            "./test-content/0/9e48b88d-4ab5-496b-ad7f-9ecc685128db.variant.new-variant"
-        )
-    );
-
-    assert!(store
-        .get_native_path(&ROOT_ID, "unknown-variant")
-        .await
-        .is_none());
 
     // Update with an invalid variant.
     let res = store
