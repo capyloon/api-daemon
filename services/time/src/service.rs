@@ -68,10 +68,10 @@ impl SharedObj {
         self.observers.remove(&reason, id)
     }
 
-    pub fn broadcast(&mut self, rn: CallbackReason, tz: String, time_delta: i64) {
+    pub fn broadcast(&mut self, rn: CallbackReason, tz: &str, time_delta: i64) {
         let mut info = TimeInfo {
             reason: rn,
-            timezone: tz,
+            timezone: tz.into(),
             delta: time_delta,
         };
 
@@ -122,7 +122,7 @@ impl DbObserver for SettingObserver {
             Ok(_) => {
                 let shared = Time::shared_state();
                 let mut shared_lock = shared.lock();
-                shared_lock.broadcast(CallbackReason::TimezoneChanged, timezone, 0);
+                shared_lock.broadcast(CallbackReason::TimezoneChanged, &timezone, 0);
             }
             Err(e) => error!("set timezone failed: {:?}", e),
         }
@@ -178,11 +178,7 @@ impl TimeMethods for Time {
                         let shared_obj = Time::shared_state();
                         let mut shared_lock = shared_obj.lock();
                         info!("broadcast time changed event ");
-                        shared_lock.broadcast(
-                            CallbackReason::TimeChanged,
-                            "".to_string(),
-                            time_delta,
-                        );
+                        shared_lock.broadcast(CallbackReason::TimeChanged, "", time_delta);
                         responder.resolve();
                     } else {
                         responder.reject();
@@ -211,7 +207,7 @@ impl TimeMethods for Time {
         }
     }
 
-    fn set_timezone(&mut self, responder: TimeSetTimezoneResponder, timezone: String) {
+    fn set_timezone(&mut self, responder: TimeSetTimezoneResponder, timezone: &str) {
         info!("set time zone {:?}", timezone);
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
@@ -220,7 +216,7 @@ impl TimeMethods for Time {
         ) {
             return;
         }
-        match TimeManager::set_timezone(&timezone) {
+        match TimeManager::set_timezone(timezone) {
             Ok(_) => {
                 let mut shared_lock = self.shared_obj.lock();
                 info!("broadcast timezone changed event");

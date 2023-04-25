@@ -302,12 +302,12 @@ fn build_ucan_token(
 }
 
 impl DwebMethods for DWebServiceImpl {
-    fn create_did(&mut self, responder: DwebCreateDidResponder, name: String) {
+    fn create_did(&mut self, responder: DwebCreateDidResponder, name: &str) {
         if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "create DID") {
             return;
         }
 
-        let did = Did::create(&name);
+        let did = Did::create(name);
         let mut state = self.state.lock();
         if let Ok(true) = state.dweb_store.add_did(&did) {
             let sdid: SidlDid = did.into();
@@ -329,14 +329,16 @@ impl DwebMethods for DWebServiceImpl {
         }
     }
 
-    fn remove_did(&mut self, responder: DwebRemoveDidResponder, uri: String) {
+    fn remove_did(&mut self, responder: DwebRemoveDidResponder, uri: &str) {
         if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "remove DID") {
             return;
         }
 
         let mut state = self.state.lock();
-        if let Ok(true) = state.dweb_store.remove_did(&uri) {
-            state.event_broadcaster.broadcast_didremoved(&uri);
+        if let Ok(true) = state.dweb_store.remove_did(uri) {
+            state
+                .event_broadcaster
+                .broadcast_didremoved(uri);
             responder.resolve();
         } else {
             responder.reject(DidError::UnknownDid);
@@ -374,7 +376,7 @@ impl DwebMethods for DWebServiceImpl {
     fn request_capabilities(
         &mut self,
         responder: DwebRequestCapabilitiesResponder,
-        audience: String,
+        audience: &str,
         capabilities: Vec<Capability>,
     ) {
         let mut provider = match &self.state.lock().ui_provider {
@@ -386,13 +388,14 @@ impl DwebMethods for DWebServiceImpl {
         };
 
         // Check that the audience is a valid DID uri.
-        if did_key::resolve(&audience).is_err() {
+        if did_key::resolve(audience).is_err() {
             responder.reject(UcanError::InvalidAudience);
             return;
         }
 
         let url = self.origin_attributes.identity();
         let state = self.state.clone();
+        let audience = audience.to_owned();
         let _ = std::thread::spawn(move || {
             // Call the provider and relay the result to this responder.
             let requested = RequestedCapabilities {
@@ -468,7 +471,7 @@ impl DwebMethods for DWebServiceImpl {
         }
     }
 
-    fn ucans_for(&mut self, responder: DwebUcansForResponder, origin: String) {
+    fn ucans_for(&mut self, responder: DwebUcansForResponder, origin: &str) {
         if responder.maybe_send_permission_error(
             &self.origin_attributes,
             "dweb",
@@ -477,7 +480,7 @@ impl DwebMethods for DWebServiceImpl {
             return;
         }
 
-        if let Ok(tokens) = self.state.lock().dweb_store.ucans_for_origin(&origin) {
+        if let Ok(tokens) = self.state.lock().dweb_store.ucans_for_origin(origin) {
             let mut ucans: Vec<Rc<dyn UcanMethods>> = vec![];
             for token in tokens {
                 let id = self.tracker.next_id();
@@ -748,12 +751,12 @@ impl DwebMethods for DWebServiceImpl {
         }
     }
 
-    fn get_session(&mut self, responder: DwebGetSessionResponder, id: String) {
+    fn get_session(&mut self, responder: DwebGetSessionResponder, id: &str) {
         if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "get session") {
             return;
         }
 
-        match self.state.lock().sessions.get(&id) {
+        match self.state.lock().sessions.get(id) {
             Some(session) => responder.resolve(session.clone()),
             None => responder.reject(SessionError::InvalidId),
         }
@@ -771,7 +774,7 @@ impl DwebMethods for DWebServiceImpl {
     fn broadcast_file(
         &mut self,
         responder: DwebBroadcastFileResponder,
-        path: String,
+        path: &str,
         mime: Option<String>,
     ) {
         if responder.maybe_send_permission_error(&self.origin_attributes, "dweb", "iroh provide") {
@@ -780,6 +783,7 @@ impl DwebMethods for DWebServiceImpl {
 
         let state = self.state.clone();
         let handle = Handle::current();
+        let path = path.to_owned();
         std::thread::spawn(move || {
             // Using Handle::block_on to run async code in the new thread.
             handle.block_on(async {

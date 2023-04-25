@@ -171,8 +171,8 @@ impl AppsEngineMethods for AppsService {
         &mut self,
         responder: AppsEngineVerifyResponder,
         manifest_url: Url,
-        cert_type: String,
-        folder_name: String,
+        cert_type: &str,
+        folder_name: &str,
     ) {
         info!("verify {}, {}, {}", manifest_url, cert_type, folder_name);
         let shared = self.shared_data.lock();
@@ -183,7 +183,7 @@ impl AppsEngineMethods for AppsService {
             }
         };
 
-        match verify_zip(package_path, &cert_type, &folder_name) {
+        match verify_zip(package_path, cert_type, folder_name) {
             Ok(fingerprint) => {
                 debug!("verify success rsa cert fingerprint sha1 {}", &fingerprint);
                 responder.resolve(fingerprint);

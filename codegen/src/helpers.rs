@@ -81,6 +81,43 @@ pub fn rust_type(full_type: &FullConcreteType) -> String {
 
 pub fn rust_type_for_param(full_type: &FullConcreteType) -> String {
     let mut res = String::new();
+    let is_unary = full_type.arity == Arity::Unary;
+    match full_type.arity {
+        Arity::Optional => res.push_str("Option<"),
+        Arity::OneOrMore => res.push_str("Vec<"),
+        Arity::ZeroOrMore => res.push_str("Option<Vec<"),
+        Arity::Unary => {}
+    }
+
+    match full_type.typ {
+        ConcreteType::Void => res.push_str("()"),
+        ConcreteType::Bool => res.push_str("bool"),
+        ConcreteType::Int => res.push_str("i64"),
+        ConcreteType::Float => res.push_str("f64"),
+        ConcreteType::Str => res.push_str(if is_unary { "&str" } else { "String" }),
+        ConcreteType::Binary => res.push_str("Vec<u8>"),
+        ConcreteType::Json => res.push_str("JsonValue"),
+        ConcreteType::Date => res.push_str("SystemTime"),
+        ConcreteType::Blob => res.push_str("Blob"),
+        ConcreteType::Url => res.push_str("Url"),
+        ConcreteType::Dictionary(ref utype) | ConcreteType::Enumeration(ref utype) => {
+            res.push_str(utype);
+        }
+        ConcreteType::Callback(_) | ConcreteType::Interface(_) => {
+            res.push_str("ObjectRef"); // Interfaces are mapped to the object id.
+        }
+    }
+
+    match full_type.arity {
+        Arity::Optional | Arity::OneOrMore => res.push('>'),
+        Arity::ZeroOrMore => res.push_str(">>"),
+        Arity::Unary => {}
+    }
+    res
+}
+
+pub fn rust_type_for_proxy_param(full_type: &FullConcreteType) -> String {
+    let mut res = String::new();
     match full_type.arity {
         Arity::Optional => res.push_str("Option<"),
         Arity::OneOrMore => res.push_str("Vec<"),

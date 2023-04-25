@@ -83,7 +83,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
     fn bool_pref_changed(
         &mut self,
         responder: GeckoFeaturesBoolPrefChangedResponder,
-        pref_name: String,
+        pref_name: &str,
         value: bool,
     ) {
         if self.only_register_token {
@@ -97,8 +97,8 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
     fn char_pref_changed(
         &mut self,
         responder: GeckoFeaturesCharPrefChangedResponder,
-        pref_name: String,
-        value: String,
+        pref_name: &str,
+        value: &str,
     ) {
         if self.only_register_token {
             responder.reject();
@@ -111,7 +111,7 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
     fn int_pref_changed(
         &mut self,
         responder: GeckoFeaturesIntPrefChangedResponder,
-        pref_name: String,
+        pref_name: &str,
         value: i64,
     ) {
         if self.only_register_token {
@@ -224,8 +224,8 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
     fn register_token(
         &mut self,
         responder: GeckoFeaturesRegisterTokenResponder,
-        token: String,
-        url: String,
+        token: &str,
+        url: &str,
         permissions: Option<Vec<String>>,
     ) {
         let permissions_set = match permissions {
@@ -239,8 +239,9 @@ impl GeckoFeaturesMethods for GeckoBridgeService {
             }
             None => HashSet::new(),
         };
-        let origin_attributes = OriginAttributes::new(&url, permissions_set);
+        let origin_attributes = OriginAttributes::new(url, permissions_set);
         let shared_state = self.state.clone();
+        let token = token.to_owned();
         self.pool.execute(move || {
             if shared_state
                 .lock()
