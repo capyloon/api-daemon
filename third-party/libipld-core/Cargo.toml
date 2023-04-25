@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "libipld-core"
-version = "0.16.0"
+version = "0.15.0"
 authors = ["David Craven <david@craven.ch>"]
 description = "Base traits and definitions used by ipld codecs."
 license = "MIT OR Apache-2.0"
@@ -23,7 +23,7 @@ version = "1.0.40"
 default-features = false
 
 [dependencies.cid]
-version = "0.10.0"
+version = "0.9.0"
 features = ["alloc"]
 default-features = false
 
@@ -38,13 +38,9 @@ optional = true
 default-features = false
 
 [dependencies.multihash]
-version = "0.18.0"
+version = "0.17.0"
 features = ["alloc"]
 default-features = false
-
-[dependencies.quickcheck]
-version = "1.0"
-optional = true
 
 [dependencies.serde]
 version = "1.0.132"
@@ -57,7 +53,7 @@ version = "1.0.25"
 optional = true
 
 [dev-dependencies.multihash]
-version = "0.18.0"
+version = "0.17.0"
 features = [
     "multihash-impl",
     "blake3",
@@ -74,10 +70,6 @@ version = "1.0.79"
 version = "1.0.132"
 
 [features]
-arb = [
-    "quickcheck",
-    "cid/arb",
-]
 default = ["std"]
 serde-codec = [
     "cid/serde-codec",

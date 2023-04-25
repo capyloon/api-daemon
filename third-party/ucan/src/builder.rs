@@ -9,7 +9,6 @@ use crate::{
     ucan::{Ucan, UcanHeader, UcanPayload, UCAN_VERSION},
 };
 use anyhow::{anyhow, Result};
-use base64::Engine;
 use cid::Cid;
 use log::warn;
 use rand::Rng;
@@ -55,10 +54,10 @@ where
     /// The payload field components of the UCAN JWT
     pub async fn ucan_payload(&self) -> Result<UcanPayload> {
         let nonce = match self.add_nonce {
-            true => Some(
-                base64::engine::general_purpose::URL_SAFE_NO_PAD
-                    .encode(rand::thread_rng().gen::<[u8; 32]>()),
-            ),
+            true => Some(base64::encode_config(
+                rand::thread_rng().gen::<[u8; 32]>(),
+                base64::URL_SAFE_NO_PAD,
+            )),
             false => None,
         };
 

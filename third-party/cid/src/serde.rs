@@ -108,6 +108,8 @@ impl<'de, const SIZE: usize> de::Deserialize<'de> for CidGeneric<SIZE> {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
+
     use crate::CidGeneric;
 
     #[test]
