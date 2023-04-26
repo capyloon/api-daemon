@@ -289,24 +289,35 @@ impl Codegen {
             for event in interface.events.values() {
                 let ctype = &event.returns;
                 let event_name = &event.name;
-                let (rtype, _itype) = rust_type_with_reqresp(ctype);
+                let (mut rtype, _itype) = rust_type_with_reqresp(ctype);
 
                 if rtype != "()" {
                     let do_clone = needs_clone(ctype);
+                    let is_unary_string =
+                        ctype.typ == ConcreteType::Str && ctype.arity == Arity::Unary;
+
+                    let transformer = if is_unary_string { "to_owned" } else { "clone" };
+                    if is_unary_string {
+                        rtype = "&str".to_owned();
+                    }
                     writeln!(
                         sink,
                         "pub fn broadcast_{}(&self, value: {}{}) {{",
                         event_name,
-                        if do_clone { "&" } else { "" },
+                        if do_clone && !is_unary_string {
+                            "&"
+                        } else {
+                            ""
+                        },
                         rtype,
                     )?;
-                    if do_clone {
+                    if is_unary_string || do_clone {
                         writeln!(
                             sink,
                             r#"for dispatcher in self.dispatchers.values() {{
-                        dispatcher.dispatch_{}(value.clone());
+                        dispatcher.dispatch_{}(value.{}());
                     }}"#,
-                            event_name
+                            event_name, transformer
                         )?;
                     } else {
                         writeln!(
@@ -578,8 +589,8 @@ impl Codegen {
 
         // For each method, keep track of the return value receiver in a map request_id -> receiver.
         for method in callback.methods.values() {
-            let success = rust_type_for_param(&method.returns.success);
-            let error = rust_type_for_param(&method.returns.error);
+            let success = rust_type_for_proxy_param(&method.returns.success);
+            let error = rust_type_for_proxy_param(&method.returns.error);
             writeln!(
                 sink,
                 "pub(crate) {}_requests: ProxyRequest<{}, {}>,",
@@ -614,7 +625,9 @@ impl Codegen {
 
             for param in &method.params {
                 let stype = rust_type_for_param(&param.typ);
-                let do_clone = needs_clone(&param.typ);
+                let do_clone = needs_clone(&param.typ)
+                    && !(param.typ.typ == ConcreteType::Str && param.typ.arity == Arity::Unary);
+
                 write!(
                     sink,
                     "{}: {}{},",
@@ -625,8 +638,8 @@ impl Codegen {
             }
 
             // Get the return type to build the Sender/Receiver type.
-            let success = rust_type_for_param(&method.returns.success);
-            let error = rust_type_for_param(&method.returns.error);
+            let success = rust_type_for_proxy_param(&method.returns.success);
+            let error = rust_type_for_proxy_param(&method.returns.error);
 
             writeln!(sink, ") -> Receiver<Result<{},{}>> {{", success, error)?;
             sink.write_all(
@@ -656,11 +669,19 @@ impl Codegen {
                 writeln!(sink, "(")?;
                 for param in &method.params {
                     let do_clone = needs_clone(&param.typ);
+                    let do_to_string =
+                        param.typ.typ == ConcreteType::Str && param.typ.arity == Arity::Unary;
                     write!(
                         sink,
                         "{}{},",
                         param.name,
-                        if do_clone { ".clone()" } else { "" }
+                        if do_to_string {
+                            ".to_string()"
+                        } else if do_clone {
+                            ".clone()"
+                        } else {
+                            ""
+                        }
                     )?;
                 }
                 writeln!(sink, ")")?;

@@ -139,7 +139,7 @@ impl From<&EmptyConfig> for ProcessSharedData {
         let genid = shared.cgservice.get_active();
         let genid = shared
             .cgservice
-            .begin(genid, String::from("shared_state"))
+            .begin(genid, "shared_state")
             .unwrap();
         shared.cgservice.add_group(genid, "fg", "<<root>>").unwrap();
         shared.cgservice.add_group(genid, "bg", "<<root>>").unwrap();
@@ -224,7 +224,7 @@ impl ProcessServiceMethods for ProcManagerService {
         responder.resolve();
     }
 
-    fn begin(&mut self, responder: ProcessServiceBeginResponder, caller: String) {
+    fn begin(&mut self, responder: ProcessServiceBeginResponder, caller: &str) {
         if self.genid != 0 {
             debug!("Begin a new generation while there is one");
             responder.reject();

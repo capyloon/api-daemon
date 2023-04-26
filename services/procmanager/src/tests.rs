@@ -7,7 +7,7 @@ fn it_works() {
 #[test]
 fn build_groups() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.add_group(gid, "group3", "group1").unwrap();
@@ -39,7 +39,7 @@ fn build_groups() {
     );
 
     // Test over-wrote
-    let gid = svc.begin(svc.get_active(), String::from("test")).unwrap();
+    let gid = svc.begin(svc.get_active(), "test").unwrap();
     svc.update_group_attrs(
         gid,
         "group2",
@@ -64,7 +64,7 @@ fn build_groups() {
     );
 
     // Test rollback
-    let gid = svc.begin(svc.get_active(), String::from("test")).unwrap();
+    let gid = svc.begin(svc.get_active(), "test").unwrap();
     svc.update_group_attrs(
         gid,
         "group2",
@@ -82,7 +82,7 @@ fn build_groups() {
 #[test]
 fn set_n_remove_same_attr() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     assert_eq!(
@@ -104,7 +104,7 @@ fn set_n_remove_same_attr() {
 #[test]
 fn order_of_phases_1() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.update_group_attrs(
@@ -127,7 +127,7 @@ fn order_of_phases_1() {
 #[test]
 fn order_of_phases_2() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     // Phase 4
@@ -142,11 +142,11 @@ fn order_of_phases_2() {
 #[test]
 fn remove_groups() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.commit_noop(gid).unwrap();
-    let gid = svc.begin(gid, String::from("test")).unwrap();
+    let gid = svc.begin(gid, "test").unwrap();
     svc.remove_group(gid, "group1").unwrap();
     match svc.retrieve_group(gid, "group1") {
         Ok(_) => panic!("should not found group1"),
@@ -212,7 +212,7 @@ impl GenerationWorker for GenerationWorkerMock {
 #[test]
 fn apply_diff_attrs() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.add_group(gid, "group3", "group1").unwrap();
@@ -248,7 +248,7 @@ fn apply_diff_attrs() {
     .unwrap();
     svc.commit_noop(gid).unwrap();
 
-    let gid = svc.begin(gid, String::from("test")).unwrap();
+    let gid = svc.begin(gid, "test").unwrap();
     svc.update_group_attrs(
         gid,
         "group1",
@@ -305,13 +305,13 @@ fn apply_diff_attrs() {
 #[test]
 fn apply_diff_remove_groups() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.add_group(gid, "group3", "group1").unwrap();
     svc.commit_noop(gid).unwrap();
 
-    let gid = svc.begin(gid, String::from("test")).unwrap();
+    let gid = svc.begin(gid, "test").unwrap();
     svc.remove_group(gid, "group3").unwrap();
     let mut log = GenerationWorkerMock::new();
     svc.apply_diff(gid, &mut log).unwrap();
@@ -322,7 +322,7 @@ fn apply_diff_remove_groups() {
     assert_eq!(log.log, expected.log);
     svc.commit_noop(gid).unwrap();
 
-    let gid = svc.begin(gid, String::from("test")).unwrap();
+    let gid = svc.begin(gid, "test").unwrap();
     svc.remove_group(gid, "group1").unwrap();
     let mut log = GenerationWorkerMock::new();
     svc.apply_diff(gid, &mut log).unwrap();
@@ -338,13 +338,13 @@ fn apply_diff_remove_groups() {
 #[test]
 fn apply_diff_add_groups() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.add_group(gid, "group3", "group1").unwrap();
     svc.commit_noop(gid).unwrap();
 
-    let gid = svc.begin(gid, String::from("test")).unwrap();
+    let gid = svc.begin(gid, "test").unwrap();
     svc.add_group(gid, "group4", "group3").unwrap();
     svc.add_group(gid, "group5", "group2").unwrap();
     let mut log = GenerationWorkerMock::new();
@@ -361,7 +361,7 @@ fn apply_diff_add_groups() {
 #[test]
 fn apply_diff_move_processes() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.add_group(gid, "group3", "group1").unwrap();
@@ -373,7 +373,7 @@ fn apply_diff_move_processes() {
     .unwrap();
     svc.commit_noop(gid).unwrap();
 
-    let gid = svc.begin(gid, String::from("test")).unwrap();
+    let gid = svc.begin(gid, "test").unwrap();
     svc.move_processes(
         gid,
         Vec::<i32>::new(),
@@ -396,7 +396,7 @@ fn apply_diff_move_processes() {
     assert_eq!(log.log, expected.log);
     svc.commit_noop(gid).unwrap();
 
-    let gid = svc.begin(gid, String::from("test")).unwrap();
+    let gid = svc.begin(gid, "test").unwrap();
     svc.remove_group(gid, "group3").unwrap();
     let mut proc_ids = svc.all_processes(gid).unwrap();
     proc_ids.sort_unstable();
@@ -406,7 +406,7 @@ fn apply_diff_move_processes() {
 #[test]
 fn group_paths() {
     let mut svc = crate::cgroups::CGService::default();
-    let gid = svc.begin(0, String::from("test")).unwrap();
+    let gid = svc.begin(0, "test").unwrap();
     svc.add_group(gid, "group1", "<<root>>").unwrap();
     svc.add_group(gid, "group2", "group1").unwrap();
     svc.add_group(gid, "group3", "group1").unwrap();

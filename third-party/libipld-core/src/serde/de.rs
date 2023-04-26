@@ -164,10 +164,7 @@ impl<'de> de::Deserialize<'de> for Ipld {
                 let mut values = BTreeMap::new();
 
                 while let Some((key, value)) = visitor.next_entry()? {
-                    let prev_value = values.insert(key, value);
-                    if prev_value.is_some() {
-                        return Err(de::Error::custom("Duplicate map key"));
-                    }
+                    values.insert(key, value);
                 }
 
                 Ok(Ipld::Map(values))

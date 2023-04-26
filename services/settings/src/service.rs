@@ -77,8 +77,8 @@ impl SettingsFactoryMethods for SettingsService {
         }
     }
 
-    fn get(&mut self, responder: SettingsFactoryGetResponder, name: String) {
-        if !can_access_setting(&name, &self.origin_attributes)
+    fn get(&mut self, responder: SettingsFactoryGetResponder, name: &str) {
+        if !can_access_setting(name, &self.origin_attributes)
             && responder.maybe_send_permission_error(
                 &self.origin_attributes,
                 "settings:read",
@@ -89,6 +89,7 @@ impl SettingsFactoryMethods for SettingsService {
         }
 
         let shared = self.state.clone();
+        let name = name.to_owned();
         self.pool.execute(move || {
             let db = &shared.lock().db;
             match db.get(&name) {
@@ -150,11 +151,11 @@ impl SettingsFactoryMethods for SettingsService {
     fn add_observer(
         &mut self,
         responder: SettingsFactoryAddObserverResponder,
-        name: String,
+        name: &str,
         observer: ObjectRef,
     ) {
         info!("Adding observer {:?}", observer);
-        if !can_access_setting(&name, &self.origin_attributes)
+        if !can_access_setting(name, &self.origin_attributes)
             && responder.maybe_send_permission_error(
                 &self.origin_attributes,
                 "settings:read",
@@ -170,13 +171,13 @@ impl SettingsFactoryMethods for SettingsService {
                     .state
                     .lock()
                     .db
-                    .add_observer(&name, ObserverType::Proxy(proxy.clone()));
+                    .add_observer(name, ObserverType::Proxy(proxy.clone()));
                 match self.observers.get_mut(&observer) {
                     Some(observer) => {
-                        observer.push((name, id));
+                        observer.push((name.into(), id));
                     }
                     None => {
-                        let init = vec![(name, id)];
+                        let init = vec![(name.into(), id)];
                         self.observers.insert(observer, init);
                     }
                 }
@@ -192,10 +193,10 @@ impl SettingsFactoryMethods for SettingsService {
     fn remove_observer(
         &mut self,
         responder: SettingsFactoryRemoveObserverResponder,
-        name: String,
+        name: &str,
         observer: ObjectRef,
     ) {
-        if !can_access_setting(&name, &self.origin_attributes)
+        if !can_access_setting(name, &self.origin_attributes)
             && responder.maybe_send_permission_error(
                 &self.origin_attributes,
                 "settings:read",

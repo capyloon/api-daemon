@@ -40,8 +40,9 @@ pub struct DeviceCapabilityService {
 impl DeviceCapabilityManager for DeviceCapabilityService {}
 
 impl DeviceCapabilityFactoryMethods for DeviceCapabilityService {
-    fn get(&mut self, responder: DeviceCapabilityFactoryGetResponder, name: String) {
+    fn get(&mut self, responder: DeviceCapabilityFactoryGetResponder, name: &str) {
         let shared = self.state.clone();
+        let name = name.to_owned();
         self.pool.execute(move || {
             let config = &shared.lock().config;
             match config.get(&name) {

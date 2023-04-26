@@ -243,12 +243,12 @@ impl CGService {
     // to make changes on cgroups concurrently, but only one of them
     // will success eventually.
     //
-    pub fn begin(&mut self, generation: GenID, caller: String) -> Result<GenID, CGroupError> {
+    pub fn begin(&mut self, generation: GenID, caller: &str) -> Result<GenID, CGroupError> {
         if self.groups.generation != generation {
             return Err(CGroupError::InvalidGen);
         }
         let mut groups = self.groups.clone();
-        groups.creator = caller;
+        groups.creator = caller.into();
         groups.source_generation = groups.generation;
         let gen_id = self.next_gen_id;
         groups.generation = gen_id;

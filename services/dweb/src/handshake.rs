@@ -110,8 +110,8 @@ impl ResponseOut for DialResponse {
     }
 
     fn from_response(req: Response) -> Option<Self> {
-        if let Response::Dial(action) = req {
-            Some(action)
+        if let Response::Dial(dial) = req {
+            Some(dial)
         } else {
             None
         }

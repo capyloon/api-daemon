@@ -1850,7 +1850,7 @@ mod test {
             ..Default::default()
         };
 
-        db.save([bob, alice], false).unwrap();
+        db.save(&[bob, alice], false).unwrap();
 
         assert_eq!(db.count().unwrap(), 2);
 
@@ -1875,12 +1875,12 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts([sim_contact_1, sim_contact_2])
+        db.import_sim_contacts(&[sim_contact_1, sim_contact_2])
             .unwrap();
 
         assert_eq!(db.count().unwrap(), 2);
 
-        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+        if let Ok(contact) = db.get("0001", true) {
             // Verify import sim_contact_1's data sucessful.
             assert_eq!(contact.name.unwrap(), "Ted");
             let tel = contact.tel.unwrap();
@@ -1902,10 +1902,10 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts([sim_contact_1_name_change])
+        db.import_sim_contacts(&[sim_contact_1_name_change])
             .unwrap();
 
-        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+        if let Ok(contact) = db.get("0001", true) {
             // Verify sim_contact_1's name update to "Jack".
             assert_eq!(contact.name.unwrap(), "Jack");
         }
@@ -1938,9 +1938,9 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts([sim_contact_1_tel_change]).unwrap();
+        db.import_sim_contacts(&[sim_contact_1_tel_change]).unwrap();
 
-        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+        if let Ok(contact) = db.get("0001", true) {
             // Verify sim_contact_1's tel update to "15229099710".
             assert_eq!(contact.tel.unwrap()[0].value, "15229099710".to_string());
             assert_eq!(contact.given_name, None);
@@ -1955,10 +1955,10 @@ mod test {
             category: "KAICONTACT\u{001E}SIM0\u{001E}SIM".to_string(),
         };
 
-        db.import_sim_contacts([sim_contact_1_email_change])
+        db.import_sim_contacts(&[sim_contact_1_email_change])
             .unwrap();
 
-        if let Ok(contact) = db.get(&"0001".to_string(), true) {
+        if let Ok(contact) = db.get("0001", true) {
             // Verify sim_contact_1's email update to "zx@163.com".
             assert_eq!(contact.email.unwrap()[0].value, "zx@163.com".to_string());
         }
@@ -2013,7 +2013,7 @@ mod test {
             assert_eq!(contacts[i].name.clone().unwrap(), sim_contacts[i].name);
         }
 
-        db.import_sim_contacts([]).unwrap();
+        db.import_sim_contacts(&[]).unwrap();
 
         // Verify db is empty after import empty sim contacts.
         assert_eq!(db.count().unwrap(), 0);

@@ -3,6 +3,7 @@ use crate::etag::*;
 use actix_web::http::header::{self, Header, HeaderValue};
 use actix_web::{http, web, HttpRequest, HttpResponse, HttpResponseBuilder, Responder};
 use async_trait::async_trait;
+use common::traits::Shared;
 use log::debug;
 use new_mime_guess::{Mime, MimeGuess};
 use std::collections::HashMap;
@@ -10,7 +11,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use tokio::fs::File as AsyncFile;
-use tokio::sync::Mutex;
 use tokio_util::io::ReaderStream;
 use zip::read::{ZipArchive, ZipFile};
 use zip::CompressionMethod;
@@ -241,7 +241,7 @@ impl<'a> LangChecker for ZipLangChecker<'a> {
 // http://host:port/path/to/file.ext -> $root_path/host/application.zip!path/to/file.ext
 // When using a Gaia debug profile, applications are not packaged so if application.zip doesn't
 // exist we try to map to $root_path/host/path/to/file.ext instead.
-pub async fn vhost(data: web::Data<Mutex<AppData>>, req: HttpRequest) -> impl Responder {
+pub async fn vhost(data: web::Data<Shared<AppData>>, req: HttpRequest) -> impl Responder {
     let if_none_match = req.headers().get(header::IF_NONE_MATCH);
 
     if let Some(host) = req.headers().get(header::HOST) {
@@ -286,7 +286,7 @@ pub async fn vhost(data: web::Data<Mutex<AppData>>, req: HttpRequest) -> impl Re
         };
 
         let (root_path, csp, has_zip, mapped_host) = {
-            let data = data.lock().await;
+            let data = data.lock();
             (
                 data.root_path.clone(),
                 data.csp.clone(),
@@ -339,7 +339,7 @@ pub async fn vhost(data: web::Data<Mutex<AppData>>, req: HttpRequest) -> impl Re
                     Ok(archive) => archive,
                     Err(_) => return HttpResponse::BadRequest().finish(),
                 };
-                let mut data = data.lock().await;
+                let mut data = data.lock();
                 data.zips.insert(host.clone(), archive);
             } else {
                 // No application.zip found, try a direct path mapping.
@@ -377,7 +377,7 @@ pub async fn vhost(data: web::Data<Mutex<AppData>>, req: HttpRequest) -> impl Re
 
         // Now we are sure the zip archive is in our hashmap.
         // We still need a write lock because ZipFile.by_name_maybe_raw()takes a `&mut self` parameter :(
-        let mut readlock = data.lock().await;
+        let mut readlock = data.lock();
 
         match readlock.zips.get_mut(&host) {
             Some(archive) => {

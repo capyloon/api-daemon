@@ -10,10 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-rust-version = "1.59"
+edition = "2018"
 name = "multihash"
-version = "0.18.1"
+version = "0.17.0"
 authors = [
     "dignifiedquire <dignifiedquire@gmail.com>",
     "David Craven <david@craven.ch>",
@@ -28,6 +27,7 @@ keywords = [
 ]
 license = "MIT"
 repository = "https://github.com/multiformats/rust-multihash"
+resolver = "2"
 
 [[bench]]
 name = "multihash"

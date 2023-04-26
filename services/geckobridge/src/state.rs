@@ -186,13 +186,13 @@ impl GeckoBridgeState {
         if self.prefs.get(name).is_none() {
             match value_type {
                 PrefType::Char => {
-                    let _ = self.preference_get_char(name.to_string());
+                    let _ = self.preference_get_char(name);
                 }
                 PrefType::Bool => {
-                    let _ = self.preference_get_bool(name.to_string());
+                    let _ = self.preference_get_bool(name);
                 }
                 PrefType::Int => {
-                    let _ = self.preference_get_int(name.to_string());
+                    let _ = self.preference_get_int(name);
                 }
             }
         }
@@ -223,9 +223,9 @@ impl GeckoBridgeState {
     }
 
     // Preferences related methods.
-    pub fn set_bool_pref(&mut self, name: String, value: bool) {
-        self.notify_pref_observers(&name, PrefValue::Bool(value));
-        let _ = self.prefs.insert(name, PrefValue::Bool(value));
+    pub fn set_bool_pref(&mut self, name: &str, value: bool) {
+        self.notify_pref_observers(name, PrefValue::Bool(value));
+        let _ = self.prefs.insert(name.into(), PrefValue::Bool(value));
     }
 
     pub fn get_bool_pref(&self, name: &str) -> Option<bool> {
@@ -235,9 +235,9 @@ impl GeckoBridgeState {
         }
     }
 
-    pub fn set_int_pref(&mut self, name: String, value: i64) {
-        self.notify_pref_observers(&name, PrefValue::Int(value));
-        let _ = self.prefs.insert(name, PrefValue::Int(value));
+    pub fn set_int_pref(&mut self, name: &str, value: i64) {
+        self.notify_pref_observers(name, PrefValue::Int(value));
+        let _ = self.prefs.insert(name.into(), PrefValue::Int(value));
     }
 
     pub fn get_int_pref(&self, name: &str) -> Option<i64> {
@@ -247,9 +247,10 @@ impl GeckoBridgeState {
         }
     }
 
-    pub fn set_char_pref(&mut self, name: String, value: String) {
-        self.notify_pref_observers(&name, PrefValue::Str(value.clone()));
-        let _ = self.prefs.insert(name, PrefValue::Str(value));
+    pub fn set_char_pref(&mut self, name: &str, value: &str) {
+        let value = PrefValue::Str(value.into());
+        self.notify_pref_observers(name, value.clone());
+        let _ = self.prefs.insert(name.into(), value);
     }
 
     pub fn get_char_pref(&self, name: &str) -> Option<String> {
@@ -302,10 +303,10 @@ impl GeckoBridgeState {
 
     pub fn powermanager_request_wakelock(
         &mut self,
-        topic: String,
+        topic: &str,
     ) -> Result<ObjectRef, DelegateError> {
         if let Some(powermanager) = &mut self.powermanager {
-            let rx = powermanager.request_wakelock(&topic);
+            let rx = powermanager.request_wakelock(topic);
             if let Ok(result) = rx.recv() {
                 match result {
                     Ok(obj_ref) => {
@@ -421,7 +422,7 @@ impl GeckoBridgeState {
     ) -> Result<(), DelegateError> {
         debug!("apps_service_on_clear: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let rx = service.on_clear(&manifest_url.as_str().to_string(), &data_type, &value);
+            let rx = service.on_clear(manifest_url.as_str(), &data_type, &value);
             Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
@@ -436,7 +437,7 @@ impl GeckoBridgeState {
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_boot(&manifest_url.as_str().to_string(), &value);
+            let _ = service.on_boot(manifest_url.as_str(), &value);
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -462,7 +463,7 @@ impl GeckoBridgeState {
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let rx = service.on_install(&manifest_url.as_str().to_string(), &value);
+            let rx = service.on_install(manifest_url.as_str(), &value);
             Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
@@ -481,7 +482,7 @@ impl GeckoBridgeState {
             value
         );
         if let Some(service) = &mut self.appsservice {
-            let rx = service.on_update(&manifest_url.as_str().to_string(), &value);
+            let rx = service.on_update(manifest_url.as_str(), &value);
             Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
@@ -492,7 +493,7 @@ impl GeckoBridgeState {
     pub fn apps_service_on_uninstall(&mut self, manifest_url: &Url) -> Result<(), DelegateError> {
         debug!("apps_service_on_uninstall: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let rx = service.on_uninstall(&manifest_url.as_str().to_string());
+            let rx = service.on_uninstall(manifest_url.as_str());
             Self::check_delegate_call(&rx)
         } else {
             error!("The apps service delegate is not set!");
@@ -503,7 +504,7 @@ impl GeckoBridgeState {
     pub fn apps_service_on_launch(&mut self, manifest_url: &Url) {
         debug!("apps_service_on_launch: {}", manifest_url.as_str());
         if let Some(service) = &mut self.appsservice {
-            let _ = service.on_launch(&manifest_url.as_str().to_string());
+            let _ = service.on_launch(manifest_url.as_str());
         } else {
             error!("The apps service delegate is not set!");
         }
@@ -584,49 +585,45 @@ impl GeckoBridgeState {
         self.notify_readyness_observers();
     }
 
-    pub fn preference_get_int(&mut self, pref_name: String) -> DelegateResponse<i64> {
+    pub fn preference_get_int(&mut self, pref_name: &str) -> DelegateResponse<i64> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.get_int(&pref_name)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_int(pref_name)),
         }
     }
 
-    pub fn preference_get_char(&mut self, pref_name: String) -> DelegateResponse<String> {
+    pub fn preference_get_char(&mut self, pref_name: &str) -> DelegateResponse<String> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.get_char(&pref_name)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_char(pref_name)),
         }
     }
 
-    pub fn preference_get_bool(&mut self, pref_name: String) -> DelegateResponse<bool> {
+    pub fn preference_get_bool(&mut self, pref_name: &str) -> DelegateResponse<bool> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.get_bool(&pref_name)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.get_bool(pref_name)),
         }
     }
 
-    pub fn preference_set_int(&mut self, pref_name: String, value: i64) -> DelegateResponse<()> {
+    pub fn preference_set_int(&mut self, pref_name: &str, value: i64) -> DelegateResponse<()> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.set_int(&pref_name, value)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_int(pref_name, value)),
         }
     }
 
-    pub fn preference_set_char(
-        &mut self,
-        pref_name: String,
-        value: String,
-    ) -> DelegateResponse<()> {
+    pub fn preference_set_char(&mut self, pref_name: &str, value: &str) -> DelegateResponse<()> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.set_char(&pref_name, &value)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_char(pref_name, value)),
         }
     }
 
-    pub fn preference_set_bool(&mut self, pref_name: String, value: bool) -> DelegateResponse<()> {
+    pub fn preference_set_bool(&mut self, pref_name: &str, value: bool) -> DelegateResponse<()> {
         match self.preference.as_mut() {
             None => DelegateResponse::from_error(DelegateError::InvalidDelegate),
-            Some(prefs) => DelegateResponse::from_receiver(prefs.set_bool(&pref_name, value)),
+            Some(prefs) => DelegateResponse::from_receiver(prefs.set_bool(pref_name, value)),
         }
     }
 
@@ -719,20 +716,16 @@ fn test_pref_observer() {
     receivers.push(receiver);
 
     // 2. Set prefs to notify the observers.
-    shared.lock().set_int_pref("test.pref.int".to_string(), 1);
-    shared
-        .lock()
-        .set_char_pref("test.pref.char".to_string(), "foo".to_string());
-    shared
-        .lock()
-        .set_bool_pref("test.pref.bool".to_string(), true);
+    shared.lock().set_int_pref("test.pref.int", 1);
+    shared.lock().set_char_pref("test.pref.char", "foo");
+    shared.lock().set_bool_pref("test.pref.bool", true);
 
     // 3. check if all receivers got notified;
     for receiver in &receivers {
         if let Ok(val) = receiver.try_recv() {
             match val {
                 PrefValue::Str(v) => assert_eq!(v, "foo"),
-                PrefValue::Bool(v) => assert_eq!(v, true),
+                PrefValue::Bool(v) => assert!(v),
                 PrefValue::Int(v) => assert_eq!(v, 1),
             }
         } else {
@@ -747,20 +740,16 @@ fn test_pref_observer() {
     // 4. Pop the last entry, set pref and test again.
     let poped_receiver = receivers.pop().unwrap();
     drop(poped_receiver);
-    shared.lock().set_int_pref("test.pref.int".to_string(), 2);
-    shared
-        .lock()
-        .set_char_pref("test.pref.char".to_string(), "bar".to_string());
-    shared
-        .lock()
-        .set_bool_pref("test.pref.bool".to_string(), false);
+    shared.lock().set_int_pref("test.pref.int", 2);
+    shared.lock().set_char_pref("test.pref.char", "bar");
+    shared.lock().set_bool_pref("test.pref.bool", false);
 
     // 5. check if all receivers got notified;
     for receiver in &receivers {
         if let Ok(val) = receiver.try_recv() {
             match val {
                 PrefValue::Str(v) => assert_eq!(v, "bar"),
-                PrefValue::Bool(v) => assert_eq!(v, false),
+                PrefValue::Bool(v) => assert!(!v),
                 PrefValue::Int(v) => assert_eq!(v, 2),
             }
         } else {

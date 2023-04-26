@@ -295,6 +295,13 @@ impl Codegen {
                         ));
 
                         params.push_str("object_ref");
+                    } else if let ConcreteType::Str = &param.typ.typ {
+                        // Turn String into a &str param.
+                        if param.typ.arity == Arity::Unary {
+                            params.push_str(&format!("&{}, ", param.name));
+                        } else {
+                            params.push_str(&format!("{}, ", param.name));
+                        }
                     } else {
                         params.push_str(&format!("{}, ", param.name));
                     }

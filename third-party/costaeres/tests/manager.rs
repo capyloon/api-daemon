@@ -1,3 +1,4 @@
+use async_std::fs;
 use chrono::Utc;
 use costaeres::common::*;
 use costaeres::config::Config;
@@ -6,8 +7,6 @@ use costaeres::indexer::*;
 use costaeres::manager::*;
 use costaeres::scorer::{VisitEntry, VisitPriority};
 use std::rc::Rc;
-use tokio::fs;
-use tokio::io::AsyncReadExt;
 
 fn named_variant(name: &str, mime_type: &str) -> VariantMetadata {
     VariantMetadata::new(name, mime_type, 42)
@@ -110,7 +109,7 @@ async fn create_hierarchy<T>(manager: &mut Manager<T>) {
     }
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn basic_manager() {
     let (config, store) = prepare_test(1).await;
 
@@ -156,7 +155,7 @@ async fn basic_manager() {
     assert!(res.is_err());
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn rehydrate_single() {
     let (config, store) = prepare_test(2).await;
 
@@ -184,7 +183,7 @@ async fn rehydrate_single() {
     assert!(manager.has_object(&meta.id()).await.unwrap());
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn check_constraints() {
     let (config, store) = prepare_test(3).await;
 
@@ -254,7 +253,7 @@ async fn check_constraints() {
     assert_eq!(res, Err(ResourceStoreError::InvalidContainerId));
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn delete_hierarchy() {
     let (config, store) = prepare_test(4).await;
 
@@ -277,7 +276,7 @@ async fn delete_hierarchy() {
     assert!(manager.has_object(&ROOT_ID).await.unwrap());
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn rehydrate_full() {
     let (config, store) = prepare_test(5).await;
 
@@ -300,7 +299,7 @@ async fn rehydrate_full() {
     assert_eq!(children.len(), 10);
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn get_full_path() {
     let (config, store) = prepare_test(6).await;
 
@@ -320,7 +319,7 @@ async fn get_full_path() {
     assert_eq!(obj_path[3].id(), 30.into());
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn search_by_name() {
     let (config, store) = prepare_test(7).await;
 
@@ -346,7 +345,7 @@ async fn search_by_name() {
     assert_eq!(results.len(), 0);
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn search_by_tag() {
     let (config, store) = prepare_test(8).await;
 
@@ -362,7 +361,7 @@ async fn search_by_tag() {
     assert_eq!(results[0], 25.into());
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn search_by_text() {
     let (config, store) = prepare_test(9).await;
 
@@ -386,7 +385,7 @@ async fn search_by_text() {
     assert_eq!(results.len(), 0);
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn score() {
     let (config, store) = prepare_test(10).await;
 
@@ -416,7 +415,7 @@ async fn score() {
     assert_eq!(initial_score, root_meta.scorer().frecency());
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn top_frecency() {
     let (config, store) = prepare_test(11).await;
 
@@ -443,7 +442,7 @@ async fn top_frecency() {
     assert_eq!(results[0], IdFrec::new(&ROOT_ID, 100));
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn index_places() {
     let (config, store) = prepare_test(12).await;
 
@@ -531,7 +530,7 @@ async fn index_places() {
     assert_eq!(results.len(), 0);
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn index_contacts() {
     let (config, store) = prepare_test(13).await;
 
@@ -606,7 +605,7 @@ async fn index_contacts() {
     assert_eq!(results.len(), 0);
 }
 
-#[tokio::test]
+#[async_std::test]
 
 async fn get_root_children() {
     let (config, store) = prepare_test(15).await;
@@ -623,7 +622,7 @@ async fn get_root_children() {
     assert_eq!(children.len(), 0);
 }
 
-#[tokio::test]
+#[async_std::test]
 
 async fn unique_children_names() {
     let (config, store) = prepare_test(16).await;
@@ -649,7 +648,7 @@ async fn unique_children_names() {
     assert!(res.is_err());
 }
 
-#[tokio::test]
+#[async_std::test]
 
 async fn child_by_name() {
     let (config, store) = prepare_test(17).await;
@@ -689,7 +688,7 @@ async fn child_by_name() {
     assert_eq!(image.name(), "photo.png");
 }
 
-#[tokio::test]
+#[async_std::test]
 
 async fn migration_check() {
     let (config, store) = prepare_test(18).await;
@@ -717,7 +716,7 @@ async fn migration_check() {
     }
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn frecency_update() {
     let (config, store) = prepare_test(19).await;
 
@@ -738,7 +737,7 @@ async fn frecency_update() {
     assert_eq!(meta.scorer().frecency(), 100);
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn index_places_mdn() {
     let (config, store) = prepare_test(20).await;
 
@@ -775,7 +774,7 @@ async fn index_places_mdn() {
     assert_eq!(results.len(), 1);
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn import_from_path() {
     let (config, store) = prepare_test(21).await;
 
@@ -816,7 +815,7 @@ async fn import_from_path() {
     assert_eq!(meta.name(), "import(1).txt".to_owned());
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn container_size() {
     let (config, store) = prepare_test(22).await;
 
@@ -883,7 +882,7 @@ impl ModificationObserver for Observer {
     }
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn observers() {
     let (config, store) = prepare_test(23).await;
 
@@ -994,7 +993,7 @@ async fn observers() {
     });
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn add_remove_tags() {
     let (config, store) = prepare_test(24).await;
 
@@ -1126,8 +1125,10 @@ async fn add_remove_tags() {
     });
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn copy_resource() {
+    use async_std::io::ReadExt;
+
     let (config, store) = prepare_test(25).await;
 
     let mut manager = Manager::new(config, Box::new(store)).await.unwrap();
@@ -1226,7 +1227,7 @@ async fn copy_resource() {
     });
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn tags_persistence() {
     let (config, store) = prepare_test(26).await;
 
@@ -1292,7 +1293,7 @@ async fn tags_persistence() {
     }
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn move_resource() {
     let (config, store) = prepare_test(27).await;
 
@@ -1395,7 +1396,7 @@ async fn move_resource() {
     }
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn update_variant() {
     let (config, store) = prepare_test(28).await;
 
@@ -1451,7 +1452,7 @@ async fn update_variant() {
     assert_eq!(variant.size(), 13);
 }
 
-#[tokio::test]
+#[async_std::test]
 async fn rename_resource() {
     let (config, store) = prepare_test(29).await;
 
