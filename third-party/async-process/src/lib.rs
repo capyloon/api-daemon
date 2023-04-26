@@ -82,6 +82,10 @@ pub mod unix;
 #[cfg(windows)]
 pub mod windows;
 
+mod sealed {
+    pub trait Sealed {}
+}
+
 /// An event delivered every time the SIGCHLD signal occurs.
 static SIGCHLD: Event = Event::new();
 
@@ -150,11 +154,10 @@ impl Child {
                 use std::sync::mpsc;
 
                 use windows_sys::Win32::{
-                    System::{
-                        Threading::{RegisterWaitForSingleObject, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE},
-                        WindowsProgramming::INFINITE,
-                    },
                     Foundation::{BOOLEAN, HANDLE},
+                    System::Threading::{
+                        RegisterWaitForSingleObject, INFINITE, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE,
+                    },
                 };
 
                 // This channel is used to simulate SIGCHLD on Windows.
@@ -169,7 +172,6 @@ impl Child {
 
                     (s, r)
                 }
-
 
                 // Called when a child exits.
                 unsafe extern "system" fn callback(_: *mut c_void, _: BOOLEAN) {
@@ -485,7 +487,7 @@ impl ChildStdin {
                 Ok(self.0.into_inner().await.into())
             } else if #[cfg(unix)] {
                 let child_stdin = self.0.into_inner()?;
-                blocking_fd(child_stdin.as_raw_fd())?;
+                blocking_fd(rustix::fd::AsFd::as_fd(&child_stdin))?;
                 Ok(child_stdin.into())
             }
         }
@@ -517,6 +519,7 @@ impl AsRawFd for ChildStdin {
     }
 }
 
+/// **Note:** This implementation is only available on Rust 1.63+.
 #[cfg(all(not(async_process_no_io_safety), unix))]
 impl AsFd for ChildStdin {
     fn as_fd(&self) -> BorrowedFd<'_> {
@@ -524,6 +527,7 @@ impl AsFd for ChildStdin {
     }
 }
 
+/// **Note:** This implementation is only available on Rust 1.63+.
 #[cfg(all(not(async_process_no_io_safety), unix))]
 impl TryFrom<ChildStdin> for OwnedFd {
     type Error = io::Error;
@@ -577,7 +581,7 @@ impl ChildStdout {
                 Ok(self.0.into_inner().await.into())
             } else if #[cfg(unix)] {
                 let child_stdout = self.0.into_inner()?;
-                blocking_fd(child_stdout.as_raw_fd())?;
+                blocking_fd(rustix::fd::AsFd::as_fd(&child_stdout))?;
                 Ok(child_stdout.into())
             }
         }
@@ -601,6 +605,7 @@ impl AsRawFd for ChildStdout {
     }
 }
 
+/// **Note:** This implementation is only available on Rust 1.63+.
 #[cfg(all(not(async_process_no_io_safety), unix))]
 impl AsFd for ChildStdout {
     fn as_fd(&self) -> BorrowedFd<'_> {
@@ -608,6 +613,7 @@ impl AsFd for ChildStdout {
     }
 }
 
+/// **Note:** This implementation is only available on Rust 1.63+.
 #[cfg(all(not(async_process_no_io_safety), unix))]
 impl TryFrom<ChildStdout> for OwnedFd {
     type Error = io::Error;
@@ -650,7 +656,7 @@ impl ChildStderr {
                 Ok(self.0.into_inner().await.into())
             } else if #[cfg(unix)] {
                 let child_stderr = self.0.into_inner()?;
-                blocking_fd(child_stderr.as_raw_fd())?;
+                blocking_fd(rustix::fd::AsFd::as_fd(&child_stderr))?;
                 Ok(child_stderr.into())
             }
         }
@@ -674,6 +680,7 @@ impl AsRawFd for ChildStderr {
     }
 }
 
+/// **Note:** This implementation is only available on Rust 1.63+.
 #[cfg(all(not(async_process_no_io_safety), unix))]
 impl AsFd for ChildStderr {
     fn as_fd(&self) -> BorrowedFd<'_> {
@@ -681,6 +688,7 @@ impl AsFd for ChildStderr {
     }
 }
 
+/// **Note:** This implementation is only available on Rust 1.63+.
 #[cfg(all(not(async_process_no_io_safety), unix))]
 impl TryFrom<ChildStderr> for OwnedFd {
     type Error = io::Error;
@@ -1063,22 +1071,24 @@ impl fmt::Debug for Command {
 
 /// Moves `Fd` out of non-blocking mode.
 #[cfg(unix)]
-fn blocking_fd(fd: std::os::unix::io::RawFd) -> io::Result<()> {
-    // Helper macro to execute a system call that returns an `io::Result`.
-    macro_rules! syscall {
-        ($fn:ident ( $($arg:expr),* $(,)? ) ) => {{
-            let res = unsafe { libc::$fn($($arg, )*) };
-            if res == -1 {
-                return Err(std::io::Error::last_os_error());
-            } else {
-                res
+fn blocking_fd(fd: rustix::fd::BorrowedFd<'_>) -> io::Result<()> {
+    cfg_if::cfg_if! {
+        // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
+        // for now, as with the standard library, because it seems to behave
+        // differently depending on the platform.
+        // https://github.com/rust-lang/rust/commit/efeb42be2837842d1beb47b51bb693c7474aba3d
+        // https://github.com/libuv/libuv/blob/e9d91fccfc3e5ff772d5da90e1c4a24061198ca0/src/unix/poll.c#L78-L80
+        // https://github.com/tokio-rs/mio/commit/0db49f6d5caf54b12176821363d154384357e70a
+        if #[cfg(target_os = "linux")] {
+            rustix::io::ioctl_fionbio(fd, false)?;
+        } else {
+            let previous = rustix::fs::fcntl_getfl(fd)?;
+            let new = previous & !rustix::fs::OFlags::NONBLOCK;
+            if new != previous {
+                rustix::fs::fcntl_setfl(fd, new)?;
             }
-        }};
+        }
     }
-
-    let res = syscall!(fcntl(fd, libc::F_GETFL));
-    syscall!(fcntl(fd, libc::F_SETFL, res & !libc::O_NONBLOCK));
-
     Ok(())
 }
 
