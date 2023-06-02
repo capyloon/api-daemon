@@ -8,7 +8,7 @@ fn main() {
     }
 
     // Work around
-    // https://github.com/rust-lang/rust/issues/103306.
+    // <https://github.com/rust-lang/rust/issues/103306>.
     use_feature_or_nothing("wasi_ext");
 
     // Rust 1.56 and earlier don't support panic in const fn.
@@ -33,7 +33,7 @@ fn use_feature(feature: &str) {
 
 /// Test whether the rustc at `var("RUSTC")` supports the given feature.
 fn has_feature(feature: &str) -> bool {
-    can_compile(&format!(
+    can_compile(format!(
         "#![allow(stable_features)]\n#![feature({})]",
         feature
     ))
@@ -47,7 +47,14 @@ fn can_compile<T: AsRef<str>>(test: T) -> bool {
     let rustc = var("RUSTC").unwrap();
     let target = var("TARGET").unwrap();
 
-    let mut cmd = if let Ok(wrapper) = var("CARGO_RUSTC_WRAPPER") {
+    // Use `RUSTC_WRAPPER` if it's set, unless it's set to an empty string,
+    // as documented [here].
+    // [here]: https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-reads
+    let wrapper = var("RUSTC_WRAPPER")
+        .ok()
+        .and_then(|w| if w.is_empty() { None } else { Some(w) });
+
+    let mut cmd = if let Some(wrapper) = wrapper {
         let mut cmd = std::process::Command::new(wrapper);
         // The wrapper's first argument is supposed to be the path to rustc.
         cmd.arg(rustc);

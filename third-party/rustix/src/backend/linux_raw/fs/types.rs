@@ -122,6 +122,32 @@ impl Mode {
     }
 }
 
+impl From<RawMode> for Mode {
+    /// Support conversions from raw mode values to `Mode`.
+    ///
+    /// ```
+    /// use rustix::fs::{Mode, RawMode};
+    /// assert_eq!(Mode::from(0o700), Mode::RWXU);
+    /// ```
+    #[inline]
+    fn from(st_mode: RawMode) -> Self {
+        Self::from_raw_mode(st_mode)
+    }
+}
+
+impl From<Mode> for RawMode {
+    /// Support conversions from `Mode to raw mode values.
+    ///
+    /// ```
+    /// use rustix::fs::{Mode, RawMode};
+    /// assert_eq!(RawMode::from(Mode::RWXU), 0o700);
+    /// ```
+    #[inline]
+    fn from(mode: Mode) -> Self {
+        mode.as_raw_mode()
+    }
+}
+
 bitflags! {
     /// `O_*` constants for use with [`openat`].
     ///
@@ -262,6 +288,7 @@ pub enum FileType {
     Symlink = linux_raw_sys::general::S_IFLNK as isize,
 
     /// `S_IFIFO`
+    #[doc(alias = "IFO")]
     Fifo = linux_raw_sys::general::S_IFIFO as isize,
 
     /// `S_IFSOCK`
@@ -309,7 +336,7 @@ impl FileType {
         }
     }
 
-    /// Construct a `FileType` from the `d_type` field of a `dirent`.
+    /// Construct a `FileType` from the `d_type` field of a `c::dirent`.
     #[inline]
     pub(crate) const fn from_dirent_d_type(d_type: u8) -> Self {
         match d_type as u32 {
@@ -619,7 +646,7 @@ pub type StatxTimestamp = linux_raw_sys::general::statx_timestamp;
 )))]
 pub type RawMode = linux_raw_sys::general::__kernel_mode_t;
 
-/// `mode_t
+/// `mode_t`
 #[cfg(any(
     target_arch = "x86",
     target_arch = "sparc",
@@ -643,7 +670,9 @@ pub type FsWord = i64;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 bitflags! {
-    /// `MS_*` constants for use with [`mount`][crate::fs::mount].
+    /// `MS_*` constants for use with [`mount`].
+    ///
+    /// [`mount`]: crate::fs::mount
     pub struct MountFlags: c::c_uint {
         /// `MS_BIND`
         const BIND = linux_raw_sys::general::MS_BIND;
@@ -698,7 +727,9 @@ bitflags! {
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 bitflags! {
-    /// `MS_*` constants for use with [`change_mount`][crate::fs::mount::change_mount].
+    /// `MS_*` constants for use with [`change_mount`].
+    ///
+    /// [`change_mount`]: crate::fs::mount::change_mount
     pub struct MountPropagationFlags: c::c_uint {
         /// `MS_SHARED`
         const SHARED = linux_raw_sys::general::MS_SHARED;
@@ -726,7 +757,9 @@ pub(crate) struct MountFlagsArg(pub(crate) c::c_uint);
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 bitflags! {
-    /// `MNT_*` constants for use with [`unmount`][crate::fs::mount::unmount].
+    /// `MNT_*` constants for use with [`unmount`].
+    ///
+    /// [`unmount`]: crate::fs::mount::unmount
     pub struct UnmountFlags: c::c_uint {
         /// `MNT_FORCE`
         const FORCE = linux_raw_sys::general::MNT_FORCE;

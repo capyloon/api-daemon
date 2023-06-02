@@ -1,7 +1,6 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
-#[doc = "*Required features: 'Media_Render'*"]
+#[doc = "*Required features: `\"Media_Render\"`*"]
 #[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct AudioRenderCategory(pub i32);
 impl AudioRenderCategory {
     pub const Other: Self = Self(0i32);
@@ -28,19 +27,16 @@ impl ::core::default::Default for AudioRenderCategory {
         Self(0)
     }
 }
-unsafe impl ::windows::core::Abi for AudioRenderCategory {
-    type Abi = Self;
+impl ::windows::core::TypeKind for AudioRenderCategory {
+    type TypeKind = ::windows::core::CopyType;
 }
 impl ::core::fmt::Debug for AudioRenderCategory {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_tuple("AudioRenderCategory").field(&self.0).finish()
     }
 }
-unsafe impl ::windows::core::RuntimeType for AudioRenderCategory {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"enum(Windows.Media.Render.AudioRenderCategory;i4)");
-}
-impl ::windows::core::DefaultType for AudioRenderCategory {
-    type DefaultType = Self;
+impl ::windows::core::RuntimeType for AudioRenderCategory {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"enum(Windows.Media.Render.AudioRenderCategory;i4)");
 }
 #[cfg(feature = "implement")]
 ::core::include!("impl.rs");

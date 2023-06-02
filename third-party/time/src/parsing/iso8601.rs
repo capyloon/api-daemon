@@ -1,5 +1,6 @@
 //! Parse parts of an ISO 8601-formatted value.
 
+use crate::convert::*;
 use crate::error;
 use crate::error::ParseFromDescription::{InvalidComponent, InvalidLiteral};
 use crate::format_description::well_known::iso8601::EncodedConfig;
@@ -56,16 +57,14 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
                 Err(err) => err,
             };
 
-            match dayo(input) {
-                Some(ParsedItem(input, ordinal)) => {
-                    *parsed = parsed
-                        .with_year(year)
-                        .ok_or(InvalidComponent("year"))?
-                        .with_ordinal(ordinal)
-                        .ok_or(InvalidComponent("ordinal"))?;
-                    return Ok(input);
-                }
-                None => {} // The error from year-month-day will always take priority.
+            // Don't check for `None`, as the error from year-month-day will always take priority.
+            if let Some(ParsedItem(input, ordinal)) = dayo(input) {
+                *parsed = parsed
+                    .with_year(year)
+                    .ok_or(InvalidComponent("year"))?
+                    .with_ordinal(ordinal)
+                    .ok_or(InvalidComponent("ordinal"))?;
+                return Ok(input);
             }
 
             match (|| {
@@ -126,12 +125,16 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
                     *parsed = parsed
                         .with_hour_24(hour)
                         .ok_or(InvalidComponent("hour"))?
-                        .with_minute((fractional_part * 60.0) as _)
+                        .with_minute((fractional_part * Second.per(Minute) as f64) as _)
                         .ok_or(InvalidComponent("minute"))?
-                        .with_second((fractional_part * 3600.0 % 60.) as _)
+                        .with_second(
+                            (fractional_part * Second.per(Hour) as f64 % Minute.per(Hour) as f64)
+                                as _,
+                        )
                         .ok_or(InvalidComponent("second"))?
                         .with_subsecond(
-                            (fractional_part * 3_600. * 1_000_000_000. % 1_000_000_000.) as _,
+                            (fractional_part * Nanosecond.per(Hour) as f64
+                                % Nanosecond.per(Second) as f64) as _,
                         )
                         .ok_or(InvalidComponent("subsecond"))?;
                     return Ok(input);
@@ -159,10 +162,11 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
                     *parsed = parsed
                         .with_minute(minute)
                         .ok_or(InvalidComponent("minute"))?
-                        .with_second((fractional_part * 60.) as _)
+                        .with_second((fractional_part * Second.per(Minute) as f64) as _)
                         .ok_or(InvalidComponent("second"))?
                         .with_subsecond(
-                            (fractional_part * 60. * 1_000_000_000. % 1_000_000_000.) as _,
+                            (fractional_part * Nanosecond.per(Minute) as f64
+                                % Nanosecond.per(Second) as f64) as _,
                         )
                         .ok_or(InvalidComponent("subsecond"))?;
                     return Ok(input);
@@ -202,9 +206,11 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
 
             let (input, second, subsecond) = match float(input) {
                 Some(ParsedItem(input, (second, None))) => (input, second, 0),
-                Some(ParsedItem(input, (second, Some(fractional_part)))) => {
-                    (input, second, (fractional_part * 1_000_000_000.) as _)
-                }
+                Some(ParsedItem(input, (second, Some(fractional_part)))) => (
+                    input,
+                    second,
+                    round(fractional_part * Nanosecond.per(Second) as f64) as _,
+                ),
                 None if extended_kind.is_extended() => {
                     return Err(error::Parse::ParseFromDescription(InvalidComponent(
                         "second",
@@ -285,4 +291,26 @@ impl<const CONFIG: EncodedConfig> Iso8601<CONFIG> {
             Ok(input)
         }
     }
+}
+
+/// Round wrapper that uses hardware implementation if `std` is available, falling back to manual
+/// implementation for `no_std`
+fn round(value: f64) -> f64 {
+    #[cfg(feature = "std")]
+    {
+        value.round()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        round_impl(value)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+#[allow(clippy::missing_docs_in_private_items)]
+fn round_impl(value: f64) -> f64 {
+    debug_assert!(value.is_sign_positive() && !value.is_nan());
+
+    let f = value % 1.;
+    if f < 0.5 { value - f } else { value - f + 1. }
 }

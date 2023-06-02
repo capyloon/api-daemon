@@ -11,9 +11,9 @@
 
 [package]
 edition = "2018"
-rust-version = "1.47"
+rust-version = "1.48"
 name = "async-executor"
-version = "1.5.0"
+version = "1.5.1"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Async executor"
@@ -31,6 +31,10 @@ categories = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-executor"
+
+[[bench]]
+name = "executor"
+harness = false
 
 [dependencies.async-lock]
 version = "2.6"
@@ -55,6 +59,11 @@ version = "1.4.1"
 
 [dev-dependencies.async-io]
 version = "1.1.9"
+
+[dev-dependencies.criterion]
+version = "0.4.0"
+features = ["cargo_bench_support"]
+default-features = false
 
 [dev-dependencies.easy-parallel]
 version = "3.1.0"

@@ -11,7 +11,7 @@ The following specifiers are available both to formatting and parsing.
 | Spec. | Example  | Description                                                                |
 |-------|----------|----------------------------------------------------------------------------|
 |       |          | **DATE SPECIFIERS:**                                                       |
-| `%Y`  | `2001`   | The full proleptic Gregorian year, zero-padded to 4 digits. chrono supports years from -262144 to 262143. |
+| `%Y`  | `2001`   | The full proleptic Gregorian year, zero-padded to 4 digits. chrono supports years from -262144 to 262143. Note: years before 1 BCE or after 9999 CE, require an initial sign (+/-).|
 | `%C`  | `20`     | The proleptic Gregorian year divided by 100, zero-padded to 2 digits. [^1] |
 | `%y`  | `01`     | The proleptic Gregorian year modulo 100, zero-padded to 2 digits. [^1]     |
 |       |          |                                                                            |
@@ -68,7 +68,7 @@ The following specifiers are available both to formatting and parsing.
 | `%r`  | `12:34:60 AM` | Hour-minute-second format in 12-hour clocks. Same as `%I:%M:%S %p`.   |
 |       |          |                                                                            |
 |       |          | **TIME ZONE SPECIFIERS:**                                                  |
-| `%Z`  | `ACST`   | Local time zone name. Skips all non-whitespace characters during parsing. [^8] |
+| `%Z`  | `ACST`   | Local time zone name. Skips all non-whitespace characters during parsing. Identical to `%:z` when formatting. [^8] |
 | `%z`  | `+0930`  | Offset from the local time to UTC (with UTC being `+0000`).                |
 | `%:z` | `+09:30` | Same as `%z` but with a colon.                                             |
 |`%::z`|`+09:30:00`| Offset from the local time to UTC with seconds.                            |
@@ -164,6 +164,12 @@ Notes:
    Note that they can read nothing if the fractional part is zero.
 
 [^8]: `%Z`:
+   Since `chrono` is not aware of timezones beyond their offsets, this specifier
+   **only prints the offset** when used for formatting. The timezone abbreviation
+   will NOT be printed. See [this issue](https://github.com/chronotope/chrono/issues/960)
+   for more information.
+   <br>
+   <br>
    Offset will not be populated from the parsed data, nor will it be validated.
    Timezone is completely ignored. Similar to the glibc `strptime` treatment of
    this format code.
@@ -227,6 +233,7 @@ pub struct StrftimeItems<'a> {
 
 impl<'a> StrftimeItems<'a> {
     /// Creates a new parsing iterator from the `strftime`-like format string.
+    #[must_use]
     pub fn new(s: &'a str) -> StrftimeItems<'a> {
         Self::with_remainer(s)
     }
@@ -234,6 +241,7 @@ impl<'a> StrftimeItems<'a> {
     /// Creates a new parsing iterator from the `strftime`-like format string.
     #[cfg(feature = "unstable-locales")]
     #[cfg_attr(docsrs, doc(cfg(feature = "unstable-locales")))]
+    #[must_use]
     pub fn new_with_locale(s: &'a str, locale: Locale) -> StrftimeItems<'a> {
         let d_fmt = StrftimeItems::new(locales::d_fmt(locale)).collect();
         let d_t_fmt = StrftimeItems::new(locales::d_t_fmt(locale)).collect();
@@ -584,7 +592,7 @@ fn test_strftime_docs() {
     assert_eq!(dt.format("%A").to_string(), "Sunday");
     assert_eq!(dt.format("%w").to_string(), "0");
     assert_eq!(dt.format("%u").to_string(), "7");
-    assert_eq!(dt.format("%U").to_string(), "28");
+    assert_eq!(dt.format("%U").to_string(), "27");
     assert_eq!(dt.format("%W").to_string(), "27");
     assert_eq!(dt.format("%G").to_string(), "2001");
     assert_eq!(dt.format("%g").to_string(), "01");
@@ -663,7 +671,7 @@ fn test_strftime_docs() {
 #[cfg(feature = "unstable-locales")]
 #[test]
 fn test_strftime_docs_localized() {
-    use crate::{FixedOffset, TimeZone};
+    use crate::{FixedOffset, NaiveDate, TimeZone};
 
     let dt = FixedOffset::east_opt(34200).unwrap().ymd_opt(2001, 7, 8).unwrap().and_hms_nano(
         0,
@@ -696,4 +704,17 @@ fn test_strftime_docs_localized() {
         dt.format_localized("%c", Locale::fr_BE).to_string(),
         "dim 08 jui 2001 00:34:60 +09:30"
     );
+
+    let nd = NaiveDate::from_ymd_opt(2001, 7, 8).unwrap();
+
+    // date specifiers
+    assert_eq!(nd.format_localized("%b", Locale::de_DE).to_string(), "Jul");
+    assert_eq!(nd.format_localized("%B", Locale::de_DE).to_string(), "Juli");
+    assert_eq!(nd.format_localized("%h", Locale::de_DE).to_string(), "Jul");
+    assert_eq!(nd.format_localized("%a", Locale::de_DE).to_string(), "So");
+    assert_eq!(nd.format_localized("%A", Locale::de_DE).to_string(), "Sonntag");
+    assert_eq!(nd.format_localized("%D", Locale::de_DE).to_string(), "07/08/01");
+    assert_eq!(nd.format_localized("%x", Locale::de_DE).to_string(), "08.07.2001");
+    assert_eq!(nd.format_localized("%F", Locale::de_DE).to_string(), "2001-07-08");
+    assert_eq!(nd.format_localized("%v", Locale::de_DE).to_string(), " 8-Jul-2001");
 }

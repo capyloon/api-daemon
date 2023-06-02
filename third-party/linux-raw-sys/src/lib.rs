@@ -80,28 +80,30 @@ impl Eq for general::__kernel_timespec {}
 
 #[cfg(feature = "general")]
 pub mod cmsg_macros {
-    use crate::ctypes::{c_long, c_uint, c_uchar};
+    use crate::ctypes::{c_long, c_uchar, c_uint};
     use crate::general::{cmsghdr, msghdr};
     use core::mem::size_of;
     use core::ptr;
 
-    pub unsafe fn CMSG_ALIGN(len: c_uint) -> c_uint {
+    pub const unsafe fn CMSG_ALIGN(len: c_uint) -> c_uint {
         let c_long_size = size_of::<c_long>() as c_uint;
         (len + c_long_size - 1) & !(c_long_size - 1)
     }
 
+    // TODO: In Rust 1.63 we can make this a `const fn`.
     pub unsafe fn CMSG_DATA(cmsg: *const cmsghdr) -> *mut c_uchar {
-        (cmsg as *mut c_uchar).offset(size_of::<cmsghdr>() as isize)
+        (cmsg as *mut c_uchar).add(size_of::<cmsghdr>())
     }
 
-    pub unsafe fn CMSG_SPACE(len: c_uint) -> c_uint {
+    pub const unsafe fn CMSG_SPACE(len: c_uint) -> c_uint {
         size_of::<cmsghdr>() as c_uint + CMSG_ALIGN(len)
     }
 
-    pub unsafe fn CMSG_LEN(len: c_uint) -> c_uint {
+    pub const unsafe fn CMSG_LEN(len: c_uint) -> c_uint {
         size_of::<cmsghdr>() as c_uint + len
     }
 
+    // TODO: In Rust 1.63 we can make this a `const fn`.
     pub unsafe fn CMSG_FIRSTHDR(mhdr: *const msghdr) -> *mut cmsghdr {
         if (*mhdr).msg_controllen < size_of::<cmsghdr>() as _ {
             return ptr::null_mut();
@@ -111,18 +113,20 @@ pub mod cmsg_macros {
     }
 
     pub unsafe fn CMSG_NXTHDR(mhdr: *const msghdr, cmsg: *const cmsghdr) -> *mut cmsghdr {
-        // We convert from raw pointers to isize here, which may not be sound in a future version of Rust.
-        // Once the provenance rules are set in stone, it will be a good idea to give this function a once-over.
+        // We convert from raw pointers to usize here, which may not be sound in a
+        // future version of Rust. Once the provenance rules are set in stone,
+        // it will be a good idea to give this function a once-over.
 
         let cmsg_len = (*cmsg).cmsg_len;
-        let next_cmsg = (cmsg as *mut u8).offset(CMSG_ALIGN(cmsg_len as _) as isize) as *mut cmsghdr;
+        let next_cmsg = (cmsg as *mut u8).add(CMSG_ALIGN(cmsg_len as _) as usize) as *mut cmsghdr;
         let max = ((*mhdr).msg_control as usize) + ((*mhdr).msg_controllen as usize);
 
         if cmsg_len < size_of::<cmsghdr>() as _ {
             return ptr::null_mut();
         }
 
-        if next_cmsg.offset(1) as usize > max || next_cmsg as usize + CMSG_ALIGN(cmsg_len as _) as usize > max
+        if next_cmsg.add(1) as usize > max
+            || next_cmsg as usize + CMSG_ALIGN(cmsg_len as _) as usize > max
         {
             return ptr::null_mut();
         }
@@ -140,21 +144,21 @@ pub mod select_macros {
     pub unsafe fn FD_CLR(fd: c_int, set: *mut __kernel_fd_set) {
         let bytes = set as *mut u8;
         if fd >= 0 {
-            *bytes.offset((fd / 8) as isize) &= !(1 << (fd % 8));
+            *bytes.add((fd / 8) as usize) &= !(1 << (fd % 8));
         }
     }
 
     pub unsafe fn FD_SET(fd: c_int, set: *mut __kernel_fd_set) {
         let bytes = set as *mut u8;
         if fd >= 0 {
-            *bytes.offset((fd / 8) as isize) |= 1 << (fd % 8);
+            *bytes.add((fd / 8) as usize) |= 1 << (fd % 8);
         }
     }
 
     pub unsafe fn FD_ISSET(fd: c_int, set: *const __kernel_fd_set) -> bool {
         let bytes = set as *const u8;
         if fd >= 0 {
-            *bytes.offset((fd / 8) as isize) & (1 << (fd % 8)) != 0
+            *bytes.add((fd / 8) as usize) & (1 << (fd % 8)) != 0
         } else {
             false
         }
@@ -163,6 +167,25 @@ pub mod select_macros {
     pub unsafe fn FD_ZERO(set: *mut __kernel_fd_set) {
         let bytes = set as *mut u8;
         core::ptr::write_bytes(bytes, 0, size_of::<__kernel_fd_set>());
+    }
+}
+
+#[cfg(feature = "general")]
+pub mod signal_macros {
+    pub const SIG_DFL: super::general::__kernel_sighandler_t = None;
+
+    /// Rust doesn't currently permit us to use `transmute` to convert the
+    /// `SIG_IGN` value into a function pointer in a `const` initializer, so
+    /// we make it a function instead.
+    ///
+    // TODO: In Rust 1.56 we can make this a `const fn`.
+    #[inline]
+    pub fn sig_ign() -> super::general::__kernel_sighandler_t {
+        // Safety: This creates an invalid pointer, but the pointer type
+        // includes `unsafe`, which covers the safety of calling it.
+        Some(unsafe {
+            core::mem::transmute::<usize, unsafe extern "C" fn(crate::ctypes::c_int)>(1)
+        })
     }
 }
 
@@ -198,6 +221,22 @@ pub mod ioctl;
 #[cfg(feature = "netlink")]
 #[cfg(target_arch = "aarch64")]
 #[path = "aarch64/netlink.rs"]
+pub mod netlink;
+#[cfg(feature = "errno")]
+#[cfg(target_arch = "loongarch64")]
+#[path = "loongarch64/errno.rs"]
+pub mod errno;
+#[cfg(feature = "general")]
+#[cfg(target_arch = "loongarch64")]
+#[path = "loongarch64/general.rs"]
+pub mod general;
+#[cfg(feature = "ioctl")]
+#[cfg(target_arch = "loongarch64")]
+#[path = "loongarch64/ioctl.rs"]
+pub mod ioctl;
+#[cfg(feature = "netlink")]
+#[cfg(target_arch = "loongarch64")]
+#[path = "loongarch64/netlink.rs"]
 pub mod netlink;
 #[cfg(feature = "errno")]
 #[cfg(target_arch = "mips")]

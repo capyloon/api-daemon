@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "iana-time-zone-haiku"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["René Kijewski <crates.io@k6i.de>"]
 description = "iana-time-zone support crate for Haiku OS"
 readme = "README.md"
@@ -28,8 +28,7 @@ categories = [
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/strawlab/iana-time-zone"
 
-[dependencies.cxx]
-version = "1.0.34"
+[dependencies]
 
-[build-dependencies.cxx-build]
-version = "1.0.34"
+[build-dependencies.cc]
+version = "1.0.79"

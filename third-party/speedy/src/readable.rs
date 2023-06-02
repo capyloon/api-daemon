@@ -53,6 +53,20 @@ impl< 'a, C: Context > Reader< 'a, C > for BufferReader< 'a, C > {
     }
 
     #[inline(always)]
+    unsafe fn read_bytes_into_ptr( &mut self, output: *mut u8, length: usize ) -> Result< (), C::Error > {
+        if self.can_read_at_least( length ) == Some( false ) {
+            return Err( error_end_of_input() );
+        }
+
+        unsafe { 
+            std::ptr::copy_nonoverlapping( self.ptr, output, length );
+            self.ptr = self.ptr.add( length );
+        }
+
+        Ok(())
+    }
+
+    #[inline(always)]
     fn peek_bytes( &mut self, output: &mut [u8] ) -> Result< (), C::Error > {
         let length = output.len();
         if self.can_read_at_least( length ) == Some( false ) {
@@ -63,6 +77,18 @@ impl< 'a, C: Context > Reader< 'a, C > for BufferReader< 'a, C > {
             std::ptr::copy_nonoverlapping( self.ptr, output.as_mut_ptr(), length );
         }
 
+        Ok(())
+    }
+
+    #[inline(always)]
+    unsafe fn peek_bytes_into_ptr( &mut self, output: *mut u8, length: usize ) -> Result< (), C::Error > {
+        if self.can_read_at_least( length ) == Some( false ) {
+            return Err( error_end_of_input() );
+        }
+
+        unsafe {
+            std::ptr::copy_nonoverlapping( self.ptr, output, length );
+        }
         Ok(())
     }
 
@@ -91,6 +117,33 @@ impl< 'a, C: Context > Reader< 'a, C > for BufferReader< 'a, C > {
         }
 
         Some( Ok( slice ) )
+    }
+
+    #[inline(always)]
+    fn read_bytes_borrowed_from_reader< 'r >( &'r mut self, length: usize ) -> Option< Result< &'r [u8], C::Error > > {
+        if self.can_read_at_least( length ) == Some( false ) {
+            return Some( Err( error_end_of_input() ) );
+        }
+
+        let slice;
+        unsafe {
+            slice = std::slice::from_raw_parts( self.ptr, length );
+            self.ptr = self.ptr.add( length );
+        }
+
+        Some( Ok( slice ) )
+    }
+
+    #[inline(always)]
+    fn read_bytes_borrowed_until_eof( &mut self ) -> Option< &'a [u8] > {
+        let length = self.end as usize - self.ptr as usize;
+        let slice;
+        unsafe {
+            slice = std::slice::from_raw_parts( self.ptr, length );
+            self.ptr = self.ptr.add( length );
+        }
+
+        Some( slice )
     }
 
     #[inline(always)]
@@ -145,6 +198,20 @@ impl< 'ctx, 'r, 'a, C: Context > Reader< 'r, C > for CopyingBufferReader< 'ctx, 
     }
 
     #[inline(always)]
+    unsafe fn read_bytes_into_ptr( &mut self, output: *mut u8, length: usize ) -> Result< (), C::Error > {
+        if self.can_read_at_least( length ) == Some( false ) {
+            return Err( error_end_of_input() );
+        }
+
+        unsafe {
+            std::ptr::copy_nonoverlapping( self.ptr, output, length );
+            self.ptr = self.ptr.add( length );
+        }
+
+        Ok(())
+    }
+
+    #[inline(always)]
     fn peek_bytes( &mut self, output: &mut [u8] ) -> Result< (), C::Error > {
         let length = output.len();
         if self.can_read_at_least( length ) == Some( false ) {
@@ -159,6 +226,18 @@ impl< 'ctx, 'r, 'a, C: Context > Reader< 'r, C > for CopyingBufferReader< 'ctx, 
     }
 
     #[inline(always)]
+    unsafe fn peek_bytes_into_ptr( &mut self, output: *mut u8, length: usize ) -> Result< (), C::Error > {
+        if self.can_read_at_least( length ) == Some( false ) {
+            return Err( error_end_of_input() );
+        }
+
+        unsafe {
+            std::ptr::copy_nonoverlapping( self.ptr, output, length );
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
     fn skip_bytes( &mut self, length: usize ) -> Result< (), C::Error > {
         if self.can_read_at_least( length ) == Some( false ) {
             return Err( error_end_of_input() );
@@ -168,6 +247,21 @@ impl< 'ctx, 'r, 'a, C: Context > Reader< 'r, C > for CopyingBufferReader< 'ctx, 
             self.ptr = self.ptr.add( length );
         }
         Ok(())
+    }
+
+    #[inline(always)]
+    fn read_bytes_borrowed_from_reader< 'reader >( &'reader mut self, length: usize ) -> Option< Result< &'reader [u8], C::Error > > {
+        if self.can_read_at_least( length ) == Some( false ) {
+            return Some( Err( error_end_of_input() ) );
+        }
+
+        let slice;
+        unsafe {
+            slice = std::slice::from_raw_parts( self.ptr, length );
+            self.ptr = self.ptr.add( length );
+        }
+
+        Some( Ok( slice ) )
     }
 
     #[inline(always)]
@@ -441,7 +535,107 @@ pub trait Readable< 'a, C: Context >: Sized {
             <C::Error as From< Error >>::from( error )
         })?;
 
-        Self::read_from_stream_buffered_with_ctx( context, stream )
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        {
+            Self::read_from_stream_buffered_with_ctx( context, stream )
+        }
+
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        {
+            use std::os::unix::io::AsRawFd;
+
+            // Define our own bindings to avoid extra dependencies.
+            extern "C" {
+                fn mmap(
+                    addr: *mut std::ffi::c_void,
+                    len: usize,
+                    prot: i32,
+                    flags: i32,
+                    fd: i32,
+                    offset: i64
+                ) -> *mut std::ffi::c_void;
+
+                fn madvise(
+                    addr: *mut std::ffi::c_void,
+                    len: usize,
+                    advice: i32
+                ) -> i32;
+
+                fn munmap(
+                    addr: *mut std::ffi::c_void,
+                    len: usize
+                ) -> i32;
+            }
+
+            const MAP_PRIVATE: i32 = 0x0002;
+            const PROT_READ: i32 = 1;
+            const MAP_FAILED: *mut std::ffi::c_void = !0 as *mut std::ffi::c_void;
+            const MADV_SEQUENTIAL: i32 = 2;
+            const MADV_WILLNEED: i32 = 3;
+            static EMPTY: &[u8] = &[];
+
+            struct Mmap( *mut std::ffi::c_void, usize );
+            impl Mmap {
+                fn open( fp: &std::fs::File ) -> Result< Self, Error > {
+                    let size = fp.metadata().map_err( Error::from_io_error )?.len();
+                    if size > std::usize::MAX as u64 {
+                        return Err( crate::error::error_too_big_usize_for_this_architecture() );
+                    }
+
+                    if size == 0 {
+                        return Ok( Mmap( EMPTY.as_ptr() as _, 0 ) );
+                    }
+
+                    let size = size as usize;
+                    let pointer = unsafe { mmap( std::ptr::null_mut(), size, PROT_READ, MAP_PRIVATE, fp.as_raw_fd(), 0 ) };
+                    if pointer == MAP_FAILED {
+                        Err( Error::from_io_error( std::io::Error::last_os_error() ) )
+                    } else {
+                        Ok( Mmap( pointer, size ) )
+                    }
+                }
+
+                unsafe fn madvise( &mut self, advice: i32 ) -> Result< (), Error > {
+                    if self.1 == 0 {
+                        return Ok(());
+                    }
+
+                    if unsafe { madvise( self.0, self.1, advice ) } < 0 {
+                        Err( Error::from_io_error( std::io::Error::last_os_error() ) )
+                    } else {
+                        Ok(())
+                    }
+                }
+            }
+
+            impl std::ops::Deref for Mmap {
+                type Target = [u8];
+                #[inline]
+                fn deref( &self ) -> &Self::Target {
+                    unsafe {
+                        std::slice::from_raw_parts( self.0.cast::< u8 >(), self.1 )
+                    }
+                }
+            }
+
+            impl Drop for Mmap {
+                fn drop( &mut self ) {
+                    if self.1 != 0 {
+                        unsafe {
+                            munmap( self.0, self.1 );
+                        }
+                    }
+                }
+            }
+
+            let mut mmap = Mmap::open( &stream )?;
+            unsafe {
+                mmap.madvise( MADV_SEQUENTIAL )?;
+                mmap.madvise( MADV_WILLNEED )?;
+            }
+
+            Self::read_from_buffer_copying_data_with_ctx( context, &mmap )
+        }
     }
 
     // Since specialization is not stable yet we do it this way.
@@ -453,13 +647,13 @@ pub trait Readable< 'a, C: Context >: Sized {
 
     #[doc(hidden)]
     #[inline]
-    unsafe fn speedy_slice_as_bytes_mut( _: &mut [Self] ) -> &mut [u8] {
+    unsafe fn speedy_slice_from_bytes( _: &[u8] ) -> &[Self] {
         panic!();
     }
 
     #[doc(hidden)]
     #[inline]
-    unsafe fn speedy_slice_from_bytes( _: &[u8] ) -> &[Self] {
+    unsafe fn speedy_flip_endianness( _: *mut Self ) {
         panic!();
     }
 

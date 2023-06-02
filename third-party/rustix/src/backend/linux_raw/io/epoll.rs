@@ -6,7 +6,7 @@
 //!
 //! # Examples
 //!
-//! ```rust,no_run
+//! ```no_run
 //! # #![cfg_attr(io_lifetimes_use_std, feature(io_safety))]
 //! # #[cfg(feature = "net")]
 //! # fn main() -> std::io::Result<()> {
@@ -76,6 +76,7 @@ use crate::fd::{AsFd, AsRawFd, OwnedFd};
 use crate::io;
 use alloc::vec::Vec;
 use bitflags::bitflags;
+use core::slice;
 
 bitflags! {
     /// `EPOLL_*` for use with [`Epoll::new`].
@@ -103,6 +104,24 @@ bitflags! {
 
         /// `EPOLLHUP`
         const HUP = linux_raw_sys::general::EPOLLHUP as u32;
+
+        /// `EPOLLRDNORM`
+        const RDNORM = linux_raw_sys::general::EPOLLRDNORM as u32;
+
+        /// `EPOLLRDBAND`
+        const RDBAND = linux_raw_sys::general::EPOLLRDBAND as u32;
+
+        /// `EPOLLWRNORM`
+        const WRNORM = linux_raw_sys::general::EPOLLWRNORM as u32;
+
+        /// `EPOLLWRBAND`
+        const WRBAND = linux_raw_sys::general::EPOLLWRBAND as u32;
+
+        /// `EPOLLMSG`
+        const MSG = linux_raw_sys::general::EPOLLMSG as u32;
+
+        /// `EPOLLRDHUP`
+        const RDHUP = linux_raw_sys::general::EPOLLRDHUP as u32;
 
         /// `EPOLLET`
         const ET = linux_raw_sys::general::EPOLLET as u32;
@@ -229,7 +248,7 @@ pub fn epoll_wait(
 
 /// An iterator over the `Event`s in an `EventVec`.
 pub struct Iter<'a> {
-    iter: core::slice::Iter<'a, Event>,
+    iter: slice::Iter<'a, Event>,
 }
 
 impl<'a> Iterator for Iter<'a> {
@@ -247,9 +266,7 @@ impl<'a> Iterator for Iter<'a> {
 #[cfg_attr(target_arch = "x86_64", repr(packed))]
 struct Event {
     // Match the layout of `linux_raw_sys::general::epoll_event`. We just use a
-    // `u64` instead of the full union; `Context` implementations will simply
-    // need to deal with casting the value into and out of the `u64`
-    // themselves.
+    // `u64` instead of the full union.
     event_flags: EventFlags,
     data: u64,
 }

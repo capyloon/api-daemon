@@ -1,11 +1,11 @@
 use super::*;
-use bindings::*;
+use imp::*;
 
-/// A WinRT error object consists of both an error code as well as detailed error information for debugging.
-#[derive(Clone, PartialEq)]
+/// An error object consists of both an error code as well as detailed error information for debugging.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Error {
-    code: HRESULT,
-    info: Option<IRestrictedErrorInfo>,
+    pub(crate) code: HRESULT,
+    pub(crate) info: Option<IRestrictedErrorInfo>,
 }
 
 impl Error {
@@ -16,26 +16,16 @@ impl Error {
     /// point of failure.
     pub fn new(code: HRESULT, message: HSTRING) -> Self {
         unsafe {
-            let function = delay_load(b"combase.dll\0", b"RoOriginateError\0");
-
-            if !function.is_null() {
-                let function: RoOriginateError = core::mem::transmute(function);
-                function(code, core::mem::transmute_copy(&message));
+            if let Some(function) = delay_load::<RoOriginateError>(s!("combase.dll"), s!("RoOriginateError")) {
+                function(code, std::mem::transmute_copy(&message));
             }
-
-            let info = GetErrorInfo(0).and_then(|e| e.cast()).ok();
-
+            let info = GetErrorInfo().and_then(|e| e.cast()).ok();
             Self { code, info }
         }
     }
 
-    #[doc(hidden)]
-    pub const fn fast_error(code: HRESULT) -> Self {
-        Self { code, info: None }
-    }
-
     pub fn from_win32() -> Self {
-        unsafe { Self::fast_error(GetLastError().into()) }
+        unsafe { Self { code: HRESULT::from_win32(GetLastError()), info: None } }
     }
 
     /// The error code describing the error.
@@ -54,57 +44,66 @@ impl Error {
         if let Some(info) = &self.info {
             let mut fallback = BSTR::default();
             let mut message = BSTR::default();
-            let mut unused = BSTR::default();
             let mut code = HRESULT(0);
 
             unsafe {
-                let _ = info.GetErrorDetails(&mut fallback, &mut code, &mut message, &mut unused);
+                let _ = info.GetErrorDetails(&mut fallback, &mut code, &mut message, &mut BSTR::default());
             }
 
             if self.code == code {
                 let message = if !message.is_empty() { message } else { fallback };
-                return HSTRING::from_wide(message.as_wide());
+                return HSTRING::from_wide(wide_trim_end(message.as_wide())).unwrap_or_default();
             }
         }
 
         self.code.message()
     }
-
-    /// Returns the win32 error code if the underlying HRESULT's facility is win32
-    #[cfg(feature = "Win32_Foundation")]
-    pub fn win32_error(&self) -> Option<crate::Win32::Foundation::WIN32_ERROR> {
-        let hresult = self.code.0 as u32;
-        if ((hresult >> 16) & 0x7FF) == 7 {
-            Some(crate::Win32::Foundation::WIN32_ERROR(hresult & 0xFFFF))
-        } else {
-            None
-        }
-    }
 }
 
-// TODO: This should be the same as fast_error and the code that relies on this should be explicit (swap to optimize for fast)
-impl core::convert::From<Error> for HRESULT {
+impl std::convert::From<Error> for HRESULT {
     fn from(error: Error) -> Self {
         let code = error.code;
-        let info = error.info.and_then(|info| info.cast().ok());
+        let info: Option<IErrorInfo> = error.info.and_then(|info| info.cast().ok());
 
         unsafe {
-            let _ = SetErrorInfo(0, info);
+            let _ = SetErrorInfo(0, std::mem::transmute_copy(&info));
         }
 
         code
     }
 }
 
-impl core::convert::From<Error> for std::io::Error {
+impl std::convert::From<Error> for std::io::Error {
     fn from(from: Error) -> Self {
-        Self::from_raw_os_error((from.code.0 & 0xFFFF) as _)
+        Self::from_raw_os_error(from.code.0)
     }
 }
 
-impl core::convert::From<HRESULT> for Error {
+impl std::convert::From<std::string::FromUtf16Error> for Error {
+    fn from(_: std::string::FromUtf16Error) -> Self {
+        Self { code: HRESULT::from_win32(ERROR_NO_UNICODE_TRANSLATION), info: None }
+    }
+}
+
+impl std::convert::From<std::string::FromUtf8Error> for Error {
+    fn from(_: std::string::FromUtf8Error) -> Self {
+        Self { code: HRESULT::from_win32(ERROR_NO_UNICODE_TRANSLATION), info: None }
+    }
+}
+
+// Unfortunately this is needed to make types line up. The Rust type system does
+// not know the `Infallible` can never be constructed. This code needs to be here
+// to satesify the type checker but it will never be run. Once `!` is stabilizied
+// this can be removed.
+impl std::convert::From<std::convert::Infallible> for Error {
+    fn from(_: std::convert::Infallible) -> Self {
+        unreachable!()
+    }
+}
+
+impl std::convert::From<HRESULT> for Error {
     fn from(code: HRESULT) -> Self {
-        let info: Option<IRestrictedErrorInfo> = unsafe { GetErrorInfo(0).and_then(|e| e.cast()).ok() };
+        let info: Option<IRestrictedErrorInfo> = GetErrorInfo().and_then(|e| e.cast()).ok();
 
         if let Some(info) = info {
             // If it does (and therefore running on a recent version of Windows)
@@ -119,28 +118,38 @@ impl core::convert::From<HRESULT> for Error {
             return Self { code, info: Some(info) };
         }
 
-        if let Ok(info) = unsafe { GetErrorInfo(0) } {
+        if let Ok(info) = GetErrorInfo() {
             let message = unsafe { info.GetDescription().unwrap_or_default() };
-            Self::new(code, HSTRING::from_wide(message.as_wide()))
+            Self::new(code, HSTRING::from_wide(message.as_wide()).unwrap_or_default())
         } else {
             Self { code, info: None }
         }
     }
 }
 
-impl core::fmt::Debug for Error {
-    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl std::fmt::Debug for Error {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = fmt.debug_struct("Error");
-        debug.field("code", &format_args!("{:#010X}", self.code.0)).field("message", &self.message()).finish()
+        debug.field("code", &self.code).field("message", &self.message()).finish()
     }
 }
 
-impl core::fmt::Display for Error {
-    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::write!(fmt, "{}", self.message())
+impl std::fmt::Display for Error {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = self.message();
+        if message.is_empty() {
+            std::write!(fmt, "{}", self.code())
+        } else {
+            std::write!(fmt, "{} ({})", self.message(), self.code())
+        }
     }
 }
 
 impl std::error::Error for Error {}
 
-type RoOriginateError = extern "system" fn(code: HRESULT, message: core::mem::ManuallyDrop<HSTRING>) -> BOOL;
+type RoOriginateError = extern "system" fn(code: HRESULT, message: *mut std::ffi::c_void) -> i32;
+
+fn GetErrorInfo() -> Result<IErrorInfo> {
+    let mut result = std::ptr::null_mut();
+    unsafe { imp::GetErrorInfo(0, &mut result).from_abi(result) }
+}

@@ -209,13 +209,15 @@ impl<'buf, Fd: AsFd> RawDir<'buf, Fd> {
             file_type: dirent.d_type,
             inode_number: dirent.d_ino.into(),
             next_entry_cookie: dirent.d_off.into(),
-            // SAFETY: the kernel guarantees a NUL terminated string.
+            // SAFETY: The kernel guarantees a NUL-terminated string.
             file_name: unsafe { CStr::from_ptr(dirent.d_name.as_ptr().cast()) },
         }))
     }
 
     /// Returns true if the internal buffer is empty and will be refilled when
-    /// calling [`next`][Self::next].
+    /// calling [`next`].
+    ///
+    /// [`next`]: Self::next
     pub fn is_buffer_empty(&self) -> bool {
         self.offset >= self.initialized
     }

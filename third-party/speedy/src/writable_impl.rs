@@ -2,13 +2,13 @@ use std::mem;
 use std::borrow::{Cow, ToOwned};
 use std::ops::Range;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::Hash;
 
 use crate::endianness::Endianness;
 use crate::writable::Writable;
 use crate::writer::Writer;
 
 use crate::context::Context;
-use crate::utils::as_bytes;
 
 use crate::private::write_length;
 
@@ -128,7 +128,9 @@ macro_rules! impl_for_primitive {
             #[doc(hidden)]
             #[inline(always)]
             unsafe fn speedy_slice_as_bytes( slice: &[Self] ) -> &[u8] where Self: Sized {
-                as_bytes( slice )
+                unsafe {
+                    std::slice::from_raw_parts( slice.as_ptr() as *const u8, slice.len() * mem::size_of::< Self >() )
+                }
             }
         }
     }
@@ -207,6 +209,18 @@ impl< C: Context > Writable< C > for str {
     }
 }
 
+impl< 'a, C: Context > Writable< C > for &'a str {
+    #[inline]
+    fn write_to< T: ?Sized + Writer< C > >( &self, writer: &mut T ) -> Result< (), C::Error > {
+        self.as_bytes().write_to( writer )
+    }
+
+    #[inline]
+    fn bytes_needed( &self ) -> Result< usize, C::Error > {
+        Writable::< C >::bytes_needed( self.as_bytes() )
+    }
+}
+
 impl< 'r, C: Context > Writable< C > for Cow< 'r, str > {
     #[inline]
     fn write_to< T: ?Sized + Writer< C > >( &self, writer: &mut T ) -> Result< (), C::Error > {
@@ -252,6 +266,66 @@ impl< 'r, C: Context, T: Writable< C > > Writable< C > for Cow< 'r, [T] > where 
     #[inline]
     fn bytes_needed( &self ) -> Result< usize, C::Error > {
         Writable::< C >::bytes_needed( self.as_ref() )
+    }
+}
+
+impl< 'a, C: Context, T: Writable< C > > Writable< C > for &'a [T] where [T]: ToOwned {
+    #[inline]
+    fn write_to< W: ?Sized + Writer< C > >( &self, writer: &mut W ) -> Result< (), C::Error > {
+        <[T] as Writable< C >>::write_to( self, writer )
+    }
+
+    #[inline]
+    fn bytes_needed( &self ) -> Result< usize, C::Error > {
+        <[T] as Writable::< C >>::bytes_needed( self.as_ref() )
+    }
+}
+
+impl< 'r, C, T > Writable< C > for Cow< 'r, HashSet< T > > where C: Context, T: Writable< C > + Clone + Hash + Eq {
+    #[inline]
+    fn write_to< W: ?Sized + Writer< C > >( &self, writer: &mut W ) -> Result< (), C::Error > {
+        (&**self).write_to( writer )
+    }
+
+    #[inline]
+    fn bytes_needed( &self ) -> Result< usize, C::Error > {
+        Writable::< C >::bytes_needed( &**self )
+    }
+}
+
+impl< 'r, C, T > Writable< C > for Cow< 'r, BTreeSet< T > > where C: Context, T: Writable< C > + Clone + Ord {
+    #[inline]
+    fn write_to< W: ?Sized + Writer< C > >( &self, writer: &mut W ) -> Result< (), C::Error > {
+        (&**self).write_to( writer )
+    }
+
+    #[inline]
+    fn bytes_needed( &self ) -> Result< usize, C::Error > {
+        Writable::< C >::bytes_needed( &**self )
+    }
+}
+
+impl< 'r, C, K, V > Writable< C > for Cow< 'r, HashMap< K, V > > where C: Context, K: Writable< C > + Clone + Hash + Eq, V: Writable< C > + Clone {
+    #[inline]
+    fn write_to< W: ?Sized + Writer< C > >( &self, writer: &mut W ) -> Result< (), C::Error > {
+        (&**self).write_to( writer )
+    }
+
+    #[inline]
+    fn bytes_needed( &self ) -> Result< usize, C::Error > {
+        Writable::< C >::bytes_needed( &**self )
+    }
+}
+
+impl< 'r, C, K, V > Writable< C > for Cow< 'r, BTreeMap< K, V > > where C: Context, K: Writable< C > + Clone + Ord, V: Writable< C > + Clone {
+    #[inline]
+    fn write_to< W: ?Sized + Writer< C > >( &self, writer: &mut W ) -> Result< (), C::Error > {
+        (&**self).write_to( writer )
+    }
+
+    #[inline]
+    fn bytes_needed( &self ) -> Result< usize, C::Error > {
+        Writable::< C >::bytes_needed( &**self )
     }
 }
 
@@ -555,6 +629,14 @@ impl_for_array!( 5 );
 impl_for_array!( 6 );
 impl_for_array!( 7 );
 impl_for_array!( 8 );
+impl_for_array!( 9 );
+impl_for_array!( 10 );
+impl_for_array!( 11 );
+impl_for_array!( 12 );
+impl_for_array!( 13 );
+impl_for_array!( 14 );
+impl_for_array!( 15 );
+impl_for_array!( 16 );
 
 impl< C, T > Writable< C > for Box< T >
     where C: Context,

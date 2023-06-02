@@ -1,47 +1,71 @@
-use super::*;
-use bindings::*;
-
-/// Provides low-level access to a COM interface.
+/// Provides low-level access to an interface vtable.
 ///
-/// This trait is automatically used by the generated bindings and should not be
-/// used directly.
+/// This trait is automatically implemented by the generated bindings and should not be
+/// implemented manually.
+///
 /// # Safety
 pub unsafe trait Interface: Sized {
-    #[doc(hidden)]
     type Vtable;
 
-    /// A unique identifier representing this interface.
-    const IID: GUID;
-
+    /// A reference to the interface's vtable
     #[doc(hidden)]
-    unsafe fn vtable(&self) -> &Self::Vtable {
-        self.assume_vtable::<Self>()
+    fn vtable(&self) -> &Self::Vtable {
+        // SAFETY: the implementor of the trait guarantees that `Self` is castable to its vtable
+        unsafe { self.assume_vtable::<Self>() }
     }
 
+    /// Cast this interface as a reference to the supplied interfaces `Vtable`
+    ///
+    /// # SAFETY
+    ///
+    /// This is safe if `T` is an equivalent interface to `Self` or a super interface.
+    /// In other words, `T::Vtable` must be equivalent to the beginning of `Self::Vtable`.
     #[doc(hidden)]
     unsafe fn assume_vtable<T: Interface>(&self) -> &T::Vtable {
-        let this: RawPtr = core::mem::transmute_copy(self);
-        &(*(*(this as *mut *mut _) as *mut _))
+        &**(self.as_raw() as *mut *mut T::Vtable)
     }
 
-    #[doc(hidden)]
-    unsafe fn query(&self, iid: &GUID, interface: *mut RawPtr) -> HRESULT {
-        (self.assume_vtable::<IUnknown>().QueryInterface)(core::mem::transmute_copy(self), iid, interface)
+    /// Returns the raw COM interface pointer. The resulting pointer continues to be owned by the `Interface` implementation.
+    #[inline(always)]
+    fn as_raw(&self) -> *mut std::ffi::c_void {
+        // SAFETY: implementors of this trait must guarantee that the implementing type has a pointer in-memory representation
+        unsafe { std::mem::transmute_copy(self) }
     }
 
-    /// Attempts to cast the current interface to another interface using `QueryInterface`.
-    /// The name `cast` is preferred to `query` because there is a WinRT method named query but not one
-    /// named cast.
-    fn cast<T: Interface>(&self) -> Result<T> {
-        unsafe {
-            let mut result = None;
+    /// Returns the raw COM interface pointer and releases ownership. It the caller's responsibility to release the COM interface pointer.
+    fn into_raw(self) -> *mut std::ffi::c_void {
+        // SAFETY: implementors of this trait must guarantee that the implementing type has a pointer in-memory representation
+        let raw = self.as_raw();
+        std::mem::forget(self);
+        raw
+    }
 
-            (self.assume_vtable::<IUnknown>().QueryInterface)(core::mem::transmute_copy(self), &T::IID, &mut result as *mut _ as _).and_some(result)
+    /// Creates an `Interface` by taking ownership of the `raw` COM interface pointer.
+    ///
+    /// # Safety
+    ///
+    /// The `raw` pointer must be owned by the caller and represent a valid COM interface pointer. In other words,
+    /// it must point to a vtable beginning with the `IUnknown` function pointers and match the vtable of `Interface`.
+    unsafe fn from_raw(raw: *mut std::ffi::c_void) -> Self {
+        std::mem::transmute_copy(&raw)
+    }
+
+    /// Creates an `Interface` that is valid so long as the `raw` COM interface pointer is valid.
+    ///
+    /// # Safety
+    ///
+    /// The `raw` pointer must be a valid COM interface pointer. In other words, it must point to a vtable
+    /// beginning with the `IUnknown` function pointers and match the vtable of `Interface`.
+    unsafe fn from_raw_borrowed(raw: &*mut std::ffi::c_void) -> Option<&Self> {
+        if raw.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute_copy(&raw))
         }
     }
+}
 
-    /// Attempts to create a [`Weak`] reference to this object.
-    fn downgrade(&self) -> Result<Weak<Self>> {
-        self.cast::<IWeakReferenceSource>().and_then(|source| Weak::downgrade(&source))
-    }
+#[doc(hidden)]
+pub unsafe fn from_raw_borrowed<T: Interface>(raw: &*mut std::ffi::c_void) -> Option<&T> {
+    T::from_raw_borrowed(raw)
 }

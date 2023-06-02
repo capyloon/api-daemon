@@ -271,7 +271,7 @@ pub const PTHREAD_MUTEX_RECURSIVE: ::c_int = 1;
 pub const PTHREAD_MUTEX_ERRORCHECK: ::c_int = 2;
 
 cfg_if! {
-    if #[cfg(target_os = "horizon")] {
+    if #[cfg(any(target_os = "horizon", target_os = "espidf"))] {
         pub const FD_SETSIZE: usize = 64;
     } else {
         pub const FD_SETSIZE: usize = 1024;
@@ -730,6 +730,9 @@ cfg_if! {
     } else if #[cfg(target_os = "horizon")] {
         mod horizon;
         pub use self::horizon::*;
+    } else if #[cfg(target_os = "vita")] {
+        mod vita;
+        pub use self::vita::*;
     } else if #[cfg(target_arch = "arm")] {
         mod arm;
         pub use self::arm::*;

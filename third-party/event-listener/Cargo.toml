@@ -13,14 +13,25 @@
 edition = "2018"
 rust-version = "1.36"
 name = "event-listener"
-version = "2.5.2"
+version = "2.5.3"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
 description = "Notify async tasks or threads"
-keywords = ["condvar", "eventcount", "wake", "blocking", "park"]
-categories = ["asynchronous", "concurrency"]
+readme = "README.md"
+keywords = [
+    "condvar",
+    "eventcount",
+    "wake",
+    "blocking",
+    "park",
+]
+categories = [
+    "asynchronous",
+    "concurrency",
+]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/event-listener"
+
 [dev-dependencies.futures]
 version = "0.3"
 features = ["std"]

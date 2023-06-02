@@ -65,6 +65,71 @@ impl<S: Stream + Unpin> Iterator for BlockOn<S> {
     fn next(&mut self) -> Option<Self::Item> {
         crate::future::block_on(self.0.next())
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+
+    fn count(self) -> usize {
+        crate::future::block_on(self.0.count())
+    }
+
+    fn last(self) -> Option<Self::Item> {
+        crate::future::block_on(self.0.last())
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        crate::future::block_on(self.0.nth(n))
+    }
+
+    fn fold<B, F>(self, init: B, f: F) -> B
+    where
+        F: FnMut(B, Self::Item) -> B,
+    {
+        crate::future::block_on(self.0.fold(init, f))
+    }
+
+    fn for_each<F>(self, f: F) -> F::Output
+    where
+        F: FnMut(Self::Item),
+    {
+        crate::future::block_on(self.0.for_each(f))
+    }
+
+    fn all<F>(&mut self, f: F) -> bool
+    where
+        F: FnMut(Self::Item) -> bool,
+    {
+        crate::future::block_on(self.0.all(f))
+    }
+
+    fn any<F>(&mut self, f: F) -> bool
+    where
+        F: FnMut(Self::Item) -> bool,
+    {
+        crate::future::block_on(self.0.any(f))
+    }
+
+    fn find<P>(&mut self, predicate: P) -> Option<Self::Item>
+    where
+        P: FnMut(&Self::Item) -> bool,
+    {
+        crate::future::block_on(self.0.find(predicate))
+    }
+
+    fn find_map<B, F>(&mut self, f: F) -> Option<B>
+    where
+        F: FnMut(Self::Item) -> Option<B>,
+    {
+        crate::future::block_on(self.0.find_map(f))
+    }
+
+    fn position<P>(&mut self, predicate: P) -> Option<usize>
+    where
+        P: FnMut(Self::Item) -> bool,
+    {
+        crate::future::block_on(self.0.position(predicate))
+    }
 }
 
 /// Creates an empty stream.
@@ -544,6 +609,53 @@ where
                     Err(e) => Poll::Ready(Some(Err(e))),
                 }
             }
+        }
+    }
+}
+
+/// Creates a stream that invokes the given future as its first item, and then
+/// produces no more items.
+///
+/// # Example
+///
+/// ```
+/// use futures_lite::{stream, prelude::*};
+///
+/// # spin_on::spin_on(async {
+/// let mut stream = Box::pin(stream::once_future(async { 1 }));
+/// assert_eq!(stream.next().await, Some(1));
+/// assert_eq!(stream.next().await, None);
+/// # });
+/// ```
+pub fn once_future<F: Future>(future: F) -> OnceFuture<F> {
+    OnceFuture {
+        future: Some(future),
+    }
+}
+
+pin_project! {
+    /// Stream for the [`once_future()`] method.
+    #[derive(Debug)]
+    #[must_use = "futures do nothing unless you `.await` or poll them"]
+    pub struct OnceFuture<F> {
+        #[pin]
+        future: Option<F>,
+    }
+}
+
+impl<F: Future> Stream for OnceFuture<F> {
+    type Item = F::Output;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        match this.future.as_mut().as_pin_mut().map(|f| f.poll(cx)) {
+            Some(Poll::Ready(t)) => {
+                this.future.set(None);
+                Poll::Ready(Some(t))
+            }
+            Some(Poll::Pending) => Poll::Pending,
+            None => Poll::Ready(None),
         }
     }
 }
@@ -1811,9 +1923,7 @@ where
         loop {
             match ready!(this.stream.as_mut().poll_next(cx)) {
                 Some(e) => this.collection.extend(Some(e)),
-                None => {
-                    return Poll::Ready(mem::replace(self.project().collection, Default::default()))
-                }
+                None => return Poll::Ready(mem::take(self.project().collection)),
             }
         }
     }
@@ -1842,7 +1952,7 @@ where
         Poll::Ready(Ok(loop {
             match ready!(this.stream.as_mut().poll_next(cx)?) {
                 Some(x) => this.items.extend(Some(x)),
-                None => break mem::replace(this.items, Default::default()),
+                None => break mem::take(this.items),
             }
         }))
     }
@@ -2083,7 +2193,7 @@ where
 }
 
 pin_project! {
-    /// Stream for the [`StreamExt::flat_map()`] method.
+    /// Stream for the [`StreamExt::flatten()`] method.
     #[derive(Clone, Debug)]
     #[must_use = "streams do nothing unless polled"]
     pub struct Flatten<S: Stream> {
@@ -2157,7 +2267,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let future_len = if self.future.is_some() { 1 } else { 0 };
+        let future_len = self.future.is_some() as usize;
         let (lower, upper) = self.stream.size_hint();
         let lower = lower.saturating_add(future_len);
         let upper = upper.and_then(|u| u.checked_add(future_len));
@@ -2626,7 +2736,7 @@ where
 }
 
 pin_project! {
-    /// Stream for the [`StreamExt::cycle()`] method.
+    /// Stream for the [`StreamExt::enumerate()`] method.
     #[derive(Clone, Debug)]
     #[must_use = "streams do nothing unless polled"]
     pub struct Enumerate<S> {

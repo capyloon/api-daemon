@@ -18,7 +18,7 @@ use core::ops::{
 };
 use core::u32;
 
-use crate::convert::{FromWasmAbi, WasmOptionalF64, WasmSlice};
+use crate::convert::{FromWasmAbi, WasmSlice};
 
 macro_rules! if_std {
     ($($i:item)*) => ($(
@@ -44,12 +44,13 @@ macro_rules! externs {
     )
 }
 
-/// A module which is typically glob imported from:
+/// A module which is typically glob imported.
 ///
 /// ```
 /// use wasm_bindgen::prelude::*;
 /// ```
 pub mod prelude {
+    pub use crate::JsCast;
     pub use crate::JsValue;
     pub use crate::UnwrapThrowExt;
     #[doc(hidden)]
@@ -63,11 +64,14 @@ pub mod prelude {
     pub use crate::JsError;
 }
 
+pub use wasm_bindgen_macro::link_to;
+
 pub mod convert;
 pub mod describe;
 
 mod cast;
 pub use crate::cast::{JsCast, JsObject};
+use convert::WasmOption;
 
 if_std! {
     extern crate std;
@@ -90,7 +94,7 @@ pub struct JsValue {
     _marker: marker::PhantomData<*mut u8>, // not at all threadsafe
 }
 
-const JSIDX_OFFSET: u32 = 32; // keep in sync with js/mod.rs
+const JSIDX_OFFSET: u32 = 128; // keep in sync with js/mod.rs
 const JSIDX_UNDEFINED: u32 = JSIDX_OFFSET + 0;
 const JSIDX_NULL: u32 = JSIDX_OFFSET + 1;
 const JSIDX_TRUE: u32 = JSIDX_OFFSET + 2;
@@ -99,31 +103,19 @@ const JSIDX_RESERVED: u32 = JSIDX_OFFSET + 4;
 
 impl JsValue {
     /// The `null` JS value constant.
-    pub const NULL: JsValue = JsValue {
-        idx: JSIDX_NULL,
-        _marker: marker::PhantomData,
-    };
+    pub const NULL: JsValue = JsValue::_new(JSIDX_NULL);
 
     /// The `undefined` JS value constant.
-    pub const UNDEFINED: JsValue = JsValue {
-        idx: JSIDX_UNDEFINED,
-        _marker: marker::PhantomData,
-    };
+    pub const UNDEFINED: JsValue = JsValue::_new(JSIDX_UNDEFINED);
 
     /// The `true` JS value constant.
-    pub const TRUE: JsValue = JsValue {
-        idx: JSIDX_TRUE,
-        _marker: marker::PhantomData,
-    };
+    pub const TRUE: JsValue = JsValue::_new(JSIDX_TRUE);
 
     /// The `false` JS value constant.
-    pub const FALSE: JsValue = JsValue {
-        idx: JSIDX_FALSE,
-        _marker: marker::PhantomData,
-    };
+    pub const FALSE: JsValue = JsValue::_new(JSIDX_FALSE);
 
     #[inline]
-    fn _new(idx: u32) -> JsValue {
+    const fn _new(idx: u32) -> JsValue {
         JsValue {
             idx,
             _marker: marker::PhantomData,
@@ -154,7 +146,7 @@ impl JsValue {
     /// allocated large integer) and returns a handle to the JS version of it.
     #[inline]
     pub fn bigint_from_str(s: &str) -> JsValue {
-        unsafe { JsValue::_new(__wbindgen_bigint_new(s.as_ptr(), s.len())) }
+        unsafe { JsValue::_new(__wbindgen_bigint_from_str(s.as_ptr(), s.len())) }
     }
 
     /// Creates a new JS value which is a boolean.
@@ -162,7 +154,7 @@ impl JsValue {
     /// This function creates a JS object representing a boolean (a heap
     /// allocated boolean) and returns a handle to the JS version of it.
     #[inline]
-    pub fn from_bool(b: bool) -> JsValue {
+    pub const fn from_bool(b: bool) -> JsValue {
         if b {
             JsValue::TRUE
         } else {
@@ -172,13 +164,13 @@ impl JsValue {
 
     /// Creates a new JS value representing `undefined`.
     #[inline]
-    pub fn undefined() -> JsValue {
+    pub const fn undefined() -> JsValue {
         JsValue::UNDEFINED
     }
 
     /// Creates a new JS value representing `null`.
     #[inline]
-    pub fn null() -> JsValue {
+    pub const fn null() -> JsValue {
         JsValue::NULL
     }
 
@@ -201,6 +193,14 @@ impl JsValue {
     /// Creates a new `JsValue` from the JSON serialization of the object `t`
     /// provided.
     ///
+    /// **This function is deprecated**, due to [creating a dependency cycle in
+    /// some circumstances][dep-cycle-issue]. Use [`serde-wasm-bindgen`] or
+    /// [`gloo_utils::format::JsValueSerdeExt`] instead.
+    ///
+    /// [dep-cycle-issue]: https://github.com/rustwasm/wasm-bindgen/issues/2770
+    /// [`serde-wasm-bindgen`]: https://docs.rs/serde-wasm-bindgen
+    /// [`gloo_utils::format::JsValueSerdeExt`]: https://docs.rs/gloo-utils/latest/gloo_utils/format/trait.JsValueSerdeExt.html
+    ///
     /// This function will serialize the provided value `t` to a JSON string,
     /// send the JSON string to JS, parse it into a JS object, and then return
     /// a handle to the JS object. This is unlikely to be super speedy so it's
@@ -214,6 +214,7 @@ impl JsValue {
     ///
     /// Returns any error encountered when serializing `T` into JSON.
     #[cfg(feature = "serde-serialize")]
+    #[deprecated = "causes dependency cycles, use `serde-wasm-bindgen` or `gloo_utils::format::JsValueSerdeExt` instead"]
     pub fn from_serde<T>(t: &T) -> serde_json::Result<JsValue>
     where
         T: serde::ser::Serialize + ?Sized,
@@ -224,6 +225,14 @@ impl JsValue {
 
     /// Invokes `JSON.stringify` on this value and then parses the resulting
     /// JSON into an arbitrary Rust value.
+    ///
+    /// **This function is deprecated**, due to [creating a dependency cycle in
+    /// some circumstances][dep-cycle-issue]. Use [`serde-wasm-bindgen`] or
+    /// [`gloo_utils::format::JsValueSerdeExt`] instead.
+    ///
+    /// [dep-cycle-issue]: https://github.com/rustwasm/wasm-bindgen/issues/2770
+    /// [`serde-wasm-bindgen`]: https://docs.rs/serde-wasm-bindgen
+    /// [`gloo_utils::format::JsValueSerdeExt`]: https://docs.rs/gloo-utils/latest/gloo_utils/format/trait.JsValueSerdeExt.html
     ///
     /// This function will first call `JSON.stringify` on the `JsValue` itself.
     /// The resulting string is then passed into Rust which then parses it as
@@ -236,6 +245,7 @@ impl JsValue {
     ///
     /// Returns any error encountered when parsing the JSON into a `T`.
     #[cfg(feature = "serde-serialize")]
+    #[deprecated = "causes dependency cycles, use `serde-wasm-bindgen` or `gloo_utils::format::JsValueSerdeExt` instead"]
     pub fn into_serde<T>(&self) -> serde_json::Result<T>
     where
         T: for<'a> serde::de::Deserialize<'a>,
@@ -327,6 +337,12 @@ impl JsValue {
     #[inline]
     pub fn is_object(&self) -> bool {
         unsafe { __wbindgen_is_object(self.idx) == 1 }
+    }
+
+    /// Tests whether this JS value is an instance of Array.
+    #[inline]
+    pub fn is_array(&self) -> bool {
+        unsafe { __wbindgen_is_array(self.idx) == 1 }
     }
 
     /// Tests whether the type of this JS value is `function`.
@@ -760,6 +776,20 @@ impl<'a> From<&'a str> for JsValue {
     }
 }
 
+impl<T> From<*mut T> for JsValue {
+    #[inline]
+    fn from(s: *mut T) -> JsValue {
+        JsValue::from(s as usize)
+    }
+}
+
+impl<T> From<*const T> for JsValue {
+    #[inline]
+    fn from(s: *const T) -> JsValue {
+        JsValue::from(s as usize)
+    }
+}
+
 if_std! {
     impl<'a> From<&'a String> for JsValue {
         #[inline]
@@ -850,7 +880,7 @@ macro_rules! numbers {
 numbers! { i8 u8 i16 u16 i32 u32 f32 f64 }
 
 macro_rules! big_numbers {
-    ($($n:ident)*) => ($(
+    (|$arg:ident|, $($n:ident = $handle:expr,)*) => ($(
         impl PartialEq<$n> for JsValue {
             #[inline]
             fn eq(&self, other: &$n) -> bool {
@@ -860,14 +890,107 @@ macro_rules! big_numbers {
 
         impl From<$n> for JsValue {
             #[inline]
-            fn from(n: $n) -> JsValue {
-                JsValue::bigint_from_str(&n.to_string())
+            fn from($arg: $n) -> JsValue {
+                unsafe { JsValue::_new($handle) }
             }
         }
     )*)
 }
 
-big_numbers! { i64 u64 i128 u128 isize usize }
+fn bigint_get_as_i64(v: &JsValue) -> Option<i64> {
+    unsafe { Option::from_abi(__wbindgen_bigint_get_as_i64(v.idx)) }
+}
+
+macro_rules! try_from_for_num64 {
+    ($ty:ty) => {
+        impl TryFrom<JsValue> for $ty {
+            type Error = JsValue;
+
+            #[inline]
+            fn try_from(v: JsValue) -> Result<Self, JsValue> {
+                bigint_get_as_i64(&v)
+                    // Reinterpret bits; ABI-wise this is safe to do and allows us to avoid
+                    // having separate intrinsics per signed/unsigned types.
+                    .map(|as_i64| as_i64 as Self)
+                    // Double-check that we didn't truncate the bigint to 64 bits.
+                    .filter(|as_self| v == *as_self)
+                    // Not a bigint or not in range.
+                    .ok_or(v)
+            }
+        }
+    };
+}
+
+try_from_for_num64!(i64);
+try_from_for_num64!(u64);
+
+macro_rules! try_from_for_num128 {
+    ($ty:ty, $hi_ty:ty) => {
+        impl TryFrom<JsValue> for $ty {
+            type Error = JsValue;
+
+            #[inline]
+            fn try_from(v: JsValue) -> Result<Self, JsValue> {
+                // Truncate the bigint to 64 bits, this will give us the lower part.
+                let lo = match bigint_get_as_i64(&v) {
+                    // The lower part must be interpreted as unsigned in both i128 and u128.
+                    Some(lo) => lo as u64,
+                    // Not a bigint.
+                    None => return Err(v),
+                };
+                // Now we know it's a bigint, so we can safely use `>> 64n` without
+                // worrying about a JS exception on type mismatch.
+                let hi = v >> JsValue::from(64_u64);
+                // The high part is the one we want checked against a 64-bit range.
+                // If it fits, then our original number is in the 128-bit range.
+                let hi = <$hi_ty>::try_from(hi)?;
+                Ok(Self::from(hi) << 64 | Self::from(lo))
+            }
+        }
+    };
+}
+
+try_from_for_num128!(i128, i64);
+try_from_for_num128!(u128, u64);
+
+big_numbers! {
+    |n|,
+    i64 = __wbindgen_bigint_from_i64(n),
+    u64 = __wbindgen_bigint_from_u64(n),
+    i128 = __wbindgen_bigint_from_i128((n >> 64) as i64, n as u64),
+    u128 = __wbindgen_bigint_from_u128((n >> 64) as u64, n as u64),
+}
+
+// `usize` and `isize` have to be treated a bit specially, because we know that
+// they're 32-bit but the compiler conservatively assumes they might be bigger.
+// So, we have to manually forward to the `u32`/`i32` versions.
+impl PartialEq<usize> for JsValue {
+    #[inline]
+    fn eq(&self, other: &usize) -> bool {
+        *self == (*other as u32)
+    }
+}
+
+impl From<usize> for JsValue {
+    #[inline]
+    fn from(n: usize) -> Self {
+        Self::from(n as u32)
+    }
+}
+
+impl PartialEq<isize> for JsValue {
+    #[inline]
+    fn eq(&self, other: &isize) -> bool {
+        *self == (*other as i32)
+    }
+}
+
+impl From<isize> for JsValue {
+    #[inline]
+    fn from(n: isize) -> Self {
+        Self::from(n as i32)
+    }
+}
 
 externs! {
     #[link(wasm_import_module = "__wbindgen_placeholder__")]
@@ -877,7 +1000,11 @@ externs! {
 
         fn __wbindgen_string_new(ptr: *const u8, len: usize) -> u32;
         fn __wbindgen_number_new(f: f64) -> u32;
-        fn __wbindgen_bigint_new(ptr: *const u8, len: usize) -> u32;
+        fn __wbindgen_bigint_from_str(ptr: *const u8, len: usize) -> u32;
+        fn __wbindgen_bigint_from_i64(n: i64) -> u32;
+        fn __wbindgen_bigint_from_u64(n: u64) -> u32;
+        fn __wbindgen_bigint_from_i128(hi: i64, lo: u64) -> u32;
+        fn __wbindgen_bigint_from_u128(hi: u64, lo: u64) -> u32;
         fn __wbindgen_symbol_named_new(ptr: *const u8, len: usize) -> u32;
         fn __wbindgen_symbol_anonymous_new() -> u32;
 
@@ -887,6 +1014,7 @@ externs! {
         fn __wbindgen_is_undefined(idx: u32) -> u32;
         fn __wbindgen_is_symbol(idx: u32) -> u32;
         fn __wbindgen_is_object(idx: u32) -> u32;
+        fn __wbindgen_is_array(idx: u32) -> u32;
         fn __wbindgen_is_function(idx: u32) -> u32;
         fn __wbindgen_is_string(idx: u32) -> u32;
         fn __wbindgen_is_bigint(idx: u32) -> u32;
@@ -917,9 +1045,10 @@ externs! {
         fn __wbindgen_ge(a: u32, b: u32) -> u32;
         fn __wbindgen_gt(a: u32, b: u32) -> u32;
 
-        fn __wbindgen_number_get(idx: u32) -> WasmOptionalF64;
+        fn __wbindgen_number_get(idx: u32) -> WasmOption<f64>;
         fn __wbindgen_boolean_get(idx: u32) -> u32;
         fn __wbindgen_string_get(idx: u32) -> WasmSlice;
+        fn __wbindgen_bigint_get_as_i64(idx: u32) -> WasmOption<i64>;
 
         fn __wbindgen_debug_string(ret: *mut [usize; 2], idx: u32) -> ();
 
@@ -937,8 +1066,11 @@ externs! {
         fn __wbindgen_jsval_eq(a: u32, b: u32) -> u32;
         fn __wbindgen_jsval_loose_eq(a: u32, b: u32) -> u32;
 
+        fn __wbindgen_copy_to_typed_array(ptr: *const u8, len: usize, idx: u32) -> ();
+
         fn __wbindgen_not(idx: u32) -> u32;
 
+        fn __wbindgen_exports() -> u32;
         fn __wbindgen_memory() -> u32;
         fn __wbindgen_module() -> u32;
         fn __wbindgen_function_table() -> u32;
@@ -1165,17 +1297,31 @@ pub fn anyref_heap_live_count() -> u32 {
 pub trait UnwrapThrowExt<T>: Sized {
     /// Unwrap this `Option` or `Result`, but instead of panicking on failure,
     /// throw an exception to JavaScript.
+    #[cfg_attr(debug_assertions, track_caller)]
     fn unwrap_throw(self) -> T {
-        self.expect_throw("`unwrap_throw` failed")
+        if cfg!(all(debug_assertions, feature = "std")) {
+            let loc = core::panic::Location::caller();
+            let msg = std::format!(
+                "`unwrap_throw` failed ({}:{}:{})",
+                loc.file(),
+                loc.line(),
+                loc.column()
+            );
+            self.expect_throw(&msg)
+        } else {
+            self.expect_throw("`unwrap_throw` failed")
+        }
     }
 
     /// Unwrap this container's `T` value, or throw an error to JS with the
     /// given message if the `T` value is unavailable (e.g. an `Option<T>` is
     /// `None`).
+    #[cfg_attr(debug_assertions, track_caller)]
     fn expect_throw(self, message: &str) -> T;
 }
 
 impl<T> UnwrapThrowExt<T> for Option<T> {
+    #[cfg_attr(debug_assertions, track_caller)]
     fn expect_throw(self, message: &str) -> T {
         if cfg!(all(target_arch = "wasm32", not(target_os = "emscripten"))) {
             match self {
@@ -1192,6 +1338,7 @@ impl<T, E> UnwrapThrowExt<T> for Result<T, E>
 where
     E: core::fmt::Debug,
 {
+    #[cfg_attr(debug_assertions, track_caller)]
     fn expect_throw(self, message: &str) -> T {
         if cfg!(all(target_arch = "wasm32", not(target_os = "emscripten"))) {
             match self {
@@ -1215,6 +1362,11 @@ pub fn module() -> JsValue {
     unsafe { JsValue::_new(__wbindgen_module()) }
 }
 
+/// Returns a handle to this wasm instance's `WebAssembly.Instance.prototype.exports`
+pub fn exports() -> JsValue {
+    unsafe { JsValue::_new(__wbindgen_exports()) }
+}
+
 /// Returns a handle to this wasm instance's `WebAssembly.Memory`
 pub fn memory() -> JsValue {
     unsafe { JsValue::_new(__wbindgen_memory()) }
@@ -1229,7 +1381,9 @@ pub fn function_table() -> JsValue {
 #[doc(hidden)]
 pub mod __rt {
     use crate::JsValue;
+    use core::borrow::{Borrow, BorrowMut};
     use core::cell::{Cell, UnsafeCell};
+    use core::convert::Infallible;
     use core::ops::{Deref, DerefMut};
 
     pub extern crate core;
@@ -1348,6 +1502,13 @@ pub mod __rt {
         }
     }
 
+    impl<'b, T: ?Sized> Borrow<T> for Ref<'b, T> {
+        #[inline]
+        fn borrow(&self) -> &T {
+            self.value
+        }
+    }
+
     impl<'b, T: ?Sized> Drop for Ref<'b, T> {
         fn drop(&mut self) {
             self.borrow.set(self.borrow.get() - 1);
@@ -1371,6 +1532,20 @@ pub mod __rt {
     impl<'b, T: ?Sized> DerefMut for RefMut<'b, T> {
         #[inline]
         fn deref_mut(&mut self) -> &mut T {
+            self.value
+        }
+    }
+
+    impl<'b, T: ?Sized> Borrow<T> for RefMut<'b, T> {
+        #[inline]
+        fn borrow(&self) -> &T {
+            self.value
+        }
+    }
+
+    impl<'b, T: ?Sized> BorrowMut<T> for RefMut<'b, T> {
+        #[inline]
+        fn borrow_mut(&mut self) -> &mut T {
             self.value
         }
     }
@@ -1560,6 +1735,42 @@ pub mod __rt {
         fn start(self) {
             if let Err(e) = self {
                 crate::throw_val(e.into());
+            }
+        }
+    }
+
+    /// An internal helper struct for usage in `#[wasm_bindgen(main)]`
+    /// functions to throw the error (if it is `Err`).
+    pub struct MainWrapper<T>(pub Option<T>);
+
+    pub trait Main {
+        fn __wasm_bindgen_main(&mut self);
+    }
+
+    impl Main for &mut &mut MainWrapper<()> {
+        #[inline]
+        fn __wasm_bindgen_main(&mut self) {}
+    }
+
+    impl Main for &mut &mut MainWrapper<Infallible> {
+        #[inline]
+        fn __wasm_bindgen_main(&mut self) {}
+    }
+
+    impl<E: Into<JsValue>> Main for &mut &mut MainWrapper<Result<(), E>> {
+        #[inline]
+        fn __wasm_bindgen_main(&mut self) {
+            if let Err(e) = self.0.take().unwrap() {
+                crate::throw_val(e.into());
+            }
+        }
+    }
+
+    impl<E: std::fmt::Debug> Main for &mut MainWrapper<Result<(), E>> {
+        #[inline]
+        fn __wasm_bindgen_main(&mut self) {
+            if let Err(e) = self.0.take().unwrap() {
+                crate::throw_str(&std::format!("{:?}", e));
             }
         }
     }

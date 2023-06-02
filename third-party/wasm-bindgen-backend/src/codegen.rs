@@ -1,13 +1,13 @@
 use crate::ast;
 use crate::encode;
-use crate::util::ShortHash;
 use crate::Diagnostic;
+use once_cell::sync::Lazy;
 use proc_macro2::{Ident, Literal, Span, TokenStream};
+use quote::quote_spanned;
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use syn;
+use syn::spanned::Spanned;
 use wasm_bindgen_shared as shared;
 
 /// A trait for converting AST structs into Tokens and adding them to a TokenStream,
@@ -43,7 +43,11 @@ impl TryToTokens for ast::Program {
             }
         }
         for i in self.imports.iter() {
-            DescribeImport { kind: &i.kind }.to_tokens(tokens);
+            DescribeImport {
+                kind: &i.kind,
+                wasm_bindgen: &self.wasm_bindgen,
+            }
+            .to_tokens(tokens);
 
             // If there is a js namespace, check that name isn't a type. If it is,
             // this import might be a method on that type.
@@ -82,14 +86,6 @@ impl TryToTokens for ast::Program {
         // of the wasm executable. For now it's just a plain old static, but we'll
         // eventually have it actually in its own section.
 
-        static CNT: AtomicUsize = AtomicUsize::new(0);
-
-        let generated_static_name = format!(
-            "__WASM_BINDGEN_GENERATED_{}",
-            ShortHash(CNT.fetch_add(1, Ordering::SeqCst)),
-        );
-        let generated_static_name = Ident::new(&generated_static_name, Span::call_site());
-
         // See comments in `crates/cli-support/src/lib.rs` about what this
         // `schema_version` is.
         let prefix_json = format!(
@@ -98,13 +94,13 @@ impl TryToTokens for ast::Program {
             shared::version()
         );
         let encoded = encode::encode(self)?;
-        let mut bytes = Vec::new();
-        bytes.push((prefix_json.len() >> 0) as u8);
-        bytes.push((prefix_json.len() >> 8) as u8);
-        bytes.push((prefix_json.len() >> 16) as u8);
-        bytes.push((prefix_json.len() >> 24) as u8);
-        bytes.extend_from_slice(prefix_json.as_bytes());
-        bytes.extend_from_slice(&encoded.custom_section);
+        let len = prefix_json.len() as u32;
+        let bytes = [
+            &len.to_le_bytes()[..],
+            prefix_json.as_bytes(),
+            &encoded.custom_section,
+        ]
+        .concat();
 
         let generated_static_length = bytes.len();
         let generated_static_value = syn::LitByteStr::new(&bytes, Span::call_site());
@@ -125,17 +121,40 @@ impl TryToTokens for ast::Program {
         (quote! {
             #[cfg(target_arch = "wasm32")]
             #[automatically_derived]
-            #[link_section = "__wasm_bindgen_unstable"]
-            #[doc(hidden)]
-            pub static #generated_static_name: [u8; #generated_static_length] = {
+            const _: () = {
                 static _INCLUDED_FILES: &[&str] = &[#(#file_dependencies),*];
 
-                *#generated_static_value
+                #[link_section = "__wasm_bindgen_unstable"]
+                pub static _GENERATED: [u8; #generated_static_length] =
+                    *#generated_static_value;
             };
-
         })
         .to_tokens(tokens);
 
+        Ok(())
+    }
+}
+
+impl TryToTokens for ast::LinkToModule {
+    fn try_to_tokens(&self, tokens: &mut TokenStream) -> Result<(), Diagnostic> {
+        let mut program = TokenStream::new();
+        self.0.try_to_tokens(&mut program)?;
+        let link_function_name = self.0.link_function_name(0);
+        let name = Ident::new(&link_function_name, Span::call_site());
+        let wasm_bindgen = &self.0.wasm_bindgen;
+        let abi_ret = quote! { <std::string::String as #wasm_bindgen::convert::FromWasmAbi>::Abi };
+        let extern_fn = extern_fn(&name, &[], &[], &[], abi_ret);
+        (quote! {
+            {
+                #program
+                #extern_fn
+
+                unsafe {
+                    <std::string::String as #wasm_bindgen::convert::FromWasmAbi>::from_abi(#name())
+                }
+            }
+        })
+        .to_tokens(tokens);
         Ok(())
     }
 }
@@ -148,19 +167,19 @@ impl ToTokens for ast::Struct {
         let name_chars = name_str.chars().map(|c| c as u32);
         let new_fn = Ident::new(&shared::new_function(&name_str), Span::call_site());
         let free_fn = Ident::new(&shared::free_function(&name_str), Span::call_site());
-        let free_fn_const = Ident::new(&format!("{}__const", free_fn), free_fn.span());
+        let wasm_bindgen = &self.wasm_bindgen;
         (quote! {
             #[automatically_derived]
-            impl wasm_bindgen::describe::WasmDescribe for #name {
+            impl #wasm_bindgen::describe::WasmDescribe for #name {
                 fn describe() {
-                    use wasm_bindgen::__wbindgen_if_not_std;
+                    use #wasm_bindgen::__wbindgen_if_not_std;
                     __wbindgen_if_not_std! {
                         compile_error! {
                             "exporting a class to JS requires the `std` feature to \
                              be enabled in the `wasm-bindgen` crate"
                         }
                     }
-                    use wasm_bindgen::describe::*;
+                    use #wasm_bindgen::describe::*;
                     inform(RUST_STRUCT);
                     inform(#name_len);
                     #(inform(#name_chars);)*
@@ -168,23 +187,23 @@ impl ToTokens for ast::Struct {
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::IntoWasmAbi for #name {
+            impl #wasm_bindgen::convert::IntoWasmAbi for #name {
                 type Abi = u32;
 
                 fn into_abi(self) -> u32 {
-                    use wasm_bindgen::__rt::std::boxed::Box;
-                    use wasm_bindgen::__rt::WasmRefCell;
+                    use #wasm_bindgen::__rt::std::boxed::Box;
+                    use #wasm_bindgen::__rt::WasmRefCell;
                     Box::into_raw(Box::new(WasmRefCell::new(self))) as u32
                 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::FromWasmAbi for #name {
+            impl #wasm_bindgen::convert::FromWasmAbi for #name {
                 type Abi = u32;
 
                 unsafe fn from_abi(js: u32) -> Self {
-                    use wasm_bindgen::__rt::std::boxed::Box;
-                    use wasm_bindgen::__rt::{assert_not_null, WasmRefCell};
+                    use #wasm_bindgen::__rt::std::boxed::Box;
+                    use #wasm_bindgen::__rt::{assert_not_null, WasmRefCell};
 
                     let ptr = js as *mut WasmRefCell<#name>;
                     assert_not_null(ptr);
@@ -195,11 +214,11 @@ impl ToTokens for ast::Struct {
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::__rt::core::convert::From<#name> for
-                wasm_bindgen::JsValue
+            impl #wasm_bindgen::__rt::core::convert::From<#name> for
+                #wasm_bindgen::JsValue
             {
                 fn from(value: #name) -> Self {
-                    let ptr = wasm_bindgen::convert::IntoWasmAbi::into_abi(value);
+                    let ptr = #wasm_bindgen::convert::IntoWasmAbi::into_abi(value);
 
                     #[link(wasm_import_module = "__wbindgen_placeholder__")]
                     #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
@@ -213,7 +232,7 @@ impl ToTokens for ast::Struct {
                     }
 
                     unsafe {
-                        <wasm_bindgen::JsValue as wasm_bindgen::convert::FromWasmAbi>
+                        <#wasm_bindgen::JsValue as #wasm_bindgen::convert::FromWasmAbi>
                             ::from_abi(#new_fn(ptr))
                     }
                 }
@@ -221,46 +240,56 @@ impl ToTokens for ast::Struct {
 
             #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
             #[automatically_derived]
-            const #free_fn_const: () = {
+            const _: () = {
                 #[no_mangle]
                 #[doc(hidden)]
                 pub unsafe extern "C" fn #free_fn(ptr: u32) {
-                    drop(<#name as wasm_bindgen::convert::FromWasmAbi>::from_abi(ptr));
+                    let _ = <#name as #wasm_bindgen::convert::FromWasmAbi>::from_abi(ptr); //implicit `drop()`
                 }
             };
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::RefFromWasmAbi for #name {
+            impl #wasm_bindgen::convert::RefFromWasmAbi for #name {
                 type Abi = u32;
-                type Anchor = wasm_bindgen::__rt::Ref<'static, #name>;
+                type Anchor = #wasm_bindgen::__rt::Ref<'static, #name>;
 
                 unsafe fn ref_from_abi(js: Self::Abi) -> Self::Anchor {
-                    let js = js as *mut wasm_bindgen::__rt::WasmRefCell<#name>;
-                    wasm_bindgen::__rt::assert_not_null(js);
+                    let js = js as *mut #wasm_bindgen::__rt::WasmRefCell<#name>;
+                    #wasm_bindgen::__rt::assert_not_null(js);
                     (*js).borrow()
                 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::RefMutFromWasmAbi for #name {
+            impl #wasm_bindgen::convert::RefMutFromWasmAbi for #name {
                 type Abi = u32;
-                type Anchor = wasm_bindgen::__rt::RefMut<'static, #name>;
+                type Anchor = #wasm_bindgen::__rt::RefMut<'static, #name>;
 
                 unsafe fn ref_mut_from_abi(js: Self::Abi) -> Self::Anchor {
-                    let js = js as *mut wasm_bindgen::__rt::WasmRefCell<#name>;
-                    wasm_bindgen::__rt::assert_not_null(js);
+                    let js = js as *mut #wasm_bindgen::__rt::WasmRefCell<#name>;
+                    #wasm_bindgen::__rt::assert_not_null(js);
                     (*js).borrow_mut()
                 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::OptionIntoWasmAbi for #name {
+            impl #wasm_bindgen::convert::LongRefFromWasmAbi for #name {
+                type Abi = u32;
+                type Anchor = #wasm_bindgen::__rt::Ref<'static, #name>;
+
+                unsafe fn long_ref_from_abi(js: Self::Abi) -> Self::Anchor {
+                    <Self as #wasm_bindgen::convert::RefFromWasmAbi>::ref_from_abi(js)
+                }
+            }
+
+            #[automatically_derived]
+            impl #wasm_bindgen::convert::OptionIntoWasmAbi for #name {
                 #[inline]
                 fn none() -> Self::Abi { 0 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::OptionFromWasmAbi for #name {
+            impl #wasm_bindgen::convert::OptionFromWasmAbi for #name {
                 #[inline]
                 fn is_none(abi: &Self::Abi) -> bool { *abi == 0 }
             }
@@ -281,38 +310,37 @@ impl ToTokens for ast::StructField {
         let getter = &self.getter;
         let setter = &self.setter;
 
-        let maybe_assert_copy = if self.getter_with_clone {
+        let maybe_assert_copy = if self.getter_with_clone.is_some() {
             quote! {}
         } else {
             quote! { assert_copy::<#ty>() }
         };
         let maybe_assert_copy = respan(maybe_assert_copy, ty);
 
-        let maybe_clone = if self.getter_with_clone {
-            quote! { .clone() }
-        } else {
-            quote! {}
-        };
+        let mut val = quote_spanned!(self.rust_name.span()=> (*js).borrow().#rust_name);
+        if let Some(span) = self.getter_with_clone {
+            val = quote_spanned!(span=> <#ty as Clone>::clone(&#val) );
+        }
 
-        let getter_const = Ident::new(&format!("{}__const", getter), getter.span());
+        let wasm_bindgen = &self.wasm_bindgen;
 
         (quote! {
             #[automatically_derived]
-            const #getter_const: () = {
+            const _: () = {
                 #[cfg_attr(all(target_arch = "wasm32", not(target_os = "emscripten")), no_mangle)]
                 #[doc(hidden)]
                 pub unsafe extern "C" fn #getter(js: u32)
-                    -> <#ty as wasm_bindgen::convert::IntoWasmAbi>::Abi
+                    -> <#ty as #wasm_bindgen::convert::IntoWasmAbi>::Abi
                 {
-                    use wasm_bindgen::__rt::{WasmRefCell, assert_not_null};
-                    use wasm_bindgen::convert::IntoWasmAbi;
+                    use #wasm_bindgen::__rt::{WasmRefCell, assert_not_null};
+                    use #wasm_bindgen::convert::IntoWasmAbi;
 
                     fn assert_copy<T: Copy>(){}
                     #maybe_assert_copy;
 
                     let js = js as *mut WasmRefCell<#struct_name>;
                     assert_not_null(js);
-                    let val = (*js).borrow().#rust_name#maybe_clone;
+                    let val = #val;
                     <#ty as IntoWasmAbi>::into_abi(val)
                 }
             };
@@ -325,6 +353,7 @@ impl ToTokens for ast::StructField {
                 <#ty as WasmDescribe>::describe();
             },
             attrs: vec![],
+            wasm_bindgen: &self.wasm_bindgen,
         }
         .to_tokens(tokens);
 
@@ -332,20 +361,18 @@ impl ToTokens for ast::StructField {
             return;
         }
 
-        let setter_const = Ident::new(&format!("{}__const", setter), setter.span());
-
         (quote! {
             #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
             #[automatically_derived]
-            const #setter_const: () = {
+            const _: () = {
                 #[no_mangle]
                 #[doc(hidden)]
                 pub unsafe extern "C" fn #setter(
                     js: u32,
-                    val: <#ty as wasm_bindgen::convert::FromWasmAbi>::Abi,
+                    val: <#ty as #wasm_bindgen::convert::FromWasmAbi>::Abi,
                 ) {
-                    use wasm_bindgen::__rt::{WasmRefCell, assert_not_null};
-                    use wasm_bindgen::convert::FromWasmAbi;
+                    use #wasm_bindgen::__rt::{WasmRefCell, assert_not_null};
+                    use #wasm_bindgen::convert::FromWasmAbi;
 
                     let js = js as *mut WasmRefCell<#struct_name>;
                     assert_not_null(js);
@@ -375,12 +402,14 @@ impl TryToTokens for ast::Export {
         };
 
         let name = &self.rust_name;
+        let wasm_bindgen = &self.wasm_bindgen;
+        let wasm_bindgen_futures = &self.wasm_bindgen_futures;
         let receiver = match self.method_self {
             Some(ast::MethodSelf::ByValue) => {
                 let class = self.rust_class.as_ref().unwrap();
                 arg_conversions.push(quote! {
                     let me = unsafe {
-                        <#class as wasm_bindgen::convert::FromWasmAbi>::from_abi(me)
+                        <#class as #wasm_bindgen::convert::FromWasmAbi>::from_abi(me)
                     };
                 });
                 quote! { me.#name }
@@ -389,7 +418,7 @@ impl TryToTokens for ast::Export {
                 let class = self.rust_class.as_ref().unwrap();
                 arg_conversions.push(quote! {
                     let mut me = unsafe {
-                        <#class as wasm_bindgen::convert::RefMutFromWasmAbi>
+                        <#class as #wasm_bindgen::convert::RefMutFromWasmAbi>
                             ::ref_mut_from_abi(me)
                     };
                     let me = &mut *me;
@@ -400,7 +429,7 @@ impl TryToTokens for ast::Export {
                 let class = self.rust_class.as_ref().unwrap();
                 arg_conversions.push(quote! {
                     let me = unsafe {
-                        <#class as wasm_bindgen::convert::RefFromWasmAbi>
+                        <#class as #wasm_bindgen::convert::RefFromWasmAbi>
                             ::ref_from_abi(me)
                     };
                     let me = &*me;
@@ -415,7 +444,7 @@ impl TryToTokens for ast::Export {
 
         let mut argtys = Vec::new();
         for (i, arg) in self.function.arguments.iter().enumerate() {
-            argtys.push(&arg.ty);
+            argtys.push(&*arg.ty);
             let i = i + offset;
             let ident = Ident::new(&format!("arg{}", i), Span::call_site());
             let ty = &arg.ty;
@@ -426,35 +455,50 @@ impl TryToTokens for ast::Export {
                     ..
                 }) => {
                     args.push(quote! {
-                        #ident: <#elem as wasm_bindgen::convert::RefMutFromWasmAbi>::Abi
+                        #ident: <#elem as #wasm_bindgen::convert::RefMutFromWasmAbi>::Abi
                     });
                     arg_conversions.push(quote! {
                         let mut #ident = unsafe {
-                            <#elem as wasm_bindgen::convert::RefMutFromWasmAbi>
+                            <#elem as #wasm_bindgen::convert::RefMutFromWasmAbi>
                                 ::ref_mut_from_abi(#ident)
                         };
                         let #ident = &mut *#ident;
                     });
                 }
                 syn::Type::Reference(syn::TypeReference { elem, .. }) => {
-                    args.push(quote! {
-                        #ident: <#elem as wasm_bindgen::convert::RefFromWasmAbi>::Abi
-                    });
-                    arg_conversions.push(quote! {
-                        let #ident = unsafe {
-                            <#elem as wasm_bindgen::convert::RefFromWasmAbi>
-                                ::ref_from_abi(#ident)
-                        };
-                        let #ident = &*#ident;
-                    });
+                    if self.function.r#async {
+                        args.push(quote! {
+                            #ident: <#elem as #wasm_bindgen::convert::LongRefFromWasmAbi>::Abi
+                        });
+                        arg_conversions.push(quote! {
+                            let #ident = unsafe {
+                                <#elem as #wasm_bindgen::convert::LongRefFromWasmAbi>
+                                    ::long_ref_from_abi(#ident)
+                            };
+                            let #ident = <<#elem as #wasm_bindgen::convert::LongRefFromWasmAbi>
+                                ::Anchor as core::borrow::Borrow<#elem>>
+                                ::borrow(&#ident);
+                        });
+                    } else {
+                        args.push(quote! {
+                            #ident: <#elem as #wasm_bindgen::convert::RefFromWasmAbi>::Abi
+                        });
+                        arg_conversions.push(quote! {
+                            let #ident = unsafe {
+                                <#elem as #wasm_bindgen::convert::RefFromWasmAbi>
+                                    ::ref_from_abi(#ident)
+                            };
+                            let #ident = &*#ident;
+                        });
+                    }
                 }
                 _ => {
                     args.push(quote! {
-                        #ident: <#ty as wasm_bindgen::convert::FromWasmAbi>::Abi
+                        #ident: <#ty as #wasm_bindgen::convert::FromWasmAbi>::Abi
                     });
                     arg_conversions.push(quote! {
                         let #ident = unsafe {
-                            <#ty as wasm_bindgen::convert::FromWasmAbi>
+                            <#ty as #wasm_bindgen::convert::FromWasmAbi>
                                 ::from_abi(#ident)
                         };
                     });
@@ -480,19 +524,15 @@ impl TryToTokens for ast::Export {
                     quote! { () },
                     quote! { () },
                     quote! {
-                        wasm_bindgen_futures::spawn_local(async move {
-                            <#syn_ret as wasm_bindgen::__rt::Start>::start(#ret.await);
-                        })
+                        <#syn_ret as #wasm_bindgen::__rt::Start>::start(#ret.await)
                     },
                 )
             } else {
                 (
-                    quote! { wasm_bindgen::JsValue },
+                    quote! { #wasm_bindgen::JsValue },
                     quote! { #syn_ret },
                     quote! {
-                        wasm_bindgen_futures::future_to_promise(async move {
-                            <#syn_ret as wasm_bindgen::__rt::IntoJsResult>::into_js_result(#ret.await)
-                        }).into()
+                        <#syn_ret as #wasm_bindgen::__rt::IntoJsResult>::into_js_result(#ret.await)
                     },
                 )
             }
@@ -500,14 +540,38 @@ impl TryToTokens for ast::Export {
             (
                 quote! { () },
                 quote! { () },
-                quote! { <#syn_ret as wasm_bindgen::__rt::Start>::start(#ret) },
+                quote! { <#syn_ret as #wasm_bindgen::__rt::Start>::start(#ret) },
             )
         } else {
             (quote! { #syn_ret }, quote! { #syn_ret }, quote! { #ret })
         };
 
-        let projection = quote! { <#ret_ty as wasm_bindgen::convert::ReturnWasmAbi> };
-        let convert_ret = quote! { #projection::return_abi(#ret_expr) };
+        let mut call = quote! {
+            {
+                #(#arg_conversions)*
+                let #ret = #receiver(#(#converted_arguments),*);
+                #ret_expr
+            }
+        };
+
+        if self.function.r#async {
+            if self.start {
+                call = quote! {
+                    #wasm_bindgen_futures::spawn_local(async move {
+                        #call
+                    })
+                }
+            } else {
+                call = quote! {
+                    #wasm_bindgen_futures::future_to_promise(async move {
+                        #call
+                    }).into()
+                }
+            }
+        }
+
+        let projection = quote! { <#ret_ty as #wasm_bindgen::convert::ReturnWasmAbi> };
+        let convert_ret = quote! { #projection::return_abi(#ret) };
         let describe_ret = quote! {
             <#ret_ty as WasmDescribe>::describe();
             <#inner_ret_ty as WasmDescribe>::describe();
@@ -521,30 +585,39 @@ impl TryToTokens for ast::Export {
             quote! {}
         };
 
-        let generated_name_const =
-            Ident::new(&format!("{}__const", generated_name), generated_name.span());
         (quote! {
             #[automatically_derived]
-            const #generated_name_const: () = {
+            const _: () = {
                 #(#attrs)*
                 #[cfg_attr(
                     all(target_arch = "wasm32", not(target_os = "emscripten")),
                     export_name = #export_name,
                 )]
-                pub extern "C" fn #generated_name(#(#args),*) -> #projection::Abi {
+                pub unsafe extern "C" fn #generated_name(#(#args),*) -> #projection::Abi {
                     #start_check
-                    // Scope all local variables to be destroyed after we call
-                    // the function to ensure that `#convert_ret`, if it panics,
-                    // doesn't leak anything.
-                    let #ret = {
-                        #(#arg_conversions)*
-                        #receiver(#(#converted_arguments),*)
-                    };
+
+                    let #ret = #call;
                     #convert_ret
                 }
             };
         })
         .to_tokens(into);
+
+        let describe_args: TokenStream = argtys
+            .iter()
+            .map(|ty| match ty {
+                syn::Type::Reference(reference)
+                    if self.function.r#async && reference.mutability.is_none() =>
+                {
+                    let inner = &reference.elem;
+                    quote! {
+                        inform(LONGREF);
+                        <#inner as WasmDescribe>::describe();
+                    }
+                }
+                _ => quote! { <#ty as WasmDescribe>::describe(); },
+            })
+            .collect();
 
         // In addition to generating the shim function above which is what
         // our generated JS will invoke, we *also* generate a "descriptor"
@@ -569,10 +642,11 @@ impl TryToTokens for ast::Export {
                 inform(FUNCTION);
                 inform(0);
                 inform(#nargs);
-                #(<#argtys as WasmDescribe>::describe();)*
+                #describe_args
                 #describe_ret
             },
             attrs: attrs.clone(),
+            wasm_bindgen: &self.wasm_bindgen,
         }
         .to_tokens(into);
 
@@ -602,16 +676,15 @@ impl ToTokens for ast::ImportType {
             None => "",
             Some(comment) => comment,
         };
-        let const_name = format!("__wbg_generated_const_{}", rust_name);
-        let const_name = Ident::new(&const_name, Span::call_site());
         let instanceof_shim = Ident::new(&self.instanceof_shim, Span::call_site());
 
+        let wasm_bindgen = &self.wasm_bindgen;
         let internal_obj = match self.extends.first() {
             Some(target) => {
                 quote! { #target }
             }
             None => {
-                quote! { wasm_bindgen::JsValue }
+                quote! { #wasm_bindgen::JsValue }
             }
         };
 
@@ -619,7 +692,7 @@ impl ToTokens for ast::ImportType {
             let typescript_type_len = typescript_type.len() as u32;
             let typescript_type_chars = typescript_type.chars().map(|c| c as u32);
             quote! {
-                use wasm_bindgen::describe::*;
+                use #wasm_bindgen::describe::*;
                 inform(NAMED_EXTERNREF);
                 inform(#typescript_type_len);
                 #(inform(#typescript_type_chars);)*
@@ -652,13 +725,13 @@ impl ToTokens for ast::ImportType {
             }
 
             #[automatically_derived]
-            const #const_name: () = {
-                use wasm_bindgen::convert::{IntoWasmAbi, FromWasmAbi};
-                use wasm_bindgen::convert::{OptionIntoWasmAbi, OptionFromWasmAbi};
-                use wasm_bindgen::convert::RefFromWasmAbi;
-                use wasm_bindgen::describe::WasmDescribe;
-                use wasm_bindgen::{JsValue, JsCast, JsObject};
-                use wasm_bindgen::__rt::core;
+            const _: () = {
+                use #wasm_bindgen::convert::{IntoWasmAbi, FromWasmAbi};
+                use #wasm_bindgen::convert::{OptionIntoWasmAbi, OptionFromWasmAbi};
+                use #wasm_bindgen::convert::{RefFromWasmAbi, LongRefFromWasmAbi};
+                use #wasm_bindgen::describe::WasmDescribe;
+                use #wasm_bindgen::{JsValue, JsCast, JsObject};
+                use #wasm_bindgen::__rt::core;
 
                 impl WasmDescribe for #rust_name {
                     fn describe() {
@@ -724,6 +797,17 @@ impl ToTokens for ast::ImportType {
                         core::mem::ManuallyDrop::new(#rust_name {
                             obj: core::mem::ManuallyDrop::into_inner(tmp).into(),
                         })
+                    }
+                }
+
+                impl LongRefFromWasmAbi for #rust_name {
+                    type Abi = <JsValue as LongRefFromWasmAbi>::Abi;
+                    type Anchor = #rust_name;
+
+                    #[inline]
+                    unsafe fn long_ref_from_abi(js: Self::Abi) -> Self::Anchor {
+                        let tmp = <JsValue as LongRefFromWasmAbi>::long_ref_from_abi(js);
+                        #rust_name { obj: tmp.into() }
                     }
                 }
 
@@ -811,7 +895,7 @@ impl ToTokens for ast::ImportType {
                 impl From<#rust_name> for #superclass {
                     #[inline]
                     fn from(obj: #rust_name) -> #superclass {
-                        use wasm_bindgen::JsCast;
+                        use #wasm_bindgen::JsCast;
                         #superclass::unchecked_from_js(obj.into())
                     }
                 }
@@ -820,7 +904,7 @@ impl ToTokens for ast::ImportType {
                 impl AsRef<#superclass> for #rust_name {
                     #[inline]
                     fn as_ref(&self) -> &#superclass {
-                        use wasm_bindgen::JsCast;
+                        use #wasm_bindgen::JsCast;
                         #superclass::unchecked_from_js_ref(self.as_ref())
                     }
                 }
@@ -862,6 +946,8 @@ impl ToTokens for ast::ImportEnum {
         // Borrow variant_paths because we need to use it multiple times inside the quote! macro
         let variant_paths_ref = &variant_paths;
 
+        let wasm_bindgen = &self.wasm_bindgen;
+
         (quote! {
             #(#attrs)*
             #vis enum #name {
@@ -887,55 +973,55 @@ impl ToTokens for ast::ImportEnum {
                     }
                 }
 
-                #vis fn from_js_value(obj: &wasm_bindgen::JsValue) -> Option<#name> {
+                #vis fn from_js_value(obj: &#wasm_bindgen::JsValue) -> Option<#name> {
                     obj.as_string().and_then(|obj_str| Self::from_str(obj_str.as_str()))
                 }
             }
 
             // It should really be using &str for all of these, but that requires some major changes to cli-support
             #[automatically_derived]
-            impl wasm_bindgen::describe::WasmDescribe for #name {
+            impl #wasm_bindgen::describe::WasmDescribe for #name {
                 fn describe() {
-                    <wasm_bindgen::JsValue as wasm_bindgen::describe::WasmDescribe>::describe()
+                    <#wasm_bindgen::JsValue as #wasm_bindgen::describe::WasmDescribe>::describe()
                 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::IntoWasmAbi for #name {
-                type Abi = <wasm_bindgen::JsValue as wasm_bindgen::convert::IntoWasmAbi>::Abi;
+            impl #wasm_bindgen::convert::IntoWasmAbi for #name {
+                type Abi = <#wasm_bindgen::JsValue as #wasm_bindgen::convert::IntoWasmAbi>::Abi;
 
                 #[inline]
                 fn into_abi(self) -> Self::Abi {
-                    <wasm_bindgen::JsValue as wasm_bindgen::convert::IntoWasmAbi>::into_abi(self.into())
+                    <#wasm_bindgen::JsValue as #wasm_bindgen::convert::IntoWasmAbi>::into_abi(self.into())
                 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::FromWasmAbi for #name {
-                type Abi = <wasm_bindgen::JsValue as wasm_bindgen::convert::FromWasmAbi>::Abi;
+            impl #wasm_bindgen::convert::FromWasmAbi for #name {
+                type Abi = <#wasm_bindgen::JsValue as #wasm_bindgen::convert::FromWasmAbi>::Abi;
 
                 unsafe fn from_abi(js: Self::Abi) -> Self {
-                    let s = <wasm_bindgen::JsValue as wasm_bindgen::convert::FromWasmAbi>::from_abi(js);
+                    let s = <#wasm_bindgen::JsValue as #wasm_bindgen::convert::FromWasmAbi>::from_abi(js);
                     #name::from_js_value(&s).unwrap_or(#name::__Nonexhaustive)
                 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::OptionIntoWasmAbi for #name {
+            impl #wasm_bindgen::convert::OptionIntoWasmAbi for #name {
                 #[inline]
-                fn none() -> Self::Abi { <::js_sys::Object as wasm_bindgen::convert::OptionIntoWasmAbi>::none() }
+                fn none() -> Self::Abi { <::js_sys::Object as #wasm_bindgen::convert::OptionIntoWasmAbi>::none() }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::OptionFromWasmAbi for #name {
+            impl #wasm_bindgen::convert::OptionFromWasmAbi for #name {
                 #[inline]
-                fn is_none(abi: &Self::Abi) -> bool { <::js_sys::Object as wasm_bindgen::convert::OptionFromWasmAbi>::is_none(abi) }
+                fn is_none(abi: &Self::Abi) -> bool { <::js_sys::Object as #wasm_bindgen::convert::OptionFromWasmAbi>::is_none(abi) }
             }
 
             #[automatically_derived]
-            impl From<#name> for wasm_bindgen::JsValue {
-                fn from(obj: #name) -> wasm_bindgen::JsValue {
-                    wasm_bindgen::JsValue::from(obj.to_str())
+            impl From<#name> for #wasm_bindgen::JsValue {
+                fn from(obj: #name) -> #wasm_bindgen::JsValue {
+                    #wasm_bindgen::JsValue::from(obj.to_str())
                 }
             }
         }).to_tokens(tokens);
@@ -971,6 +1057,8 @@ impl TryToTokens for ast::ImportFunction {
         let mut arg_conversions = Vec::new();
         let mut arguments = Vec::new();
         let ret_ident = Ident::new("_ret", Span::call_site());
+        let wasm_bindgen = &self.wasm_bindgen;
+        let wasm_bindgen_futures = &self.wasm_bindgen_futures;
 
         for (i, arg) in self.function.arguments.iter().enumerate() {
             let ty = &arg.ty;
@@ -990,7 +1078,7 @@ impl TryToTokens for ast::ImportFunction {
 
             abi_argument_names.push(name.clone());
             abi_arguments.push(quote! {
-                #name: <#ty as wasm_bindgen::convert::IntoWasmAbi>::Abi
+                #name: <#ty as #wasm_bindgen::convert::IntoWasmAbi>::Abi
             });
             let var = if i == 0 && is_method {
                 quote! { self }
@@ -999,7 +1087,7 @@ impl TryToTokens for ast::ImportFunction {
                 quote! { #name }
             };
             arg_conversions.push(quote! {
-                let #name = <#ty as wasm_bindgen::convert::IntoWasmAbi>
+                let #name = <#ty as #wasm_bindgen::convert::IntoWasmAbi>
                     ::into_abi(#var);
             });
         }
@@ -1015,10 +1103,10 @@ impl TryToTokens for ast::ImportFunction {
             Some(ref ty) => {
                 if self.function.r#async {
                     abi_ret =
-                        quote! { <js_sys::Promise as wasm_bindgen::convert::FromWasmAbi>::Abi };
+                        quote! { <js_sys::Promise as #wasm_bindgen::convert::FromWasmAbi>::Abi };
                     let future = quote! {
-                        wasm_bindgen_futures::JsFuture::from(
-                            <js_sys::Promise as wasm_bindgen::convert::FromWasmAbi>
+                        #wasm_bindgen_futures::JsFuture::from(
+                            <js_sys::Promise as #wasm_bindgen::convert::FromWasmAbi>
                                 ::from_abi(#ret_ident)
                         ).await
                     };
@@ -1029,10 +1117,10 @@ impl TryToTokens for ast::ImportFunction {
                     };
                 } else {
                     abi_ret = quote! {
-                        <#ty as wasm_bindgen::convert::FromWasmAbi>::Abi
+                        <#ty as #wasm_bindgen::convert::FromWasmAbi>::Abi
                     };
                     convert_ret = quote! {
-                        <#ty as wasm_bindgen::convert::FromWasmAbi>
+                        <#ty as #wasm_bindgen::convert::FromWasmAbi>
                             ::from_abi(#ret_ident)
                     };
                 }
@@ -1040,10 +1128,10 @@ impl TryToTokens for ast::ImportFunction {
             None => {
                 if self.function.r#async {
                     abi_ret =
-                        quote! { <js_sys::Promise as wasm_bindgen::convert::FromWasmAbi>::Abi };
+                        quote! { <js_sys::Promise as #wasm_bindgen::convert::FromWasmAbi>::Abi };
                     let future = quote! {
-                        wasm_bindgen_futures::JsFuture::from(
-                            <js_sys::Promise as wasm_bindgen::convert::FromWasmAbi>
+                        #wasm_bindgen_futures::JsFuture::from(
+                            <js_sys::Promise as #wasm_bindgen::convert::FromWasmAbi>
                                 ::from_abi(#ret_ident)
                         ).await
                     };
@@ -1063,7 +1151,7 @@ impl TryToTokens for ast::ImportFunction {
         if self.catch && !self.function.r#async {
             convert_ret = quote! { Ok(#convert_ret) };
             exceptional_ret = quote! {
-                wasm_bindgen::__rt::take_last_exception()?;
+                #wasm_bindgen::__rt::take_last_exception()?;
             };
         }
 
@@ -1071,13 +1159,10 @@ impl TryToTokens for ast::ImportFunction {
         let import_name = &self.shim;
         let attrs = &self.function.rust_attrs;
         let arguments = &arguments;
-        let abi_arguments = &abi_arguments;
-        let abi_argument_names = &abi_argument_names;
+        let abi_arguments = &abi_arguments[..];
+        let abi_argument_names = &abi_argument_names[..];
 
-        let doc_comment = match &self.doc_comment {
-            None => "",
-            Some(doc_string) => doc_string,
-        };
+        let doc_comment = &self.doc_comment;
         let me = if is_method {
             quote! { &self, }
         } else {
@@ -1100,26 +1185,21 @@ impl TryToTokens for ast::ImportFunction {
         // like rustc itself doesn't do great in that regard so let's just do
         // the best we can in the meantime.
         let extern_fn = respan(
-            quote! {
-                #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-                #(#attrs)*
-                #[link(wasm_import_module = "__wbindgen_placeholder__")]
-                extern "C" {
-                    fn #import_name(#(#abi_arguments),*) -> #abi_ret;
-                }
-
-                #[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
-                unsafe fn #import_name(#(#abi_arguments),*) -> #abi_ret {
-                    #(
-                        drop(#abi_argument_names);
-                    )*
-                    panic!("cannot call wasm-bindgen imported functions on \
-                            non-wasm targets");
-                }
-            },
+            extern_fn(
+                import_name,
+                attrs,
+                abi_arguments,
+                abi_argument_names,
+                abi_ret,
+            ),
             &self.rust_name,
         );
 
+        let maybe_unsafe = if self.function.r#unsafe {
+            Some(quote! {unsafe})
+        } else {
+            None
+        };
         let maybe_async = if self.function.r#async {
             Some(quote! {async})
         } else {
@@ -1132,7 +1212,7 @@ impl TryToTokens for ast::ImportFunction {
             #[allow(clippy::all, clippy::nursery, clippy::pedantic, clippy::restriction)]
             #(#attrs)*
             #[doc = #doc_comment]
-            #vis #maybe_async fn #rust_name(#me #(#arguments),*) #ret {
+            #vis #maybe_async #maybe_unsafe fn #rust_name(#me #(#arguments),*) #ret {
                 #extern_fn
 
                 unsafe {
@@ -1165,6 +1245,7 @@ impl TryToTokens for ast::ImportFunction {
 // See comment above in ast::Export for what's going on here.
 struct DescribeImport<'a> {
     kind: &'a ast::ImportKind,
+    wasm_bindgen: &'a syn::Path,
 }
 
 impl<'a> ToTokens for DescribeImport<'a> {
@@ -1195,6 +1276,7 @@ impl<'a> ToTokens for DescribeImport<'a> {
                 #inform_ret
             },
             attrs: f.function.rust_attrs.clone(),
+            wasm_bindgen: &self.wasm_bindgen,
         }
         .to_tokens(tokens);
     }
@@ -1212,9 +1294,10 @@ impl ToTokens for ast::Enum {
                 }
             }
         });
+        let wasm_bindgen = &self.wasm_bindgen;
         (quote! {
             #[automatically_derived]
-            impl wasm_bindgen::convert::IntoWasmAbi for #enum_name {
+            impl #wasm_bindgen::convert::IntoWasmAbi for #enum_name {
                 type Abi = u32;
 
                 #[inline]
@@ -1224,33 +1307,33 @@ impl ToTokens for ast::Enum {
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::FromWasmAbi for #enum_name {
+            impl #wasm_bindgen::convert::FromWasmAbi for #enum_name {
                 type Abi = u32;
 
                 #[inline]
                 unsafe fn from_abi(js: u32) -> Self {
                     #(#cast_clauses else)* {
-                        wasm_bindgen::throw_str("invalid enum value passed")
+                        #wasm_bindgen::throw_str("invalid enum value passed")
                     }
                 }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::OptionFromWasmAbi for #enum_name {
+            impl #wasm_bindgen::convert::OptionFromWasmAbi for #enum_name {
                 #[inline]
                 fn is_none(val: &u32) -> bool { *val == #hole }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::convert::OptionIntoWasmAbi for #enum_name {
+            impl #wasm_bindgen::convert::OptionIntoWasmAbi for #enum_name {
                 #[inline]
                 fn none() -> Self::Abi { #hole }
             }
 
             #[automatically_derived]
-            impl wasm_bindgen::describe::WasmDescribe for #enum_name {
+            impl #wasm_bindgen::describe::WasmDescribe for #enum_name {
                 fn describe() {
-                    use wasm_bindgen::describe::*;
+                    use #wasm_bindgen::describe::*;
                     inform(ENUM);
                     inform(#hole);
                 }
@@ -1266,26 +1349,27 @@ impl ToTokens for ast::ImportStatic {
         let ty = &self.ty;
         let shim_name = &self.shim;
         let vis = &self.vis;
+        let wasm_bindgen = &self.wasm_bindgen;
         (quote! {
             #[automatically_derived]
-            #vis static #name: wasm_bindgen::JsStatic<#ty> = {
+            #vis static #name: #wasm_bindgen::JsStatic<#ty> = {
                 fn init() -> #ty {
                     #[link(wasm_import_module = "__wbindgen_placeholder__")]
                     #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
                     extern "C" {
-                        fn #shim_name() -> <#ty as wasm_bindgen::convert::FromWasmAbi>::Abi;
+                        fn #shim_name() -> <#ty as #wasm_bindgen::convert::FromWasmAbi>::Abi;
                     }
                     #[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
-                    unsafe fn #shim_name() -> <#ty as wasm_bindgen::convert::FromWasmAbi>::Abi {
+                    unsafe fn #shim_name() -> <#ty as #wasm_bindgen::convert::FromWasmAbi>::Abi {
                         panic!("cannot access imported statics on non-wasm targets")
                     }
 
                     unsafe {
-                        <#ty as wasm_bindgen::convert::FromWasmAbi>::from_abi(#shim_name())
+                        <#ty as #wasm_bindgen::convert::FromWasmAbi>::from_abi(#shim_name())
                     }
                 }
                 thread_local!(static _VAL: #ty = init(););
-                wasm_bindgen::JsStatic {
+                #wasm_bindgen::JsStatic {
                     __inner: &_VAL,
                 }
             };
@@ -1298,6 +1382,7 @@ impl ToTokens for ast::ImportStatic {
                 <#ty as WasmDescribe>::describe();
             },
             attrs: vec![],
+            wasm_bindgen: &self.wasm_bindgen,
         }
         .to_tokens(into);
     }
@@ -1309,6 +1394,7 @@ struct Descriptor<'a, T> {
     ident: &'a Ident,
     inner: T,
     attrs: Vec<syn::Attribute>,
+    wasm_bindgen: &'a syn::Path,
 }
 
 impl<'a, T: ToTokens> ToTokens for Descriptor<'a, T> {
@@ -1321,9 +1407,7 @@ impl<'a, T: ToTokens> ToTokens for Descriptor<'a, T> {
         // It's up to the descriptors themselves to ensure they have unique
         // names for unique items imported, currently done via `ShortHash` and
         // hashing appropriate data into the symbol name.
-        lazy_static::lazy_static! {
-            static ref DESCRIPTORS_EMITTED: Mutex<HashSet<String>> = Default::default();
-        }
+        static DESCRIPTORS_EMITTED: Lazy<Mutex<HashSet<String>>> = Lazy::new(Default::default);
 
         let ident = self.ident;
 
@@ -1336,28 +1420,51 @@ impl<'a, T: ToTokens> ToTokens for Descriptor<'a, T> {
         }
 
         let name = Ident::new(&format!("__wbindgen_describe_{}", ident), ident.span());
-        let const_name = Ident::new(
-            &format!("__wbindgen_const_describe_{}", ident),
-            ident.span(),
-        );
         let inner = &self.inner;
         let attrs = &self.attrs;
+        let wasm_bindgen = &self.wasm_bindgen;
         (quote! {
             #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
             #[automatically_derived]
-            const #const_name: () = {
+            const _: () = {
                 #(#attrs)*
                 #[no_mangle]
                 #[doc(hidden)]
                 pub extern "C" fn #name() {
-                    use wasm_bindgen::describe::*;
+                    use #wasm_bindgen::describe::*;
                     // See definition of `link_mem_intrinsics` for what this is doing
-                    wasm_bindgen::__rt::link_mem_intrinsics();
+                    #wasm_bindgen::__rt::link_mem_intrinsics();
                     #inner
                 }
             };
         })
         .to_tokens(tokens);
+    }
+}
+
+fn extern_fn(
+    import_name: &Ident,
+    attrs: &[syn::Attribute],
+    abi_arguments: &[TokenStream],
+    abi_argument_names: &[Ident],
+    abi_ret: TokenStream,
+) -> TokenStream {
+    quote! {
+        #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
+        #(#attrs)*
+        #[link(wasm_import_module = "__wbindgen_placeholder__")]
+        extern "C" {
+            fn #import_name(#(#abi_arguments),*) -> #abi_ret;
+        }
+
+        #[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+        unsafe fn #import_name(#(#abi_arguments),*) -> #abi_ret {
+            #(
+                drop(#abi_argument_names);
+            )*
+            panic!("cannot call wasm-bindgen imported functions on \
+                    non-wasm targets");
+        }
     }
 }
 

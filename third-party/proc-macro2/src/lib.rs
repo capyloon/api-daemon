@@ -86,7 +86,7 @@
 //! a different thread.
 
 // Proc-macro2 types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/proc-macro2/1.0.54")]
+#![doc(html_root_url = "https://docs.rs/proc-macro2/1.0.59")]
 #![cfg_attr(
     any(proc_macro_span, super_unstable),
     feature(proc_macro_span, proc_macro_span_shrink)
@@ -102,6 +102,7 @@
     clippy::manual_assert,
     clippy::must_use_candidate,
     clippy::needless_doctest_main,
+    clippy::new_without_default,
     clippy::return_self_not_must_use,
     clippy::shadow_unrelated,
     clippy::trivially_copy_pass_by_ref,
@@ -119,7 +120,7 @@ compile_error! {"\
     build script as well.
 "}
 
-#[cfg(use_proc_macro)]
+#[cfg(feature = "proc-macro")]
 extern crate proc_macro;
 
 mod marker;
@@ -142,6 +143,8 @@ use crate::fallback as imp;
 #[cfg(wrap_proc_macro)]
 mod imp;
 
+#[cfg(span_locations)]
+mod convert;
 #[cfg(span_locations)]
 mod location;
 
@@ -233,14 +236,16 @@ impl FromStr for TokenStream {
     }
 }
 
-#[cfg(use_proc_macro)]
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
 impl From<proc_macro::TokenStream> for TokenStream {
     fn from(inner: proc_macro::TokenStream) -> Self {
         TokenStream::_new(inner.into())
     }
 }
 
-#[cfg(use_proc_macro)]
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
 impl From<TokenStream> for proc_macro::TokenStream {
     fn from(inner: TokenStream) -> Self {
         inner.inner.into()

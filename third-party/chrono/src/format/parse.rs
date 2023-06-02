@@ -248,6 +248,36 @@ where
     parse_internal(parsed, s, items).map(|_| ()).map_err(|(_s, e)| e)
 }
 
+/// Tries to parse given string into `parsed` with given formatting items.
+/// Returns `Ok` with a slice of the unparsed remainder.
+///
+/// This particular date and time parser is:
+///
+/// - Greedy. It will consume the longest possible prefix.
+///   For example, `April` is always consumed entirely when the long month name is requested;
+///   it equally accepts `Apr`, but prefers the longer prefix in this case.
+///
+/// - Padding-agnostic (for numeric items).
+///   The [`Pad`](./enum.Pad.html) field is completely ignored,
+///   so one can prepend any number of zeroes before numbers.
+///
+/// - (Still) obeying the intrinsic parsing width. This allows, for example, parsing `HHMMSS`.
+pub fn parse_and_remainder<'a, 'b, I, B>(
+    parsed: &mut Parsed,
+    s: &'b str,
+    items: I,
+) -> ParseResult<&'b str>
+where
+    I: Iterator<Item = B>,
+    B: Borrow<Item<'a>>,
+{
+    match parse_internal(parsed, s, items) {
+        Ok(s) => Ok(s),
+        Err((s, ParseError(ParseErrorKind::TooLong))) => Ok(s),
+        Err((_s, e)) => Err(e),
+    }
+}
+
 fn parse_internal<'a, 'b, I, B>(
     parsed: &mut Parsed,
     mut s: &'b str,
@@ -474,9 +504,10 @@ where
 /// All of these examples are equivalent:
 /// ```
 /// # use chrono::{DateTime, offset::FixedOffset};
-/// "2012-12-12T12:12:12Z".parse::<DateTime<FixedOffset>>();
-/// "2012-12-12 12:12:12Z".parse::<DateTime<FixedOffset>>();
-/// "2012-  12-12T12:  12:12Z".parse::<DateTime<FixedOffset>>();
+/// "2012-12-12T12:12:12Z".parse::<DateTime<FixedOffset>>()?;
+/// "2012-12-12 12:12:12Z".parse::<DateTime<FixedOffset>>()?;
+/// "2012-  12-12T12:  12:12Z".parse::<DateTime<FixedOffset>>()?;
+/// # Ok::<(), chrono::ParseError>(())
 /// ```
 impl str::FromStr for DateTime<FixedOffset> {
     type Err = ParseError;
@@ -686,6 +717,7 @@ fn test_parse() {
 
     // fixed: dot plus nanoseconds
     check!("",              [fix!(Nanosecond)]; ); // no field set, but not an error
+    check!(".",             [fix!(Nanosecond)]; TOO_SHORT);
     check!("4",             [fix!(Nanosecond)]; TOO_LONG); // never consumes `4`
     check!("4",             [fix!(Nanosecond), num!(Second)]; second: 4);
     check!(".0",            [fix!(Nanosecond)]; nanosecond: 0);
@@ -704,6 +736,7 @@ fn test_parse() {
 
     // fixed: nanoseconds without the dot
     check!("",             [internal_fix!(Nanosecond3NoDot)]; TOO_SHORT);
+    check!(".",            [internal_fix!(Nanosecond3NoDot)]; TOO_SHORT);
     check!("0",            [internal_fix!(Nanosecond3NoDot)]; TOO_SHORT);
     check!("4",            [internal_fix!(Nanosecond3NoDot)]; TOO_SHORT);
     check!("42",           [internal_fix!(Nanosecond3NoDot)]; TOO_SHORT);
@@ -715,6 +748,7 @@ fn test_parse() {
     check!(".421",         [internal_fix!(Nanosecond3NoDot)]; INVALID);
 
     check!("",             [internal_fix!(Nanosecond6NoDot)]; TOO_SHORT);
+    check!(".",            [internal_fix!(Nanosecond6NoDot)]; TOO_SHORT);
     check!("0",            [internal_fix!(Nanosecond6NoDot)]; TOO_SHORT);
     check!("42195",        [internal_fix!(Nanosecond6NoDot)]; TOO_SHORT);
     check!("421950",       [internal_fix!(Nanosecond6NoDot)]; nanosecond: 421_950_000);
@@ -725,6 +759,7 @@ fn test_parse() {
     check!(".42100",       [internal_fix!(Nanosecond6NoDot)]; INVALID);
 
     check!("",             [internal_fix!(Nanosecond9NoDot)]; TOO_SHORT);
+    check!(".",            [internal_fix!(Nanosecond9NoDot)]; TOO_SHORT);
     check!("42195",        [internal_fix!(Nanosecond9NoDot)]; TOO_SHORT);
     check!("421950803",    [internal_fix!(Nanosecond9NoDot)]; nanosecond: 421_950_803);
     check!("000000003",    [internal_fix!(Nanosecond9NoDot)]; nanosecond: 3);
@@ -854,6 +889,28 @@ fn test_rfc2822() {
         ("Tue, 20 Jan 2015 17:35:20 -0890", Err(OUT_OF_RANGE)), // bad offset
         ("6 Jun 1944 04:00:00Z", Err(INVALID)),            // bad offset (zulu not allowed)
         ("Tue, 20 Jan 2015 17:35:20 HAS", Err(NOT_ENOUGH)), // bad named time zone
+        // named timezones that have specific timezone offsets
+        // see https://www.rfc-editor.org/rfc/rfc2822#section-4.3
+        ("Tue, 20 Jan 2015 17:35:20 GMT", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        ("Tue, 20 Jan 2015 17:35:20 UT", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        ("Tue, 20 Jan 2015 17:35:20 ut", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        ("Tue, 20 Jan 2015 17:35:20 EDT", Ok("Tue, 20 Jan 2015 17:35:20 -0400")),
+        ("Tue, 20 Jan 2015 17:35:20 EST", Ok("Tue, 20 Jan 2015 17:35:20 -0500")),
+        ("Tue, 20 Jan 2015 17:35:20 CDT", Ok("Tue, 20 Jan 2015 17:35:20 -0500")),
+        ("Tue, 20 Jan 2015 17:35:20 CST", Ok("Tue, 20 Jan 2015 17:35:20 -0600")),
+        ("Tue, 20 Jan 2015 17:35:20 MDT", Ok("Tue, 20 Jan 2015 17:35:20 -0600")),
+        ("Tue, 20 Jan 2015 17:35:20 MST", Ok("Tue, 20 Jan 2015 17:35:20 -0700")),
+        ("Tue, 20 Jan 2015 17:35:20 PDT", Ok("Tue, 20 Jan 2015 17:35:20 -0700")),
+        ("Tue, 20 Jan 2015 17:35:20 PST", Ok("Tue, 20 Jan 2015 17:35:20 -0800")),
+        ("Tue, 20 Jan 2015 17:35:20 pst", Ok("Tue, 20 Jan 2015 17:35:20 -0800")),
+        // named single-letter military timezones must fallback to +0000
+        ("Tue, 20 Jan 2015 17:35:20 Z", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        ("Tue, 20 Jan 2015 17:35:20 A", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        ("Tue, 20 Jan 2015 17:35:20 a", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        ("Tue, 20 Jan 2015 17:35:20 K", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        ("Tue, 20 Jan 2015 17:35:20 k", Ok("Tue, 20 Jan 2015 17:35:20 +0000")),
+        // named single-letter timezone "J" is specifically not valid
+        ("Tue, 20 Jan 2015 17:35:20 J", Err(NOT_ENOUGH)),
     ];
 
     fn rfc2822_to_datetime(date: &str) -> ParseResult<DateTime<FixedOffset>> {
@@ -974,4 +1031,12 @@ fn test_rfc3339() {
             );
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn test_issue_1010() {
+    let dt = crate::NaiveDateTime::parse_from_str("\u{c}SUN\u{e}\u{3000}\0m@J\u{3000}\0\u{3000}\0m\u{c}!\u{c}\u{b}\u{c}\u{c}\u{c}\u{c}%A\u{c}\u{b}\0SU\u{c}\u{c}",
+    "\u{c}\u{c}%A\u{c}\u{b}\0SUN\u{c}\u{c}\u{c}SUNN\u{c}\u{c}\u{c}SUN\u{c}\u{c}!\u{c}\u{b}\u{c}\u{c}\u{c}\u{c}%A\u{c}\u{b}%a");
+    assert_eq!(dt, Err(ParseError(ParseErrorKind::Invalid)));
 }

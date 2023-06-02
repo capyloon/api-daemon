@@ -6,15 +6,15 @@ use super::c;
 #[cfg(not(any(linux_like, windows)))]
 #[cfg(feature = "fs")]
 pub(super) use c::{
-    fstat as libc_fstat, fstatat as libc_fstatat, ftruncate as libc_ftruncate, lseek as libc_lseek,
-    off_t as libc_off_t,
+    fstat as libc_fstat, fstatat as libc_fstatat, ftruncate as libc_ftruncate, ino_t as libc_ino_t,
+    lseek as libc_lseek, off_t as libc_off_t,
 };
 
 #[cfg(linux_like)]
 #[cfg(feature = "fs")]
 pub(super) use c::{
     fstat64 as libc_fstat, fstatat64 as libc_fstatat, ftruncate64 as libc_ftruncate,
-    lseek64 as libc_lseek, off64_t as libc_off_t,
+    ino64_t as libc_ino_t, lseek64 as libc_lseek, off64_t as libc_off_t,
 };
 
 #[cfg(linux_like)]
@@ -36,12 +36,11 @@ pub(super) use c::{rlimit as libc_rlimit, RLIM_INFINITY as LIBC_RLIM_INFINITY};
 #[cfg(not(any(linux_like, windows, target_os = "fuchsia", target_os = "wasi")))]
 pub(super) use c::{getrlimit as libc_getrlimit, setrlimit as libc_setrlimit};
 
-// TODO: Add `RLIM64_INFINITY` to upstream libc.
 #[cfg(linux_like)]
-pub(super) const LIBC_RLIM_INFINITY: u64 = !0_u64;
-
-#[cfg(linux_like)]
-pub(super) use c::{getrlimit64 as libc_getrlimit, setrlimit64 as libc_setrlimit};
+pub(super) use c::{
+    getrlimit64 as libc_getrlimit, setrlimit64 as libc_setrlimit,
+    RLIM64_INFINITY as LIBC_RLIM_INFINITY,
+};
 
 #[cfg(linux_like)]
 #[cfg(feature = "mm")]
@@ -269,7 +268,7 @@ mod readwrite_pv {
 #[cfg(apple)]
 pub(super) use readwrite_pv::{preadv as libc_preadv, pwritev as libc_pwritev};
 
-// GLIBC added `preadv64v2` and `pwritev64v2` in version 2.26.
+// glibc added `preadv64v2` and `pwritev64v2` in version 2.26.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 mod readwrite_pv64v2 {
     use super::c;
@@ -300,7 +299,7 @@ mod readwrite_pv64v2 {
         offset: c::off64_t,
         flags: c::c_int,
     ) -> c::ssize_t {
-        // Older GLIBC lacks `preadv64v2`, so use the `weak!` mechanism to
+        // Older glibc lacks `preadv64v2`, so use the `weak!` mechanism to
         // test for it, and call back to `c::syscall`. We don't use
         // `weak_or_syscall` here because we need to pass the 64-bit offset
         // specially.
@@ -395,7 +394,6 @@ pub(super) use c::posix_fallocate64 as libc_posix_fallocate;
 pub(super) use {c::fstatfs as libc_fstatfs, c::statfs as libc_statfs};
 #[cfg(not(any(
     linux_like,
-    solarish,
     windows,
     target_os = "haiku",
     target_os = "redox",

@@ -1,11 +1,7 @@
 //! libc syscalls supporting `rustix::fs`.
 
 use super::super::c;
-use super::super::conv::{
-    borrowed_fd, c_str, ret, ret_c_int, ret_off_t, ret_owned_fd, ret_ssize_t,
-};
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use super::super::conv::{syscall_ret, syscall_ret_owned_fd, syscall_ret_ssize_t};
+use super::super::conv::{borrowed_fd, c_str, ret, ret_c_int, ret_off_t, ret_owned_fd, ret_usize};
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 use super::super::offset::libc_fallocate;
 #[cfg(not(any(
@@ -38,7 +34,7 @@ use super::super::offset::{libc_fstat, libc_fstatat, libc_ftruncate, libc_lseek,
     target_os = "wasi",
 )))]
 use super::super::offset::{libc_fstatfs, libc_statfs};
-#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 use super::super::offset::{libc_fstatvfs, libc_statvfs};
 #[cfg(all(
     any(target_arch = "arm", target_arch = "mips", target_arch = "x86"),
@@ -49,8 +45,6 @@ use crate::fd::{BorrowedFd, OwnedFd};
 use crate::ffi::CStr;
 #[cfg(apple)]
 use crate::ffi::CString;
-#[cfg(not(solarish))]
-use crate::fs::Access;
 #[cfg(not(any(
     apple,
     netbsdlike,
@@ -87,12 +81,10 @@ use crate::fs::SealFlags;
     target_os = "wasi",
 )))]
 use crate::fs::StatFs;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use crate::fs::{cwd, RenameFlags, ResolveFlags, Statx, StatxFlags};
+use crate::fs::{Access, Mode, OFlags, Stat, Timestamps};
 #[cfg(not(any(apple, target_os = "redox", target_os = "wasi")))]
 use crate::fs::{Dev, FileType};
-use crate::fs::{Mode, OFlags, Stat, Timestamps};
-#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 use crate::fs::{StatVfs, StatVfsMountFlags};
 use crate::io::{self, SeekFrom};
 #[cfg(not(target_os = "wasi"))]
@@ -102,21 +94,25 @@ use crate::process::{Gid, Uid};
     target_env = "gnu",
 )))]
 use crate::utils::as_ptr;
+#[cfg(apple)]
+use alloc::vec;
 use core::convert::TryInto;
-#[cfg(any(apple, target_os = "android", target_os = "linux"))]
-use core::mem::size_of;
 use core::mem::MaybeUninit;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use core::ptr::null;
-#[cfg(any(apple, target_os = "android", target_os = "linux"))]
-use core::ptr::null_mut;
 #[cfg(apple)]
 use {
     super::super::conv::nonnegative_ret,
     crate::fs::{copyfile_state_t, CloneFlags, CopyfileFlags},
 };
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use {
+    super::super::conv::{syscall_ret, syscall_ret_owned_fd, syscall_ret_usize},
+    crate::fs::{cwd, RenameFlags, ResolveFlags, Statx, StatxFlags},
+    core::ptr::null,
+};
 #[cfg(not(target_os = "redox"))]
 use {super::super::offset::libc_openat, crate::fs::AtFlags};
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+use {crate::fs::XattrFlags, core::mem::size_of, core::ptr::null_mut};
 
 #[cfg(all(
     any(target_arch = "arm", target_arch = "mips", target_arch = "x86"),
@@ -162,7 +158,7 @@ pub(crate) fn openat(
     mode: Mode,
 ) -> io::Result<OwnedFd> {
     // Work around <https://sourceware.org/bugzilla/show_bug.cgi?id=17523>.
-    // GLIBC versions before 2.25 don't handle `O_TMPFILE` correctly.
+    // glibc versions before 2.25 don't handle `O_TMPFILE` correctly.
     #[cfg(all(unix, target_env = "gnu"))]
     if oflags.contains(OFlags::TMPFILE) && crate::backend::if_glibc_is_less_than_2_25() {
         return openat_via_syscall(dirfd, path, oflags, mode);
@@ -196,7 +192,7 @@ pub(crate) fn statfs(filename: &CStr) -> io::Result<StatFs> {
     }
 }
 
-#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 #[inline]
 pub(crate) fn statvfs(filename: &CStr) -> io::Result<StatVfs> {
     unsafe {
@@ -210,13 +206,12 @@ pub(crate) fn statvfs(filename: &CStr) -> io::Result<StatVfs> {
 #[inline]
 pub(crate) fn readlinkat(dirfd: BorrowedFd<'_>, path: &CStr, buf: &mut [u8]) -> io::Result<usize> {
     unsafe {
-        ret_ssize_t(c::readlinkat(
+        ret_usize(c::readlinkat(
             borrowed_fd(dirfd),
             c_str(path),
             buf.as_mut_ptr().cast::<c::c_char>(),
             buf.len(),
         ))
-        .map(|nread| nread as usize)
     }
 }
 
@@ -237,14 +232,13 @@ pub(crate) fn getdents_uninit(
     buf: &mut [MaybeUninit<u8>],
 ) -> io::Result<usize> {
     unsafe {
-        syscall_ret_ssize_t(c::syscall(
+        syscall_ret_usize(c::syscall(
             c::SYS_getdents64,
             fd,
             buf.as_mut_ptr().cast::<c::c_char>(),
             buf.len(),
         ))
     }
-    .map(|nread| nread as usize)
 }
 
 #[cfg(not(target_os = "redox"))]
@@ -255,6 +249,42 @@ pub(crate) fn linkat(
     new_path: &CStr,
     flags: AtFlags,
 ) -> io::Result<()> {
+    // macOS <= 10.9 lacks `linkat`.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        weak! {
+            fn linkat(
+                c::c_int,
+                *const c::c_char,
+                c::c_int,
+                *const c::c_char,
+                c::c_int
+            ) -> c::c_int
+        }
+        // If we have `linkat`, use it.
+        if let Some(libc_linkat) = linkat.get() {
+            return ret(libc_linkat(
+                borrowed_fd(old_dirfd),
+                c_str(old_path),
+                borrowed_fd(new_dirfd),
+                c_str(new_path),
+                flags.bits(),
+            ));
+        }
+        // Otherwise, see if we can emulate the `AT_FDCWD` case.
+        if borrowed_fd(old_dirfd) != c::AT_FDCWD || borrowed_fd(new_dirfd) != c::AT_FDCWD {
+            return Err(io::Errno::NOSYS);
+        }
+        if flags.intersects(!AtFlags::SYMLINK_FOLLOW) {
+            return Err(io::Errno::INVAL);
+        }
+        if !flags.is_empty() {
+            return Err(io::Errno::OPNOTSUPP);
+        }
+        ret(c::link(c_str(old_path), c_str(new_path)))
+    }
+
+    #[cfg(not(target_os = "macos"))]
     unsafe {
         ret(c::linkat(
             borrowed_fd(old_dirfd),
@@ -268,7 +298,38 @@ pub(crate) fn linkat(
 
 #[cfg(not(target_os = "redox"))]
 pub(crate) fn unlinkat(dirfd: BorrowedFd<'_>, path: &CStr, flags: AtFlags) -> io::Result<()> {
-    unsafe { ret(c::unlinkat(borrowed_fd(dirfd), c_str(path), flags.bits())) }
+    // macOS <= 10.9 lacks `unlinkat`.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        weak! {
+            fn unlinkat(
+                c::c_int,
+                *const c::c_char,
+                c::c_int
+            ) -> c::c_int
+        }
+        // If we have `unlinkat`, use it.
+        if let Some(libc_unlinkat) = unlinkat.get() {
+            return ret(libc_unlinkat(borrowed_fd(dirfd), c_str(path), flags.bits()));
+        }
+        // Otherwise, see if we can emulate the `AT_FDCWD` case.
+        if borrowed_fd(dirfd) != c::AT_FDCWD {
+            return Err(io::Errno::NOSYS);
+        }
+        if flags.intersects(!AtFlags::REMOVEDIR) {
+            return Err(io::Errno::INVAL);
+        }
+        if flags.contains(AtFlags::REMOVEDIR) {
+            ret(c::rmdir(c_str(path)))
+        } else {
+            ret(c::unlink(c_str(path)))
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    unsafe {
+        ret(c::unlinkat(borrowed_fd(dirfd), c_str(path), flags.bits()))
+    }
 }
 
 #[cfg(not(target_os = "redox"))]
@@ -278,6 +339,34 @@ pub(crate) fn renameat(
     new_dirfd: BorrowedFd<'_>,
     new_path: &CStr,
 ) -> io::Result<()> {
+    // macOS <= 10.9 lacks `renameat`.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        weak! {
+            fn renameat(
+                c::c_int,
+                *const c::c_char,
+                c::c_int,
+                *const c::c_char
+            ) -> c::c_int
+        }
+        // If we have `renameat`, use it.
+        if let Some(libc_renameat) = renameat.get() {
+            return ret(libc_renameat(
+                borrowed_fd(old_dirfd),
+                c_str(old_path),
+                borrowed_fd(new_dirfd),
+                c_str(new_path),
+            ));
+        }
+        // Otherwise, see if we can emulate the `AT_FDCWD` case.
+        if borrowed_fd(old_dirfd) != c::AT_FDCWD || borrowed_fd(new_dirfd) != c::AT_FDCWD {
+            return Err(io::Errno::NOSYS);
+        }
+        ret(c::rename(c_str(old_path), c_str(new_path)))
+    }
+
+    #[cfg(not(target_os = "macos"))]
     unsafe {
         ret(c::renameat(
             borrowed_fd(old_dirfd),
@@ -402,13 +491,47 @@ fn statat_old(dirfd: BorrowedFd<'_>, path: &CStr, flags: AtFlags) -> io::Result<
     }
 }
 
-#[cfg(not(any(solarish, target_os = "emscripten", target_os = "redox")))]
+#[cfg(not(any(target_os = "emscripten", target_os = "redox")))]
 pub(crate) fn accessat(
     dirfd: BorrowedFd<'_>,
     path: &CStr,
     access: Access,
     flags: AtFlags,
 ) -> io::Result<()> {
+    // macOS <= 10.9 lacks `faccessat`.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        weak! {
+            fn faccessat(
+                c::c_int,
+                *const c::c_char,
+                c::c_int,
+                c::c_int
+            ) -> c::c_int
+        }
+        // If we have `faccessat`, use it.
+        if let Some(libc_faccessat) = faccessat.get() {
+            return ret(libc_faccessat(
+                borrowed_fd(dirfd),
+                c_str(path),
+                access.bits(),
+                flags.bits(),
+            ));
+        }
+        // Otherwise, see if we can emulate the `AT_FDCWD` case.
+        if borrowed_fd(dirfd) != c::AT_FDCWD {
+            return Err(io::Errno::NOSYS);
+        }
+        if flags.intersects(!(AtFlags::EACCESS | AtFlags::SYMLINK_NOFOLLOW)) {
+            return Err(io::Errno::INVAL);
+        }
+        if !flags.is_empty() {
+            return Err(io::Errno::OPNOTSUPP);
+        }
+        ret(c::access(c_str(path), access.bits()))
+    }
+
+    #[cfg(not(target_os = "macos"))]
     unsafe {
         ret(c::faccessat(
             borrowed_fd(dirfd),
@@ -549,7 +672,7 @@ pub(crate) fn utimensat(
                     flags_arg,
                 ) != 0
                 {
-                    // Translate expected errno codes into ad-hoc integer
+                    // Translate expected `errno` codes into ad-hoc integer
                     // values suitable for exit statuses.
                     let code = match libc_errno::errno().0 {
                         c::EACCES => 2,
@@ -573,7 +696,8 @@ pub(crate) fn utimensat(
                 let mut wstatus = 0;
                 let _ = ret_c_int(c::waitpid(child_pid, &mut wstatus, 0))?;
                 if c::WIFEXITED(wstatus) {
-                    // Translate our ad-hoc exit statuses back to errno codes.
+                    // Translate our ad-hoc exit statuses back to `errno`
+                    // codes.
                     match c::WEXITSTATUS(wstatus) {
                         0 => Ok(()),
                         2 => Err(io::Errno::ACCESS),
@@ -638,13 +762,41 @@ unsafe fn utimensat_old(
     target_os = "redox",
     target_os = "wasi",
 )))]
-pub(crate) fn chmodat(dirfd: BorrowedFd<'_>, path: &CStr, mode: Mode) -> io::Result<()> {
-    unsafe { ret(c::fchmodat(borrowed_fd(dirfd), c_str(path), mode.bits(), 0)) }
+pub(crate) fn chmodat(
+    dirfd: BorrowedFd<'_>,
+    path: &CStr,
+    mode: Mode,
+    flags: AtFlags,
+) -> io::Result<()> {
+    unsafe {
+        ret(c::fchmodat(
+            borrowed_fd(dirfd),
+            c_str(path),
+            mode.bits() as c::mode_t,
+            flags.bits(),
+        ))
+    }
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
-pub(crate) fn chmodat(dirfd: BorrowedFd<'_>, path: &CStr, mode: Mode) -> io::Result<()> {
+pub(crate) fn chmodat(
+    dirfd: BorrowedFd<'_>,
+    path: &CStr,
+    mode: Mode,
+    flags: AtFlags,
+) -> io::Result<()> {
     // Linux's `fchmodat` does not have a flags argument.
+    //
+    // Use `c::syscall` rather than `c::fchmodat` because some libc
+    // implementations, such as musl, add extra logic to `fchmod` to emulate
+    // support for `AT_SYMLINK_NOFOLLOW`, which uses `/proc` outside our
+    // control.
+    if flags == AtFlags::SYMLINK_NOFOLLOW {
+        return Err(io::Errno::OPNOTSUPP);
+    }
+    if !flags.is_empty() {
+        return Err(io::Errno::INVAL);
+    }
     unsafe {
         // Pass `mode` as a `c_uint` even if `mode_t` is narrower, since
         // `libc_openat` is declared as a variadic function and narrower
@@ -741,7 +893,7 @@ pub(crate) fn copy_file_range(
         null_mut()
     };
     let copied = unsafe {
-        syscall_ret_ssize_t(c::syscall(
+        syscall_ret_usize(c::syscall(
             c::SYS_copy_file_range,
             borrowed_fd(fd_in),
             off_in_ptr,
@@ -757,7 +909,7 @@ pub(crate) fn copy_file_range(
     if let Some(off_out) = off_out {
         *off_out = off_out_val as u64;
     }
-    Ok(copied as usize)
+    Ok(copied)
 }
 
 #[cfg(not(any(
@@ -931,6 +1083,28 @@ pub(crate) fn flock(fd: BorrowedFd<'_>, operation: FlockOperation) -> io::Result
     unsafe { ret(c::flock(borrowed_fd(fd), operation as c::c_int)) }
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub(crate) fn syncfs(fd: BorrowedFd<'_>) -> io::Result<()> {
+    // Some versions of Android libc lack a `syncfs` function.
+    #[cfg(target_os = "android")]
+    syscall! {
+        fn syncfs(fd: c::c_int) via SYS_syncfs -> c::c_int
+    }
+
+    // `syncfs` was added to glibc in 2.20.
+    #[cfg(not(target_os = "android"))]
+    weak_or_syscall! {
+        fn syncfs(fd: c::c_int) via SYS_syncfs -> c::c_int
+    }
+
+    unsafe { ret(syncfs(borrowed_fd(fd))) }
+}
+
+#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+pub(crate) fn sync() {
+    unsafe { c::sync() }
+}
+
 pub(crate) fn fstat(fd: BorrowedFd<'_>) -> io::Result<Stat> {
     // 32-bit and mips64 Linux: `struct stat64` is not y2038 compatible; use
     // `statx`.
@@ -986,7 +1160,7 @@ pub(crate) fn fstatfs(fd: BorrowedFd<'_>) -> io::Result<StatFs> {
     }
 }
 
-#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 pub(crate) fn fstatvfs(fd: BorrowedFd<'_>) -> io::Result<StatVfs> {
     let mut statvfs = MaybeUninit::<libc_statvfs>::uninit();
     unsafe {
@@ -995,7 +1169,7 @@ pub(crate) fn fstatvfs(fd: BorrowedFd<'_>) -> io::Result<StatVfs> {
     }
 }
 
-#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 fn libc_statvfs_to_statvfs(from: libc_statvfs) -> StatVfs {
     StatVfs {
         f_bsize: from.f_bsize as u64,
@@ -1275,13 +1449,12 @@ pub(crate) fn sendfile(
     count: usize,
 ) -> io::Result<usize> {
     unsafe {
-        let nsent = ret_ssize_t(c::sendfile64(
+        ret_usize(c::sendfile64(
             borrowed_fd(out_fd),
             borrowed_fd(in_fd),
             offset.map_or(null_mut(), crate::utils::as_mut_ptr).cast(),
             count,
-        ))?;
-        Ok(nsent as usize)
+        ))
     }
 }
 
@@ -1445,22 +1618,6 @@ fn stat64_to_stat(s64: c::stat64) -> io::Result<Stat> {
 mod sys {
     use super::{c, BorrowedFd, Statx};
 
-    // Some versions of the libc bindings don't have these, so provide
-    // our own definitions (which may become unused when libc gains
-    // bindings for them).
-    #[cfg(all(target_os = "android", target_arch = "arm"))]
-    #[allow(dead_code)]
-    const SYS_statx: c::c_long = 397;
-    #[cfg(all(target_os = "android", target_arch = "x86"))]
-    #[allow(dead_code)]
-    const SYS_statx: c::c_long = 383;
-    #[cfg(all(target_os = "android", target_arch = "aarch64"))]
-    #[allow(dead_code)]
-    const SYS_statx: c::c_long = 291;
-    #[cfg(all(target_os = "android", target_arch = "x86_64"))]
-    #[allow(dead_code)]
-    const SYS_statx: c::c_long = 332;
-
     weak_or_syscall! {
         pub(super) fn statx(
             dirfd_: BorrowedFd<'_>,
@@ -1494,7 +1651,7 @@ pub(crate) fn statx(
     //
     // [it's deprecated]: https://patchwork.kernel.org/project/linux-fsdevel/patch/20200505095915.11275-7-mszeredi@redhat.com/
     #[cfg(not(any(target_os = "android", target_env = "musl")))]
-    const STATX__RESERVED: u32 = libc::STATX__RESERVED as u32;
+    const STATX__RESERVED: u32 = c::STATX__RESERVED as u32;
     #[cfg(any(target_os = "android", target_env = "musl"))]
     const STATX__RESERVED: u32 = linux_raw_sys::general::STATX__RESERVED;
     if (mask.bits() & STATX__RESERVED) == STATX__RESERVED {
@@ -1605,13 +1762,13 @@ pub(crate) fn getpath(fd: BorrowedFd<'_>) -> io::Result<CString> {
     // `F_GETPATH` in terms of `MAXPATHLEN`, and there are no
     // alternatives. If a better method is invented, it should be used
     // instead.
-    let mut buf = alloc::vec![0; c::PATH_MAX as usize];
+    let mut buf = vec![0; c::PATH_MAX as usize];
 
-    // From the [macOS `fcntl` man page]:
+    // From the [macOS `fcntl` manual page]:
     // `F_GETPATH` - Get the path of the file descriptor `Fildes`. The argument
     //               must be a buffer of size `MAXPATHLEN` or greater.
     //
-    // [macOS `fcntl` man page]: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html
+    // [macOS `fcntl` manual page]: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html
     unsafe {
         ret(c::fcntl(borrowed_fd(fd), c::F_GETPATH, buf.as_mut_ptr()))?;
     }
@@ -1628,7 +1785,7 @@ pub(crate) fn getpath(fd: BorrowedFd<'_>) -> io::Result<CString> {
 
 #[cfg(apple)]
 pub(crate) fn fcntl_rdadvise(fd: BorrowedFd<'_>, offset: u64, len: u64) -> io::Result<()> {
-    // From the [macOS `fcntl` man page]:
+    // From the [macOS `fcntl` manual page]:
     // `F_RDADVISE` - Issue an advisory read async with no copy to user.
     //
     // The `F_RDADVISE` command operates on the following structure which holds
@@ -1641,7 +1798,7 @@ pub(crate) fn fcntl_rdadvise(fd: BorrowedFd<'_>, offset: u64, len: u64) -> io::R
     // };
     // ```
     //
-    // [macOS `fcntl` man page]: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html
+    // [macOS `fcntl` manual page]: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html
     let ra_offset = match offset.try_into() {
         Ok(len) => len,
         // If this conversion fails, the user is providing an offset outside
@@ -1776,4 +1933,274 @@ pub(crate) fn mount(
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub(crate) fn unmount(target: &CStr, flags: super::types::UnmountFlags) -> io::Result<()> {
     unsafe { ret(c::umount2(target.as_ptr(), flags.bits())) }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn getxattr(path: &CStr, name: &CStr, value: &mut [u8]) -> io::Result<usize> {
+    let value_ptr = value.as_mut_ptr();
+
+    #[cfg(not(apple))]
+    unsafe {
+        ret_usize(c::getxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value_ptr.cast::<c::c_void>(),
+            value.len(),
+        ))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret_usize(c::getxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value_ptr.cast::<c::c_void>(),
+            value.len(),
+            0,
+            0,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn lgetxattr(path: &CStr, name: &CStr, value: &mut [u8]) -> io::Result<usize> {
+    let value_ptr = value.as_mut_ptr();
+
+    #[cfg(not(apple))]
+    unsafe {
+        ret_usize(c::lgetxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value_ptr.cast::<c::c_void>(),
+            value.len(),
+        ))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret_usize(c::getxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value_ptr.cast::<c::c_void>(),
+            value.len(),
+            0,
+            c::XATTR_NOFOLLOW,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn fgetxattr(fd: BorrowedFd<'_>, name: &CStr, value: &mut [u8]) -> io::Result<usize> {
+    let value_ptr = value.as_mut_ptr();
+
+    #[cfg(not(apple))]
+    unsafe {
+        ret_usize(c::fgetxattr(
+            borrowed_fd(fd),
+            name.as_ptr(),
+            value_ptr.cast::<c::c_void>(),
+            value.len(),
+        ))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret_usize(c::fgetxattr(
+            borrowed_fd(fd),
+            name.as_ptr(),
+            value_ptr.cast::<c::c_void>(),
+            value.len(),
+            0,
+            0,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn setxattr(
+    path: &CStr,
+    name: &CStr,
+    value: &[u8],
+    flags: XattrFlags,
+) -> io::Result<()> {
+    #[cfg(not(apple))]
+    unsafe {
+        ret(c::setxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast::<c::c_void>(),
+            value.len(),
+            flags.bits() as i32,
+        ))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret(c::setxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast::<c::c_void>(),
+            value.len(),
+            0,
+            flags.bits() as i32,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn lsetxattr(
+    path: &CStr,
+    name: &CStr,
+    value: &[u8],
+    flags: XattrFlags,
+) -> io::Result<()> {
+    #[cfg(not(apple))]
+    unsafe {
+        ret(c::lsetxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast::<c::c_void>(),
+            value.len(),
+            flags.bits() as i32,
+        ))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret(c::setxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast::<c::c_void>(),
+            value.len(),
+            0,
+            flags.bits() as i32 | c::XATTR_NOFOLLOW,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn fsetxattr(
+    fd: BorrowedFd<'_>,
+    name: &CStr,
+    value: &[u8],
+    flags: XattrFlags,
+) -> io::Result<()> {
+    #[cfg(not(apple))]
+    unsafe {
+        ret(c::fsetxattr(
+            borrowed_fd(fd),
+            name.as_ptr(),
+            value.as_ptr().cast::<c::c_void>(),
+            value.len(),
+            flags.bits() as i32,
+        ))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret(c::fsetxattr(
+            borrowed_fd(fd),
+            name.as_ptr(),
+            value.as_ptr().cast::<c::c_void>(),
+            value.len(),
+            0,
+            flags.bits() as i32,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn listxattr(path: &CStr, list: &mut [c::c_char]) -> io::Result<usize> {
+    #[cfg(not(apple))]
+    unsafe {
+        ret_usize(c::listxattr(path.as_ptr(), list.as_mut_ptr(), list.len()))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret_usize(c::listxattr(
+            path.as_ptr(),
+            list.as_mut_ptr(),
+            list.len(),
+            0,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn llistxattr(path: &CStr, list: &mut [c::c_char]) -> io::Result<usize> {
+    #[cfg(not(apple))]
+    unsafe {
+        ret_usize(c::llistxattr(path.as_ptr(), list.as_mut_ptr(), list.len()))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret_usize(c::listxattr(
+            path.as_ptr(),
+            list.as_mut_ptr(),
+            list.len(),
+            c::XATTR_NOFOLLOW,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn flistxattr(fd: BorrowedFd<'_>, list: &mut [c::c_char]) -> io::Result<usize> {
+    let fd = borrowed_fd(fd);
+
+    #[cfg(not(apple))]
+    unsafe {
+        ret_usize(c::flistxattr(fd, list.as_mut_ptr(), list.len()))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret_usize(c::flistxattr(fd, list.as_mut_ptr(), list.len(), 0))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn removexattr(path: &CStr, name: &CStr) -> io::Result<()> {
+    #[cfg(not(apple))]
+    unsafe {
+        ret(c::removexattr(path.as_ptr(), name.as_ptr()))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret(c::removexattr(path.as_ptr(), name.as_ptr(), 0))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn lremovexattr(path: &CStr, name: &CStr) -> io::Result<()> {
+    #[cfg(not(apple))]
+    unsafe {
+        ret(c::lremovexattr(path.as_ptr(), name.as_ptr()))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret(c::removexattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            c::XATTR_NOFOLLOW,
+        ))
+    }
+}
+
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub(crate) fn fremovexattr(fd: BorrowedFd<'_>, name: &CStr) -> io::Result<()> {
+    let fd = borrowed_fd(fd);
+
+    #[cfg(not(apple))]
+    unsafe {
+        ret(c::fremovexattr(fd, name.as_ptr()))
+    }
+
+    #[cfg(apple)]
+    unsafe {
+        ret(c::fremovexattr(fd, name.as_ptr(), 0))
+    }
 }

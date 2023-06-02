@@ -1,3 +1,75 @@
+# 0.1.31 (May 11, 2023)
+
+This release of `tracing-core` fixes a bug that caused threads which call
+`dispatcher::get_default` _before_ a global default subscriber is set to never
+see the global default once it is set. In addition, it includes improvements for
+instrumentation performance in some cases, especially when using a global
+default dispatcher.
+
+### Fixed
+
+- Fixed incorrect thread-local caching of `Dispatch::none` if
+  `dispatcher::get_default` is called before `dispatcher::set_global_default`
+  ([#2593])
+
+### Changed
+
+- Cloning a `Dispatch` that points at a global default subscriber no longer
+  requires an `Arc` reference count increment, improving performance
+  substantially ([#2593])
+- `dispatcher::get_default` no longer attempts to access a thread local if the
+  scoped dispatcher is not in use, improving performance when the default
+  dispatcher is global ([#2593])
+- Added `#[inline]` annotations called by the `event!` and `span!` macros to
+  reduce the size of macro-generated code and improve recording performance
+  ([#2555])
+
+Thanks to new contributor @ldm0 for contributing to this release!
+
+[#2593]: https://github.com/tokio-rs/tracing/pull/2593
+[#2555]: https://github.com/tokio-rs/tracing/pull/2555
+
+# 0.1.30 (October 6, 2022)
+
+This release of `tracing-core` adds a new `on_register_dispatch` method to the
+`Subscriber` trait to allow the `Subscriber` to perform initialization after
+being registered as a `Dispatch`, and a `WeakDispatch` type to allow a
+`Subscriber` to store its own `Dispatch` without creating reference count
+cycles.
+
+### Added
+
+- `Subscriber::on_register_dispatch` method ([#2269])
+- `WeakDispatch` type and `Dispatch::downgrade()` function ([#2293])
+
+Thanks to @jswrenn for contributing to this release!
+
+[#2269]: https://github.com/tokio-rs/tracing/pull/2269
+[#2293]: https://github.com/tokio-rs/tracing/pull/2293
+
+# 0.1.29 (July 29, 2022)
+
+This release of `tracing-core` adds `PartialEq` and `Eq` implementations for
+metadata types, and improves error messages when setting the global default
+subscriber fails.
+
+### Added
+
+- `PartialEq` and `Eq` implementations for `Metadata` ([#2229])
+- `PartialEq` and `Eq` implementations for `FieldSet` ([#2229])
+
+### Fixed
+
+- Fixed unhelpful `fmt::Debug` output for `dispatcher::SetGlobalDefaultError`
+  ([#2250])
+- Fixed compilation with `-Z minimal-versions` ([#2246])
+
+Thanks to @jswrenn and @CAD97 for contributing to this release!
+
+[#2229]: https://github.com/tokio-rs/tracing/pull/2229
+[#2246]: https://github.com/tokio-rs/tracing/pull/2246
+[#2250]: https://github.com/tokio-rs/tracing/pull/2250
+
 # 0.1.28 (June 23, 2022)
 
 This release of `tracing-core` adds new `Value` implementations, including one

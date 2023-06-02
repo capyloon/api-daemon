@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.43"
 name = "zstd"
-version = "0.12.2+zstd.1.5.2"
+version = "0.12.3+zstd.1.5.2"
 authors = ["Alexandre Bury <alexandre.bury@gmail.com>"]
 exclude = ["assets/*.zst"]
 description = "Binding for the zstd compression library."
@@ -44,7 +44,7 @@ name = "train"
 required-features = ["zdict_builder"]
 
 [dependencies.zstd-safe]
-version = "6.0.1"
+version = "6.0.3"
 features = ["std"]
 default-features = false
 
@@ -72,10 +72,12 @@ default = [
 ]
 doc-cfg = []
 experimental = ["zstd-safe/experimental"]
+fat-lto = ["zstd-safe/fat-lto"]
 legacy = ["zstd-safe/legacy"]
 no_asm = ["zstd-safe/no_asm"]
 pkg-config = ["zstd-safe/pkg-config"]
 thin = ["zstd-safe/thin"]
+thin-lto = ["zstd-safe/thin-lto"]
 wasm = []
 zdict_builder = ["zstd-safe/zdict_builder"]
 zstdmt = ["zstd-safe/zstdmt"]

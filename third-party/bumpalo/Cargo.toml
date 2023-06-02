@@ -10,9 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.60.0"
 name = "bumpalo"
-version = "3.10.0"
+version = "3.13.0"
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
 exclude = [
     "/.github/*",
@@ -50,14 +51,19 @@ path = "benches/benches.rs"
 harness = false
 required-features = ["collections"]
 
+[dependencies.allocator-api2]
+version = "0.2.8"
+optional = true
+default-features = false
+
 [dev-dependencies.criterion]
-version = "0.3.0"
+version = "0.3.6"
 
 [dev-dependencies.quickcheck]
-version = "0.9.0"
+version = "1.0.3"
 
 [dev-dependencies.rand]
-version = "0.7"
+version = "0.8.5"
 
 [features]
 allocator_api = []

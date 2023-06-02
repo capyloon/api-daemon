@@ -1,5 +1,9 @@
 use super::super::c;
 
+/// `sysinfo`
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub type Sysinfo = c::sysinfo;
+
 /// A command for use with [`membarrier`] and [`membarrier_cpu`].
 ///
 /// For `MEMBARRIER_CMD_QUERY`, see [`membarrier_query`].
@@ -7,8 +11,6 @@ use super::super::c;
 /// [`membarrier`]: crate::process::membarrier
 /// [`membarrier_cpu`]: crate::process::membarrier_cpu
 /// [`membarrier_query`]: crate::process::membarrier_query
-// TODO: These are not yet exposed through libc, so we define the
-// constants ourselves.
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u32)]
@@ -16,23 +18,24 @@ pub enum MembarrierCommand {
     /// `MEMBARRIER_CMD_GLOBAL`
     #[doc(alias = "Shared")]
     #[doc(alias = "MEMBARRIER_CMD_SHARED")]
-    Global = 1,
+    Global = c::MEMBARRIER_CMD_GLOBAL as u32,
     /// `MEMBARRIER_CMD_GLOBAL_EXPEDITED`
-    GlobalExpedited = 2,
+    GlobalExpedited = c::MEMBARRIER_CMD_GLOBAL_EXPEDITED as u32,
     /// `MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED`
-    RegisterGlobalExpedited = 4,
+    RegisterGlobalExpedited = c::MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED as u32,
     /// `MEMBARRIER_CMD_PRIVATE_EXPEDITED`
-    PrivateExpedited = 8,
+    PrivateExpedited = c::MEMBARRIER_CMD_PRIVATE_EXPEDITED as u32,
     /// `MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED`
-    RegisterPrivateExpedited = 16,
+    RegisterPrivateExpedited = c::MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED as u32,
     /// `MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE`
-    PrivateExpeditedSyncCore = 32,
+    PrivateExpeditedSyncCore = c::MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE as u32,
     /// `MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE`
-    RegisterPrivateExpeditedSyncCore = 64,
+    RegisterPrivateExpeditedSyncCore =
+        c::MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE as u32,
     /// `MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ` (since Linux 5.10)
-    PrivateExpeditedRseq = 128,
+    PrivateExpeditedRseq = c::MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ as u32,
     /// `MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ` (since Linux 5.10)
-    RegisterPrivateExpeditedRseq = 256,
+    RegisterPrivateExpeditedRseq = c::MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ as u32,
 }
 
 /// A resource value for use with [`getrlimit`], [`setrlimit`], and
@@ -98,9 +101,9 @@ pub enum Resource {
 }
 
 #[cfg(apple)]
+#[allow(non_upper_case_globals)]
 impl Resource {
     /// `RLIMIT_RSS`
-    #[allow(non_upper_case_globals)]
     pub const Rss: Self = Self::As;
 }
 
@@ -201,6 +204,19 @@ pub enum Signal {
     /// `SIGSYS`, aka `SIGUNUSED`
     #[doc(alias = "Unused")]
     Sys = c::SIGSYS,
+    /// `SIGEMT`
+    #[cfg(bsd)]
+    Emt = c::SIGEMT,
+    /// `SIGINFO`
+    #[cfg(bsd)]
+    Info = c::SIGINFO,
+    /// `SIGTHR`
+    #[cfg(target_os = "freebsd")]
+    #[doc(alias = "Lwp")]
+    Thr = c::SIGTHR,
+    /// `SIGLIBRT`
+    #[cfg(target_os = "freebsd")]
+    Librt = c::SIGLIBRT,
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -256,6 +272,14 @@ impl Signal {
             #[cfg(not(any(bsd, target_os = "haiku")))]
             c::SIGPWR => Some(Self::Power),
             c::SIGSYS => Some(Self::Sys),
+            #[cfg(bsd)]
+            c::SIGEMT => Some(Self::Emt),
+            #[cfg(bsd)]
+            c::SIGINFO => Some(Self::Info),
+            #[cfg(target_os = "freebsd")]
+            c::SIGTHR => Some(Self::Thr),
+            #[cfg(target_os = "freebsd")]
+            c::SIGLIBRT => Some(Self::Librt),
             _ => None,
         }
     }

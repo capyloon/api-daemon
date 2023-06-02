@@ -11,7 +11,6 @@ use wasm_bindgen::prelude::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuFeatureName {
     DepthClipControl = "depth-clip-control",
-    Depth24unormStencil8 = "depth24unorm-stencil8",
     Depth32floatStencil8 = "depth32float-stencil8",
     TextureCompressionBc = "texture-compression-bc",
     TextureCompressionEtc2 = "texture-compression-etc2",
@@ -20,4 +19,5 @@ pub enum GpuFeatureName {
     IndirectFirstInstance = "indirect-first-instance",
     ShaderF16 = "shader-f16",
     Bgra8unormStorage = "bgra8unorm-storage",
+    Rg11b10ufloatRenderable = "rg11b10ufloat-renderable",
 }

@@ -233,7 +233,7 @@ impl Debug for TokenStream {
     }
 }
 
-#[cfg(use_proc_macro)]
+#[cfg(feature = "proc-macro")]
 impl From<proc_macro::TokenStream> for TokenStream {
     fn from(inner: proc_macro::TokenStream) -> Self {
         inner
@@ -243,7 +243,7 @@ impl From<proc_macro::TokenStream> for TokenStream {
     }
 }
 
-#[cfg(use_proc_macro)]
+#[cfg(feature = "proc-macro")]
 impl From<TokenStream> for proc_macro::TokenStream {
     fn from(inner: TokenStream) -> Self {
         inner
@@ -958,12 +958,25 @@ impl Literal {
     pub fn string(t: &str) -> Literal {
         let mut repr = String::with_capacity(t.len() + 2);
         repr.push('"');
-        for c in t.chars() {
-            if c == '\'' {
+        let mut chars = t.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\0' {
+                repr.push_str(
+                    if chars
+                        .as_str()
+                        .starts_with(|next| '0' <= next && next <= '7')
+                    {
+                        // circumvent clippy::octal_escapes lint
+                        "\\x00"
+                    } else {
+                        "\\0"
+                    },
+                );
+            } else if ch == '\'' {
                 // escape_debug turns this into "\'" which is unnecessary.
-                repr.push(c);
+                repr.push(ch);
             } else {
-                repr.extend(c.escape_debug());
+                repr.extend(ch.escape_debug());
             }
         }
         repr.push('"');
@@ -985,16 +998,21 @@ impl Literal {
 
     pub fn byte_string(bytes: &[u8]) -> Literal {
         let mut escaped = "b\"".to_string();
-        for b in bytes {
+        let mut bytes = bytes.iter();
+        while let Some(&b) = bytes.next() {
             #[allow(clippy::match_overlapping_arm)]
-            match *b {
-                b'\0' => escaped.push_str(r"\0"),
+            match b {
+                b'\0' => escaped.push_str(match bytes.as_slice().first() {
+                    // circumvent clippy::octal_escapes lint
+                    Some(b'0'..=b'7') => r"\x00",
+                    _ => r"\0",
+                }),
                 b'\t' => escaped.push_str(r"\t"),
                 b'\n' => escaped.push_str(r"\n"),
                 b'\r' => escaped.push_str(r"\r"),
                 b'"' => escaped.push_str("\\\""),
                 b'\\' => escaped.push_str("\\\\"),
-                b'\x20'..=b'\x7E' => escaped.push(*b as char),
+                b'\x20'..=b'\x7E' => escaped.push(b as char),
                 _ => {
                     let _ = write!(escaped, "\\x{:02X}", b);
                 }
@@ -1012,28 +1030,76 @@ impl Literal {
         self.span = span;
     }
 
-    pub fn subspan<R: RangeBounds<usize>>(&self, _range: R) -> Option<Span> {
-        None
+    pub fn subspan<R: RangeBounds<usize>>(&self, range: R) -> Option<Span> {
+        #[cfg(not(span_locations))]
+        {
+            let _ = range;
+            None
+        }
+
+        #[cfg(span_locations)]
+        {
+            use crate::convert::usize_to_u32;
+            use core::ops::Bound;
+
+            let lo = match range.start_bound() {
+                Bound::Included(start) => {
+                    let start = usize_to_u32(*start)?;
+                    self.span.lo.checked_add(start)?
+                }
+                Bound::Excluded(start) => {
+                    let start = usize_to_u32(*start)?;
+                    self.span.lo.checked_add(start)?.checked_add(1)?
+                }
+                Bound::Unbounded => self.span.lo,
+            };
+            let hi = match range.end_bound() {
+                Bound::Included(end) => {
+                    let end = usize_to_u32(*end)?;
+                    self.span.lo.checked_add(end)?.checked_add(1)?
+                }
+                Bound::Excluded(end) => {
+                    let end = usize_to_u32(*end)?;
+                    self.span.lo.checked_add(end)?
+                }
+                Bound::Unbounded => self.span.hi,
+            };
+            if lo <= hi && hi <= self.span.hi {
+                Some(Span { lo, hi })
+            } else {
+                None
+            }
+        }
     }
 }
 
 impl FromStr for Literal {
     type Err = LexError;
 
-    fn from_str(mut repr: &str) -> Result<Self, Self::Err> {
-        let negative = repr.starts_with('-');
+    fn from_str(repr: &str) -> Result<Self, Self::Err> {
+        let mut cursor = get_cursor(repr);
+        #[cfg(span_locations)]
+        let lo = cursor.off;
+
+        let negative = cursor.starts_with_char('-');
         if negative {
-            repr = &repr[1..];
-            if !repr.starts_with(|ch: char| ch.is_ascii_digit()) {
+            cursor = cursor.advance(1);
+            if !cursor.starts_with_fn(|ch| ch.is_ascii_digit()) {
                 return Err(LexError::call_site());
             }
         }
-        let cursor = get_cursor(repr);
-        if let Ok((_rest, mut literal)) = parse::literal(cursor) {
-            if literal.repr.len() == repr.len() {
+
+        if let Ok((rest, mut literal)) = parse::literal(cursor) {
+            if rest.is_empty() {
                 if negative {
                     literal.repr.insert(0, '-');
                 }
+                literal.span = Span {
+                    #[cfg(span_locations)]
+                    lo,
+                    #[cfg(span_locations)]
+                    hi: rest.off,
+                };
                 return Ok(literal);
             }
         }

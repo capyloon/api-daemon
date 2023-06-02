@@ -1,9 +1,9 @@
 use super::*;
-use bindings::*;
+use imp::*;
 
-/// A primitive error code value returned by most COM functions.
+/// An error code value returned by most COM functions.
 #[repr(transparent)]
-#[derive(Copy, Clone, Default, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, PartialEq)]
 #[must_use]
 #[allow(non_camel_case_types)]
 pub struct HRESULT(pub i32);
@@ -37,7 +37,7 @@ impl HRESULT {
         if self.is_ok() {
             Ok(())
         } else {
-            Err(self.into())
+            Err(Error::from(self))
         }
     }
 
@@ -66,9 +66,14 @@ impl HRESULT {
         Ok(op())
     }
 
-    /// # Safety
     /// If the [`Result`] is [`Ok`] converts the `T::Abi` into `T`.
-    pub unsafe fn from_abi<T: Abi>(self, abi: T::Abi) -> Result<T> {
+    ///
+    /// # Safety
+    ///
+    /// Safe to call if
+    /// * `abi` is initialized if `self` is `Ok`
+    /// * `abi` can be safely transmuted to `T`
+    pub unsafe fn from_abi<T: Type<T>>(self, abi: T::Abi) -> Result<T> {
         if self.is_ok() {
             T::from_abi(abi)
         } else {
@@ -78,35 +83,48 @@ impl HRESULT {
 
     /// The error message describing the error.
     pub fn message(&self) -> HSTRING {
-        let mut message = HeapString(core::ptr::null_mut());
+        let mut message = HeapString(std::ptr::null_mut());
 
         unsafe {
-            let size = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, core::ptr::null(), self.0 as _, 0, PWSTR(core::mem::transmute(&mut message.0)), 0, core::ptr::null_mut());
+            let size = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, std::ptr::null(), self.0 as _, 0, PWSTR(&mut message.0 as *mut _ as *mut _), 0, std::ptr::null());
 
-            HSTRING::from_wide(core::slice::from_raw_parts(message.0 as *const u16, size as usize))
+            HSTRING::from_wide(wide_trim_end(std::slice::from_raw_parts(message.0 as *const u16, size as usize))).unwrap_or_default()
         }
+    }
+
+    /// Maps a Win32 error code to an HRESULT value.
+    pub(crate) fn from_win32(error: u32) -> Self {
+        Self(if error == 0 { 0 } else { (error & 0x0000_FFFF) | (7 << 16) | 0x8000_0000 } as _)
     }
 }
 
-unsafe impl Abi for HRESULT {
-    type Abi = Self;
+impl RuntimeType for HRESULT {
+    const SIGNATURE: imp::ConstBuffer = imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.HResult;i32)");
 }
 
-unsafe impl RuntimeType for HRESULT {
-    const SIGNATURE: ConstBuffer = ConstBuffer::from_slice(b"struct(Windows.Foundation.HResult;i32)");
+impl TypeKind for HRESULT {
+    type TypeKind = CopyType;
 }
 
-impl ::windows::core::DefaultType for HRESULT {
-    type DefaultType = Self;
-}
-
-impl<T> core::convert::From<Result<T>> for HRESULT {
+impl<T> std::convert::From<Result<T>> for HRESULT {
     fn from(result: Result<T>) -> Self {
         if let Err(error) = result {
             return error.into();
         }
 
         HRESULT(0)
+    }
+}
+
+impl std::fmt::Display for HRESULT {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{:#010X}", self.0))
+    }
+}
+
+impl std::fmt::Debug for HRESULT {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("HRESULT({})", self))
     }
 }
 

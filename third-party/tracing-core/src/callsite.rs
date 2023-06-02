@@ -137,6 +137,15 @@ pub trait Callsite: Sync {
 
     /// Returns the [metadata] associated with the callsite.
     ///
+    /// <div class="example-wrap" style="display:inline-block">
+    /// <pre class="ignore" style="white-space:normal;font:inherit;">
+    ///
+    /// **Note:** Implementations of this method should not produce [`Metadata`]
+    /// that share the same callsite [`Identifier`] but otherwise differ in any
+    /// way (e.g., have different `name`s).
+    ///
+    /// </pre></div>
+    ///
     /// [metadata]: super::metadata::Metadata
     fn metadata(&self) -> &Metadata<'_>;
 
@@ -478,6 +487,7 @@ impl Callsites {
 
 pub(crate) fn register_dispatch(dispatch: &Dispatch) {
     let dispatchers = DISPATCHERS.register_dispatch(dispatch);
+    dispatch.subscriber().on_register_dispatch(dispatch);
     CALLSITES.rebuild_interest(dispatchers);
 }
 

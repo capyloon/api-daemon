@@ -53,6 +53,7 @@ pub type RawAddressFamily = c::sa_family_t;
 pub struct AddressFamily(pub(crate) RawAddressFamily);
 
 #[rustfmt::skip]
+#[allow(non_upper_case_globals)]
 impl AddressFamily {
     /// `AF_UNSPEC`
     pub const UNSPEC: Self = Self(c::AF_UNSPEC as _);
@@ -123,7 +124,6 @@ impl AddressFamily {
     )))]
     pub const ROSE: Self = Self(c::AF_ROSE as _);
     /// `AF_DECnet`
-    #[allow(non_upper_case_globals)]
     #[cfg(not(target_os = "haiku"))]
     pub const DECnet: Self = Self(c::AF_DECnet as _);
     /// `AF_NETBEUI`
@@ -294,7 +294,10 @@ impl AddressFamily {
 #[doc(hidden)]
 pub type RawProtocol = i32;
 
-/// `IPPROTO_*`
+/// `IPPROTO_*` constants for use with [`socket`] and [`socket_with`].
+///
+/// [`socket`]: crate::net::socket
+/// [`socket_with`]: crate::net::socket_with
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(transparent)]
 pub struct Protocol(pub(crate) RawProtocol);
@@ -464,25 +467,12 @@ pub enum Shutdown {
 }
 
 bitflags! {
-    /// `SOCK_*` constants for use with [`accept_with`] and [`acceptfrom_with`].
+    /// `SOCK_*` constants for use with [`socket_with`], [`accept_with`] and
+    /// [`acceptfrom_with`].
     ///
+    /// [`socket_with`]: crate::net::socket_with
     /// [`accept_with`]: crate::net::accept_with
     /// [`acceptfrom_with`]: crate::net::acceptfrom_with
-    pub struct AcceptFlags: c::c_int {
-        /// `SOCK_NONBLOCK`
-        #[cfg(not(any(apple, windows, target_os = "haiku")))]
-        const NONBLOCK = c::SOCK_NONBLOCK;
-
-        /// `SOCK_CLOEXEC`
-        #[cfg(not(any(apple, windows, target_os = "haiku")))]
-        const CLOEXEC = c::SOCK_CLOEXEC;
-    }
-}
-
-bitflags! {
-    /// `SOCK_*` constants for use with [`socket`].
-    ///
-    /// [`socket`]: crate::net::socket
     pub struct SocketFlags: c::c_int {
         /// `SOCK_NONBLOCK`
         #[cfg(not(any(apple, windows, target_os = "haiku")))]

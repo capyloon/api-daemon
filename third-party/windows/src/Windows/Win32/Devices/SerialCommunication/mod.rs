@@ -1,124 +1,79 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
-pub const CDB_REPORT_BITS: u32 = 0u32;
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
-pub const CDB_REPORT_BYTES: u32 = 1u32;
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
-pub const COMDB_MAX_PORTS_ARBITRATED: u32 = 4096u32;
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
-pub const COMDB_MIN_PORTS_ARBITRATED: u32 = 256u32;
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
 #[inline]
-pub unsafe fn ComDBClaimNextFreePort<'a, Param0: ::windows::core::IntoParam<'a, HCOMDB>>(hcomdb: Param0, comnumber: *mut u32) -> i32 {
-    #[cfg(windows)]
-    {
-        #[link(name = "windows")]
-        extern "system" {
-            fn ComDBClaimNextFreePort(hcomdb: HCOMDB, comnumber: *mut u32) -> i32;
-        }
-        ::core::mem::transmute(ComDBClaimNextFreePort(hcomdb.into_param().abi(), ::core::mem::transmute(comnumber)))
-    }
-    #[cfg(not(windows))]
-    unimplemented!("Unsupported target OS");
+pub unsafe fn ComDBClaimNextFreePort<P0>(hcomdb: P0, comnumber: *mut u32) -> i32
+where
+    P0: ::windows::core::IntoParam<HCOMDB>,
+{
+    ::windows_targets::link ! ( "msports.dll""system" fn ComDBClaimNextFreePort ( hcomdb : HCOMDB , comnumber : *mut u32 ) -> i32 );
+    ComDBClaimNextFreePort(hcomdb.into_param().abi(), comnumber)
 }
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication', 'Win32_Foundation'*"]
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`, `\"Win32_Foundation\"`*"]
 #[cfg(feature = "Win32_Foundation")]
 #[inline]
-pub unsafe fn ComDBClaimPort<'a, Param0: ::windows::core::IntoParam<'a, HCOMDB>, Param2: ::windows::core::IntoParam<'a, super::super::Foundation::BOOL>>(hcomdb: Param0, comnumber: u32, forceclaim: Param2, forced: *mut super::super::Foundation::BOOL) -> i32 {
-    #[cfg(windows)]
-    {
-        #[link(name = "windows")]
-        extern "system" {
-            fn ComDBClaimPort(hcomdb: HCOMDB, comnumber: u32, forceclaim: super::super::Foundation::BOOL, forced: *mut super::super::Foundation::BOOL) -> i32;
-        }
-        ::core::mem::transmute(ComDBClaimPort(hcomdb.into_param().abi(), ::core::mem::transmute(comnumber), forceclaim.into_param().abi(), ::core::mem::transmute(forced)))
-    }
-    #[cfg(not(windows))]
-    unimplemented!("Unsupported target OS");
+pub unsafe fn ComDBClaimPort<P0, P1>(hcomdb: P0, comnumber: u32, forceclaim: P1, forced: ::core::option::Option<*mut super::super::Foundation::BOOL>) -> i32
+where
+    P0: ::windows::core::IntoParam<HCOMDB>,
+    P1: ::windows::core::IntoParam<super::super::Foundation::BOOL>,
+{
+    ::windows_targets::link ! ( "msports.dll""system" fn ComDBClaimPort ( hcomdb : HCOMDB , comnumber : u32 , forceclaim : super::super::Foundation:: BOOL , forced : *mut super::super::Foundation:: BOOL ) -> i32 );
+    ComDBClaimPort(hcomdb.into_param().abi(), comnumber, forceclaim.into_param().abi(), ::core::mem::transmute(forced.unwrap_or(::std::ptr::null_mut())))
 }
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
 #[inline]
-pub unsafe fn ComDBClose<'a, Param0: ::windows::core::IntoParam<'a, HCOMDB>>(hcomdb: Param0) -> i32 {
-    #[cfg(windows)]
-    {
-        #[link(name = "windows")]
-        extern "system" {
-            fn ComDBClose(hcomdb: HCOMDB) -> i32;
-        }
-        ::core::mem::transmute(ComDBClose(hcomdb.into_param().abi()))
-    }
-    #[cfg(not(windows))]
-    unimplemented!("Unsupported target OS");
+pub unsafe fn ComDBClose<P0>(hcomdb: P0) -> i32
+where
+    P0: ::windows::core::IntoParam<HCOMDB>,
+{
+    ::windows_targets::link ! ( "msports.dll""system" fn ComDBClose ( hcomdb : HCOMDB ) -> i32 );
+    ComDBClose(hcomdb.into_param().abi())
 }
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
 #[inline]
-pub unsafe fn ComDBGetCurrentPortUsage<'a, Param0: ::windows::core::IntoParam<'a, HCOMDB>>(hcomdb: Param0, buffer: *mut u8, buffersize: u32, reporttype: u32, maxportsreported: *mut u32) -> i32 {
-    #[cfg(windows)]
-    {
-        #[link(name = "windows")]
-        extern "system" {
-            fn ComDBGetCurrentPortUsage(hcomdb: HCOMDB, buffer: *mut u8, buffersize: u32, reporttype: u32, maxportsreported: *mut u32) -> i32;
-        }
-        ::core::mem::transmute(ComDBGetCurrentPortUsage(hcomdb.into_param().abi(), ::core::mem::transmute(buffer), ::core::mem::transmute(buffersize), ::core::mem::transmute(reporttype), ::core::mem::transmute(maxportsreported)))
-    }
-    #[cfg(not(windows))]
-    unimplemented!("Unsupported target OS");
+pub unsafe fn ComDBGetCurrentPortUsage<P0>(hcomdb: P0, buffer: ::core::option::Option<&mut [u8]>, reporttype: u32, maxportsreported: ::core::option::Option<*mut u32>) -> i32
+where
+    P0: ::windows::core::IntoParam<HCOMDB>,
+{
+    ::windows_targets::link ! ( "msports.dll""system" fn ComDBGetCurrentPortUsage ( hcomdb : HCOMDB , buffer : *mut u8 , buffersize : u32 , reporttype : u32 , maxportsreported : *mut u32 ) -> i32 );
+    ComDBGetCurrentPortUsage(hcomdb.into_param().abi(), ::core::mem::transmute(buffer.as_deref().map_or(::core::ptr::null(), |slice| slice.as_ptr())), buffer.as_deref().map_or(0, |slice| slice.len() as _), reporttype, ::core::mem::transmute(maxportsreported.unwrap_or(::std::ptr::null_mut())))
 }
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
 #[inline]
 pub unsafe fn ComDBOpen(phcomdb: *mut isize) -> i32 {
-    #[cfg(windows)]
-    {
-        #[link(name = "windows")]
-        extern "system" {
-            fn ComDBOpen(phcomdb: *mut isize) -> i32;
-        }
-        ::core::mem::transmute(ComDBOpen(::core::mem::transmute(phcomdb)))
-    }
-    #[cfg(not(windows))]
-    unimplemented!("Unsupported target OS");
+    ::windows_targets::link ! ( "msports.dll""system" fn ComDBOpen ( phcomdb : *mut isize ) -> i32 );
+    ComDBOpen(phcomdb)
 }
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
 #[inline]
-pub unsafe fn ComDBReleasePort<'a, Param0: ::windows::core::IntoParam<'a, HCOMDB>>(hcomdb: Param0, comnumber: u32) -> i32 {
-    #[cfg(windows)]
-    {
-        #[link(name = "windows")]
-        extern "system" {
-            fn ComDBReleasePort(hcomdb: HCOMDB, comnumber: u32) -> i32;
-        }
-        ::core::mem::transmute(ComDBReleasePort(hcomdb.into_param().abi(), ::core::mem::transmute(comnumber)))
-    }
-    #[cfg(not(windows))]
-    unimplemented!("Unsupported target OS");
+pub unsafe fn ComDBReleasePort<P0>(hcomdb: P0, comnumber: u32) -> i32
+where
+    P0: ::windows::core::IntoParam<HCOMDB>,
+{
+    ::windows_targets::link ! ( "msports.dll""system" fn ComDBReleasePort ( hcomdb : HCOMDB , comnumber : u32 ) -> i32 );
+    ComDBReleasePort(hcomdb.into_param().abi(), comnumber)
 }
-#[doc = "*Required features: 'Win32_Devices_SerialCommunication'*"]
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
 #[inline]
-pub unsafe fn ComDBResizeDatabase<'a, Param0: ::windows::core::IntoParam<'a, HCOMDB>>(hcomdb: Param0, newsize: u32) -> i32 {
-    #[cfg(windows)]
-    {
-        #[link(name = "windows")]
-        extern "system" {
-            fn ComDBResizeDatabase(hcomdb: HCOMDB, newsize: u32) -> i32;
-        }
-        ::core::mem::transmute(ComDBResizeDatabase(hcomdb.into_param().abi(), ::core::mem::transmute(newsize)))
-    }
-    #[cfg(not(windows))]
-    unimplemented!("Unsupported target OS");
+pub unsafe fn ComDBResizeDatabase<P0>(hcomdb: P0, newsize: u32) -> i32
+where
+    P0: ::windows::core::IntoParam<HCOMDB>,
+{
+    ::windows_targets::link ! ( "msports.dll""system" fn ComDBResizeDatabase ( hcomdb : HCOMDB , newsize : u32 ) -> i32 );
+    ComDBResizeDatabase(hcomdb.into_param().abi(), newsize)
 }
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
+pub const CDB_REPORT_BITS: u32 = 0u32;
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
+pub const CDB_REPORT_BYTES: u32 = 1u32;
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
+pub const COMDB_MAX_PORTS_ARBITRATED: u32 = 4096u32;
+#[doc = "*Required features: `\"Win32_Devices_SerialCommunication\"`*"]
+pub const COMDB_MIN_PORTS_ARBITRATED: u32 = 256u32;
 #[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct HCOMDB(pub isize);
 impl HCOMDB {
     pub fn is_invalid(&self) -> bool {
-        *self == unsafe { ::core::mem::zeroed() }
-    }
-    pub fn ok(self) -> ::windows::core::Result<Self> {
-        if !self.is_invalid() {
-            Ok(self)
-        } else {
-            Err(::windows::core::Error::from_win32())
-        }
+        self.0 == -1 || self.0 == 0
     }
 }
 impl ::core::default::Default for HCOMDB {
@@ -137,8 +92,8 @@ impl ::core::fmt::Debug for HCOMDB {
         f.debug_tuple("HCOMDB").field(&self.0).finish()
     }
 }
-unsafe impl ::windows::core::Abi for HCOMDB {
-    type Abi = Self;
+impl ::windows::core::TypeKind for HCOMDB {
+    type TypeKind = ::windows::core::CopyType;
 }
 #[cfg(feature = "implement")]
 ::core::include!("impl.rs");

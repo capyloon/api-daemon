@@ -1,65 +1,56 @@
 //! The [`OffsetDateTime`] struct and its associated `impl`s.
 
+#[cfg(feature = "std")]
 use core::cmp::Ordering;
 #[cfg(feature = "std")]
 use core::convert::From;
 use core::fmt;
-use core::hash::{Hash, Hasher};
-use core::ops::{Add, Sub};
+use core::hash::Hash;
+use core::ops::{Add, AddAssign, Sub, SubAssign};
 use core::time::Duration as StdDuration;
 #[cfg(feature = "formatting")]
 use std::io;
 #[cfg(feature = "std")]
 use std::time::SystemTime;
 
+use crate::date_time::offset_kind;
 #[cfg(feature = "formatting")]
 use crate::formatting::Formattable;
 #[cfg(feature = "parsing")]
 use crate::parsing::Parsable;
-#[cfg(feature = "parsing")]
-use crate::util;
-use crate::{error, Date, Duration, Month, PrimitiveDateTime, Time, UtcOffset, Weekday};
+use crate::{error, Date, DateTime, Duration, Month, PrimitiveDateTime, Time, UtcOffset, Weekday};
 
-/// The Julian day of the Unix epoch.
-const UNIX_EPOCH_JULIAN_DAY: i32 = Date::__from_ordinal_date_unchecked(1970, 1).to_julian_day();
+/// The actual type doing all the work.
+type Inner = DateTime<offset_kind::Fixed>;
 
 /// A [`PrimitiveDateTime`] with a [`UtcOffset`].
 ///
 /// All comparisons are performed using the UTC time.
-// Internally, an `OffsetDateTime` is a thin wrapper around a [`PrimitiveDateTime`] coupled with a
-// [`UtcOffset`]. This offset is added to the date, time, or datetime as necessary for presentation
-// or returning from a function.
-#[derive(Debug, Clone, Copy, Eq)]
-pub struct OffsetDateTime {
-    /// The [`PrimitiveDateTime`], which is _always_ UTC.
-    pub(crate) utc_datetime: PrimitiveDateTime,
-    /// The [`UtcOffset`], which will be added to the [`PrimitiveDateTime`] as necessary.
-    pub(crate) offset: UtcOffset,
-}
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OffsetDateTime(pub(crate) Inner);
 
 impl OffsetDateTime {
     /// Midnight, 1 January, 1970 (UTC).
     ///
     /// ```rust
-    /// # use time::{OffsetDateTime, macros::datetime};
+    /// # use time::OffsetDateTime;
+    /// # use time_macros::datetime;
     /// assert_eq!(OffsetDateTime::UNIX_EPOCH, datetime!(1970-01-01 0:00 UTC),);
     /// ```
-    pub const UNIX_EPOCH: Self = Date::__from_ordinal_date_unchecked(1970, 1)
-        .midnight()
-        .assume_utc();
+    pub const UNIX_EPOCH: Self = Self(Inner::UNIX_EPOCH);
 
     // region: now
     /// Create a new `OffsetDateTime` with the current date and time in UTC.
     ///
     /// ```rust
-    /// # use time::{OffsetDateTime, macros::offset};
+    /// # use time::OffsetDateTime;
+    /// # use time_macros::offset;
     /// assert!(OffsetDateTime::now_utc().year() >= 2019);
     /// assert_eq!(OffsetDateTime::now_utc().offset(), offset!(UTC));
     /// ```
     #[cfg(feature = "std")]
-    #[cfg_attr(__time_03_docs, doc(cfg(feature = "std")))]
     pub fn now_utc() -> Self {
-        SystemTime::now().into()
+        Self(Inner::now_utc())
     }
 
     /// Attempt to create a new `OffsetDateTime` with the current date and time in the local offset.
@@ -72,17 +63,15 @@ impl OffsetDateTime {
     /// # }
     /// ```
     #[cfg(feature = "local-offset")]
-    #[cfg_attr(__time_03_docs, doc(cfg(feature = "local-offset")))]
     pub fn now_local() -> Result<Self, error::IndeterminateOffset> {
-        let t = Self::now_utc();
-        Ok(t.to_offset(UtcOffset::local_offset_at(t)?))
+        Inner::now_local().map(Self)
     }
     // endregion now
 
     /// Convert the `OffsetDateTime` from the current [`UtcOffset`] to the provided [`UtcOffset`].
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(
     ///     datetime!(2000-01-01 0:00 UTC)
     ///         .to_offset(offset!(-1))
@@ -90,7 +79,7 @@ impl OffsetDateTime {
     ///     1999,
     /// );
     ///
-    /// // Let's see what time Sydney's new year's celebration is in New York // and Los Angeles.
+    /// // Let's see what time Sydney's new year's celebration is in New York and Los Angeles.
     ///
     /// // Construct midnight on new year's in Sydney.
     /// let sydney = datetime!(2000-01-01 0:00 +11);
@@ -100,11 +89,12 @@ impl OffsetDateTime {
     /// assert_eq!(new_york.hour(), 8);
     /// assert_eq!(los_angeles.hour(), 5);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the local date-time in the new offset is outside the supported range.
     pub const fn to_offset(self, offset: UtcOffset) -> Self {
-        Self {
-            utc_datetime: self.utc_datetime,
-            offset,
-        }
+        Self(self.0.to_offset(offset))
     }
 
     // region: constructors
@@ -112,7 +102,8 @@ impl OffsetDateTime {
     /// resulting value is guaranteed to return UTC.
     ///
     /// ```rust
-    /// # use time::{OffsetDateTime, macros::datetime};
+    /// # use time::OffsetDateTime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     OffsetDateTime::from_unix_timestamp(0),
     ///     Ok(OffsetDateTime::UNIX_EPOCH),
@@ -136,37 +127,15 @@ impl OffsetDateTime {
     /// # Ok::<_, time::Error>(())
     /// ```
     pub const fn from_unix_timestamp(timestamp: i64) -> Result<Self, error::ComponentRange> {
-        #[allow(clippy::missing_docs_in_private_items)]
-        const MIN_TIMESTAMP: i64 = Date::MIN.midnight().assume_utc().unix_timestamp();
-        #[allow(clippy::missing_docs_in_private_items)]
-        const MAX_TIMESTAMP: i64 = Date::MAX
-            .with_time(Time::__from_hms_nanos_unchecked(23, 59, 59, 999_999_999))
-            .assume_utc()
-            .unix_timestamp();
-
-        ensure_value_in_range!(timestamp in MIN_TIMESTAMP => MAX_TIMESTAMP);
-
-        // Use the unchecked method here, as the input validity has already been verified.
-        let date = Date::from_julian_day_unchecked(
-            UNIX_EPOCH_JULIAN_DAY + div_floor!(timestamp, 86_400) as i32,
-        );
-
-        let seconds_within_day = timestamp.rem_euclid(86_400);
-        let time = Time::__from_hms_nanos_unchecked(
-            (seconds_within_day / 3_600) as _,
-            ((seconds_within_day % 3_600) / 60) as _,
-            (seconds_within_day % 60) as _,
-            0,
-        );
-
-        Ok(PrimitiveDateTime::new(date, time).assume_utc())
+        Ok(Self(const_try!(Inner::from_unix_timestamp(timestamp))))
     }
 
     /// Construct an `OffsetDateTime` from the provided Unix timestamp (in nanoseconds). Calling
     /// `.offset()` on the resulting value is guaranteed to return UTC.
     ///
     /// ```rust
-    /// # use time::{OffsetDateTime, macros::datetime};
+    /// # use time::OffsetDateTime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     OffsetDateTime::from_unix_timestamp_nanos(0),
     ///     Ok(OffsetDateTime::UNIX_EPOCH),
@@ -177,19 +146,9 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn from_unix_timestamp_nanos(timestamp: i128) -> Result<Self, error::ComponentRange> {
-        let datetime = const_try!(Self::from_unix_timestamp(
-            div_floor!(timestamp, 1_000_000_000) as i64
-        ));
-
-        Ok(datetime
-            .utc_datetime
-            .replace_time(Time::__from_hms_nanos_unchecked(
-                datetime.utc_datetime.hour(),
-                datetime.utc_datetime.minute(),
-                datetime.utc_datetime.second(),
-                timestamp.rem_euclid(1_000_000_000) as u32,
-            ))
-            .assume_utc())
+        Ok(Self(const_try!(Inner::from_unix_timestamp_nanos(
+            timestamp
+        ))))
     }
     // endregion constructors
 
@@ -197,34 +156,29 @@ impl OffsetDateTime {
     /// Get the [`UtcOffset`].
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).offset(), offset!(UTC));
     /// assert_eq!(datetime!(2019-01-01 0:00 +1).offset(), offset!(+1));
     /// ```
     pub const fn offset(self) -> UtcOffset {
-        self.offset
+        self.0.offset()
     }
 
     /// Get the [Unix timestamp](https://en.wikipedia.org/wiki/Unix_time).
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(1970-01-01 0:00 UTC).unix_timestamp(), 0);
     /// assert_eq!(datetime!(1970-01-01 0:00 -1).unix_timestamp(), 3_600);
     /// ```
     pub const fn unix_timestamp(self) -> i64 {
-        let days =
-            (self.utc_datetime.to_julian_day() as i64 - UNIX_EPOCH_JULIAN_DAY as i64) * 86_400;
-        let hours = self.utc_datetime.hour() as i64 * 3_600;
-        let minutes = self.utc_datetime.minute() as i64 * 60;
-        let seconds = self.utc_datetime.second() as i64;
-        days + hours + minutes + seconds
+        self.0.unix_timestamp()
     }
 
     /// Get the Unix timestamp in nanoseconds.
     ///
     /// ```rust
-    /// use time::macros::datetime;
+    /// use time_macros::datetime;
     /// assert_eq!(datetime!(1970-01-01 0:00 UTC).unix_timestamp_nanos(), 0);
     /// assert_eq!(
     ///     datetime!(1970-01-01 0:00 -1).unix_timestamp_nanos(),
@@ -232,13 +186,13 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn unix_timestamp_nanos(self) -> i128 {
-        self.unix_timestamp() as i128 * 1_000_000_000 + self.utc_datetime.nanosecond() as i128
+        self.0.unix_timestamp_nanos()
     }
 
     /// Get the [`Date`] in the stored offset.
     ///
     /// ```rust
-    /// # use time::macros::{date, datetime, offset};
+    /// # use time_macros::{date, datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).date(), date!(2019-01-01));
     /// assert_eq!(
     ///     datetime!(2019-01-01 0:00 UTC)
@@ -248,23 +202,13 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn date(self) -> Date {
-        let mut second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        let mut minute = self.utc_datetime.minute() as i8 + self.offset.minutes_past_hour();
-        let mut hour = self.utc_datetime.hour() as i8 + self.offset.whole_hours();
-        let (mut year, mut ordinal) = self.utc_datetime.date.to_ordinal_date();
-
-        cascade!(second in 0..60 => minute);
-        cascade!(minute in 0..60 => hour);
-        cascade!(hour in 0..24 => ordinal);
-        cascade!(ordinal => year);
-
-        Date::__from_ordinal_date_unchecked(year, ordinal)
+        self.0.date()
     }
 
     /// Get the [`Time`] in the stored offset.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset, time};
+    /// # use time_macros::{datetime, offset, time};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).time(), time!(0:00));
     /// assert_eq!(
     ///     datetime!(2019-01-01 0:00 UTC)
@@ -274,26 +218,14 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn time(self) -> Time {
-        let mut second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        let mut minute = self.utc_datetime.minute() as i8 + self.offset.minutes_past_hour();
-        let mut hour = self.utc_datetime.hour() as i8 + self.offset.whole_hours();
-
-        cascade!(second in 0..60 => minute);
-        cascade!(minute in 0..60 => hour);
-
-        Time::__from_hms_nanos_unchecked(
-            hour.rem_euclid(24) as _,
-            minute as _,
-            second as _,
-            self.utc_datetime.nanosecond(),
-        )
+        self.0.time()
     }
 
     // region: date getters
     /// Get the year of the date in the stored offset.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).year(), 2019);
     /// assert_eq!(
     ///     datetime!(2019-12-31 23:00 UTC)
@@ -304,24 +236,14 @@ impl OffsetDateTime {
     /// assert_eq!(datetime!(2020-01-01 0:00 UTC).year(), 2020);
     /// ```
     pub const fn year(self) -> i32 {
-        let mut second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        let mut minute = self.utc_datetime.minute() as i8 + self.offset.minutes_past_hour();
-        let mut hour = self.utc_datetime.hour() as i8 + self.offset.whole_hours();
-        let (mut year, mut ordinal) = self.utc_datetime.date.to_ordinal_date();
-
-        cascade!(second in 0..60 => minute);
-        cascade!(minute in 0..60 => hour);
-        cascade!(hour in 0..24 => ordinal);
-        cascade!(ordinal => year);
-
-        year
+        self.0.year()
     }
 
     /// Get the month of the date in the stored offset.
     ///
     /// ```rust
     /// # use time::Month;
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).month(), Month::January);
     /// assert_eq!(
     ///     datetime!(2019-12-31 23:00 UTC)
@@ -331,7 +253,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn month(self) -> Month {
-        self.date().month()
+        self.0.month()
     }
 
     /// Get the day of the date in the stored offset.
@@ -339,7 +261,7 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `1..=31`.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).day(), 1);
     /// assert_eq!(
     ///     datetime!(2019-12-31 23:00 UTC)
@@ -349,7 +271,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn day(self) -> u8 {
-        self.date().day()
+        self.0.day()
     }
 
     /// Get the day of the year of the date in the stored offset.
@@ -357,7 +279,7 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `1..=366`.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).ordinal(), 1);
     /// assert_eq!(
     ///     datetime!(2019-12-31 23:00 UTC)
@@ -367,17 +289,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn ordinal(self) -> u16 {
-        let mut second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        let mut minute = self.utc_datetime.minute() as i8 + self.offset.minutes_past_hour();
-        let mut hour = self.utc_datetime.hour() as i8 + self.offset.whole_hours();
-        let (mut year, mut ordinal) = self.utc_datetime.date.to_ordinal_date();
-
-        cascade!(second in 0..60 => minute);
-        cascade!(minute in 0..60 => hour);
-        cascade!(hour in 0..24 => ordinal);
-        cascade!(ordinal => year);
-
-        ordinal
+        self.0.ordinal()
     }
 
     /// Get the ISO week number of the date in the stored offset.
@@ -385,14 +297,14 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `1..=53`.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).iso_week(), 1);
     /// assert_eq!(datetime!(2020-01-01 0:00 UTC).iso_week(), 1);
     /// assert_eq!(datetime!(2020-12-31 0:00 UTC).iso_week(), 53);
     /// assert_eq!(datetime!(2021-01-01 0:00 UTC).iso_week(), 53);
     /// ```
     pub const fn iso_week(self) -> u8 {
-        self.date().iso_week()
+        self.0.iso_week()
     }
 
     /// Get the week number where week 1 begins on the first Sunday.
@@ -400,14 +312,14 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..=53`.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).sunday_based_week(), 0);
     /// assert_eq!(datetime!(2020-01-01 0:00 UTC).sunday_based_week(), 0);
     /// assert_eq!(datetime!(2020-12-31 0:00 UTC).sunday_based_week(), 52);
     /// assert_eq!(datetime!(2021-01-01 0:00 UTC).sunday_based_week(), 0);
     /// ```
     pub const fn sunday_based_week(self) -> u8 {
-        self.date().sunday_based_week()
+        self.0.sunday_based_week()
     }
 
     /// Get the week number where week 1 begins on the first Monday.
@@ -415,46 +327,48 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..=53`.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).monday_based_week(), 0);
     /// assert_eq!(datetime!(2020-01-01 0:00 UTC).monday_based_week(), 0);
     /// assert_eq!(datetime!(2020-12-31 0:00 UTC).monday_based_week(), 52);
     /// assert_eq!(datetime!(2021-01-01 0:00 UTC).monday_based_week(), 0);
     /// ```
     pub const fn monday_based_week(self) -> u8 {
-        self.date().monday_based_week()
+        self.0.monday_based_week()
     }
 
     /// Get the year, month, and day.
     ///
     /// ```rust
-    /// # use time::{macros::datetime, Month};
+    /// # use time::Month;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2019-01-01 0:00 UTC).to_calendar_date(),
     ///     (2019, Month::January, 1)
     /// );
     /// ```
     pub const fn to_calendar_date(self) -> (i32, Month, u8) {
-        self.date().to_calendar_date()
+        self.0.to_calendar_date()
     }
 
     /// Get the year and ordinal day number.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2019-01-01 0:00 UTC).to_ordinal_date(),
     ///     (2019, 1)
     /// );
     /// ```
     pub const fn to_ordinal_date(self) -> (i32, u16) {
-        self.date().to_ordinal_date()
+        self.0.to_ordinal_date()
     }
 
     /// Get the ISO 8601 year, week number, and weekday.
     ///
     /// ```rust
-    /// # use time::{Weekday::*, macros::datetime};
+    /// # use time::Weekday::*;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2019-01-01 0:00 UTC).to_iso_week_date(),
     ///     (2019, 1, Tuesday)
@@ -477,19 +391,20 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn to_iso_week_date(self) -> (i32, u8, Weekday) {
-        self.date().to_iso_week_date()
+        self.0.to_iso_week_date()
     }
 
     /// Get the weekday of the date in the stored offset.
     ///
     /// ```rust
-    /// # use time::{Weekday::*, macros::datetime};
+    /// # use time::Weekday::*;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).weekday(), Tuesday);
     /// assert_eq!(datetime!(2019-02-01 0:00 UTC).weekday(), Friday);
     /// assert_eq!(datetime!(2019-03-01 0:00 UTC).weekday(), Friday);
     /// ```
     pub const fn weekday(self) -> Weekday {
-        self.date().weekday()
+        self.0.weekday()
     }
 
     /// Get the Julian day for the date. The time is not taken into account for this calculation.
@@ -498,14 +413,14 @@ impl OffsetDateTime {
     /// freely available [here](https://www.researchgate.net/publication/316558298_Date_Algorithms).
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(-4713-11-24 0:00 UTC).to_julian_day(), 0);
     /// assert_eq!(datetime!(2000-01-01 0:00 UTC).to_julian_day(), 2_451_545);
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).to_julian_day(), 2_458_485);
     /// assert_eq!(datetime!(2019-12-31 0:00 UTC).to_julian_day(), 2_458_849);
     /// ```
     pub const fn to_julian_day(self) -> i32 {
-        self.date().to_julian_day()
+        self.0.to_julian_day()
     }
     // endregion date getters
 
@@ -513,18 +428,18 @@ impl OffsetDateTime {
     /// Get the clock hour, minute, and second.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2020-01-01 0:00:00 UTC).to_hms(), (0, 0, 0));
     /// assert_eq!(datetime!(2020-01-01 23:59:59 UTC).to_hms(), (23, 59, 59));
     /// ```
     pub const fn to_hms(self) -> (u8, u8, u8) {
-        self.time().as_hms()
+        self.0.as_hms()
     }
 
     /// Get the clock hour, minute, second, and millisecond.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2020-01-01 0:00:00 UTC).to_hms_milli(),
     ///     (0, 0, 0, 0)
@@ -535,13 +450,13 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn to_hms_milli(self) -> (u8, u8, u8, u16) {
-        self.time().as_hms_milli()
+        self.0.as_hms_milli()
     }
 
     /// Get the clock hour, minute, second, and microsecond.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2020-01-01 0:00:00 UTC).to_hms_micro(),
     ///     (0, 0, 0, 0)
@@ -552,13 +467,13 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn to_hms_micro(self) -> (u8, u8, u8, u32) {
-        self.time().as_hms_micro()
+        self.0.as_hms_micro()
     }
 
     /// Get the clock hour, minute, second, and nanosecond.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2020-01-01 0:00:00 UTC).to_hms_nano(),
     ///     (0, 0, 0, 0)
@@ -569,7 +484,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn to_hms_nano(self) -> (u8, u8, u8, u32) {
-        self.time().as_hms_nano()
+        self.0.as_hms_nano()
     }
 
     /// Get the clock hour in the stored offset.
@@ -577,7 +492,7 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..24`.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).hour(), 0);
     /// assert_eq!(
     ///     datetime!(2019-01-01 23:59:59 UTC)
@@ -587,13 +502,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn hour(self) -> u8 {
-        let mut second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        let mut minute = self.utc_datetime.minute() as i8 + self.offset.minutes_past_hour();
-        let mut hour = self.utc_datetime.hour() as i8 + self.offset.whole_hours();
-
-        cascade!(second in 0..60 => minute);
-        cascade!(minute in 0..60 => hour);
-        hour.rem_euclid(24) as _
+        self.0.hour()
     }
 
     /// Get the minute within the hour in the stored offset.
@@ -601,7 +510,7 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..60`.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).minute(), 0);
     /// assert_eq!(
     ///     datetime!(2019-01-01 23:59:59 UTC)
@@ -611,11 +520,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn minute(self) -> u8 {
-        let mut second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        let mut minute = self.utc_datetime.minute() as i8 + self.offset.minutes_past_hour();
-
-        cascade!(second in 0..60 => minute);
-        minute.rem_euclid(60) as _
+        self.0.minute()
     }
 
     /// Get the second within the minute in the stored offset.
@@ -623,7 +528,7 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..60`.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).second(), 0);
     /// assert_eq!(
     ///     datetime!(2019-01-01 23:59:59 UTC)
@@ -633,8 +538,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn second(self) -> u8 {
-        let second = self.utc_datetime.second() as i8 + self.offset.seconds_past_minute();
-        second.rem_euclid(60) as _
+        self.0.second()
     }
 
     // Because a `UtcOffset` is limited in resolution to one second, any subsecond value will not
@@ -645,12 +549,12 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..1_000`.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).millisecond(), 0);
     /// assert_eq!(datetime!(2019-01-01 23:59:59.999 UTC).millisecond(), 999);
     /// ```
     pub const fn millisecond(self) -> u16 {
-        self.utc_datetime.millisecond()
+        self.0.millisecond()
     }
 
     /// Get the microseconds within the second in the stored offset.
@@ -658,7 +562,7 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..1_000_000`.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).microsecond(), 0);
     /// assert_eq!(
     ///     datetime!(2019-01-01 23:59:59.999_999 UTC).microsecond(),
@@ -666,7 +570,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn microsecond(self) -> u32 {
-        self.utc_datetime.microsecond()
+        self.0.microsecond()
     }
 
     /// Get the nanoseconds within the second in the stored offset.
@@ -674,7 +578,7 @@ impl OffsetDateTime {
     /// The returned value will always be in the range `0..1_000_000_000`.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(datetime!(2019-01-01 0:00 UTC).nanosecond(), 0);
     /// assert_eq!(
     ///     datetime!(2019-01-01 23:59:59.999_999_999 UTC).nanosecond(),
@@ -682,7 +586,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn nanosecond(self) -> u32 {
-        self.utc_datetime.nanosecond()
+        self.0.nanosecond()
     }
     // endregion time getters
     // endregion getters
@@ -692,7 +596,7 @@ impl OffsetDateTime {
     ///
     /// ```
     /// # use time::{Date, ext::NumericalDuration};
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// let datetime = Date::MIN.midnight().assume_offset(offset!(+10));
     /// assert_eq!(datetime.checked_add((-2).days()), None);
     ///
@@ -705,15 +609,14 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn checked_add(self, duration: Duration) -> Option<Self> {
-        let offset_datetime = self.utc_datetime.utc_to_offset(self.offset);
-        Some(const_try_opt!(offset_datetime.checked_add(duration)).assume_offset(self.offset))
+        Some(Self(const_try_opt!(self.0.checked_add(duration))))
     }
 
     /// Computes `self - duration`, returning `None` if an overflow occurred.
     ///
     /// ```
     /// # use time::{Date, ext::NumericalDuration};
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// let datetime = Date::MIN.midnight().assume_offset(offset!(+10));
     /// assert_eq!(datetime.checked_sub(2.days()), None);
     ///
@@ -726,8 +629,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn checked_sub(self, duration: Duration) -> Option<Self> {
-        let offset_datetime = self.utc_datetime.utc_to_offset(self.offset);
-        Some(const_try_opt!(offset_datetime.checked_sub(duration)).assume_offset(self.offset))
+        Some(Self(const_try_opt!(self.0.checked_sub(duration))))
     }
     // endregion: checked arithmetic
 
@@ -736,15 +638,40 @@ impl OffsetDateTime {
     ///
     /// ```
     /// # use time::ext::NumericalDuration;
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
-    ///     datetime!(-999999 - 01 - 01 0:00 +10).saturating_add((-2).days()),
-    ///     datetime!(-999999 - 01 - 01 0:00 +10)
+    #[cfg_attr(
+        feature = "large-dates",
+        doc = "    datetime!(-999999-01-01 0:00 +10).saturating_add((-2).days()),"
+    )]
+    #[cfg_attr(feature = "large-dates", doc = "    datetime!(-999999-01-01 0:00 +10)")]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(-9999-01-01 0:00 +10).saturating_add((-2).days()),"
+    )]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(-9999-01-01 0:00 +10)"
+    )]
     /// );
     ///
     /// assert_eq!(
-    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10).saturating_add(2.days()),
-    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10)
+    #[cfg_attr(
+        feature = "large-dates",
+        doc = "    datetime!(+999999-12-31 23:59:59.999_999_999 +10).saturating_add(2.days()),"
+    )]
+    #[cfg_attr(
+        feature = "large-dates",
+        doc = "    datetime!(+999999-12-31 23:59:59.999_999_999 +10)"
+    )]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(+9999-12-31 23:59:59.999_999_999 +10).saturating_add(2.days()),"
+    )]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(+9999-12-31 23:59:59.999_999_999 +10)"
+    )]
     /// );
     ///
     /// assert_eq!(
@@ -753,33 +680,47 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn saturating_add(self, duration: Duration) -> Self {
-        if let Some(datetime) = self.checked_add(duration) {
-            datetime
-        } else if duration.is_negative() {
-            PrimitiveDateTime::MIN
-                .assume_utc()
-                .replace_offset(self.offset)
-        } else {
-            debug_assert!(duration.is_positive());
-            PrimitiveDateTime::MAX
-                .assume_utc()
-                .replace_offset(self.offset)
-        }
+        Self(self.0.saturating_add(duration))
     }
 
     /// Computes `self - duration`, saturating value on overflow.
     ///
     /// ```
     /// # use time::ext::NumericalDuration;
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
-    ///     datetime!(-999999 - 01 - 01 0:00 +10).saturating_sub(2.days()),
-    ///     datetime!(-999999 - 01 - 01 0:00 +10)
+    #[cfg_attr(
+        feature = "large-dates",
+        doc = "    datetime!(-999999-01-01 0:00 +10).saturating_sub(2.days()),"
+    )]
+    #[cfg_attr(feature = "large-dates", doc = "    datetime!(-999999-01-01 0:00 +10)")]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(-9999-01-01 0:00 +10).saturating_sub(2.days()),"
+    )]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(-9999-01-01 0:00 +10)"
+    )]
     /// );
     ///
     /// assert_eq!(
-    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10).saturating_sub((-2).days()),
-    ///     datetime!(+999999 - 12 - 31 23:59:59.999_999_999 +10)
+    #[cfg_attr(
+        feature = "large-dates",
+        doc = "    datetime!(+999999-12-31 23:59:59.999_999_999 +10).saturating_sub((-2).days()),"
+    )]
+    #[cfg_attr(
+        feature = "large-dates",
+        doc = "    datetime!(+999999-12-31 23:59:59.999_999_999 +10)"
+    )]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(+9999-12-31 23:59:59.999_999_999 +10).saturating_sub((-2).days()),"
+    )]
+    #[cfg_attr(
+        not(feature = "large-dates"),
+        doc = "    datetime!(+9999-12-31 23:59:59.999_999_999 +10)"
+    )]
     /// );
     ///
     /// assert_eq!(
@@ -788,18 +729,7 @@ impl OffsetDateTime {
     /// );
     /// ```
     pub const fn saturating_sub(self, duration: Duration) -> Self {
-        if let Some(datetime) = self.checked_sub(duration) {
-            datetime
-        } else if duration.is_negative() {
-            PrimitiveDateTime::MAX
-                .assume_utc()
-                .replace_offset(self.offset)
-        } else {
-            debug_assert!(duration.is_positive());
-            PrimitiveDateTime::MIN
-                .assume_utc()
-                .replace_offset(self.offset)
-        }
+        Self(self.0.saturating_sub(duration))
     }
     // endregion: saturating arithmetic
 }
@@ -811,7 +741,7 @@ impl OffsetDateTime {
     /// components are unchanged.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, time};
+    /// # use time_macros::{datetime, time};
     /// assert_eq!(
     ///     datetime!(2020-01-01 5:00 UTC).replace_time(time!(12:00)),
     ///     datetime!(2020-01-01 12:00 UTC)
@@ -827,17 +757,14 @@ impl OffsetDateTime {
     /// ```
     #[must_use = "This method does not mutate the original `OffsetDateTime`."]
     pub const fn replace_time(self, time: Time) -> Self {
-        self.utc_datetime
-            .utc_to_offset(self.offset)
-            .replace_time(time)
-            .assume_offset(self.offset)
+        Self(self.0.replace_time(time))
     }
 
     /// Replace the date, which is assumed to be in the stored offset. The time and offset
     /// components are unchanged.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, date};
+    /// # use time_macros::{datetime, date};
     /// assert_eq!(
     ///     datetime!(2020-01-01 12:00 UTC).replace_date(date!(2020-01-30)),
     ///     datetime!(2020-01-30 12:00 UTC)
@@ -849,17 +776,14 @@ impl OffsetDateTime {
     /// ```
     #[must_use = "This method does not mutate the original `OffsetDateTime`."]
     pub const fn replace_date(self, date: Date) -> Self {
-        self.utc_datetime
-            .utc_to_offset(self.offset)
-            .replace_date(date)
-            .assume_offset(self.offset)
+        Self(self.0.replace_date(date))
     }
 
     /// Replace the date and time, which are assumed to be in the stored offset. The offset
     /// component remains unchanged.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2020-01-01 12:00 UTC).replace_date_time(datetime!(2020-01-30 16:00)),
     ///     datetime!(2020-01-30 16:00 UTC)
@@ -871,13 +795,13 @@ impl OffsetDateTime {
     /// ```
     #[must_use = "This method does not mutate the original `OffsetDateTime`."]
     pub const fn replace_date_time(self, date_time: PrimitiveDateTime) -> Self {
-        date_time.assume_offset(self.offset)
+        Self(self.0.replace_date_time(date_time.0))
     }
 
     /// Replace the offset. The date and time components remain unchanged.
     ///
     /// ```rust
-    /// # use time::macros::{datetime, offset};
+    /// # use time_macros::{datetime, offset};
     /// assert_eq!(
     ///     datetime!(2020-01-01 0:00 UTC).replace_offset(offset!(-5)),
     ///     datetime!(2020-01-01 0:00 -5)
@@ -885,13 +809,13 @@ impl OffsetDateTime {
     /// ```
     #[must_use = "This method does not mutate the original `OffsetDateTime`."]
     pub const fn replace_offset(self, offset: UtcOffset) -> Self {
-        self.utc_datetime.assume_offset(offset)
+        Self(self.0.replace_offset(offset))
     }
 
     /// Replace the year. The month and day will be unchanged.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 12:00 +01).replace_year(2019),
     ///     Ok(datetime!(2019 - 02 - 18 12:00 +01))
@@ -900,18 +824,13 @@ impl OffsetDateTime {
     /// assert!(datetime!(2022 - 02 - 18 12:00 +01).replace_year(1_000_000_000).is_err()); // 1_000_000_000 isn't a valid year
     /// ```
     pub const fn replace_year(self, year: i32) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_year(year)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_year(year))))
     }
 
     /// Replace the month of the year.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// # use time::Month;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 12:00 +01).replace_month(Month::January),
@@ -920,18 +839,13 @@ impl OffsetDateTime {
     /// assert!(datetime!(2022 - 01 - 30 12:00 +01).replace_month(Month::February).is_err()); // 30 isn't a valid day in February
     /// ```
     pub const fn replace_month(self, month: Month) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_month(month)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_month(month))))
     }
 
     /// Replace the day of the month.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 12:00 +01).replace_day(1),
     ///     Ok(datetime!(2022 - 02 - 01 12:00 +01))
@@ -940,18 +854,13 @@ impl OffsetDateTime {
     /// assert!(datetime!(2022 - 02 - 18 12:00 +01).replace_day(30).is_err()); // 30 isn't a valid day in February
     /// ```
     pub const fn replace_day(self, day: u8) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_day(day)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_day(day))))
     }
 
     /// Replace the clock hour.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_hour(7),
     ///     Ok(datetime!(2022 - 02 - 18 07:02:03.004_005_006 +01))
@@ -959,18 +868,13 @@ impl OffsetDateTime {
     /// assert!(datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_hour(24).is_err()); // 24 isn't a valid hour
     /// ```
     pub const fn replace_hour(self, hour: u8) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_hour(hour)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_hour(hour))))
     }
 
     /// Replace the minutes within the hour.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_minute(7),
     ///     Ok(datetime!(2022 - 02 - 18 01:07:03.004_005_006 +01))
@@ -978,18 +882,13 @@ impl OffsetDateTime {
     /// assert!(datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_minute(60).is_err()); // 60 isn't a valid minute
     /// ```
     pub const fn replace_minute(self, minute: u8) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_minute(minute)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_minute(minute))))
     }
 
     /// Replace the seconds within the minute.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_second(7),
     ///     Ok(datetime!(2022 - 02 - 18 01:02:07.004_005_006 +01))
@@ -997,18 +896,13 @@ impl OffsetDateTime {
     /// assert!(datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_second(60).is_err()); // 60 isn't a valid second
     /// ```
     pub const fn replace_second(self, second: u8) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_second(second)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_second(second))))
     }
 
     /// Replace the milliseconds within the second.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_millisecond(7),
     ///     Ok(datetime!(2022 - 02 - 18 01:02:03.007 +01))
@@ -1019,18 +913,13 @@ impl OffsetDateTime {
         self,
         millisecond: u16,
     ) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_millisecond(millisecond)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_millisecond(millisecond))))
     }
 
     /// Replace the microseconds within the second.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_microsecond(7_008),
     ///     Ok(datetime!(2022 - 02 - 18 01:02:03.007_008 +01))
@@ -1041,18 +930,13 @@ impl OffsetDateTime {
         self,
         microsecond: u32,
     ) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_microsecond(microsecond)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_microsecond(microsecond))))
     }
 
     /// Replace the nanoseconds within the second.
     ///
     /// ```rust
-    /// # use time::macros::datetime;
+    /// # use time_macros::datetime;
     /// assert_eq!(
     ///     datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_nanosecond(7_008_009),
     ///     Ok(datetime!(2022 - 02 - 18 01:02:03.007_008_009 +01))
@@ -1060,12 +944,7 @@ impl OffsetDateTime {
     /// assert!(datetime!(2022 - 02 - 18 01:02:03.004_005_006 +01).replace_nanosecond(1_000_000_000).is_err()); // 1_000_000_000 isn't a valid nanosecond
     /// ```
     pub const fn replace_nanosecond(self, nanosecond: u32) -> Result<Self, error::ComponentRange> {
-        Ok(const_try!(
-            self.utc_datetime
-                .utc_to_offset(self.offset)
-                .replace_nanosecond(nanosecond)
-        )
-        .assume_offset(self.offset))
+        Ok(Self(const_try!(self.0.replace_nanosecond(nanosecond))))
     }
 }
 // endregion replacement
@@ -1080,20 +959,15 @@ impl OffsetDateTime {
         output: &mut impl io::Write,
         format: &(impl Formattable + ?Sized),
     ) -> Result<usize, error::Format> {
-        let local = self.utc_datetime.utc_to_offset(self.offset);
-        format.format_into(
-            output,
-            Some(local.date),
-            Some(local.time),
-            Some(self.offset),
-        )
+        self.0.format_into(output, format)
     }
 
     /// Format the `OffsetDateTime` using the provided [format
     /// description](crate::format_description).
     ///
     /// ```rust
-    /// # use time::{format_description, macros::datetime};
+    /// # use time::format_description;
+    /// # use time_macros::datetime;
     /// let format = format_description::parse(
     ///     "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour \
     ///          sign:mandatory]:[offset_minute]:[offset_second]",
@@ -1105,8 +979,7 @@ impl OffsetDateTime {
     /// # Ok::<_, time::Error>(())
     /// ```
     pub fn format(self, format: &(impl Formattable + ?Sized)) -> Result<String, error::Format> {
-        let local = self.utc_datetime.utc_to_offset(self.offset);
-        format.format(Some(local.date), Some(local.time), Some(self.offset))
+        self.0.format(format)
     }
 }
 
@@ -1116,11 +989,12 @@ impl OffsetDateTime {
     /// description](crate::format_description).
     ///
     /// ```rust
-    /// # use time::{format_description, macros::datetime, OffsetDateTime};
-    /// let format = format_description::parse(
+    /// # use time::OffsetDateTime;
+    /// # use time_macros::{datetime, format_description};
+    /// let format = format_description!(
     ///     "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour \
-    ///          sign:mandatory]:[offset_minute]:[offset_second]",
-    /// )?;
+    ///          sign:mandatory]:[offset_minute]:[offset_second]"
+    /// );
     /// assert_eq!(
     ///     OffsetDateTime::parse("2020-01-02 03:04:05 +06:07:08", &format)?,
     ///     datetime!(2020-01-02 03:04:05 +06:07:08)
@@ -1131,129 +1005,94 @@ impl OffsetDateTime {
         input: &str,
         description: &(impl Parsable + ?Sized),
     ) -> Result<Self, error::Parse> {
-        description.parse_offset_date_time(input.as_bytes())
-    }
-
-    /// A helper method to check if the `OffsetDateTime` is a valid representation of a leap second.
-    /// Leap seconds, when parsed, are represented as the preceding nanosecond. However, leap
-    /// seconds can only occur as the last second of a month UTC.
-    pub(crate) const fn is_valid_leap_second_stand_in(self) -> bool {
-        let udt = self.utc_datetime;
-        udt.hour() == 23
-            && udt.minute() == 59
-            && udt.second() == 59
-            && udt.nanosecond() == 999_999_999
-            && udt.day() == util::days_in_year_month(udt.year(), udt.month())
+        Inner::parse(input, description).map(Self)
     }
 }
 
 impl fmt::Display for OffsetDateTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {} {}", self.date(), self.time(), self.offset)
+        self.0.fmt(f)
+    }
+}
+
+impl fmt::Debug for OffsetDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }
 // endregion formatting & parsing
 
 // region: trait impls
-impl PartialEq for OffsetDateTime {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.utc_datetime.eq(&rhs.utc_datetime)
-    }
-}
-
-impl PartialOrd for OffsetDateTime {
-    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
-        Some(self.cmp(rhs))
-    }
-}
-
-impl Ord for OffsetDateTime {
-    fn cmp(&self, rhs: &Self) -> Ordering {
-        self.utc_datetime.cmp(&rhs.utc_datetime)
-    }
-}
-
-impl Hash for OffsetDateTime {
-    fn hash<H: Hasher>(&self, hasher: &mut H) {
-        // We need to distinguish this from a `PrimitiveDateTime`, which would otherwise conflict.
-        hasher.write(b"OffsetDateTime");
-        self.utc_datetime.hash(hasher);
-    }
-}
-
-impl<T> Add<T> for OffsetDateTime
-where
-    PrimitiveDateTime: Add<T, Output = PrimitiveDateTime>,
-{
+impl Add<Duration> for OffsetDateTime {
     type Output = Self;
 
-    fn add(self, rhs: T) -> Self::Output {
-        (self.utc_datetime + rhs)
-            .assume_utc()
-            .to_offset(self.offset)
+    fn add(self, rhs: Duration) -> Self::Output {
+        Self(self.0.add(rhs))
     }
 }
 
-impl_add_assign!(OffsetDateTime: Duration, StdDuration);
-
-impl<T> Sub<T> for OffsetDateTime
-where
-    PrimitiveDateTime: Sub<T, Output = PrimitiveDateTime>,
-{
+impl Add<StdDuration> for OffsetDateTime {
     type Output = Self;
 
-    fn sub(self, rhs: T) -> Self::Output {
-        (self.utc_datetime - rhs)
-            .assume_utc()
-            .to_offset(self.offset)
+    fn add(self, rhs: StdDuration) -> Self::Output {
+        Self(self.0.add(rhs))
     }
 }
 
-impl_sub_assign!(OffsetDateTime: Duration, StdDuration);
+impl AddAssign<Duration> for OffsetDateTime {
+    fn add_assign(&mut self, rhs: Duration) {
+        self.0.add_assign(rhs);
+    }
+}
+
+impl AddAssign<StdDuration> for OffsetDateTime {
+    fn add_assign(&mut self, rhs: StdDuration) {
+        self.0.add_assign(rhs);
+    }
+}
+
+impl Sub<Duration> for OffsetDateTime {
+    type Output = Self;
+
+    fn sub(self, rhs: Duration) -> Self::Output {
+        Self(self.0.sub(rhs))
+    }
+}
+
+impl Sub<StdDuration> for OffsetDateTime {
+    type Output = Self;
+
+    fn sub(self, rhs: StdDuration) -> Self::Output {
+        Self(self.0.sub(rhs))
+    }
+}
+
+impl SubAssign<Duration> for OffsetDateTime {
+    fn sub_assign(&mut self, rhs: Duration) {
+        self.0.sub_assign(rhs);
+    }
+}
+
+impl SubAssign<StdDuration> for OffsetDateTime {
+    fn sub_assign(&mut self, rhs: StdDuration) {
+        self.0.sub_assign(rhs);
+    }
+}
 
 impl Sub for OffsetDateTime {
     type Output = Duration;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        self.utc_datetime - rhs.utc_datetime
+        self.0.sub(rhs.0)
     }
 }
-
-#[cfg(feature = "std")]
-impl Add<Duration> for SystemTime {
-    type Output = Self;
-
-    fn add(self, duration: Duration) -> Self::Output {
-        if duration.is_zero() {
-            self
-        } else if duration.is_positive() {
-            self + duration.unsigned_abs()
-        } else {
-            debug_assert!(duration.is_negative());
-            self - duration.unsigned_abs()
-        }
-    }
-}
-
-impl_add_assign!(SystemTime: #[cfg(feature = "std")] Duration);
-
-#[cfg(feature = "std")]
-impl Sub<Duration> for SystemTime {
-    type Output = Self;
-
-    fn sub(self, duration: Duration) -> Self::Output {
-        (OffsetDateTime::from(self) - duration).into()
-    }
-}
-
-impl_sub_assign!(SystemTime: #[cfg(feature = "std")] Duration);
 
 #[cfg(feature = "std")]
 impl Sub<SystemTime> for OffsetDateTime {
     type Output = Duration;
 
     fn sub(self, rhs: SystemTime) -> Self::Output {
-        self - Self::from(rhs)
+        self.0.sub(rhs)
     }
 }
 
@@ -1262,62 +1101,72 @@ impl Sub<OffsetDateTime> for SystemTime {
     type Output = Duration;
 
     fn sub(self, rhs: OffsetDateTime) -> Self::Output {
-        OffsetDateTime::from(self) - rhs
+        self.sub(rhs.0)
     }
 }
 
 #[cfg(feature = "std")]
 impl PartialEq<SystemTime> for OffsetDateTime {
     fn eq(&self, rhs: &SystemTime) -> bool {
-        self == &Self::from(*rhs)
+        self.0.eq(rhs)
     }
 }
 
 #[cfg(feature = "std")]
 impl PartialEq<OffsetDateTime> for SystemTime {
     fn eq(&self, rhs: &OffsetDateTime) -> bool {
-        &OffsetDateTime::from(*self) == rhs
+        self.eq(&rhs.0)
     }
 }
 
 #[cfg(feature = "std")]
 impl PartialOrd<SystemTime> for OffsetDateTime {
     fn partial_cmp(&self, other: &SystemTime) -> Option<Ordering> {
-        self.partial_cmp(&Self::from(*other))
+        self.0.partial_cmp(other)
     }
 }
 
 #[cfg(feature = "std")]
 impl PartialOrd<OffsetDateTime> for SystemTime {
     fn partial_cmp(&self, other: &OffsetDateTime) -> Option<Ordering> {
-        OffsetDateTime::from(*self).partial_cmp(other)
+        self.partial_cmp(&other.0)
     }
 }
 
 #[cfg(feature = "std")]
 impl From<SystemTime> for OffsetDateTime {
     fn from(system_time: SystemTime) -> Self {
-        match system_time.duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(duration) => Self::UNIX_EPOCH + duration,
-            Err(err) => Self::UNIX_EPOCH - err.duration(),
-        }
+        Self(Inner::from(system_time))
     }
 }
 
-#[allow(clippy::fallible_impl_from)] // caused by `debug_assert!`
 #[cfg(feature = "std")]
 impl From<OffsetDateTime> for SystemTime {
     fn from(datetime: OffsetDateTime) -> Self {
-        let duration = datetime - OffsetDateTime::UNIX_EPOCH;
-
-        if duration.is_zero() {
-            Self::UNIX_EPOCH
-        } else if duration.is_positive() {
-            Self::UNIX_EPOCH + duration.unsigned_abs()
-        } else {
-            debug_assert!(duration.is_negative());
-            Self::UNIX_EPOCH - duration.unsigned_abs()
-        }
+        datetime.0.into()
     }
 }
+
+#[cfg(all(
+    target_family = "wasm",
+    not(any(target_os = "emscripten", target_os = "wasi")),
+    feature = "wasm-bindgen"
+))]
+impl From<js_sys::Date> for OffsetDateTime {
+    fn from(js_date: js_sys::Date) -> Self {
+        Self(Inner::from(js_date))
+    }
+}
+
+#[cfg(all(
+    target_family = "wasm",
+    not(any(target_os = "emscripten", target_os = "wasi")),
+    feature = "wasm-bindgen"
+))]
+impl From<OffsetDateTime> for js_sys::Date {
+    fn from(datetime: OffsetDateTime) -> Self {
+        datetime.0.into()
+    }
+}
+
 // endregion trait impls

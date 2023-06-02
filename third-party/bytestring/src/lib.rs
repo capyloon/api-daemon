@@ -50,6 +50,44 @@ impl ByteString {
     pub const unsafe fn from_bytes_unchecked(src: Bytes) -> ByteString {
         Self(src)
     }
+
+    /// Returns a new byte string that is equivalent to the given `subset`.
+    ///
+    /// When processing a `ByteString` buffer with other tools, one often gets a `&str` which is in
+    /// fact a slice of the original `ByteString`; i.e., a subset of it. This function turns that
+    /// `&str` into another `ByteString`, as if one had sliced the `ByteString` with the offsets
+    /// that correspond to `subset`.
+    ///
+    /// Corresponds to [`Bytes::slice_ref`].
+    ///
+    /// This operation is `O(1)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `subset` is not a sub-slice of this byte string.
+    ///
+    /// Note that strings which are only subsets from an equality perspective do not uphold this
+    /// requirement; see examples.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use bytestring::ByteString;
+    /// let string = ByteString::from_static(" foo ");
+    /// let subset = string.trim();
+    /// let substring = string.slice_ref(subset);
+    /// assert_eq!(substring, "foo");
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use bytestring::ByteString;
+    /// // panics because the given slice is not derived from the original byte string, despite
+    /// // being a logical subset of the string
+    /// ByteString::from_static("foo bar").slice_ref("foo");
+    /// ```
+    pub fn slice_ref(&self, subset: &str) -> Self {
+        Self(self.0.slice_ref(subset.as_bytes()))
+    }
 }
 
 impl PartialEq<str> for ByteString {
@@ -64,6 +102,12 @@ impl<T: AsRef<str>> PartialEq<T> for ByteString {
     }
 }
 
+impl AsRef<ByteString> for ByteString {
+    fn as_ref(&self) -> &ByteString {
+        self
+    }
+}
+
 impl AsRef<[u8]> for ByteString {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
@@ -72,7 +116,7 @@ impl AsRef<[u8]> for ByteString {
 
 impl AsRef<str> for ByteString {
     fn as_ref(&self) -> &str {
-        &*self
+        self
     }
 }
 
@@ -96,7 +140,7 @@ impl ops::Deref for ByteString {
 
 impl borrow::Borrow<str> for ByteString {
     fn borrow(&self) -> &str {
-        &*self
+        self
     }
 }
 
@@ -249,7 +293,10 @@ mod serde {
 #[cfg(test)]
 mod test {
     use alloc::borrow::ToOwned;
-    use core::hash::{Hash, Hasher};
+    use core::{
+        hash::{Hash, Hasher},
+        panic::{RefUnwindSafe, UnwindSafe},
+    };
 
     use ahash::AHasher;
     use static_assertions::assert_impl_all;
@@ -259,16 +306,7 @@ mod test {
     assert_impl_all!(ByteString: Send, Sync, Unpin, Sized);
     assert_impl_all!(ByteString: Clone, Default, Eq, PartialOrd, Ord);
     assert_impl_all!(ByteString: fmt::Debug, fmt::Display);
-
-    #[rustversion::since(1.56)]
-    mod above_1_56_impls {
-        // `[Ref]UnwindSafe` traits were only in std until rust 1.56
-
-        use core::panic::{RefUnwindSafe, UnwindSafe};
-
-        use super::*;
-        assert_impl_all!(ByteString: UnwindSafe, RefUnwindSafe);
-    }
+    assert_impl_all!(ByteString: UnwindSafe, RefUnwindSafe);
 
     #[test]
     fn test_partial_eq() {
@@ -348,5 +386,22 @@ mod test {
     fn test_deserialize() {
         let s = serde_json::to_string(&ByteString::from_static("nice bytes")).unwrap();
         assert_eq!(s, r#""nice bytes""#);
+    }
+
+    #[test]
+    fn slice_ref() {
+        let string = ByteString::from_static(" foo ");
+        let subset = string.trim();
+        // subset is derived from original byte string
+        let substring = string.slice_ref(subset);
+        assert_eq!(substring, "foo");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_slice_ref_catches_not_a_subset() {
+        // panics because the given slice is not derived from the original byte string, despite
+        // being a logical subset of the string
+        ByteString::from_static("foo bar").slice_ref("foo");
     }
 }

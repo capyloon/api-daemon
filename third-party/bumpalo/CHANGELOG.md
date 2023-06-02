@@ -28,6 +28,96 @@ Released YYYY-MM-DD.
 
 --------------------------------------------------------------------------------
 
+## 3.13.0
+
+Released 2023-05-22.
+
+### Added
+
+* New `"allocator-api2"` feature enables the use of the allocator API on
+  stable. This feature uses a crate that mirrors the API of the unstable Rust
+  `allocator_api` feature. If the feature is enabled, references to `Bump` will
+  implement `allocator_api2::Allocator`. This allows `Bump` to be used as an
+  allocator for collection types from `allocator-api2` and any other crates that
+  support `allocator-api2`.
+
+### Changed
+
+* The minimum supported Rust version (MSRV) is now 1.63.0.
+
+--------------------------------------------------------------------------------
+
+## 3.12.2
+
+Released 2023-05-09.
+
+### Changed
+
+* Added `rust-version` metadata to `Cargo.toml` which helps `cargo` with version
+  resolution.
+
+--------------------------------------------------------------------------------
+
+## 3.12.1
+
+Released 2023-04-21.
+
+### Fixed
+
+* Fixed a bug where `Bump::try_with_capacity(n)` where `n > isize::MAX` could
+  lead to attempts to create invalid `Layout`s.
+
+--------------------------------------------------------------------------------
+
+## 3.12.0
+
+Released 2023-01-17.
+
+### Added
+
+* Added the `bumpalo::boxed::Box::bump` and `bumpalo::collections::String::bump`
+  getters to get the underlying `Bump` that a string or box was allocated into.
+
+### Changed
+
+* Some uses of `Box` that MIRI did not previously consider as UB are now
+  reported as UB, and `bumpalo`'s internals have been adjusted to avoid the new
+  UB.
+
+--------------------------------------------------------------------------------
+
+## 3.11.1
+
+Released 2022-10-18.
+
+### Security
+
+* Fixed a bug where when `std::vec::IntoIter` was ported to
+  `bumpalo::collections::vec::IntoIter`, it didn't get its underlying `Bump`'s
+  lifetime threaded through. This meant that `rustc` was not checking the
+  borrows for `bumpalo::collections::IntoIter` and this could result in
+  use-after-free bugs.
+
+--------------------------------------------------------------------------------
+
+## 3.11.0
+
+Released 2022-08-17.
+
+### Added
+
+* Added support for per-`Bump` allocation limits. These are enforced only in the
+  slow path when allocating new chunks in the `Bump`, not in the bump allocation
+  hot path, and therefore impose near zero overhead.
+* Added the `bumpalo::boxed::Box::into_inner` method.
+
+### Changed
+
+* Updated to Rust 2021 edition.
+* The minimum supported Rust version (MSRV) is now 1.56.0.
+
+--------------------------------------------------------------------------------
+
 ## 3.10.0
 
 Released 2022-06-01.

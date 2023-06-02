@@ -2,18 +2,25 @@
 
 use core::ops::Deref;
 
+use crate::date_time::{maybe_offset_from_offset, MaybeOffset};
 use crate::error::TryFromParsed;
 use crate::format_description::well_known::iso8601::EncodedConfig;
 use crate::format_description::well_known::{Iso8601, Rfc2822, Rfc3339};
 use crate::format_description::FormatItem;
+#[cfg(feature = "alloc")]
+use crate::format_description::OwnedFormatItem;
 use crate::parsing::{Parsed, ParsedItem};
-use crate::{error, Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset, Weekday};
+use crate::{error, Date, DateTime, Month, Time, UtcOffset, Weekday};
 
 /// A type that can be parsed.
 #[cfg_attr(__time_03_docs, doc(notable_trait))]
 pub trait Parsable: sealed::Sealed {}
 impl Parsable for FormatItem<'_> {}
 impl Parsable for [FormatItem<'_>] {}
+#[cfg(feature = "alloc")]
+impl Parsable for OwnedFormatItem {}
+#[cfg(feature = "alloc")]
+impl Parsable for [OwnedFormatItem] {}
 impl Parsable for Rfc2822 {}
 impl Parsable for Rfc3339 {}
 impl<const CONFIG: EncodedConfig> Parsable for Iso8601<CONFIG> {}
@@ -22,12 +29,10 @@ impl<T: Deref> Parsable for T where T::Target: Parsable {}
 /// Seal the trait to prevent downstream users from implementing it, while still allowing it to
 /// exist in generic bounds.
 mod sealed {
-
     #[allow(clippy::wildcard_imports)]
     use super::*;
 
     /// Parse the item using a format description and an input.
-    #[cfg_attr(__time_03_docs, doc(cfg(feature = "parsing")))]
     pub trait Sealed {
         /// Parse the item into the provided [`Parsed`] struct.
         ///
@@ -66,13 +71,11 @@ mod sealed {
             Ok(self.parse(input)?.try_into()?)
         }
 
-        /// Parse a [`PrimitiveDateTime`] from the format description.
-        fn parse_date_time(&self, input: &[u8]) -> Result<PrimitiveDateTime, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
-        }
-
-        /// Parse a [`OffsetDateTime`] from the format description.
-        fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
+        /// Parse a [`DateTime`] from the format description.
+        fn parse_date_time<O: MaybeOffset>(
+            &self,
+            input: &[u8],
+        ) -> Result<DateTime<O>, error::Parse> {
             Ok(self.parse(input)?.try_into()?)
         }
     }
@@ -90,6 +93,28 @@ impl sealed::Sealed for FormatItem<'_> {
 }
 
 impl sealed::Sealed for [FormatItem<'_>] {
+    fn parse_into<'a>(
+        &self,
+        input: &'a [u8],
+        parsed: &mut Parsed,
+    ) -> Result<&'a [u8], error::Parse> {
+        Ok(parsed.parse_items(input, self)?)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl sealed::Sealed for OwnedFormatItem {
+    fn parse_into<'a>(
+        &self,
+        input: &'a [u8],
+        parsed: &mut Parsed,
+    ) -> Result<&'a [u8], error::Parse> {
+        Ok(parsed.parse_item(input, self)?)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl sealed::Sealed for [OwnedFormatItem] {
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
@@ -146,7 +171,7 @@ impl sealed::Sealed for Rfc2822 {
         .ok_or(InvalidComponent("weekday"))?;
         let input = comma(input).ok_or(InvalidLiteral)?.into_inner();
         let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = n_to_m_digits::<_, 1, 2>(input)
+        let input = n_to_m_digits::<1, 2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_day(value)))
             .ok_or(InvalidComponent("day"))?;
         let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
@@ -170,52 +195,49 @@ impl sealed::Sealed for Rfc2822 {
         .and_then(|item| item.consume_value(|value| parsed.set_month(value)))
         .ok_or(InvalidComponent("month"))?;
         let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = match exactly_n_digits::<u32, 4>(input) {
+        let input = match exactly_n_digits::<4, u32>(input) {
             Some(item) => {
                 let input = item
                     .flat_map(|year| if year >= 1900 { Some(year) } else { None })
                     .and_then(|item| item.consume_value(|value| parsed.set_year(value as _)))
                     .ok_or(InvalidComponent("year"))?;
-                let input = fws(input).ok_or(InvalidLiteral)?.into_inner();
-                input
+                fws(input).ok_or(InvalidLiteral)?.into_inner()
             }
             None => {
-                let input = exactly_n_digits::<u32, 2>(input)
+                let input = exactly_n_digits::<2, u32>(input)
                     .and_then(|item| {
                         item.map(|year| if year < 50 { year + 2000 } else { year + 1900 })
                             .map(|year| year as _)
                             .consume_value(|value| parsed.set_year(value))
                     })
                     .ok_or(InvalidComponent("year"))?;
-                let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
-                input
+                cfws(input).ok_or(InvalidLiteral)?.into_inner()
             }
         };
 
-        let input = exactly_n_digits::<_, 2>(input)
+        let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_hour_24(value)))
             .ok_or(InvalidComponent("hour"))?;
         let input = opt(cfws)(input).into_inner();
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
         let input = opt(cfws)(input).into_inner();
-        let input = exactly_n_digits::<_, 2>(input)
+        let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_minute(value)))
             .ok_or(InvalidComponent("minute"))?;
 
         let input = if let Some(input) = colon(opt(cfws)(input).into_inner()) {
             let input = input.into_inner(); // discard the colon
             let input = opt(cfws)(input).into_inner();
-            let input = exactly_n_digits::<_, 2>(input)
+            let input = exactly_n_digits::<2, _>(input)
                 .and_then(|item| item.consume_value(|value| parsed.set_second(value)))
                 .ok_or(InvalidComponent("second"))?;
-            let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
-            input
+            cfws(input).ok_or(InvalidLiteral)?.into_inner()
         } else {
             cfws(input).ok_or(InvalidLiteral)?.into_inner()
         };
 
         // The RFC explicitly allows leap seconds.
-        parsed.set_leap_second_allowed(true);
+        parsed.set_flag(Parsed::LEAP_SECOND_ALLOWED_FLAG, true);
 
         #[allow(clippy::unnecessary_lazy_evaluations)] // rust-lang/rust-clippy#8522
         let zone_literal = first_match(
@@ -254,7 +276,7 @@ impl sealed::Sealed for Rfc2822 {
         }
 
         let ParsedItem(input, offset_sign) = sign(input).ok_or(InvalidComponent("offset hour"))?;
-        let input = exactly_n_digits::<u8, 2>(input)
+        let input = exactly_n_digits::<2, u8>(input)
             .and_then(|item| {
                 item.map(|offset_hour| {
                     if offset_sign == b'-' {
@@ -266,7 +288,7 @@ impl sealed::Sealed for Rfc2822 {
                 .consume_value(|value| parsed.set_offset_hour(value))
             })
             .ok_or(InvalidComponent("offset hour"))?;
-        let input = exactly_n_digits::<u8, 2>(input)
+        let input = exactly_n_digits::<2, u8>(input)
             .and_then(|item| {
                 item.consume_value(|value| parsed.set_offset_minute_signed(value as _))
             })
@@ -275,7 +297,7 @@ impl sealed::Sealed for Rfc2822 {
         Ok(input)
     }
 
-    fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
+    fn parse_date_time<O: MaybeOffset>(&self, input: &[u8]) -> Result<DateTime<O>, error::Parse> {
         use crate::error::ParseFromDescription::{InvalidComponent, InvalidLiteral};
         use crate::parsing::combinator::rfc::rfc2822::{cfws, fws};
         use crate::parsing::combinator::{
@@ -304,7 +326,7 @@ impl sealed::Sealed for Rfc2822 {
         let input = comma(input).ok_or(InvalidLiteral)?.into_inner();
         let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
         let ParsedItem(input, day) =
-            n_to_m_digits::<_, 1, 2>(input).ok_or(InvalidComponent("day"))?;
+            n_to_m_digits::<1, 2, _>(input).ok_or(InvalidComponent("day"))?;
         let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
         let ParsedItem(input, month) = first_match(
             [
@@ -325,7 +347,7 @@ impl sealed::Sealed for Rfc2822 {
         )(input)
         .ok_or(InvalidComponent("month"))?;
         let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
-        let (input, year) = match exactly_n_digits::<u32, 4>(input) {
+        let (input, year) = match exactly_n_digits::<4, u32>(input) {
             Some(item) => {
                 let ParsedItem(input, year) = item
                     .flat_map(|year| if year >= 1900 { Some(year) } else { None })
@@ -334,7 +356,7 @@ impl sealed::Sealed for Rfc2822 {
                 (input, year)
             }
             None => {
-                let ParsedItem(input, year) = exactly_n_digits::<u32, 2>(input)
+                let ParsedItem(input, year) = exactly_n_digits::<2, u32>(input)
                     .map(|item| item.map(|year| if year < 50 { year + 2000 } else { year + 1900 }))
                     .ok_or(InvalidComponent("year"))?;
                 let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
@@ -343,18 +365,18 @@ impl sealed::Sealed for Rfc2822 {
         };
 
         let ParsedItem(input, hour) =
-            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("hour"))?;
+            exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("hour"))?;
         let input = opt(cfws)(input).into_inner();
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
         let input = opt(cfws)(input).into_inner();
         let ParsedItem(input, minute) =
-            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("minute"))?;
+            exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("minute"))?;
 
         let (input, mut second) = if let Some(input) = colon(opt(cfws)(input).into_inner()) {
             let input = input.into_inner(); // discard the colon
             let input = opt(cfws)(input).into_inner();
             let ParsedItem(input, second) =
-                exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("second"))?;
+                exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("second"))?;
             let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
             (input, second)
         } else {
@@ -391,7 +413,7 @@ impl sealed::Sealed for Rfc2822 {
         } else {
             let ParsedItem(input, offset_sign) =
                 sign(input).ok_or(InvalidComponent("offset hour"))?;
-            let ParsedItem(input, offset_hour) = exactly_n_digits::<u8, 2>(input)
+            let ParsedItem(input, offset_hour) = exactly_n_digits::<2, u8>(input)
                 .map(|item| {
                     item.map(|offset_hour| {
                         if offset_sign == b'-' {
@@ -403,7 +425,7 @@ impl sealed::Sealed for Rfc2822 {
                 })
                 .ok_or(InvalidComponent("offset hour"))?;
             let ParsedItem(input, offset_minute) =
-                exactly_n_digits::<u8, 2>(input).ok_or(InvalidComponent("offset minute"))?;
+                exactly_n_digits::<2, u8>(input).ok_or(InvalidComponent("offset minute"))?;
             (input, offset_hour, offset_minute as i8)
         };
 
@@ -412,7 +434,9 @@ impl sealed::Sealed for Rfc2822 {
         }
 
         let mut nanosecond = 0;
-        let leap_second_input = if second == 60 {
+        let leap_second_input = if !O::HAS_LOGICAL_OFFSET {
+            false
+        } else if second == 60 {
             second = 59;
             nanosecond = 999_999_999;
             true
@@ -424,7 +448,11 @@ impl sealed::Sealed for Rfc2822 {
             let date = Date::from_calendar_date(year as _, month, day)?;
             let time = Time::from_hms_nano(hour, minute, second, nanosecond)?;
             let offset = UtcOffset::from_hms(offset_hour, offset_minute, 0)?;
-            Ok(date.with_time(time).assume_offset(offset))
+            Ok(DateTime {
+                date,
+                time,
+                offset: maybe_offset_from_offset::<O>(offset),
+            })
         })()
         .map_err(TryFromParsed::ComponentRange)?;
 
@@ -458,30 +486,30 @@ impl sealed::Sealed for Rfc3339 {
         let dash = ascii_char::<b'-'>;
         let colon = ascii_char::<b':'>;
 
-        let input = exactly_n_digits::<u32, 4>(input)
+        let input = exactly_n_digits::<4, u32>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_year(value as _)))
             .ok_or(InvalidComponent("year"))?;
         let input = dash(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = exactly_n_digits::<_, 2>(input)
+        let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.flat_map(|value| Month::from_number(value).ok()))
             .and_then(|item| item.consume_value(|value| parsed.set_month(value)))
             .ok_or(InvalidComponent("month"))?;
         let input = dash(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = exactly_n_digits::<_, 2>(input)
+        let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_day(value)))
             .ok_or(InvalidComponent("day"))?;
         let input = ascii_char_ignore_case::<b'T'>(input)
             .ok_or(InvalidLiteral)?
             .into_inner();
-        let input = exactly_n_digits::<_, 2>(input)
+        let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_hour_24(value)))
             .ok_or(InvalidComponent("hour"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = exactly_n_digits::<_, 2>(input)
+        let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_minute(value)))
             .ok_or(InvalidComponent("minute"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = exactly_n_digits::<_, 2>(input)
+        let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_second(value)))
             .ok_or(InvalidComponent("second"))?;
         let input = if let Some(ParsedItem(input, ())) = ascii_char::<b'.'>(input) {
@@ -505,7 +533,7 @@ impl sealed::Sealed for Rfc3339 {
         };
 
         // The RFC explicitly allows leap seconds.
-        parsed.set_leap_second_allowed(true);
+        parsed.set_flag(Parsed::LEAP_SECOND_ALLOWED_FLAG, true);
 
         if let Some(ParsedItem(input, ())) = ascii_char_ignore_case::<b'Z'>(input) {
             parsed
@@ -521,7 +549,7 @@ impl sealed::Sealed for Rfc3339 {
         }
 
         let ParsedItem(input, offset_sign) = sign(input).ok_or(InvalidComponent("offset hour"))?;
-        let input = exactly_n_digits::<u8, 2>(input)
+        let input = exactly_n_digits::<2, u8>(input)
             .and_then(|item| {
                 item.map(|offset_hour| {
                     if offset_sign == b'-' {
@@ -534,7 +562,7 @@ impl sealed::Sealed for Rfc3339 {
             })
             .ok_or(InvalidComponent("offset hour"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = exactly_n_digits::<u8, 2>(input)
+        let input = exactly_n_digits::<2, u8>(input)
             .and_then(|item| {
                 item.map(|offset_minute| {
                     if offset_sign == b'-' {
@@ -550,7 +578,7 @@ impl sealed::Sealed for Rfc3339 {
         Ok(input)
     }
 
-    fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
+    fn parse_date_time<O: MaybeOffset>(&self, input: &[u8]) -> Result<DateTime<O>, error::Parse> {
         use crate::error::ParseFromDescription::{InvalidComponent, InvalidLiteral};
         use crate::parsing::combinator::{
             any_digit, ascii_char, ascii_char_ignore_case, exactly_n_digits, sign,
@@ -560,24 +588,24 @@ impl sealed::Sealed for Rfc3339 {
         let colon = ascii_char::<b':'>;
 
         let ParsedItem(input, year) =
-            exactly_n_digits::<u32, 4>(input).ok_or(InvalidComponent("year"))?;
+            exactly_n_digits::<4, u32>(input).ok_or(InvalidComponent("year"))?;
         let input = dash(input).ok_or(InvalidLiteral)?.into_inner();
         let ParsedItem(input, month) =
-            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("month"))?;
+            exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("month"))?;
         let input = dash(input).ok_or(InvalidLiteral)?.into_inner();
         let ParsedItem(input, day) =
-            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("day"))?;
+            exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("day"))?;
         let input = ascii_char_ignore_case::<b'T'>(input)
             .ok_or(InvalidLiteral)?
             .into_inner();
         let ParsedItem(input, hour) =
-            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("hour"))?;
+            exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("hour"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
         let ParsedItem(input, minute) =
-            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("minute"))?;
+            exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("minute"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
         let ParsedItem(input, mut second) =
-            exactly_n_digits::<_, 2>(input).ok_or(InvalidComponent("second"))?;
+            exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("second"))?;
         let ParsedItem(input, mut nanosecond) =
             if let Some(ParsedItem(input, ())) = ascii_char::<b'.'>(input) {
                 let ParsedItem(mut input, mut value) = any_digit(input)
@@ -602,10 +630,10 @@ impl sealed::Sealed for Rfc3339 {
                 let ParsedItem(input, offset_sign) =
                     sign(input).ok_or(InvalidComponent("offset hour"))?;
                 let ParsedItem(input, offset_hour) =
-                    exactly_n_digits::<u8, 2>(input).ok_or(InvalidComponent("offset hour"))?;
+                    exactly_n_digits::<2, u8>(input).ok_or(InvalidComponent("offset hour"))?;
                 let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
                 let ParsedItem(input, offset_minute) =
-                    exactly_n_digits::<u8, 2>(input).ok_or(InvalidComponent("offset minute"))?;
+                    exactly_n_digits::<2, u8>(input).ok_or(InvalidComponent("offset minute"))?;
                 UtcOffset::from_hms(
                     if offset_sign == b'-' {
                         -(offset_hour as i8)
@@ -648,11 +676,13 @@ impl sealed::Sealed for Rfc3339 {
             false
         };
 
-        let dt = Month::from_number(month)
+        let date = Month::from_number(month)
             .and_then(|month| Date::from_calendar_date(year as _, month, day))
-            .and_then(|date| date.with_hms_nano(hour, minute, second, nanosecond))
-            .map(|date| date.assume_offset(offset))
             .map_err(TryFromParsed::ComponentRange)?;
+        let time = Time::from_hms_nano(hour, minute, second, nanosecond)
+            .map_err(TryFromParsed::ComponentRange)?;
+        let offset = maybe_offset_from_offset::<O>(offset);
+        let dt = DateTime { date, time, offset };
 
         if leap_second_input && !dt.is_valid_leap_second_stand_in() {
             return Err(error::Parse::TryFromParsed(TryFromParsed::ComponentRange(
@@ -720,7 +750,7 @@ impl<const CONFIG: EncodedConfig> sealed::Sealed for Iso8601<CONFIG> {
         if !date_is_present && !time_is_present && !offset_is_present {
             match first_error {
                 Some(err) => return Err(err),
-                None => unreachable!("an error should be present if no components were parsed"),
+                None => bug!("an error should be present if no components were parsed"),
             }
         }
 

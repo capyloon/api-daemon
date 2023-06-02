@@ -37,6 +37,8 @@ pub enum ErrorKind {
         constant: &'static [u8]
     },
 
+    Unsized,
+    EndiannessMismatch,
     IoError( io::Error )
 }
 
@@ -85,7 +87,7 @@ pub fn get_error_kind( error: &Error ) -> &ErrorKind {
 }
 
 impl fmt::Display for Error {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+    fn fmt( &self, fmt: &mut fmt::Formatter<'_> ) -> fmt::Result {
         match self.kind {
             ErrorKind::InvalidChar => write!( fmt, "out of range char" ),
             ErrorKind::InvalidEnumVariant => write!( fmt, "invalid enum variant" ),
@@ -100,6 +102,8 @@ impl fmt::Display for Error {
             ErrorKind::OutputBufferIsTooSmall { actual_size, expected_size } => write!( fmt, "output buffer is too small; expected at least {} bytes, got {}", expected_size, actual_size ),
             ErrorKind::LengthIsNotTheSameAsLengthAttribute { field_name } => write!( fmt, "the length of '{}' is not the same as its 'length' attribute", field_name ),
             ErrorKind::ExpectedConstant { constant } => write!( fmt, "expected a predefined {} bytes(s) long constant", constant.len() ),
+            ErrorKind::Unsized => write!( fmt, "type is unsized hence requires zero-copy deserialization; use `read_from_buffer` or similar to deserialize it" ),
+            ErrorKind::EndiannessMismatch => write!( fmt, "endianness mismatch" ),
             ErrorKind::IoError( ref error ) => write!( fmt, "{}", error )
         }
     }
@@ -197,4 +201,14 @@ pub fn error_invalid_system_time< T >() -> T where T: From< Error > {
 #[cold]
 pub fn error_expected_constant< T >( constant: &'static [u8] ) -> T where T: From< Error > {
     T::from( Error::new( ErrorKind::ExpectedConstant { constant } ) )
+}
+
+#[cold]
+pub fn error_unsized< T >() -> T where T: From< Error > {
+    T::from( Error::new( ErrorKind::Unsized ) )
+}
+
+#[cold]
+pub fn error_endianness_mismatch< T >() -> T where T: From< Error > {
+    T::from( Error::new( ErrorKind::EndiannessMismatch ) )
 }

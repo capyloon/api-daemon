@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.38"
 name = "concurrent-queue"
-version = "2.1.0"
+version = "2.2.0"
 authors = [
     "Stjepan Glavina <stjepang@gmail.com>",
     "Taiki Endo <te316e89@gmail.com>",

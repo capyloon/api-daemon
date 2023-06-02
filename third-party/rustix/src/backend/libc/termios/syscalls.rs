@@ -10,13 +10,13 @@ use crate::fd::BorrowedFd;
 #[cfg(feature = "procfs")]
 #[cfg(not(any(target_os = "fuchsia", target_os = "wasi")))]
 use crate::ffi::CStr;
-#[cfg(not(target_os = "wasi"))]
-use crate::io;
-#[cfg(not(target_os = "wasi"))]
-use crate::process::{Pid, RawNonZeroPid};
-#[cfg(not(target_os = "wasi"))]
-use crate::termios::{Action, OptionalActions, QueueSelector, Speed, Termios, Winsize};
 use core::mem::MaybeUninit;
+#[cfg(not(target_os = "wasi"))]
+use {
+    crate::io,
+    crate::process::{Pid, RawNonZeroPid},
+    crate::termios::{Action, OptionalActions, QueueSelector, Speed, Termios, Winsize},
+};
 
 #[cfg(not(target_os = "wasi"))]
 pub(crate) fn tcgetattr(fd: BorrowedFd<'_>) -> io::Result<Termios> {
@@ -193,8 +193,8 @@ pub(crate) fn isatty(fd: BorrowedFd<'_>) -> bool {
     // Use the return value of `isatty` alone. We don't check `errno` because
     // we return `bool` rather than `io::Result<bool>`, because we assume
     // `BorrrowedFd` protects us from `EBADF`, and any other reasonably
-    // anticipated errno value would end up interpreted as "assume it's not a
-    // terminal" anyway.
+    // anticipated `errno` value would end up interpreted as “assume it's not a
+    // terminal” anyway.
     unsafe { c::isatty(borrowed_fd(fd)) != 0 }
 }
 

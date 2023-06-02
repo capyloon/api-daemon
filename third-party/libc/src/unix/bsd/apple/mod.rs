@@ -435,6 +435,80 @@ s! {
         pub ifm_data: if_data,
     }
 
+    pub struct ifa_msghdr {
+        pub ifam_msglen: ::c_ushort,
+        pub ifam_version: ::c_uchar,
+        pub ifam_type: ::c_uchar,
+        pub ifam_addrs: ::c_int,
+        pub ifam_flags: ::c_int,
+        pub ifam_index: ::c_ushort,
+        pub ifam_metric: ::c_int,
+    }
+
+    pub struct ifma_msghdr {
+        pub ifmam_msglen: ::c_ushort,
+        pub ifmam_version: ::c_uchar,
+        pub ifmam_type: ::c_uchar,
+        pub ifmam_addrs: ::c_int,
+        pub ifmam_flags: ::c_int,
+        pub ifmam_index: ::c_ushort,
+    }
+
+    pub struct ifma_msghdr2 {
+        pub ifmam_msglen: ::c_ushort,
+        pub ifmam_version: ::c_uchar,
+        pub ifmam_type: ::c_uchar,
+        pub ifmam_addrs: ::c_int,
+        pub ifmam_flags: ::c_int,
+        pub ifmam_index: ::c_ushort,
+        pub ifmam_refcount: i32,
+    }
+
+    pub struct rt_metrics {
+        pub rmx_locks: u32,
+        pub rmx_mtu: u32,
+        pub rmx_hopcount: u32,
+        pub rmx_expire: i32,
+        pub rmx_recvpipe: u32,
+        pub rmx_sendpipe: u32,
+        pub rmx_ssthresh: u32,
+        pub rmx_rtt: u32,
+        pub rmx_rttvar: u32,
+        pub rmx_pksent: u32,
+        pub rmx_state: u32,
+        pub rmx_filler: [u32; 3],
+    }
+
+    pub struct rt_msghdr {
+        pub rtm_msglen: ::c_ushort,
+        pub rtm_version: ::c_uchar,
+        pub rtm_type: ::c_uchar,
+        pub rtm_index: ::c_ushort,
+        pub rtm_flags: ::c_int,
+        pub rtm_addrs: ::c_int,
+        pub rtm_pid: ::pid_t,
+        pub rtm_seq: ::c_int,
+        pub rtm_errno: ::c_int,
+        pub rtm_use: ::c_int,
+        pub rtm_inits: u32,
+        pub rtm_rmx: rt_metrics,
+    }
+
+    pub struct rt_msghdr2 {
+        pub rtm_msglen: ::c_ushort,
+        pub rtm_version: ::c_uchar,
+        pub rtm_type: ::c_uchar,
+        pub rtm_index: ::c_ushort,
+        pub rtm_flags: ::c_int,
+        pub rtm_addrs: ::c_int,
+        pub rtm_refcnt: i32,
+        pub rtm_parentflags: ::c_int,
+        pub rtm_reserved: ::c_int,
+        pub rtm_use: ::c_int,
+        pub rtm_inits: u32,
+        pub rtm_rmx: rt_metrics,
+    }
+
     pub struct termios {
         pub c_iflag: ::tcflag_t,
         pub c_oflag: ::tcflag_t,
@@ -3313,6 +3387,8 @@ pub const MINCORE_MODIFIED: ::c_int = 0x4;
 pub const MINCORE_REFERENCED_OTHER: ::c_int = 0x8;
 pub const MINCORE_MODIFIED_OTHER: ::c_int = 0x10;
 
+pub const CTLIOCGINFO: c_ulong = 0xc0644e03;
+
 //
 // sys/netinet/in.h
 // Protocols (RFC 1700)
@@ -4914,6 +4990,18 @@ pub const VOL_CAP_INT_RENAME_SWAP: attrgroup_t = 0x00040000;
 pub const VOL_CAP_INT_RENAME_EXCL: attrgroup_t = 0x00080000;
 pub const VOL_CAP_INT_RENAME_OPENFAIL: attrgroup_t = 0x00100000;
 
+// <proc.h>
+/// Process being created by fork.
+pub const SIDL: u32 = 1;
+/// Currently runnable.
+pub const SRUN: u32 = 2;
+/// Sleeping on an address.
+pub const SSLEEP: u32 = 3;
+/// Process debugging or suspension.
+pub const SSTOP: u32 = 4;
+/// Awaiting collection by parent.
+pub const SZOMB: u32 = 5;
+
 cfg_if! {
     if #[cfg(libc_const_extern_fn)] {
         const fn __DARWIN_ALIGN32(p: usize) -> usize {
@@ -5019,7 +5107,7 @@ f! {
             as ::c_uint
     }
 
-    pub fn CMSG_LEN(length: ::c_uint) -> ::c_uint {
+    pub {const} fn CMSG_LEN(length: ::c_uint) -> ::c_uint {
         (__DARWIN_ALIGN32(::mem::size_of::<::cmsghdr>()) + length as usize)
             as ::c_uint
     }
@@ -5119,6 +5207,23 @@ extern "C" {
     pub fn endutxent();
     pub fn utmpxname(file: *const ::c_char) -> ::c_int;
 
+    pub fn asctime(tm: *const ::tm) -> *mut ::c_char;
+    pub fn ctime(clock: *const time_t) -> *mut ::c_char;
+    pub fn getdate(datestr: *const ::c_char) -> *mut ::tm;
+    pub fn strftime(
+        buf: *mut ::c_char,
+        maxsize: ::size_t,
+        format: *const ::c_char,
+        timeptr: *const ::tm,
+    ) -> ::size_t;
+    pub fn strptime(
+        buf: *const ::c_char,
+        format: *const ::c_char,
+        timeptr: *mut ::tm,
+    ) -> *mut ::c_char;
+    pub fn asctime_r(tm: *const ::tm, result: *mut ::c_char) -> *mut ::c_char;
+    pub fn ctime_r(clock: *const time_t, result: *mut ::c_char) -> *mut ::c_char;
+
     pub fn getnameinfo(
         sa: *const ::sockaddr,
         salen: ::socklen_t,
@@ -5188,6 +5293,10 @@ extern "C" {
         f: extern "C" fn(*mut ::c_void) -> *mut ::c_void,
         value: *mut ::c_void,
     ) -> ::c_int;
+    pub fn pthread_stack_frame_decode_np(
+        frame_addr: ::uintptr_t,
+        return_addr: *mut ::uintptr_t,
+    ) -> ::uintptr_t;
     pub fn pthread_get_stackaddr_np(thread: ::pthread_t) -> *mut ::c_void;
     pub fn pthread_get_stacksize_np(thread: ::pthread_t) -> ::size_t;
     pub fn pthread_condattr_setpshared(attr: *mut pthread_condattr_t, pshared: ::c_int) -> ::c_int;
@@ -5195,6 +5304,7 @@ extern "C" {
         attr: *const pthread_condattr_t,
         pshared: *mut ::c_int,
     ) -> ::c_int;
+    pub fn pthread_main_np() -> ::c_int;
     pub fn pthread_mutexattr_setpshared(
         attr: *mut pthread_mutexattr_t,
         pshared: ::c_int,
@@ -5555,6 +5665,14 @@ extern "C" {
         pref: *mut ::cpu_type_t,
         subpref: *mut ::cpu_subtype_t,
         ocount: *mut ::size_t,
+    ) -> ::c_int;
+    pub fn posix_spawnattr_set_qos_class_np(
+        attr: *mut posix_spawnattr_t,
+        qos_class: ::qos_class_t,
+    ) -> ::c_int;
+    pub fn posix_spawnattr_get_qos_class_np(
+        attr: *const posix_spawnattr_t,
+        qos_class: *mut ::qos_class_t,
     ) -> ::c_int;
 
     pub fn posix_spawn_file_actions_init(actions: *mut posix_spawn_file_actions_t) -> ::c_int;
@@ -5929,5 +6047,12 @@ cfg_if! {
         pub use self::b64::*;
     } else {
         // Unknown target_arch
+    }
+}
+
+cfg_if! {
+    if #[cfg(libc_long_array)] {
+        mod long_array;
+        pub use self::long_array::*;
     }
 }

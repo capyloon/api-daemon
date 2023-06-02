@@ -42,6 +42,10 @@ mod raw_dir;
 mod sendfile;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod statx;
+#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+mod sync;
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+mod xattr;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub use crate::backend::fs::inotify;
@@ -57,8 +61,8 @@ pub use cwd::cwd;
 pub use dir::{Dir, DirEntry};
 #[cfg(not(any(
     apple,
-    solarish,
     netbsdlike,
+    solarish,
     target_os = "dragonfly",
     target_os = "haiku",
     target_os = "redox",
@@ -87,11 +91,15 @@ pub use raw_dir::{RawDir, RawDirEntry};
 pub use sendfile::sendfile;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub use statx::{statx, Statx, StatxFlags, StatxTimestamp};
+#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+pub use sync::sync;
+#[cfg(any(apple, target_os = "android", target_os = "linux"))]
+pub use xattr::*;
 
 /// Re-export types common to POSIX-ish platforms.
 #[cfg(feature = "std")]
 #[cfg(unix)]
 pub use std::os::unix::fs::{DirEntryExt, FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 #[cfg(feature = "std")]
-#[cfg(target_os = "wasi")]
+#[cfg(all(wasi_ext, target_os = "wasi"))]
 pub use std::os::wasi::fs::{DirEntryExt, FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};

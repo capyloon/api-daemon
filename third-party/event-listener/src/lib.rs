@@ -971,7 +971,10 @@ impl List {
 /// Equivalent to `atomic::fence(Ordering::SeqCst)`, but in some cases faster.
 #[inline]
 fn full_fence() {
-    if cfg!(any(target_arch = "x86", target_arch = "x86_64")) {
+    if cfg!(all(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        not(miri)
+    )) {
         // HACK(stjepang): On x86 architectures there are two different ways of executing
         // a `SeqCst` fence.
         //
@@ -984,8 +987,10 @@ fn full_fence() {
         // The ideal solution here would be to use inline assembly, but we're instead creating a
         // temporary atomic variable and compare-and-exchanging its value. No sane compiler to
         // x86 platforms is going to optimize this away.
+        atomic::compiler_fence(Ordering::SeqCst);
         let a = AtomicUsize::new(0);
         let _ = a.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
+        atomic::compiler_fence(Ordering::SeqCst);
     } else {
         atomic::fence(Ordering::SeqCst);
     }
