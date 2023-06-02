@@ -1,9 +1,9 @@
 //! The [`Instant`] struct and its associated `impl`s.
 
+use core::borrow::Borrow;
 use core::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use core::ops::{Add, Sub};
 use core::time::Duration as StdDuration;
-use std::borrow::Borrow;
 use std::time::Instant as StdInstant;
 
 use crate::Duration;
@@ -25,7 +25,6 @@ use crate::Duration;
 ///
 /// This implementation allows for operations with signed [`Duration`]s, but is otherwise identical
 /// to [`std::time::Instant`].
-#[cfg_attr(__time_03_docs, doc(cfg(feature = "std")))]
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Instant(pub StdInstant);
@@ -160,10 +159,15 @@ impl Sub<Instant> for StdInstant {
 impl Add<Duration> for Instant {
     type Output = Self;
 
+    /// # Panics
+    ///
+    /// This function may panic if the resulting point in time cannot be represented by the
+    /// underlying data structure.
     fn add(self, duration: Duration) -> Self::Output {
         if duration.is_positive() {
             Self(self.0 + duration.unsigned_abs())
         } else if duration.is_negative() {
+            #[allow(clippy::unchecked_duration_subtraction)]
             Self(self.0 - duration.unsigned_abs())
         } else {
             debug_assert!(duration.is_zero());
@@ -194,8 +198,13 @@ impl_add_assign!(StdInstant: Duration);
 impl Sub<Duration> for Instant {
     type Output = Self;
 
+    /// # Panics
+    ///
+    /// This function may panic if the resulting point in time cannot be represented by the
+    /// underlying data structure.
     fn sub(self, duration: Duration) -> Self::Output {
         if duration.is_positive() {
+            #[allow(clippy::unchecked_duration_subtraction)]
             Self(self.0 - duration.unsigned_abs())
         } else if duration.is_negative() {
             Self(self.0 + duration.unsigned_abs())
@@ -217,7 +226,12 @@ impl Sub<Duration> for StdInstant {
 impl Sub<StdDuration> for Instant {
     type Output = Self;
 
+    /// # Panics
+    ///
+    /// This function may panic if the resulting point in time cannot be represented by the
+    /// underlying data structure.
     fn sub(self, duration: StdDuration) -> Self::Output {
+        #[allow(clippy::unchecked_duration_subtraction)]
         Self(self.0 - duration)
     }
 }

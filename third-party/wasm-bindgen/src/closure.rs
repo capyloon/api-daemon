@@ -65,7 +65,7 @@ use crate::UnwrapThrowExt;
 ///
 /// #[wasm_bindgen]
 /// pub fn run() -> IntervalHandle {
-///     // First up we use `Closure::wrap` to wrap up a Rust closure and create
+///     // First up we use `Closure::new` to wrap up a Rust closure and create
 ///     // a JS closure.
 ///     let cb = Closure::new(|| {
 ///         log("interval elapsed!");
@@ -426,7 +426,6 @@ impl Closure<dyn FnOnce()> {
     /// and everything it closes over will leak.
     ///
     /// ```rust,ignore
-    /// use js_sys;
     /// use wasm_bindgen::{prelude::*, JsCast};
     ///
     /// let f = Closure::once_into_js(move || {
@@ -572,7 +571,7 @@ macro_rules! doit {
                     $($var: <$var as FromWasmAbi>::Abi),*
                 ) -> <R as ReturnWasmAbi>::Abi {
                     if a == 0 {
-                        throw_str("closure invoked recursively or destroyed already");
+                        throw_str("closure invoked after being dropped");
                     }
                     // Make sure all stack variables are converted before we
                     // convert `ret` as it may throw (for `Result`, for
@@ -624,7 +623,7 @@ macro_rules! doit {
                     $($var: <$var as FromWasmAbi>::Abi),*
                 ) -> <R as ReturnWasmAbi>::Abi {
                     if a == 0 {
-                        throw_str("closure invoked recursively or destroyed already");
+                        throw_str("closure invoked recursively or after being dropped");
                     }
                     // Make sure all stack variables are converted before we
                     // convert `ret` as it may throw (for `Result`, for
@@ -760,7 +759,7 @@ where
             arg: <A as RefFromWasmAbi>::Abi,
         ) -> <R as ReturnWasmAbi>::Abi {
             if a == 0 {
-                throw_str("closure invoked recursively or destroyed already");
+                throw_str("closure invoked after being dropped");
             }
             // Make sure all stack variables are converted before we
             // convert `ret` as it may throw (for `Result`, for
@@ -803,7 +802,7 @@ where
             arg: <A as RefFromWasmAbi>::Abi,
         ) -> <R as ReturnWasmAbi>::Abi {
             if a == 0 {
-                throw_str("closure invoked recursively or destroyed already");
+                throw_str("closure invoked recursively or after being dropped");
             }
             // Make sure all stack variables are converted before we
             // convert `ret` as it may throw (for `Result`, for

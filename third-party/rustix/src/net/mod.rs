@@ -35,8 +35,3 @@ pub use {
     addr::{SocketAddr, SocketAddrV4, SocketAddrV6},
     ip::{IpAddr, Ipv4Addr, Ipv6Addr, Ipv6MulticastScope},
 };
-#[cfg(unix)]
-pub use {
-    send_recv::sendto_unix,
-    socket::{bind_unix, connect_unix, SocketAddrUnix},
-};

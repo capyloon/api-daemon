@@ -145,6 +145,16 @@ pub struct Field {
 pub struct Empty;
 
 /// Describes the fields present on a span.
+///
+/// ## Equality
+///
+/// In well-behaved applications, two `FieldSet`s [initialized] with equal
+/// [callsite identifiers] will have identical fields. Consequently, in release
+/// builds, [`FieldSet::eq`] *only* checks that its arguments have equal
+/// callsites. However, the equality of field names is checked in debug builds.
+///
+/// [initialized]: Self::new
+/// [callsite identifiers]: callsite::Identifier
 pub struct FieldSet {
     /// The names of each field on the described span.
     names: &'static [&'static str],
@@ -305,6 +315,7 @@ pub trait Visit {
     /// <strong>Note</strong>: This is only enabled when the Rust standard library is
     /// present.
     /// </pre>
+    /// </div>
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
@@ -809,6 +820,7 @@ impl FieldSet {
     ///
     /// [`Identifier`]: super::callsite::Identifier
     /// [`Callsite`]: super::callsite::Callsite
+    #[inline]
     pub(crate) fn callsite(&self) -> callsite::Identifier {
         callsite::Identifier(self.callsite.0)
     }
@@ -846,6 +858,7 @@ impl FieldSet {
     }
 
     /// Returns an iterator over the `Field`s in this `FieldSet`.
+    #[inline]
     pub fn iter(&self) -> Iter {
         let idxs = 0..self.len();
         Iter {
@@ -911,10 +924,45 @@ impl fmt::Display for FieldSet {
     }
 }
 
+impl Eq for FieldSet {}
+
+impl PartialEq for FieldSet {
+    fn eq(&self, other: &Self) -> bool {
+        if core::ptr::eq(&self, &other) {
+            true
+        } else if cfg!(not(debug_assertions)) {
+            // In a well-behaving application, two `FieldSet`s can be assumed to
+            // be totally equal so long as they share the same callsite.
+            self.callsite == other.callsite
+        } else {
+            // However, when debug-assertions are enabled, do NOT assume that
+            // the application is well-behaving; check every the field names of
+            // each `FieldSet` for equality.
+
+            // `FieldSet` is destructured here to ensure a compile-error if the
+            // fields of `FieldSet` change.
+            let Self {
+                names: lhs_names,
+                callsite: lhs_callsite,
+            } = self;
+
+            let Self {
+                names: rhs_names,
+                callsite: rhs_callsite,
+            } = &other;
+
+            // Check callsite equality first, as it is probably cheaper to do
+            // than str equality.
+            lhs_callsite == rhs_callsite && lhs_names == rhs_names
+        }
+    }
+}
+
 // ===== impl Iter =====
 
 impl Iterator for Iter {
     type Item = Field;
+    #[inline]
     fn next(&mut self) -> Option<Field> {
         let i = self.idxs.next()?;
         Some(Field {

@@ -8,7 +8,7 @@ use crate::readable::Readable;
 use crate::reader::Reader;
 
 use crate::context::Context;
-use crate::utils::as_bytes_mut;
+use crate::utils::SwapBytes;
 use crate::endianness::Endianness;
 
 impl< 'a, C, K, V > Readable< 'a, C > for BTreeMap< K, V >
@@ -19,7 +19,7 @@ impl< 'a, C, K, V > Readable< 'a, C > for BTreeMap< K, V >
     #[inline]
     fn read_from< R: Reader< 'a, C > >( reader: &mut R ) -> Result< Self, C::Error > {
         let length = crate::private::read_length( reader )?;
-        reader.read_collection( length )
+        reader.read_key_value_collection( length )
     }
 
     #[inline]
@@ -53,7 +53,7 @@ impl< 'a, C, K, V, S > Readable< 'a, C > for HashMap< K, V, S >
     #[inline]
     fn read_from< R: Reader< 'a, C > >( reader: &mut R ) -> Result< Self, C::Error > {
         let length = crate::private::read_length( reader )?;
-        reader.read_collection( length )
+        reader.read_key_value_collection( length )
     }
 
     #[inline]
@@ -129,15 +129,19 @@ macro_rules! impl_for_primitive {
             }
 
             #[doc(hidden)]
-            #[inline(always)]
-            unsafe fn speedy_slice_as_bytes_mut( slice: &mut [Self] ) -> &mut [u8] {
-                as_bytes_mut( slice )
+            #[inline]
+            unsafe fn speedy_slice_from_bytes( slice: &[u8] ) -> &[Self] {
+                unsafe {
+                    std::slice::from_raw_parts( slice.as_ptr() as *const $type, slice.len() / mem::size_of::< Self >() )
+                }
             }
 
             #[doc(hidden)]
-            #[inline]
-            unsafe fn speedy_slice_from_bytes( slice: &[u8] ) -> &[Self] {
-                std::slice::from_raw_parts( slice.as_ptr() as *const $type, slice.len() / mem::size_of::< Self >() )
+            #[inline(always)]
+            unsafe fn speedy_flip_endianness( itself: *mut Self ) {
+                unsafe {
+                    std::ptr::write_unaligned( itself, std::ptr::read_unaligned( itself ).swap_bytes() );
+                }
             }
 
             #[doc(hidden)]
@@ -230,6 +234,54 @@ impl< 'a, C: Context, T: Readable< 'a, C > > Readable< 'a, C > for Cow< 'a, [T] 
     #[inline]
     fn minimum_bytes_needed() -> usize {
         <Vec< T > as Readable< 'a, C >>::minimum_bytes_needed()
+    }
+}
+
+impl< 'a, C: Context, T: Readable< 'a, C > > Readable< 'a, C > for Cow< 'a, HashSet< T > > where T: Readable< 'a, C > + Clone + Hash + Eq {
+    #[inline]
+    fn read_from< R: Reader< 'a, C > >( reader: &mut R ) -> Result< Self, C::Error > {
+        Ok( Cow::Owned( reader.read_value()? ) )
+    }
+
+    #[inline]
+    fn minimum_bytes_needed() -> usize {
+        <HashSet< T > as Readable< 'a, C >>::minimum_bytes_needed()
+    }
+}
+
+impl< 'a, C: Context, T: Readable< 'a, C > > Readable< 'a, C > for Cow< 'a, BTreeSet< T > > where T: Readable< 'a, C > + Clone + Ord {
+    #[inline]
+    fn read_from< R: Reader< 'a, C > >( reader: &mut R ) -> Result< Self, C::Error > {
+        Ok( Cow::Owned( reader.read_value()? ) )
+    }
+
+    #[inline]
+    fn minimum_bytes_needed() -> usize {
+        <BTreeSet< T > as Readable< 'a, C >>::minimum_bytes_needed()
+    }
+}
+
+impl< 'a, C: Context, K: Readable< 'a, C >, V: Readable< 'a, C > > Readable< 'a, C > for Cow< 'a, HashMap< K, V > > where K: Readable< 'a, C > + Clone + Hash + Eq, V: Readable< 'a, C > + Clone {
+    #[inline]
+    fn read_from< R: Reader< 'a, C > >( reader: &mut R ) -> Result< Self, C::Error > {
+        Ok( Cow::Owned( reader.read_value()? ) )
+    }
+
+    #[inline]
+    fn minimum_bytes_needed() -> usize {
+        <HashMap< K, V > as Readable< 'a, C >>::minimum_bytes_needed()
+    }
+}
+
+impl< 'a, C: Context, K: Readable< 'a, C >, V: Readable< 'a, C > > Readable< 'a, C > for Cow< 'a, BTreeMap< K, V > > where K: Readable< 'a, C > + Clone + Ord, V: Readable< 'a, C > + Clone {
+    #[inline]
+    fn read_from< R: Reader< 'a, C > >( reader: &mut R ) -> Result< Self, C::Error > {
+        Ok( Cow::Owned( reader.read_value()? ) )
+    }
+
+    #[inline]
+    fn minimum_bytes_needed() -> usize {
+        <BTreeMap< K, V > as Readable< 'a, C >>::minimum_bytes_needed()
     }
 }
 

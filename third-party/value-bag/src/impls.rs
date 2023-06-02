@@ -61,6 +61,22 @@ impl<'v> From<&'v i128> for ValueBag<'v> {
     }
 }
 
+#[cfg(feature = "inline-i128")]
+impl<'v> From<u128> for ValueBag<'v> {
+    #[inline]
+    fn from(value: u128) -> Self {
+        ValueBag::from_internal(value)
+    }
+}
+
+#[cfg(feature = "inline-i128")]
+impl<'v> From<i128> for ValueBag<'v> {
+    #[inline]
+    fn from(value: i128) -> Self {
+        ValueBag::from_internal(value)
+    }
+}
+
 #[cfg(feature = "std")]
 mod std_support {
     use super::*;
@@ -75,6 +91,20 @@ mod std_support {
     }
 }
 
+#[cfg(feature = "owned")]
+mod owned_support {
+    use super::*;
+
+    use crate::OwnedValueBag;
+
+    impl<'v> From<&'v OwnedValueBag> for ValueBag<'v> {
+        #[inline]
+        fn from(v: &'v OwnedValueBag) -> ValueBag<'v> {
+            v.by_ref()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -82,36 +112,66 @@ mod tests {
 
     use crate::{
         std::{borrow::ToOwned, string::ToString},
-        test::{IntoValueBag, Token},
+        test::{IntoValueBag, TestToken},
     };
 
     #[test]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     fn test_into_display() {
-        assert_eq!(42u64.into_value_bag().to_string(), "42");
-        assert_eq!(42i64.into_value_bag().to_string(), "42");
-        assert_eq!(42.01f64.into_value_bag().to_string(), "42.01");
-        assert_eq!(true.into_value_bag().to_string(), "true");
-        assert_eq!('a'.into_value_bag().to_string(), "a");
+        assert_eq!(42u64.into_value_bag().by_ref().to_string(), "42");
+        assert_eq!(42i64.into_value_bag().by_ref().to_string(), "42");
+        assert_eq!(42.01f64.into_value_bag().by_ref().to_string(), "42.01");
+        assert_eq!(true.into_value_bag().by_ref().to_string(), "true");
+        assert_eq!('a'.into_value_bag().by_ref().to_string(), "a");
         assert_eq!(
-            "a loong string".into_value_bag().to_string(),
+            "a loong string".into_value_bag().by_ref().to_string(),
             "a loong string"
         );
-        assert_eq!(().into_value_bag().to_string(), "None");
+        assert_eq!(().into_value_bag().by_ref().to_string(), "None");
     }
 
     #[test]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     fn test_into_structured() {
-        assert_eq!(42u64.into_value_bag().to_token(), Token::U64(42));
-        assert_eq!(42i64.into_value_bag().to_token(), Token::I64(42));
-        assert_eq!(42.01f64.into_value_bag().to_token(), Token::F64(42.01));
-        assert_eq!(true.into_value_bag().to_token(), Token::Bool(true));
-        assert_eq!('a'.into_value_bag().to_token(), Token::Char('a'));
         assert_eq!(
-            "a loong string".into_value_bag().to_token(),
-            Token::Str("a loong string".to_owned())
+            42u64.into_value_bag().by_ref().to_test_token(),
+            TestToken::U64(42)
         );
-        assert_eq!(().into_value_bag().to_token(), Token::None);
+        assert_eq!(
+            42i64.into_value_bag().by_ref().to_test_token(),
+            TestToken::I64(42)
+        );
+        assert_eq!(
+            42.01f64.into_value_bag().by_ref().to_test_token(),
+            TestToken::F64(42.01)
+        );
+        assert_eq!(
+            true.into_value_bag().by_ref().to_test_token(),
+            TestToken::Bool(true)
+        );
+        assert_eq!(
+            'a'.into_value_bag().by_ref().to_test_token(),
+            TestToken::Char('a')
+        );
+        assert_eq!(
+            "a loong string".into_value_bag().by_ref().to_test_token(),
+            TestToken::Str("a loong string".to_owned())
+        );
+        assert_eq!(
+            ().into_value_bag().by_ref().to_test_token(),
+            TestToken::None
+        );
+
+        #[cfg(feature = "inline-i128")]
+        {
+            assert_eq!(
+                42u128.into_value_bag().by_ref().to_test_token(),
+                TestToken::U128(42)
+            );
+            assert_eq!(
+                42i128.into_value_bag().by_ref().to_test_token(),
+                TestToken::I128(42)
+            );
+        }
     }
 }

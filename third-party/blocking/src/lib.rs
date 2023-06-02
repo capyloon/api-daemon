@@ -83,6 +83,7 @@ use std::env;
 use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem;
+use std::num::NonZeroUsize;
 use std::panic;
 use std::pin::Pin;
 use std::slice;
@@ -93,10 +94,10 @@ use std::thread;
 use std::time::Duration;
 
 use async_channel::{bounded, Receiver};
+use async_lock::OnceCell;
 use async_task::Runnable;
 use atomic_waker::AtomicWaker;
 use futures_lite::{future, prelude::*, ready};
-use once_cell::sync::Lazy;
 
 #[doc(no_inline)]
 pub use async_task::Task;
@@ -113,17 +114,6 @@ const MAX_MAX_THREADS: usize = 10000;
 /// Env variable that allows to override default value for max threads.
 const MAX_THREADS_ENV: &str = "BLOCKING_MAX_THREADS";
 
-/// Lazily initialized global executor.
-static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
-    inner: Mutex::new(Inner {
-        idle_count: 0,
-        thread_count: 0,
-        queue: VecDeque::new(),
-    }),
-    cvar: Condvar::new(),
-    thread_limit: Executor::max_threads(),
-});
-
 /// The blocking executor.
 struct Executor {
     /// Inner state of the executor.
@@ -131,9 +121,6 @@ struct Executor {
 
     /// Used to put idle threads to sleep and wake them up when new work comes in.
     cvar: Condvar,
-
-    /// Maximum number of threads in the pool
-    thread_limit: usize,
 }
 
 /// Inner state of the blocking executor.
@@ -150,6 +137,9 @@ struct Inner {
 
     /// The queue of blocking tasks.
     queue: VecDeque<Runnable>,
+
+    /// Maximum number of threads in the pool
+    thread_limit: NonZeroUsize,
 }
 
 impl Executor {
@@ -162,11 +152,31 @@ impl Executor {
             Err(_) => DEFAULT_MAX_THREADS,
         }
     }
+
     /// Spawns a future onto this executor.
     ///
     /// Returns a [`Task`] handle for the spawned task.
     fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> Task<T> {
-        let (runnable, task) = async_task::spawn(future, |r| EXECUTOR.schedule(r));
+        static EXECUTOR: OnceCell<Executor> = OnceCell::new();
+
+        let (runnable, task) = async_task::spawn(future, |r| {
+            // Initialize the executor if we haven't already.
+            let executor = EXECUTOR.get_or_init_blocking(|| {
+                let thread_limit = Self::max_threads();
+                Executor {
+                    inner: Mutex::new(Inner {
+                        idle_count: 0,
+                        thread_count: 0,
+                        queue: VecDeque::new(),
+                        thread_limit: NonZeroUsize::new(thread_limit).unwrap(),
+                    }),
+                    cvar: Condvar::new(),
+                }
+            });
+
+            // Schedule the task on our executor.
+            executor.schedule(r)
+        });
         runnable.schedule();
         task
     }
@@ -223,7 +233,8 @@ impl Executor {
     fn grow_pool(&'static self, mut inner: MutexGuard<'static, Inner>) {
         // If runnable tasks greatly outnumber idle threads and there aren't too many threads
         // already, then be aggressive: wake all idle threads and spawn one more thread.
-        while inner.queue.len() > inner.idle_count * 5 && inner.thread_count < EXECUTOR.thread_limit
+        while inner.queue.len() > inner.idle_count * 5
+            && inner.thread_count < inner.thread_limit.get()
         {
             // The new thread starts in idle state.
             inner.idle_count += 1;
@@ -237,10 +248,25 @@ impl Executor {
             let id = ID.fetch_add(1, Ordering::Relaxed);
 
             // Spawn the new thread.
-            thread::Builder::new()
+            if let Err(e) = thread::Builder::new()
                 .name(format!("blocking-{}", id))
                 .spawn(move || self.main_loop())
-                .unwrap();
+            {
+                // We were unable to spawn the thread, so we need to undo the state changes.
+                log::error!("Failed to spawn a blocking thread: {}", e);
+                inner.idle_count -= 1;
+                inner.thread_count -= 1;
+
+                // The current number of threads is likely to be the system's upper limit, so update
+                // thread_limit accordingly.
+                inner.thread_limit = {
+                    let new_limit = inner.thread_count;
+
+                    // If the limit is about to be set to zero, set it to one instead so that if,
+                    // in the future, we are able to spawn more threads, we will be able to do so.
+                    NonZeroUsize::new(new_limit).unwrap_or_else(|| NonZeroUsize::new(1).unwrap())
+                };
+            }
         }
     }
 }
@@ -587,7 +613,7 @@ impl<T: fmt::Debug> fmt::Debug for Unblock<T> {
         match &self.state {
             State::Idle(None) => f.debug_struct("Unblock").field("io", &Closed).finish(),
             State::Idle(Some(io)) => {
-                let io: &T = &*io;
+                let io: &T = io;
                 f.debug_struct("Unblock").field("io", io).finish()
             }
             State::WithMut(..)

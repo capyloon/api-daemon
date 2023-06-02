@@ -17,9 +17,7 @@ use crate::thread::{ClockId, FutexFlags, FutexOperation, NanosleepRelativeResult
 use core::mem::MaybeUninit;
 use linux_raw_sys::general::{__kernel_pid_t, __kernel_timespec, TIMER_ABSTIME};
 #[cfg(target_pointer_width = "32")]
-use {
-    core::convert::TryInto, core::ptr, linux_raw_sys::general::timespec as __kernel_old_timespec,
-};
+use {core::convert::TryInto, linux_raw_sys::general::timespec as __kernel_old_timespec};
 
 #[inline]
 pub(crate) fn clock_nanosleep_relative(
@@ -87,13 +85,10 @@ unsafe fn clock_nanosleep_relative_old(
     ))?;
     let old_rem = old_rem.assume_init();
     // TODO: With Rust 1.55, we can use MaybeUninit::write here.
-    ptr::write(
-        rem.as_mut_ptr(),
-        __kernel_timespec {
-            tv_sec: old_rem.tv_sec.into(),
-            tv_nsec: old_rem.tv_nsec.into(),
-        },
-    );
+    rem.as_mut_ptr().write(__kernel_timespec {
+        tv_sec: old_rem.tv_sec.into(),
+        tv_nsec: old_rem.tv_nsec.into(),
+    });
     Ok(())
 }
 
@@ -195,13 +190,10 @@ unsafe fn nanosleep_old(
     ret(syscall!(__NR_nanosleep, by_ref(&old_req), &mut old_rem))?;
     let old_rem = old_rem.assume_init();
     // TODO: With Rust 1.55, we can use MaybeUninit::write here.
-    ptr::write(
-        rem.as_mut_ptr(),
-        __kernel_timespec {
-            tv_sec: old_rem.tv_sec.into(),
-            tv_nsec: old_rem.tv_nsec.into(),
-        },
-    );
+    rem.as_mut_ptr().write(__kernel_timespec {
+        tv_sec: old_rem.tv_sec.into(),
+        tv_nsec: old_rem.tv_nsec.into(),
+    });
     Ok(())
 }
 
@@ -302,7 +294,7 @@ pub(crate) fn capget(
     data: &mut [MaybeUninit<linux_raw_sys::general::__user_cap_data_struct>],
 ) -> io::Result<()> {
     let header: *mut _ = header;
-    unsafe { ret(syscall!(__NR_capget, header, data.as_mut_ptr())) }
+    unsafe { ret(syscall!(__NR_capget, header, data)) }
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -321,6 +313,38 @@ pub(crate) fn setuid_thread(uid: crate::process::Uid) -> io::Result<()> {
 }
 
 #[inline]
+pub(crate) fn setresuid_thread(
+    ruid: crate::process::Uid,
+    euid: crate::process::Uid,
+    suid: crate::process::Uid,
+) -> io::Result<()> {
+    #[cfg(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc"))]
+    unsafe {
+        ret(syscall_readonly!(__NR_setresuid32, ruid, euid, suid))
+    }
+    #[cfg(not(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc")))]
+    unsafe {
+        ret(syscall_readonly!(__NR_setresuid, ruid, euid, suid))
+    }
+}
+
+#[inline]
 pub(crate) fn setgid_thread(gid: crate::process::Gid) -> io::Result<()> {
     unsafe { ret(syscall_readonly!(__NR_setgid, gid)) }
+}
+
+#[inline]
+pub(crate) fn setresgid_thread(
+    rgid: crate::process::Gid,
+    egid: crate::process::Gid,
+    sgid: crate::process::Gid,
+) -> io::Result<()> {
+    #[cfg(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc"))]
+    unsafe {
+        ret(syscall_readonly!(__NR_setresgid32, rgid, egid, sgid))
+    }
+    #[cfg(not(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc")))]
+    unsafe {
+        ret(syscall_readonly!(__NR_setresgid, rgid, egid, sgid))
+    }
 }

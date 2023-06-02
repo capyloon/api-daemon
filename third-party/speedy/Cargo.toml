@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "speedy"
-version = "0.8.2"
+version = "0.8.6"
 authors = ["Jan Bujak <j@exia.io>"]
 description = "A fast binary serialization framework"
 homepage = "https://github.com/koute/speedy"
@@ -34,12 +34,15 @@ version = "0.4"
 optional = true
 
 [dependencies.glam]
-version = ">= 0.15, <= 0.20"
+version = ">= 0.15, <= 0.23"
 optional = true
 
 [dependencies.indexmap]
 version = "1"
 optional = true
+
+[dependencies.memoffset]
+version = "0.8"
 
 [dependencies.regex]
 version = "1"
@@ -51,11 +54,22 @@ version = "1"
 optional = true
 
 [dependencies.speedy-derive]
-version = "= 0.8.0"
+version = "= 0.8.6"
 optional = true
+
+[dependencies.uuid]
+version = "1"
+optional = true
+default-features = false
+
+[dev-dependencies.paste]
+version = "1"
 
 [dev-dependencies.quickcheck]
 version = "0.9"
+
+[dev-dependencies.tempfile]
+version = "3"
 
 [features]
 default = ["speedy-derive"]

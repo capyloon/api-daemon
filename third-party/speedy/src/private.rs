@@ -8,8 +8,7 @@ use {
         Writer,
         error::{
             error_expected_constant,
-            error_invalid_string_utf8,
-            error_invalid_str_utf8
+            error_invalid_string_utf8
         }
     },
     std::{
@@ -26,9 +25,15 @@ pub use crate::error::{
     error_length_is_not_the_same_as_length_attribute,
     error_out_of_range_length,
     error_invalid_enum_variant,
+    error_invalid_str_utf8,
+    error_unsized,
+    error_endianness_mismatch,
 
     get_error_kind,
 };
+pub use crate::utils::ZeroCopyable;
+
+pub use memoffset::offset_of;
 
 #[inline]
 pub fn vec_to_string< E >( bytes: Vec< u8 > ) -> Result< String, E > where E: From< Error > {
@@ -36,7 +41,7 @@ pub fn vec_to_string< E >( bytes: Vec< u8 > ) -> Result< String, E > where E: Fr
 }
 
 #[inline]
-pub fn cow_bytes_to_cow_str< E >( bytes: Cow< [u8] > ) -> Result< Cow< str >, E > where E: From< Error > {
+pub fn cow_bytes_to_cow_str< E >( bytes: Cow<'_, [u8] > ) -> Result< Cow<'_, str >, E > where E: From< Error > {
     match bytes {
         Cow::Borrowed( bytes ) => {
             std::str::from_utf8( bytes )

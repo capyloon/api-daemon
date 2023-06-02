@@ -1,10 +1,12 @@
 #![cfg_attr(feature = "external_doc", doc = include_str!("../README.md"))]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 mod error;
 #[macro_use]
 mod utils;
 mod readable;
 mod readable_impl;
+mod readable_unsized_impl;
 mod reader;
 mod writable;
 mod writable_impl;
@@ -28,6 +30,9 @@ mod ext_regex;
 
 #[cfg(feature = "indexmap")]
 mod ext_indexmap;
+
+#[cfg(feature = "uuid")]
+mod ext_uuid;
 
 #[doc(hidden)]
 pub mod private;
@@ -204,6 +209,7 @@ mod tests {
         assert_eq!( original, deserialized );
     }
 
+    #[cfg(not(miri))]
     #[test]
     fn read_big_vector_of_vectors_from_stream_buffered() {
         const fn hash32( x: u32 ) -> u32 {

@@ -13,17 +13,16 @@
 edition = "2018"
 rust-version = "1.47"
 name = "polling"
-version = "2.5.2"
+version = "2.8.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 exclude = ["/.*"]
-description = "Portable interface to epoll, kqueue, event ports, and wepoll"
+description = "Portable interface to epoll, kqueue, event ports, and IOCP"
 readme = "README.md"
 keywords = [
     "mio",
     "epoll",
     "kqueue",
     "iocp",
-    "wepoll",
 ]
 categories = [
     "asynchronous",
@@ -48,6 +47,9 @@ version = "0.4.11"
 [dev-dependencies.easy-parallel]
 version = "3.1.0"
 
+[dev-dependencies.fastrand]
+version = "1.9.0"
+
 [build-dependencies.autocfg]
 version = "1"
 
@@ -58,13 +60,23 @@ std = []
 [target."cfg(any(unix, target_os = \"fuchsia\", target_os = \"vxworks\"))".dependencies.libc]
 version = "0.2.77"
 
-[target."cfg(windows)".dependencies.wepoll-ffi]
-version = "0.1.2"
-features = ["null-overlapped-wakeups-patch"]
+[target."cfg(windows)".dependencies.bitflags]
+version = "1.3.2"
+
+[target."cfg(windows)".dependencies.concurrent-queue]
+version = "2.2.0"
+
+[target."cfg(windows)".dependencies.pin-project-lite]
+version = "0.2.9"
 
 [target."cfg(windows)".dependencies.windows-sys]
-version = "0.42"
+version = "0.48"
 features = [
-    "Win32_System_IO",
     "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
 ]

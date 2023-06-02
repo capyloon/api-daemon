@@ -6,7 +6,7 @@
 //!
 //! # Examples
 //!
-//! ```rust,no_run
+//! ```no_run
 //! # #![cfg_attr(io_lifetimes_use_std, feature(io_safety))]
 //! # #[cfg(feature = "net")]
 //! # fn main() -> std::io::Result<()> {
@@ -103,6 +103,24 @@ bitflags! {
 
         /// `EPOLLHUP`
         const HUP = c::EPOLLHUP as u32;
+
+        /// `EPOLLRDNORM`
+        const RDNORM = c::EPOLLRDNORM as u32;
+
+        /// `EPOLLRDBAND`
+        const RDBAND = c::EPOLLRDBAND as u32;
+
+        /// `EPOLLWRNORM`
+        const WRNORM = c::EPOLLWRNORM as u32;
+
+        /// `EPOLLWRBAND`
+        const WRBAND = c::EPOLLWRBAND as u32;
+
+        /// `EPOLLMSG`
+        const MSG = c::EPOLLMSG as u32;
+
+        /// `EPOLLRDHUP`
+        const RDHUP = c::EPOLLRDHUP as u32;
 
         /// `EPOLLET`
         const ET = c::EPOLLET as u32;
@@ -267,8 +285,7 @@ impl<'a> Iterator for Iter<'a> {
 )]
 struct Event {
     // Match the layout of `c::epoll_event`. We just use a `u64` instead of
-    // the full union; `Context` implementations will simply need to deal with
-    // casting the value into and out of the `u64` themselves.
+    // the full union.
     event_flags: EventFlags,
     data: u64,
 }

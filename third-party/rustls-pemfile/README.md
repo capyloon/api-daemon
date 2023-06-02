@@ -9,6 +9,11 @@ poor and doing so doesn't address a meaningful threat model.
 [![Documentation](https://docs.rs/rustls-pemfile/badge.svg)](https://docs.rs/rustls-pemfile/)
 
 # Release history
+- 1.0.2 (2023-01-10)
+  * Add `ec_private_keys()` helper function.
+  * Update base64 to the latest version.
+- 1.0.1 (2022-08-02)
+  * Enable parsing PEM files with non-UTF-8 content between items.
 - 1.0.0 (2022-04-14)
   * Initial stable release. No API changes.
 - 0.3.0 (2022-02-05)
@@ -29,4 +34,3 @@ rustls-pemfile is distributed under the following three licenses:
 These are included as LICENSE-APACHE, LICENSE-MIT and LICENSE-ISC
 respectively.  You may use this software under the terms of any
 of these licenses, at your option.
-

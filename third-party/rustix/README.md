@@ -36,8 +36,8 @@ portable APIs built on this functionality, see the [`cap-std`], [`memfd`],
    arm (v5 onwards), mipsel, and mips64el, with stable, nightly, and 1.48 Rust.
     - By being implemented entirely in Rust, avoiding `libc`, `errno`, and pthread
       cancellation, and employing some specialized optimizations, most functions
-      compile down to very efficient code. On nightly Rust, they can often be
-      fully inlined into user code.
+      compile down to very efficient code, which can often be fully inlined into
+      user code.
     - Most functions in `linux_raw` preserve memory, I/O safety, and pointer
       provenance all the way down to the syscalls.
 
@@ -84,6 +84,13 @@ by default. The rest of the API is conditional with cargo feature flags:
 [`rustix::fd`]: https://docs.rs/rustix/*/rustix/fd/index.html
 [`rustix::ffi`]: https://docs.rs/rustix/*/rustix/ffi/index.html
 [`rustix::path`]: https://docs.rs/rustix/*/rustix/path/index.html
+
+## 64-bit Large File Support (LFS) and Year 2038 (y2038) support
+
+`rustix` automatically uses 64-bit APIs when available, and avoids exposing
+32-bit APIs that would have the year-2038 problem or fail to support large
+files. For instance, `rustix::fstatvfs` calls `fstatvfs64`, and returns a
+struct that's 64-bit even on 32-bit platforms.
 
 ## Similar crates
 

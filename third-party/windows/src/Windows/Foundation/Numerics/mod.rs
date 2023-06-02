@@ -1,6 +1,5 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
 pub struct Matrix3x2 {
     pub M11: f32,
     pub M12: f32,
@@ -20,18 +19,15 @@ impl ::core::fmt::Debug for Matrix3x2 {
         f.debug_struct("Matrix3x2").field("M11", &self.M11).field("M12", &self.M12).field("M21", &self.M21).field("M22", &self.M22).field("M31", &self.M31).field("M32", &self.M32).finish()
     }
 }
-unsafe impl ::windows::core::Abi for Matrix3x2 {
-    type Abi = Self;
+impl ::windows::core::TypeKind for Matrix3x2 {
+    type TypeKind = ::windows::core::CopyType;
 }
-unsafe impl ::windows::core::RuntimeType for Matrix3x2 {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Matrix3x2;f4;f4;f4;f4;f4;f4)");
-}
-impl ::windows::core::DefaultType for Matrix3x2 {
-    type DefaultType = Self;
+impl ::windows::core::RuntimeType for Matrix3x2 {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Matrix3x2;f4;f4;f4;f4;f4;f4)");
 }
 impl ::core::cmp::PartialEq for Matrix3x2 {
     fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Matrix3x2>()) == 0 }
+        self.M11 == other.M11 && self.M12 == other.M12 && self.M21 == other.M21 && self.M22 == other.M22 && self.M31 == other.M31 && self.M32 == other.M32
     }
 }
 impl ::core::cmp::Eq for Matrix3x2 {}
@@ -40,11 +36,268 @@ impl ::core::default::Default for Matrix3x2 {
         unsafe { ::core::mem::zeroed() }
     }
 }
+#[repr(C)]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
+pub struct Matrix4x4 {
+    pub M11: f32,
+    pub M12: f32,
+    pub M13: f32,
+    pub M14: f32,
+    pub M21: f32,
+    pub M22: f32,
+    pub M23: f32,
+    pub M24: f32,
+    pub M31: f32,
+    pub M32: f32,
+    pub M33: f32,
+    pub M34: f32,
+    pub M41: f32,
+    pub M42: f32,
+    pub M43: f32,
+    pub M44: f32,
+}
+impl ::core::marker::Copy for Matrix4x4 {}
+impl ::core::clone::Clone for Matrix4x4 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl ::core::fmt::Debug for Matrix4x4 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Matrix4x4").field("M11", &self.M11).field("M12", &self.M12).field("M13", &self.M13).field("M14", &self.M14).field("M21", &self.M21).field("M22", &self.M22).field("M23", &self.M23).field("M24", &self.M24).field("M31", &self.M31).field("M32", &self.M32).field("M33", &self.M33).field("M34", &self.M34).field("M41", &self.M41).field("M42", &self.M42).field("M43", &self.M43).field("M44", &self.M44).finish()
+    }
+}
+impl ::windows::core::TypeKind for Matrix4x4 {
+    type TypeKind = ::windows::core::CopyType;
+}
+impl ::windows::core::RuntimeType for Matrix4x4 {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Matrix4x4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4)");
+}
+impl ::core::cmp::PartialEq for Matrix4x4 {
+    fn eq(&self, other: &Self) -> bool {
+        self.M11 == other.M11 && self.M12 == other.M12 && self.M13 == other.M13 && self.M14 == other.M14 && self.M21 == other.M21 && self.M22 == other.M22 && self.M23 == other.M23 && self.M24 == other.M24 && self.M31 == other.M31 && self.M32 == other.M32 && self.M33 == other.M33 && self.M34 == other.M34 && self.M41 == other.M41 && self.M42 == other.M42 && self.M43 == other.M43 && self.M44 == other.M44
+    }
+}
+impl ::core::cmp::Eq for Matrix4x4 {}
+impl ::core::default::Default for Matrix4x4 {
+    fn default() -> Self {
+        unsafe { ::core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
+pub struct Plane {
+    pub Normal: Vector3,
+    pub D: f32,
+}
+impl ::core::marker::Copy for Plane {}
+impl ::core::clone::Clone for Plane {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl ::core::fmt::Debug for Plane {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Plane").field("Normal", &self.Normal).field("D", &self.D).finish()
+    }
+}
+impl ::windows::core::TypeKind for Plane {
+    type TypeKind = ::windows::core::CopyType;
+}
+impl ::windows::core::RuntimeType for Plane {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Plane;struct(Windows.Foundation.Numerics.Vector3;f4;f4;f4);f4)");
+}
+impl ::core::cmp::PartialEq for Plane {
+    fn eq(&self, other: &Self) -> bool {
+        self.Normal == other.Normal && self.D == other.D
+    }
+}
+impl ::core::cmp::Eq for Plane {}
+impl ::core::default::Default for Plane {
+    fn default() -> Self {
+        unsafe { ::core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
+pub struct Quaternion {
+    pub X: f32,
+    pub Y: f32,
+    pub Z: f32,
+    pub W: f32,
+}
+impl ::core::marker::Copy for Quaternion {}
+impl ::core::clone::Clone for Quaternion {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl ::core::fmt::Debug for Quaternion {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Quaternion").field("X", &self.X).field("Y", &self.Y).field("Z", &self.Z).field("W", &self.W).finish()
+    }
+}
+impl ::windows::core::TypeKind for Quaternion {
+    type TypeKind = ::windows::core::CopyType;
+}
+impl ::windows::core::RuntimeType for Quaternion {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Quaternion;f4;f4;f4;f4)");
+}
+impl ::core::cmp::PartialEq for Quaternion {
+    fn eq(&self, other: &Self) -> bool {
+        self.X == other.X && self.Y == other.Y && self.Z == other.Z && self.W == other.W
+    }
+}
+impl ::core::cmp::Eq for Quaternion {}
+impl ::core::default::Default for Quaternion {
+    fn default() -> Self {
+        unsafe { ::core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
+pub struct Rational {
+    pub Numerator: u32,
+    pub Denominator: u32,
+}
+impl ::core::marker::Copy for Rational {}
+impl ::core::clone::Clone for Rational {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl ::core::fmt::Debug for Rational {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Rational").field("Numerator", &self.Numerator).field("Denominator", &self.Denominator).finish()
+    }
+}
+impl ::windows::core::TypeKind for Rational {
+    type TypeKind = ::windows::core::CopyType;
+}
+impl ::windows::core::RuntimeType for Rational {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Rational;u4;u4)");
+}
+impl ::core::cmp::PartialEq for Rational {
+    fn eq(&self, other: &Self) -> bool {
+        self.Numerator == other.Numerator && self.Denominator == other.Denominator
+    }
+}
+impl ::core::cmp::Eq for Rational {}
+impl ::core::default::Default for Rational {
+    fn default() -> Self {
+        unsafe { ::core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
+pub struct Vector2 {
+    pub X: f32,
+    pub Y: f32,
+}
+impl ::core::marker::Copy for Vector2 {}
+impl ::core::clone::Clone for Vector2 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl ::core::fmt::Debug for Vector2 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Vector2").field("X", &self.X).field("Y", &self.Y).finish()
+    }
+}
+impl ::windows::core::TypeKind for Vector2 {
+    type TypeKind = ::windows::core::CopyType;
+}
+impl ::windows::core::RuntimeType for Vector2 {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Vector2;f4;f4)");
+}
+impl ::core::cmp::PartialEq for Vector2 {
+    fn eq(&self, other: &Self) -> bool {
+        self.X == other.X && self.Y == other.Y
+    }
+}
+impl ::core::cmp::Eq for Vector2 {}
+impl ::core::default::Default for Vector2 {
+    fn default() -> Self {
+        unsafe { ::core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
+pub struct Vector3 {
+    pub X: f32,
+    pub Y: f32,
+    pub Z: f32,
+}
+impl ::core::marker::Copy for Vector3 {}
+impl ::core::clone::Clone for Vector3 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl ::core::fmt::Debug for Vector3 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Vector3").field("X", &self.X).field("Y", &self.Y).field("Z", &self.Z).finish()
+    }
+}
+impl ::windows::core::TypeKind for Vector3 {
+    type TypeKind = ::windows::core::CopyType;
+}
+impl ::windows::core::RuntimeType for Vector3 {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Vector3;f4;f4;f4)");
+}
+impl ::core::cmp::PartialEq for Vector3 {
+    fn eq(&self, other: &Self) -> bool {
+        self.X == other.X && self.Y == other.Y && self.Z == other.Z
+    }
+}
+impl ::core::cmp::Eq for Vector3 {}
+impl ::core::default::Default for Vector3 {
+    fn default() -> Self {
+        unsafe { ::core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[doc = "*Required features: `\"Foundation_Numerics\"`*"]
+pub struct Vector4 {
+    pub X: f32,
+    pub Y: f32,
+    pub Z: f32,
+    pub W: f32,
+}
+impl ::core::marker::Copy for Vector4 {}
+impl ::core::clone::Clone for Vector4 {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl ::core::fmt::Debug for Vector4 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_struct("Vector4").field("X", &self.X).field("Y", &self.Y).field("Z", &self.Z).field("W", &self.W).finish()
+    }
+}
+impl ::windows::core::TypeKind for Vector4 {
+    type TypeKind = ::windows::core::CopyType;
+}
+impl ::windows::core::RuntimeType for Vector4 {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Vector4;f4;f4;f4;f4)");
+}
+impl ::core::cmp::PartialEq for Vector4 {
+    fn eq(&self, other: &Self) -> bool {
+        self.X == other.X && self.Y == other.Y && self.Z == other.Z && self.W == other.W
+    }
+}
+impl ::core::cmp::Eq for Vector4 {}
+impl ::core::default::Default for Vector4 {
+    fn default() -> Self {
+        unsafe { ::core::mem::zeroed() }
+    }
+}
 impl Matrix3x2 {
-    pub fn identity() -> Self {
+    pub const fn identity() -> Self {
         Self { M11: 1.0, M12: 0.0, M21: 0.0, M22: 1.0, M31: 0.0, M32: 0.0 }
     }
-    pub fn translation(x: f32, y: f32) -> Self {
+    pub const fn translation(x: f32, y: f32) -> Self {
         Self { M11: 1.0, M12: 0.0, M21: 0.0, M22: 1.0, M31: x, M32: y }
     }
     pub fn rotation(angle: f32, x: f32, y: f32) -> Self {
@@ -53,10 +306,7 @@ impl Matrix3x2 {
             pub x: f32,
             pub y: f32,
         }
-        #[link(name = "d2d1")]
-        extern "system" {
-            fn D2D1MakeRotateMatrix(angle: f32, center: D2D_POINT_2F, matrix: *mut Matrix3x2);
-        }
+        ::windows_targets::link!("d2d1.dll" "system" fn D2D1MakeRotateMatrix(angle: f32, center: D2D_POINT_2F, matrix: *mut Matrix3x2) -> ());
         let mut matrix = Self::default();
         unsafe {
             D2D1MakeRotateMatrix(angle, D2D_POINT_2F { x, y }, &mut matrix);
@@ -97,6 +347,7 @@ impl Matrix3x2 {
         Self { M11: self.M11 * rhs, M12: self.M12 * rhs, M21: self.M21 * rhs, M22: self.M22 * rhs, M31: self.M31 * rhs, M32: self.M32 * rhs }
     }
 }
+
 impl ::core::ops::Add<Matrix3x2> for Matrix3x2 {
     type Output = Matrix3x2;
     fn add(self, rhs: Matrix3x2) -> Matrix3x2 {
@@ -181,58 +432,75 @@ impl ::core::ops::Mul<f32> for &Matrix3x2 {
         self.impl_mul_f32(rhs)
     }
 }
-#[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
-pub struct Matrix4x4 {
-    pub M11: f32,
-    pub M12: f32,
-    pub M13: f32,
-    pub M14: f32,
-    pub M21: f32,
-    pub M22: f32,
-    pub M23: f32,
-    pub M24: f32,
-    pub M31: f32,
-    pub M32: f32,
-    pub M33: f32,
-    pub M34: f32,
-    pub M41: f32,
-    pub M42: f32,
-    pub M43: f32,
-    pub M44: f32,
-}
-impl ::core::marker::Copy for Matrix4x4 {}
-impl ::core::clone::Clone for Matrix4x4 {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl ::core::fmt::Debug for Matrix4x4 {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("Matrix4x4").field("M11", &self.M11).field("M12", &self.M12).field("M13", &self.M13).field("M14", &self.M14).field("M21", &self.M21).field("M22", &self.M22).field("M23", &self.M23).field("M24", &self.M24).field("M31", &self.M31).field("M32", &self.M32).field("M33", &self.M33).field("M34", &self.M34).field("M41", &self.M41).field("M42", &self.M42).field("M43", &self.M43).field("M44", &self.M44).finish()
-    }
-}
-unsafe impl ::windows::core::Abi for Matrix4x4 {
-    type Abi = Self;
-}
-unsafe impl ::windows::core::RuntimeType for Matrix4x4 {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Matrix4x4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4;f4)");
-}
-impl ::windows::core::DefaultType for Matrix4x4 {
-    type DefaultType = Self;
-}
-impl ::core::cmp::PartialEq for Matrix4x4 {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Matrix4x4>()) == 0 }
-    }
-}
-impl ::core::cmp::Eq for Matrix4x4 {}
-impl ::core::default::Default for Matrix4x4 {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
-}
 impl Matrix4x4 {
+    pub const fn translation(x: f32, y: f32, z: f32) -> Self {
+        Self {
+            M11: 1.0,
+            M12: 0.0,
+            M13: 0.0,
+            M14: 0.0,
+            M21: 0.0,
+            M22: 1.0,
+            M23: 0.0,
+            M24: 0.0,
+            M31: 0.0,
+            M32: 0.0,
+            M33: 1.0,
+            M34: 0.0,
+            M41: x,
+            M42: y,
+            M43: z,
+            M44: 1.0,
+        }
+    }
+    pub fn rotation_y(degree: f32) -> Self {
+        ::windows_targets::link!("d2d1.dll" "system" fn D2D1SinCos(angle: f32, sin: *mut f32, cos: *mut f32) -> ());
+        let angle = degree * (3.141592654 / 180.0);
+        let mut sin = 0.0;
+        let mut cos = 0.0;
+        unsafe {
+            D2D1SinCos(angle, &mut sin, &mut cos);
+        }
+        Self {
+            M11: cos,
+            M12: 0.0,
+            M13: -sin,
+            M14: 0.0,
+            M21: 0.0,
+            M22: 1.0,
+            M23: 0.0,
+            M24: 0.0,
+            M31: sin,
+            M32: 0.0,
+            M33: cos,
+            M34: 0.0,
+            M41: 0.0,
+            M42: 0.0,
+            M43: 0.0,
+            M44: 1.0,
+        }
+    }
+    pub fn perspective_projection(depth: f32) -> Self {
+        let projection = if depth > 0.0 { -1.0 / depth } else { 0.0 };
+        Self {
+            M11: 1.0,
+            M12: 0.0,
+            M13: 0.0,
+            M14: 0.0,
+            M21: 0.0,
+            M22: 1.0,
+            M23: 0.0,
+            M24: 0.0,
+            M31: 0.0,
+            M32: 0.0,
+            M33: 1.0,
+            M34: projection,
+            M41: 0.0,
+            M42: 0.0,
+            M43: 0.0,
+            M44: 1.0,
+        }
+    }
     fn impl_add(&self, rhs: &Self) -> Self {
         Self {
             M11: self.M11 + rhs.M11,
@@ -314,6 +582,7 @@ impl Matrix4x4 {
         }
     }
 }
+
 impl ::core::ops::Add<Matrix4x4> for Matrix4x4 {
     type Output = Matrix4x4;
     fn add(self, rhs: Matrix4x4) -> Matrix4x4 {
@@ -398,156 +667,6 @@ impl ::core::ops::Mul<f32> for &Matrix4x4 {
         self.impl_mul_f32(rhs)
     }
 }
-#[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
-pub struct Plane {
-    pub Normal: Vector3,
-    pub D: f32,
-}
-impl ::core::marker::Copy for Plane {}
-impl ::core::clone::Clone for Plane {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl ::core::fmt::Debug for Plane {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("Plane").field("Normal", &self.Normal).field("D", &self.D).finish()
-    }
-}
-unsafe impl ::windows::core::Abi for Plane {
-    type Abi = Self;
-}
-unsafe impl ::windows::core::RuntimeType for Plane {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Plane;struct(Windows.Foundation.Numerics.Vector3;f4;f4;f4);f4)");
-}
-impl ::windows::core::DefaultType for Plane {
-    type DefaultType = Self;
-}
-impl ::core::cmp::PartialEq for Plane {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Plane>()) == 0 }
-    }
-}
-impl ::core::cmp::Eq for Plane {}
-impl ::core::default::Default for Plane {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
-}
-#[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
-pub struct Quaternion {
-    pub X: f32,
-    pub Y: f32,
-    pub Z: f32,
-    pub W: f32,
-}
-impl ::core::marker::Copy for Quaternion {}
-impl ::core::clone::Clone for Quaternion {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl ::core::fmt::Debug for Quaternion {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("Quaternion").field("X", &self.X).field("Y", &self.Y).field("Z", &self.Z).field("W", &self.W).finish()
-    }
-}
-unsafe impl ::windows::core::Abi for Quaternion {
-    type Abi = Self;
-}
-unsafe impl ::windows::core::RuntimeType for Quaternion {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Quaternion;f4;f4;f4;f4)");
-}
-impl ::windows::core::DefaultType for Quaternion {
-    type DefaultType = Self;
-}
-impl ::core::cmp::PartialEq for Quaternion {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Quaternion>()) == 0 }
-    }
-}
-impl ::core::cmp::Eq for Quaternion {}
-impl ::core::default::Default for Quaternion {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
-}
-#[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
-pub struct Rational {
-    pub Numerator: u32,
-    pub Denominator: u32,
-}
-impl ::core::marker::Copy for Rational {}
-impl ::core::clone::Clone for Rational {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl ::core::fmt::Debug for Rational {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("Rational").field("Numerator", &self.Numerator).field("Denominator", &self.Denominator).finish()
-    }
-}
-unsafe impl ::windows::core::Abi for Rational {
-    type Abi = Self;
-}
-unsafe impl ::windows::core::RuntimeType for Rational {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Rational;u4;u4)");
-}
-impl ::windows::core::DefaultType for Rational {
-    type DefaultType = Self;
-}
-impl ::core::cmp::PartialEq for Rational {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Rational>()) == 0 }
-    }
-}
-impl ::core::cmp::Eq for Rational {}
-impl ::core::default::Default for Rational {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
-}
-#[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
-pub struct Vector2 {
-    pub X: f32,
-    pub Y: f32,
-}
-impl ::core::marker::Copy for Vector2 {}
-impl ::core::clone::Clone for Vector2 {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl ::core::fmt::Debug for Vector2 {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("Vector2").field("X", &self.X).field("Y", &self.Y).finish()
-    }
-}
-unsafe impl ::windows::core::Abi for Vector2 {
-    type Abi = Self;
-}
-unsafe impl ::windows::core::RuntimeType for Vector2 {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Vector2;f4;f4)");
-}
-impl ::windows::core::DefaultType for Vector2 {
-    type DefaultType = Self;
-}
-impl ::core::cmp::PartialEq for Vector2 {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Vector2>()) == 0 }
-    }
-}
-impl ::core::cmp::Eq for Vector2 {}
-impl ::core::default::Default for Vector2 {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
-}
 impl Vector2 {
     pub fn new(X: f32, Y: f32) -> Self {
         Self { X, Y }
@@ -582,6 +701,7 @@ impl Vector2 {
     pub fn normalize(&self) -> Self {
         self / self.length()
     }
+
     fn impl_add(&self, rhs: &Self) -> Self {
         Self { X: self.X + rhs.X, Y: self.Y + rhs.Y }
     }
@@ -601,6 +721,7 @@ impl Vector2 {
         Self { X: self.X * rhs, Y: self.Y * rhs }
     }
 }
+
 impl ::core::ops::Add<Vector2> for Vector2 {
     type Output = Vector2;
     fn add(self, rhs: Vector2) -> Vector2 {
@@ -721,44 +842,6 @@ impl ::core::ops::Mul<f32> for &Vector2 {
         self.impl_mul_f32(rhs)
     }
 }
-#[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
-pub struct Vector3 {
-    pub X: f32,
-    pub Y: f32,
-    pub Z: f32,
-}
-impl ::core::marker::Copy for Vector3 {}
-impl ::core::clone::Clone for Vector3 {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl ::core::fmt::Debug for Vector3 {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("Vector3").field("X", &self.X).field("Y", &self.Y).field("Z", &self.Z).finish()
-    }
-}
-unsafe impl ::windows::core::Abi for Vector3 {
-    type Abi = Self;
-}
-unsafe impl ::windows::core::RuntimeType for Vector3 {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Vector3;f4;f4;f4)");
-}
-impl ::windows::core::DefaultType for Vector3 {
-    type DefaultType = Self;
-}
-impl ::core::cmp::PartialEq for Vector3 {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Vector3>()) == 0 }
-    }
-}
-impl ::core::cmp::Eq for Vector3 {}
-impl ::core::default::Default for Vector3 {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
-}
 impl Vector3 {
     pub fn new(X: f32, Y: f32, Z: f32) -> Self {
         Self { X, Y, Z }
@@ -796,6 +879,7 @@ impl Vector3 {
     pub fn normalize(&self) -> Self {
         self / self.length()
     }
+
     fn impl_add(&self, rhs: &Self) -> Self {
         Self { X: self.X + rhs.X, Y: self.Y + rhs.Y, Z: self.Z + rhs.Z }
     }
@@ -815,6 +899,7 @@ impl Vector3 {
         Self { X: self.X * rhs, Y: self.Y * rhs, Z: self.Z * rhs }
     }
 }
+
 impl ::core::ops::Add<Vector3> for Vector3 {
     type Output = Vector3;
     fn add(self, rhs: Vector3) -> Vector3 {
@@ -935,45 +1020,6 @@ impl ::core::ops::Mul<f32> for &Vector3 {
         self.impl_mul_f32(rhs)
     }
 }
-#[repr(C)]
-#[doc = "*Required features: 'Foundation_Numerics'*"]
-pub struct Vector4 {
-    pub X: f32,
-    pub Y: f32,
-    pub Z: f32,
-    pub W: f32,
-}
-impl ::core::marker::Copy for Vector4 {}
-impl ::core::clone::Clone for Vector4 {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl ::core::fmt::Debug for Vector4 {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_struct("Vector4").field("X", &self.X).field("Y", &self.Y).field("Z", &self.Z).field("W", &self.W).finish()
-    }
-}
-unsafe impl ::windows::core::Abi for Vector4 {
-    type Abi = Self;
-}
-unsafe impl ::windows::core::RuntimeType for Vector4 {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"struct(Windows.Foundation.Numerics.Vector4;f4;f4;f4;f4)");
-}
-impl ::windows::core::DefaultType for Vector4 {
-    type DefaultType = Self;
-}
-impl ::core::cmp::PartialEq for Vector4 {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { ::windows::core::memcmp(self as *const _ as _, other as *const _ as _, core::mem::size_of::<Vector4>()) == 0 }
-    }
-}
-impl ::core::cmp::Eq for Vector4 {}
-impl ::core::default::Default for Vector4 {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
-}
 impl Vector4 {
     pub fn new(X: f32, Y: f32, Z: f32, W: f32) -> Self {
         Self { X, Y, Z, W }
@@ -1014,6 +1060,7 @@ impl Vector4 {
     pub fn normalize(&self) -> Self {
         self / self.length()
     }
+
     fn impl_add(&self, rhs: &Self) -> Self {
         Self { X: self.X + rhs.X, Y: self.Y + rhs.Y, Z: self.Z + rhs.Z, W: self.W + rhs.W }
     }
@@ -1033,6 +1080,7 @@ impl Vector4 {
         Self { X: self.X * rhs, Y: self.Y * rhs, Z: self.Z * rhs, W: self.W * rhs }
     }
 }
+
 impl ::core::ops::Add<Vector4> for Vector4 {
     type Output = Vector4;
     fn add(self, rhs: Vector4) -> Vector4 {

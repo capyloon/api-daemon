@@ -6,10 +6,6 @@ use core::fmt;
 use crate::error;
 
 /// The format description provided was not valid.
-#[cfg_attr(
-    __time_03_docs,
-    doc(cfg(all(any(feature = "formatting", feature = "parsing"), feature = "alloc")))
-)]
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvalidFormatDescription {
@@ -41,22 +37,40 @@ pub enum InvalidFormatDescription {
         /// The zero-based index where the component name should start.
         index: usize,
     },
+    /// A required modifier is missing.
+    #[non_exhaustive]
+    MissingRequiredModifier {
+        /// The name of the modifier that is missing.
+        name: &'static str,
+        /// The zero-based index of the component.
+        index: usize,
+    },
+    /// Something was expected, but not found.
+    #[non_exhaustive]
+    Expected {
+        /// What was expected to be present, but wasn't.
+        what: &'static str,
+        /// The zero-based index the item was expected to be found at.
+        index: usize,
+    },
+    /// Certain behavior is not supported in the given context.
+    #[non_exhaustive]
+    NotSupported {
+        /// The behavior that is not supported.
+        what: &'static str,
+        /// The context in which the behavior is not supported.
+        context: &'static str,
+        /// The zero-based index the error occurred at.
+        index: usize,
+    },
 }
 
-#[cfg_attr(
-    __time_03_docs,
-    doc(cfg(all(any(feature = "formatting", feature = "parsing"), feature = "alloc")))
-)]
 impl From<InvalidFormatDescription> for crate::Error {
     fn from(original: InvalidFormatDescription) -> Self {
         Self::InvalidFormatDescription(original)
     }
 }
 
-#[cfg_attr(
-    __time_03_docs,
-    doc(cfg(all(any(feature = "formatting", feature = "parsing"), feature = "alloc")))
-)]
 impl TryFrom<crate::Error> for InvalidFormatDescription {
     type Error = error::DifferentVariant;
 
@@ -73,18 +87,38 @@ impl fmt::Display for InvalidFormatDescription {
         use InvalidFormatDescription::*;
         match self {
             UnclosedOpeningBracket { index } => {
-                write!(f, "unclosed opening bracket at byte index {}", index)
+                write!(f, "unclosed opening bracket at byte index {index}")
             }
-            InvalidComponentName { name, index } => write!(
-                f,
-                "invalid component name `{}` at byte index {}",
-                name, index
-            ),
+            InvalidComponentName { name, index } => {
+                write!(f, "invalid component name `{name}` at byte index {index}")
+            }
             InvalidModifier { value, index } => {
-                write!(f, "invalid modifier `{}` at byte index {}", value, index)
+                write!(f, "invalid modifier `{value}` at byte index {index}")
             }
             MissingComponentName { index } => {
-                write!(f, "missing component name at byte index {}", index)
+                write!(f, "missing component name at byte index {index}")
+            }
+            MissingRequiredModifier { name, index } => {
+                write!(
+                    f,
+                    "missing required modifier `{name}` for component at byte index {index}"
+                )
+            }
+            Expected {
+                what: expected,
+                index,
+            } => {
+                write!(f, "expected {expected} at byte index {index}")
+            }
+            NotSupported {
+                what,
+                context,
+                index,
+            } => {
+                write!(
+                    f,
+                    "{what} is not supported in {context} at byte index {index}"
+                )
             }
         }
     }

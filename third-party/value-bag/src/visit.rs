@@ -5,8 +5,8 @@
 //! More complex datatypes can then be handled using `std::fmt`, `sval`, or `serde`.
 //!
 //! ```
-//! #[cfg(not(feature = "std"))] fn main() {}
-//! #[cfg(feature = "std")]
+//! # #[cfg(not(feature = "std"))] fn main() {}
+//! # #[cfg(feature = "std")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # fn escape(buf: &[u8]) -> &[u8] { buf }
 //! # fn itoa_fmt<T>(num: T) -> Vec<u8> { vec![] }
@@ -75,100 +75,68 @@ pub trait Visit<'v> {
 
     /// Visit an unsigned integer.
     #[inline]
-    #[cfg(not(test))]
     fn visit_u64(&mut self, value: u64) -> Result<(), Error> {
         self.visit_any(value.into())
     }
-    #[cfg(test)]
-    fn visit_u64(&mut self, value: u64) -> Result<(), Error>;
 
     /// Visit a signed integer.
     #[inline]
-    #[cfg(not(test))]
     fn visit_i64(&mut self, value: i64) -> Result<(), Error> {
         self.visit_any(value.into())
     }
-    #[cfg(test)]
-    fn visit_i64(&mut self, value: i64) -> Result<(), Error>;
 
     /// Visit a big unsigned integer.
     #[inline]
-    #[cfg(not(test))]
     fn visit_u128(&mut self, value: u128) -> Result<(), Error> {
         self.visit_any((&value).into())
     }
-    #[cfg(test)]
-    fn visit_u128(&mut self, value: u128) -> Result<(), Error>;
 
     /// Visit a big signed integer.
     #[inline]
-    #[cfg(not(test))]
     fn visit_i128(&mut self, value: i128) -> Result<(), Error> {
         self.visit_any((&value).into())
     }
-    #[cfg(test)]
-    fn visit_i128(&mut self, value: i128) -> Result<(), Error>;
 
     /// Visit a floating point.
     #[inline]
-    #[cfg(not(test))]
     fn visit_f64(&mut self, value: f64) -> Result<(), Error> {
         self.visit_any(value.into())
     }
-    #[cfg(test)]
-    fn visit_f64(&mut self, value: f64) -> Result<(), Error>;
 
     /// Visit a boolean.
     #[inline]
-    #[cfg(not(test))]
     fn visit_bool(&mut self, value: bool) -> Result<(), Error> {
         self.visit_any(value.into())
     }
-    #[cfg(test)]
-    fn visit_bool(&mut self, value: bool) -> Result<(), Error>;
 
     /// Visit a string.
     #[inline]
-    #[cfg(not(test))]
     fn visit_str(&mut self, value: &str) -> Result<(), Error> {
         self.visit_any(value.into())
     }
-    #[cfg(test)]
-    fn visit_str(&mut self, value: &str) -> Result<(), Error>;
 
     /// Visit a string.
     #[inline]
-    #[cfg(not(test))]
     fn visit_borrowed_str(&mut self, value: &'v str) -> Result<(), Error> {
         self.visit_str(value)
     }
-    #[cfg(test)]
-    fn visit_borrowed_str(&mut self, value: &'v str) -> Result<(), Error>;
 
     /// Visit a Unicode character.
     #[inline]
-    #[cfg(not(test))]
     fn visit_char(&mut self, value: char) -> Result<(), Error> {
         let mut b = [0; 4];
         self.visit_str(&*value.encode_utf8(&mut b))
     }
-    #[cfg(test)]
-    fn visit_char(&mut self, value: char) -> Result<(), Error>;
 
     /// Visit an error.
     #[inline]
-    #[cfg(not(test))]
     #[cfg(feature = "error")]
     fn visit_error(&mut self, err: &(dyn crate::std::error::Error + 'static)) -> Result<(), Error> {
         self.visit_any(ValueBag::from_dyn_error(err))
     }
-    #[cfg(test)]
-    #[cfg(feature = "error")]
-    fn visit_error(&mut self, err: &(dyn crate::std::error::Error + 'static)) -> Result<(), Error>;
 
     /// Visit an error.
     #[inline]
-    #[cfg(not(test))]
     #[cfg(feature = "error")]
     fn visit_borrowed_error(
         &mut self,
@@ -176,12 +144,6 @@ pub trait Visit<'v> {
     ) -> Result<(), Error> {
         self.visit_any(ValueBag::from_dyn_error(err))
     }
-    #[cfg(test)]
-    #[cfg(feature = "error")]
-    fn visit_borrowed_error(
-        &mut self,
-        err: &'v (dyn crate::std::error::Error + 'static),
-    ) -> Result<(), Error>;
 }
 
 impl<'a, 'v, T: ?Sized> Visit<'v> for &'a mut T
@@ -328,9 +290,17 @@ impl<'v> ValueBag<'v> {
                 self.0.visit_borrowed_error(v)
             }
 
-            #[cfg(feature = "sval1")]
-            fn sval1(&mut self, v: &dyn internal::sval::v1::Value) -> Result<(), Error> {
-                internal::sval::v1::internal_visit(v, self)
+            #[cfg(feature = "sval2")]
+            fn sval2(&mut self, v: &dyn internal::sval::v2::Value) -> Result<(), Error> {
+                internal::sval::v2::internal_visit(v, self)
+            }
+
+            #[cfg(feature = "sval2")]
+            fn borrowed_sval2(
+                &mut self,
+                v: &'v dyn internal::sval::v2::Value,
+            ) -> Result<(), Error> {
+                internal::sval::v2::borrowed_internal_visit(v, self)
             }
 
             #[cfg(feature = "serde1")]
@@ -351,28 +321,28 @@ mod tests {
     #[test]
     fn visit_structured() {
         ValueBag::from(42u64)
-            .visit(TestVisit)
+            .visit(TestVisit::default())
             .expect("failed to visit value");
         ValueBag::from(-42i64)
-            .visit(TestVisit)
+            .visit(TestVisit::default())
             .expect("failed to visit value");
         ValueBag::from(&42u128)
-            .visit(TestVisit)
+            .visit(TestVisit::default())
             .expect("failed to visit value");
         ValueBag::from(&-42i128)
-            .visit(TestVisit)
+            .visit(TestVisit::default())
             .expect("failed to visit value");
         ValueBag::from(11f64)
-            .visit(TestVisit)
+            .visit(TestVisit::default())
             .expect("failed to visit value");
         ValueBag::from(true)
-            .visit(TestVisit)
+            .visit(TestVisit::default())
             .expect("failed to visit value");
-        ValueBag::from("some string")
-            .visit(TestVisit)
+        ValueBag::from("some borrowed string")
+            .visit(TestVisit::default())
             .expect("failed to visit value");
         ValueBag::from('n')
-            .visit(TestVisit)
+            .visit(TestVisit::default())
             .expect("failed to visit value");
     }
 }

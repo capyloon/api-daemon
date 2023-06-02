@@ -3,7 +3,7 @@ use cc::Build;
 use std::env::var;
 use std::io::Write;
 
-/// The directory for out-of-line ("outline") libraries.
+/// The directory for out-of-line (“outline”) libraries.
 const OUTLINE_PATH: &str = "src/backend/linux_raw/arch/outline";
 
 fn main() {
@@ -24,6 +24,7 @@ fn main() {
 
     // Gather target information.
     let arch = var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let vendor = var("CARGO_CFG_TARGET_VENDOR").unwrap();
     let asm_name = format!("{}/{}.s", OUTLINE_PATH, arch);
     let asm_name_present = std::fs::metadata(&asm_name).is_ok();
     let target_os = var("CARGO_CFG_TARGET_OS").unwrap();
@@ -84,7 +85,7 @@ fn main() {
         // Use inline asm if we have it, or outline asm otherwise. On PowerPC
         // and MIPS, Rust's inline asm is considered experimental, so only use
         // it if `--cfg=rustix_use_experimental_asm` is given.
-        if (feature_rustc_dep_of_std || can_compile("use std::arch::asm;"))
+        if (feature_rustc_dep_of_std || vendor == "mustang" || can_compile("use std::arch::asm;"))
             && (arch != "x86" || has_feature("naked_functions"))
             && ((arch != "powerpc64" && arch != "mips" && arch != "mips64")
                 || rustix_use_experimental_asm)
@@ -138,6 +139,9 @@ fn main() {
     {
         use_feature("bsd");
     }
+    if target_os == "wasi" {
+        use_feature_or_nothing("wasi_ext");
+    }
 
     println!("cargo:rerun-if-env-changed=CARGO_CFG_RUSTIX_USE_EXPERIMENTAL_ASM");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_RUSTIX_USE_LIBC");
@@ -147,11 +151,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_USE_LIBC");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_RUSTC_DEP_OF_STD");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_MIRI");
-    println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
-    println!("cargo:rerun-if-env-changed=RUSTC");
-    println!("cargo:rerun-if-env-changed=TARGET");
-    println!("cargo:rerun-if-env-changed=RUSTC_WRAPPER");
-    println!("cargo:rerun-if-env-changed=PROFILE");
 }
 
 /// Link in the desired version of librustix_outline_{arch}.a, containing the

@@ -14,6 +14,7 @@ fn test_from_path() -> Result<(), Box<dyn Error>> {
     from_path(&path)?;
 
     assert_eq!(env::var("TESTKEY")?, "test_val");
+    assert_eq!(env::var("EXISTING")?, "from_env");
 
     env::set_current_dir(dir.path().parent().unwrap())?;
     dir.close()?;

@@ -2,14 +2,13 @@
 #![no_std]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
-    html_root_url = "https://docs.rs/block-buffer/0.10.2"
+    html_favicon_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg"
 )]
 #![warn(missing_docs, rust_2018_idioms)]
 
 pub use generic_array;
 
-use core::{marker::PhantomData, slice};
+use core::{fmt, marker::PhantomData, slice};
 use generic_array::{
     typenum::{IsLess, Le, NonZero, U256},
     ArrayLength, GenericArray,
@@ -41,6 +40,16 @@ pub type EagerBuffer<B> = BlockBuffer<B, Eager>;
 /// Lazy block buffer.
 pub type LazyBuffer<B> = BlockBuffer<B, Lazy>;
 
+/// Block buffer error.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct Error;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("Block buffer error")
+    }
+}
+
 /// Buffer for block processing of data.
 #[derive(Debug)]
 pub struct BlockBuffer<BlockSize, Kind>
@@ -61,6 +70,9 @@ where
     Kind: BufferKind,
 {
     fn default() -> Self {
+        if BlockSize::USIZE == 0 {
+            panic!("Block size can not be equal to zero");
+        }
         Self {
             buffer: Default::default(),
             pos: 0,
@@ -96,15 +108,28 @@ where
     /// If slice length is not valid for used buffer kind.
     #[inline(always)]
     pub fn new(buf: &[u8]) -> Self {
+        Self::try_new(buf).unwrap()
+    }
+
+    /// Create new buffer from slice.
+    ///
+    /// Returns an error if slice length is not valid for used buffer kind.
+    #[inline(always)]
+    pub fn try_new(buf: &[u8]) -> Result<Self, Error> {
+        if BlockSize::USIZE == 0 {
+            panic!("Block size can not be equal to zero");
+        }
         let pos = buf.len();
-        assert!(Kind::invariant(pos, BlockSize::USIZE));
+        if !Kind::invariant(pos, BlockSize::USIZE) {
+            return Err(Error);
+        }
         let mut buffer = Block::<BlockSize>::default();
         buffer[..pos].copy_from_slice(buf);
-        Self {
+        Ok(Self {
             buffer,
             pos: pos as u8,
             _pd: PhantomData,
-        }
+        })
     }
 
     /// Digest data in `input` in blocks of size `BlockSize` using
@@ -196,13 +221,13 @@ where
         self.set_pos_unchecked(pos);
     }
 
-    /// Return size of the internall buffer in bytes.
+    /// Return size of the internal buffer in bytes.
     #[inline(always)]
     pub fn size(&self) -> usize {
         BlockSize::USIZE
     }
 
-    /// Return number of remaining bytes in the internall buffer.
+    /// Return number of remaining bytes in the internal buffer.
     #[inline(always)]
     pub fn remaining(&self) -> usize {
         self.size() - self.get_pos()

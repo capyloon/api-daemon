@@ -9,7 +9,20 @@ browser directly. For this deployment strategy bundlers like Webpack are not
 required. For more information on deployment see the [dedicated
 documentation][deployment].
 
-First let's take a look at the code and see how when we're using `--target web`
+First, you'll need to add `web-sys` to your Cargo.toml.
+```toml
+[dependencies.web-sys]
+version = "0.3.4"
+features = [
+  'Document',
+  'Element',
+  'HtmlElement',
+  'Node',
+  'Window',
+]
+```
+
+Then, let's take a look at the code and see how when we're using `--target web`
 we're not actually losing any functionality!
 
 ```rust
@@ -41,6 +54,8 @@ few caveats:
 
 * It does not support [local JS snippets][snippets]
 * It does not generate an ES module
+* It does not support `--split-linked-modules` outside of a document, e.g.
+  inside a worker
 
 With that in mind the main difference is how the wasm/JS code is loaded, and
 here's an example of loading the output of `wasm-pack` for the same module as

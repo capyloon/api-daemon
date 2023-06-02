@@ -6,17 +6,17 @@
 //!
 //! Note that this macro is also re-exported by the main `tracing` crate.
 //!
-//! *Compiler support: [requires `rustc` 1.49+][msrv]*
+//! *Compiler support: [requires `rustc` 1.56+][msrv]*
 //!
 //! [msrv]: #supported-rust-versions
 //!
 //! ## Usage
 //!
-//! First, add this to your `Cargo.toml`:
+//! In the `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! tracing-attributes = "0.1.21"
+//! tracing-attributes = "0.1.24"
 //! ```
 //!
 //! The [`#[instrument]`][instrument] attribute can now be added to a function
@@ -24,7 +24,7 @@
 //! called. For example:
 //!
 //! ```
-//! use tracing_attributes::instrument;
+//! use tracing::instrument;
 //!
 //! #[instrument]
 //! pub fn my_function(my_arg: usize) {
@@ -41,18 +41,17 @@
 //! ## Supported Rust Versions
 //!
 //! Tracing is built against the latest stable release. The minimum supported
-//! version is 1.49. The current Tracing version is not guaranteed to build on
+//! version is 1.56. The current Tracing version is not guaranteed to build on
 //! Rust versions earlier than the minimum supported version.
 //!
 //! Tracing follows the same compiler support policies as the rest of the Tokio
 //! project. The current stable Rust compiler and the three most recent minor
 //! versions before it will always be supported. For example, if the current
-//! stable compiler version is 1.45, the minimum supported version will not be
-//! increased past 1.42, three minor versions prior. Increasing the minimum
+//! stable compiler version is 1.69, the minimum supported version will not be
+//! increased past 1.66, three minor versions prior. Increasing the minimum
 //! supported compiler version is not considered a semver breaking change as
 //! long as doing so complies with this policy.
 //!
-#![doc(html_root_url = "https://docs.rs/tracing-attributes/0.1.21")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/tracing/master/assets/logo-type.png",
     issue_tracker_base_url = "https://github.com/tokio-rs/tracing/issues/"
@@ -64,7 +63,6 @@
     rust_2018_idioms,
     unreachable_pub,
     bad_style,
-    const_err,
     dead_code,
     improper_ctypes,
     non_shorthand_field_patterns,
@@ -84,16 +82,16 @@
 extern crate proc_macro;
 
 use proc_macro2::TokenStream;
-use quote::ToTokens;
+use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
-use syn::{Attribute, Block, ItemFn, Signature, Visibility};
+use syn::{Attribute, ItemFn, Signature, Visibility};
 
 mod attr;
 mod expand;
 /// Instruments a function to create and enter a `tracing` [span] every time
 /// the function is called.
 ///
-/// Unless overriden, a span with `info` level will be generated.
+/// Unless overriden, a span with the [`INFO`] [level] will be generated.
 /// The generated span's name will be the name of the function.
 /// By default, all arguments to the function are included as fields on the
 /// span. Arguments that are `tracing` [primitive types] implementing the
@@ -205,15 +203,16 @@ mod expand;
 ///
 /// # Adding Fields
 ///
-/// Additional fields (key-value pairs with arbitrary data) may be added to the
-/// generated span using the `fields` argument on the `#[instrument]` macro. Any
+/// Additional fields (key-value pairs with arbitrary data) can be passed to
+/// to the generated span through the `fields` argument on the
+/// `#[instrument]` macro. Strings, integers or boolean literals are accepted values
+/// for each field. The name of the field must be a single valid Rust
+/// identifier, nested (dotted) field names are not supported. Any
 /// Rust expression can be used as a field value in this manner. These
 /// expressions will be evaluated at the beginning of the function's body, so
 /// arguments to the function may be used in these expressions. Field names may
 /// also be specified *without* values. Doing so will result in an [empty field]
 /// whose value may be recorded later within the function body.
-///
-/// This supports the same [field syntax] as the `span!` and `event!` macros.
 ///
 /// Note that overlap between the names of fields and (non-skipped) arguments
 /// will result in a compile error.
@@ -324,11 +323,15 @@ mod expand;
 /// Setting the level for the generated span:
 /// ```
 /// # use tracing_attributes::instrument;
-/// #[instrument(level = "debug")]
+/// # use tracing::Level;
+/// #[instrument(level = Level::DEBUG)]
 /// pub fn my_function() {
 ///     // ...
 /// }
 /// ```
+/// Levels can be specified either with [`Level`] constants, literal strings
+/// (e.g., `"debug"`, `"info"`) or numerically (1—5, corresponding to [`Level::TRACE`]—[`Level::ERROR`]).
+///
 /// Overriding the generated span's name:
 /// ```
 /// # use tracing_attributes::instrument;
@@ -399,7 +402,7 @@ mod expand;
 /// }
 /// ```
 ///
-/// To add an additional context to the span, pass key-value pairs to `fields`:
+/// To add additional context to the span, pass key-value pairs to `fields`:
 ///
 /// ```
 /// # use tracing_attributes::instrument;
@@ -420,8 +423,19 @@ mod expand;
 /// }
 /// ```
 /// The return value event will have the same level as the span generated by `#[instrument]`.
-/// By default, this will be `TRACE`, but if the level is overridden, the event will be at the same
+/// By default, this will be [`INFO`], but if the level is overridden, the event will be at the same
 /// level.
+///
+/// It's also possible to override the level for the `ret` event independently:
+///
+/// ```
+/// # use tracing_attributes::instrument;
+/// # use tracing::Level;
+/// #[instrument(ret(level = Level::WARN))]
+/// fn my_function() -> i32 {
+///     42
+/// }
+/// ```
 ///
 /// **Note**:  if the function returns a `Result<T, E>`, `ret` will record returned values if and
 /// only if the function returns [`Result::Ok`].
@@ -438,8 +452,8 @@ mod expand;
 /// }
 /// ```
 ///
-/// If the function returns a `Result<T, E>` and `E` implements `std::fmt::Display`, you can add
-/// `err` or `err(Display)` to emit error events when the function returns `Err`:
+/// If the function returns a `Result<T, E>` and `E` implements `std::fmt::Display`, adding
+/// `err` or `err(Display)` will emit error events when the function returns `Err`:
 ///
 /// ```
 /// # use tracing_attributes::instrument;
@@ -449,9 +463,22 @@ mod expand;
 /// }
 /// ```
 ///
+/// The level of the error value event defaults to `ERROR`.
+///
+/// Similarly, overriding the level of the `err` event :
+///
+/// ```
+/// # use tracing_attributes::instrument;
+/// # use tracing::Level;
+/// #[instrument(err(level = Level::INFO))]
+/// fn my_function(arg: usize) -> Result<(), std::io::Error> {
+///     Ok(())
+/// }
+/// ```
+///
 /// By default, error values will be recorded using their `std::fmt::Display` implementations.
 /// If an error implements `std::fmt::Debug`, it can be recorded using its `Debug` implementation
-/// instead, by writing `err(Debug)`:
+/// instead by writing `err(Debug)`:
 ///
 /// ```
 /// # use tracing_attributes::instrument;
@@ -460,6 +487,9 @@ mod expand;
 ///     Ok(())
 /// }
 /// ```
+///
+/// If a `target` is specified, both the `ret` and `err` arguments will emit outputs to
+/// the declared target (or the default channel if `target` is not specified).
 ///
 /// The `ret` and `err` arguments can be combined in order to record an event if a
 /// function returns [`Result::Ok`] or [`Result::Err`]:
@@ -507,32 +537,13 @@ mod expand;
 /// }
 /// ```
 ///
-/// Note than on `async-trait` <= 0.1.43, references to the `Self`
-/// type inside the `fields` argument were only allowed when the instrumented
-/// function is a method (i.e., the function receives `self` as an argument).
-/// For example, this *used to not work* because the instrument function
-/// didn't receive `self`:
+/// `const fn` cannot be instrumented, and will result in a compilation failure:
+///
+/// ```compile_fail
+/// # use tracing_attributes::instrument;
+/// #[instrument]
+/// const fn my_const_function() {}
 /// ```
-/// # use tracing::instrument;
-/// use async_trait::async_trait;
-///
-/// #[async_trait]
-/// pub trait Bar {
-///     async fn bar();
-/// }
-///
-/// #[derive(Debug)]
-/// struct BarImpl(usize);
-///
-/// #[async_trait]
-/// impl Bar for BarImpl {
-///     #[instrument(fields(tmp = std::any::type_name::<Self>()))]
-///     async fn bar() {}
-/// }
-/// ```
-/// Instead, you should manually rewrite any `Self` types as the type for
-/// which you implement the trait: `#[instrument(fields(tmp = std::any::type_name::<Bar>()))]`
-/// (or maybe you can just bump `async-trait`).
 ///
 /// [span]: https://docs.rs/tracing/latest/tracing/span/index.html
 /// [name]: https://docs.rs/tracing/latest/tracing/struct.Metadata.html#method.name
@@ -545,6 +556,9 @@ mod expand;
 /// [`follows_from`]: https://docs.rs/tracing/latest/tracing/struct.Span.html#method.follows_from
 /// [`tracing`]: https://github.com/tokio-rs/tracing
 /// [`fmt::Debug`]: std::fmt::Debug
+/// [`Level`]: https://docs.rs/tracing/latest/tracing/struct.Level.html
+/// [`Level::TRACE`]: https://docs.rs/tracing/latest/tracing/struct.Level.html#associatedconstant.TRACE
+/// [`Level::ERROR`]: https://docs.rs/tracing/latest/tracing/struct.Level.html#associatedconstant.ERROR
 #[proc_macro_attribute]
 pub fn instrument(
     args: proc_macro::TokenStream,
@@ -581,14 +595,23 @@ fn instrument_precise(
     let input = syn::parse::<ItemFn>(item)?;
     let instrumented_function_name = input.sig.ident.to_string();
 
+    if input.sig.constness.is_some() {
+        return Ok(quote! {
+            compile_error!("the `#[instrument]` attribute may not be used with `const fn`s")
+        }
+        .into());
+    }
+
     // check for async_trait-like patterns in the block, and instrument
     // the future instead of the wrapper
     if let Some(async_like) = expand::AsyncInfo::from_fn(&input) {
-        return Ok(async_like.gen_async(args, instrumented_function_name.as_str()));
+        return async_like.gen_async(args, instrumented_function_name.as_str());
     }
 
+    let input = MaybeItemFn::from(input);
+
     Ok(expand::gen_function(
-        (&input).into(),
+        input.as_ref(),
         args,
         instrumented_function_name.as_str(),
         None,
@@ -600,7 +623,8 @@ fn instrument_precise(
 /// which's block is just a `TokenStream` (it may contain invalid code).
 #[derive(Debug, Clone)]
 struct MaybeItemFn {
-    attrs: Vec<Attribute>,
+    outer_attrs: Vec<Attribute>,
+    inner_attrs: Vec<Attribute>,
     vis: Visibility,
     sig: Signature,
     block: TokenStream,
@@ -609,7 +633,8 @@ struct MaybeItemFn {
 impl MaybeItemFn {
     fn as_ref(&self) -> MaybeItemFnRef<'_, TokenStream> {
         MaybeItemFnRef {
-            attrs: &self.attrs,
+            outer_attrs: &self.outer_attrs,
+            inner_attrs: &self.inner_attrs,
             vis: &self.vis,
             sig: &self.sig,
             block: &self.block,
@@ -621,12 +646,14 @@ impl MaybeItemFn {
 /// (just like `ItemFn`, but skips parsing the body).
 impl Parse for MaybeItemFn {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let attrs = input.call(syn::Attribute::parse_outer)?;
+        let outer_attrs = input.call(Attribute::parse_outer)?;
         let vis: Visibility = input.parse()?;
         let sig: Signature = input.parse()?;
+        let inner_attrs = input.call(Attribute::parse_inner)?;
         let block: TokenStream = input.parse()?;
         Ok(Self {
-            attrs,
+            outer_attrs,
+            inner_attrs,
             vis,
             sig,
             block,
@@ -634,23 +661,35 @@ impl Parse for MaybeItemFn {
     }
 }
 
+impl From<ItemFn> for MaybeItemFn {
+    fn from(
+        ItemFn {
+            attrs,
+            vis,
+            sig,
+            block,
+        }: ItemFn,
+    ) -> Self {
+        let (outer_attrs, inner_attrs) = attrs
+            .into_iter()
+            .partition(|attr| attr.style == syn::AttrStyle::Outer);
+        Self {
+            outer_attrs,
+            inner_attrs,
+            vis,
+            sig,
+            block: block.to_token_stream(),
+        }
+    }
+}
+
 /// A generic reference type for `MaybeItemFn`,
 /// that takes a generic block type `B` that implements `ToTokens` (eg. `TokenStream`, `Block`).
 #[derive(Debug, Clone)]
 struct MaybeItemFnRef<'a, B: ToTokens> {
-    attrs: &'a Vec<Attribute>,
+    outer_attrs: &'a Vec<Attribute>,
+    inner_attrs: &'a Vec<Attribute>,
     vis: &'a Visibility,
     sig: &'a Signature,
     block: &'a B,
-}
-
-impl<'a> From<&'a ItemFn> for MaybeItemFnRef<'a, Box<Block>> {
-    fn from(val: &'a ItemFn) -> Self {
-        MaybeItemFnRef {
-            attrs: &val.attrs,
-            vis: &val.vis,
-            sig: &val.sig,
-            block: &val.block,
-        }
-    }
 }

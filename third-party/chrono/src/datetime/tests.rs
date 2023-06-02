@@ -2,12 +2,243 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::DateTime;
 use crate::naive::{NaiveDate, NaiveTime};
-#[cfg(feature = "clock")]
-use crate::offset::Local;
 use crate::offset::{FixedOffset, TimeZone, Utc};
-use crate::oldtime::Duration;
 #[cfg(feature = "clock")]
-use crate::Datelike;
+use crate::offset::{Local, Offset};
+use crate::oldtime::Duration;
+use crate::{Datelike, Days, LocalResult, Months, NaiveDateTime};
+
+#[derive(Clone)]
+struct DstTester;
+
+impl DstTester {
+    fn winter_offset() -> FixedOffset {
+        FixedOffset::east_opt(8 * 60 * 60).unwrap()
+    }
+    fn summer_offset() -> FixedOffset {
+        FixedOffset::east_opt(9 * 60 * 60).unwrap()
+    }
+
+    const TO_WINTER_MONTH_DAY: (u32, u32) = (4, 15);
+    const TO_SUMMER_MONTH_DAY: (u32, u32) = (9, 15);
+
+    fn transition_start_local() -> NaiveTime {
+        NaiveTime::from_hms_opt(2, 0, 0).unwrap()
+    }
+}
+
+impl TimeZone for DstTester {
+    type Offset = FixedOffset;
+
+    fn from_offset(_: &Self::Offset) -> Self {
+        DstTester
+    }
+
+    fn offset_from_local_date(&self, _: &NaiveDate) -> crate::LocalResult<Self::Offset> {
+        unimplemented!()
+    }
+
+    fn offset_from_local_datetime(
+        &self,
+        local: &NaiveDateTime,
+    ) -> crate::LocalResult<Self::Offset> {
+        let local_to_winter_transition_start = NaiveDate::from_ymd_opt(
+            local.year(),
+            DstTester::TO_WINTER_MONTH_DAY.0,
+            DstTester::TO_WINTER_MONTH_DAY.1,
+        )
+        .unwrap()
+        .and_time(DstTester::transition_start_local());
+
+        let local_to_winter_transition_end = NaiveDate::from_ymd_opt(
+            local.year(),
+            DstTester::TO_WINTER_MONTH_DAY.0,
+            DstTester::TO_WINTER_MONTH_DAY.1,
+        )
+        .unwrap()
+        .and_time(DstTester::transition_start_local() - Duration::hours(1));
+
+        let local_to_summer_transition_start = NaiveDate::from_ymd_opt(
+            local.year(),
+            DstTester::TO_SUMMER_MONTH_DAY.0,
+            DstTester::TO_SUMMER_MONTH_DAY.1,
+        )
+        .unwrap()
+        .and_time(DstTester::transition_start_local());
+
+        let local_to_summer_transition_end = NaiveDate::from_ymd_opt(
+            local.year(),
+            DstTester::TO_SUMMER_MONTH_DAY.0,
+            DstTester::TO_SUMMER_MONTH_DAY.1,
+        )
+        .unwrap()
+        .and_time(DstTester::transition_start_local() + Duration::hours(1));
+
+        if *local < local_to_winter_transition_end || *local >= local_to_summer_transition_end {
+            LocalResult::Single(DstTester::summer_offset())
+        } else if *local >= local_to_winter_transition_start
+            && *local < local_to_summer_transition_start
+        {
+            LocalResult::Single(DstTester::winter_offset())
+        } else if *local >= local_to_winter_transition_end
+            && *local < local_to_winter_transition_start
+        {
+            LocalResult::Ambiguous(DstTester::winter_offset(), DstTester::summer_offset())
+        } else if *local >= local_to_summer_transition_start
+            && *local < local_to_summer_transition_end
+        {
+            LocalResult::None
+        } else {
+            panic!("Unexpected local time {}", local)
+        }
+    }
+
+    fn offset_from_utc_date(&self, _: &NaiveDate) -> Self::Offset {
+        unimplemented!()
+    }
+
+    fn offset_from_utc_datetime(&self, utc: &NaiveDateTime) -> Self::Offset {
+        let utc_to_winter_transition = NaiveDate::from_ymd_opt(
+            utc.year(),
+            DstTester::TO_WINTER_MONTH_DAY.0,
+            DstTester::TO_WINTER_MONTH_DAY.1,
+        )
+        .unwrap()
+        .and_time(DstTester::transition_start_local())
+            - DstTester::summer_offset();
+
+        let utc_to_summer_transition = NaiveDate::from_ymd_opt(
+            utc.year(),
+            DstTester::TO_SUMMER_MONTH_DAY.0,
+            DstTester::TO_SUMMER_MONTH_DAY.1,
+        )
+        .unwrap()
+        .and_time(DstTester::transition_start_local())
+            - DstTester::winter_offset();
+
+        if *utc < utc_to_winter_transition || *utc >= utc_to_summer_transition {
+            DstTester::summer_offset()
+        } else if *utc >= utc_to_winter_transition && *utc < utc_to_summer_transition {
+            DstTester::winter_offset()
+        } else {
+            panic!("Unexpected utc time {}", utc)
+        }
+    }
+}
+
+#[test]
+fn test_datetime_add_days() {
+    let est = FixedOffset::west_opt(5 * 60 * 60).unwrap();
+    let kst = FixedOffset::east_opt(9 * 60 * 60).unwrap();
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Days::new(5)),
+        "2014-05-11 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Days::new(5)),
+        "2014-05-11 07:08:09 +09:00"
+    );
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Days::new(35)),
+        "2014-06-10 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Days::new(35)),
+        "2014-06-10 07:08:09 +09:00"
+    );
+
+    assert_eq!(
+        format!("{}", DstTester.with_ymd_and_hms(2014, 4, 6, 7, 8, 9).unwrap() + Days::new(5)),
+        "2014-04-11 07:08:09 +09:00"
+    );
+    assert_eq!(
+        format!("{}", DstTester.with_ymd_and_hms(2014, 4, 6, 7, 8, 9).unwrap() + Days::new(10)),
+        "2014-04-16 07:08:09 +08:00"
+    );
+
+    assert_eq!(
+        format!("{}", DstTester.with_ymd_and_hms(2014, 9, 6, 7, 8, 9).unwrap() + Days::new(5)),
+        "2014-09-11 07:08:09 +08:00"
+    );
+    assert_eq!(
+        format!("{}", DstTester.with_ymd_and_hms(2014, 9, 6, 7, 8, 9).unwrap() + Days::new(10)),
+        "2014-09-16 07:08:09 +09:00"
+    );
+}
+
+#[test]
+fn test_datetime_sub_days() {
+    let est = FixedOffset::west_opt(5 * 60 * 60).unwrap();
+    let kst = FixedOffset::east_opt(9 * 60 * 60).unwrap();
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Days::new(5)),
+        "2014-05-01 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Days::new(5)),
+        "2014-05-01 07:08:09 +09:00"
+    );
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Days::new(35)),
+        "2014-04-01 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Days::new(35)),
+        "2014-04-01 07:08:09 +09:00"
+    );
+}
+
+#[test]
+fn test_datetime_add_months() {
+    let est = FixedOffset::west_opt(5 * 60 * 60).unwrap();
+    let kst = FixedOffset::east_opt(9 * 60 * 60).unwrap();
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Months::new(1)),
+        "2014-06-06 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Months::new(1)),
+        "2014-06-06 07:08:09 +09:00"
+    );
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Months::new(5)),
+        "2014-10-06 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() + Months::new(5)),
+        "2014-10-06 07:08:09 +09:00"
+    );
+}
+
+#[test]
+fn test_datetime_sub_months() {
+    let est = FixedOffset::west_opt(5 * 60 * 60).unwrap();
+    let kst = FixedOffset::east_opt(9 * 60 * 60).unwrap();
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Months::new(1)),
+        "2014-04-06 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Months::new(1)),
+        "2014-04-06 07:08:09 +09:00"
+    );
+
+    assert_eq!(
+        format!("{}", est.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Months::new(5)),
+        "2013-12-06 07:08:09 -05:00"
+    );
+    assert_eq!(
+        format!("{}", kst.with_ymd_and_hms(2014, 5, 6, 7, 8, 9).unwrap() - Months::new(5)),
+        "2013-12-06 07:08:09 +09:00"
+    );
+}
 
 #[test]
 fn test_datetime_offset() {
@@ -239,7 +470,7 @@ fn test_rfc3339_opts() {
 fn test_rfc3339_opts_nonexhaustive() {
     use crate::SecondsFormat;
     let dt = Utc.with_ymd_and_hms(1999, 10, 9, 1, 2, 3).unwrap();
-    dt.to_rfc3339_opts(SecondsFormat::__NonExhaustive, true);
+    let _ = dt.to_rfc3339_opts(SecondsFormat::__NonExhaustive, true);
 }
 
 #[test]
@@ -716,4 +947,65 @@ fn test_datetime_sub_assign_local() {
         datetime_sub -= Duration::days(1);
         assert_eq!(datetime_sub, datetime - Duration::days(i))
     }
+}
+
+#[test]
+#[cfg(all(target_os = "windows", feature = "clock"))]
+fn test_from_naive_date_time_windows() {
+    let min_year = NaiveDate::from_ymd_opt(1601, 1, 3).unwrap().and_hms_opt(0, 0, 0).unwrap();
+
+    let max_year = NaiveDate::from_ymd_opt(30827, 12, 29).unwrap().and_hms_opt(23, 59, 59).unwrap();
+
+    let too_low_year =
+        NaiveDate::from_ymd_opt(1600, 12, 29).unwrap().and_hms_opt(23, 59, 59).unwrap();
+
+    let too_high_year = NaiveDate::from_ymd_opt(30829, 1, 3).unwrap().and_hms_opt(0, 0, 0).unwrap();
+
+    let _ = Local.from_utc_datetime(&min_year);
+    let _ = Local.from_utc_datetime(&max_year);
+
+    let _ = Local.from_local_datetime(&min_year);
+    let _ = Local.from_local_datetime(&max_year);
+
+    let local_too_low = Local.from_local_datetime(&too_low_year);
+    let local_too_high = Local.from_local_datetime(&too_high_year);
+
+    assert_eq!(local_too_low, LocalResult::None);
+    assert_eq!(local_too_high, LocalResult::None);
+
+    let err = std::panic::catch_unwind(|| {
+        Local.from_utc_datetime(&too_low_year);
+    });
+    assert!(err.is_err());
+
+    let err = std::panic::catch_unwind(|| {
+        Local.from_utc_datetime(&too_high_year);
+    });
+    assert!(err.is_err());
+}
+
+#[test]
+#[cfg(feature = "clock")]
+fn test_datetime_local_from_preserves_offset() {
+    let naivedatetime = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+
+    let datetime = Local.from_utc_datetime(&naivedatetime);
+    let offset = datetime.offset().fix();
+
+    let datetime_fixed: DateTime<FixedOffset> = datetime.into();
+    assert_eq!(&offset, datetime_fixed.offset());
+    assert_eq!(datetime.fixed_offset(), datetime_fixed);
+}
+
+#[test]
+fn test_datetime_fixed_offset() {
+    let naivedatetime = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+
+    let datetime = Utc.from_utc_datetime(&naivedatetime);
+    let fixed_utc = FixedOffset::east_opt(0).unwrap();
+    assert_eq!(datetime.fixed_offset(), fixed_utc.from_local_datetime(&naivedatetime).unwrap());
+
+    let fixed_offset = FixedOffset::east_opt(3600).unwrap();
+    let datetime_fixed = fixed_offset.from_local_datetime(&naivedatetime).unwrap();
+    assert_eq!(datetime_fixed.fixed_offset(), datetime_fixed);
 }

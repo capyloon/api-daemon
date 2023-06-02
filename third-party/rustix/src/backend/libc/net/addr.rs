@@ -1,18 +1,18 @@
-//! IPv4, IPv6, and Socket addresses.
+//! Socket address utilities.
 
 use super::super::c;
-#[cfg(unix)]
-use crate::ffi::CStr;
-#[cfg(unix)]
-use crate::io;
-#[cfg(unix)]
-use crate::path;
 #[cfg(not(windows))]
 use core::convert::TryInto;
 #[cfg(unix)]
-use core::fmt;
-#[cfg(unix)]
-use core::slice;
+use {
+    crate::ffi::CStr,
+    crate::io,
+    crate::path,
+    core::cmp::Ordering,
+    core::fmt,
+    core::hash::{Hash, Hasher},
+    core::slice,
+};
 
 /// `struct sockaddr_un`
 #[cfg(unix)]
@@ -97,8 +97,9 @@ impl SocketAddrUnix {
         if len != 0 && self.unix.sun_path[0] != b'\0' as c::c_char {
             let end = len as usize - offsetof_sun_path();
             let bytes = &self.unix.sun_path[..end];
-            // SAFETY: `from_raw_parts` to convert from `&[c_char]` to `&[u8]`. And
-            // `from_bytes_with_nul_unchecked` since the string is NUL-terminated.
+            // SAFETY: `from_raw_parts` to convert from `&[c_char]` to `&[u8]`.
+            // And `from_bytes_with_nul_unchecked` since the string is
+            // NUL-terminated.
             unsafe {
                 Some(CStr::from_bytes_with_nul_unchecked(slice::from_raw_parts(
                     bytes.as_ptr().cast(),
@@ -159,7 +160,7 @@ impl Eq for SocketAddrUnix {}
 #[cfg(unix)]
 impl PartialOrd for SocketAddrUnix {
     #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let self_len = self.len() - offsetof_sun_path();
         let other_len = other.len() - offsetof_sun_path();
         self.unix.sun_path[..self_len].partial_cmp(&other.unix.sun_path[..other_len])
@@ -169,7 +170,7 @@ impl PartialOrd for SocketAddrUnix {
 #[cfg(unix)]
 impl Ord for SocketAddrUnix {
     #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         let self_len = self.len() - offsetof_sun_path();
         let other_len = other.len() - offsetof_sun_path();
         self.unix.sun_path[..self_len].cmp(&other.unix.sun_path[..other_len])
@@ -177,9 +178,9 @@ impl Ord for SocketAddrUnix {
 }
 
 #[cfg(unix)]
-impl core::hash::Hash for SocketAddrUnix {
+impl Hash for SocketAddrUnix {
     #[inline]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         let self_len = self.len() - offsetof_sun_path();
         self.unix.sun_path[..self_len].hash(state)
     }

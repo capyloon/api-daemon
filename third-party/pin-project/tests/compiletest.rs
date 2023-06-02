@@ -1,4 +1,5 @@
 #![cfg(not(miri))]
+#![cfg(not(careful))]
 #![warn(rust_2018_idioms, single_use_lifetimes)]
 
 use std::env;
@@ -12,4 +13,5 @@ fn ui() {
 
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/**/*.rs");
+    t.pass("tests/run-pass/**/*.rs");
 }

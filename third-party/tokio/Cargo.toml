@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.56"
 name = "tokio"
-version = "1.27.0"
+version = "1.28.2"
 authors = ["Tokio Contributors <team@tokio.rs>"]
 description = """
 An event-driven, non-blocking I/O platform for writing asynchronous I/O
@@ -37,13 +37,13 @@ resolver = "1"
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = [
-    "--cfg",
-    "docsrs",
+rustc-args = [
     "--cfg",
     "tokio_unstable",
 ]
-rustc-args = [
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
     "--cfg",
     "tokio_unstable",
 ]
@@ -61,6 +61,7 @@ optional = true
 [dependencies.mio]
 version = "0.8.4"
 optional = true
+default-features = false
 
 [dependencies.num_cpus]
 version = "1.8.0"
@@ -74,7 +75,7 @@ optional = true
 version = "0.2.0"
 
 [dependencies.tokio-macros]
-version = "~2.0.0"
+version = "~2.1.0"
 optional = true
 
 [dev-dependencies.async-stream]
@@ -166,7 +167,7 @@ time = []
 version = "0.3.0"
 
 [target."cfg(docsrs)".dependencies.windows-sys]
-version = "0.45"
+version = "0.48"
 features = [
     "Win32_Foundation",
     "Win32_Security_Authorization",
@@ -223,8 +224,5 @@ features = [
 default-features = false
 
 [target."cfg(windows)".dependencies.windows-sys]
-version = "0.45"
+version = "0.48"
 optional = true
-
-[target."cfg(windows)".dev-dependencies.ntapi]
-version = "0.3.6"

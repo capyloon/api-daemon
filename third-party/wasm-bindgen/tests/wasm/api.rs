@@ -1,6 +1,5 @@
 use js_sys::{Uint8Array, WebAssembly};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen::{self, JsCast};
 use wasm_bindgen_test::*;
 
 #[wasm_bindgen(module = "tests/wasm/api.js")]
@@ -124,6 +123,20 @@ pub fn eq_test(a: &JsValue, b: &JsValue) -> bool {
 #[wasm_bindgen]
 pub fn eq_test1(a: &JsValue) -> bool {
     a == a
+}
+
+#[wasm_bindgen(variadic)]
+pub fn api_completely_variadic(args: &JsValue) -> JsValue {
+    args.into()
+}
+
+#[wasm_bindgen(variadic)]
+pub fn api_variadic_with_prefixed_params(
+    first: &JsValue,
+    second: &JsValue,
+    args: &JsValue,
+) -> JsValue {
+    args.into()
 }
 
 #[wasm_bindgen_test]

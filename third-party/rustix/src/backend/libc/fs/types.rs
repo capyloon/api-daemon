@@ -40,10 +40,15 @@ bitflags! {
         /// `AT_EMPTY_PATH`
         #[cfg(any(
             target_os = "android",
+            target_os = "freebsd",
             target_os = "fuchsia",
             target_os = "linux",
         ))]
         const EMPTY_PATH = c::AT_EMPTY_PATH;
+
+        /// `AT_RESOLVE_BENEATH`
+        #[cfg(target_os = "freebsd")]
+        const RESOLVE_BENEATH = c::AT_RESOLVE_BENEATH;
 
         /// `AT_EACCESS`
         #[cfg(not(any(target_os = "emscripten", target_os = "android")))]
@@ -133,8 +138,8 @@ bitflags! {
 }
 
 impl Mode {
-    /// Construct a `Mode` from the mode bits of the `st_mode` field of
-    /// a `Stat`.
+    /// Construct a `Mode` from the mode bits of the `st_mode` field of a
+    /// `Stat`.
     #[inline]
     pub const fn from_raw_mode(st_mode: RawMode) -> Self {
         Self::from_bits_truncate(st_mode)
@@ -144,6 +149,32 @@ impl Mode {
     #[inline]
     pub const fn as_raw_mode(self) -> RawMode {
         self.bits()
+    }
+}
+
+impl From<RawMode> for Mode {
+    /// Support conversions from raw mode values to `Mode`.
+    ///
+    /// ```
+    /// use rustix::fs::{Mode, RawMode};
+    /// assert_eq!(Mode::from(0o700), Mode::RWXU);
+    /// ```
+    #[inline]
+    fn from(st_mode: RawMode) -> Self {
+        Self::from_raw_mode(st_mode)
+    }
+}
+
+impl From<Mode> for RawMode {
+    /// Support conversions from `Mode to raw mode values.
+    ///
+    /// ```
+    /// use rustix::fs::{Mode, RawMode};
+    /// assert_eq!(RawMode::from(Mode::RWXU), 0o700);
+    /// ```
+    #[inline]
+    fn from(mode: Mode) -> Self {
+        mode.as_raw_mode()
     }
 }
 
@@ -175,7 +206,7 @@ bitflags! {
         const DIRECTORY = c::O_DIRECTORY;
 
         /// `O_DSYNC`
-        #[cfg(not(any(freebsdlike, target_os = "redox")))]
+        #[cfg(not(any(target_os = "dragonfly", target_os = "redox")))]
         const DSYNC = c::O_DSYNC;
 
         /// `O_EXCL`
@@ -228,6 +259,7 @@ bitflags! {
         #[cfg(any(
             target_os = "android",
             target_os = "emscripten",
+            target_os = "freebsd",
             target_os = "fuchsia",
             target_os = "linux",
             target_os = "redox",
@@ -264,6 +296,14 @@ bitflags! {
             target_os = "netbsd",
         ))]
         const DIRECT = c::O_DIRECT;
+
+        /// `O_RESOLVE_BENEATH`
+        #[cfg(target_os = "freebsd")]
+        const RESOLVE_BENEATH = c::O_RESOLVE_BENEATH;
+
+        /// `O_EMPTY_PATH`
+        #[cfg(target_os = "freebsd")]
+        const EMPTY_PATH = c::O_EMPTY_PATH;
     }
 }
 
@@ -294,7 +334,9 @@ mod copyfile {
 
 #[cfg(apple)]
 bitflags! {
-    /// `COPYFILE_*` constants.
+    /// `COPYFILE_*` constants for use with [`fcopyfile`].
+    ///
+    /// [`fcopyfile`]: crate::fs::fcopyfile
     pub struct CopyfileFlags: c::c_uint {
         /// `COPYFILE_ACL`
         const ACL = copyfile::ACL;
@@ -400,6 +442,7 @@ pub enum FileType {
 impl FileType {
     /// Construct a `FileType` from the `S_IFMT` bits of the `st_mode` field of
     /// a `Stat`.
+    #[inline]
     pub const fn from_raw_mode(st_mode: RawMode) -> Self {
         match (st_mode as c::mode_t) & c::S_IFMT {
             c::S_IFREG => Self::RegularFile,
@@ -416,6 +459,7 @@ impl FileType {
     }
 
     /// Construct an `st_mode` value from `Stat`.
+    #[inline]
     pub const fn as_raw_mode(self) -> RawMode {
         match self {
             Self::RegularFile => c::S_IFREG as RawMode,
@@ -433,6 +477,7 @@ impl FileType {
 
     /// Construct a `FileType` from the `d_type` field of a `c::dirent`.
     #[cfg(not(any(solarish, target_os = "haiku", target_os = "redox")))]
+    #[inline]
     pub(crate) const fn from_dirent_d_type(d_type: u8) -> Self {
         match d_type {
             c::DT_REG => Self::RegularFile,
@@ -499,40 +544,28 @@ bitflags! {
         const HUGETLB = c::MFD_HUGETLB;
 
         /// `MFD_HUGE_64KB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_64KB = c::MFD_HUGE_64KB;
         /// `MFD_HUGE_512JB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_512KB = c::MFD_HUGE_512KB;
         /// `MFD_HUGE_1MB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_1MB = c::MFD_HUGE_1MB;
         /// `MFD_HUGE_2MB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_2MB = c::MFD_HUGE_2MB;
         /// `MFD_HUGE_8MB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_8MB = c::MFD_HUGE_8MB;
         /// `MFD_HUGE_16MB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_16MB = c::MFD_HUGE_16MB;
         /// `MFD_HUGE_32MB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_32MB = c::MFD_HUGE_32MB;
         /// `MFD_HUGE_256MB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_256MB = c::MFD_HUGE_256MB;
         /// `MFD_HUGE_512MB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_512MB = c::MFD_HUGE_512MB;
         /// `MFD_HUGE_1GB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_1GB = c::MFD_HUGE_1GB;
         /// `MFD_HUGE_2GB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_2GB = c::MFD_HUGE_2GB;
         /// `MFD_HUGE_16GB`
-        #[cfg(any(target_os = "android", target_os = "linux"))]
         const HUGE_16GB = c::MFD_HUGE_16GB;
     }
 }
@@ -745,43 +778,43 @@ bitflags! {
     }
 }
 
-#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 bitflags! {
     /// `ST_*` constants for use with [`StatVfs`].
     pub struct StatVfsMountFlags: u64 {
         /// `ST_MANDLOCK`
         #[cfg(any(target_os = "android", target_os = "emscripten", target_os = "fuchsia", target_os = "linux"))]
-        const MANDLOCK = libc::ST_MANDLOCK as u64;
+        const MANDLOCK = c::ST_MANDLOCK as u64;
 
         /// `ST_NOATIME`
         #[cfg(any(target_os = "android", target_os = "emscripten", target_os = "fuchsia", target_os = "linux"))]
-        const NOATIME = libc::ST_NOATIME as u64;
+        const NOATIME = c::ST_NOATIME as u64;
 
         /// `ST_NODEV`
         #[cfg(any(target_os = "aix", target_os = "android", target_os = "emscripten", target_os = "fuchsia", target_os = "linux"))]
-        const NODEV = libc::ST_NODEV as u64;
+        const NODEV = c::ST_NODEV as u64;
 
         /// `ST_NODIRATIME`
         #[cfg(any(target_os = "android", target_os = "emscripten", target_os = "fuchsia", target_os = "linux"))]
-        const NODIRATIME = libc::ST_NODIRATIME as u64;
+        const NODIRATIME = c::ST_NODIRATIME as u64;
 
         /// `ST_NOEXEC`
         #[cfg(any(target_os = "android", target_os = "emscripten", target_os = "fuchsia", target_os = "linux"))]
-        const NOEXEC = libc::ST_NOEXEC as u64;
+        const NOEXEC = c::ST_NOEXEC as u64;
 
         /// `ST_NOSUID`
-        const NOSUID = libc::ST_NOSUID as u64;
+        const NOSUID = c::ST_NOSUID as u64;
 
         /// `ST_RDONLY`
-        const RDONLY = libc::ST_RDONLY as u64;
+        const RDONLY = c::ST_RDONLY as u64;
 
         /// `ST_RELATIME`
         #[cfg(any(target_os = "android", all(target_os = "linux", target_env = "gnu")))]
-        const RELATIME = libc::ST_RELATIME as u64;
+        const RELATIME = c::ST_RELATIME as u64;
 
         /// `ST_SYNCHRONOUS`
         #[cfg(any(target_os = "android", target_os = "emscripten", target_os = "fuchsia", target_os = "linux"))]
-        const SYNCHRONOUS = libc::ST_SYNCHRONOUS as u64;
+        const SYNCHRONOUS = c::ST_SYNCHRONOUS as u64;
     }
 }
 
@@ -887,7 +920,7 @@ pub type StatFs = c::statfs64;
 ///
 /// [`statvfs`]: crate::fs::statvfs
 /// [`fstatvfs`]: crate::fs::fstatvfs
-#[cfg(not(any(solarish, target_os = "haiku", target_os = "redox", target_os = "wasi")))]
+#[cfg(not(any(target_os = "haiku", target_os = "redox", target_os = "wasi")))]
 #[allow(missing_docs)]
 pub struct StatVfs {
     pub f_bsize: u64,
@@ -1022,7 +1055,9 @@ pub struct copyfile_state_t(pub(crate) *mut c::c_void);
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 bitflags! {
-    /// `MS_*` constants for use with [`mount`][crate::fs::mount].
+    /// `MS_*` constants for use with [`mount`].
+    ///
+    /// [`mount`]: crate::fs::mount
     pub struct MountFlags: c::c_ulong {
         /// `MS_BIND`
         const BIND = c::MS_BIND;
@@ -1074,7 +1109,9 @@ bitflags! {
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 bitflags! {
-    /// `MS_*` constants for use with [`change_mount`][crate::fs::mount::change_mount].
+    /// `MS_*` constants for use with [`change_mount`].
+    ///
+    /// [`change_mount`]: crate::fs::mount::change_mount
     pub struct MountPropagationFlags: c::c_ulong {
         /// `MS_SHARED`
         const SHARED = c::MS_SHARED;
@@ -1102,7 +1139,9 @@ pub(crate) struct MountFlagsArg(pub(crate) c::c_ulong);
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 bitflags! {
-    /// `MNT_*` constants for use with [`unmount`][crate::fs::mount::unmount].
+    /// `MNT_*` constants for use with [`unmount`].
+    ///
+    /// [`unmount`]: crate::fs::mount::unmount
     pub struct UnmountFlags: c::c_int {
         /// `MNT_FORCE`
         const FORCE = c::MNT_FORCE;

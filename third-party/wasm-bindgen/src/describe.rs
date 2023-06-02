@@ -34,6 +34,7 @@ tys! {
     STRING
     REF
     REFMUT
+    LONGREF
     SLICE
     VECTOR
     EXTERNREF
@@ -47,7 +48,7 @@ tys! {
     CLAMPED
 }
 
-#[inline(always)] // see `interpret.rs` in the the cli-support crate
+#[inline(always)] // see the wasm-interpreter crate
 pub fn inform(a: u32) {
     unsafe { super::__wbindgen_describe(a) }
 }

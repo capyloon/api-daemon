@@ -1,30 +1,36 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[doc(hidden)]
 #[repr(transparent)]
 pub struct IPlatformDiagnosticActionsStatics(::windows::core::IUnknown);
 unsafe impl ::windows::core::Interface for IPlatformDiagnosticActionsStatics {
     type Vtable = IPlatformDiagnosticActionsStatics_Vtbl;
+}
+impl ::core::clone::Clone for IPlatformDiagnosticActionsStatics {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+unsafe impl ::windows::core::ComInterface for IPlatformDiagnosticActionsStatics {
     const IID: ::windows::core::GUID = ::windows::core::GUID::from_u128(0xc1145cfa_9292_4267_890a_9ea3ed072312);
 }
 #[repr(C)]
 #[doc(hidden)]
 pub struct IPlatformDiagnosticActionsStatics_Vtbl {
-    pub base: ::windows::core::IInspectableVtbl,
+    pub base__: ::windows::core::IInspectable_Vtbl,
     pub IsScenarioEnabled: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, scenarioid: ::windows::core::GUID, result__: *mut bool) -> ::windows::core::HRESULT,
     #[cfg(feature = "Foundation_Collections")]
-    pub TryEscalateScenario: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, scenarioid: ::windows::core::GUID, escalationtype: PlatformDiagnosticEscalationType, outputdirectory: ::core::mem::ManuallyDrop<::windows::core::HSTRING>, timestampoutputdirectory: bool, forceescalationupload: bool, triggers: ::windows::core::RawPtr, result__: *mut bool) -> ::windows::core::HRESULT,
+    pub TryEscalateScenario: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, scenarioid: ::windows::core::GUID, escalationtype: PlatformDiagnosticEscalationType, outputdirectory: ::std::mem::MaybeUninit<::windows::core::HSTRING>, timestampoutputdirectory: bool, forceescalationupload: bool, triggers: *mut ::core::ffi::c_void, result__: *mut bool) -> ::windows::core::HRESULT,
     #[cfg(not(feature = "Foundation_Collections"))]
     TryEscalateScenario: usize,
-    pub DownloadLatestSettingsForNamespace: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, partner: ::core::mem::ManuallyDrop<::windows::core::HSTRING>, feature: ::core::mem::ManuallyDrop<::windows::core::HSTRING>, isscenarionamespace: bool, downloadovercostednetwork: bool, downloadoverbattery: bool, result__: *mut PlatformDiagnosticActionState) -> ::windows::core::HRESULT,
+    pub DownloadLatestSettingsForNamespace: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, partner: ::std::mem::MaybeUninit<::windows::core::HSTRING>, feature: ::std::mem::MaybeUninit<::windows::core::HSTRING>, isscenarionamespace: bool, downloadovercostednetwork: bool, downloadoverbattery: bool, result__: *mut PlatformDiagnosticActionState) -> ::windows::core::HRESULT,
     #[cfg(feature = "Foundation_Collections")]
-    pub GetActiveScenarioList: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, result__: *mut ::windows::core::RawPtr) -> ::windows::core::HRESULT,
+    pub GetActiveScenarioList: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, result__: *mut *mut ::core::ffi::c_void) -> ::windows::core::HRESULT,
     #[cfg(not(feature = "Foundation_Collections"))]
     GetActiveScenarioList: usize,
     pub ForceUpload: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, latency: PlatformDiagnosticEventBufferLatencies, uploadovercostednetwork: bool, uploadoverbattery: bool, result__: *mut PlatformDiagnosticActionState) -> ::windows::core::HRESULT,
     pub IsTraceRunning: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, slottype: PlatformDiagnosticTraceSlotType, scenarioid: ::windows::core::GUID, traceprofilehash: u64, result__: *mut PlatformDiagnosticTraceSlotState) -> ::windows::core::HRESULT,
-    pub GetActiveTraceRuntime: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, slottype: PlatformDiagnosticTraceSlotType, result__: *mut ::windows::core::RawPtr) -> ::windows::core::HRESULT,
+    pub GetActiveTraceRuntime: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, slottype: PlatformDiagnosticTraceSlotType, result__: *mut *mut ::core::ffi::c_void) -> ::windows::core::HRESULT,
     #[cfg(feature = "Foundation_Collections")]
-    pub GetKnownTraceList: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, slottype: PlatformDiagnosticTraceSlotType, result__: *mut ::windows::core::RawPtr) -> ::windows::core::HRESULT,
+    pub GetKnownTraceList: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, slottype: PlatformDiagnosticTraceSlotType, result__: *mut *mut ::core::ffi::c_void) -> ::windows::core::HRESULT,
     #[cfg(not(feature = "Foundation_Collections"))]
     GetKnownTraceList: usize,
 }
@@ -33,12 +39,19 @@ pub struct IPlatformDiagnosticActionsStatics_Vtbl {
 pub struct IPlatformDiagnosticTraceInfo(::windows::core::IUnknown);
 unsafe impl ::windows::core::Interface for IPlatformDiagnosticTraceInfo {
     type Vtable = IPlatformDiagnosticTraceInfo_Vtbl;
+}
+impl ::core::clone::Clone for IPlatformDiagnosticTraceInfo {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+unsafe impl ::windows::core::ComInterface for IPlatformDiagnosticTraceInfo {
     const IID: ::windows::core::GUID = ::windows::core::GUID::from_u128(0xf870ed97_d597_4bf7_88dc_cf5c7dc2a1d2);
 }
 #[repr(C)]
 #[doc(hidden)]
 pub struct IPlatformDiagnosticTraceInfo_Vtbl {
-    pub base: ::windows::core::IInspectableVtbl,
+    pub base__: ::windows::core::IInspectable_Vtbl,
     pub ScenarioId: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, result__: *mut ::windows::core::GUID) -> ::windows::core::HRESULT,
     pub ProfileHash: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, result__: *mut u64) -> ::windows::core::HRESULT,
     pub IsExclusive: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, result__: *mut bool) -> ::windows::core::HRESULT,
@@ -51,18 +64,222 @@ pub struct IPlatformDiagnosticTraceInfo_Vtbl {
 pub struct IPlatformDiagnosticTraceRuntimeInfo(::windows::core::IUnknown);
 unsafe impl ::windows::core::Interface for IPlatformDiagnosticTraceRuntimeInfo {
     type Vtable = IPlatformDiagnosticTraceRuntimeInfo_Vtbl;
+}
+impl ::core::clone::Clone for IPlatformDiagnosticTraceRuntimeInfo {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+unsafe impl ::windows::core::ComInterface for IPlatformDiagnosticTraceRuntimeInfo {
     const IID: ::windows::core::GUID = ::windows::core::GUID::from_u128(0x3d4d5e2d_01d8_4768_8554_1eb1ca610986);
 }
 #[repr(C)]
 #[doc(hidden)]
 pub struct IPlatformDiagnosticTraceRuntimeInfo_Vtbl {
-    pub base: ::windows::core::IInspectableVtbl,
+    pub base__: ::windows::core::IInspectable_Vtbl,
     pub RuntimeFileTime: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, result__: *mut i64) -> ::windows::core::HRESULT,
     pub EtwRuntimeFileTime: unsafe extern "system" fn(this: *mut ::core::ffi::c_void, result__: *mut i64) -> ::windows::core::HRESULT,
 }
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
+pub struct PlatformDiagnosticActions;
+impl PlatformDiagnosticActions {
+    pub fn IsScenarioEnabled(scenarioid: ::windows::core::GUID) -> ::windows::core::Result<bool> {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<bool>();
+            (::windows::core::Interface::vtable(this).IsScenarioEnabled)(::windows::core::Interface::as_raw(this), scenarioid, &mut result__).from_abi(result__)
+        })
+    }
+    #[doc = "*Required features: `\"Foundation_Collections\"`*"]
+    #[cfg(feature = "Foundation_Collections")]
+    pub fn TryEscalateScenario<P0>(scenarioid: ::windows::core::GUID, escalationtype: PlatformDiagnosticEscalationType, outputdirectory: &::windows::core::HSTRING, timestampoutputdirectory: bool, forceescalationupload: bool, triggers: P0) -> ::windows::core::Result<bool>
+    where
+        P0: ::windows::core::TryIntoParam<super::super::super::Foundation::Collections::IMapView<::windows::core::HSTRING, ::windows::core::HSTRING>>,
+    {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<bool>();
+            (::windows::core::Interface::vtable(this).TryEscalateScenario)(::windows::core::Interface::as_raw(this), scenarioid, escalationtype, ::core::mem::transmute_copy(outputdirectory), timestampoutputdirectory, forceescalationupload, triggers.try_into_param()?.abi(), &mut result__).from_abi(result__)
+        })
+    }
+    pub fn DownloadLatestSettingsForNamespace(partner: &::windows::core::HSTRING, feature: &::windows::core::HSTRING, isscenarionamespace: bool, downloadovercostednetwork: bool, downloadoverbattery: bool) -> ::windows::core::Result<PlatformDiagnosticActionState> {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<PlatformDiagnosticActionState>();
+            (::windows::core::Interface::vtable(this).DownloadLatestSettingsForNamespace)(::windows::core::Interface::as_raw(this), ::core::mem::transmute_copy(partner), ::core::mem::transmute_copy(feature), isscenarionamespace, downloadovercostednetwork, downloadoverbattery, &mut result__).from_abi(result__)
+        })
+    }
+    #[doc = "*Required features: `\"Foundation_Collections\"`*"]
+    #[cfg(feature = "Foundation_Collections")]
+    pub fn GetActiveScenarioList() -> ::windows::core::Result<super::super::super::Foundation::Collections::IVectorView<::windows::core::GUID>> {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<super::super::super::Foundation::Collections::IVectorView<::windows::core::GUID>>();
+            (::windows::core::Interface::vtable(this).GetActiveScenarioList)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        })
+    }
+    pub fn ForceUpload(latency: PlatformDiagnosticEventBufferLatencies, uploadovercostednetwork: bool, uploadoverbattery: bool) -> ::windows::core::Result<PlatformDiagnosticActionState> {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<PlatformDiagnosticActionState>();
+            (::windows::core::Interface::vtable(this).ForceUpload)(::windows::core::Interface::as_raw(this), latency, uploadovercostednetwork, uploadoverbattery, &mut result__).from_abi(result__)
+        })
+    }
+    pub fn IsTraceRunning(slottype: PlatformDiagnosticTraceSlotType, scenarioid: ::windows::core::GUID, traceprofilehash: u64) -> ::windows::core::Result<PlatformDiagnosticTraceSlotState> {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<PlatformDiagnosticTraceSlotState>();
+            (::windows::core::Interface::vtable(this).IsTraceRunning)(::windows::core::Interface::as_raw(this), slottype, scenarioid, traceprofilehash, &mut result__).from_abi(result__)
+        })
+    }
+    pub fn GetActiveTraceRuntime(slottype: PlatformDiagnosticTraceSlotType) -> ::windows::core::Result<PlatformDiagnosticTraceRuntimeInfo> {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<PlatformDiagnosticTraceRuntimeInfo>();
+            (::windows::core::Interface::vtable(this).GetActiveTraceRuntime)(::windows::core::Interface::as_raw(this), slottype, &mut result__).from_abi(result__)
+        })
+    }
+    #[doc = "*Required features: `\"Foundation_Collections\"`*"]
+    #[cfg(feature = "Foundation_Collections")]
+    pub fn GetKnownTraceList(slottype: PlatformDiagnosticTraceSlotType) -> ::windows::core::Result<super::super::super::Foundation::Collections::IVectorView<PlatformDiagnosticTraceInfo>> {
+        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
+            let mut result__ = ::windows::core::zeroed::<super::super::super::Foundation::Collections::IVectorView<PlatformDiagnosticTraceInfo>>();
+            (::windows::core::Interface::vtable(this).GetKnownTraceList)(::windows::core::Interface::as_raw(this), slottype, &mut result__).from_abi(result__)
+        })
+    }
+    #[doc(hidden)]
+    pub fn IPlatformDiagnosticActionsStatics<R, F: FnOnce(&IPlatformDiagnosticActionsStatics) -> ::windows::core::Result<R>>(callback: F) -> ::windows::core::Result<R> {
+        static SHARED: ::windows::imp::FactoryCache<PlatformDiagnosticActions, IPlatformDiagnosticActionsStatics> = ::windows::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl ::windows::core::RuntimeName for PlatformDiagnosticActions {
+    const NAME: &'static str = "Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticActions";
+}
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
 #[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+pub struct PlatformDiagnosticTraceInfo(::windows::core::IUnknown);
+impl PlatformDiagnosticTraceInfo {
+    pub fn ScenarioId(&self) -> ::windows::core::Result<::windows::core::GUID> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<::windows::core::GUID>();
+            (::windows::core::Interface::vtable(this).ScenarioId)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+    pub fn ProfileHash(&self) -> ::windows::core::Result<u64> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<u64>();
+            (::windows::core::Interface::vtable(this).ProfileHash)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+    pub fn IsExclusive(&self) -> ::windows::core::Result<bool> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<bool>();
+            (::windows::core::Interface::vtable(this).IsExclusive)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+    pub fn IsAutoLogger(&self) -> ::windows::core::Result<bool> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<bool>();
+            (::windows::core::Interface::vtable(this).IsAutoLogger)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+    pub fn MaxTraceDurationFileTime(&self) -> ::windows::core::Result<i64> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<i64>();
+            (::windows::core::Interface::vtable(this).MaxTraceDurationFileTime)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+    pub fn Priority(&self) -> ::windows::core::Result<PlatformDiagnosticTracePriority> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<PlatformDiagnosticTracePriority>();
+            (::windows::core::Interface::vtable(this).Priority)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+}
+impl ::core::cmp::PartialEq for PlatformDiagnosticTraceInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl ::core::cmp::Eq for PlatformDiagnosticTraceInfo {}
+impl ::core::fmt::Debug for PlatformDiagnosticTraceInfo {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_tuple("PlatformDiagnosticTraceInfo").field(&self.0).finish()
+    }
+}
+impl ::windows::core::RuntimeType for PlatformDiagnosticTraceInfo {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"rc(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceInfo;{f870ed97-d597-4bf7-88dc-cf5c7dc2a1d2})");
+}
+impl ::core::clone::Clone for PlatformDiagnosticTraceInfo {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+unsafe impl ::windows::core::Interface for PlatformDiagnosticTraceInfo {
+    type Vtable = IPlatformDiagnosticTraceInfo_Vtbl;
+}
+unsafe impl ::windows::core::ComInterface for PlatformDiagnosticTraceInfo {
+    const IID: ::windows::core::GUID = <IPlatformDiagnosticTraceInfo as ::windows::core::ComInterface>::IID;
+}
+impl ::windows::core::RuntimeName for PlatformDiagnosticTraceInfo {
+    const NAME: &'static str = "Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceInfo";
+}
+::windows::imp::interface_hierarchy!(PlatformDiagnosticTraceInfo, ::windows::core::IUnknown, ::windows::core::IInspectable);
+unsafe impl ::core::marker::Send for PlatformDiagnosticTraceInfo {}
+unsafe impl ::core::marker::Sync for PlatformDiagnosticTraceInfo {}
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
+#[repr(transparent)]
+pub struct PlatformDiagnosticTraceRuntimeInfo(::windows::core::IUnknown);
+impl PlatformDiagnosticTraceRuntimeInfo {
+    pub fn RuntimeFileTime(&self) -> ::windows::core::Result<i64> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<i64>();
+            (::windows::core::Interface::vtable(this).RuntimeFileTime)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+    pub fn EtwRuntimeFileTime(&self) -> ::windows::core::Result<i64> {
+        let this = self;
+        unsafe {
+            let mut result__ = ::windows::core::zeroed::<i64>();
+            (::windows::core::Interface::vtable(this).EtwRuntimeFileTime)(::windows::core::Interface::as_raw(this), &mut result__).from_abi(result__)
+        }
+    }
+}
+impl ::core::cmp::PartialEq for PlatformDiagnosticTraceRuntimeInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl ::core::cmp::Eq for PlatformDiagnosticTraceRuntimeInfo {}
+impl ::core::fmt::Debug for PlatformDiagnosticTraceRuntimeInfo {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.debug_tuple("PlatformDiagnosticTraceRuntimeInfo").field(&self.0).finish()
+    }
+}
+impl ::windows::core::RuntimeType for PlatformDiagnosticTraceRuntimeInfo {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"rc(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceRuntimeInfo;{3d4d5e2d-01d8-4768-8554-1eb1ca610986})");
+}
+impl ::core::clone::Clone for PlatformDiagnosticTraceRuntimeInfo {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+unsafe impl ::windows::core::Interface for PlatformDiagnosticTraceRuntimeInfo {
+    type Vtable = IPlatformDiagnosticTraceRuntimeInfo_Vtbl;
+}
+unsafe impl ::windows::core::ComInterface for PlatformDiagnosticTraceRuntimeInfo {
+    const IID: ::windows::core::GUID = <IPlatformDiagnosticTraceRuntimeInfo as ::windows::core::ComInterface>::IID;
+}
+impl ::windows::core::RuntimeName for PlatformDiagnosticTraceRuntimeInfo {
+    const NAME: &'static str = "Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceRuntimeInfo";
+}
+::windows::imp::interface_hierarchy!(PlatformDiagnosticTraceRuntimeInfo, ::windows::core::IUnknown, ::windows::core::IInspectable);
+unsafe impl ::core::marker::Send for PlatformDiagnosticTraceRuntimeInfo {}
+unsafe impl ::core::marker::Sync for PlatformDiagnosticTraceRuntimeInfo {}
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
+#[repr(transparent)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct PlatformDiagnosticActionState(pub i32);
 impl PlatformDiagnosticActionState {
     pub const Success: Self = Self(0i32);
@@ -80,94 +297,20 @@ impl ::core::default::Default for PlatformDiagnosticActionState {
         Self(0)
     }
 }
-unsafe impl ::windows::core::Abi for PlatformDiagnosticActionState {
-    type Abi = Self;
+impl ::windows::core::TypeKind for PlatformDiagnosticActionState {
+    type TypeKind = ::windows::core::CopyType;
 }
 impl ::core::fmt::Debug for PlatformDiagnosticActionState {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_tuple("PlatformDiagnosticActionState").field(&self.0).finish()
     }
 }
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticActionState {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticActionState;i4)");
+impl ::windows::core::RuntimeType for PlatformDiagnosticActionState {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticActionState;i4)");
 }
-impl ::windows::core::DefaultType for PlatformDiagnosticActionState {
-    type DefaultType = Self;
-}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-pub struct PlatformDiagnosticActions {}
-impl PlatformDiagnosticActions {
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn IsScenarioEnabled<'a, Param0: ::windows::core::IntoParam<'a, ::windows::core::GUID>>(scenarioid: Param0) -> ::windows::core::Result<bool> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: bool = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).IsScenarioEnabled)(::core::mem::transmute_copy(this), scenarioid.into_param().abi(), &mut result__).from_abi::<bool>(result__)
-        })
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting', 'Foundation_Collections'*"]
-    #[cfg(feature = "Foundation_Collections")]
-    pub fn TryEscalateScenario<'a, Param0: ::windows::core::IntoParam<'a, ::windows::core::GUID>, Param2: ::windows::core::IntoParam<'a, ::windows::core::HSTRING>, Param5: ::windows::core::IntoParam<'a, super::super::super::Foundation::Collections::IMapView<::windows::core::HSTRING, ::windows::core::HSTRING>>>(scenarioid: Param0, escalationtype: PlatformDiagnosticEscalationType, outputdirectory: Param2, timestampoutputdirectory: bool, forceescalationupload: bool, triggers: Param5) -> ::windows::core::Result<bool> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: bool = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).TryEscalateScenario)(::core::mem::transmute_copy(this), scenarioid.into_param().abi(), escalationtype, outputdirectory.into_param().abi(), timestampoutputdirectory, forceescalationupload, triggers.into_param().abi(), &mut result__).from_abi::<bool>(result__)
-        })
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn DownloadLatestSettingsForNamespace<'a, Param0: ::windows::core::IntoParam<'a, ::windows::core::HSTRING>, Param1: ::windows::core::IntoParam<'a, ::windows::core::HSTRING>>(partner: Param0, feature: Param1, isscenarionamespace: bool, downloadovercostednetwork: bool, downloadoverbattery: bool) -> ::windows::core::Result<PlatformDiagnosticActionState> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: PlatformDiagnosticActionState = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).DownloadLatestSettingsForNamespace)(::core::mem::transmute_copy(this), partner.into_param().abi(), feature.into_param().abi(), isscenarionamespace, downloadovercostednetwork, downloadoverbattery, &mut result__).from_abi::<PlatformDiagnosticActionState>(result__)
-        })
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting', 'Foundation_Collections'*"]
-    #[cfg(feature = "Foundation_Collections")]
-    pub fn GetActiveScenarioList() -> ::windows::core::Result<super::super::super::Foundation::Collections::IVectorView<::windows::core::GUID>> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: ::windows::core::RawPtr = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).GetActiveScenarioList)(::core::mem::transmute_copy(this), &mut result__).from_abi::<super::super::super::Foundation::Collections::IVectorView<::windows::core::GUID>>(result__)
-        })
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn ForceUpload(latency: PlatformDiagnosticEventBufferLatencies, uploadovercostednetwork: bool, uploadoverbattery: bool) -> ::windows::core::Result<PlatformDiagnosticActionState> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: PlatformDiagnosticActionState = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).ForceUpload)(::core::mem::transmute_copy(this), latency, uploadovercostednetwork, uploadoverbattery, &mut result__).from_abi::<PlatformDiagnosticActionState>(result__)
-        })
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn IsTraceRunning<'a, Param1: ::windows::core::IntoParam<'a, ::windows::core::GUID>>(slottype: PlatformDiagnosticTraceSlotType, scenarioid: Param1, traceprofilehash: u64) -> ::windows::core::Result<PlatformDiagnosticTraceSlotState> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: PlatformDiagnosticTraceSlotState = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).IsTraceRunning)(::core::mem::transmute_copy(this), slottype, scenarioid.into_param().abi(), traceprofilehash, &mut result__).from_abi::<PlatformDiagnosticTraceSlotState>(result__)
-        })
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn GetActiveTraceRuntime(slottype: PlatformDiagnosticTraceSlotType) -> ::windows::core::Result<PlatformDiagnosticTraceRuntimeInfo> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: ::windows::core::RawPtr = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).GetActiveTraceRuntime)(::core::mem::transmute_copy(this), slottype, &mut result__).from_abi::<PlatformDiagnosticTraceRuntimeInfo>(result__)
-        })
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting', 'Foundation_Collections'*"]
-    #[cfg(feature = "Foundation_Collections")]
-    pub fn GetKnownTraceList(slottype: PlatformDiagnosticTraceSlotType) -> ::windows::core::Result<super::super::super::Foundation::Collections::IVectorView<PlatformDiagnosticTraceInfo>> {
-        Self::IPlatformDiagnosticActionsStatics(|this| unsafe {
-            let mut result__: ::windows::core::RawPtr = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).GetKnownTraceList)(::core::mem::transmute_copy(this), slottype, &mut result__).from_abi::<super::super::super::Foundation::Collections::IVectorView<PlatformDiagnosticTraceInfo>>(result__)
-        })
-    }
-    #[doc(hidden)]
-    pub fn IPlatformDiagnosticActionsStatics<R, F: FnOnce(&IPlatformDiagnosticActionsStatics) -> ::windows::core::Result<R>>(callback: F) -> ::windows::core::Result<R> {
-        static mut SHARED: ::windows::core::FactoryCache<PlatformDiagnosticActions, IPlatformDiagnosticActionsStatics> = ::windows::core::FactoryCache::new();
-        unsafe { SHARED.call(callback) }
-    }
-}
-impl ::windows::core::RuntimeName for PlatformDiagnosticActions {
-    const NAME: &'static str = "Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticActions";
-}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
 #[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct PlatformDiagnosticEscalationType(pub i32);
 impl PlatformDiagnosticEscalationType {
     pub const OnCompletion: Self = Self(0i32);
@@ -184,23 +327,20 @@ impl ::core::default::Default for PlatformDiagnosticEscalationType {
         Self(0)
     }
 }
-unsafe impl ::windows::core::Abi for PlatformDiagnosticEscalationType {
-    type Abi = Self;
+impl ::windows::core::TypeKind for PlatformDiagnosticEscalationType {
+    type TypeKind = ::windows::core::CopyType;
 }
 impl ::core::fmt::Debug for PlatformDiagnosticEscalationType {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_tuple("PlatformDiagnosticEscalationType").field(&self.0).finish()
     }
 }
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticEscalationType {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticEscalationType;i4)");
+impl ::windows::core::RuntimeType for PlatformDiagnosticEscalationType {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticEscalationType;i4)");
 }
-impl ::windows::core::DefaultType for PlatformDiagnosticEscalationType {
-    type DefaultType = Self;
-}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
 #[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct PlatformDiagnosticEventBufferLatencies(pub u32);
 impl PlatformDiagnosticEventBufferLatencies {
     pub const Normal: Self = Self(1u32);
@@ -218,12 +358,17 @@ impl ::core::default::Default for PlatformDiagnosticEventBufferLatencies {
         Self(0)
     }
 }
-unsafe impl ::windows::core::Abi for PlatformDiagnosticEventBufferLatencies {
-    type Abi = Self;
+impl ::windows::core::TypeKind for PlatformDiagnosticEventBufferLatencies {
+    type TypeKind = ::windows::core::CopyType;
 }
 impl ::core::fmt::Debug for PlatformDiagnosticEventBufferLatencies {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_tuple("PlatformDiagnosticEventBufferLatencies").field(&self.0).finish()
+    }
+}
+impl PlatformDiagnosticEventBufferLatencies {
+    pub const fn contains(&self, other: Self) -> bool {
+        self.0 & other.0 == other.0
     }
 }
 impl ::core::ops::BitOr for PlatformDiagnosticEventBufferLatencies {
@@ -254,136 +399,12 @@ impl ::core::ops::Not for PlatformDiagnosticEventBufferLatencies {
         Self(self.0.not())
     }
 }
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticEventBufferLatencies {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticEventBufferLatencies;u4)");
+impl ::windows::core::RuntimeType for PlatformDiagnosticEventBufferLatencies {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticEventBufferLatencies;u4)");
 }
-impl ::windows::core::DefaultType for PlatformDiagnosticEventBufferLatencies {
-    type DefaultType = Self;
-}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
 #[repr(transparent)]
-pub struct PlatformDiagnosticTraceInfo(::windows::core::IUnknown);
-impl PlatformDiagnosticTraceInfo {
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn ScenarioId(&self) -> ::windows::core::Result<::windows::core::GUID> {
-        let this = self;
-        unsafe {
-            let mut result__: ::windows::core::GUID = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).ScenarioId)(::core::mem::transmute_copy(this), &mut result__).from_abi::<::windows::core::GUID>(result__)
-        }
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn ProfileHash(&self) -> ::windows::core::Result<u64> {
-        let this = self;
-        unsafe {
-            let mut result__: u64 = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).ProfileHash)(::core::mem::transmute_copy(this), &mut result__).from_abi::<u64>(result__)
-        }
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn IsExclusive(&self) -> ::windows::core::Result<bool> {
-        let this = self;
-        unsafe {
-            let mut result__: bool = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).IsExclusive)(::core::mem::transmute_copy(this), &mut result__).from_abi::<bool>(result__)
-        }
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn IsAutoLogger(&self) -> ::windows::core::Result<bool> {
-        let this = self;
-        unsafe {
-            let mut result__: bool = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).IsAutoLogger)(::core::mem::transmute_copy(this), &mut result__).from_abi::<bool>(result__)
-        }
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn MaxTraceDurationFileTime(&self) -> ::windows::core::Result<i64> {
-        let this = self;
-        unsafe {
-            let mut result__: i64 = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).MaxTraceDurationFileTime)(::core::mem::transmute_copy(this), &mut result__).from_abi::<i64>(result__)
-        }
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn Priority(&self) -> ::windows::core::Result<PlatformDiagnosticTracePriority> {
-        let this = self;
-        unsafe {
-            let mut result__: PlatformDiagnosticTracePriority = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).Priority)(::core::mem::transmute_copy(this), &mut result__).from_abi::<PlatformDiagnosticTracePriority>(result__)
-        }
-    }
-}
-impl ::core::clone::Clone for PlatformDiagnosticTraceInfo {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-impl ::core::cmp::PartialEq for PlatformDiagnosticTraceInfo {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-impl ::core::cmp::Eq for PlatformDiagnosticTraceInfo {}
-impl ::core::fmt::Debug for PlatformDiagnosticTraceInfo {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_tuple("PlatformDiagnosticTraceInfo").field(&self.0).finish()
-    }
-}
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticTraceInfo {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"rc(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceInfo;{f870ed97-d597-4bf7-88dc-cf5c7dc2a1d2})");
-}
-unsafe impl ::windows::core::Interface for PlatformDiagnosticTraceInfo {
-    type Vtable = IPlatformDiagnosticTraceInfo_Vtbl;
-    const IID: ::windows::core::GUID = <IPlatformDiagnosticTraceInfo as ::windows::core::Interface>::IID;
-}
-impl ::windows::core::RuntimeName for PlatformDiagnosticTraceInfo {
-    const NAME: &'static str = "Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceInfo";
-}
-impl ::core::convert::From<PlatformDiagnosticTraceInfo> for ::windows::core::IUnknown {
-    fn from(value: PlatformDiagnosticTraceInfo) -> Self {
-        unsafe { ::core::mem::transmute(value) }
-    }
-}
-impl ::core::convert::From<&PlatformDiagnosticTraceInfo> for ::windows::core::IUnknown {
-    fn from(value: &PlatformDiagnosticTraceInfo) -> Self {
-        ::core::convert::From::from(::core::clone::Clone::clone(value))
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IUnknown> for PlatformDiagnosticTraceInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IUnknown> {
-        ::windows::core::Param::Owned(unsafe { ::core::mem::transmute(self) })
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IUnknown> for &PlatformDiagnosticTraceInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IUnknown> {
-        ::windows::core::Param::Borrowed(unsafe { ::core::mem::transmute(self) })
-    }
-}
-impl ::core::convert::From<PlatformDiagnosticTraceInfo> for ::windows::core::IInspectable {
-    fn from(value: PlatformDiagnosticTraceInfo) -> Self {
-        unsafe { ::core::mem::transmute(value) }
-    }
-}
-impl ::core::convert::From<&PlatformDiagnosticTraceInfo> for ::windows::core::IInspectable {
-    fn from(value: &PlatformDiagnosticTraceInfo) -> Self {
-        ::core::convert::From::from(::core::clone::Clone::clone(value))
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IInspectable> for PlatformDiagnosticTraceInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IInspectable> {
-        ::windows::core::Param::Owned(unsafe { ::core::mem::transmute(self) })
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IInspectable> for &PlatformDiagnosticTraceInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IInspectable> {
-        ::windows::core::Param::Borrowed(unsafe { ::core::mem::transmute(self) })
-    }
-}
-unsafe impl ::core::marker::Send for PlatformDiagnosticTraceInfo {}
-unsafe impl ::core::marker::Sync for PlatformDiagnosticTraceInfo {}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-#[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct PlatformDiagnosticTracePriority(pub i32);
 impl PlatformDiagnosticTracePriority {
     pub const Normal: Self = Self(0i32);
@@ -400,112 +421,20 @@ impl ::core::default::Default for PlatformDiagnosticTracePriority {
         Self(0)
     }
 }
-unsafe impl ::windows::core::Abi for PlatformDiagnosticTracePriority {
-    type Abi = Self;
+impl ::windows::core::TypeKind for PlatformDiagnosticTracePriority {
+    type TypeKind = ::windows::core::CopyType;
 }
 impl ::core::fmt::Debug for PlatformDiagnosticTracePriority {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_tuple("PlatformDiagnosticTracePriority").field(&self.0).finish()
     }
 }
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticTracePriority {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTracePriority;i4)");
+impl ::windows::core::RuntimeType for PlatformDiagnosticTracePriority {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTracePriority;i4)");
 }
-impl ::windows::core::DefaultType for PlatformDiagnosticTracePriority {
-    type DefaultType = Self;
-}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
 #[repr(transparent)]
-pub struct PlatformDiagnosticTraceRuntimeInfo(::windows::core::IUnknown);
-impl PlatformDiagnosticTraceRuntimeInfo {
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn RuntimeFileTime(&self) -> ::windows::core::Result<i64> {
-        let this = self;
-        unsafe {
-            let mut result__: i64 = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).RuntimeFileTime)(::core::mem::transmute_copy(this), &mut result__).from_abi::<i64>(result__)
-        }
-    }
-    #[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-    pub fn EtwRuntimeFileTime(&self) -> ::windows::core::Result<i64> {
-        let this = self;
-        unsafe {
-            let mut result__: i64 = ::core::mem::zeroed();
-            (::windows::core::Interface::vtable(this).EtwRuntimeFileTime)(::core::mem::transmute_copy(this), &mut result__).from_abi::<i64>(result__)
-        }
-    }
-}
-impl ::core::clone::Clone for PlatformDiagnosticTraceRuntimeInfo {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-impl ::core::cmp::PartialEq for PlatformDiagnosticTraceRuntimeInfo {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-impl ::core::cmp::Eq for PlatformDiagnosticTraceRuntimeInfo {}
-impl ::core::fmt::Debug for PlatformDiagnosticTraceRuntimeInfo {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        f.debug_tuple("PlatformDiagnosticTraceRuntimeInfo").field(&self.0).finish()
-    }
-}
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticTraceRuntimeInfo {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"rc(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceRuntimeInfo;{3d4d5e2d-01d8-4768-8554-1eb1ca610986})");
-}
-unsafe impl ::windows::core::Interface for PlatformDiagnosticTraceRuntimeInfo {
-    type Vtable = IPlatformDiagnosticTraceRuntimeInfo_Vtbl;
-    const IID: ::windows::core::GUID = <IPlatformDiagnosticTraceRuntimeInfo as ::windows::core::Interface>::IID;
-}
-impl ::windows::core::RuntimeName for PlatformDiagnosticTraceRuntimeInfo {
-    const NAME: &'static str = "Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceRuntimeInfo";
-}
-impl ::core::convert::From<PlatformDiagnosticTraceRuntimeInfo> for ::windows::core::IUnknown {
-    fn from(value: PlatformDiagnosticTraceRuntimeInfo) -> Self {
-        unsafe { ::core::mem::transmute(value) }
-    }
-}
-impl ::core::convert::From<&PlatformDiagnosticTraceRuntimeInfo> for ::windows::core::IUnknown {
-    fn from(value: &PlatformDiagnosticTraceRuntimeInfo) -> Self {
-        ::core::convert::From::from(::core::clone::Clone::clone(value))
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IUnknown> for PlatformDiagnosticTraceRuntimeInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IUnknown> {
-        ::windows::core::Param::Owned(unsafe { ::core::mem::transmute(self) })
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IUnknown> for &PlatformDiagnosticTraceRuntimeInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IUnknown> {
-        ::windows::core::Param::Borrowed(unsafe { ::core::mem::transmute(self) })
-    }
-}
-impl ::core::convert::From<PlatformDiagnosticTraceRuntimeInfo> for ::windows::core::IInspectable {
-    fn from(value: PlatformDiagnosticTraceRuntimeInfo) -> Self {
-        unsafe { ::core::mem::transmute(value) }
-    }
-}
-impl ::core::convert::From<&PlatformDiagnosticTraceRuntimeInfo> for ::windows::core::IInspectable {
-    fn from(value: &PlatformDiagnosticTraceRuntimeInfo) -> Self {
-        ::core::convert::From::from(::core::clone::Clone::clone(value))
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IInspectable> for PlatformDiagnosticTraceRuntimeInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IInspectable> {
-        ::windows::core::Param::Owned(unsafe { ::core::mem::transmute(self) })
-    }
-}
-impl<'a> ::windows::core::IntoParam<'a, ::windows::core::IInspectable> for &PlatformDiagnosticTraceRuntimeInfo {
-    fn into_param(self) -> ::windows::core::Param<'a, ::windows::core::IInspectable> {
-        ::windows::core::Param::Borrowed(unsafe { ::core::mem::transmute(self) })
-    }
-}
-unsafe impl ::core::marker::Send for PlatformDiagnosticTraceRuntimeInfo {}
-unsafe impl ::core::marker::Sync for PlatformDiagnosticTraceRuntimeInfo {}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
-#[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct PlatformDiagnosticTraceSlotState(pub i32);
 impl PlatformDiagnosticTraceSlotState {
     pub const NotRunning: Self = Self(0i32);
@@ -523,23 +452,20 @@ impl ::core::default::Default for PlatformDiagnosticTraceSlotState {
         Self(0)
     }
 }
-unsafe impl ::windows::core::Abi for PlatformDiagnosticTraceSlotState {
-    type Abi = Self;
+impl ::windows::core::TypeKind for PlatformDiagnosticTraceSlotState {
+    type TypeKind = ::windows::core::CopyType;
 }
 impl ::core::fmt::Debug for PlatformDiagnosticTraceSlotState {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_tuple("PlatformDiagnosticTraceSlotState").field(&self.0).finish()
     }
 }
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticTraceSlotState {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceSlotState;i4)");
+impl ::windows::core::RuntimeType for PlatformDiagnosticTraceSlotState {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceSlotState;i4)");
 }
-impl ::windows::core::DefaultType for PlatformDiagnosticTraceSlotState {
-    type DefaultType = Self;
-}
-#[doc = "*Required features: 'System_Diagnostics_TraceReporting'*"]
+#[doc = "*Required features: `\"System_Diagnostics_TraceReporting\"`*"]
 #[repr(transparent)]
-#[derive(:: core :: cmp :: PartialEq, :: core :: cmp :: Eq)]
+#[derive(::core::cmp::PartialEq, ::core::cmp::Eq)]
 pub struct PlatformDiagnosticTraceSlotType(pub i32);
 impl PlatformDiagnosticTraceSlotType {
     pub const Alternative: Self = Self(0i32);
@@ -557,19 +483,16 @@ impl ::core::default::Default for PlatformDiagnosticTraceSlotType {
         Self(0)
     }
 }
-unsafe impl ::windows::core::Abi for PlatformDiagnosticTraceSlotType {
-    type Abi = Self;
+impl ::windows::core::TypeKind for PlatformDiagnosticTraceSlotType {
+    type TypeKind = ::windows::core::CopyType;
 }
 impl ::core::fmt::Debug for PlatformDiagnosticTraceSlotType {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_tuple("PlatformDiagnosticTraceSlotType").field(&self.0).finish()
     }
 }
-unsafe impl ::windows::core::RuntimeType for PlatformDiagnosticTraceSlotType {
-    const SIGNATURE: ::windows::core::ConstBuffer = ::windows::core::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceSlotType;i4)");
-}
-impl ::windows::core::DefaultType for PlatformDiagnosticTraceSlotType {
-    type DefaultType = Self;
+impl ::windows::core::RuntimeType for PlatformDiagnosticTraceSlotType {
+    const SIGNATURE: ::windows::imp::ConstBuffer = ::windows::imp::ConstBuffer::from_slice(b"enum(Windows.System.Diagnostics.TraceReporting.PlatformDiagnosticTraceSlotType;i4)");
 }
 #[cfg(feature = "implement")]
 ::core::include!("impl.rs");

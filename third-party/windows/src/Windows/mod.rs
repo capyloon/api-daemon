@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
+#![allow(non_snake_case, non_upper_case_globals, non_camel_case_types, dead_code, clippy::all)]
 #[cfg(feature = "AI")]
 pub mod AI;
 #[cfg(feature = "ApplicationModel")]
@@ -37,6 +37,8 @@ pub mod Storage;
 pub mod System;
 #[cfg(feature = "UI")]
 pub mod UI;
+#[cfg(feature = "Wdk")]
+pub mod Wdk;
 #[cfg(feature = "Web")]
 pub mod Web;
 #[cfg(feature = "Win32")]

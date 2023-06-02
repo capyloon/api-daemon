@@ -32,10 +32,10 @@ const DEFAULT_CONFIG: EncodedConfig = Config::DEFAULT.encode();
 /// Example: 1997-11-21T09:55:06.000000000-06:00
 ///
 /// # Examples
-///
-/// ```rust
+#[cfg_attr(feature = "formatting", doc = "```rust")]
+#[cfg_attr(not(feature = "formatting"), doc = "```rust,ignore")]
 /// # use time::format_description::well_known::Iso8601;
-/// # use time::macros::datetime;
+/// # use time_macros::datetime;
 /// assert_eq!(
 ///     datetime!(1997-11-12 9:55:06 -6:00).format(&Iso8601::DEFAULT)?,
 ///     "1997-11-12T09:55:06.000000000-06:00"
@@ -43,7 +43,7 @@ const DEFAULT_CONFIG: EncodedConfig = Config::DEFAULT.encode();
 /// # Ok::<_, time::Error>(())
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct Iso8601<const CONFIG: EncodedConfig>;
+pub struct Iso8601<const CONFIG: EncodedConfig = DEFAULT_CONFIG>;
 
 impl<const CONFIG: EncodedConfig> core::fmt::Debug for Iso8601<CONFIG> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

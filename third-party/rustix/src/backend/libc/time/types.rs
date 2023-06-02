@@ -108,7 +108,7 @@ impl From<Timespec> for LibcTimespec {
 
 /// `CLOCK_*` constants for use with [`clock_gettime`].
 ///
-/// These constants are always supported at runtime so `clock_gettime` never
+/// These constants are always supported at runtime, so `clock_gettime` never
 /// has to fail with `INVAL` due to an unsupported clock. See
 /// [`DynamicClockId`] for a greater set of clocks, with the caveat that not
 /// all of them are always supported.
@@ -126,6 +126,10 @@ pub enum ClockId {
     /// `CLOCK_MONOTONIC`
     Monotonic = c::CLOCK_MONOTONIC,
 
+    /// `CLOCK_UPTIME`
+    #[cfg(any(freebsdlike))]
+    Uptime = c::CLOCK_UPTIME,
+
     /// `CLOCK_PROCESS_CPUTIME_ID`
     #[cfg(not(any(netbsdlike, solarish, target_os = "redox")))]
     ProcessCPUTime = c::CLOCK_PROCESS_CPUTIME_ID,
@@ -135,11 +139,11 @@ pub enum ClockId {
     ThreadCPUTime = c::CLOCK_THREAD_CPUTIME_ID,
 
     /// `CLOCK_REALTIME_COARSE`
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "freebsd"))]
     RealtimeCoarse = c::CLOCK_REALTIME_COARSE,
 
     /// `CLOCK_MONOTONIC_COARSE`
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "freebsd"))]
     MonotonicCoarse = c::CLOCK_MONOTONIC_COARSE,
 
     /// `CLOCK_MONOTONIC_RAW`
@@ -149,7 +153,7 @@ pub enum ClockId {
 
 /// `CLOCK_*` constants for use with [`clock_gettime`].
 ///
-/// These constants are always supported at runtime so `clock_gettime` never
+/// These constants are always supported at runtime, so `clock_gettime` never
 /// has to fail with `INVAL` due to an unsupported clock. See
 /// [`DynamicClockId`] for a greater set of clocks, with the caveat that not
 /// all of them are always supported.
@@ -205,7 +209,11 @@ pub enum DynamicClockId<'a> {
     BoottimeAlarm,
 }
 
-/// `struct itimerspec`
+/// `struct itimerspec` for use with [`timerfd_gettime`] and
+/// [`timerfd_settime`].
+///
+/// [`timerfd_gettime`]: crate::time::timerfd_gettime
+/// [`timerfd_settime`]: crate::time::timerfd_settime
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 #[cfg(not(all(
     any(target_arch = "arm", target_arch = "mips", target_arch = "x86"),
@@ -213,7 +221,11 @@ pub enum DynamicClockId<'a> {
 )))]
 pub type Itimerspec = c::itimerspec;
 
-/// `struct itimerspec`
+/// `struct itimerspec` for use with [`timerfd_gettime`] and
+/// [`timerfd_settime`].
+///
+/// [`timerfd_gettime`]: crate::time::timerfd_gettime
+/// [`timerfd_settime`]: crate::time::timerfd_settime
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 #[cfg(all(
     any(target_arch = "arm", target_arch = "mips", target_arch = "x86"),
@@ -282,6 +294,8 @@ impl From<Itimerspec> for LibcItimerspec {
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 bitflags! {
     /// `TFD_*` flags for use with [`timerfd_create`].
+    ///
+    /// [`timerfd_create`]: crate::time::timerfd_create
     pub struct TimerfdFlags: c::c_int {
         /// `TFD_NONBLOCK`
         const NONBLOCK = c::TFD_NONBLOCK;
@@ -294,13 +308,15 @@ bitflags! {
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 bitflags! {
     /// `TFD_TIMER_*` flags for use with [`timerfd_settime`].
+    ///
+    /// [`timerfd_settime`]: crate::time::timerfd_settime
     pub struct TimerfdTimerFlags: c::c_int {
         /// `TFD_TIMER_ABSTIME`
         const ABSTIME = c::TFD_TIMER_ABSTIME;
 
         /// `TFD_TIMER_CANCEL_ON_SET`
         #[cfg(any(target_os = "android", target_os = "linux"))]
-        const CANCEL_ON_SET = 2; // TODO: upstream TFD_TIMER_CANCEL_ON_SET
+        const CANCEL_ON_SET = c::TFD_TIMER_CANCEL_ON_SET;
     }
 }
 
@@ -312,7 +328,7 @@ bitflags! {
 #[repr(i32)]
 #[non_exhaustive]
 pub enum TimerfdClockId {
-    /// `CLOCK_REALTIME`—A clock that tells the "real" time.
+    /// `CLOCK_REALTIME`—A clock that tells the “real” time.
     ///
     /// This is a clock that tells the amount of time elapsed since the
     /// Unix epoch, 1970-01-01T00:00:00Z. The clock is externally settable, so

@@ -14,6 +14,7 @@ use wasm_bindgen::prelude::*;
 
 pub mod api;
 pub mod arg_names;
+pub mod bigint;
 pub mod char;
 pub mod classes;
 pub mod closures;
@@ -27,13 +28,17 @@ pub mod futures;
 pub mod getters_and_setters;
 pub mod import_class;
 pub mod imports;
+pub mod intrinsics;
+pub mod js_keywords;
 pub mod js_objects;
 pub mod jscast;
+pub mod link_to;
 pub mod math;
 pub mod no_shims;
 pub mod node;
 pub mod option;
 pub mod optional_primitives;
+pub mod owned;
 pub mod result;
 pub mod result_jserror;
 pub mod rethrow;
@@ -41,13 +46,13 @@ pub mod simple;
 pub mod slice;
 pub mod structural;
 pub mod truthy_falsy;
-pub mod u64;
+pub mod usize;
 pub mod validate_prt;
 pub mod variadic;
 pub mod vendor_prefix;
 
 // should not be executed
 #[wasm_bindgen(start)]
-pub fn start() {
+fn start() {
     panic!();
 }

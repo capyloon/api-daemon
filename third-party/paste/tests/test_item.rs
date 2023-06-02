@@ -1,3 +1,5 @@
+#![allow(clippy::let_underscore_untyped)]
+
 mod test_basic {
     use paste::paste;
 
@@ -59,8 +61,8 @@ mod test_none_delimited_single_lifetime {
     macro_rules! m {
         ($life:lifetime) => {
             paste! {
-                pub struct S;
-                impl<$life> S {
+                pub struct S<$life>(&$life ());
+                impl<$life> S<$life> {
                     fn f() {}
                 }
             }

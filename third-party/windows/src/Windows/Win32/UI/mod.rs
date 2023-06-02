@@ -1,4 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals, clashing_extern_declarations, clippy::all)]
 #[cfg(feature = "Win32_UI_Accessibility")]
 pub mod Accessibility;
 #[cfg(feature = "Win32_UI_Animation")]
@@ -31,7 +30,5 @@ pub mod TextServices;
 pub mod WindowsAndMessaging;
 #[cfg(feature = "Win32_UI_Wpf")]
 pub mod Wpf;
-#[cfg(feature = "Win32_UI_Xaml")]
-pub mod Xaml;
 #[cfg(feature = "implement")]
 ::core::include!("impl.rs");

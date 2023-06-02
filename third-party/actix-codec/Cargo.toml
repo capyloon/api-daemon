@@ -12,11 +12,22 @@
 [package]
 edition = "2018"
 name = "actix-codec"
-version = "0.5.0"
-authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rob Ede <robjtede@icloud.com>"]
+version = "0.5.1"
+authors = [
+    "Nikolay Kim <fafhrd91@gmail.com>",
+    "Rob Ede <robjtede@icloud.com>",
+]
 description = "Codec utilities for working with framed protocols"
-keywords = ["network", "framework", "async", "futures"]
-categories = ["network-programming", "asynchronous"]
+keywords = [
+    "network",
+    "framework",
+    "async",
+    "futures",
+]
+categories = [
+    "network-programming",
+    "asynchronous",
+]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/actix/actix-net"
 
@@ -27,6 +38,7 @@ path = "src/lib.rs"
 [[bench]]
 name = "lines"
 harness = false
+
 [dependencies.bitflags]
 version = "1.2"
 
@@ -41,9 +53,6 @@ default-features = false
 version = "0.3.7"
 default-features = false
 
-[dependencies.log]
-version = "0.4"
-
 [dependencies.memchr]
 version = "2.3"
 
@@ -55,4 +64,19 @@ version = "1.13.1"
 
 [dependencies.tokio-util]
 version = "0.7"
-features = ["codec", "io"]
+features = [
+    "codec",
+    "io",
+]
+
+[dependencies.tracing]
+version = "0.1.30"
+features = ["log"]
+default-features = false
+
+[dev-dependencies.criterion]
+version = "0.3"
+features = ["html_reports"]
+
+[dev-dependencies.tokio-test]
+version = "0.4.2"

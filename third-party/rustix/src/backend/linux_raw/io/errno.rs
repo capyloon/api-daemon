@@ -60,10 +60,10 @@ impl Errno {
         Self::from_errno(raw as u32)
     }
 
-    /// Convert from a C errno value (which is positive) to an `Errno`.
+    /// Convert from a C `errno` value (which is positive) to an `Errno`.
     const fn from_errno(raw: u32) -> Self {
-        // We store error values in negated form, so that we don't have to negate
-        // them after every syscall.
+        // We store error values in negated form, so that we don't have to
+        // negate them after every syscall.
         let encoded = raw.wrapping_neg() as u16;
 
         // TODO: Use Range::contains, once that's `const`.
@@ -234,6 +234,13 @@ pub(in crate::backend) unsafe fn try_decode_error<Num: RetNumber>(raw: RetReg<Nu
 #[inline]
 pub(in crate::backend) fn decode_usize_infallible<Num: RetNumber>(raw: RetReg<Num>) -> usize {
     raw.decode_usize()
+}
+
+/// Return the contained `c_int` value.
+#[cfg(not(debug_assertions))]
+#[inline]
+pub(in crate::backend) fn decode_c_uint_infallible<Num: RetNumber>(raw: RetReg<Num>) -> c::c_uint {
+    raw.decode_c_uint()
 }
 
 impl Errno {

@@ -1,3 +1,5 @@
+#![allow(clippy::let_underscore_untyped)]
+
 use paste::paste;
 
 #[test]
@@ -26,7 +28,7 @@ fn test_repeat() {
 }
 
 #[test]
-fn test_literals() {
+fn test_literal_to_identifier() {
     const CONST0: &str = "const0";
 
     let pasted = paste!([<CONST 0>]);
@@ -43,6 +45,17 @@ fn test_literals() {
 
     let pasted = paste!([<CONST '\u{30}'>]);
     assert_eq!(pasted, CONST0);
+}
+
+#[test]
+fn test_literal_suffix() {
+    macro_rules! literal {
+        ($bit:tt) => {
+            paste!([<1_u $bit>])
+        };
+    }
+
+    assert_eq!(literal!(32), 1);
 }
 
 #[test]
@@ -186,11 +199,11 @@ fn test_env_to_camel() {
 mod test_x86_feature_literal {
     // work around https://github.com/rust-lang/rust/issues/72726
 
-    use paste::paste;
-
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     macro_rules! my_is_x86_feature_detected {
         ($feat:literal) => {
+            use paste::paste;
+
             paste! {
                 #[test]
                 fn test() {
@@ -246,4 +259,27 @@ mod test_local_setter {
         let a = setter!(val, 42);
         assert_eq!(a.val, 42);
     }
+}
+
+// https://github.com/dtolnay/paste/issues/85
+#[test]
+fn test_top_level_none_delimiter() {
+    macro_rules! clone {
+        ($val:expr) => {
+            paste! {
+                $val.clone()
+            }
+        };
+    }
+
+    #[derive(Clone)]
+    struct A;
+
+    impl A {
+        fn consume_self(self) {
+            let _ = self;
+        }
+    }
+
+    clone!(&A).consume_self();
 }

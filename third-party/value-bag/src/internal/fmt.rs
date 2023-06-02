@@ -205,9 +205,9 @@ impl<'v> Debug for ValueBag<'v> {
                 Ok(())
             }
 
-            #[cfg(feature = "sval1")]
-            fn sval1(&mut self, v: &dyn crate::internal::sval::v1::Value) -> Result<(), Error> {
-                crate::internal::sval::v1::fmt(self.0, v)
+            #[cfg(feature = "sval2")]
+            fn sval2(&mut self, v: &dyn crate::internal::sval::v2::Value) -> Result<(), Error> {
+                crate::internal::sval::v2::fmt(self.0, v)
             }
 
             #[cfg(feature = "serde1")]
@@ -302,9 +302,9 @@ impl<'v> Display for ValueBag<'v> {
                 Ok(())
             }
 
-            #[cfg(feature = "sval1")]
-            fn sval1(&mut self, v: &dyn crate::internal::sval::v1::Value) -> Result<(), Error> {
-                crate::internal::sval::v1::fmt(self.0, v)
+            #[cfg(feature = "sval2")]
+            fn sval2(&mut self, v: &dyn crate::internal::sval::v2::Value) -> Result<(), Error> {
+                crate::internal::sval::v2::fmt(self.0, v)
             }
 
             #[cfg(feature = "serde1")]
@@ -323,6 +323,46 @@ impl<'v> Display for ValueBag<'v> {
     }
 }
 
+#[cfg(feature = "owned")]
+pub(crate) mod owned {
+    use crate::std::{boxed::Box, fmt, string::ToString};
+
+    impl fmt::Debug for crate::OwnedValueBag {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Debug::fmt(&self.by_ref(), f)
+        }
+    }
+
+    impl fmt::Display for crate::OwnedValueBag {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(&self.by_ref(), f)
+        }
+    }
+
+    #[derive(Clone)]
+    pub(crate) struct OwnedFmt(Box<str>);
+
+    pub(crate) fn buffer_debug(v: impl fmt::Debug) -> OwnedFmt {
+        OwnedFmt(format!("{:?}", v).into())
+    }
+
+    pub(crate) fn buffer_display(v: impl fmt::Display) -> OwnedFmt {
+        OwnedFmt(v.to_string().into())
+    }
+
+    impl fmt::Debug for OwnedFmt {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(self, f)
+        }
+    }
+
+    impl fmt::Display for OwnedFmt {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(&self.0, f)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -331,18 +371,24 @@ mod tests {
     use super::*;
     use crate::{
         std::string::ToString,
-        test::{IntoValueBag, Token},
+        test::{IntoValueBag, TestToken},
     };
 
     #[test]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     fn fmt_capture() {
-        assert_eq!(ValueBag::capture_debug(&1u16).to_token(), Token::U64(1));
-        assert_eq!(ValueBag::capture_display(&1u16).to_token(), Token::U64(1));
+        assert_eq!(
+            ValueBag::capture_debug(&1u16).to_test_token(),
+            TestToken::U64(1)
+        );
+        assert_eq!(
+            ValueBag::capture_display(&1u16).to_test_token(),
+            TestToken::U64(1)
+        );
 
         assert_eq!(
-            ValueBag::capture_debug(&Some(1u16)).to_token(),
-            Token::U64(1)
+            ValueBag::capture_debug(&Some(1u16)).to_test_token(),
+            TestToken::U64(1)
         );
     }
 
@@ -407,12 +453,12 @@ mod tests {
     fn fmt_debug() {
         assert_eq!(
             format!("{:?}", "a string"),
-            format!("{:?}", "a string".into_value_bag()),
+            format!("{:?}", "a string".into_value_bag().by_ref()),
         );
 
         assert_eq!(
             format!("{:04?}", 42u64),
-            format!("{:04?}", 42u64.into_value_bag()),
+            format!("{:04?}", 42u64.into_value_bag().by_ref()),
         );
     }
 
@@ -421,12 +467,12 @@ mod tests {
     fn fmt_display() {
         assert_eq!(
             format!("{}", "a string"),
-            format!("{}", "a string".into_value_bag()),
+            format!("{}", "a string".into_value_bag().by_ref()),
         );
 
         assert_eq!(
             format!("{:04}", 42u64),
-            format!("{:04}", 42u64.into_value_bag()),
+            format!("{:04}", 42u64.into_value_bag().by_ref()),
         );
     }
 }

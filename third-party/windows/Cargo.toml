@@ -11,27 +11,39 @@
 
 [package]
 edition = "2018"
+rust-version = "1.48"
 name = "windows"
-version = "0.32.0"
+version = "0.48.0"
 authors = ["Microsoft"]
 description = "Rust for Windows"
 documentation = "https://microsoft.github.io/windows-docs-rs/"
-readme = "../../../.github/readme.md"
+readme = "readme.md"
+categories = ["os::windows-apis"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/microsoft/windows-rs"
 
 [package.metadata.docs.rs]
 default-target = "x86_64-pc-windows-msvc"
+rustc-args = [
+    "--cfg",
+    "docsrs",
+]
 targets = []
 
 [dependencies.windows-implement]
-version = "0.32.0"
+version = "0.48.0"
 optional = true
+
+[dependencies.windows-interface]
+version = "0.48.0"
+optional = true
+
+[dependencies.windows-targets]
+version = "0.48.0"
 
 [features]
 AI = []
 AI_MachineLearning = ["AI"]
-AI_MachineLearning_Preview = ["AI_MachineLearning"]
 ApplicationModel = []
 ApplicationModel_Activation = ["ApplicationModel"]
 ApplicationModel_AppExtensions = ["ApplicationModel"]
@@ -71,8 +83,6 @@ ApplicationModel_Resources_Core = ["ApplicationModel_Resources"]
 ApplicationModel_Resources_Management = ["ApplicationModel_Resources"]
 ApplicationModel_Search = ["ApplicationModel"]
 ApplicationModel_Search_Core = ["ApplicationModel_Search"]
-ApplicationModel_SocialInfo = ["ApplicationModel"]
-ApplicationModel_SocialInfo_Provider = ["ApplicationModel_SocialInfo"]
 ApplicationModel_Store = ["ApplicationModel"]
 ApplicationModel_Store_LicenseManagement = ["ApplicationModel_Store"]
 ApplicationModel_Store_Preview = ["ApplicationModel_Store"]
@@ -98,7 +108,6 @@ Data_Xml_Xsl = ["Data_Xml"]
 Devices = []
 Devices_Adc = ["Devices"]
 Devices_Adc_Provider = ["Devices_Adc"]
-Devices_AllJoyn = ["Devices"]
 Devices_Background = ["Devices"]
 Devices_Bluetooth = ["Devices"]
 Devices_Bluetooth_Advertisement = ["Devices_Bluetooth"]
@@ -112,6 +121,7 @@ Devices_Enumeration = ["Devices"]
 Devices_Enumeration_Pnp = ["Devices_Enumeration"]
 Devices_Geolocation = ["Devices"]
 Devices_Geolocation_Geofencing = ["Devices_Geolocation"]
+Devices_Geolocation_Provider = ["Devices_Geolocation"]
 Devices_Gpio = ["Devices"]
 Devices_Gpio_Provider = ["Devices_Gpio"]
 Devices_Haptics = ["Devices"]
@@ -123,8 +133,6 @@ Devices_Input_Preview = ["Devices_Input"]
 Devices_Lights = ["Devices"]
 Devices_Lights_Effects = ["Devices_Lights"]
 Devices_Midi = ["Devices"]
-Devices_Perception = ["Devices"]
-Devices_Perception_Provider = ["Devices_Perception"]
 Devices_PointOfService = ["Devices"]
 Devices_PointOfService_Provider = ["Devices_PointOfService"]
 Devices_Portable = ["Devices"]
@@ -271,7 +279,6 @@ Security = []
 Security_Authentication = ["Security"]
 Security_Authentication_Identity = ["Security_Authentication"]
 Security_Authentication_Identity_Core = ["Security_Authentication_Identity"]
-Security_Authentication_Identity_Provider = ["Security_Authentication_Identity"]
 Security_Authentication_OnlineId = ["Security_Authentication"]
 Security_Authentication_Web = ["Security_Authentication"]
 Security_Authentication_Web_Core = ["Security_Authentication_Web"]
@@ -289,7 +296,6 @@ Security_EnterpriseData = ["Security"]
 Security_ExchangeActiveSyncProvisioning = ["Security"]
 Security_Isolation = ["Security"]
 Services = []
-Services_Cortana = ["Services"]
 Services_Maps = ["Services"]
 Services_Maps_Guidance = ["Services_Maps"]
 Services_Maps_LocalSearch = ["Services_Maps"]
@@ -316,8 +322,6 @@ System_Implementation = ["System"]
 System_Implementation_FileExplorer = ["System_Implementation"]
 System_Inventory = ["System"]
 System_Power = ["System"]
-System_Power_Diagnostics = ["System_Power"]
-System_Preview = ["System"]
 System_Profile = ["System"]
 System_Profile_SystemManufacturers = ["System_Profile"]
 System_RemoteDesktop = ["System"]
@@ -364,30 +368,9 @@ UI_WebUI = ["UI"]
 UI_WebUI_Core = ["UI_WebUI"]
 UI_WindowManagement = ["UI"]
 UI_WindowManagement_Preview = ["UI_WindowManagement"]
-UI_Xaml = ["UI"]
-UI_Xaml_Automation = ["UI_Xaml"]
-UI_Xaml_Automation_Peers = ["UI_Xaml_Automation"]
-UI_Xaml_Automation_Provider = ["UI_Xaml_Automation"]
-UI_Xaml_Automation_Text = ["UI_Xaml_Automation"]
-UI_Xaml_Controls = ["UI_Xaml"]
-UI_Xaml_Controls_Maps = ["UI_Xaml_Controls"]
-UI_Xaml_Controls_Primitives = ["UI_Xaml_Controls"]
-UI_Xaml_Core = ["UI_Xaml"]
-UI_Xaml_Core_Direct = ["UI_Xaml_Core"]
-UI_Xaml_Data = ["UI_Xaml"]
-UI_Xaml_Documents = ["UI_Xaml"]
-UI_Xaml_Hosting = ["UI_Xaml"]
-UI_Xaml_Input = ["UI_Xaml"]
-UI_Xaml_Interop = ["UI_Xaml"]
-UI_Xaml_Markup = ["UI_Xaml"]
-UI_Xaml_Media = ["UI_Xaml"]
-UI_Xaml_Media_Animation = ["UI_Xaml_Media"]
-UI_Xaml_Media_Imaging = ["UI_Xaml_Media"]
-UI_Xaml_Media_Media3D = ["UI_Xaml_Media"]
-UI_Xaml_Navigation = ["UI_Xaml"]
-UI_Xaml_Printing = ["UI_Xaml"]
-UI_Xaml_Resources = ["UI_Xaml"]
-UI_Xaml_Shapes = ["UI_Xaml"]
+Wdk = []
+Wdk_System = ["Wdk"]
+Wdk_System_OfflineRegistry = ["Wdk_System"]
 Web = []
 Web_AtomPub = ["Web"]
 Web_Http = ["Web"]
@@ -474,6 +457,7 @@ Win32_Media_Audio_Endpoints = ["Win32_Media_Audio"]
 Win32_Media_Audio_XAudio2 = ["Win32_Media_Audio"]
 Win32_Media_DeviceManager = ["Win32_Media"]
 Win32_Media_DirectShow = ["Win32_Media"]
+Win32_Media_DirectShow_Tv = ["Win32_Media_DirectShow"]
 Win32_Media_DirectShow_Xml = ["Win32_Media_DirectShow"]
 Win32_Media_DxMediaObjects = ["Win32_Media"]
 Win32_Media_KernelStreaming = ["Win32_Media"]
@@ -580,6 +564,7 @@ Win32_System_Antimalware = ["Win32_System"]
 Win32_System_ApplicationInstallationAndServicing = ["Win32_System"]
 Win32_System_ApplicationVerifier = ["Win32_System"]
 Win32_System_AssessmentTool = ["Win32_System"]
+Win32_System_ClrHosting = ["Win32_System"]
 Win32_System_Com = ["Win32_System"]
 Win32_System_Com_CallObj = ["Win32_System_Com"]
 Win32_System_Com_ChannelCredentials = ["Win32_System_Com"]
@@ -598,8 +583,10 @@ Win32_System_DesktopSharing = ["Win32_System"]
 Win32_System_DeveloperLicensing = ["Win32_System"]
 Win32_System_Diagnostics = ["Win32_System"]
 Win32_System_Diagnostics_Ceip = ["Win32_System_Diagnostics"]
+Win32_System_Diagnostics_ClrProfiling = ["Win32_System_Diagnostics"]
 Win32_System_Diagnostics_Debug = ["Win32_System_Diagnostics"]
-Win32_System_Diagnostics_Debug_WebApp = ["Win32_System_Diagnostics_Debug"]
+Win32_System_Diagnostics_Debug_ActiveScript = ["Win32_System_Diagnostics_Debug"]
+Win32_System_Diagnostics_Debug_Extensions = ["Win32_System_Diagnostics_Debug"]
 Win32_System_Diagnostics_Etw = ["Win32_System_Diagnostics"]
 Win32_System_Diagnostics_ProcessSnapshotting = ["Win32_System_Diagnostics"]
 Win32_System_Diagnostics_ToolHelp = ["Win32_System_Diagnostics"]
@@ -654,7 +641,6 @@ Win32_System_SettingsManagementInfrastructure = ["Win32_System"]
 Win32_System_SetupAndMigration = ["Win32_System"]
 Win32_System_Shutdown = ["Win32_System"]
 Win32_System_SideShow = ["Win32_System"]
-Win32_System_SqlLite = ["Win32_System"]
 Win32_System_StationsAndDesktops = ["Win32_System"]
 Win32_System_SubsystemForLinux = ["Win32_System"]
 Win32_System_SystemInformation = ["Win32_System"]
@@ -682,11 +668,11 @@ Win32_System_WinRT_Holographic = ["Win32_System_WinRT"]
 Win32_System_WinRT_Isolation = ["Win32_System_WinRT"]
 Win32_System_WinRT_ML = ["Win32_System_WinRT"]
 Win32_System_WinRT_Media = ["Win32_System_WinRT"]
+Win32_System_WinRT_Metadata = ["Win32_System_WinRT"]
 Win32_System_WinRT_Pdf = ["Win32_System_WinRT"]
 Win32_System_WinRT_Printing = ["Win32_System_WinRT"]
 Win32_System_WinRT_Shell = ["Win32_System_WinRT"]
 Win32_System_WinRT_Storage = ["Win32_System_WinRT"]
-Win32_System_WinRT_Xaml = ["Win32_System_WinRT"]
 Win32_System_WindowsProgramming = ["Win32_System"]
 Win32_System_WindowsSync = ["Win32_System"]
 Win32_System_Wmi = ["Win32_System"]
@@ -718,41 +704,11 @@ Win32_UI_TabletPC = ["Win32_UI"]
 Win32_UI_TextServices = ["Win32_UI"]
 Win32_UI_WindowsAndMessaging = ["Win32_UI"]
 Win32_UI_Wpf = ["Win32_UI"]
-Win32_UI_Xaml = ["Win32_UI"]
-Win32_UI_Xaml_Diagnostics = ["Win32_UI_Xaml"]
 Win32_Web = ["Win32"]
-Win32_Web_MsHtml = ["Win32_Web"]
-alloc = []
+Win32_Web_InternetExplorer = ["Win32_Web"]
 default = []
 deprecated = []
-implement = ["windows-implement"]
-
-[target.aarch64-pc-windows-msvc.dependencies.windows_aarch64_msvc]
-version = "0.32.0"
-
-[target.aarch64-uwp-windows-msvc.dependencies.windows_aarch64_msvc]
-version = "0.32.0"
-
-[target.i686-pc-windows-gnu.dependencies.windows_i686_gnu]
-version = "0.32.0"
-
-[target.i686-pc-windows-msvc.dependencies.windows_i686_msvc]
-version = "0.32.0"
-
-[target.i686-uwp-windows-gnu.dependencies.windows_i686_gnu]
-version = "0.32.0"
-
-[target.i686-uwp-windows-msvc.dependencies.windows_i686_msvc]
-version = "0.32.0"
-
-[target.x86_64-pc-windows-gnu.dependencies.windows_x86_64_gnu]
-version = "0.32.0"
-
-[target.x86_64-pc-windows-msvc.dependencies.windows_x86_64_msvc]
-version = "0.32.0"
-
-[target.x86_64-uwp-windows-gnu.dependencies.windows_x86_64_gnu]
-version = "0.32.0"
-
-[target.x86_64-uwp-windows-msvc.dependencies.windows_x86_64_msvc]
-version = "0.32.0"
+implement = [
+    "windows-implement",
+    "windows-interface",
+]

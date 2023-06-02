@@ -1,120 +1,53 @@
 //! Information parsed from an input and format description.
 
+use core::mem::MaybeUninit;
 use core::num::{NonZeroU16, NonZeroU8};
 
+use crate::date_time::{maybe_offset_from_offset, offset_kind, DateTime, MaybeOffset};
 use crate::error::TryFromParsed::InsufficientInformation;
 use crate::format_description::modifier::{WeekNumberRepr, YearRepr};
+#[cfg(feature = "alloc")]
+use crate::format_description::OwnedFormatItem;
 use crate::format_description::{Component, FormatItem};
 use crate::parsing::component::{
-    parse_day, parse_hour, parse_minute, parse_month, parse_offset_hour, parse_offset_minute,
-    parse_offset_second, parse_ordinal, parse_period, parse_second, parse_subsecond,
-    parse_week_number, parse_weekday, parse_year, Period,
+    parse_day, parse_hour, parse_ignore, parse_minute, parse_month, parse_offset_hour,
+    parse_offset_minute, parse_offset_second, parse_ordinal, parse_period, parse_second,
+    parse_subsecond, parse_unix_timestamp, parse_week_number, parse_weekday, parse_year, Period,
 };
 use crate::parsing::ParsedItem;
 use crate::{error, Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset, Weekday};
 
-/// All information parsed.
-///
-/// This information is directly used to construct the final values.
-///
-/// Most users will not need think about this struct in any way. It is public to allow for manual
-/// control over values, in the instance that the default parser is insufficient.
-#[derive(Debug, Clone, Copy)]
-pub struct Parsed {
-    /// Calendar year.
-    year: Option<i32>,
-    /// The last two digits of the calendar year.
-    year_last_two: Option<u8>,
-    /// Year of the [ISO week date](https://en.wikipedia.org/wiki/ISO_week_date).
-    iso_year: Option<i32>,
-    /// The last two digits of the ISO week year.
-    iso_year_last_two: Option<u8>,
-    /// Month of the year.
-    month: Option<Month>,
-    /// Week of the year, where week one begins on the first Sunday of the calendar year.
-    sunday_week_number: Option<u8>,
-    /// Week of the year, where week one begins on the first Monday of the calendar year.
-    monday_week_number: Option<u8>,
-    /// Week of the year, where week one is the Monday-to-Sunday period containing January 4.
-    iso_week_number: Option<NonZeroU8>,
-    /// Day of the week.
-    weekday: Option<Weekday>,
-    /// Day of the year.
-    ordinal: Option<NonZeroU16>,
-    /// Day of the month.
-    day: Option<NonZeroU8>,
-    /// Hour within the day.
-    hour_24: Option<u8>,
-    /// Hour within the 12-hour period (midnight to noon or vice versa). This is typically used in
-    /// conjunction with AM/PM, which is indicated by the `hour_12_is_pm` field.
-    hour_12: Option<NonZeroU8>,
-    /// Whether the `hour_12` field indicates a time that "PM".
-    hour_12_is_pm: Option<bool>,
-    /// Minute within the hour.
-    minute: Option<u8>,
-    /// Second within the minute.
-    second: Option<u8>,
-    /// Nanosecond within the second.
-    subsecond: Option<u32>,
-    /// Whole hours of the UTC offset.
-    offset_hour: Option<i8>,
-    /// Minutes within the hour of the UTC offset.
-    offset_minute: Option<i8>,
-    /// Seconds within the minute of the UTC offset.
-    offset_second: Option<i8>,
-    /// Indicates whether a leap second is permitted to be parsed. This is required by some
-    /// well-known formats.
-    leap_second_allowed: bool,
+/// Sealed to prevent downstream implementations.
+mod sealed {
+    use super::*;
+
+    /// A trait to allow `parse_item` to be generic.
+    pub trait AnyFormatItem {
+        /// Parse a single item, returning the remaining input on success.
+        fn parse_item<'a>(
+            &self,
+            parsed: &mut Parsed,
+            input: &'a [u8],
+        ) -> Result<&'a [u8], error::ParseFromDescription>;
+    }
 }
 
-impl Parsed {
-    /// Create a new instance of `Parsed` with no information known.
-    pub const fn new() -> Self {
-        Self {
-            year: None,
-            year_last_two: None,
-            iso_year: None,
-            iso_year_last_two: None,
-            month: None,
-            sunday_week_number: None,
-            monday_week_number: None,
-            iso_week_number: None,
-            weekday: None,
-            ordinal: None,
-            day: None,
-            hour_24: None,
-            hour_12: None,
-            hour_12_is_pm: None,
-            minute: None,
-            second: None,
-            subsecond: None,
-            offset_hour: None,
-            offset_minute: None,
-            offset_second: None,
-            leap_second_allowed: false,
-        }
-    }
-
-    /// Parse a single [`FormatItem`], mutating the struct. The remaining input is returned as the
-    /// `Ok` value.
-    ///
-    /// If a [`FormatItem::Optional`] is passed, parsing will not fail; the input will be returned
-    /// as-is if the expected format is not present.
-    pub fn parse_item<'a>(
-        &mut self,
+impl sealed::AnyFormatItem for FormatItem<'_> {
+    fn parse_item<'a>(
+        &self,
+        parsed: &mut Parsed,
         input: &'a [u8],
-        item: &FormatItem<'_>,
     ) -> Result<&'a [u8], error::ParseFromDescription> {
-        match item {
-            FormatItem::Literal(literal) => Self::parse_literal(input, literal),
-            FormatItem::Component(component) => self.parse_component(input, *component),
-            FormatItem::Compound(compound) => self.parse_items(input, compound),
-            FormatItem::Optional(item) => self.parse_item(input, item).or(Ok(input)),
-            FormatItem::First(items) => {
+        match self {
+            Self::Literal(literal) => Parsed::parse_literal(input, literal),
+            Self::Component(component) => parsed.parse_component(input, *component),
+            Self::Compound(compound) => parsed.parse_items(input, compound),
+            Self::Optional(item) => parsed.parse_item(input, *item).or(Ok(input)),
+            Self::First(items) => {
                 let mut first_err = None;
 
                 for item in items.iter() {
-                    match self.parse_item(input, item) {
+                    match parsed.parse_item(input, item) {
                         Ok(remaining_input) => return Ok(remaining_input),
                         Err(err) if first_err.is_none() => first_err = Some(err),
                         Err(_) => {}
@@ -130,16 +63,179 @@ impl Parsed {
             }
         }
     }
+}
 
-    /// Parse a sequence of [`FormatItem`]s, mutating the struct. The remaining input is returned as
-    /// the `Ok` value.
+#[cfg(feature = "alloc")]
+impl sealed::AnyFormatItem for OwnedFormatItem {
+    fn parse_item<'a>(
+        &self,
+        parsed: &mut Parsed,
+        input: &'a [u8],
+    ) -> Result<&'a [u8], error::ParseFromDescription> {
+        match self {
+            Self::Literal(literal) => Parsed::parse_literal(input, literal),
+            Self::Component(component) => parsed.parse_component(input, *component),
+            Self::Compound(compound) => parsed.parse_items(input, compound),
+            Self::Optional(item) => parsed.parse_item(input, item.as_ref()).or(Ok(input)),
+            Self::First(items) => {
+                let mut first_err = None;
+
+                for item in items.iter() {
+                    match parsed.parse_item(input, item) {
+                        Ok(remaining_input) => return Ok(remaining_input),
+                        Err(err) if first_err.is_none() => first_err = Some(err),
+                        Err(_) => {}
+                    }
+                }
+
+                match first_err {
+                    Some(err) => Err(err),
+                    // This location will be reached if the slice is empty, skipping the `for` loop.
+                    // As this case is expected to be uncommon, there's no need to check up front.
+                    None => Ok(input),
+                }
+            }
+        }
+    }
+}
+
+/// The type of the `flags` field in [`Parsed`]. Allows for changing a single location and having it
+/// effect all uses.
+type Flag = u32;
+
+/// All information parsed.
+///
+/// This information is directly used to construct the final values.
+///
+/// Most users will not need think about this struct in any way. It is public to allow for manual
+/// control over values, in the instance that the default parser is insufficient.
+#[derive(Debug, Clone, Copy)]
+pub struct Parsed {
+    /// Bitflags indicating whether a particular field is present.
+    flags: Flag,
+    /// Calendar year.
+    year: MaybeUninit<i32>,
+    /// The last two digits of the calendar year.
+    year_last_two: MaybeUninit<u8>,
+    /// Year of the [ISO week date](https://en.wikipedia.org/wiki/ISO_week_date).
+    iso_year: MaybeUninit<i32>,
+    /// The last two digits of the ISO week year.
+    iso_year_last_two: MaybeUninit<u8>,
+    /// Month of the year.
+    month: Option<Month>,
+    /// Week of the year, where week one begins on the first Sunday of the calendar year.
+    sunday_week_number: MaybeUninit<u8>,
+    /// Week of the year, where week one begins on the first Monday of the calendar year.
+    monday_week_number: MaybeUninit<u8>,
+    /// Week of the year, where week one is the Monday-to-Sunday period containing January 4.
+    iso_week_number: Option<NonZeroU8>,
+    /// Day of the week.
+    weekday: Option<Weekday>,
+    /// Day of the year.
+    ordinal: Option<NonZeroU16>,
+    /// Day of the month.
+    day: Option<NonZeroU8>,
+    /// Hour within the day.
+    hour_24: MaybeUninit<u8>,
+    /// Hour within the 12-hour period (midnight to noon or vice versa). This is typically used in
+    /// conjunction with AM/PM, which is indicated by the `hour_12_is_pm` field.
+    hour_12: Option<NonZeroU8>,
+    /// Whether the `hour_12` field indicates a time that "PM".
+    hour_12_is_pm: Option<bool>,
+    /// Minute within the hour.
+    minute: MaybeUninit<u8>,
+    /// Second within the minute.
+    second: MaybeUninit<u8>,
+    /// Nanosecond within the second.
+    subsecond: MaybeUninit<u32>,
+    /// Whole hours of the UTC offset.
+    offset_hour: MaybeUninit<i8>,
+    /// Minutes within the hour of the UTC offset.
+    offset_minute: MaybeUninit<i8>,
+    /// Seconds within the minute of the UTC offset.
+    offset_second: MaybeUninit<i8>,
+    /// The Unix timestamp in nanoseconds.
+    unix_timestamp_nanos: MaybeUninit<i128>,
+}
+
+#[allow(clippy::missing_docs_in_private_items)]
+impl Parsed {
+    const YEAR_FLAG: Flag = 1 << 0;
+    const YEAR_LAST_TWO_FLAG: Flag = 1 << 1;
+    const ISO_YEAR_FLAG: Flag = 1 << 2;
+    const ISO_YEAR_LAST_TWO_FLAG: Flag = 1 << 3;
+    const SUNDAY_WEEK_NUMBER_FLAG: Flag = 1 << 4;
+    const MONDAY_WEEK_NUMBER_FLAG: Flag = 1 << 5;
+    const HOUR_24_FLAG: Flag = 1 << 6;
+    const MINUTE_FLAG: Flag = 1 << 7;
+    const SECOND_FLAG: Flag = 1 << 8;
+    const SUBSECOND_FLAG: Flag = 1 << 9;
+    const OFFSET_HOUR_FLAG: Flag = 1 << 10;
+    const OFFSET_MINUTE_FLAG: Flag = 1 << 11;
+    const OFFSET_SECOND_FLAG: Flag = 1 << 12;
+    /// Indicates whether a leap second is permitted to be parsed. This is required by some
+    /// well-known formats.
+    pub(super) const LEAP_SECOND_ALLOWED_FLAG: Flag = 1 << 13;
+    /// Indicates whether the `UtcOffset` is negative. This information is obtained when parsing the
+    /// offset hour, but may not otherwise be stored due to "-0" being equivalent to "0".
+    const OFFSET_IS_NEGATIVE_FLAG: Flag = 1 << 14;
+    /// Does the value at `OFFSET_IS_NEGATIVE_FLAG` have any semantic meaning, or is it just the
+    /// default value? If the latter, the value should be considered to have no meaning.
+    const OFFSET_IS_NEGATIVE_FLAG_IS_INITIALIZED: Flag = 1 << 15;
+    const UNIX_TIMESTAMP_NANOS_FLAG: Flag = 1 << 16;
+}
+
+impl Parsed {
+    /// Create a new instance of `Parsed` with no information known.
+    pub const fn new() -> Self {
+        Self {
+            flags: 0,
+            year: MaybeUninit::uninit(),
+            year_last_two: MaybeUninit::uninit(),
+            iso_year: MaybeUninit::uninit(),
+            iso_year_last_two: MaybeUninit::uninit(),
+            month: None,
+            sunday_week_number: MaybeUninit::uninit(),
+            monday_week_number: MaybeUninit::uninit(),
+            iso_week_number: None,
+            weekday: None,
+            ordinal: None,
+            day: None,
+            hour_24: MaybeUninit::uninit(),
+            hour_12: None,
+            hour_12_is_pm: None,
+            minute: MaybeUninit::uninit(),
+            second: MaybeUninit::uninit(),
+            subsecond: MaybeUninit::uninit(),
+            offset_hour: MaybeUninit::uninit(),
+            offset_minute: MaybeUninit::uninit(),
+            offset_second: MaybeUninit::uninit(),
+            unix_timestamp_nanos: MaybeUninit::uninit(),
+        }
+    }
+
+    /// Parse a single [`FormatItem`] or [`OwnedFormatItem`], mutating the struct. The remaining
+    /// input is returned as the `Ok` value.
     ///
-    /// This method will fail if any of the contained [`FormatItem`]s fail to parse. `self` will not
-    /// be mutated in this instance.
+    /// If a [`FormatItem::Optional`] or [`OwnedFormatItem::Optional`] is passed, parsing will not
+    /// fail; the input will be returned as-is if the expected format is not present.
+    pub fn parse_item<'a>(
+        &mut self,
+        input: &'a [u8],
+        item: &impl sealed::AnyFormatItem,
+    ) -> Result<&'a [u8], error::ParseFromDescription> {
+        item.parse_item(self, input)
+    }
+
+    /// Parse a sequence of [`FormatItem`]s or [`OwnedFormatItem`]s, mutating the struct. The
+    /// remaining input is returned as the `Ok` value.
+    ///
+    /// This method will fail if any of the contained [`FormatItem`]s or [`OwnedFormatItem`]s fail
+    /// to parse. `self` will not be mutated in this instance.
     pub fn parse_items<'a>(
         &mut self,
         mut input: &'a [u8],
-        items: &[FormatItem<'_>],
+        items: &[impl sealed::AnyFormatItem],
     ) -> Result<&'a [u8], error::ParseFromDescription> {
         // Make a copy that we can mutate. It will only be set to the user's copy if everything
         // succeeds.
@@ -234,7 +330,13 @@ impl Parsed {
                 .and_then(|parsed| parsed.consume_value(|value| self.set_subsecond(value)))
                 .ok_or(InvalidComponent("subsecond")),
             Component::OffsetHour(modifiers) => parse_offset_hour(input, modifiers)
-                .and_then(|parsed| parsed.consume_value(|value| self.set_offset_hour(value)))
+                .and_then(|parsed| {
+                    parsed.consume_value(|(value, is_negative)| {
+                        self.set_flag(Self::OFFSET_IS_NEGATIVE_FLAG_IS_INITIALIZED, true);
+                        self.set_flag(Self::OFFSET_IS_NEGATIVE_FLAG, is_negative);
+                        self.set_offset_hour(value)
+                    })
+                })
                 .ok_or(InvalidComponent("offset hour")),
             Component::OffsetMinute(modifiers) => parse_offset_minute(input, modifiers)
                 .and_then(|parsed| {
@@ -246,44 +348,82 @@ impl Parsed {
                     parsed.consume_value(|value| self.set_offset_second_signed(value))
                 })
                 .ok_or(InvalidComponent("offset second")),
+            Component::Ignore(modifiers) => parse_ignore(input, modifiers)
+                .map(ParsedItem::<()>::into_inner)
+                .ok_or(InvalidComponent("ignore")),
+            Component::UnixTimestamp(modifiers) => parse_unix_timestamp(input, modifiers)
+                .and_then(|parsed| {
+                    parsed.consume_value(|value| self.set_unix_timestamp_nanos(value))
+                })
+                .ok_or(InvalidComponent("unix_timestamp")),
+        }
+    }
+
+    /// Get the value of the provided flag.
+    const fn get_flag(&self, flag: Flag) -> bool {
+        self.flags & flag == flag
+    }
+
+    /// Set the value of the provided flag.
+    pub(super) fn set_flag(&mut self, flag: Flag, value: bool) {
+        if value {
+            self.flags |= flag;
+        } else {
+            self.flags &= !flag;
         }
     }
 }
 
 /// Generate getters for each of the fields.
 macro_rules! getters {
-    ($($name:ident: $ty:ty),+ $(,)?) => {$(
+    ($($(@$flag:ident)? $name:ident: $ty:ty),+ $(,)?) => {$(
+        getters!(! $(@$flag)? $name: $ty);
+    )*};
+    (! $name:ident : $ty:ty) => {
         /// Obtain the named component.
         pub const fn $name(&self) -> Option<$ty> {
             self.$name
         }
-    )*}
+    };
+    (! @$flag:ident $name:ident : $ty:ty) => {
+        /// Obtain the named component.
+        pub const fn $name(&self) -> Option<$ty> {
+            if !self.get_flag(Self::$flag) {
+                None
+            } else {
+                // SAFETY: We just checked if the field is present.
+                Some(unsafe { self.$name.assume_init() })
+            }
+        }
+    };
 }
 
 /// Getter methods
 impl Parsed {
     getters! {
-        year: i32,
-        year_last_two: u8,
-        iso_year: i32,
-        iso_year_last_two: u8,
+        @YEAR_FLAG year: i32,
+        @YEAR_LAST_TWO_FLAG year_last_two: u8,
+        @ISO_YEAR_FLAG iso_year: i32,
+        @ISO_YEAR_LAST_TWO_FLAG iso_year_last_two: u8,
         month: Month,
-        sunday_week_number: u8,
-        monday_week_number: u8,
+        @SUNDAY_WEEK_NUMBER_FLAG sunday_week_number: u8,
+        @MONDAY_WEEK_NUMBER_FLAG monday_week_number: u8,
         iso_week_number: NonZeroU8,
         weekday: Weekday,
         ordinal: NonZeroU16,
         day: NonZeroU8,
-        hour_24: u8,
+        @HOUR_24_FLAG hour_24: u8,
         hour_12: NonZeroU8,
         hour_12_is_pm: bool,
-        minute: u8,
-        second: u8,
-        subsecond: u32,
-        offset_hour: i8,
+        @MINUTE_FLAG minute: u8,
+        @SECOND_FLAG second: u8,
+        @SUBSECOND_FLAG subsecond: u32,
+        @OFFSET_HOUR_FLAG offset_hour: i8,
+        @UNIX_TIMESTAMP_NANOS_FLAG unix_timestamp_nanos: i128,
     }
 
     /// Obtain the absolute value of the offset minute.
+    #[doc(hidden)]
     #[deprecated(since = "0.3.8", note = "use `parsed.offset_minute_signed()` instead")]
     pub const fn offset_minute(&self) -> Option<u8> {
         Some(const_try_opt!(self.offset_minute_signed()).unsigned_abs())
@@ -291,10 +431,24 @@ impl Parsed {
 
     /// Obtain the offset minute as an `i8`.
     pub const fn offset_minute_signed(&self) -> Option<i8> {
-        self.offset_minute
+        if !self.get_flag(Self::OFFSET_MINUTE_FLAG) {
+            None
+        } else {
+            // SAFETY: We just checked if the field is present.
+            let value = unsafe { self.offset_minute.assume_init() };
+
+            if self.get_flag(Self::OFFSET_IS_NEGATIVE_FLAG_IS_INITIALIZED)
+                && (value.is_negative() != self.get_flag(Self::OFFSET_IS_NEGATIVE_FLAG))
+            {
+                Some(-value)
+            } else {
+                Some(value)
+            }
+        }
     }
 
     /// Obtain the absolute value of the offset second.
+    #[doc(hidden)]
     #[deprecated(since = "0.3.8", note = "use `parsed.offset_second_signed()` instead")]
     pub const fn offset_second(&self) -> Option<u8> {
         Some(const_try_opt!(self.offset_second_signed()).unsigned_abs())
@@ -302,12 +456,20 @@ impl Parsed {
 
     /// Obtain the offset second as an `i8`.
     pub const fn offset_second_signed(&self) -> Option<i8> {
-        self.offset_second
-    }
+        if !self.get_flag(Self::OFFSET_SECOND_FLAG) {
+            None
+        } else {
+            // SAFETY: We just checked if the field is present.
+            let value = unsafe { self.offset_second.assume_init() };
 
-    /// Obtain whether leap seconds are permitted in the current format.
-    pub(crate) const fn leap_second_allowed(&self) -> bool {
-        self.leap_second_allowed
+            if self.get_flag(Self::OFFSET_IS_NEGATIVE_FLAG_IS_INITIALIZED)
+                && (value.is_negative() != self.get_flag(Self::OFFSET_IS_NEGATIVE_FLAG))
+            {
+                Some(-value)
+            } else {
+                Some(value)
+            }
+        }
     }
 }
 
@@ -315,13 +477,24 @@ impl Parsed {
 ///
 /// This macro should only be used for fields where the value is not validated beyond its type.
 macro_rules! setters {
-    ($($setter_name:ident $name:ident: $ty:ty),+ $(,)?) => {$(
+    ($($(@$flag:ident)? $setter_name:ident $name:ident: $ty:ty),+ $(,)?) => {$(
+        setters!(! $(@$flag)? $setter_name $name: $ty);
+    )*};
+    (! $setter_name:ident $name:ident : $ty:ty) => {
         /// Set the named component.
         pub fn $setter_name(&mut self, value: $ty) -> Option<()> {
             self.$name = Some(value);
             Some(())
         }
-    )*}
+    };
+    (! @$flag:ident $setter_name:ident $name:ident : $ty:ty) => {
+        /// Set the named component.
+        pub fn $setter_name(&mut self, value: $ty) -> Option<()> {
+            self.$name = MaybeUninit::new(value);
+            self.set_flag(Self::$flag, true);
+            Some(())
+        }
+    };
 }
 
 /// Setter methods
@@ -330,27 +503,29 @@ macro_rules! setters {
 /// setters _may_ fail if the value is invalid, though behavior is not guaranteed.
 impl Parsed {
     setters! {
-        set_year year: i32,
-        set_year_last_two year_last_two: u8,
-        set_iso_year iso_year: i32,
-        set_iso_year_last_two iso_year_last_two: u8,
+        @YEAR_FLAG set_year year: i32,
+        @YEAR_LAST_TWO_FLAG set_year_last_two year_last_two: u8,
+        @ISO_YEAR_FLAG set_iso_year iso_year: i32,
+        @ISO_YEAR_LAST_TWO_FLAG set_iso_year_last_two iso_year_last_two: u8,
         set_month month: Month,
-        set_sunday_week_number sunday_week_number: u8,
-        set_monday_week_number monday_week_number: u8,
+        @SUNDAY_WEEK_NUMBER_FLAG set_sunday_week_number sunday_week_number: u8,
+        @MONDAY_WEEK_NUMBER_FLAG set_monday_week_number monday_week_number: u8,
         set_iso_week_number iso_week_number: NonZeroU8,
         set_weekday weekday: Weekday,
         set_ordinal ordinal: NonZeroU16,
         set_day day: NonZeroU8,
-        set_hour_24 hour_24: u8,
+        @HOUR_24_FLAG set_hour_24 hour_24: u8,
         set_hour_12 hour_12: NonZeroU8,
         set_hour_12_is_pm hour_12_is_pm: bool,
-        set_minute minute: u8,
-        set_second second: u8,
-        set_subsecond subsecond: u32,
-        set_offset_hour offset_hour: i8,
+        @MINUTE_FLAG set_minute minute: u8,
+        @SECOND_FLAG set_second second: u8,
+        @SUBSECOND_FLAG set_subsecond subsecond: u32,
+        @OFFSET_HOUR_FLAG set_offset_hour offset_hour: i8,
+        @UNIX_TIMESTAMP_NANOS_FLAG set_unix_timestamp_nanos unix_timestamp_nanos: i128,
     }
 
     /// Set the named component.
+    #[doc(hidden)]
     #[deprecated(
         since = "0.3.8",
         note = "use `parsed.set_offset_minute_signed()` instead"
@@ -365,11 +540,13 @@ impl Parsed {
 
     /// Set the `offset_minute` component.
     pub fn set_offset_minute_signed(&mut self, value: i8) -> Option<()> {
-        self.offset_minute = Some(value);
+        self.offset_minute = MaybeUninit::new(value);
+        self.set_flag(Self::OFFSET_MINUTE_FLAG, true);
         Some(())
     }
 
     /// Set the named component.
+    #[doc(hidden)]
     #[deprecated(
         since = "0.3.8",
         note = "use `parsed.set_offset_second_signed()` instead"
@@ -384,13 +561,9 @@ impl Parsed {
 
     /// Set the `offset_second` component.
     pub fn set_offset_second_signed(&mut self, value: i8) -> Option<()> {
-        self.offset_second = Some(value);
+        self.offset_second = MaybeUninit::new(value);
+        self.set_flag(Self::OFFSET_SECOND_FLAG, true);
         Some(())
-    }
-
-    /// Set the leap second allowed flag.
-    pub(crate) fn set_leap_second_allowed(&mut self, value: bool) {
-        self.leap_second_allowed = value;
     }
 }
 
@@ -398,13 +571,24 @@ impl Parsed {
 ///
 /// This macro should only be used for fields where the value is not validated beyond its type.
 macro_rules! builders {
-    ($($builder_name:ident $name:ident: $ty:ty),+ $(,)?) => {$(
+    ($($(@$flag:ident)? $builder_name:ident $name:ident: $ty:ty),+ $(,)?) => {$(
+        builders!(! $(@$flag)? $builder_name $name: $ty);
+    )*};
+    (! $builder_name:ident $name:ident : $ty:ty) => {
         /// Set the named component and return `self`.
         pub const fn $builder_name(mut self, value: $ty) -> Option<Self> {
             self.$name = Some(value);
             Some(self)
         }
-    )*}
+    };
+    (! @$flag:ident $builder_name:ident $name:ident : $ty:ty) => {
+        /// Set the named component and return `self`.
+        pub const fn $builder_name(mut self, value: $ty) -> Option<Self> {
+            self.$name = MaybeUninit::new(value);
+            self.flags |= Self::$flag;
+            Some(self)
+        }
+    };
 }
 
 /// Builder methods
@@ -413,27 +597,29 @@ macro_rules! builders {
 /// not. The builder methods _may_ fail if the value is invalid, though behavior is not guaranteed.
 impl Parsed {
     builders! {
-        with_year year: i32,
-        with_year_last_two year_last_two: u8,
-        with_iso_year iso_year: i32,
-        with_iso_year_last_two iso_year_last_two: u8,
+        @YEAR_FLAG with_year year: i32,
+        @YEAR_LAST_TWO_FLAG with_year_last_two year_last_two: u8,
+        @ISO_YEAR_FLAG with_iso_year iso_year: i32,
+        @ISO_YEAR_LAST_TWO_FLAG with_iso_year_last_two iso_year_last_two: u8,
         with_month month: Month,
-        with_sunday_week_number sunday_week_number: u8,
-        with_monday_week_number monday_week_number: u8,
+        @SUNDAY_WEEK_NUMBER_FLAG with_sunday_week_number sunday_week_number: u8,
+        @MONDAY_WEEK_NUMBER_FLAG with_monday_week_number monday_week_number: u8,
         with_iso_week_number iso_week_number: NonZeroU8,
         with_weekday weekday: Weekday,
         with_ordinal ordinal: NonZeroU16,
         with_day day: NonZeroU8,
-        with_hour_24 hour_24: u8,
+        @HOUR_24_FLAG with_hour_24 hour_24: u8,
         with_hour_12 hour_12: NonZeroU8,
         with_hour_12_is_pm hour_12_is_pm: bool,
-        with_minute minute: u8,
-        with_second second: u8,
-        with_subsecond subsecond: u32,
-        with_offset_hour offset_hour: i8,
+        @MINUTE_FLAG with_minute minute: u8,
+        @SECOND_FLAG with_second second: u8,
+        @SUBSECOND_FLAG with_subsecond subsecond: u32,
+        @OFFSET_HOUR_FLAG with_offset_hour offset_hour: i8,
+        @UNIX_TIMESTAMP_NANOS_FLAG with_unix_timestamp_nanos unix_timestamp_nanos: i128,
     }
 
     /// Set the named component and return `self`.
+    #[doc(hidden)]
     #[deprecated(
         since = "0.3.8",
         note = "use `parsed.with_offset_minute_signed()` instead"
@@ -448,11 +634,13 @@ impl Parsed {
 
     /// Set the `offset_minute` component and return `self`.
     pub const fn with_offset_minute_signed(mut self, value: i8) -> Option<Self> {
-        self.offset_minute = Some(value);
+        self.offset_minute = MaybeUninit::new(value);
+        self.flags |= Self::OFFSET_MINUTE_FLAG;
         Some(self)
     }
 
     /// Set the named component and return `self`.
+    #[doc(hidden)]
     #[deprecated(
         since = "0.3.8",
         note = "use `parsed.with_offset_second_signed()` instead"
@@ -467,7 +655,8 @@ impl Parsed {
 
     /// Set the `offset_second` component and return `self`.
     pub const fn with_offset_second_signed(mut self, value: i8) -> Option<Self> {
-        self.offset_second = Some(value);
+        self.offset_second = MaybeUninit::new(value);
+        self.flags |= Self::OFFSET_SECOND_FLAG;
         Some(self)
     }
 }
@@ -583,31 +772,58 @@ impl TryFrom<Parsed> for UtcOffset {
 }
 
 impl TryFrom<Parsed> for PrimitiveDateTime {
-    type Error = error::TryFromParsed;
+    type Error = <DateTime<offset_kind::None> as TryFrom<Parsed>>::Error;
 
     fn try_from(parsed: Parsed) -> Result<Self, Self::Error> {
-        Ok(Self::new(parsed.try_into()?, parsed.try_into()?))
+        parsed.try_into().map(Self)
     }
 }
 
 impl TryFrom<Parsed> for OffsetDateTime {
+    type Error = <DateTime<offset_kind::Fixed> as TryFrom<Parsed>>::Error;
+
+    fn try_from(parsed: Parsed) -> Result<Self, Self::Error> {
+        parsed.try_into().map(Self)
+    }
+}
+
+impl<O: MaybeOffset> TryFrom<Parsed> for DateTime<O> {
     type Error = error::TryFromParsed;
 
     #[allow(clippy::unwrap_in_result)] // We know the values are valid.
     fn try_from(mut parsed: Parsed) -> Result<Self, Self::Error> {
+        if O::HAS_LOGICAL_OFFSET {
+            if let Some(timestamp) = parsed.unix_timestamp_nanos() {
+                let DateTime { date, time, offset } =
+                    DateTime::<offset_kind::Fixed>::from_unix_timestamp_nanos(timestamp)?;
+                return Ok(Self {
+                    date,
+                    time,
+                    offset: maybe_offset_from_offset::<O>(offset),
+                });
+            }
+        }
+
         // Some well-known formats explicitly allow leap seconds. We don't currently support them,
         // so treat it as the nearest preceding moment that can be represented. Because leap seconds
         // always fall at the end of a month UTC, reject any that are at other times.
-        let leap_second_input = if parsed.leap_second_allowed() && parsed.second() == Some(60) {
-            parsed.set_second(59).expect("59 is a valid second");
-            parsed
-                .set_subsecond(999_999_999)
-                .expect("999_999_999 is a valid subsecond");
-            true
-        } else {
-            false
+        let leap_second_input =
+            if parsed.get_flag(Parsed::LEAP_SECOND_ALLOWED_FLAG) && parsed.second() == Some(60) {
+                parsed.set_second(59).expect("59 is a valid second");
+                parsed
+                    .set_subsecond(999_999_999)
+                    .expect("999_999_999 is a valid subsecond");
+                true
+            } else {
+                false
+            };
+
+        let dt = Self {
+            date: Date::try_from(parsed)?,
+            time: Time::try_from(parsed)?,
+            offset: O::try_from_parsed(parsed)?,
         };
-        let dt = PrimitiveDateTime::try_from(parsed)?.assume_offset(parsed.try_into()?);
+
         if leap_second_input && !dt.is_valid_leap_second_stand_in() {
             return Err(error::TryFromParsed::ComponentRange(
                 error::ComponentRange {

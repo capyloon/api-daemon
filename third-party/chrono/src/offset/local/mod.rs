@@ -8,12 +8,19 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use super::fixed::FixedOffset;
 use super::{LocalResult, TimeZone};
-use crate::naive::{NaiveDate, NaiveDateTime};
+use crate::naive::{NaiveDate, NaiveDateTime, NaiveTime};
 #[allow(deprecated)]
-use crate::{Date, DateTime};
+use crate::Date;
+use crate::{DateTime, Utc};
 
-// we don't want `stub.rs` when the target_os is not wasi or emscripten
-// as we use js-sys to get the date instead
+#[cfg(unix)]
+#[path = "unix.rs"]
+mod inner;
+
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod inner;
+
 #[cfg(all(
     not(unix),
     not(windows),
@@ -23,16 +30,37 @@ use crate::{Date, DateTime};
         not(any(target_os = "emscripten", target_os = "wasi"))
     ))
 ))]
-#[path = "stub.rs"]
-mod inner;
+mod inner {
+    use crate::{FixedOffset, LocalResult, NaiveDateTime};
 
-#[cfg(unix)]
-#[path = "unix.rs"]
-mod inner;
+    pub(super) fn offset_from_utc_datetime(_utc_time: &NaiveDateTime) -> LocalResult<FixedOffset> {
+        LocalResult::Single(FixedOffset::east_opt(0).unwrap())
+    }
 
-#[cfg(windows)]
-#[path = "windows.rs"]
-mod inner;
+    pub(super) fn offset_from_local_datetime(
+        _local_time: &NaiveDateTime,
+    ) -> LocalResult<FixedOffset> {
+        LocalResult::Single(FixedOffset::east_opt(0).unwrap())
+    }
+}
+
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "wasmbind",
+    not(any(target_os = "emscripten", target_os = "wasi"))
+))]
+mod inner {
+    use crate::{FixedOffset, LocalResult, NaiveDateTime};
+
+    pub(super) fn offset_from_utc_datetime(_utc: &NaiveDateTime) -> LocalResult<FixedOffset> {
+        let offset = js_sys::Date::new_0().get_timezone_offset();
+        LocalResult::Single(FixedOffset::west_opt((offset as i32) * 60).unwrap())
+    }
+
+    pub(super) fn offset_from_local_datetime(local: &NaiveDateTime) -> LocalResult<FixedOffset> {
+        offset_from_utc_datetime(local)
+    }
+}
 
 #[cfg(unix)]
 mod tz_info;
@@ -48,8 +76,9 @@ mod tz_info;
 /// ```
 /// use chrono::{Local, DateTime, TimeZone};
 ///
-/// let dt: DateTime<Local> = Local::now();
-/// let dt: DateTime<Local> = Local.timestamp(0, 0);
+/// let dt1: DateTime<Local> = Local::now();
+/// let dt2: DateTime<Local> = Local.timestamp_opt(0, 0).unwrap();
+/// assert!(dt1 >= dt2);
 /// ```
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "rkyv", derive(Archive, Deserialize, Serialize))]
@@ -60,6 +89,7 @@ impl Local {
     /// Returns a `Date` which corresponds to the current date.
     #[deprecated(since = "0.4.23", note = "use `Local::now()` instead")]
     #[allow(deprecated)]
+    #[must_use]
     pub fn today() -> Date<Local> {
         Local::now().date()
     }
@@ -70,8 +100,9 @@ impl Local {
         feature = "wasmbind",
         not(any(target_os = "emscripten", target_os = "wasi"))
     )))]
+    #[must_use]
     pub fn now() -> DateTime<Local> {
-        inner::now()
+        Utc::now().with_timezone(&Local)
     }
 
     /// Returns a `DateTime` which corresponds to the current date and time.
@@ -80,6 +111,7 @@ impl Local {
         feature = "wasmbind",
         not(any(target_os = "emscripten", target_os = "wasi"))
     ))]
+    #[must_use]
     pub fn now() -> DateTime<Local> {
         use super::Utc;
         let now: DateTime<Utc> = super::Utc::now();
@@ -99,87 +131,24 @@ impl TimeZone for Local {
         Local
     }
 
-    // they are easier to define in terms of the finished date and time unlike other offsets
     #[allow(deprecated)]
     fn offset_from_local_date(&self, local: &NaiveDate) -> LocalResult<FixedOffset> {
-        self.from_local_date(local).map(|date| *date.offset())
+        // Get the offset at local midnight.
+        self.offset_from_local_datetime(&local.and_time(NaiveTime::MIN))
     }
 
     fn offset_from_local_datetime(&self, local: &NaiveDateTime) -> LocalResult<FixedOffset> {
-        self.from_local_datetime(local).map(|datetime| *datetime.offset())
+        inner::offset_from_local_datetime(local)
     }
 
     #[allow(deprecated)]
     fn offset_from_utc_date(&self, utc: &NaiveDate) -> FixedOffset {
-        *self.from_utc_date(utc).offset()
+        // Get the offset at midnight.
+        self.offset_from_utc_datetime(&utc.and_time(NaiveTime::MIN))
     }
 
     fn offset_from_utc_datetime(&self, utc: &NaiveDateTime) -> FixedOffset {
-        *self.from_utc_datetime(utc).offset()
-    }
-
-    // override them for avoiding redundant works
-    #[allow(deprecated)]
-    fn from_local_date(&self, local: &NaiveDate) -> LocalResult<Date<Local>> {
-        // this sounds very strange, but required for keeping `TimeZone::ymd` sane.
-        // in the other words, we use the offset at the local midnight
-        // but keep the actual date unaltered (much like `FixedOffset`).
-        let midnight = self.from_local_datetime(&local.and_hms_opt(0, 0, 0).unwrap());
-        midnight.map(|datetime| Date::from_utc(*local, *datetime.offset()))
-    }
-
-    #[cfg(all(
-        target_arch = "wasm32",
-        feature = "wasmbind",
-        not(any(target_os = "emscripten", target_os = "wasi"))
-    ))]
-    fn from_local_datetime(&self, local: &NaiveDateTime) -> LocalResult<DateTime<Local>> {
-        let mut local = local.clone();
-        // Get the offset from the js runtime
-        let offset =
-            FixedOffset::west_opt((js_sys::Date::new_0().get_timezone_offset() as i32) * 60)
-                .unwrap();
-        local -= crate::Duration::seconds(offset.local_minus_utc() as i64);
-        LocalResult::Single(DateTime::from_utc(local, offset))
-    }
-
-    #[cfg(not(all(
-        target_arch = "wasm32",
-        feature = "wasmbind",
-        not(any(target_os = "emscripten", target_os = "wasi"))
-    )))]
-    fn from_local_datetime(&self, local: &NaiveDateTime) -> LocalResult<DateTime<Local>> {
-        inner::naive_to_local(local, true)
-    }
-
-    #[allow(deprecated)]
-    fn from_utc_date(&self, utc: &NaiveDate) -> Date<Local> {
-        let midnight = self.from_utc_datetime(&utc.and_hms_opt(0, 0, 0).unwrap());
-        Date::from_utc(*utc, *midnight.offset())
-    }
-
-    #[cfg(all(
-        target_arch = "wasm32",
-        feature = "wasmbind",
-        not(any(target_os = "emscripten", target_os = "wasi"))
-    ))]
-    fn from_utc_datetime(&self, utc: &NaiveDateTime) -> DateTime<Local> {
-        // Get the offset from the js runtime
-        let offset =
-            FixedOffset::west_opt((js_sys::Date::new_0().get_timezone_offset() as i32) * 60)
-                .unwrap();
-        DateTime::from_utc(*utc, offset)
-    }
-
-    #[cfg(not(all(
-        target_arch = "wasm32",
-        feature = "wasmbind",
-        not(any(target_os = "emscripten", target_os = "wasi"))
-    )))]
-    fn from_utc_datetime(&self, utc: &NaiveDateTime) -> DateTime<Local> {
-        // this is OK to unwrap as getting local time from a UTC
-        // timestamp is never ambiguous
-        inner::naive_to_local(utc, false).unwrap()
+        inner::offset_from_utc_datetime(utc).unwrap()
     }
 }
 
@@ -243,18 +212,32 @@ mod tests {
         // issue #123
         let today = Utc::now().date_naive();
 
-        let dt = today.and_hms_milli_opt(1, 2, 59, 1000).unwrap();
-        let timestr = dt.time().to_string();
-        // the OS API may or may not support the leap second,
-        // but there are only two sensible options.
-        assert!(timestr == "01:02:60" || timestr == "01:03:00", "unexpected timestr {:?}", timestr);
+        if let Some(dt) = today.and_hms_milli_opt(15, 2, 59, 1000) {
+            let timestr = dt.time().to_string();
+            // the OS API may or may not support the leap second,
+            // but there are only two sensible options.
+            assert!(
+                timestr == "15:02:60" || timestr == "15:03:00",
+                "unexpected timestr {:?}",
+                timestr
+            );
+        }
 
-        let dt = today.and_hms_milli_opt(1, 2, 3, 1234).unwrap();
-        let timestr = dt.time().to_string();
-        assert!(
-            timestr == "01:02:03.234" || timestr == "01:02:04.234",
-            "unexpected timestr {:?}",
-            timestr
-        );
+        if let Some(dt) = today.and_hms_milli_opt(15, 2, 3, 1234) {
+            let timestr = dt.time().to_string();
+            assert!(
+                timestr == "15:02:03.234" || timestr == "15:02:04.234",
+                "unexpected timestr {:?}",
+                timestr
+            );
+        }
+    }
+
+    /// Test Issue #866
+    #[test]
+    fn test_issue_866() {
+        #[allow(deprecated)]
+        let local_20221106 = Local.ymd(2022, 11, 6);
+        let _dt_20221106 = local_20221106.and_hms_milli_opt(1, 2, 59, 1000).unwrap();
     }
 }

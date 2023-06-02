@@ -90,7 +90,7 @@ impl<'v> ValueBag<'v> {
     ///
     /// This method is cheap for primitive types. It won't allocate an owned
     /// `String` if the value is a complex type.
-    pub fn to_borrowed_str(&self) -> Option<&str> {
+    pub fn to_borrowed_str(&self) -> Option<&'v str> {
         self.inner.cast().into_borrowed_str()
     }
 
@@ -106,8 +106,8 @@ impl<'v> ValueBag<'v> {
             Internal::Display(value) => value.as_any().downcast_ref(),
             #[cfg(feature = "error")]
             Internal::Error(value) => value.as_any().downcast_ref(),
-            #[cfg(feature = "sval1")]
-            Internal::Sval1(value) => value.as_any().downcast_ref(),
+            #[cfg(feature = "sval2")]
+            Internal::Sval2(value) => value.as_any().downcast_ref(),
             #[cfg(feature = "serde1")]
             Internal::Serde1(value) => value.as_any().downcast_ref(),
             _ => None,
@@ -118,7 +118,7 @@ impl<'v> ValueBag<'v> {
 impl<'v> Internal<'v> {
     /// Cast the inner value to another type.
     #[inline]
-    fn cast(self) -> Cast<'v> {
+    fn cast(&self) -> Cast<'v> {
         struct CastVisitor<'v>(Cast<'v>);
 
         impl<'v> InternalVisitor<'v> for CastVisitor<'v> {
@@ -205,10 +205,15 @@ impl<'v> Internal<'v> {
                 Ok(())
             }
 
-            #[cfg(feature = "sval1")]
+            #[cfg(feature = "sval2")]
             #[inline]
-            fn sval1(&mut self, v: &dyn super::sval::v1::Value) -> Result<(), Error> {
-                super::sval::v1::internal_visit(v, self)
+            fn sval2(&mut self, v: &dyn super::sval::v2::Value) -> Result<(), Error> {
+                super::sval::v2::internal_visit(v, self)
+            }
+
+            #[cfg(feature = "sval2")]
+            fn borrowed_sval2(&mut self, v: &'v dyn super::sval::v2::Value) -> Result<(), Error> {
+                super::sval::v2::borrowed_internal_visit(v, self)
             }
 
             #[cfg(feature = "serde1")]
@@ -221,7 +226,13 @@ impl<'v> Internal<'v> {
         match &self {
             Internal::Signed(value) => Cast::Signed(*value),
             Internal::Unsigned(value) => Cast::Unsigned(*value),
+            #[cfg(feature = "inline-i128")]
+            Internal::BigSigned(value) => Cast::BigSigned(*value),
+            #[cfg(not(feature = "inline-i128"))]
             Internal::BigSigned(value) => Cast::BigSigned(**value),
+            #[cfg(feature = "inline-i128")]
+            Internal::BigUnsigned(value) => Cast::BigUnsigned(*value),
+            #[cfg(not(feature = "inline-i128"))]
             Internal::BigUnsigned(value) => Cast::BigUnsigned(**value),
             Internal::Float(value) => Cast::Float(*value),
             Internal::Bool(value) => Cast::Bool(*value),
@@ -358,14 +369,14 @@ mod std_support {
         /// serialization implementations for complex ones. If the serialization
         /// implementation produces a short lived string it will be allocated.
         #[inline]
-        pub fn to_str(&self) -> Option<Cow<str>> {
+        pub fn to_str(&self) -> Option<Cow<'v, str>> {
             self.inner.cast().into_str()
         }
     }
 
     impl<'v> Cast<'v> {
         #[inline]
-        pub(super) fn into_str(self) -> Option<Cow<'v, str>> {
+        pub(in crate::internal) fn into_str(self) -> Option<Cow<'v, str>> {
             match self {
                 Cast::Str(value) => Some(value.into()),
                 Cast::String(value) => Some(value.into()),
@@ -445,71 +456,134 @@ mod tests {
             "a string",
             "a string"
                 .into_value_bag()
+                .by_ref()
                 .to_borrowed_str()
                 .expect("invalid value")
         );
 
-        assert_eq!(1u64, 1u8.into_value_bag().to_u64().expect("invalid value"));
-        assert_eq!(1u64, 1u16.into_value_bag().to_u64().expect("invalid value"));
-        assert_eq!(1u64, 1u32.into_value_bag().to_u64().expect("invalid value"));
-        assert_eq!(1u64, 1u64.into_value_bag().to_u64().expect("invalid value"));
         assert_eq!(
             1u64,
-            1usize.into_value_bag().to_u64().expect("invalid value")
+            1u8.into_value_bag()
+                .by_ref()
+                .to_u64()
+                .expect("invalid value")
+        );
+        assert_eq!(
+            1u64,
+            1u16.into_value_bag()
+                .by_ref()
+                .to_u64()
+                .expect("invalid value")
+        );
+        assert_eq!(
+            1u64,
+            1u32.into_value_bag()
+                .by_ref()
+                .to_u64()
+                .expect("invalid value")
+        );
+        assert_eq!(
+            1u64,
+            1u64.into_value_bag()
+                .by_ref()
+                .to_u64()
+                .expect("invalid value")
+        );
+        assert_eq!(
+            1u64,
+            1usize
+                .into_value_bag()
+                .by_ref()
+                .to_u64()
+                .expect("invalid value")
         );
         assert_eq!(
             1u128,
-            1u128.into_value_bag().to_u128().expect("invalid value")
+            1u128
+                .into_value_bag()
+                .by_ref()
+                .to_u128()
+                .expect("invalid value")
         );
 
         assert_eq!(
             -1i64,
-            -1i8.into_value_bag().to_i64().expect("invalid value")
+            -1i8.into_value_bag()
+                .by_ref()
+                .to_i64()
+                .expect("invalid value")
         );
         assert_eq!(
             -1i64,
-            -1i8.into_value_bag().to_i64().expect("invalid value")
+            -1i8.into_value_bag()
+                .by_ref()
+                .to_i64()
+                .expect("invalid value")
         );
         assert_eq!(
             -1i64,
-            -1i8.into_value_bag().to_i64().expect("invalid value")
+            -1i8.into_value_bag()
+                .by_ref()
+                .to_i64()
+                .expect("invalid value")
         );
         assert_eq!(
             -1i64,
-            -1i64.into_value_bag().to_i64().expect("invalid value")
+            -1i64
+                .into_value_bag()
+                .by_ref()
+                .to_i64()
+                .expect("invalid value")
         );
         assert_eq!(
             -1i64,
-            -1isize.into_value_bag().to_i64().expect("invalid value")
+            -1isize
+                .into_value_bag()
+                .by_ref()
+                .to_i64()
+                .expect("invalid value")
         );
         assert_eq!(
             -1i128,
-            -1i128.into_value_bag().to_i128().expect("invalid value")
+            -1i128
+                .into_value_bag()
+                .by_ref()
+                .to_i128()
+                .expect("invalid value")
         );
 
-        assert!(1f64.into_value_bag().to_f64().is_some());
-        assert!(1u64.into_value_bag().to_f64().is_some());
-        assert!((-1i64).into_value_bag().to_f64().is_some());
-        assert!(1u128.into_value_bag().to_f64().is_some());
-        assert!((-1i128).into_value_bag().to_f64().is_some());
+        assert!(1f64.into_value_bag().by_ref().to_f64().is_some());
+        assert!(1u64.into_value_bag().by_ref().to_f64().is_some());
+        assert!((-1i64).into_value_bag().by_ref().to_f64().is_some());
+        assert!(1u128.into_value_bag().by_ref().to_f64().is_some());
+        assert!((-1i128).into_value_bag().by_ref().to_f64().is_some());
 
-        assert!(u64::MAX.into_value_bag().to_u128().is_some());
-        assert!(i64::MIN.into_value_bag().to_i128().is_some());
-        assert!(i64::MAX.into_value_bag().to_u64().is_some());
+        assert!(u64::MAX.into_value_bag().by_ref().to_u128().is_some());
+        assert!(i64::MIN.into_value_bag().by_ref().to_i128().is_some());
+        assert!(i64::MAX.into_value_bag().by_ref().to_u64().is_some());
 
-        assert!((-1i64).into_value_bag().to_u64().is_none());
-        assert!(u64::MAX.into_value_bag().to_i64().is_none());
-        assert!(u64::MAX.into_value_bag().to_f64().is_none());
+        assert!((-1i64).into_value_bag().by_ref().to_u64().is_none());
+        assert!(u64::MAX.into_value_bag().by_ref().to_i64().is_none());
+        assert!(u64::MAX.into_value_bag().by_ref().to_f64().is_none());
 
-        assert!(i128::MAX.into_value_bag().to_i64().is_none());
-        assert!(u128::MAX.into_value_bag().to_u64().is_none());
+        assert!(i128::MAX.into_value_bag().by_ref().to_i64().is_none());
+        assert!(u128::MAX.into_value_bag().by_ref().to_u64().is_none());
 
-        assert!(1f64.into_value_bag().to_u64().is_none());
+        assert!(1f64.into_value_bag().by_ref().to_u64().is_none());
 
-        assert_eq!('a', 'a'.into_value_bag().to_char().expect("invalid value"));
+        assert_eq!(
+            'a',
+            'a'.into_value_bag()
+                .by_ref()
+                .to_char()
+                .expect("invalid value")
+        );
         assert_eq!(
             true,
-            true.into_value_bag().to_bool().expect("invalid value")
+            true.into_value_bag()
+                .by_ref()
+                .to_bool()
+                .expect("invalid value")
         );
     }
 }

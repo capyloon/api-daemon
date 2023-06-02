@@ -80,6 +80,7 @@ pub(crate) struct Config {
     pub max_send_buffer_size: usize,
     pub reset_stream_duration: Duration,
     pub reset_stream_max: usize,
+    pub remote_reset_stream_max: usize,
     pub settings: frame::Settings,
 }
 
@@ -118,6 +119,7 @@ where
                     .unwrap_or(false),
                 local_reset_duration: config.reset_stream_duration,
                 local_reset_max: config.reset_stream_max,
+                remote_reset_max: config.remote_reset_stream_max,
                 remote_init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
                 remote_max_initiated: config
                     .settings
@@ -172,6 +174,11 @@ where
         self.inner.streams.max_recv_streams()
     }
 
+    #[cfg(feature = "unstable")]
+    pub fn num_wired_streams(&self) -> usize {
+        self.inner.streams.num_wired_streams()
+    }
+
     /// Returns `Ready` when the connection is ready to receive a frame.
     ///
     /// Returns `Error` as this may raise errors that are caused by delayed
@@ -215,7 +222,7 @@ where
             });
 
         match (ours, theirs) {
-            (Reason::NO_ERROR, Reason::NO_ERROR) => return Ok(()),
+            (Reason::NO_ERROR, Reason::NO_ERROR) => Ok(()),
             (ours, Reason::NO_ERROR) => Err(Error::GoAway(Bytes::new(), ours, initiator)),
             // If both sides reported an error, give their
             // error back to th user. We assume our error
@@ -391,6 +398,12 @@ where
         self.go_away.go_away_now(frame);
     }
 
+    fn go_away_now_data(&mut self, e: Reason, data: Bytes) {
+        let last_processed_id = self.streams.last_processed_id();
+        let frame = frame::GoAway::with_debug_data(last_processed_id, e, data);
+        self.go_away.go_away_now(frame);
+    }
+
     fn go_away_from_user(&mut self, e: Reason) {
         let last_processed_id = self.streams.last_processed_id();
         let frame = frame::GoAway::new(last_processed_id, e);
@@ -411,7 +424,7 @@ where
             // error. This is handled by setting a GOAWAY frame followed by
             // terminating the connection.
             Err(Error::GoAway(debug_data, reason, initiator)) => {
-                let e = Error::GoAway(debug_data, reason, initiator);
+                let e = Error::GoAway(debug_data.clone(), reason, initiator);
                 tracing::debug!(error = ?e, "Connection::poll; connection error");
 
                 // We may have already sent a GOAWAY for this error,
@@ -428,7 +441,7 @@ where
 
                 // Reset all active streams
                 self.streams.handle_error(e);
-                self.go_away_now(reason);
+                self.go_away_now_data(reason, debug_data);
                 Ok(())
             }
             // Attempting to read a frame resulted in a stream level error.

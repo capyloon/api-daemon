@@ -2,17 +2,17 @@
 
 use super::super::c;
 use super::super::conv::ret;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use super::super::conv::{borrowed_fd, ret_c_int, syscall_ret};
 use super::super::time::types::LibcTimespec;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use crate::fd::BorrowedFd;
 use crate::io;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use crate::process::{Pid, RawNonZeroPid};
 #[cfg(not(target_os = "redox"))]
 use crate::thread::{NanosleepRelativeResult, Timespec};
 use core::mem::MaybeUninit;
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use {
+    super::super::conv::{borrowed_fd, ret_c_int, syscall_ret},
+    crate::fd::BorrowedFd,
+    crate::process::{Pid, RawNonZeroPid},
+};
 #[cfg(not(any(
     apple,
     freebsdlike,
@@ -50,8 +50,8 @@ pub(crate) fn clock_nanosleep_relative(id: ClockId, request: &Timespec) -> Nanos
     let mut remain = MaybeUninit::<LibcTimespec>::uninit();
     let flags = 0;
 
-    // 32-bit gnu version: libc has `clock_nanosleep` but it is not y2038 safe by
-    // default.
+    // 32-bit gnu version: libc has `clock_nanosleep` but it is not y2038 safe
+    // by default.
     #[cfg(all(
         any(target_arch = "arm", target_arch = "mips", target_arch = "x86"),
         target_env = "gnu",
@@ -142,8 +142,8 @@ unsafe fn clock_nanosleep_relative_old(id: ClockId, request: &Timespec) -> Nanos
 pub(crate) fn clock_nanosleep_absolute(id: ClockId, request: &Timespec) -> io::Result<()> {
     let flags = c::TIMER_ABSTIME;
 
-    // 32-bit gnu version: libc has `clock_nanosleep` but it is not y2038 safe by
-    // default.
+    // 32-bit gnu version: libc has `clock_nanosleep` but it is not y2038 safe
+    // by default.
     #[cfg(all(
         any(target_arch = "arm", target_arch = "mips", target_arch = "x86"),
         target_env = "gnu",
@@ -330,6 +330,34 @@ pub(crate) fn setuid_thread(uid: crate::process::Uid) -> io::Result<()> {
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[inline]
+pub(crate) fn setresuid_thread(
+    ruid: crate::process::Uid,
+    euid: crate::process::Uid,
+    suid: crate::process::Uid,
+) -> io::Result<()> {
+    #[cfg(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc"))]
+    const SYS: c::c_long = c::SYS_setresuid32 as c::c_long;
+    #[cfg(not(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc")))]
+    const SYS: c::c_long = c::SYS_setresuid as c::c_long;
+    unsafe { syscall_ret(c::syscall(SYS, ruid.as_raw(), euid.as_raw(), suid.as_raw())) }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[inline]
 pub(crate) fn setgid_thread(gid: crate::process::Gid) -> io::Result<()> {
     unsafe { syscall_ret(c::syscall(c::SYS_setgid, gid.as_raw())) }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[inline]
+pub(crate) fn setresgid_thread(
+    rgid: crate::process::Gid,
+    egid: crate::process::Gid,
+    sgid: crate::process::Gid,
+) -> io::Result<()> {
+    #[cfg(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc"))]
+    const SYS: c::c_long = c::SYS_setresgid32 as c::c_long;
+    #[cfg(not(any(target_arch = "x86", target_arch = "arm", target_arch = "sparc")))]
+    const SYS: c::c_long = c::SYS_setresgid as c::c_long;
+    unsafe { syscall_ret(c::syscall(SYS, rgid.as_raw(), egid.as_raw(), sgid.as_raw())) }
 }

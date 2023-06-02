@@ -6,7 +6,7 @@ The goal of this crate is to provide fast, simple and easy binary serialization.
 
 ## Benchmarks
 
-See [serde-bench](https://github.com/koute/serde-bench) for benchmarks.
+See [rust_serialization_benchmark](https://github.com/djkoloski/rust_serialization_benchmark) for benchmarks.
 
 ## Example
 
@@ -97,12 +97,13 @@ Out-of-box the following types are supported:
 |      `std::net::IpAddr` |    `{is_ipv4: u8, value: {u32 or u128}}` |
 |   `std::time::Duration` |         `{secs: u64, subsec_nanos: u32}` |
 | `std::time::SystemTime` | `std::time::Duration` since `UNIX_EPOCH` |
+|            `uuid::Uuid` |                               `[u8; 16]` |
 
 These are stable and will not change in the future.
 
 ## Field attributes
 
-### `#[speedy(length = ...)]`
+### `#[speedy(length = $expr)]`
 
 Can be used on most standard containers to specify the field's length.
 Can refer to any of the previous fields.
@@ -138,7 +139,7 @@ Setting this attribute changes the serialization format as follows:
 |     `HashSet<T>` |                        `[T]` |
 |    `BTreeSet<T>` |                        `[T]` |
 
-### `#[speedy(length_type = ...)]`
+### `#[speedy(length_type = $ty)]`
 
 Can be used to specify the exact size of the implicit length field of a container
 as it is read or written.
@@ -150,6 +151,10 @@ Possible values:
   - `u32` (default)
   - `u64_varint`
 
+### `#[speedy(varint)]`
+
+Can be used only on `u64` fields. Forces the field to be serialized as a varint.
+
 ### `#[speedy(skip)]`
 
 Skips a given field when reading and writing.
@@ -159,14 +164,14 @@ Skips a given field when reading and writing.
 If an EOF is encountered when reading this field its value will be set
 to the default value for its type and the EOF will be ignored.
 
-### `#[speedy(constant_prefix = ...)]`
+### `#[speedy(constant_prefix = $expr)]`
 
 Specifies a static string of bytes which will be written or has to be present
 when reading before a given field.
 
 ## Enum attributes
 
-### `#[speedy(tag_type = ...)]`
+### `#[speedy(tag_type = $ty)]`
 
 Can be used to specify the exact size of the enum's tag as it is read or written.
 
@@ -184,7 +189,7 @@ from a stream, nor will it write its own tag when writing.
 
 ## Enum variant attributes
 
-### `#[speedy(tag = ...)]`
+### `#[speedy(tag = $expr)]`
 
 Specifies a preset tag value to be used for a given enum variant.
 
