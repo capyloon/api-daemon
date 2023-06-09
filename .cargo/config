@@ -14,6 +14,10 @@ git = "https://github.com/capyloon/costaeres.git"
 rev = "73f61c3e9f9be3f6827c650338129595db112d63"
 replace-with = "vendored-sources"
 
+[source."git+https://github.com/capyloon/iana-time-zone.git"]
+git = "https://github.com/capyloon/iana-time-zone.git"
+replace-with = "vendored-sources"
+
 [source."git+https://github.com/capyloon/iroh.git?branch=capyloon"]
 git = "https://github.com/capyloon/iroh.git"
 branch = "capyloon"

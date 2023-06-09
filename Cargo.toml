@@ -39,6 +39,8 @@ members = [
 [patch.crates-io]
 # Use our fork with the extra feature for vhost
 zip = {path = "support/zip"}
+# Fork to downgrade cc
+iana-time-zone-haiku = {git = "https://github.com/capyloon/iana-time-zone.git"}
 
 [profile.release]
 codegen-units = 1
