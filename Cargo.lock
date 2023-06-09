@@ -1312,9 +1312,9 @@ source = "git+https://github.com/capyloon/arti.git#deac9818096f1a9d804f0fbd9cd6b
 
 [[package]]
 name = "cc"
-version = "1.0.79"
+version = "1.0.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50d30906286121d95be3d479533b458f87493b30a4b5f79a607db8f5d11aa91f"
+checksum = "2fff2a6927b3bb87f9595d67196a70493f627687a71d87a0d692242c33f58c11"
 dependencies = [
  "jobserver",
 ]
@@ -1868,7 +1868,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "powermanager_service",
  "procmanager_service",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reqwest",
  "rusty-s3",
  "serde",
@@ -3245,8 +3245,7 @@ dependencies = [
 [[package]]
 name = "iana-time-zone-haiku"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+source = "git+https://github.com/capyloon/iana-time-zone.git#6949dbc377c9dd7be58b7140b92c4c811cfea543"
 dependencies = [
  "cc",
 ]
@@ -7627,7 +7626,7 @@ checksum = "e7141e445af09c8919f1d5f8a20dae0b20c3b57a45dee0d5823c6ed5d237f15a"
 dependencies = [
  "bitflags",
  "chrono",
- "rustc_version 0.2.3",
+ "rustc_version 0.4.0",
 ]
 
 [[package]]
