@@ -75,7 +75,7 @@ impl Fts {
             match tag {
                 None => sqlx::query_as(
                     r#"SELECT resources.id, frecency(resources.scorer) AS frecency FROM resources
-                        LEFT JOIN fts
+                        JOIN fts
                         WHERE fts.id = resources.id
                         AND fts.content LIKE ?
                         ORDER BY frecency DESC LIMIT 100"#,
@@ -85,7 +85,7 @@ impl Fts {
                 .await?,
                 Some(ref tag) => sqlx::query_as(
                     r#"SELECT resources.id, frecency(resources.scorer) AS frecency FROM resources
-                        LEFT JOIN fts, tags
+                        JOIN fts, tags
                         WHERE tags.tag = ?
                         AND fts.id = resources.id AND tags.id = resources.id
                         AND fts.content LIKE ?
