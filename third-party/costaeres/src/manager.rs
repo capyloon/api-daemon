@@ -551,7 +551,7 @@ impl<T> Manager<T> {
 
         let results: Vec<ResourceId> = if let Some(tag) = tag {
             sqlx::query_as(
-                "SELECT resources.id FROM resources LEFT JOIN tags
+                "SELECT resources.id FROM resources JOIN tags
                 WHERE tags.tag = ? AND name = ? AND tags.id = resources.id ORDER BY frecency(resources.scorer) DESC",
             ).bind(name).bind(tag)
             .fetch_all(&self.db_pool)
@@ -599,7 +599,7 @@ impl<T> Manager<T> {
 
         let results: Vec<ResourceId> = sqlx::query_as(
             r#"SELECT resources.id FROM resources
-            LEFT JOIN tags
+            JOIN tags
             WHERE tags.tag = ? and tags.id = resources.id
             ORDER BY frecency(resources.scorer) DESC"#,
         )
@@ -640,7 +640,7 @@ impl<T> Manager<T> {
             .await?,
             Some(tag) => sqlx::query_as(
                 r#"SELECT resources.id, frecency(scorer) AS frecency FROM resources
-                LEFT JOIN tags
+                JOIN tags
                 WHERE tags.tag = ?
                 AND tags.id = resources.id
                 ORDER BY frecency DESC LIMIT ?"#,
@@ -672,7 +672,7 @@ impl<T> Manager<T> {
             .await?,
             Some(tag) => sqlx::query_as(
                 r#"SELECT resources.id, frecency(scorer) AS frecency FROM resources
-                LEFT JOIN tags
+                JOIN tags
                 WHERE tags.tag = ?
                 AND tags.id = resources.id
                 ORDER BY modified DESC LIMIT ?"#,
