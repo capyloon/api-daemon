@@ -50,7 +50,9 @@ macro_rules! tokioize {
         let _ = std::thread::Builder::new()
             .name($name.into())
             .spawn(move || {
-                tokio::runtime::Runtime::new()
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
                     .unwrap()
                     .block_on(async move { $body });
             });

@@ -131,11 +131,15 @@ fn start_wspty() {
         .name("wspty server".into())
         .spawn(move || {
             debug!("start_wspty start");
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                let _ = wspty::start_server()
-                    .await
-                    .map_err(|e| error!("wspty server exit with error: {:?}", e));
-            });
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let _ = wspty::start_server()
+                        .await
+                        .map_err(|e| error!("wspty server exit with error: {:?}", e));
+                });
             debug!("start_wspty end");
         });
 }
