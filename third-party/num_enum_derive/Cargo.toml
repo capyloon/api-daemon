@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "num_enum_derive"
-version = "0.5.10"
+version = "0.5.11"
 authors = [
     "Daniel Wagner-Hall <dawagner@gmail.com>",
     "Daniel Henry-Mantilla <daniel.henry.mantilla@gmail.com>",
@@ -42,7 +42,7 @@ version = "1"
 version = "1"
 
 [dependencies.syn]
-version = "1"
+version = "1.0.15"
 features = ["parsing"]
 
 [features]

@@ -11,8 +11,9 @@
 
 [package]
 edition = "2018"
+rust-version = "1.57.0"
 name = "reqwest"
-version = "0.11.11"
+version = "0.11.18"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 autotests = true
 description = "higher level HTTP client library"
@@ -27,7 +28,7 @@ categories = [
     "web-programming::http-client",
     "wasm",
 ]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/seanmonstar/reqwest"
 
 [package.metadata.docs.rs]
@@ -35,6 +36,8 @@ all-features = true
 rustdoc-args = [
     "--cfg",
     "docsrs",
+    "--cfg",
+    "reqwest_unstable",
 ]
 targets = [
     "x86_64-unknown-linux-gnu",
@@ -108,10 +111,18 @@ path = "tests/multipart.rs"
 required-features = ["multipart"]
 
 [dependencies.base64]
-version = "0.13"
+version = "0.21"
 
 [dependencies.bytes]
 version = "1.0"
+
+[dependencies.futures-core]
+version = "0.3.0"
+default-features = false
+
+[dependencies.futures-util]
+version = "0.3.0"
+default-features = false
 
 [dependencies.http]
 version = "0.2"
@@ -160,7 +171,6 @@ brotli = [
 cookies = [
     "cookie_crate",
     "cookie_store",
-    "proc-macro-hack",
 ]
 default = ["default-tls"]
 default-tls = [
@@ -178,6 +188,13 @@ gzip = [
     "async-compression",
     "async-compression/gzip",
     "tokio-util",
+]
+http3 = [
+    "rustls-tls",
+    "h3",
+    "h3-quinn",
+    "quinn",
+    "futures-channel",
 ]
 json = ["serde_json"]
 multipart = ["mime_guess"]
@@ -204,11 +221,12 @@ socks = ["tokio-socks"]
 stream = [
     "tokio/fs",
     "tokio-util",
+    "wasm-streams",
 ]
 trust-dns = ["trust-dns-resolver"]
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.async-compression]
-version = "0.3.13"
+version = "0.4.0"
 features = ["tokio"]
 optional = true
 default-features = false
@@ -225,16 +243,20 @@ optional = true
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.encoding_rs]
 version = "0.8"
 
-[target."cfg(not(target_arch = \"wasm32\"))".dependencies.futures-core]
-version = "0.3.0"
-default-features = false
-
-[target."cfg(not(target_arch = \"wasm32\"))".dependencies.futures-util]
-version = "0.3.0"
-default-features = false
+[target."cfg(not(target_arch = \"wasm32\"))".dependencies.futures-channel]
+version = "0.3"
+optional = true
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.h2]
 version = "0.3.10"
+
+[target."cfg(not(target_arch = \"wasm32\"))".dependencies.h3]
+version = "0.0.2"
+optional = true
+
+[target."cfg(not(target_arch = \"wasm32\"))".dependencies.h3-quinn]
+version = "0.0.3"
+optional = true
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.http-body]
 version = "0.4.0"
@@ -251,7 +273,7 @@ features = [
 default-features = false
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.hyper-rustls]
-version = "0.23"
+version = "0.24.0"
 optional = true
 default-features = false
 
@@ -262,9 +284,6 @@ optional = true
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.ipnet]
 version = "2.3"
 
-[target."cfg(not(target_arch = \"wasm32\"))".dependencies.lazy_static]
-version = "1.4"
-
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.log]
 version = "0.4"
 
@@ -272,9 +291,12 @@ version = "0.4"
 version = "0.3.16"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.native-tls-crate]
-version = "0.2.8"
+version = "0.2.10"
 optional = true
 package = "native-tls"
+
+[target."cfg(not(target_arch = \"wasm32\"))".dependencies.once_cell]
+version = "1"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.percent-encoding]
 version = "2.1"
@@ -282,12 +304,17 @@ version = "2.1"
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.pin-project-lite]
 version = "0.2.0"
 
-[target."cfg(not(target_arch = \"wasm32\"))".dependencies.proc-macro-hack]
-version = "0.5.19"
+[target."cfg(not(target_arch = \"wasm32\"))".dependencies.quinn]
+version = "0.10"
+features = [
+    "tls-rustls",
+    "ring",
+]
 optional = true
+default-features = false
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.rustls]
-version = "0.20"
+version = "0.21.0"
 features = ["dangerous_configuration"]
 optional = true
 
@@ -312,7 +339,7 @@ version = "0.3.0"
 optional = true
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.tokio-rustls]
-version = "0.23"
+version = "0.24"
 optional = true
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.tokio-socks]
@@ -329,7 +356,7 @@ optional = true
 default-features = false
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.trust-dns-resolver]
-version = "0.21"
+version = "0.22"
 optional = true
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.webpki-roots]
@@ -386,9 +413,15 @@ version = "0.2.68"
 [target."cfg(target_arch = \"wasm32\")".dependencies.wasm-bindgen-futures]
 version = "0.4.18"
 
+[target."cfg(target_arch = \"wasm32\")".dependencies.wasm-streams]
+version = "0.2"
+optional = true
+
 [target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]
 version = "0.3.25"
 features = [
+    "AbortController",
+    "AbortSignal",
     "Headers",
     "Request",
     "RequestInit",
@@ -401,6 +434,7 @@ features = [
     "ServiceWorkerGlobalScope",
     "RequestCredentials",
     "File",
+    "ReadableStream",
 ]
 
 [target."cfg(target_arch = \"wasm32\")".dev-dependencies.wasm-bindgen]

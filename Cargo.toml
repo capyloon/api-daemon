@@ -14,6 +14,7 @@ members = [
   "services/contentmanager",
   "services/devicecapability",
   "services/dweb",
+  "services/evm",
   "services/geckobridge",
   "services/libsignal",
   "services/powermanager",

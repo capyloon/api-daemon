@@ -20,5 +20,6 @@ rm -rf third-party/windows_i686*/lib
 rm -rf third-party/windows_x86_64*/lib
 rm -rf third-party/windows_aarch64*/lib
 rm -rf third-party/windows-*/src/Windows/
+rm -rf third-party/windows/src/Windows/
 
 du -h --max-depth=0 third-party/
