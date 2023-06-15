@@ -1,0 +1,31 @@
+// Abstraction over EVM RPC endpoints.
+
+enum EvmError {
+    NoSuchChain
+    RpcError
+    InvalidParameters
+    InternalError
+}
+
+dictionary CallParams {
+    to: str
+    data: str
+}
+
+// A RPC provider.
+interface Provider {
+    // Encapsulates an `eth_call` method.
+    // Returns the string version of the result.
+    fn call(params: CallParams, block: int?) -> str, EvmError
+}
+
+
+#[rust:not-tracked]
+interface Evm {
+    // Currently supported chain names:
+    // "Ethereum Mainnet"
+    // "Gnosis Chain"
+    fn get_provider(chain_name: str) -> Provider, EvmError
+}
+
+service EvmService: Evm

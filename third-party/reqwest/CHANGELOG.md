@@ -1,3 +1,44 @@
+## v0.11.18
+
+- Fix `RequestBuilder::json()` method from overriding a previously set `content-type` header. An existing value will be left in place.
+- Upgrade internal dependencies for rustls and compression.
+
+## v0.11.17
+
+- Upgrade internal dependencies of Experimental HTTP/3 to use quinn v0.9
+- (wasm) Fix blob url support
+
+## v0.11.16
+
+- Chore: set MSRV in `Cargo.toml`.
+- Docs: fix build on docs.rs
+
+## v0.11.15
+
+- Add `RequestBuilder` methods to split and reconstruct from its parts.
+- Add experimental HTTP/3 support.
+- Fix `connection_verbose` to log `write_vectored` calls.
+- (wasm) Make requests actually cancel if the future is dropped.
+
+## v0.11.14
+
+- Adds `Proxy::no_proxy(url)` that works like the NO_PROXY environment variable.
+- Adds `multipart::Part::headers(headers)` method to add custom headers.
+- (wasm) Add `Response::bytes_stream()`.
+- Perf: several internal optimizations reducing copies and memory allocations.
+
+## v0.11.13
+
+- Add `ClientBuilder::dns_resolver()` option for custom DNS resolvers.
+- Add `ClientBuilder::tls_sni(bool)` option to enable or disable TLS Server Name Indication.
+- Add `Identity::from_pkcs8_pem()` constructor when using `native-tls`.
+- Fix `redirect::Policy::limited(0)` from following any redirects.
+
+## v0.11.12
+
+- Add `ClientBuilder::resolve_to_addrs()` which allows a slice of IP addresses to be specified for a single host.
+- Add `Response::upgrade()` to await whether the server agrees to an HTTP upgrade.
+
 ## v0.11.11
 
 - Add HTTP/2 keep-alive configuration methods on `ClientBuilder`.
