@@ -29,7 +29,6 @@ fn handle_client(
 
     // Our channel to receive data from the session.
     let (sender, receiver) = mpsc::channel();
-    let sender2 = sender.clone();
 
     // Create a new session attached to this stream.
     let mut session = Session::uds(
@@ -106,7 +105,7 @@ fn handle_client(
     }
 
     // Make sure the stream is closed and the reading thread stops.
-    let _ = sender2.send(MessageKind::Close);
+    let _ = sender.send(MessageKind::Close);
 }
 
 pub fn start(run_context: &GlobalContext, telemetry: TelemetrySender) {
