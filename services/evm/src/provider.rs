@@ -29,7 +29,6 @@ pub struct EvmProvider {
 
 impl EvmProvider {
     pub fn new(url: &str, id: TrackerId) -> Option<Self> {
-        println!("UnlockProtocol: rpc url is '{}'", url);
         if let Ok(inner) = Provider::<Http>::try_from(url) {
             Some(EvmProvider { inner, id })
         } else {
