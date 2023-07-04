@@ -24,6 +24,10 @@ pub use tor_guardmgr::bridge::BridgeConfigBuilder;
 #[cfg_attr(docsrs, doc(cfg(feature = "bridge-client")))]
 pub use tor_guardmgr::bridge::BridgeParseError;
 
+#[cfg(feature = "experimental-api")]
+#[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
+pub use tor_config::ItemOrBool;
+
 use tor_guardmgr::bridge::BridgeConfig;
 
 /// Types for configuring how Tor circuits are built.
@@ -67,6 +71,13 @@ pub struct ClientAddrConfig {
     /// always reject connections to such addresses.
     #[builder(default)]
     pub(crate) allow_local_addrs: bool,
+
+    /// Should we allow attempts to connect to hidden services (`.onion` services)?
+    ///
+    /// This option is on by default.
+    #[cfg(feature = "onion-service-client")]
+    #[builder(default = "false")]
+    pub(crate) allow_onion_addrs: bool,
 }
 impl_standard_builder! { ClientAddrConfig }
 
@@ -166,12 +177,64 @@ pub struct StorageConfig {
     /// Location on disk for less-sensitive persistent state information.
     #[builder(setter(into), default = "default_state_dir()")]
     state_dir: CfgPath,
+    /// Location on disk for the Arti keystore.
+    //
+    // TODO HSS: try to use #[serde(into / try_from)] instead (and also move the deserialization
+    // code to tor-keymgr).
+    #[cfg(feature = "experimental-api")] // TODO HSS: make this unconditional
+    #[builder(setter(into), default = "default_keystore_dir()")]
+    #[builder_field_attr(serde(
+        deserialize_with = "deserialize_keystore_dir",
+        default = "serde_default_keystore_dir"
+    ))]
+    keystore_dir: Option<CfgPath>,
     /// Filesystem state to
     #[builder(sub_builder(fn_name = "build_for_arti"))]
     #[builder_field_attr(serde(default))]
     permissions: Mistrust,
 }
 impl_standard_builder! { StorageConfig }
+
+/// Deserialize the `keystore_dir` storage field.
+///
+/// NOTE: The first option is needed because of the builder, the second is the actual type of the field.
+#[cfg(all(feature = "keymgr", feature = "experimental-api"))]
+#[allow(clippy::option_option)]
+fn deserialize_keystore_dir<'de, D>(deserializer: D) -> Result<Option<Option<CfgPath>>, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let cfg: ItemOrBool<CfgPath> = serde::de::Deserialize::deserialize(deserializer)?;
+
+    let cfg = match cfg {
+        ItemOrBool::Item(cfg) => Some(cfg),
+        ItemOrBool::Bool(true) => default_keystore_dir(),
+        ItemOrBool::Bool(false) => None,
+    };
+
+    Ok(Some(cfg))
+}
+
+/// Deserialize the `keystore_dir` storage field.
+///
+/// NOTE: The first option is needed because of the builder, the second is the actual type of the field.
+#[cfg(all(not(feature = "keymgr"), feature = "experimental-api"))]
+#[allow(clippy::option_option)]
+fn deserialize_keystore_dir<'de, D>(deserializer: D) -> Result<Option<Option<CfgPath>>, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let cfg: ItemOrBool<CfgPath> = serde::de::Deserialize::deserialize(deserializer)?;
+
+    match cfg {
+        ItemOrBool::Item(_) | ItemOrBool::Bool(true) => Err(D::Error::custom(
+            "keystore not available unless the `keymgr` feature is enabled".to_string(),
+        )),
+        ItemOrBool::Bool(false) => Ok(None),
+    }
+}
 
 /// Return the default cache directory.
 fn default_cache_dir() -> CfgPath {
@@ -183,6 +246,30 @@ fn default_state_dir() -> CfgPath {
     CfgPath::new("${ARTI_LOCAL_DATA}".to_owned())
 }
 
+/// Return the default keystore directory.
+#[cfg(feature = "experimental-api")]
+#[allow(clippy::unnecessary_wraps)] // needed because of the type expected by the builder
+fn default_keystore_dir() -> Option<CfgPath> {
+    #[cfg(feature = "keymgr")]
+    {
+        Some(CfgPath::new("${ARTI_LOCAL_DATA}/keystore".to_owned()))
+    }
+
+    #[cfg(not(feature = "keymgr"))]
+    {
+        None
+    }
+}
+
+/// Return the default keystore directory.
+#[cfg(feature = "experimental-api")]
+#[allow(clippy::unnecessary_wraps, clippy::option_option)] // needed because of the type expected by the builder
+fn serde_default_keystore_dir() -> Option<Option<CfgPath>> {
+    Some(default_keystore_dir())
+}
+
+// TODO: the expand_* functions are very repetitive. Maybe we can generate them using a macro
+// instead?
 impl StorageConfig {
     /// Try to expand `state_dir` to be a path buffer.
     pub(crate) fn expand_state_dir(&self) -> Result<PathBuf, ConfigBuildError> {
@@ -202,13 +289,99 @@ impl StorageConfig {
                 problem: e.to_string(),
             })
     }
+    /// Try to expand `keystore_dir` to be a path buffer.
+    #[allow(clippy::unnecessary_wraps)] // needed because of the experimental-api branch
+    pub(crate) fn expand_keystore_dir(&self) -> Result<Option<PathBuf>, ConfigBuildError> {
+        #[cfg(feature = "experimental-api")]
+        {
+            self.keystore_dir
+                .as_ref()
+                .map(|dir| dir.path())
+                .transpose()
+                .map_err(|e| ConfigBuildError::Invalid {
+                    field: "keystore_dir".to_owned(),
+                    problem: e.to_string(),
+                })
+        }
+
+        #[cfg(not(feature = "experimental-api"))]
+        Ok(None)
+    }
     /// Return the FS permissions to use for state and cache directories.
     pub(crate) fn permissions(&self) -> &Mistrust {
         &self.permissions
     }
 }
 
-/// Configuration for bridges and pluggable transports
+/// Configuration for anti-censorship features: bridges and pluggable transports.
+///
+/// A "bridge" is a relay that is not listed in the regular Tor network directory;
+/// clients use them to reach the network when a censor is blocking their
+/// connection to all the regular Tor relays.
+///
+/// A "pluggable transport" is a tool that transforms and conceals a user's connection
+/// to a bridge; clients use them to reach the network when a censor is blocking
+/// all traffic that "looks like Tor".
+///
+/// A [`BridgesConfig`] configuration has the following pieces:
+///    * A [`BridgeList`] of [`BridgeConfig`]s, which describes one or more bridges.
+///    * An `enabled` boolean to say whether or not to use the listed bridges.
+///    * A list of [`pt::ManagedTransportConfig`]s.
+///
+/// # Example
+///
+/// Here's an example of building a bridge configuration, and using it in a
+/// TorClientConfig.
+///
+/// The bridges here are fictitious; you'll need to use real bridges
+/// if you want a working configuration.
+///
+/// ```
+/// ##[cfg(feature = "pt-client")]
+/// # fn demo() -> anyhow::Result<()> {
+/// use arti_client::config::{TorClientConfig, BridgeConfigBuilder, CfgPath};
+/// // Requires that the pt-client feature is enabled.
+/// use arti_client::config::pt::ManagedTransportConfigBuilder;
+///
+/// let mut builder = TorClientConfig::builder();
+///
+/// // Add a single bridge to the list of bridges, from a bridge line.
+/// // This bridge line is made up for demonstration, and won't work.
+/// const BRIDGE1_LINE : &str = "Bridge obfs4 192.0.2.55:38114 316E643333645F6D79216558614D3931657A5F5F cert=YXJlIGZyZXF1ZW50bHkgZnVsbCBvZiBsaXR0bGUgbWVzc2FnZXMgeW91IGNhbiBmaW5kLg iat-mode=0";
+/// let bridge_1: BridgeConfigBuilder = BRIDGE1_LINE.parse()?;
+/// // This is where we pass `BRIDGE1_LINE` into the BridgeConfigBuilder.
+/// builder.bridges().bridges().push(bridge_1);
+///
+/// // Add a second bridge, built by hand.  This way is harder.
+/// // This bridge is made up for demonstration, and won't work.
+/// let mut bridge2_builder = BridgeConfigBuilder::default();
+/// bridge2_builder
+///     .transport("obfs4")
+///     .push_setting("iat-mode", "1")
+///     .push_setting(
+///         "cert",
+///         "YnV0IHNvbWV0aW1lcyB0aGV5IGFyZSByYW5kb20u8x9aQG/0cIIcx0ItBcTqiSXotQne+Q"
+///     );
+/// bridge2_builder.set_addrs(vec!["198.51.100.25:443".parse()?]);
+/// bridge2_builder.set_ids(vec!["7DD62766BF2052432051D7B7E08A22F7E34A4543".parse()?]);
+/// // Now insert the second bridge into our config builder.
+/// builder.bridges().bridges().push(bridge2_builder);
+///
+/// // Now configure an obfs4 transport. (Requires the "pt-client" feature)
+/// let mut transport = ManagedTransportConfigBuilder::default();
+/// transport
+///     .protocols(vec!["obfs4".parse()?])
+///     // Specify either the name or the absolute path of pluggable transport client binary, this
+///     // may differ from system to system.
+///     .path(CfgPath::new("/usr/bin/obfs4proxy".into()))
+///     .run_on_startup(true);
+/// builder.bridges().transports().push(transport);
+///
+/// let config = builder.build()?;
+/// // Now you can pass `config` to TorClient::create!
+/// # Ok(())}
+/// ```
+/// You can also find an example based on snowflake in arti-client example folder.
 //
 // We leave this as an empty struct even when bridge support is disabled,
 // as otherwise the default config file would generate an unknown section warning.
@@ -245,11 +418,18 @@ type TransportConfigList = Vec<pt::ManagedTransportConfig>;
 
 #[cfg(feature = "pt-client")]
 define_list_builder_helper! {
-    pub(crate) struct TransportConfigListBuilder {
+    pub struct TransportConfigListBuilder {
         transports: [pt::ManagedTransportConfigBuilder],
     }
     built: TransportConfigList = transports;
     default = vec![];
+}
+
+#[cfg(feature = "pt-client")]
+define_list_builder_accessors! {
+    struct BridgesConfigBuilder {
+        pub transports: [pt::ManagedTransportConfigBuilder],
+    }
 }
 
 impl_standard_builder! { BridgesConfig }
@@ -444,6 +624,8 @@ fn convert_override_net_params(
 }
 
 impl tor_circmgr::CircMgrConfig for TorClientConfig {}
+#[cfg(feature = "onion-service-client")]
+impl tor_hsclient::HsClientConnectorConfig for TorClientConfig {}
 
 impl AsRef<tor_guardmgr::fallback::FallbackList> for TorClientConfig {
     fn as_ref(&self) -> &tor_guardmgr::fallback::FallbackList {

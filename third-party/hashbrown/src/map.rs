@@ -260,29 +260,6 @@ where
     hash_builder.hash_one(val)
 }
 
-#[cfg(not(feature = "nightly"))]
-#[cfg_attr(feature = "inline-more", inline)]
-pub(crate) fn make_insert_hash<K, S>(hash_builder: &S, val: &K) -> u64
-where
-    K: Hash,
-    S: BuildHasher,
-{
-    use core::hash::Hasher;
-    let mut state = hash_builder.build_hasher();
-    val.hash(&mut state);
-    state.finish()
-}
-
-#[cfg(feature = "nightly")]
-#[cfg_attr(feature = "inline-more", inline)]
-pub(crate) fn make_insert_hash<K, S>(hash_builder: &S, val: &K) -> u64
-where
-    K: Hash,
-    S: BuildHasher,
-{
-    hash_builder.hash_one(val)
-}
-
 #[cfg(feature = "ahash")]
 impl<K, V> HashMap<K, V, DefaultHashBuilder> {
     /// Creates an empty `HashMap`.
@@ -368,13 +345,11 @@ impl<K, V, A: Allocator + Clone> HashMap<K, V, DefaultHashBuilder, A> {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "bumpalo")]
-    /// # fn test() {
-    /// use hashbrown::{HashMap, BumpWrapper};
+    /// use hashbrown::HashMap;
     /// use bumpalo::Bump;
     ///
     /// let bump = Bump::new();
-    /// let mut map = HashMap::new_in(BumpWrapper(&bump));
+    /// let mut map = HashMap::new_in(&bump);
     ///
     /// // The created HashMap holds none elements
     /// assert_eq!(map.len(), 0);
@@ -388,11 +363,6 @@ impl<K, V, A: Allocator + Clone> HashMap<K, V, DefaultHashBuilder, A> {
     /// assert_eq!(map.len(), 1);
     /// // And it also allocates some capacity
     /// assert!(map.capacity() > 1);
-    /// # }
-    /// # fn main() {
-    /// #     #[cfg(feature = "bumpalo")]
-    /// #     test()
-    /// # }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn new_in(alloc: A) -> Self {
@@ -419,13 +389,11 @@ impl<K, V, A: Allocator + Clone> HashMap<K, V, DefaultHashBuilder, A> {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "bumpalo")]
-    /// # fn test() {
-    /// use hashbrown::{HashMap, BumpWrapper};
+    /// use hashbrown::HashMap;
     /// use bumpalo::Bump;
     ///
     /// let bump = Bump::new();
-    /// let mut map = HashMap::with_capacity_in(5, BumpWrapper(&bump));
+    /// let mut map = HashMap::with_capacity_in(5, &bump);
     ///
     /// // The created HashMap holds none elements
     /// assert_eq!(map.len(), 0);
@@ -444,11 +412,6 @@ impl<K, V, A: Allocator + Clone> HashMap<K, V, DefaultHashBuilder, A> {
     /// assert_eq!(map.len(), 5);
     /// // But its capacity isn't changed
     /// assert_eq!(map.capacity(), empty_map_capacity)
-    /// # }
-    /// # fn main() {
-    /// #     #[cfg(feature = "bumpalo")]
-    /// #     test()
-    /// # }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
@@ -972,15 +935,12 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
     /// In other words, move all pairs `(k, v)` such that `f(&k, &mut v)` returns `true` out
     /// into another iterator.
     ///
-    /// Note that `drain_filter` lets you mutate every value in the filter closure, regardless of
+    /// Note that `extract_if` lets you mutate every value in the filter closure, regardless of
     /// whether you choose to keep or remove it.
     ///
-    /// When the returned DrainedFilter is dropped, any remaining elements that satisfy
-    /// the predicate are dropped from the table.
-    ///
-    /// It is unspecified how many more elements will be subjected to the closure
-    /// if a panic occurs in the closure, or a panic occurs while dropping an element,
-    /// or if the `DrainFilter` value is leaked.
+    /// If the returned `ExtractIf` is not exhausted, e.g. because it is dropped without iterating
+    /// or the iteration short-circuits, then the remaining elements will be retained.
+    /// Use [`retain()`] with a negated predicate if you do not need the returned iterator.
     ///
     /// Keeps the allocated memory for reuse.
     ///
@@ -991,7 +951,7 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
     ///
     /// let mut map: HashMap<i32, i32> = (0..8).map(|x| (x, x)).collect();
     ///
-    /// let drained: HashMap<i32, i32> = map.drain_filter(|k, _v| k % 2 == 0).collect();
+    /// let drained: HashMap<i32, i32> = map.extract_if(|k, _v| k % 2 == 0).collect();
     ///
     /// let mut evens = drained.keys().cloned().collect::<Vec<_>>();
     /// let mut odds = map.keys().cloned().collect::<Vec<_>>();
@@ -1004,21 +964,20 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
     /// let mut map: HashMap<i32, i32> = (0..8).map(|x| (x, x)).collect();
     ///
     /// {   // Iterator is dropped without being consumed.
-    ///     let d = map.drain_filter(|k, _v| k % 2 != 0);
+    ///     let d = map.extract_if(|k, _v| k % 2 != 0);
     /// }
     ///
-    /// // But the map lens have been reduced by half
-    /// // even if we do not use DrainFilter iterator.
-    /// assert_eq!(map.len(), 4);
+    /// // ExtractIf was not exhausted, therefore no elements were drained.
+    /// assert_eq!(map.len(), 8);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn drain_filter<F>(&mut self, f: F) -> DrainFilter<'_, K, V, F, A>
+    pub fn extract_if<F>(&mut self, f: F) -> ExtractIf<'_, K, V, F, A>
     where
         F: FnMut(&K, &mut V) -> bool,
     {
-        DrainFilter {
+        ExtractIf {
             f,
-            inner: DrainFilterInner {
+            inner: ExtractIfInner {
                 iter: unsafe { self.table.iter() },
                 table: &mut self.table,
             },
@@ -1266,7 +1225,7 @@ where
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn entry(&mut self, key: K) -> Entry<'_, K, V, S, A> {
-        let hash = make_insert_hash::<K, S>(&self.hash_builder, &key);
+        let hash = make_hash::<K, S>(&self.hash_builder, &key);
         if let Some(elem) = self.table.find(hash, equivalent_key(&key)) {
             Entry::Occupied(OccupiedEntry {
                 hash,
@@ -1348,7 +1307,7 @@ where
     {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.get_inner(k) {
-            Some(&(_, ref v)) => Some(v),
+            Some((_, v)) => Some(v),
             None => None,
         }
     }
@@ -1379,7 +1338,7 @@ where
     {
         // Avoid `Option::map` because it bloats LLVM IR.
         match self.get_inner(k) {
-            Some(&(ref key, ref value)) => Some((key, value)),
+            Some((key, value)) => Some((key, value)),
             None => None,
         }
     }
@@ -1786,13 +1745,19 @@ where
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let hash = make_insert_hash::<K, S>(&self.hash_builder, &k);
-        if let Some((_, item)) = self.table.get_mut(hash, equivalent_key(&k)) {
-            Some(mem::replace(item, v))
-        } else {
-            self.table
-                .insert(hash, (k, v), make_hasher::<_, V, S>(&self.hash_builder));
-            None
+        let hash = make_hash::<K, S>(&self.hash_builder, &k);
+        let hasher = make_hasher::<_, V, S>(&self.hash_builder);
+        match self
+            .table
+            .find_or_find_insert_slot(hash, equivalent_key(&k), hasher)
+        {
+            Ok(bucket) => Some(mem::replace(unsafe { &mut bucket.as_mut().1 }, v)),
+            Err(slot) => {
+                unsafe {
+                    self.table.insert_in_slot(hash, slot, (k, v));
+                }
+                None
+            }
         }
     }
 
@@ -1847,7 +1812,7 @@ where
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn insert_unique_unchecked(&mut self, k: K, v: V) -> (&K, &mut V) {
-        let hash = make_insert_hash::<K, S>(&self.hash_builder, &k);
+        let hash = make_hash::<K, S>(&self.hash_builder, &k);
         let bucket = self
             .table
             .insert(hash, (k, v), make_hasher::<_, V, S>(&self.hash_builder));
@@ -2123,6 +2088,18 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
         RawEntryBuilder { map: self }
     }
 
+    /// Returns a reference to the [`RawTable`] used underneath [`HashMap`].
+    /// This function is only available if the `raw` feature of the crate is enabled.
+    ///
+    /// See [`raw_table_mut`] for more.
+    ///
+    /// [`raw_table_mut`]: Self::raw_table_mut
+    #[cfg(feature = "raw")]
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn raw_table(&self) -> &RawTable<(K, V), A> {
+        &self.table
+    }
+
     /// Returns a mutable reference to the [`RawTable`] used underneath [`HashMap`].
     /// This function is only available if the `raw` feature of the crate is enabled.
     ///
@@ -2159,9 +2136,9 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
     /// where
     ///     F: Fn(&(K, V)) -> bool,
     /// {
-    ///     let raw_table = map.raw_table();
+    ///     let raw_table = map.raw_table_mut();
     ///     match raw_table.find(hash, is_match) {
-    ///         Some(bucket) => Some(unsafe { raw_table.remove(bucket) }),
+    ///         Some(bucket) => Some(unsafe { raw_table.remove(bucket).0 }),
     ///         None => None,
     ///     }
     /// }
@@ -2180,7 +2157,7 @@ impl<K, V, S, A: Allocator + Clone> HashMap<K, V, S, A> {
     /// ```
     #[cfg(feature = "raw")]
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn raw_table(&mut self) -> &mut RawTable<(K, V), A> {
+    pub fn raw_table_mut(&mut self) -> &mut RawTable<(K, V), A> {
         &mut self.table
     }
 }
@@ -2711,10 +2688,10 @@ impl<K, V, A: Allocator + Clone> Drain<'_, K, V, A> {
 /// A draining iterator over entries of a `HashMap` which don't satisfy the predicate
 /// `f(&k, &mut v)` in arbitrary order. The iterator element type is `(K, V)`.
 ///
-/// This `struct` is created by the [`drain_filter`] method on [`HashMap`]. See its
+/// This `struct` is created by the [`extract_if`] method on [`HashMap`]. See its
 /// documentation for more.
 ///
-/// [`drain_filter`]: struct.HashMap.html#method.drain_filter
+/// [`extract_if`]: struct.HashMap.html#method.extract_if
 /// [`HashMap`]: struct.HashMap.html
 ///
 /// # Examples
@@ -2724,54 +2701,31 @@ impl<K, V, A: Allocator + Clone> Drain<'_, K, V, A> {
 ///
 /// let mut map: HashMap<i32, &str> = [(1, "a"), (2, "b"), (3, "c")].into();
 ///
-/// let mut drain_filter = map.drain_filter(|k, _v| k % 2 != 0);
-/// let mut vec = vec![drain_filter.next(), drain_filter.next()];
+/// let mut extract_if = map.extract_if(|k, _v| k % 2 != 0);
+/// let mut vec = vec![extract_if.next(), extract_if.next()];
 ///
-/// // The `DrainFilter` iterator produces items in arbitrary order, so the
+/// // The `ExtractIf` iterator produces items in arbitrary order, so the
 /// // items must be sorted to test them against a sorted array.
 /// vec.sort_unstable();
 /// assert_eq!(vec, [Some((1, "a")),Some((3, "c"))]);
 ///
 /// // It is fused iterator
-/// assert_eq!(drain_filter.next(), None);
-/// assert_eq!(drain_filter.next(), None);
-/// drop(drain_filter);
+/// assert_eq!(extract_if.next(), None);
+/// assert_eq!(extract_if.next(), None);
+/// drop(extract_if);
 ///
 /// assert_eq!(map.len(), 1);
 /// ```
-pub struct DrainFilter<'a, K, V, F, A: Allocator + Clone = Global>
+#[must_use = "Iterators are lazy unless consumed"]
+pub struct ExtractIf<'a, K, V, F, A: Allocator + Clone = Global>
 where
     F: FnMut(&K, &mut V) -> bool,
 {
     f: F,
-    inner: DrainFilterInner<'a, K, V, A>,
+    inner: ExtractIfInner<'a, K, V, A>,
 }
 
-impl<'a, K, V, F, A> Drop for DrainFilter<'a, K, V, F, A>
-where
-    F: FnMut(&K, &mut V) -> bool,
-    A: Allocator + Clone,
-{
-    #[cfg_attr(feature = "inline-more", inline)]
-    fn drop(&mut self) {
-        while let Some(item) = self.next() {
-            let guard = ConsumeAllOnDrop(self);
-            drop(item);
-            mem::forget(guard);
-        }
-    }
-}
-
-pub(super) struct ConsumeAllOnDrop<'a, T: Iterator>(pub &'a mut T);
-
-impl<T: Iterator> Drop for ConsumeAllOnDrop<'_, T> {
-    #[cfg_attr(feature = "inline-more", inline)]
-    fn drop(&mut self) {
-        self.0.for_each(drop);
-    }
-}
-
-impl<K, V, F, A> Iterator for DrainFilter<'_, K, V, F, A>
+impl<K, V, F, A> Iterator for ExtractIf<'_, K, V, F, A>
 where
     F: FnMut(&K, &mut V) -> bool,
     A: Allocator + Clone,
@@ -2789,15 +2743,15 @@ where
     }
 }
 
-impl<K, V, F> FusedIterator for DrainFilter<'_, K, V, F> where F: FnMut(&K, &mut V) -> bool {}
+impl<K, V, F> FusedIterator for ExtractIf<'_, K, V, F> where F: FnMut(&K, &mut V) -> bool {}
 
-/// Portions of `DrainFilter` shared with `set::DrainFilter`
-pub(super) struct DrainFilterInner<'a, K, V, A: Allocator + Clone> {
+/// Portions of `ExtractIf` shared with `set::ExtractIf`
+pub(super) struct ExtractIfInner<'a, K, V, A: Allocator + Clone> {
     pub iter: RawIter<(K, V)>,
     pub table: &'a mut RawTable<(K, V), A>,
 }
 
-impl<K, V, A: Allocator + Clone> DrainFilterInner<'_, K, V, A> {
+impl<K, V, A: Allocator + Clone> ExtractIfInner<'_, K, V, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub(super) fn next<F>(&mut self, f: &mut F) -> Option<(K, V)>
     where
@@ -2807,7 +2761,7 @@ impl<K, V, A: Allocator + Clone> DrainFilterInner<'_, K, V, A> {
             for item in &mut self.iter {
                 let &mut (ref key, ref mut value) = item.as_mut();
                 if f(key, value) {
-                    return Some(self.table.remove(item));
+                    return Some(self.table.remove(item).0);
                 }
             }
         }
@@ -3360,7 +3314,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawEntryBuilder<'a, K, V, S, A> {
         F: FnMut(&K) -> bool,
     {
         match self.map.table.get(hash, |(k, _)| is_match(k)) {
-            Some(&(ref key, ref value)) => Some((key, value)),
+            Some((key, value)) => Some((key, value)),
             None => None,
         }
     }
@@ -3756,7 +3710,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawOccupiedEntryMut<'a, K, V, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn get_key_value(&self) -> (&K, &V) {
         unsafe {
-            let &(ref key, ref value) = self.elem.as_ref();
+            let (key, value) = self.elem.as_ref();
             (key, value)
         }
     }
@@ -3928,7 +3882,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawOccupiedEntryMut<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn remove_entry(self) -> (K, V) {
-        unsafe { self.table.remove(self.elem) }
+        unsafe { self.table.remove(self.elem).0 }
     }
 
     /// Provides shared access to the key and owned access to the value of
@@ -4012,7 +3966,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawVacantEntryMut<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let hash = make_insert_hash::<K, S>(self.hash_builder, &key);
+        let hash = make_hash::<K, S>(self.hash_builder, &key);
         self.insert_hashed_nocheck(hash, key, value)
     }
 
@@ -4120,7 +4074,7 @@ impl<'a, K, V, S, A: Allocator + Clone> RawVacantEntryMut<'a, K, V, S, A> {
         K: Hash,
         S: BuildHasher,
     {
-        let hash = make_insert_hash::<K, S>(self.hash_builder, &key);
+        let hash = make_hash::<K, S>(self.hash_builder, &key);
         let elem = self.table.insert(
             hash,
             (key, value),
@@ -4297,7 +4251,7 @@ impl<K: Debug, V: Debug, S, A: Allocator + Clone> Debug for Entry<'_, K, V, S, A
 /// assert_eq!(map.get(&"c"), None);
 /// assert_eq!(map.len(), 2);
 /// ```
-pub struct OccupiedEntry<'a, K, V, S, A: Allocator + Clone = Global> {
+pub struct OccupiedEntry<'a, K, V, S = DefaultHashBuilder, A: Allocator + Clone = Global> {
     hash: u64,
     key: Option<K>,
     elem: Bucket<(K, V)>,
@@ -4360,7 +4314,7 @@ impl<K: Debug, V: Debug, S, A: Allocator + Clone> Debug for OccupiedEntry<'_, K,
 /// }
 /// assert!(map[&"b"] == 20 && map.len() == 2);
 /// ```
-pub struct VacantEntry<'a, K, V, S, A: Allocator + Clone = Global> {
+pub struct VacantEntry<'a, K, V, S = DefaultHashBuilder, A: Allocator + Clone = Global> {
     hash: u64,
     key: K,
     table: &'a mut HashMap<K, V, S, A>,
@@ -4568,7 +4522,7 @@ impl<K: Borrow<Q>, Q: ?Sized + Debug, V: Debug, S, A: Allocator + Clone> Debug
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OccupiedEntryRef")
-            .field("key", &self.key())
+            .field("key", &self.key().borrow())
             .field("value", &self.get())
             .finish()
     }
@@ -5301,7 +5255,7 @@ impl<'a, K, V, S, A: Allocator + Clone> OccupiedEntry<'a, K, V, S, A> {
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn remove_entry(self) -> (K, V) {
-        unsafe { self.table.table.remove(self.elem) }
+        unsafe { self.table.table.remove(self.elem).0 }
     }
 
     /// Gets a reference to the value in the entry.
@@ -5838,7 +5792,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
         K: Borrow<Q>,
     {
         match *self {
-            EntryRef::Occupied(ref entry) => entry.key(),
+            EntryRef::Occupied(ref entry) => entry.key().borrow(),
             EntryRef::Vacant(ref entry) => entry.key(),
         }
     }
@@ -5934,8 +5888,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> EntryRef<'a, 'b, K, Q, V,
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn and_replace_entry_with<F>(self, f: F) -> Self
     where
-        F: FnOnce(&Q, V) -> Option<V>,
-        K: Borrow<Q>,
+        F: FnOnce(&K, V) -> Option<V>,
     {
         match self {
             EntryRef::Occupied(entry) => entry.replace_entry_with(f),
@@ -5994,11 +5947,8 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// }
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn key(&self) -> &Q
-    where
-        K: Borrow<Q>,
-    {
-        unsafe { &self.elem.as_ref().0 }.borrow()
+    pub fn key(&self) -> &K {
+        unsafe { &self.elem.as_ref().0 }
     }
 
     /// Take the ownership of the key and value from the map.
@@ -6027,7 +5977,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn remove_entry(self) -> (K, V) {
-        unsafe { self.table.table.remove(self.elem) }
+        unsafe { self.table.table.remove(self.elem).0 }
     }
 
     /// Gets a reference to the value in the entry.
@@ -6303,8 +6253,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
     #[cfg_attr(feature = "inline-more", inline)]
     pub fn replace_entry_with<F>(self, f: F) -> EntryRef<'a, 'b, K, Q, V, S, A>
     where
-        F: FnOnce(&Q, V) -> Option<V>,
-        K: Borrow<Q>,
+        F: FnOnce(&K, V) -> Option<V>,
     {
         unsafe {
             let mut spare_key = None;
@@ -6312,7 +6261,7 @@ impl<'a, 'b, K, Q: ?Sized, V, S, A: Allocator + Clone> OccupiedEntryRef<'a, 'b, 
             self.table
                 .table
                 .replace_bucket_with(self.elem.clone(), |(key, value)| {
-                    if let Some(new_value) = f(key.borrow(), value) {
+                    if let Some(new_value) = f(&key, value) {
                         Some((key, new_value))
                     } else {
                         spare_key = Some(KeyOrRef::Owned(key));
@@ -6926,7 +6875,6 @@ mod test_map {
                 }
             });
 
-            #[allow(clippy::let_underscore_drop)] // kind-of a false positive
             for _ in half.by_ref() {}
 
             DROP_VECTOR.with(|v| {
@@ -7254,10 +7202,10 @@ mod test_map {
         map.insert(1, 2);
         map.insert(3, 4);
 
-        let map_str = format!("{:?}", map);
+        let map_str = format!("{map:?}");
 
         assert!(map_str == "{1: 2, 3: 4}" || map_str == "{3: 4, 1: 2}");
-        assert_eq!(format!("{:?}", empty), "{}");
+        assert_eq!(format!("{empty:?}"), "{}");
     }
 
     #[test]
@@ -7573,7 +7521,7 @@ mod test_map {
                               // Test for #19292
         fn check(m: &HashMap<i32, ()>) {
             for k in m.keys() {
-                assert!(m.contains_key(k), "{} is in keys() but not in the map?", k);
+                assert!(m.contains_key(k), "{k} is in keys() but not in the map?");
             }
         }
 
@@ -7609,7 +7557,7 @@ mod test_map {
                               // Test for #19292
         fn check(m: &HashMap<std::string::String, ()>) {
             for k in m.keys() {
-                assert!(m.contains_key(k), "{} is in keys() but not in the map?", k);
+                assert!(m.contains_key(k), "{k} is in keys() but not in the map?");
             }
         }
 
@@ -7658,6 +7606,7 @@ mod test_map {
     }
 
     #[test]
+    #[allow(clippy::needless_borrow)]
     fn test_extend_ref_kv_tuple() {
         use std::ops::AddAssign;
         let mut a = HashMap::new();
@@ -8080,7 +8029,7 @@ mod test_map {
                               // Test for #19292
         fn check(m: &HashMap<i32, ()>) {
             for k in m.keys() {
-                assert!(m.contains_key(k), "{} is in keys() but not in the map?", k);
+                assert!(m.contains_key(k), "{k} is in keys() but not in the map?");
             }
         }
 
@@ -8110,7 +8059,7 @@ mod test_map {
                               // Test for #19292
         fn check(m: &HashMap<std::string::String, ()>) {
             for k in m.keys() {
-                assert!(m.contains_key(k), "{} is in keys() but not in the map?", k);
+                assert!(m.contains_key(k), "{k} is in keys() but not in the map?");
             }
         }
 
@@ -8148,10 +8097,10 @@ mod test_map {
     }
 
     #[test]
-    fn test_drain_filter() {
+    fn test_extract_if() {
         {
             let mut map: HashMap<i32, i32> = (0..8).map(|x| (x, x * 10)).collect();
-            let drained = map.drain_filter(|&k, _| k % 2 == 0);
+            let drained = map.extract_if(|&k, _| k % 2 == 0);
             let mut out = drained.collect::<Vec<_>>();
             out.sort_unstable();
             assert_eq!(vec![(0, 0), (2, 20), (4, 40), (6, 60)], out);
@@ -8159,7 +8108,7 @@ mod test_map {
         }
         {
             let mut map: HashMap<i32, i32> = (0..8).map(|x| (x, x * 10)).collect();
-            drop(map.drain_filter(|&k, _| k % 2 == 0));
+            map.extract_if(|&k, _| k % 2 == 0).for_each(drop);
             assert_eq!(map.len(), 4);
         }
     }
@@ -8208,7 +8157,7 @@ mod test_map {
         let mut map: HashMap<_, _> = xs.iter().copied().collect();
 
         let compute_hash = |map: &HashMap<i32, i32>, k: i32| -> u64 {
-            super::make_insert_hash::<i32, _>(map.hasher(), &k)
+            super::make_hash::<i32, _>(map.hasher(), &k)
         };
 
         // Existing key (insert)
@@ -8370,17 +8319,17 @@ mod test_map {
             loop {
                 // occasionally remove some elements
                 if i < n && rng.gen_bool(0.1) {
-                    let hash_value = super::make_insert_hash(&hash_builder, &i);
+                    let hash_value = super::make_hash(&hash_builder, &i);
 
                     unsafe {
                         let e = map.table.find(hash_value, |q| q.0.eq(&i));
                         if let Some(e) = e {
                             it.reflect_remove(&e);
-                            let t = map.table.remove(e);
+                            let t = map.table.remove(e).0;
                             removed.push(t);
                             left -= 1;
                         } else {
-                            assert!(removed.contains(&(i, 2 * i)), "{} not in {:?}", i, removed);
+                            assert!(removed.contains(&(i, 2 * i)), "{i} not in {removed:?}");
                             let e = map.table.insert(
                                 hash_value,
                                 (i, 2 * i),
@@ -8508,5 +8457,50 @@ mod test_map {
         map2.insert(4, DISARMED);
 
         map2.clone_from(&map1);
+    }
+
+    #[test]
+    #[should_panic = "panic in clone"]
+    fn test_clone_from_memory_leaks() {
+        use ::alloc::vec::Vec;
+
+        struct CheckedClone {
+            panic_in_clone: bool,
+            need_drop: Vec<i32>,
+        }
+        impl Clone for CheckedClone {
+            fn clone(&self) -> Self {
+                if self.panic_in_clone {
+                    panic!("panic in clone")
+                }
+                Self {
+                    panic_in_clone: self.panic_in_clone,
+                    need_drop: self.need_drop.clone(),
+                }
+            }
+        }
+        let mut map1 = HashMap::new();
+        map1.insert(
+            1,
+            CheckedClone {
+                panic_in_clone: false,
+                need_drop: vec![0, 1, 2],
+            },
+        );
+        map1.insert(
+            2,
+            CheckedClone {
+                panic_in_clone: false,
+                need_drop: vec![3, 4, 5],
+            },
+        );
+        map1.insert(
+            3,
+            CheckedClone {
+                panic_in_clone: true,
+                need_drop: vec![6, 7, 8],
+            },
+        );
+        let _map2 = map1.clone();
     }
 }

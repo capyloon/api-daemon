@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-protover"
-version = "0.4.1"
+version = "0.5.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -40,5 +40,8 @@ rustdoc-args = [
 thiserror = "1"
 
 [dependencies.caret]
-version = "0.3.0"
+version = "0.4.1"
 path = "../caret"
+
+[features]
+full = ["caret/full"]

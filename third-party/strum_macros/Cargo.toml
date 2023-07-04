@@ -12,12 +12,12 @@
 [package]
 edition = "2018"
 name = "strum_macros"
-version = "0.24.2"
+version = "0.25.1"
 authors = ["Peter Glotfelty <peter.glotfelty@microsoft.com>"]
 description = "Helpful macros for working with enums and strings"
 homepage = "https://github.com/Peternator7/strum"
 documentation = "https://docs.rs/strum"
-readme = "../README.md"
+readme = "README.md"
 keywords = [
     "enum",
     "string",
@@ -36,7 +36,7 @@ name = "strum_macros"
 proc-macro = true
 
 [dependencies.heck]
-version = "0.4"
+version = "0.4.1"
 
 [dependencies.proc-macro2]
 version = "1.0"
@@ -48,11 +48,11 @@ version = "1.0"
 version = "1.0"
 
 [dependencies.syn]
-version = "1.0"
+version = "2.0"
 features = [
     "parsing",
     "extra-traits",
 ]
 
 [dev-dependencies.strum]
-version = "0.24"
+version = "0.25"

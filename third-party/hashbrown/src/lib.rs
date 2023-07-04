@@ -20,9 +20,8 @@
         extend_one,
         allocator_api,
         slice_ptr_get,
-        nonnull_slice_from_raw_parts,
         maybe_uninit_array_assume_init,
-        build_hasher_simple_hash_one
+        strict_provenance
     )
 )]
 #![allow(
@@ -37,6 +36,7 @@
 )]
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
+#![cfg_attr(feature = "nightly", warn(fuzzy_provenance_casts))]
 
 #[cfg(test)]
 #[macro_use]
@@ -162,22 +162,4 @@ pub enum TryReserveError {
         /// The layout of the allocation request that failed.
         layout: alloc::alloc::Layout,
     },
-}
-
-/// Wrapper around `Bump` which allows it to be used as an allocator for
-/// `HashMap`, `HashSet` and `RawTable`.
-///
-/// `Bump` can be used directly without this wrapper on nightly if you enable
-/// the `allocator-api` feature of the `bumpalo` crate.
-#[cfg(feature = "bumpalo")]
-#[derive(Clone, Copy, Debug)]
-pub struct BumpWrapper<'a>(pub &'a bumpalo::Bump);
-
-#[cfg(feature = "bumpalo")]
-#[test]
-fn test_bumpalo() {
-    use bumpalo::Bump;
-    let bump = Bump::new();
-    let mut map = HashMap::new_in(BumpWrapper(&bump));
-    map.insert(0, 1);
 }

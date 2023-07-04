@@ -20,7 +20,8 @@ use crate::types::misc::*;
 use crate::types::policy::PortPolicy;
 use crate::util;
 use crate::util::str::Extent;
-use crate::{AllowAnnotations, Error, ParseErrorKind as EK, Result};
+use crate::util::PeekableIterator;
+use crate::{AllowAnnotations, Error, NetdocErrorKind as EK, Result};
 use tor_error::internal;
 use tor_llcrypto::d;
 use tor_llcrypto::pk::{curve25519, ed25519, rsa};
@@ -180,17 +181,20 @@ decl_keyword! {
 /// Rules about annotations that can appear before a Microdescriptor
 static MICRODESC_ANNOTATIONS: Lazy<SectionRules<MicrodescKwd>> = Lazy::new(|| {
     use MicrodescKwd::*;
-    let mut rules = SectionRules::new();
+    let mut rules = SectionRules::builder();
     rules.add(ANN_LAST_LISTED.rule().args(1..));
     rules.add(ANN_UNRECOGNIZED.rule().may_repeat().obj_optional());
-    rules
+    // unrecognized annotations are okay; anything else is a bug in this
+    // context.
+    rules.reject_unrecognized();
+    rules.build()
 });
 /// Rules about entries that must appear in an Microdesc, and how they must
 /// be formed.
 static MICRODESC_RULES: Lazy<SectionRules<MicrodescKwd>> = Lazy::new(|| {
     use MicrodescKwd::*;
 
-    let mut rules = SectionRules::new();
+    let mut rules = SectionRules::builder();
     rules.add(ONION_KEY.rule().required().no_args().obj_required());
     rules.add(NTOR_ONION_KEY.rule().required().args(1..));
     rules.add(FAMILY.rule().args(1..));
@@ -198,7 +202,7 @@ static MICRODESC_RULES: Lazy<SectionRules<MicrodescKwd>> = Lazy::new(|| {
     rules.add(P6.rule().args(2..));
     rules.add(ID.rule().may_repeat().args(2..));
     rules.add(UNRECOGNIZED.rule().may_repeat().obj_optional());
-    rules
+    rules.build()
 });
 
 impl MicrodescAnnotation {
@@ -354,9 +358,8 @@ impl Microdesc {
 /// token exists, advance to the end of the reader.
 fn advance_to_next_microdesc(reader: &mut NetDocReader<'_, MicrodescKwd>, annotated: bool) {
     use MicrodescKwd::*;
-    let iter = reader.iter();
     loop {
-        let item = iter.peek();
+        let item = reader.peek();
         match item {
             Some(Ok(t)) => {
                 let kwd = t.kwd();
@@ -375,7 +378,7 @@ fn advance_to_next_microdesc(reader: &mut NetDocReader<'_, MicrodescKwd>, annota
                 return;
             }
         };
-        let _ = iter.next();
+        let _ = reader.next();
     }
 }
 
@@ -431,7 +434,7 @@ impl<'a> MicrodescReader<'a> {
                 // (This might not be able to happen, but it's easier to
                 // explicitly catch this case than it is to prove that
                 // it's impossible.)
-                let _ = self.reader.iter().next();
+                let _ = self.reader.next();
             }
             advance_to_next_microdesc(&mut self.reader, self.annotated);
         }
@@ -443,7 +446,7 @@ impl<'a> Iterator for MicrodescReader<'a> {
     type Item = Result<AnnotatedMicrodesc>;
     fn next(&mut self) -> Option<Self::Item> {
         // If there is no next token, we're at the end.
-        self.reader.iter().peek()?;
+        self.reader.peek()?;
 
         Some(
             self.take_annotated_microdesc()

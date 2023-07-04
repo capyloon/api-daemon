@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 name = "pem-rfc7468"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["RustCrypto Developers"]
 description = """
 PEM Encoding (RFC 7468) for PKIX, PKCS, and CMS Structures, implementing a
@@ -39,7 +39,6 @@ categories = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/pem-rfc7468"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true

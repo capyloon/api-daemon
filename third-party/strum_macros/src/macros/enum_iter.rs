@@ -11,6 +11,7 @@ pub fn enum_iter_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let vis = &ast.vis;
     let type_properties = ast.get_type_properties()?;
     let strum_module_path = type_properties.crate_module_path();
+    let doc_comment = format!("An iterator over the variants of [{}]", name);
 
     if gen.lifetimes().count() > 0 {
         return Err(syn::Error::new(
@@ -64,12 +65,29 @@ pub fn enum_iter_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
     arms.push(quote! { _ => ::core::option::Option::None });
     let iter_name = syn::parse_str::<Ident>(&format!("{}Iter", name)).unwrap();
 
+    // Create a string literal "MyEnumIter" to use in the debug impl.
+    let iter_name_debug_struct =
+        syn::parse_str::<syn::LitStr>(&format!("\"{}\"", iter_name)).unwrap();
+
     Ok(quote! {
-        #[doc = "An iterator over the variants of [Self]"]
+        #[doc = #doc_comment]
+        #[allow(
+            missing_copy_implementations,
+        )]
         #vis struct #iter_name #ty_generics {
             idx: usize,
             back_idx: usize,
             marker: ::core::marker::PhantomData #phantom_data,
+        }
+
+        impl #impl_generics core::fmt::Debug for #iter_name #ty_generics #where_clause {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                // We don't know if the variants implement debug themselves so the only thing we
+                // can really show is how many elements are left.
+                f.debug_struct(#iter_name_debug_struct)
+                    .field("len", &self.len())
+                    .finish()
+            }
         }
 
         impl #impl_generics #iter_name #ty_generics #where_clause {

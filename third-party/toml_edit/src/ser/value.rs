@@ -98,7 +98,10 @@ impl serde::ser::Serializer for ValueSerializer {
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-        self.serialize_i64(v as i64)
+        let v: i64 = v
+            .try_into()
+            .map_err(|_err| Error::OutOfRange(Some("u64")))?;
+        self.serialize_i64(v)
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
@@ -164,15 +167,18 @@ impl serde::ser::Serializer for ValueSerializer {
 
     fn serialize_newtype_variant<T: ?Sized>(
         self,
-        name: &'static str,
+        _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
-        _value: &T,
+        variant: &'static str,
+        value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
         T: serde::ser::Serialize,
     {
-        Err(Error::UnsupportedType(Some(name)))
+        let value = value.serialize(self)?;
+        let mut table = crate::InlineTable::new();
+        table.insert(variant, value);
+        Ok(table.into())
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {

@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -56,6 +58,7 @@ use std::result::Result as StdResult;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tor_config::ReconfigureError;
+use tor_error::ErrorReport;
 use tor_linkspec::{ChanTarget, OwnedChanTarget};
 use tor_netdir::{params::NetParameters, NetDirProvider};
 use tor_proto::channel::Channel;
@@ -75,11 +78,22 @@ use crate::factory::BootstrapReporter;
 pub use event::{ConnBlockage, ConnStatus, ConnStatusEvents};
 use tor_rtcompat::scheduler::{TaskHandle, TaskSchedule};
 
-/// A Type that remembers a set of live channels, and launches new
-/// ones on request.
+/// An object that remembers a set of live channels, and launches new ones on
+/// request.
 ///
-/// Use the [ChanMgr::get_or_launch] function to create a new channel, or
-/// get one if it exists.
+/// Use the [`ChanMgr::get_or_launch`] function to create a new [`Channel`], or
+/// get one if it exists.  (For a slightly lower-level API that does no caching,
+/// see [`ChannelFactory`](factory::ChannelFactory) and its implementors.  For a
+/// much lower-level API, see [`tor_proto::channel::ChannelBuilder`].)
+///
+/// Each channel is kept open as long as there is a reference to it, or
+/// something else (such as the relay or a network error) kills the channel.
+///
+/// After a `ChanMgr` launches a channel, it keeps a reference to it until that
+/// channel has been unused (that is, had no circuits attached to it) for a
+/// certain amount of time. (Currently this interval is chosen randomly from
+/// between 180-270 seconds, but this is an implementation detail that may change
+/// in the future.)
 pub struct ChanMgr<R: Runtime> {
     /// Internal channel manager object that does the actual work.
     mgr: mgr::AbstractChanMgr<factory::CompoundFactory>,
@@ -306,8 +320,8 @@ impl<R: Runtime> ChanMgr<R> {
                         let netdir = netdir.upgrade().ok_or("netdir gone away")?;
                         let netparams = netdir.params();
                         self_.mgr.update_netparams(netparams).map_err(|e| {
-                            error!("continually_update_channels_config: failed to process! {} {:?}",
-                                   &e, &e);
+                            error!("continually_update_channels_config: failed to process! {}",
+                                   e.report());
                             "error processing netdir"
                         })?;
                     }

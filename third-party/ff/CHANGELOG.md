@@ -7,15 +7,52 @@ and this library adheres to Rust's notion of
 
 ## [Unreleased]
 
-## [0.12.0] - 2022-05-04
+## [0.13.0] - 2022-12-06
+### Added
+- `ff::Field::{ZERO, ONE}`
+- `ff::Field::pow`
+- `ff::Field::{sqrt_ratio, sqrt_alt}`
+- `core::iter::{Sum, Product}` bounds on `ff::Field`
+- `ff::PrimeField::from_u128`
+- `ff::PrimeField::{MODULUS, TWO_INV}`
+- Constants related to multiplicative generators:
+  - `ff::PrimeField::MULTIPLICATIVE_GENERATOR`
+  - `ff::PrimeField::{ROOT_OF_UNITY, ROOT_OF_UNITY_INV}`
+  - `ff::PrimeField::DELTA`
+- `ff::WithSmallOrderMulGroup`
+- `ff::FromUniformBytes`
+- `ff::helpers`:
+  - `sqrt_tonelli_shanks`
+  - `sqrt_ratio_generic`
 
+### Changed
+- `ff::Field::sqrt` is now a provided method that uses the `Field::sqrt_ratio`
+  method. Implementors of the `Field` trait can choose to implement
+  `Field::sqrt_ratio` and use the provided `ff::Field::sqrt` method, especially
+  if it is more efficient in practice, or they can keep their own implementation
+  of `Field::sqrt` and implement `Field::sqrt_ratio` in terms of that
+  implementation using the `ff::helpers::sqrt_ratio_generic` helper function.
+- `ff::PrimeField` is now documented as representing a non-binary field (i.e.
+  its prime is not 2). This was always the intention, but is now a concrete
+  requirement in order for `PrimeField::TWO_INV` to exist.
+
+### Removed
+- `ff::Field::{zero, one}` (use `ff::Field::{ZERO, ONE}` instead).
+- `ff::PrimeField::{multiplicative_generator, root_of_unity}` (use
+  `ff::PrimeField::{MULTIPLICATIVE_GENERATOR, ROOT_OF_UNITY}` instead).
+
+## [0.12.1] - 2022-10-28
+### Fixed
+- `ff_derive` previously generated a `Field::random` implementation that would
+  overflow for fields that needed a full 64-bit spare limb.
+
+## [0.12.0] - 2022-05-04
 ### Changed
 
 - MSRV is now 1.56.0.
 - Bumped `bitvec` to 1.0.
 
 ## [0.11.1] - 2022-05-04
-
 ### Fixed
 - `ff_derive` procedural macro can now be invoked within regular macros.
 - Previously, `ff_derive`'s procedural macro would generate implementations of

@@ -65,14 +65,15 @@ pub struct BaseDirs {
     home_dir:       PathBuf,
 
     // base directories
-    cache_dir:      PathBuf,
-    config_dir:     PathBuf,
-    data_dir:       PathBuf,
-    data_local_dir: PathBuf,
-    executable_dir: Option<PathBuf>,
-    preference_dir: PathBuf,
-    runtime_dir:    Option<PathBuf>,
-    state_dir:      Option<PathBuf>
+    cache_dir:        PathBuf,
+    config_dir:       PathBuf,
+    config_local_dir: PathBuf,
+    data_dir:         PathBuf,
+    data_local_dir:   PathBuf,
+    executable_dir:   Option<PathBuf>,
+    preference_dir:   PathBuf,
+    runtime_dir:      Option<PathBuf>,
+    state_dir:        Option<PathBuf>
 }
 
 /// `UserDirs` provides paths of user-facing standard directories, following the conventions of the operating system the library is running on.
@@ -127,16 +128,17 @@ pub struct UserDirs {
 /// ```
 #[derive(Debug, Clone)]
 pub struct ProjectDirs {
-    project_path:   PathBuf,
+    project_path:     PathBuf,
 
     // base directories
-    cache_dir:      PathBuf,
-    config_dir:     PathBuf,
-    data_dir:       PathBuf,
-    data_local_dir: PathBuf,
-    preference_dir: PathBuf,
-    runtime_dir:    Option<PathBuf>,
-    state_dir:      Option<PathBuf>
+    cache_dir:        PathBuf,
+    config_dir:       PathBuf,
+    config_local_dir: PathBuf,
+    data_dir:         PathBuf,
+    data_local_dir:   PathBuf,
+    preference_dir:   PathBuf,
+    runtime_dir:      Option<PathBuf>,
+    state_dir:        Option<PathBuf>
 }
 
 impl BaseDirs {
@@ -197,6 +199,16 @@ impl BaseDirs {
     /// | Windows | `{FOLDERID_RoamingAppData}`           | C:\Users\Alice\AppData\Roaming           |
     pub fn config_dir(&self) -> &Path {
         self.config_dir.as_path()
+    }
+    /// Returns the path to the user's local config directory.
+    ///
+    /// |Platform | Value                                 | Example                                  |
+    /// | ------- | ------------------------------------- | ---------------------------------------- |
+    /// | Linux   | `$XDG_CONFIG_HOME` or `$HOME`/.config | /home/alice/.config                      |
+    /// | macOS   | `$HOME`/Library/Application Support   | /Users/Alice/Library/Application Support |
+    /// | Windows | `{FOLDERID_LocalAppData}`           | C:\Users\Alice\AppData\Local               |
+    pub fn config_local_dir(&self) -> &Path {
+        self.config_local_dir.as_path()
     }
     /// Returns the path to the user's data directory.
     ///
@@ -440,6 +452,16 @@ impl ProjectDirs {
     /// | Windows | `{FOLDERID_RoamingAppData}`\\`_project_path_`\\config                   | C:\Users\Alice\AppData\Roaming\Foo Corp\Bar App\config         |
     pub fn config_dir(&self) -> &Path {
         self.config_dir.as_path()
+    }
+    /// Returns the path to the project's local config directory.
+    ///
+    /// |Platform | Value                                                                   | Example                                                        |
+    /// | ------- | ----------------------------------------------------------------------- | -------------------------------------------------------------- |
+    /// | Linux   | `$XDG_CONFIG_HOME`/`_project_path_` or `$HOME`/.config/`_project_path_` | /home/alice/.config/barapp                                     |
+    /// | macOS   | `$HOME`/Library/Application Support/`_project_path_`                    | /Users/Alice/Library/Application Support/com.Foo-Corp.Bar-App  |
+    /// | Windows | `{FOLDERID_LocalAppData}`\\`_project_path_`\\config                     | C:\Users\Alice\AppData\Local\Foo Corp\Bar App\config           |
+    pub fn config_local_dir(&self) -> &Path {
+        self.config_local_dir.as_path()
     }
     /// Returns the path to the project's data directory.
     ///

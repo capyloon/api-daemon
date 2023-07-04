@@ -5,12 +5,16 @@ use std::sync::Arc;
 
 use futures::task::SpawnError;
 
+#[cfg(feature = "onion-service-client")]
+use safelog::Redacted;
 use safelog::Sensitive;
 use thiserror::Error;
 use tor_circmgr::TargetPorts;
 use tor_error::{ErrorKind, HasKind};
 
 use crate::TorAddrError;
+#[cfg(feature = "onion-service-client")]
+use tor_hscrypto::pk::HsId;
 
 /// Main high-level error type for the Arti Tor client
 ///
@@ -107,6 +111,8 @@ pub_if_error_detail! {
 /// different kinds of [`Error`](crate::Error).  If that doesn't provide enough information
 /// for your use case, please let us know.
 #[cfg_attr(docsrs, doc(cfg(feature = "error_detail")))]
+#[cfg_attr(test, derive(strum::EnumDiscriminants))]
+#[cfg_attr(test, strum_discriminants(vis(pub(crate))))]
 #[derive(Error, Clone, Debug)]
 #[non_exhaustive]
 enum ErrorDetail {
@@ -139,6 +145,11 @@ enum ErrorDetail {
     #[error("Error setting up the persistent state manager")]
     StateMgrSetup(#[source] tor_persist::Error),
 
+    /// Error setting up the hidden service client connector.
+    #[error("Error setting up the hidden service client connector")]
+    #[cfg(feature = "onion-service-client")]
+    HsClientConnectorSetup(#[from] tor_hsclient::StartupError),
+
     /// Failed to obtain exit circuit
     #[error("Failed to obtain exit circuit for ports {exit_ports}")]
     ObtainExitCircuit {
@@ -148,6 +159,18 @@ enum ErrorDetail {
         /// What went wrong
         #[source]
         cause: tor_circmgr::Error,
+    },
+
+    /// Failed to obtain hidden service circuit
+    #[cfg(feature = "onion-service-client")]
+    #[error("Failed to obtain hidden service circuit to {hsid}")]
+    ObtainHsCircuit {
+        /// The service we were trying to connect to
+        hsid: Redacted<HsId>,
+
+        /// What went wrong
+        #[source]
+        cause: tor_hsclient::ConnError,
     },
 
     /// Directory manager was unable to bootstrap a working directory.
@@ -173,14 +196,27 @@ enum ErrorDetail {
     #[error("Timed out while waiting for answer from exit")]
     ExitTimeout,
 
-    /// Onion services are not supported yet, but we were asked to connect to
-    /// one.
-    #[error("Rejecting .onion address as unsupported")]
+    /// Onion services are not compiled in, but we were asked to connect to one.
+    #[error("Rejecting .onion address; feature onion-service-client not compiled in")]
     OnionAddressNotSupported,
 
+    /// Onion services are supported, but we were asked to connect to one.
+    #[cfg(feature = "onion-service-client")]
+    #[error("Rejecting .onion address; connect_to_onion_services disabled in stream preferences")]
+    OnionAddressDisabled,
+
+    /// Error when trying to find the IP address of a hidden service
+    #[error("A .onion address cannot be resolved to an IP address")]
+    OnionAddressResolveRequest,
+
     /// Unusable target address.
+    ///
+    /// `TorAddrError::InvalidHostname` should not appear here;
+    /// use `ErrorDetail::InvalidHostname` instead.
+    // TODO this is a violation of the "make invalid states unrepresentable" princkple,
+    // but maybe that doesn't matter too much here?
     #[error("Could not parse target address")]
-    Address(#[from] crate::address::TorAddrError),
+    Address(crate::address::TorAddrError),
 
     /// Hostname not valid.
     #[error("Rejecting hostname as invalid")]
@@ -235,6 +271,15 @@ enum ErrorDetail {
         /// What we were trying to do that needed a directory.
         action: &'static str,
     },
+
+    /// A key store access failed.
+    #[error("Error while trying to access a key store")]
+    Keystore(#[from] tor_keymgr::Error),
+
+    /// We tried to parse an onion address, but we found that it was invalid.
+    #[cfg(feature = "onion-service-client")]
+    #[error("Invalid onion address")]
+    BadOnionAddress(#[from] tor_hscrypto::pk::HsIdParseError),
 
     /// A programming problem, either in our code or the code calling it.
     #[error("Programming problem")]
@@ -300,6 +345,8 @@ impl tor_error::HasKind for ErrorDetail {
         use ErrorKind as EK;
         match self {
             E::ObtainExitCircuit { cause, .. } => cause.kind(),
+            #[cfg(feature = "onion-service-client")]
+            E::ObtainHsCircuit { cause, .. } => cause.kind(),
             E::ExitTimeout => EK::RemoteNetworkTimeout,
             E::BootstrapRequired { .. } => EK::BootstrapRequired,
             E::GuardMgrSetup(e) => e.kind(),
@@ -308,6 +355,8 @@ impl tor_error::HasKind for ErrorDetail {
             E::CircMgrSetup(e) => e.kind(),
             E::DirMgrSetup(e) => e.kind(),
             E::StateMgrSetup(e) => e.kind(),
+            #[cfg(feature = "onion-service-client")]
+            E::HsClientConnectorSetup(e) => e.kind(),
             E::DirMgrBootstrap(e) => e.kind(),
             #[cfg(feature = "pt-client")]
             E::PluggableTransport(e) => e.kind(),
@@ -316,11 +365,18 @@ impl tor_error::HasKind for ErrorDetail {
             E::Configuration(e) => e.kind(),
             E::Reconfigure(e) => e.kind(),
             E::Spawn { cause, .. } => cause.kind(),
-            E::OnionAddressNotSupported => EK::NotImplemented,
+            E::OnionAddressNotSupported => EK::FeatureDisabled,
+            E::OnionAddressResolveRequest => EK::NotImplemented,
+            #[cfg(feature = "onion-service-client")]
+            E::OnionAddressDisabled => EK::ForbiddenStreamTarget,
+            #[cfg(feature = "onion-service-client")]
+            E::BadOnionAddress(e) => e.kind(),
+            // TODO Should delegate to TorAddrError EK
             E::Address(_) | E::InvalidHostname => EK::InvalidStreamTarget,
             E::LocalAddress => EK::ForbiddenStreamTarget,
             E::ChanMgrSetup(e) => e.kind(),
             E::NoDir { error, .. } => error.kind(),
+            E::Keystore(e) => e.kind(),
             E::FsMistrust(_) => EK::FsPermissions,
             E::Bug(e) => e.kind(),
         }
@@ -330,6 +386,162 @@ impl tor_error::HasKind for ErrorDetail {
 impl From<TorAddrError> for Error {
     fn from(e: TorAddrError) -> Error {
         e.into()
+    }
+}
+
+impl From<tor_keymgr::Error> for Error {
+    fn from(e: tor_keymgr::Error) -> Error {
+        ErrorDetail::Keystore(e).into()
+    }
+}
+
+impl From<TorAddrError> for ErrorDetail {
+    fn from(e: TorAddrError) -> ErrorDetail {
+        use ErrorDetail as E;
+        use TorAddrError as TAE;
+        match e {
+            TAE::InvalidHostname => E::InvalidHostname,
+            TAE::NoPort | TAE::BadPort => E::Address(e),
+        }
+    }
+}
+
+/// Verbose information about an error, meant to provide detail or justification
+/// for user-facing errors, rather than the normal short message for
+/// developer-facing errors.
+///
+/// User-facing code may attempt to produce this by calling [`Error::hint`].
+/// Not all errors may wish to provide verbose messages. `Some(ErrorHint)` will be
+/// returned if hinting is supported for the error. Err(()) will be returned otherwise.
+/// Which errors support hinting, and the hint content, have no SemVer warranty and may
+/// change in patch versions without warning. Callers should handle both cases,
+/// falling back on the original error message in case of Err.
+///
+/// Since the internal machinery for constructing and displaying hints may change over time,
+/// no data members are currently exposed. In the future we may wish to offer an unstable
+/// API locked behind a feature, like we do with ErrorDetail.
+#[derive(Clone, Debug)]
+pub struct ErrorHint<'a> {
+    /// The pieces of the message to display to the user
+    inner: ErrorHintInner<'a>,
+}
+
+/// An inner enumeration, describing different kinds of error hint that we know how to give.
+#[derive(Clone, Debug)]
+enum ErrorHintInner<'a> {
+    /// There is a misconfigured filesystem permission, reported by `fs-mistrust`.
+    ///
+    /// Tell the user to make their file more private, or to disable `fs-mistrust`.
+    BadPermission {
+        /// The location of the file.
+        filename: &'a std::path::Path,
+        /// The access bits set on the file.
+        bits: u32,
+        /// The access bits that, according to fs-mistrust, should not be set.
+        badbits: u32,
+    },
+}
+
+impl<'a> ErrorHint<'a> {
+    /// construct from supported `fs_mistrust::Error` variants
+    fn tryfrom_fsmistrust(src: &fs_mistrust::Error) -> Option<ErrorHint> {
+        use fs_mistrust::Error as E;
+        match src {
+            E::BadPermission(buf, bits, badbits) => {
+                Some(ErrorHint::from_badpermission(buf, *bits, *badbits))
+            }
+            _ => None,
+        }
+    }
+    /// construct from supported `tor_persist::Error` variants
+    fn tryfrom_torpersist(src: &tor_persist::Error) -> Option<ErrorHint> {
+        use tor_persist::ErrorSource as ES;
+        match src.source() {
+            ES::Permissions(e) => Self::tryfrom_fsmistrust(e),
+            _ => None,
+        }
+    }
+
+    /// inform user of overpermission risks
+    /// provide chmod to fix it, or options to mute the error if they accept the risk
+    fn from_badpermission(filename: &std::path::Path, bits: u32, badbits: u32) -> ErrorHint<'_> {
+        ErrorHint {
+            inner: ErrorHintInner::BadPermission {
+                filename,
+                bits,
+                badbits,
+            },
+        }
+    }
+}
+
+// TODO: Perhaps we want to lower this logic to fs_mistrust crate, and have a
+// separate `ErrorHint` type for each crate that can originate a hint.  But I'd
+// rather _not_ have that turn into something that forces us to give a Hint for
+// every intermediate crate.
+impl<'a> Display for ErrorHint<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use fs_mistrust::anon_home::PathExt as _;
+
+        match self.inner {
+            ErrorHintInner::BadPermission {
+                filename,
+                bits,
+                badbits,
+            } => {
+                writeln!(
+                    f,
+                    "Permissions are set too permissively on {}: currently {}",
+                    filename.anonymize_home(),
+                    fs_mistrust::format_access_bits(bits, '=')
+                )?;
+                if 0 != badbits & 0o222 {
+                    writeln!(
+                        f,
+                        "* Untrusted users could modify its contents and override our behavior.",
+                    )?;
+                }
+                if 0 != badbits & 0o444 {
+                    writeln!(f, "* Untrusted users could read its contents.")?;
+                }
+                writeln!(f,
+                    "You can fix this by further restricting the permissions of your filesystem, using:\n\
+                         chmod {} {}",
+                        fs_mistrust::format_access_bits(badbits, '-'),
+                        filename.anonymize_home())?;
+                writeln!(f, "You can suppress this message by setting storage.permissions.dangerously_trust_everyone=true,\n\
+                    or setting ARTI_FS_DISABLE_PERMISSION_CHECKS=yes in your environment.")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Error {
+    /// Return a hint object explaining how to solve this error, if we have one.
+    ///
+    /// Most errors won't have obvious hints, but some do.  For the ones that
+    /// do, we can return an [`ErrorHint`].
+    ///
+    /// Right now, `ErrorHint` is completely opaque: the only supported option
+    /// is to format it for human consumption.
+    pub fn hint(&self) -> Option<ErrorHint> {
+        use tor_circmgr::Error as CircE;
+        use tor_dirmgr::Error as DirE;
+        use tor_guardmgr::GuardMgrError as GuardE;
+        use ErrorDetail as E;
+        match &(*self.detail) {
+            // fs_mistrust errors, possibly nonexhaustive
+            E::DirMgrSetup(DirE::CachePermissions(e)) => ErrorHint::tryfrom_fsmistrust(e),
+            // tor_persist errors, possibly nonexhaustive
+            E::StateMgrSetup(e)
+            | E::StateAccess(e)
+            | E::CircMgrSetup(CircE::State(e))
+            | E::CircMgrSetup(CircE::GuardMgr(GuardE::State(e))) => {
+                ErrorHint::tryfrom_torpersist(e)
+            }
+            _ => None,
+        }
     }
 }
 

@@ -1,7 +1,10 @@
 //! PKCS#1 RSA Public Keys.
 
 use crate::{Error, Result};
-use der::{asn1::UIntRef, Decode, DecodeValue, Encode, Header, Reader, Sequence};
+use der::{
+    asn1::UintRef, Decode, DecodeValue, Encode, EncodeValue, Header, Length, Reader, Sequence,
+    Writer,
+};
 
 #[cfg(feature = "alloc")]
 use der::Document;
@@ -24,10 +27,10 @@ use der::pem::PemLabel;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct RsaPublicKey<'a> {
     /// `n`: RSA modulus
-    pub modulus: UIntRef<'a>,
+    pub modulus: UintRef<'a>,
 
     /// `e`: RSA public exponent
-    pub public_exponent: UIntRef<'a>,
+    pub public_exponent: UintRef<'a>,
 }
 
 impl<'a> DecodeValue<'a> for RsaPublicKey<'a> {
@@ -41,14 +44,19 @@ impl<'a> DecodeValue<'a> for RsaPublicKey<'a> {
     }
 }
 
-impl<'a> Sequence<'a> for RsaPublicKey<'a> {
-    fn fields<F, T>(&self, f: F) -> der::Result<T>
-    where
-        F: FnOnce(&[&dyn Encode]) -> der::Result<T>,
-    {
-        f(&[&self.modulus, &self.public_exponent])
+impl EncodeValue for RsaPublicKey<'_> {
+    fn value_len(&self) -> der::Result<Length> {
+        self.modulus.encoded_len()? + self.public_exponent.encoded_len()?
+    }
+
+    fn encode_value(&self, writer: &mut impl Writer) -> der::Result<()> {
+        self.modulus.encode(writer)?;
+        self.public_exponent.encode(writer)?;
+        Ok(())
     }
 }
+
+impl<'a> Sequence<'a> for RsaPublicKey<'a> {}
 
 impl<'a> TryFrom<&'a [u8]> for RsaPublicKey<'a> {
     type Error = Error;
@@ -59,7 +67,6 @@ impl<'a> TryFrom<&'a [u8]> for RsaPublicKey<'a> {
 }
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl TryFrom<RsaPublicKey<'_>> for Document {
     type Error = Error;
 
@@ -69,7 +76,6 @@ impl TryFrom<RsaPublicKey<'_>> for Document {
 }
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl TryFrom<&RsaPublicKey<'_>> for Document {
     type Error = Error;
 
@@ -79,7 +85,6 @@ impl TryFrom<&RsaPublicKey<'_>> for Document {
 }
 
 #[cfg(feature = "pem")]
-#[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
 impl PemLabel for RsaPublicKey<'_> {
     const PEM_LABEL: &'static str = "RSA PUBLIC KEY";
 }

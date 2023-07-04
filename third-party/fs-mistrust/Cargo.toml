@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "fs-mistrust"
-version = "0.6.1"
+version = "0.7.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -48,7 +48,7 @@ version = "0.11"
 package = "derive_builder_fork_arti"
 
 [dependencies.dirs]
-version = "4"
+version = "5"
 optional = true
 
 [dependencies.once_cell]
@@ -67,7 +67,7 @@ optional = true
 [dev-dependencies]
 serde_json = "1.0.50"
 tempfile = "3"
-toml = "0.6.0"
+toml = "0.7.2"
 
 [features]
 anon_home = [
@@ -75,6 +75,10 @@ anon_home = [
     "dirs",
 ]
 default = [
+    "walkdir",
+    "anon_home",
+]
+full = [
     "walkdir",
     "anon_home",
 ]

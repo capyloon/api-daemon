@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-socksproto"
-version = "0.6.1"
+version = "0.7.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -47,21 +47,28 @@ features = ["derive"]
 optional = true
 
 [dependencies.caret]
-version = "0.3.0"
+version = "0.4.1"
 path = "../caret"
 
 [dependencies.tor-bytes]
-version = "0.6.1"
+version = "0.7.2"
 path = "../tor-bytes"
 
 [dependencies.tor-error]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-error"
 
 [dev-dependencies]
-hex-literal = "0.3"
+hex-literal = "0.4"
 
 [features]
 client-handshake = []
 default = ["proxy-handshake"]
+full = [
+    "proxy-handshake",
+    "client-handshake",
+    "caret/full",
+    "tor-bytes/full",
+    "tor-error/full",
+]
 proxy-handshake = []

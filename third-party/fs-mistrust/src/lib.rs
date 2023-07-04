@@ -31,6 +31,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -71,7 +73,7 @@ use std::{
 
 pub use dir::CheckedDir;
 pub use disable::GLOBAL_DISABLE_VAR;
-pub use err::Error;
+pub use err::{format_access_bits, Error};
 
 /// A result type as returned by this crate
 pub type Result<T> = std::result::Result<T, Error>;

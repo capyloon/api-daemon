@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -38,7 +40,7 @@
 #![allow(clippy::result_large_err)] // temporary workaround for arti#587
 //! <!-- @@ end lint list maintained by maint/add_warning @@ -->
 
-#[cfg(feature = "onion-service")]
+#[cfg(feature = "hs-service")]
 pub(crate) mod build;
 #[macro_use]
 pub(crate) mod parse;
@@ -47,11 +49,16 @@ mod err;
 pub mod types;
 mod util;
 
-pub use err::{BuildError, Error, ParseErrorKind, Pos};
+// Use `#[doc(hidden)]` rather than pub(crate), because otherwise the doctest
+// doesn't work.
+#[doc(hidden)]
+pub use util::batching_split_before;
 
-#[cfg(feature = "onion-service")]
-#[cfg_attr(docsrs, doc(cfg(feature = "onion-service")))]
-pub use build::NetdocText;
+pub use err::{BuildError, Error, NetdocErrorKind, Pos};
+
+#[cfg(feature = "hs-service")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hs-service")))]
+pub use build::NetdocBuilder;
 
 /// Alias for the Result type returned by most objects in this module.
 pub type Result<T> = std::result::Result<T, Error>;

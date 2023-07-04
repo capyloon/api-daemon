@@ -1,11 +1,11 @@
 Mark an `async fn` as a test with SQLx support.
 
 The test will automatically be executed in the async runtime according to the chosen 
-`runtime-{async-std, tokio}-{native-tls, rustls}` feature.
+`runtime-{async-std, tokio}` feature. If more than one runtime feature is enabled, `runtime-tokio` is preferred.
 
 By default, this behaves identically to `#[tokio::test]`<sup>1</sup> or `#[async_std::test]`:
 
-```rust,norun
+```rust
 # // Note if reading these examples directly in `test.md`:
 # // lines prefixed with `#` are not meant to be shown;
 # // they are supporting code to help the examples to compile successfully.
@@ -64,17 +64,17 @@ To limit disk space usage, any previously created test databases will be deleted
 ```rust,no_run
 # #[cfg(all(feature = "migrate", feature = "postgres"))]
 # mod example { 
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 #[sqlx::test]
 async fn basic_test(pool: PgPool) -> sqlx::Result<()> {
     let mut conn = pool.acquire().await?;
 
-    sqlx::query("SELECT * FROM foo")
+    let foo = sqlx::query("SELECT * FROM foo")
         .fetch_one(&mut conn)
         .await?;
-        
-    assert_eq!(foo.get::<String>("bar"), "foobar!");
+
+    assert_eq!(foo.get::<String, _>("bar"), "foobar!");
     
     Ok(())
 }
@@ -96,17 +96,17 @@ supported):
 ```rust,ignore
 # #[cfg(all(feature = "migrate", feature = "postgres"))]
 # mod example { 
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 #[sqlx::test(migrations = "foo_migrations")]
 async fn basic_test(pool: PgPool) -> sqlx::Result<()> {
     let mut conn = pool.acquire().await?;
 
-    sqlx::query("SELECT * FROM foo")
+    let foo = sqlx::query("SELECT * FROM foo")
         .fetch_one(&mut conn)
         .await?;
-        
-    assert_eq!(foo.get::<String>("bar"), "foobar!");
+
+    assert_eq!(foo.get::<String, _>("bar"), "foobar!");
     
     Ok(())
 }
@@ -124,7 +124,7 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("foo_migrations");
 ```rust,no_run
 # #[cfg(all(feature = "migrate", feature = "postgres"))]
 # mod example { 
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 # // This is standing in for the main crate since doc examples don't support multiple crates.
 # mod foo_crate { 
@@ -141,11 +141,11 @@ use sqlx::PgPool;
 async fn basic_test(pool: PgPool) -> sqlx::Result<()> {
     let mut conn = pool.acquire().await?;
 
-    sqlx::query("SELECT * FROM foo")
+    let foo = sqlx::query("SELECT * FROM foo")
         .fetch_one(&mut conn)
         .await?;
-        
-    assert_eq!(foo.get::<String>("bar"), "foobar!");
+
+    assert_eq!(foo.get::<String, _>("bar"), "foobar!");
     
     Ok(())
 }
@@ -157,7 +157,7 @@ Or disable migrations processing entirely:
 ```rust,no_run
 # #[cfg(all(feature = "migrate", feature = "postgres"))]
 # mod example { 
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 #[sqlx::test(migrations = false)]
 async fn basic_test(pool: PgPool) -> sqlx::Result<()> {
@@ -165,11 +165,11 @@ async fn basic_test(pool: PgPool) -> sqlx::Result<()> {
     
     conn.execute("CREATE TABLE foo(bar text)").await?;
 
-    sqlx::query("SELECT * FROM foo")
+    let foo = sqlx::query("SELECT * FROM foo")
         .fetch_one(&mut conn)
         .await?;
-        
-    assert_eq!(foo.get::<String>("bar"), "foobar!");
+
+    assert_eq!(foo.get::<String, _>("bar"), "foobar!");
     
     Ok(())
 }

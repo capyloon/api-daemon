@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -46,7 +48,7 @@ use tor_netdir::{DirEvent, NetDir, NetDirProvider, Timeliness};
 use tor_proto::circuit::{CircParameters, ClientCirc, UniqId};
 use tor_rtcompat::Runtime;
 
-#[cfg(feature = "specific-relay")]
+#[cfg(any(feature = "specific-relay", feature = "hs-common"))]
 use tor_linkspec::IntoOwnedChanTarget;
 
 use futures::task::SpawnExt;
@@ -55,24 +57,24 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
 
+#[cfg(feature = "testing")]
+pub use config::test_config::TestConfig;
+
 pub mod build;
 mod config;
 mod err;
+#[cfg(feature = "hs-common")]
+pub mod hspool;
 mod impls;
 pub mod isolation;
 mod mgr;
-#[cfg(feature = "onion-client")]
-mod onion_connector;
 pub mod path;
 mod preemptive;
-mod timeouts;
+pub mod timeouts;
 mod usage;
 
 pub use err::Error;
 pub use isolation::IsolationToken;
-#[cfg(feature = "onion-client")]
-#[cfg_attr(docsrs, doc(cfg(feature = "onion-client")))]
-pub use onion_connector::{OnionConnectError, OnionServiceConnector};
 use tor_guardmgr::fallback::FallbackList;
 pub use tor_guardmgr::{ClockSkewEvents, GuardMgrConfig, SkewEstimate};
 pub use usage::{TargetPort, TargetPorts};
@@ -133,23 +135,13 @@ impl<'a> From<&'a NetDir> for DirInfo<'a> {
 impl<'a> DirInfo<'a> {
     /// Return a set of circuit parameters for this DirInfo.
     fn circ_params(&self) -> CircParameters {
+        use crate::build::circparameters_from_netparameters;
         use tor_netdir::params::NetParameters;
-        /// Extract a CircParameters from the NetParameters from a
-        /// consensus.  We use a common function for both cases here
-        /// to be sure that we look at the defaults from NetParameters
-        /// code.
-        fn from_netparams(inp: &NetParameters) -> CircParameters {
-            let mut p = CircParameters::default();
-            if let Err(e) = p.set_initial_send_window(inp.circuit_window.get() as u16) {
-                warn!("Invalid parameter in directory: {}", e);
-            }
-            p.set_extend_by_ed25519_id(inp.extend_by_ed25519_id.into());
-            p
-        }
-
+        // We use a common function for both cases here to be sure that
+        // we look at the defaults from NetParameters code.
         match self {
-            DirInfo::Directory(d) => from_netparams(d.params()),
-            _ => from_netparams(&NetParameters::default()),
+            DirInfo::Directory(d) => circparameters_from_netparameters(d.params()),
+            _ => circparameters_from_netparameters(&NetParameters::default()),
         }
     }
 }
@@ -210,20 +202,6 @@ impl<R: Runtime> CircMgr<R> {
         });
 
         Ok(circmgr)
-    }
-
-    /// Install a given [`OnionServiceConnector`] object to be used when making
-    /// connections to an onion service.
-    ///
-    /// (This cannot be done at construction time, since the
-    /// OnionServiceConnector will have to keep a reference to this `CircMgr`.)
-    #[cfg(feature = "onion-client")]
-    #[allow(unused_variables, clippy::missing_panics_doc)]
-    pub fn install_onion_service_connector(
-        &self,
-        connector: &Arc<dyn OnionServiceConnector>,
-    ) -> Result<()> {
-        todo!() // TODO hs
     }
 
     /// Launch the periodic daemon tasks required by the manager to function properly.
@@ -396,7 +374,7 @@ impl<R: Runtime> CircMgr<R> {
 
     /// Return a circuit suitable for sending one-hop BEGINDIR streams,
     /// launching it if necessary.
-    pub async fn get_or_launch_dir(&self, netdir: DirInfo<'_>) -> Result<ClientCirc> {
+    pub async fn get_or_launch_dir(&self, netdir: DirInfo<'_>) -> Result<Arc<ClientCirc>> {
         self.expire_circuits();
         let usage = TargetCircUsage::Dir;
         self.mgr.get_or_launch(&usage, netdir).await.map(|(c, _)| c)
@@ -412,7 +390,7 @@ impl<R: Runtime> CircMgr<R> {
         netdir: DirInfo<'_>, // TODO: This has to be a NetDir.
         ports: &[TargetPort],
         isolation: StreamIsolation,
-    ) -> Result<ClientCirc> {
+    ) -> Result<Arc<ClientCirc>> {
         self.expire_circuits();
         let time = Instant::now();
         {
@@ -430,33 +408,6 @@ impl<R: Runtime> CircMgr<R> {
         self.mgr.get_or_launch(&usage, netdir).await.map(|(c, _)| c)
     }
 
-    /// Try to connect to an onion service via this circuit manager.
-    ///
-    /// If `using_keys` is provided, then we will use those keys, in addition to
-    /// any configured in our `OnionServiceConnector`, to connect to the
-    /// service.
-    ///
-    /// If we already have an existing circuit with the appropriate isolation,
-    /// we will return that circuit regardless of the content of `using_keys`.
-    ///
-    /// Requires that an `OnionServiceConnector` has been installed.  If it
-    /// hasn't, then we return an error.
-    #[cfg(feature = "onion-client")]
-    #[allow(clippy::missing_panics_doc, unused_variables)]
-    pub async fn get_or_launch_onion_client(
-        &self,
-        service_id: tor_hscrypto::pk::OnionId,
-        using_keys: Option<tor_hscrypto::pk::ClientSecretKeys>,
-        isolation: StreamIsolation,
-    ) -> Result<ClientCirc> {
-        todo!() // TODO hs
-
-        // The implementation should look up whether we have an appropriate
-        // connected rendezvous circuit built or in progress in our CircMgr.  If
-        // we do, we should return it or wait for it.  Otherwise we should
-        // delegate to our OnionServiceConnector to build it.
-    }
-
     /// Return a circuit to a specific relay, suitable for using for direct
     /// (one-hop) directory downloads.
     ///
@@ -466,7 +417,7 @@ impl<R: Runtime> CircMgr<R> {
     pub async fn get_or_launch_dir_specific<T: IntoOwnedChanTarget>(
         &self,
         target: T,
-    ) -> Result<ClientCirc> {
+    ) -> Result<Arc<ClientCirc>> {
         self.expire_circuits();
         let usage = TargetCircUsage::DirSpecificTarget(target.to_owned());
         self.mgr
@@ -475,26 +426,32 @@ impl<R: Runtime> CircMgr<R> {
             .map(|(c, _)| c)
     }
 
-    /// Create and return a new (typically anonymous) circuit whose last hop is
-    /// `target`.
+    /// Create and return a new (typically anonymous) circuit for use as an
+    /// onion service circuit of type `kind`.
     ///
     /// This circuit is guaranteed not to have been used for any traffic
     /// previously, and it will not be given out for any other requests in the
     /// future unless explicitly re-registered with a circuit manager.
     ///
+    /// If `planned_target` is provided, then the circuit will be built so that
+    /// it does not share any family members with the the provided target.  (The
+    /// circuit _will not be_ extended to that target itself!)
+    ///
     /// Used to implement onion service clients and services.
-    #[cfg(feature = "onion-common")]
-    #[allow(unused_variables, clippy::missing_panics_doc)]
-    pub async fn launch_specific_isolated(
+    #[cfg(feature = "hs-common")]
+    pub(crate) async fn launch_hs_unmanaged<T>(
         &self,
-        target: tor_linkspec::OwnedCircTarget,
-        // TODO hs: this should at least be an enum to define what kind of
-        // circuit we want, in case we have different rules for different types.
-        // It might also need to include a "anonymous?" flag for supporting
-        // single onion services.
-        preferences: (),
-    ) -> Result<ClientCirc> {
-        todo!() // TODO hs implement.
+        planned_target: Option<T>,
+        dir: &NetDir,
+    ) -> Result<Arc<ClientCirc>>
+    where
+        T: IntoOwnedChanTarget,
+    {
+        let usage = TargetCircUsage::HsCircBase {
+            compatible_with_target: planned_target.map(IntoOwnedChanTarget::to_owned),
+        };
+        let (_, client_circ) = self.mgr.launch_unmanaged(&usage, dir.into()).await?;
+        Ok(client_circ)
     }
 
     /// Launch circuits preemptively, using the preemptive circuit predictor's
@@ -538,7 +495,7 @@ impl<R: Runtime> CircMgr<R> {
                     warn!(
                         "Failed to build preemptive circuit {:?}: {}",
                         sv(&circs[i]),
-                        &e
+                        e.report(),
                     );
                     n_errors += 1;
                 }
@@ -560,8 +517,9 @@ impl<R: Runtime> CircMgr<R> {
     /// Return a reference to the associated CircuitBuilder that this CircMgr
     /// will use to create its circuits.
     #[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
-    #[cfg(feature = "experimental-api")]
-    pub fn builder(&self) -> &build::CircuitBuilder<R> {
+    #[cfg_attr(feature = "experimental-api", visibility::make(pub))]
+    #[allow(dead_code)]
+    pub(crate) fn builder(&self) -> &build::CircuitBuilder<R> {
         self.mgr.peek_builder()
     }
 
@@ -580,6 +538,36 @@ impl<R: Runtime> CircMgr<R> {
     /// be very clear that you don't want to use it haphazardly.
     pub(crate) fn retire_all_circuits(&self) {
         self.mgr.retire_all_circuits();
+    }
+
+    /// Return an estimate-based delay for how long a given
+    /// [`Action`](timeouts::Action) should be allowed to complete.
+    ///
+    /// Note that **you do not need to use this function** in order to get
+    /// reasonable timeouts for the circuit-building operations provided by the
+    /// `tor-circmgr` crate: those, unless specifically noted, always use these
+    /// timeouts to cancel circuit operations that have taken too long.
+    ///
+    /// Instead, you should only use this function when you need to estimate how
+    /// long some _other_ operation should take to complete.  For example, if
+    /// you are sending a request over a 3-hop circuit and waiting for a reply,
+    /// you might choose to wait for `estimate_timeout(Action::RoundTrip {
+    /// length: 3 })`.
+    ///
+    /// Note also that this function returns a _timeout_ that the operation
+    /// should be permitted to complete, not an estimated Duration that the
+    /// operation _will_ take to complete. Timeouts are chosen to ensure that
+    /// most operations will complete, but very slow ones will not.  So even if
+    /// we expect that a circuit will complete in (say) 3 seconds, we might
+    /// still allow a timeout of 4.5 seconds, to ensure that most circuits can
+    /// complete.
+    ///
+    /// Estimate-based timeouts may change over time, given observations on the
+    /// actual amount of time needed for circuits to complete building.  If not
+    /// enough information has been gathered, a reasonable default will be used.
+    pub fn estimate_timeout(&self, timeout_action: &timeouts::Action) -> std::time::Duration {
+        let (timeout, _abandon) = self.mgr.peek_builder().estimator().timeouts(timeout_action);
+        timeout
     }
 
     /// Expire every circuit that has been dirty for too long.
@@ -677,7 +665,10 @@ impl<R: Runtime> CircMgr<R> {
             if let (Some(cm), Some(dm)) = (Weak::upgrade(&circmgr), Weak::upgrade(&dirmgr)) {
                 if let Ok(netdir) = dm.netdir(Timeliness::Unchecked) {
                     if let Err(e) = cm.launch_timeout_testing_circuit_if_appropriate(&netdir) {
-                        warn!("Problem launching a timeout testing circuit: {}", e);
+                        warn!(
+                            "Problem launching a timeout testing circuit: {}",
+                            e.report()
+                        );
                     }
                     let delay = netdir
                         .params()
@@ -722,19 +713,19 @@ impl<R: Runtime> CircMgr<R> {
                     Ok(NewlyAcquired) => {
                         info!("We now own the lock on our state files.");
                         if let Err(e) = circmgr.upgrade_to_owned_persistent_state() {
-                            error!("Unable to upgrade to owned state files: {}", e);
+                            error!("Unable to upgrade to owned state files: {}", e.report());
                             break;
                         }
                     }
                     Ok(AlreadyHeld) => {
                         if let Err(e) = circmgr.store_persistent_state() {
-                            error!("Unable to flush circmgr state: {}", e);
+                            error!("Unable to flush circmgr state: {}", e.report());
                             break;
                         }
                     }
                     Ok(NoLock) => {
                         if let Err(e) = circmgr.reload_persistent_state() {
-                            error!("Unable to reload circmgr state: {}", e);
+                            error!("Unable to reload circmgr state: {}", e.report());
                             break;
                         }
                     }
@@ -848,7 +839,10 @@ impl<R: Runtime> Drop for CircMgr<R> {
         match self.store_persistent_state() {
             Ok(true) => info!("Flushed persistent state at exit."),
             Ok(false) => debug!("Lock not held; no state to flush."),
-            Err(e) => error!("Unable to flush state on circuit manager drop: {}", e),
+            Err(e) => error!(
+                "Unable to flush state on circuit manager drop: {}",
+                e.report()
+            ),
         }
     }
 }

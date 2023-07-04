@@ -9,7 +9,7 @@ version = "0.1.0"
 async-std = {version = "1.9", features = ["attributes"]}
 chrono = "0.4"
 common = {path = "../../common"}
-costaeres = {git = "https://github.com/capyloon/costaeres.git", rev="051763fe42f113d1ce4d8c238df36e96a71c18f3"}
+costaeres = {git = "https://github.com/capyloon/costaeres.git", rev="58c66fed6f13fd8825b9f179a871ac3973e8420a"}
 # costaeres = {path = "../../../costaeres"}
 dweb_service = {path = "../dweb"}
 log = "0.4"

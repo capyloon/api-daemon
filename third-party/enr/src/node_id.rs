@@ -2,10 +2,13 @@
 //! keys this is the uncompressed encoded form of the public key).
 
 use crate::{digest, keys::EnrPublicKey, Enr, EnrKey};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 type RawNodeId = [u8; 32];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 /// The `NodeId` of an ENR (a 32 byte identifier).
 pub struct NodeId {
     raw: RawNodeId,
@@ -94,9 +97,18 @@ impl std::fmt::Display for NodeId {
     }
 }
 
+impl std::fmt::Debug for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "0x{}", hex::encode(self.raw))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "serde")]
+    use serde_json;
 
     #[test]
     fn test_eq_node_raw_node() {
@@ -104,5 +116,13 @@ mod tests {
         let raw = node.raw;
         assert_eq!(node, raw);
         assert_eq!(node.as_ref(), &raw[..]);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serde() {
+        let node = NodeId::random();
+        let json_string = serde_json::to_string(&node).unwrap();
+        assert_eq!(node, serde_json::from_str::<NodeId>(&json_string).unwrap());
     }
 }

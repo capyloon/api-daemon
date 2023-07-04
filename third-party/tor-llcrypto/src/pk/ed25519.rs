@@ -9,7 +9,6 @@
 //! unvalidated Ed25519 "identity keys" that we use throughout the Tor
 //! protocol to uniquely identify a relay.
 
-use arrayref::array_ref;
 use base64ct::{Base64Unpadded, Encoding as _};
 use std::fmt::{self, Debug, Display, Formatter};
 use subtle::{Choice, ConstantTimeEq};
@@ -20,6 +19,34 @@ use crate::util::ct::CtByteArray;
 
 /// The length of an ED25519 identity, in bytes.
 pub const ED25519_ID_LEN: usize = 32;
+
+/// The length of an ED25519 signature, in bytes.
+pub const ED25519_SIGNATURE_LEN: usize = 64;
+
+/// A variant of [`Keypair`] containing an [`ExpandedSecretKey`].
+#[allow(clippy::exhaustive_structs)]
+pub struct ExpandedKeypair {
+    /// The secret part of the key.
+    pub secret: ExpandedSecretKey,
+    /// The public part of this key.
+    pub public: PublicKey,
+}
+
+impl ExpandedKeypair {
+    /// Compute a signature over a message using this keypair.
+    pub fn sign(&self, message: &[u8]) -> Signature {
+        self.secret.sign(message, &self.public)
+    }
+}
+
+impl<'a> From<&'a Keypair> for ExpandedKeypair {
+    fn from(kp: &'a Keypair) -> ExpandedKeypair {
+        ExpandedKeypair {
+            secret: (&kp.secret).into(),
+            public: kp.public,
+        }
+    }
+}
 
 /// An unchecked, unvalidated Ed25519 key.
 ///
@@ -62,11 +89,7 @@ impl Ed25519Identity {
     }
     /// If `id` is of the correct length, wrap it in an Ed25519Identity.
     pub fn from_bytes(id: &[u8]) -> Option<Self> {
-        if id.len() == 32 {
-            Some(Ed25519Identity::new(*array_ref!(id, 0, 32)))
-        } else {
-            None
-        }
+        Some(Ed25519Identity::new(id.try_into().ok()?))
     }
     /// Return a reference to the bytes in this key.
     pub fn as_bytes(&self) -> &[u8] {
@@ -77,6 +100,12 @@ impl Ed25519Identity {
 impl From<[u8; ED25519_ID_LEN]> for Ed25519Identity {
     fn from(id: [u8; ED25519_ID_LEN]) -> Self {
         Ed25519Identity::new(id)
+    }
+}
+
+impl From<Ed25519Identity> for [u8; ED25519_ID_LEN] {
+    fn from(value: Ed25519Identity) -> Self {
+        value.id.into()
     }
 }
 
@@ -202,6 +231,7 @@ impl<'de> serde::Deserialize<'de> for Ed25519Identity {
 
 /// An ed25519 signature, plus the document that it signs and its
 /// public key.
+#[derive(Clone, Debug)]
 pub struct ValidatableEd25519Signature {
     /// The key that allegedly produced the signature
     key: PublicKey,
@@ -230,6 +260,11 @@ impl ValidatableEd25519Signature {
     /// View the interior of this signature object.
     pub(crate) fn as_parts(&self) -> (&PublicKey, &Signature, &[u8]) {
         (&self.key, &self.sig, &self.entire_text_of_signed_thing[..])
+    }
+
+    /// Return a reference to the underlying Signature.
+    pub fn signature(&self) -> &Signature {
+        &self.sig
     }
 }
 
@@ -277,5 +312,17 @@ pub fn validate_batch(sigs: &[&ValidatableEd25519Signature]) -> bool {
             ed_msgs.push(msg);
         }
         ed25519_dalek::verify_batch(&ed_msgs[..], &ed_sigs[..], &ed_pks[..]).is_ok()
+    }
+}
+
+/// An object that has an Ed25519 [`PublicKey`].
+pub trait Ed25519PublicKey {
+    /// Get the Ed25519 [`PublicKey`].
+    fn public_key(&self) -> &PublicKey;
+}
+
+impl Ed25519PublicKey for Keypair {
+    fn public_key(&self) -> &PublicKey {
+        &self.public
     }
 }

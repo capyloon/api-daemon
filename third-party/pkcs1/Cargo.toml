@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.57"
+rust-version = "1.60"
 name = "pkcs1"
-version = "0.4.1"
+version = "0.7.5"
 authors = ["RustCrypto Developers"]
 description = """
 Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #1:
@@ -45,28 +45,23 @@ rustdoc-args = [
 ]
 
 [dependencies.der]
-version = "0.6"
+version = "0.7"
 features = ["oid"]
 
 [dependencies.pkcs8]
-version = "0.9"
+version = "0.10"
 optional = true
 default-features = false
 
 [dependencies.spki]
-version = "0.6"
-
-[dependencies.zeroize]
-version = "1"
-optional = true
-default-features = false
+version = "0.7"
 
 [dev-dependencies.const-oid]
 version = "0.9"
 features = ["db"]
 
 [dev-dependencies.hex-literal]
-version = "0.3"
+version = "0.4"
 
 [dev-dependencies.tempfile]
 version = "3"
@@ -74,15 +69,16 @@ version = "3"
 [features]
 alloc = [
     "der/alloc",
-    "pkcs8/alloc",
-    "zeroize/alloc",
+    "zeroize",
+    "pkcs8?/alloc",
 ]
 pem = [
     "alloc",
     "der/pem",
-    "pkcs8/pem",
+    "pkcs8?/pem",
 ]
 std = [
     "der/std",
     "alloc",
 ]
+zeroize = ["der/zeroize"]

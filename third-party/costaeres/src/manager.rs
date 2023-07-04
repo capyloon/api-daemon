@@ -302,13 +302,13 @@ impl<T> Manager<T> {
             modified,
             scorer,
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
         // Insert the tags.
         for tag in metadata.tags() {
             sqlx::query!("INSERT INTO tags ( id, tag ) VALUES ( ?1, ?2 )", id, tag)
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
         }
 
@@ -324,7 +324,7 @@ impl<T> Manager<T> {
                 mime_type,
                 size
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
         }
 
@@ -477,13 +477,13 @@ impl<T> Manager<T> {
     pub async fn clear(&mut self) -> Result<(), ResourceStoreError> {
         let mut tx = self.db_pool.begin().await?;
         sqlx::query!("DELETE FROM resources")
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
-        sqlx::query!("DELETE FROM tags").execute(&mut tx).await?;
+        sqlx::query!("DELETE FROM tags").execute(&mut *tx).await?;
         sqlx::query!("DELETE FROM variants")
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
-        sqlx::query!("DELETE FROM fts").execute(&mut tx).await?;
+        sqlx::query!("DELETE FROM fts").execute(&mut *tx).await?;
         tx.commit().await?;
 
         self.notify_observers(&ResourceModification::Deleted(ROOT_ID.clone()));
@@ -730,7 +730,7 @@ impl<T> Manager<T> {
 
         // Update the children content of the parent if this is not creating the root.
         if !metadata.id().is_root() {
-            self.update_container_content(&metadata.parent(), &mut tx2)
+            self.update_container_content(&metadata.parent(), &mut *tx2)
                 .await?;
         }
 
@@ -774,7 +774,7 @@ impl<T> Manager<T> {
 
         let mut tx = self.db_pool.begin().await?;
         sqlx::query!("DELETE FROM resources WHERE id = ?", id)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
 
         let tx1 = self.fts.remove_text(id, None, tx).await?;
@@ -783,7 +783,7 @@ impl<T> Manager<T> {
 
         // Update the children content of the parent if this is not creating the root.
         if !metadata.id().is_root() {
-            self.update_container_content(&metadata.parent(), &mut tx2)
+            self.update_container_content(&metadata.parent(), &mut *tx2)
                 .await?;
         }
 
@@ -867,12 +867,12 @@ impl<T> Manager<T> {
         let mut tx = self.db_pool.begin().await?;
         let is_container = self.is_container(id).await?;
 
-        let parent_id = self.parent_of(id, &mut tx).await?;
+        let parent_id = self.parent_of(id, &mut *tx).await?;
 
         // Delete the object itself.
         // The tags will be removed by the delete cascade sql rule.
         sqlx::query!("DELETE FROM resources WHERE id = ?", id)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
 
         // Remove fts for all variants
@@ -881,7 +881,7 @@ impl<T> Manager<T> {
         if !is_container {
             self.store.delete(id).await?;
 
-            self.update_container_content(&parent_id, &mut tx1).await?;
+            self.update_container_content(&parent_id, &mut *tx1).await?;
             tx1.commit().await?;
             self.notify_observers(&ResourceModification::Deleted(id.clone()));
             self.notify_observers(&ResourceModification::Modified(parent_id.clone()));
@@ -906,13 +906,13 @@ impl<T> Manager<T> {
             let mut new_obj = vec![];
 
             for source_id in containers {
-                let children: Vec<ResourceId> = self.children_of(&source_id, &mut tx1).await?;
+                let children: Vec<ResourceId> = self.children_of(&source_id, &mut *tx1).await?;
 
                 for child in children {
                     // 1. add this child to the final set.
                     to_delete.insert(child.clone());
                     // 2. If it's a container, add it to the list of containers for the next iteration.
-                    if self.is_container_in_tx(&child, &mut tx1).await? {
+                    if self.is_container_in_tx(&child, &mut *tx1).await? {
                         new_obj.push(child);
                     }
                 }
@@ -930,7 +930,7 @@ impl<T> Manager<T> {
             // Delete the child.
             // The tags will be removed by the delete cascade sql rule.
             sqlx::query!("DELETE FROM resources WHERE id = ?", child)
-                .execute(&mut tx1)
+                .execute(&mut *tx1)
                 .await?;
             self.store.delete(&child).await?;
             tx1 = self.fts.remove_text(&child, None, tx1).await?;
@@ -939,7 +939,7 @@ impl<T> Manager<T> {
         }
 
         self.store.delete(id).await?;
-        self.update_container_content(&parent_id, &mut tx1).await?;
+        self.update_container_content(&parent_id, &mut *tx1).await?;
         tx1.commit().await?;
         self.notify_observers(&ResourceModification::Deleted(id.clone()));
         self.notify_observers(&ResourceModification::Modified(parent_id.clone()));
@@ -1198,8 +1198,8 @@ impl<T> Manager<T> {
         let source_meta = self.get_metadata(source).await?;
 
         if source_meta.parent() == *target {
-           // Nothing to do, but not an error either.
-           return Ok(source_meta);
+            // Nothing to do, but not an error either.
+            return Ok(source_meta);
         }
 
         self.evict_from_cache(source);
@@ -1215,16 +1215,16 @@ impl<T> Manager<T> {
             target,
             source
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
         self.store.update(&new_meta, None).await?;
 
         // Update old parent's child list.
-        self.update_container_content(&old_parent, &mut tx).await?;
+        self.update_container_content(&old_parent, &mut *tx).await?;
 
         // Update new parent's child list.
-        self.update_container_content(target, &mut tx).await?;
+        self.update_container_content(target, &mut *tx).await?;
 
         tx.commit().await?;
 

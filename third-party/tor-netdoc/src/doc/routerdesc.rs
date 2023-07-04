@@ -39,7 +39,8 @@ use crate::types::family::RelayFamily;
 use crate::types::misc::*;
 use crate::types::policy::*;
 use crate::types::version::TorVersion;
-use crate::{doc, AllowAnnotations, Error, ParseErrorKind as EK, Result};
+use crate::util::PeekableIterator;
+use crate::{doc, AllowAnnotations, Error, NetdocErrorKind as EK, Result};
 
 use ll::pk::ed25519::Ed25519Identity;
 use once_cell::sync::Lazy;
@@ -242,29 +243,34 @@ decl_keyword! {
 static ROUTER_ANNOTATIONS: Lazy<SectionRules<RouterKwd>> = Lazy::new(|| {
     use RouterKwd::*;
 
-    let mut rules = SectionRules::new();
+    let mut rules = SectionRules::builder();
     rules.add(ANN_SOURCE.rule());
     rules.add(ANN_DOWNLOADED_AT.rule().args(1..));
     rules.add(ANN_PURPOSE.rule().args(1..));
     rules.add(ANN_UNRECOGNIZED.rule().may_repeat().obj_optional());
-    rules
+    // Unrecognized annotations are fine; anything else is an error in this
+    // context.
+    rules.reject_unrecognized();
+    rules.build()
 });
 /// Rules for tokens that are allowed in the first part of a
 /// router descriptor.
 static ROUTER_HEADER_RULES: Lazy<SectionRules<RouterKwd>> = Lazy::new(|| {
     use RouterKwd::*;
 
-    let mut rules = SectionRules::new();
+    let mut rules = SectionRules::builder();
     rules.add(ROUTER.rule().required().args(5..));
     rules.add(IDENTITY_ED25519.rule().required().no_args().obj_required());
-    rules
+    // No other intervening tokens are permitted in the header.
+    rules.reject_unrecognized();
+    rules.build()
 });
 /// Rules for  tokens that are allowed in the first part of a
 /// router descriptor.
 static ROUTER_BODY_RULES: Lazy<SectionRules<RouterKwd>> = Lazy::new(|| {
     use RouterKwd::*;
 
-    let mut rules = SectionRules::new();
+    let mut rules = SectionRules::builder();
     rules.add(MASTER_KEY_ED25519.rule().required().args(1..));
     rules.add(PLATFORM.rule());
     rules.add(PUBLISHED.rule().required());
@@ -306,17 +312,19 @@ static ROUTER_BODY_RULES: Lazy<SectionRules<RouterKwd>> = Lazy::new(|| {
     {
         rules.add(EXTRA_INFO_DIGEST.rule().args(1..));
     }
-    rules
+    rules.build()
 });
 
 /// Rules for items that appear at the end of a router descriptor.
 static ROUTER_SIG_RULES: Lazy<SectionRules<RouterKwd>> = Lazy::new(|| {
     use RouterKwd::*;
 
-    let mut rules = SectionRules::new();
+    let mut rules = SectionRules::builder();
     rules.add(ROUTER_SIG_ED25519.rule().required().args(1..));
     rules.add(ROUTER_SIGNATURE.rule().required().no_args().obj_required());
-    rules
+    // No intervening tokens are allowed in the footer.
+    rules.reject_unrecognized();
+    rules.build()
 });
 
 impl RouterAnnotation {
@@ -405,20 +413,20 @@ impl RouterDesc {
         use RouterKwd::*;
 
         // Parse everything up through the header.
-        let mut reader =
-            reader.pause_at(|item| item.is_ok_with_kwd_not_in(&[ROUTER, IDENTITY_ED25519]));
-        let header = ROUTER_HEADER_RULES.parse(&mut reader)?;
+        let header = ROUTER_HEADER_RULES.parse(
+            reader.pause_at(|item| item.is_ok_with_kwd_not_in(&[ROUTER, IDENTITY_ED25519])),
+        )?;
 
         // Parse everything up to but not including the signature.
-        let mut reader =
-            reader.new_pred(|item| item.is_ok_with_kwd_in(&[ROUTER_SIGNATURE, ROUTER_SIG_ED25519]));
-        let body = ROUTER_BODY_RULES.parse(&mut reader)?;
+        let body =
+            ROUTER_BODY_RULES.parse(reader.pause_at(|item| {
+                item.is_ok_with_kwd_in(&[ROUTER_SIGNATURE, ROUTER_SIG_ED25519])
+            }))?;
 
         // Parse the signature.
-        let mut reader = reader.new_pred(|item| {
+        let sig = ROUTER_SIG_RULES.parse(reader.pause_at(|item| {
             item.is_ok_with_annotation() || item.is_ok_with_kwd(ROUTER) || item.is_empty_line()
-        });
-        let sig = ROUTER_SIG_RULES.parse(&mut reader)?;
+        }))?;
 
         Ok((header, body, sig))
     }
@@ -471,7 +479,7 @@ impl RouterDesc {
                 .parse_obj::<UnvalidatedEdCert>("ED25519 CERT")?
                 .check_cert_type(tor_cert::CertType::IDENTITY_V_SIGNING)?
                 .into_unchecked()
-                .check_key(None)
+                .should_have_signing_key()
                 .map_err(|err| {
                     EK::BadObjectVal
                         .err()
@@ -535,10 +543,11 @@ impl RouterDesc {
             let signed_end = ed_sig_pos + b"router-sig-ed25519 ".len();
             d.update(&s[start_offset..signed_end]);
             let d = d.finalize();
-            let sig: B64 = ed_sig.parse_arg(0)?;
-            let sig = ll::pk::ed25519::Signature::from_bytes(sig.as_bytes())
+            let sig: [u8; 64] = ed_sig
+                .parse_arg::<B64>(0)?
+                .into_array()
                 .map_err(|_| EK::BadSignature.at_pos(ed_sig.pos()))?;
-
+            let sig = ll::pk::ed25519::Signature::from(sig);
             ll::pk::ed25519::ValidatableEd25519Signature::new(ed25519_signing_key, sig, &d)
         };
 
@@ -598,7 +607,7 @@ impl RouterDesc {
                 .check_cert_type(tor_cert::CertType::NTOR_CC_IDENTITY)?
                 .check_subject_key_is(identity_cert.peek_signing_key())?
                 .into_unchecked()
-                .check_key(Some(&ntor_as_ed.into()))
+                .should_be_signed_with(&ntor_as_ed.into())
                 .map_err(|err| EK::BadSignature.err().with_source(err))?
         };
 
@@ -741,7 +750,7 @@ impl RouterDesc {
         ];
         // Unwrap is safe here because `expirations` array is not empty
         #[allow(clippy::unwrap_used)]
-        let expiry = *expirations.iter().max().unwrap();
+        let expiry = *expirations.iter().min().unwrap();
 
         let start_time = published - time::Duration::new(ROUTER_PRE_VALIDITY_SECONDS, 0);
 
@@ -792,9 +801,8 @@ pub struct RouterReader<'a> {
 /// Used to recover from errors.
 fn advance_to_next_routerdesc(reader: &mut NetDocReader<'_, RouterKwd>, annotated: bool) {
     use RouterKwd::*;
-    let iter = reader.iter();
     loop {
-        let item = iter.peek();
+        let item = reader.peek();
         match item {
             Some(Ok(t)) => {
                 let kwd = t.kwd();
@@ -809,7 +817,7 @@ fn advance_to_next_routerdesc(reader: &mut NetDocReader<'_, RouterKwd>, annotate
                 return;
             }
         }
-        let _ = iter.next();
+        let _ = reader.next();
     }
 }
 
@@ -854,7 +862,7 @@ impl<'a> RouterReader<'a> {
                 // (This might not be able to happen, but it's easier to
                 // explicitly catch this case than it is to prove that
                 // it's impossible.)
-                let _ = self.reader.iter().next();
+                let _ = self.reader.next();
             }
             advance_to_next_routerdesc(&mut self.reader, self.annotated);
         }
@@ -866,7 +874,7 @@ impl<'a> Iterator for RouterReader<'a> {
     type Item = Result<AnnotatedRouterDesc>;
     fn next(&mut self) -> Option<Self::Item> {
         // Is there a next token? If not, we're done.
-        self.reader.iter().peek()?;
+        self.reader.peek()?;
 
         Some(
             self.take_annotated_routerdesc()

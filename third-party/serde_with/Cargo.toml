@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60"
 name = "serde_with"
-version = "2.2.0"
+version = "3.0.0"
 authors = [
     "Jonas Bushart",
     "Marcin Kaźmierczak",
@@ -48,6 +48,29 @@ rustdoc-args = [
     "-Zunstable-options",
     "--generate-link-to-definition",
 ]
+
+[package.metadata.release]
+tag = true
+tag-message = "{{crate_name}} v{{version}}"
+tag-name = "v{{version}}"
+
+[[package.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
+replace = """
+[Unreleased]
+
+## [{{version}}] - {{date}}"""
+search = '\[Unreleased\]'
+
+[[package.metadata.release.pre-release-replacements]]
+file = "src/lib.rs"
+replace = "https://docs.rs/serde_with/{{version}}/"
+search = 'https://docs\.rs/serde_with/[\d.]+/'
+
+[[package.metadata.release.pre-release-replacements]]
+file = "README.md"
+replace = "https://docs.rs/serde_with/{{version}}/"
+search = 'https://docs\.rs/serde_with/[\d.]+/'
 
 [[test]]
 name = "base64"
@@ -118,7 +141,7 @@ path = "tests/rust.rs"
 required-features = ["alloc"]
 
 [dependencies.base64]
-version = "0.13.0"
+version = "0.21.0"
 optional = true
 default-features = false
 
@@ -146,7 +169,7 @@ default-features = false
 package = "indexmap"
 
 [dependencies.serde]
-version = "1.0.122"
+version = "1.0.157"
 features = ["derive"]
 default-features = false
 
@@ -156,7 +179,7 @@ optional = true
 default-features = false
 
 [dependencies.serde_with_macros]
-version = "=2.2.0"
+version = "=3.0.0"
 optional = true
 
 [dependencies.time_0_3]
@@ -181,7 +204,7 @@ version = "0.3.16"
 version = "1.0.0"
 
 [dev-dependencies.regex]
-version = "1.5.6"
+version = "1.8.1"
 features = ["std"]
 default-features = false
 

@@ -1,6 +1,4 @@
-use ::std::convert::TryFrom;
-
-use ::num_enum::{FromPrimitive, TryFromPrimitive};
+use ::num_enum::FromPrimitive;
 
 // Guard against https://github.com/illicitonion/num_enum/issues/27
 mod alloc {}
@@ -8,45 +6,45 @@ mod core {}
 mod num_enum {}
 mod std {}
 
-#[test]
-fn has_from_primitive_number_u64() {
-    #[derive(Debug, Eq, PartialEq, FromPrimitive)]
-    #[repr(u64)]
-    enum Enum {
-        Zero = 0,
-        #[num_enum(default)]
-        NonZero = 1,
-    }
+macro_rules! has_from_primitive_number {
+    ( $type:ty ) => {
+        paste::paste! {
+            #[test]
+            fn [<has_from_primitive_number_ $type>]() {
+                #[derive(Debug, Eq, PartialEq, FromPrimitive)]
+                #[repr($type)]
+                enum Enum {
+                    Zero = 0,
+                    #[num_enum(default)]
+                    NonZero = 1,
+                }
 
-    let zero = Enum::from_primitive(0_u64);
-    assert_eq!(zero, Enum::Zero);
+                let zero = Enum::from_primitive(0 as $type);
+                assert_eq!(zero, Enum::Zero);
 
-    let one = Enum::from_primitive(1_u64);
-    assert_eq!(one, Enum::NonZero);
+                let one = Enum::from_primitive(1 as $type);
+                assert_eq!(one, Enum::NonZero);
 
-    let two = Enum::from_primitive(2_u64);
-    assert_eq!(two, Enum::NonZero);
+                let two = Enum::from_primitive(2 as $type);
+                assert_eq!(two, Enum::NonZero);
+            }
+        }
+    };
 }
 
-#[test]
-fn has_from_primitive_number() {
-    #[derive(Debug, Eq, PartialEq, FromPrimitive)]
-    #[repr(u8)]
-    enum Enum {
-        Zero = 0,
-        #[num_enum(default)]
-        NonZero = 1,
-    }
-
-    let zero = Enum::from_primitive(0_u8);
-    assert_eq!(zero, Enum::Zero);
-
-    let one = Enum::from_primitive(1_u8);
-    assert_eq!(one, Enum::NonZero);
-
-    let two = Enum::from_primitive(2_u8);
-    assert_eq!(two, Enum::NonZero);
-}
+has_from_primitive_number!(u8);
+has_from_primitive_number!(u16);
+has_from_primitive_number!(u32);
+has_from_primitive_number!(u64);
+has_from_primitive_number!(usize);
+has_from_primitive_number!(i8);
+has_from_primitive_number!(i16);
+has_from_primitive_number!(i32);
+has_from_primitive_number!(i64);
+has_from_primitive_number!(isize);
+// repr with 128-bit type is unstable
+// has_from_primitive_number!(u128);
+// has_from_primitive_number!(i128);
 
 #[test]
 fn has_from_primitive_number_standard_default_attribute() {
@@ -89,11 +87,11 @@ fn from_primitive_number() {
     let from = Enum::from(0_u8);
     assert_eq!(from, Enum::Whatever);
 
-    let try_from_primitive = Enum::try_from_primitive(0_u8);
-    assert_eq!(try_from_primitive, Ok(Enum::Whatever));
+    let from_primitive = Enum::from_primitive(1_u8);
+    assert_eq!(from_primitive, Enum::Whatever);
 
-    let try_from = Enum::try_from(0_u8);
-    assert_eq!(try_from, Ok(Enum::Whatever));
+    let from = Enum::from(1_u8);
+    assert_eq!(from, Enum::Whatever);
 }
 
 #[test]

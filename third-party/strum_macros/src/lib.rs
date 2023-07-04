@@ -175,7 +175,7 @@ pub fn as_ref_str(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// use strum::VariantNames;
 ///
 /// #[derive(Debug, EnumString, EnumVariantNames)]
-/// #[strum(serialize_all = "kebab_case")]
+/// #[strum(serialize_all = "kebab-case")]
 /// enum Color {
 ///     Red,
 ///     Blue,
@@ -253,7 +253,7 @@ pub fn into_static_str(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     toks.into()
 }
 
-/// implements `std::string::ToString` on en enum
+/// implements `std::string::ToString` on an enum
 ///
 /// ```
 /// // You need to bring the ToString trait into scope to use it
@@ -344,7 +344,7 @@ pub fn display(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// Creates a new type that iterates of the variants of an enum.
 ///
 /// Iterate over the variants of an Enum. Any additional data on your variants will be set to `Default::default()`.
-/// The macro implements `strum::IntoEnumIter` on your enum and creates a new type called `YourEnumIter` that is the iterator object.
+/// The macro implements `strum::IntoEnumIterator` on your enum and creates a new type called `YourEnumIter` that is the iterator object.
 /// You cannot derive `EnumIter` on any type with a lifetime bound (`<'a>`) because the iterator would surely
 /// create [unbounded lifetimes](https://doc.rust-lang.org/nightly/nomicon/unbounded-lifetimes.html).
 ///
@@ -384,13 +384,38 @@ pub fn enum_iter(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     toks.into()
 }
 
+/// Generated `is_*()` methods for each variant.
+/// E.g. `Color.is_red()`.
+///
+/// ```
+///
+/// use strum_macros::EnumIs;
+///
+/// #[derive(EnumIs, Debug)]
+/// enum Color {
+///     Red,
+///     Green { range: usize },
+/// }
+///
+/// assert!(Color::Red.is_red());
+/// assert!(Color::Green{range: 0}.is_green());
+/// ```
+#[proc_macro_derive(EnumIs, attributes(strum))]
+pub fn enum_is(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = syn::parse_macro_input!(input as DeriveInput);
+
+    let toks = macros::enum_is::enum_is_inner(&ast).unwrap_or_else(|err| err.to_compile_error());
+    debug_print_generated(&ast, &toks);
+    toks.into()
+}
+
 /// Add a function to enum that allows accessing variants by its discriminant
 ///
 /// This macro adds a standalone function to obtain an enum variant by its discriminant. The macro adds
 /// `from_repr(discriminant: usize) -> Option<YourEnum>` as a standalone function on the enum. For
 /// variants with additional data, the returned variant will use the `Default` trait to fill the
 /// data. The discriminant follows the same rules as `rustc`. The first discriminant is zero and each
-/// successive variant has a discriminant of one greater than the previous variant, expect where an
+/// successive variant has a discriminant of one greater than the previous variant, except where an
 /// explicit discriminant is specified. The type of the discriminant will match the `repr` type if
 /// it is specifed.
 ///

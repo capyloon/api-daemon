@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -107,8 +109,10 @@ macro_rules! caret_int {
             }
             /// Return true if this value is one that we recognize.
             $v fn is_recognized(self) -> bool {
-                matches!(self,
-                         $( $name::$id )|*)
+                match self {
+                    $( $name::$id  => true, )*
+                    _ => false
+                }
             }
             /// Try to convert this value from one of the recognized names.
             $v fn from_name(name: &str) -> Option<Self> {

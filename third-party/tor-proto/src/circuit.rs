@@ -41,8 +41,10 @@
 pub(crate) mod celltypes;
 pub(crate) mod halfcirc;
 mod halfstream;
-#[cfg(feature = "onion-common")]
+#[cfg(feature = "hs-common")]
 pub mod handshake;
+#[cfg(feature = "send-control-msg")]
+mod msghandler;
 mod path;
 pub(crate) mod reactor;
 pub(crate) mod sendme;
@@ -55,40 +57,69 @@ use crate::circuit::reactor::{
     CircuitHandshake, CtrlMsg, Reactor, RECV_WINDOW_INIT, STREAM_READER_BUFFER,
 };
 pub use crate::circuit::unique_id::UniqId;
-use crate::crypto::cell::{HopNum, InboundClientCrypt, OutboundClientCrypt};
-use crate::stream::{DataStream, ResolveStream, StreamParameters, StreamReader};
+use crate::crypto::cell::HopNum;
+use crate::stream::{
+    AnyCmdChecker, DataCmdChecker, DataStream, ResolveCmdChecker, ResolveStream, StreamParameters,
+    StreamReader,
+};
 use crate::{Error, ResolveError, Result};
 use tor_cell::{
-    chancell::{self, msg::ChanMsg, CircId},
-    relaycell::msg::{Begin, RelayMsg, Resolve, Resolved, ResolvedVal},
+    chancell::{self, msg::AnyChanMsg, CircId},
+    relaycell::msg::{AnyRelayMsg, Begin, Resolve, Resolved, ResolvedVal},
 };
 
 use tor_error::{bad_api_usage, internal, into_internal};
-use tor_linkspec::{CircTarget, LinkSpec, OwnedChanTarget, RelayIdType};
+use tor_linkspec::{CircTarget, LinkSpecType, OwnedChanTarget, RelayIdType};
 
 use futures::channel::{mpsc, oneshot};
 
 use crate::circuit::sendme::StreamRecvWindow;
 use futures::SinkExt;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tor_cell::relaycell::StreamId;
 // use std::time::Duration;
 
 use crate::crypto::handshake::ntor::NtorPublicKey;
-
-use self::reactor::RequireSendmeAuth;
+pub use path::{Path, PathEntry};
 
 /// The size of the buffer for communication between `ClientCirc` and its reactor.
 pub const CIRCUIT_BUFFER_SIZE: usize = 128;
 
-#[derive(Clone, Debug)]
+#[cfg(feature = "send-control-msg")]
+#[cfg_attr(docsrs, doc(cfg(feature = "send-control-msg")))]
+pub use {msghandler::MsgHandler, reactor::MetaCellDisposition};
+
+#[derive(Debug)]
 /// A circuit that we have constructed over the Tor network.
 ///
-/// This struct is the interface used by the rest of the code, It is fairly
-/// cheaply cloneable.  None of the public methods need mutable access, since
-/// they all actually communicate with the Reactor which contains the primary
-/// mutable state, and does the actual work.
+/// # Circuit life cycle
+///
+/// `ClientCirc`s are created in an initially unusable state using [`Channel::new_circ`],
+/// which returns a [`PendingClientCirc`].  To get a real (one-hop) circuit from
+/// one of these, you invoke one of its `create_firsthop` methods (currently
+/// [`create_firsthop_fast()`](PendingClientCirc::create_firsthop_fast) or
+/// [`create_firsthop_ntor()`](PendingClientCirc::create_firsthop_ntor)).
+/// Then, to add more hops to the circuit, you can call
+/// [`extend_ntor()`](ClientCirc::extend_ntor) on it.
+///
+/// For higher-level APIs, see the `tor-circmgr` crate: the ones here in
+/// `tor-proto` are probably not what you need.
+///
+/// After a circuit is created, it will persist until it is closed in one of
+/// five ways:
+///    1. A remote error occurs.
+///    2. Some hop on the circuit sends a `DESTROY` message to tear down the
+///       circuit.
+///    3. The circuit's channel is closed.
+///    4. Someone calls [`ClientCirc::terminate`] on the circuit.
+///    5. The last reference to the `ClientCirc` is dropped. (Note that every stream
+///       on a `ClientCirc` keeps a reference to it, which will in turn keep the
+///       circuit from closing until all those streams have gone away.)
+///
+/// Note that in cases 1-4 the [`ClientCirc`] object itself will still exist: it
+/// will just be unusable for most purposes.  Most operations on it will fail
+/// with an error.
 //
 // Effectively, this struct contains two Arcs: one for `path` and one for
 // `control` (which surely has something Arc-like in it).  We cannot unify
@@ -101,9 +132,10 @@ pub const CIRCUIT_BUFFER_SIZE: usize = 128;
 // Because of the above, cloning this struct is always going to involve
 // two atomic refcount changes/checks.  Wrapping it in another Arc would
 // be overkill.
+
 pub struct ClientCirc {
-    /// Information about this circuit's path.
-    path: Arc<path::Path>,
+    /// Mutable state shared with the `Reactor`.
+    mutable: Arc<Mutex<MutableState>>,
     /// A unique identifier for this circuit.
     unique_id: UniqId,
     /// Channel to send control messages to the reactor.
@@ -122,6 +154,17 @@ pub struct ClientCirc {
     circid: CircId,
 }
 
+/// Mutable state shared by [`ClientCirc`] and [`Reactor`].
+#[derive(Debug)]
+struct MutableState {
+    /// Information about this circuit's path.
+    ///
+    /// This is stored in an Arc so that we can cheaply give a copy of it to
+    /// client code; when we need to add a hop (which is less frequent) we use
+    /// [`Arc::make_mut()`].
+    path: Arc<path::Path>,
+}
+
 /// A ClientCirc that needs to send a create cell and receive a created* cell.
 ///
 /// To use one of these, call create_firsthop_fast() or create_firsthop_ntor()
@@ -131,7 +174,7 @@ pub struct PendingClientCirc {
     /// or a DESTROY cell.
     recvcreated: oneshot::Receiver<CreateResponse>,
     /// The ClientCirc object that we can expose on success.
-    circ: ClientCirc,
+    circ: Arc<ClientCirc>,
 }
 
 /// Description of the network's current rules for building circuits.
@@ -197,9 +240,9 @@ pub(crate) struct StreamTarget {
     /// Reactor ID for this stream.
     stream_id: StreamId,
     /// Channel to send cells down.
-    tx: mpsc::Sender<RelayMsg>,
+    tx: mpsc::Sender<AnyRelayMsg>,
     /// Reference to the circuit that this stream is on.
-    circ: ClientCirc,
+    circ: Arc<ClientCirc>,
 }
 
 impl ClientCirc {
@@ -211,14 +254,53 @@ impl ClientCirc {
     /// the tor-proto crate, but within the crate it's possible to have a
     /// circuit with no hops.)
     pub fn first_hop(&self) -> OwnedChanTarget {
-        self.path
+        let first_hop = self
+            .mutable
+            .lock()
+            .expect("poisoned lock")
+            .path
             .first_hop()
-            .expect("called first_hop on an un-constructed circuit")
+            .expect("called first_hop on an un-constructed circuit");
+        match first_hop {
+            path::HopDetail::Relay(r) => r,
+            #[cfg(feature = "hs-common")]
+            path::HopDetail::Virtual => {
+                panic!("somehow made a circuit with a virtual first hop.")
+            }
+        }
     }
 
     /// Return a description of all the hops in this circuit.
+    ///
+    /// This method is **deprecated** for several reasons:
+    ///   * It performs a deep copy.
+    ///   * It ignores virtual hops.
+    ///   * It's not so extensible.
+    ///
+    /// Use [`ClientCirc::path_ref()`] instead.
+    #[deprecated(since = "0.11.1", note = "Use path_ref() instead.")]
     pub fn path(&self) -> Vec<OwnedChanTarget> {
-        self.path.all_hops()
+        #[allow(clippy::unnecessary_filter_map)] // clippy is blind to the cfg
+        self.mutable
+            .lock()
+            .expect("poisoned lock")
+            .path
+            .all_hops()
+            .into_iter()
+            .filter_map(|hop| match hop {
+                path::HopDetail::Relay(r) => Some(r),
+                #[cfg(feature = "hs-common")]
+                path::HopDetail::Virtual => None,
+            })
+            .collect()
+    }
+
+    /// Return a [`Path`] object describing all the hops in this circuit.
+    ///
+    /// Note that this `Path` is not automatically updated if the circuit is
+    /// extended.
+    pub fn path_ref(&self) -> Arc<Path> {
+        self.mutable.lock().expect("poisoned_lock").path.clone()
     }
 
     /// Return a reference to the channel that this circuit is connected to.
@@ -230,64 +312,132 @@ impl ClientCirc {
         &self.channel
     }
 
-    /// Send a control message to the final hop on this circuit.
+    /// Send a control message to the final hop on this circuit, and wait for
+    /// one or more messages in reply.
+    ///
+    /// In detail:
+    ///
+    ///  1. `msg` is sent on the circuit.
+    ///
+    ///  2. After that, each message on the circuit that
+    ///     isn't handled by the core machinery
+    ///     is passed to `reply_handler`.
+    ///     So any reply to `msg` will be seen by `reply_handler`.
+    ///
+    ///  3. When `reply_handler` returns `UninstallHandler`,
+    ///     the handler is dropped, and then no more control messages
+    ///     will be accepted.
+    ///
+    /// This function returns as soon as the message is sent
+    /// and `reply_handler` is installed.
+    /// `reply_handler` will probably want to have ownership of a
+    /// an inter-task sending channel,
+    /// so that it can communicate its results,
+    /// and inform the caller when it is uninstalled.
     ///
     /// Note that it is quite possible to use this function to violate the tor
     /// protocol; most users of this API will not need to call it.  It is used
     /// to implement most of the onion service handshake.
     ///
-    /// (This function is not yet implemented. Right now it will always panic.)
+    /// # Limitations
+    ///
+    /// Only one call to `send_control_message` may be active at any one time,
+    /// for any one circuit.
+    /// This generally means that this function should not be called
+    /// on a circuit which might be shared with anyone else.
+    ///
+    /// Likewise, it is forbidden to try to extend the circuit,
+    /// while `send_control_message` is running.
+    ///
+    /// If these restrictions are violated, the circuit will be closed with an error.
+    ///
+    /// After `send_control_message` has returned, the circuit may be extended,
+    /// or `send_control_message` called again.
+    /// Note that it is not currently possible, with this API,
+    /// to send a followup control message,
+    /// while continuously monitoring for relevant incoming cells:
+    /// there will necessarily be a gap between `send_control_message` returning,
+    /// and being called again.
+    //
+    // TODO hs (Diziet): IMO the above limitation ^ shows the API is not right.
+    // There should probably be a separate function for when you're having
+    // a conversation, that *doesn't* mess with the handler.
+    // Something like this maybe:
+    //     // This behaves like `send_control_message`, but the returned
+    //     // future is a named type.
+    //     //
+    //     // Having two `Conversations` at once is forbidden.
+    //     fn converse_directly(
+    //         &self,
+    //         msgs: impl Iterator<Item=AnyRelayCell>,
+    //         reply_handler: impl MsgHandler + Send + 'static,
+    //     ) -> Result<Conversation<'_>>;
+    //     impl Future for Conversation<'_> {
+    //         type Output = Result<()>; ....
+    //     }
+    //     impl Conversation {
+    //         // `MsgHandler::msg_handler` gets a `Conversation<'_>` too
+    //         // in case it wants to call this
+    //         fn send_msg(&self, msg: AnyRelayCell> -> Result<()> {...}
+    //     }
+    // Further discussion here:
+    //    https://gitlab.torproject.org/tpo/core/arti/-/merge_requests/1218#note_2908120
     //
     // TODO hs: rename this. "control_messages" is kind of ambiguous; we use
     //   "control" for a lot of other things. We say "meta" elsewhere in the
     //   reactor code, but "meta messages" just sounds odd.
-    #[allow(clippy::missing_panics_doc, unused_variables)] // TODO hs remove
-    #[cfg(feature = "experimental-api")]
-    pub async fn send_control_message(&self, msg: RelayMsg) -> Result<()> {
-        todo!() // TODO hs
-    }
-
-    /// Begin accepting 'control' messages from the final hop on this circuit,
-    /// and return an asynchronous stream of any such messages that arrive.
-    ///
-    /// A "control" message is a message without a stream ID that `tor-proto`
-    /// does not handle on its own.  (The messages that `tor-proto` can handle
-    /// are DESTROY, DATA, SENDME, ...)  Ordinarily, any unexpected control
-    /// message will cause the circuit to exit with an error.
-    ///
-    /// There can only be one stream of this type created on a given circuit at
-    /// a time. If a such a stream already exists, this method will return an
-    /// error.
-    ///
-    /// The caller should be sure to close the circuit if a command that _it_
-    /// doesn't recognize shows up.
-    ///
-    /// (This function is not yet implemented; right now, it will always panic.)
     //
-    // TODO hs: Possibly this function (and send_control_message) should use
+    // TODO hs: it might be nice to avoid exposing tor-cell APIs in the
+    //   tor-proto interface.
+    //
+    // TODO hs: I'm not sure this API is the right shape...
+    //
+    // It's a little overkill for ESTABLISH_RENDEZVOUS where we expect a single
+    // RENDEZVOUS_ESTABLISHED, then eventually a single RENDEZVOUS2. It's also a
+    // little overkill for INTRODUCE1 where we expect an INTRODUCE_ACK.
+    //
+    // It will work for it's good for ESTABLISH_INTRO where we expect an
+    // INTRO_ESTABLISHED followed by a large number of INTRODUCE2-- though we
+    // might regret an unbounded circuit?
+    //
+    // It isn't quite right for RENDEZVOUS1, where we expect no reply, and want
+    // to send the message to the second-to-last hop (having added a virtual hop
+    // to the circuit.)
+    //
+    // TODO hs: Possibly this function should use
     // HopNum or similar to indicate which hop we're talking to, rather than
     // just doing "the last hop".
-    //
-    // TODO hs: There is possibly some kind of type trickery we could do here so
-    // that the stream would return a chosen type that implements
-    // `TryFrom<RelayMsg>` or something like that. Not sure whether that's a
-    // good idea.
-    //
+
     // TODO hs: Perhaps the stream here should yield a different type. Ian
     // thinks maybe we should store a callback instead.
     //
-    // TODO hs: rename this. "control_messages" is kind of ambiguous; we use
-    //   "control" for a lot of other things. We say "meta" elsewhere in the
-    //   reactor code, but "meta messages" just sounds odd.
-    #[cfg(feature = "experimental-api")]
-    #[allow(clippy::missing_panics_doc, unused_variables)] // TODO hs remove
-    pub fn receive_control_messages(
+    #[cfg(feature = "send-control-msg")]
+    pub async fn send_control_message(
         &self,
-    ) -> Result<impl futures::Stream<Item = Box<chancell::RawCellBody>>> {
-        if false {
-            return Ok(futures::stream::empty()); // TODO hs remove; this is just here for type inference.
-        }
-        todo!() // TODO hs implement.
+        msg: tor_cell::relaycell::msg::AnyRelayMsg,
+        reply_handler: impl MsgHandler + Send + 'static,
+    ) -> Result<()> {
+        let msg = tor_cell::relaycell::AnyRelayCell::new(0.into(), msg);
+        let last_hop = self
+            .mutable
+            .lock()
+            .expect("poisoned lock")
+            .path
+            .last_hop_num()
+            .ok_or_else(|| internal!("no last hop index"))?;
+        let handler = Box::new(msghandler::UserMsgHandler::new(last_hop, reply_handler));
+        let (sender, receiver) = oneshot::channel();
+
+        let ctrl_msg = CtrlMsg::SendMsgAndInstallHandler {
+            msg,
+            handler,
+            sender,
+        };
+        self.control
+            .unbounded_send(ctrl_msg)
+            .map_err(|_| Error::CircuitClosed)?;
+
+        receiver.await.map_err(|_| Error::CircuitClosed)?
     }
 
     /// Tell this circuit to begin allowing the final hop of the circuit to try
@@ -304,16 +454,16 @@ impl ClientCirc {
     ///
     /// Only onion services (and eventually) exit relays should call this
     /// method.
-    #[cfg(feature = "onion-service")]
-    #[allow(clippy::missing_panics_doc, unused_variables)] // TODO hs remove
+    #[cfg(feature = "hs-service")]
+    #[allow(clippy::missing_panics_doc, unused_variables)] // TODO hss remove
     pub fn allow_stream_requests(
         &self,
         allow_commands: &[tor_cell::relaycell::RelayCmd],
     ) -> Result<impl futures::Stream<Item = crate::stream::IncomingStream>> {
         if false {
-            return Ok(futures::stream::empty()); // TODO hs remove; this is just here for type inference.
+            return Ok(futures::stream::empty()); // TODO hss remove; this is just here for type inference.
         }
-        todo!() // TODO hs implement.
+        todo!() // TODO hss implement.
     }
 
     /// Extend the circuit via the ntor handshake to a new target last
@@ -328,12 +478,12 @@ impl ClientCirc {
                 .ok_or(Error::MissingId(RelayIdType::Ed25519))?,
             pk: *target.ntor_onion_key(),
         };
-        let mut linkspecs = target.linkspecs();
+        let mut linkspecs = target
+            .linkspecs()
+            .map_err(into_internal!("Could not encode linkspecs for extend_ntor"))?;
         if !params.extend_by_ed25519_id() {
-            linkspecs.retain(|ls| !matches!(ls, LinkSpec::Ed25519Id(_)));
+            linkspecs.retain(|ls| ls.lstype() != LinkSpecType::ED25519ID);
         }
-        // FlowCtrl=1 means that this hop supports authenticated SENDMEs
-        let require_sendme_auth = RequireSendmeAuth::from_protocols(target.protovers());
 
         let (tx, rx) = oneshot::channel();
 
@@ -343,7 +493,6 @@ impl ClientCirc {
                 peer_id,
                 public_key: key,
                 linkspecs,
-                require_sendme_auth,
                 params: params.clone(),
                 done: tx,
             })
@@ -355,6 +504,10 @@ impl ClientCirc {
     }
 
     /// Extend this circuit by a single, "virtual" hop.
+    ///
+    /// A virtual hop is one for which we do not add an actual network connection
+    /// between separate hosts (such as Relays).  We only add a layer of
+    /// cryptography.
     ///
     /// This is used to implement onion services: the client and the service
     /// both build a circuit to a single rendezvous point, and tell the
@@ -373,15 +526,30 @@ impl ClientCirc {
     // TODO hs: let's try to enforce the "you can't extend a circuit again once
     // it has been extended this way" property.  We could do that with internal
     // state, or some kind of a type state pattern.
-    #[cfg(feature = "onion-common")]
-    #[allow(clippy::missing_panics_doc, unused_variables)]
+    //
+    // TODO hs: possibly we should take a set of Protovers, and not just `Params`.
+    #[cfg(feature = "hs-common")]
     pub async fn extend_virtual(
         &self,
         protocol: handshake::RelayProtocol,
         role: handshake::HandshakeRole,
         seed: impl handshake::KeyGenerator,
+        params: CircParameters,
     ) -> Result<()> {
-        todo!() // TODO hs implement
+        let (outbound, inbound) = protocol.construct_layers(role, seed)?;
+
+        let (tx, rx) = oneshot::channel();
+        let message = CtrlMsg::ExtendVirtual {
+            cell_crypto: (outbound, inbound),
+            params,
+            done: tx,
+        };
+
+        self.control
+            .unbounded_send(message)
+            .map_err(|_| Error::CircuitClosed)?;
+
+        rx.await.map_err(|_| Error::CircuitClosed)?
     }
 
     /// Helper, used to begin a stream.
@@ -391,19 +559,22 @@ impl ClientCirc {
     ///
     /// The caller will typically want to see the first cell in response,
     /// to see whether it is e.g. an END or a CONNECTED.
-    async fn begin_stream_impl(&self, begin_msg: RelayMsg) -> Result<(StreamReader, StreamTarget)> {
+    async fn begin_stream_impl(
+        self: &Arc<ClientCirc>,
+        begin_msg: AnyRelayMsg,
+        cmd_checker: AnyCmdChecker,
+    ) -> Result<(StreamReader, StreamTarget)> {
         // TODO: Possibly this should take a hop, rather than just
         // assuming it's the last hop.
 
-        let num_hops = self.path.n_hops();
-        if num_hops == 0 {
-            return Err(Error::from(internal!(
-                "Can't begin a stream at the 0th hop"
-            )));
-        }
-        let hop_num: HopNum = u8::try_from(num_hops - 1)
-            .map_err(into_internal!("Couldn't convert path length to u8"))?
-            .into();
+        let hop_num = self
+            .mutable
+            .lock()
+            .expect("poisoned lock")
+            .path
+            .last_hop_num()
+            .ok_or_else(|| Error::from(internal!("Can't begin a stream at the 0th hop")))?;
+
         let (sender, receiver) = mpsc::channel(STREAM_READER_BUFFER);
         let (tx, rx) = oneshot::channel();
         let (msg_tx, msg_rx) = mpsc::channel(CIRCUIT_BUFFER_SIZE);
@@ -415,6 +586,7 @@ impl ClientCirc {
                 sender,
                 rx: msg_rx,
                 done: tx,
+                cmd_checker,
             })
             .map_err(|_| Error::CircuitClosed)?;
 
@@ -439,8 +611,14 @@ impl ClientCirc {
 
     /// Start a DataStream (anonymized connection) to the given
     /// address and port, using a BEGIN cell.
-    async fn begin_data_stream(&self, msg: RelayMsg, optimistic: bool) -> Result<DataStream> {
-        let (reader, target) = self.begin_stream_impl(msg).await?;
+    async fn begin_data_stream(
+        self: &Arc<ClientCirc>,
+        msg: AnyRelayMsg,
+        optimistic: bool,
+    ) -> Result<DataStream> {
+        let (reader, target) = self
+            .begin_stream_impl(msg, DataCmdChecker::new_any())
+            .await?;
         let mut stream = DataStream::new(reader, target);
         if !optimistic {
             stream.wait_for_connection().await?;
@@ -454,7 +632,7 @@ impl ClientCirc {
     /// The use of a string for the address is intentional: you should let
     /// the remote Tor relay do the hostname lookup for you.
     pub async fn begin_stream(
-        &self,
+        self: &Arc<ClientCirc>,
         target: &str,
         port: u16,
         parameters: Option<StreamParameters>,
@@ -469,12 +647,13 @@ impl ClientCirc {
 
     /// Start a new stream to the last relay in the circuit, using
     /// a BEGIN_DIR cell.
-    pub async fn begin_dir_stream(&self) -> Result<DataStream> {
+    pub async fn begin_dir_stream(self: Arc<ClientCirc>) -> Result<DataStream> {
         // Note that we always open begindir connections optimistically.
         // Since they are local to a relay that we've already authenticated
         // with and built a circuit to, there should be no additional checks
         // we need to perform to see whether the BEGINDIR will succeed.
-        self.begin_data_stream(RelayMsg::BeginDir, true).await
+        self.begin_data_stream(AnyRelayMsg::BeginDir(Default::default()), true)
+            .await
     }
 
     /// Perform a DNS lookup, using a RESOLVE cell with the last relay
@@ -482,7 +661,7 @@ impl ClientCirc {
     ///
     /// Note that this function does not check for timeouts; that's
     /// the caller's responsibility.
-    pub async fn resolve(&self, hostname: &str) -> Result<Vec<IpAddr>> {
+    pub async fn resolve(self: &Arc<ClientCirc>, hostname: &str) -> Result<Vec<IpAddr>> {
         let resolve_msg = Resolve::new(hostname);
 
         let resolved_msg = self.try_resolve(resolve_msg).await?;
@@ -503,7 +682,7 @@ impl ClientCirc {
     ///
     /// Note that this function does not check for timeouts; that's
     /// the caller's responsibility.
-    pub async fn resolve_ptr(&self, addr: IpAddr) -> Result<Vec<String>> {
+    pub async fn resolve_ptr(self: &Arc<ClientCirc>, addr: IpAddr) -> Result<Vec<String>> {
         let resolve_ptr_msg = Resolve::new_reverse(&addr);
 
         let resolved_msg = self.try_resolve(resolve_ptr_msg).await?;
@@ -524,8 +703,10 @@ impl ClientCirc {
 
     /// Helper: Send the resolve message, and read resolved message from
     /// resolve stream.
-    async fn try_resolve(&self, msg: Resolve) -> Result<Resolved> {
-        let (reader, _) = self.begin_stream_impl(msg.into()).await?;
+    async fn try_resolve(self: &Arc<ClientCirc>, msg: Resolve) -> Result<Resolved> {
+        let (reader, _) = self
+            .begin_stream_impl(msg.into(), ResolveCmdChecker::new_any())
+            .await?;
         let mut resolve_stream = ResolveStream::new(reader);
         resolve_stream.read_msg().await
     }
@@ -565,9 +746,14 @@ impl ClientCirc {
         self.unique_id
     }
 
-    #[cfg(test)]
+    /// Return the number of hops in this circuit.
+    ///
+    /// NOTE: This function will currently return only the number of hops
+    /// _currently_ in the circuit. If there is an extend operation in progress,
+    /// the currently pending hop may or may not be counted, depending on whether
+    /// the extend operation finishes before this call is done.
     pub fn n_hops(&self) -> usize {
-        self.path.n_hops()
+        self.mutable.lock().expect("poisoned lock").path.n_hops()
     }
 }
 
@@ -584,26 +770,10 @@ impl PendingClientCirc {
         input: mpsc::Receiver<ClientCircChanMsg>,
         unique_id: UniqId,
     ) -> (PendingClientCirc, reactor::Reactor) {
-        let crypto_out = OutboundClientCrypt::new();
-        let (control_tx, control_rx) = mpsc::unbounded();
-        let path = Arc::new(path::Path::default());
-
-        let reactor = Reactor {
-            control: control_rx,
-            outbound: Default::default(),
-            channel: channel.clone(),
-            input,
-            crypto_in: InboundClientCrypt::new(),
-            hops: vec![],
-            unique_id,
-            channel_id: id,
-            crypto_out,
-            meta_handler: None,
-            path: Arc::clone(&path),
-        };
+        let (reactor, control_tx, mutable) = Reactor::new(channel.clone(), id, unique_id, input);
 
         let circuit = ClientCirc {
-            path,
+            mutable,
             unique_id,
             control: control_tx,
             channel,
@@ -613,7 +783,7 @@ impl PendingClientCirc {
 
         let pending = PendingClientCirc {
             recvcreated: createdreceiver,
-            circ: circuit,
+            circ: Arc::new(circuit),
         };
         (pending, reactor)
     }
@@ -630,14 +800,13 @@ impl PendingClientCirc {
     /// There's no authentication in CRATE_FAST,
     /// so we don't need to know whom we're connecting to: we're just
     /// connecting to whichever relay the channel is for.
-    pub async fn create_firsthop_fast(self, params: &CircParameters) -> Result<ClientCirc> {
+    pub async fn create_firsthop_fast(self, params: &CircParameters) -> Result<Arc<ClientCirc>> {
         let (tx, rx) = oneshot::channel();
         self.circ
             .control
             .unbounded_send(CtrlMsg::Create {
                 recv_created: self.recvcreated,
                 handshake: CircuitHandshake::CreateFast,
-                require_sendme_auth: RequireSendmeAuth::No,
                 params: params.clone(),
                 done: tx,
             })
@@ -656,12 +825,11 @@ impl PendingClientCirc {
         self,
         target: &Tg,
         params: CircParameters,
-    ) -> Result<ClientCirc>
+    ) -> Result<Arc<ClientCirc>>
     where
         Tg: tor_linkspec::CircTarget,
     {
         let (tx, rx) = oneshot::channel();
-        let require_sendme_auth = RequireSendmeAuth::from_protocols(target.protovers());
 
         self.circ
             .control
@@ -678,7 +846,6 @@ impl PendingClientCirc {
                         .ed_identity()
                         .ok_or(Error::MissingId(RelayIdType::Ed25519))?,
                 },
-                require_sendme_auth,
                 params: params.clone(),
                 done: tx,
             })
@@ -694,7 +861,7 @@ impl PendingClientCirc {
 /// cell, and unwrap a CREATED* cell.
 trait CreateHandshakeWrap {
     /// Construct an appropriate ChanMsg to hold this kind of handshake.
-    fn to_chanmsg(&self, bytes: Vec<u8>) -> ChanMsg;
+    fn to_chanmsg(&self, bytes: Vec<u8>) -> AnyChanMsg;
     /// Decode a ChanMsg to an appropriate handshake value, checking
     /// its type.
     fn decode_chanmsg(&self, msg: CreateResponse) -> Result<Vec<u8>>;
@@ -704,7 +871,7 @@ trait CreateHandshakeWrap {
 struct CreateFastWrap;
 
 impl CreateHandshakeWrap for CreateFastWrap {
-    fn to_chanmsg(&self, bytes: Vec<u8>) -> ChanMsg {
+    fn to_chanmsg(&self, bytes: Vec<u8>) -> AnyChanMsg {
         chancell::msg::CreateFast::new(bytes).into()
     }
     fn decode_chanmsg(&self, msg: CreateResponse) -> Result<Vec<u8>> {
@@ -728,7 +895,7 @@ struct Create2Wrap {
     handshake_type: u16,
 }
 impl CreateHandshakeWrap for Create2Wrap {
-    fn to_chanmsg(&self, bytes: Vec<u8>) -> ChanMsg {
+    fn to_chanmsg(&self, bytes: Vec<u8>) -> AnyChanMsg {
         chancell::msg::Create2::new(self.handshake_type, bytes).into()
     }
     fn decode_chanmsg(&self, msg: CreateResponse) -> Result<Vec<u8>> {
@@ -750,7 +917,7 @@ impl StreamTarget {
     /// The StreamTarget will set the correct stream ID and pick the
     /// right hop, but will not validate that the message is well-formed
     /// or meaningful in context.
-    pub(crate) async fn send(&mut self, msg: RelayMsg) -> Result<()> {
+    pub(crate) async fn send(&mut self, msg: AnyRelayMsg) -> Result<()> {
         self.tx.send(msg).await.map_err(|_| Error::CircuitClosed)?;
         Ok(())
     }
@@ -771,6 +938,12 @@ impl StreamTarget {
             })
             .map_err(|_| Error::CircuitClosed)?;
         Ok(())
+    }
+
+    /// Return a reference to the circuit that this `StreamTarget` is using.
+    #[cfg(feature = "experimental-api")]
+    pub(crate) fn circuit(&self) -> &Arc<ClientCirc> {
+        &self.circ
     }
 }
 
@@ -799,9 +972,10 @@ mod test {
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 
     use super::*;
+    use crate::channel::OpenChanCellS2C;
     use crate::channel::{test::new_reactor, CodecError};
     use crate::crypto::cell::RelayCellBody;
-    use chanmsg::{ChanMsg, Created2, CreatedFast};
+    use chanmsg::{AnyChanMsg, Created2, CreatedFast};
     use futures::channel::mpsc::{Receiver, Sender};
     use futures::io::{AsyncReadExt, AsyncWriteExt};
     use futures::sink::SinkExt;
@@ -810,21 +984,20 @@ mod test {
     use hex_literal::hex;
     use std::time::Duration;
     use tor_basic_utils::test_rng::testing_rng;
-    use tor_cell::chancell::{msg as chanmsg, ChanCell};
-    use tor_cell::relaycell::{msg as relaymsg, RelayCell, StreamId};
+    use tor_cell::chancell::{msg as chanmsg, AnyChanCell, BoxedCellBody};
+    use tor_cell::relaycell::{msg as relaymsg, AnyRelayCell, StreamId};
     use tor_linkspec::OwnedCircTarget;
     use tor_rtcompat::{Runtime, SleepProvider};
     use tracing::trace;
 
-    fn rmsg_to_ccmsg<ID>(id: ID, msg: relaymsg::RelayMsg) -> ClientCircChanMsg
+    fn rmsg_to_ccmsg<ID>(id: ID, msg: relaymsg::AnyRelayMsg) -> ClientCircChanMsg
     where
         ID: Into<StreamId>,
     {
-        let body: RelayCellBody = RelayCell::new(id.into(), msg)
+        let body: BoxedCellBody = AnyRelayCell::new(id.into(), msg)
             .encode(&mut testing_rng())
-            .unwrap()
-            .into();
-        let chanmsg = chanmsg::Relay::from_raw(body.into());
+            .unwrap();
+        let chanmsg = chanmsg::Relay::from(body);
         ClientCircChanMsg::Relay(chanmsg)
     }
 
@@ -855,8 +1028,8 @@ mod test {
         rt: &R,
     ) -> (
         Channel,
-        Receiver<ChanCell>,
-        Sender<std::result::Result<ChanCell, CodecError>>,
+        Receiver<AnyChanCell>,
+        Sender<std::result::Result<OpenChanCellS2C, CodecError>>,
     ) {
         let (channel, chan_reactor, rx, tx) = new_reactor(rt.clone());
         rt.spawn(async {
@@ -893,14 +1066,14 @@ mod test {
             assert_eq!(create_cell.circid(), 128.into());
             let reply = if fast {
                 let cf = match create_cell.msg() {
-                    ChanMsg::CreateFast(cf) => cf,
+                    AnyChanMsg::CreateFast(cf) => cf,
                     _ => panic!(),
                 };
                 let (_, rep) = CreateFastServer::server(&mut rng, &[()], cf.handshake()).unwrap();
                 CreateResponse::CreatedFast(CreatedFast::new(rep))
             } else {
                 let c2 = match create_cell.msg() {
-                    ChanMsg::Create2(c2) => c2,
+                    AnyChanMsg::Create2(c2) => c2,
                     _ => panic!(),
                 };
                 let (_, rep) =
@@ -998,7 +1171,7 @@ mod test {
         rt: &R,
         chan: Channel,
         next_msg_from: HopNum,
-    ) -> (ClientCirc, mpsc::Sender<ClientCircChanMsg>) {
+    ) -> (Arc<ClientCirc>, mpsc::Sender<ClientCircChanMsg>) {
         let circid = 128.into();
         let (_created_send, created_recv) = oneshot::channel();
         let (circmsg_send, circmsg_recv) = mpsc::channel(64);
@@ -1022,9 +1195,8 @@ mod test {
             let (tx, rx) = oneshot::channel();
             circ.control
                 .unbounded_send(CtrlMsg::AddFakeHop {
-                    supports_flowctrl_1: true,
                     fwd_lasthop: idx == 2,
-                    rev_lasthop: idx == next_msg_from.into(),
+                    rev_lasthop: idx == u8::from(next_msg_from),
                     params,
                     done: tx,
                 })
@@ -1040,7 +1212,7 @@ mod test {
     async fn newcirc<R: Runtime>(
         rt: &R,
         chan: Channel,
-    ) -> (ClientCirc, mpsc::Sender<ClientCircChanMsg>) {
+    ) -> (Arc<ClientCirc>, mpsc::Sender<ClientCircChanMsg>) {
         newcirc_ext(rt, chan, 2.into()).await
     }
 
@@ -1050,7 +1222,7 @@ mod test {
         tor_rtcompat::test_with_all_runtimes!(|rt| async move {
             let (chan, mut rx, _sink) = working_fake_channel(&rt);
             let (circ, _send) = newcirc(&rt, chan).await;
-            let begindir = RelayCell::new(0.into(), RelayMsg::BeginDir);
+            let begindir = AnyRelayCell::new(0.into(), AnyRelayMsg::BeginDir(Default::default()));
             circ.control
                 .unbounded_send(CtrlMsg::SendRelayCell {
                     hop: 2.into(),
@@ -1064,10 +1236,10 @@ mod test {
             let rcvd = rx.next().await.unwrap();
             assert_eq!(rcvd.circid(), 128.into());
             let m = match rcvd.into_circid_and_msg().1 {
-                ChanMsg::Relay(r) => RelayCell::decode(r.into_relay_body()).unwrap(),
+                AnyChanMsg::Relay(r) => AnyRelayCell::decode(r.into_relay_body()).unwrap(),
                 _ => panic!(),
             };
-            assert!(matches!(m.msg(), RelayMsg::BeginDir));
+            assert!(matches!(m.msg(), AnyRelayMsg::BeginDir(_)));
         });
     }
 
@@ -1157,11 +1329,11 @@ mod test {
                 let (id, chmsg) = rx.next().await.unwrap().into_circid_and_msg();
                 assert_eq!(id, 128.into());
                 let rmsg = match chmsg {
-                    ChanMsg::RelayEarly(r) => RelayCell::decode(r.into_relay_body()).unwrap(),
+                    AnyChanMsg::RelayEarly(r) => AnyRelayCell::decode(r.into_relay_body()).unwrap(),
                     _ => panic!(),
                 };
                 let e2 = match rmsg.msg() {
-                    RelayMsg::Extend2(e2) => e2,
+                    AnyRelayMsg::Extend2(e2) => e2,
                     _ => panic!(),
                 };
                 let mut rng = testing_rng();
@@ -1178,11 +1350,27 @@ mod test {
             assert_eq!(circ.n_hops(), 4);
 
             // Do the path accessors report a reasonable outcome?
-            let path = circ.path();
-            assert_eq!(path.len(), 4);
-            use tor_linkspec::HasRelayIds;
-            assert_eq!(path[3].ed_identity(), example_target().ed_identity());
-            assert_ne!(path[0].ed_identity(), example_target().ed_identity());
+            #[allow(deprecated)]
+            {
+                let path = circ.path();
+                assert_eq!(path.len(), 4);
+                use tor_linkspec::HasRelayIds;
+                assert_eq!(path[3].ed_identity(), example_target().ed_identity());
+                assert_ne!(path[0].ed_identity(), example_target().ed_identity());
+            }
+            {
+                let path = circ.path_ref();
+                assert_eq!(path.n_hops(), 4);
+                use tor_linkspec::HasRelayIds;
+                assert_eq!(
+                    path.hops()[3].as_chan_target().unwrap().ed_identity(),
+                    example_target().ed_identity()
+                );
+                assert_ne!(
+                    path.hops()[0].as_chan_target().unwrap().ed_identity(),
+                    example_target().ed_identity()
+                );
+            }
         });
     }
 
@@ -1239,9 +1427,10 @@ mod test {
 
             let error = bad_extend_test_impl(&rt, 2.into(), cc).await;
             match error {
-                Error::CircProto(s) => {
-                    assert_eq!(s, "wanted EXTENDED2; got EXTENDED");
-                }
+                Error::BytesErr {
+                    err: tor_bytes::Error::InvalidMessage(_),
+                    object: "extended2 message",
+                } => {}
                 _ => panic!(),
             }
         });
@@ -1294,11 +1483,11 @@ mod test {
                 let (id, chmsg) = rx.next().await.unwrap().into_circid_and_msg();
                 assert_eq!(id, 128.into()); // hardcoded circid.
                 let rmsg = match chmsg {
-                    ChanMsg::Relay(r) => RelayCell::decode(r.into_relay_body()).unwrap(),
+                    AnyChanMsg::Relay(r) => AnyRelayCell::decode(r.into_relay_body()).unwrap(),
                     _ => panic!(),
                 };
                 let (streamid, rmsg) = rmsg.into_streamid_and_msg();
-                assert!(matches!(rmsg, RelayMsg::BeginDir));
+                assert!(matches!(rmsg, AnyRelayMsg::BeginDir(_)));
 
                 // Reply with a Connected cell to indicate success.
                 let connected = relaymsg::Connected::new_empty().into();
@@ -1308,12 +1497,12 @@ mod test {
                 let (id, chmsg) = rx.next().await.unwrap().into_circid_and_msg();
                 assert_eq!(id, 128.into());
                 let rmsg = match chmsg {
-                    ChanMsg::Relay(r) => RelayCell::decode(r.into_relay_body()).unwrap(),
+                    AnyChanMsg::Relay(r) => AnyRelayCell::decode(r.into_relay_body()).unwrap(),
                     _ => panic!(),
                 };
                 let (streamid_2, rmsg) = rmsg.into_streamid_and_msg();
                 assert_eq!(streamid_2, streamid);
-                if let RelayMsg::Data(d) = rmsg {
+                if let AnyRelayMsg::Data(d) = rmsg {
                     assert_eq!(d.as_ref(), &b"HTTP/1.0 GET /\r\n"[..]);
                 } else {
                     panic!();
@@ -1341,13 +1530,13 @@ mod test {
         rt: &R,
         n_to_send: usize,
     ) -> (
-        ClientCirc,
+        Arc<ClientCirc>,
         DataStream,
         mpsc::Sender<ClientCircChanMsg>,
         StreamId,
         usize,
-        Receiver<ChanCell>,
-        Sender<std::result::Result<ChanCell, CodecError>>,
+        Receiver<AnyChanCell>,
+        Sender<std::result::Result<OpenChanCellS2C, CodecError>>,
     ) {
         let (chan, mut rx, sink2) = working_fake_channel(rt);
         let (circ, mut sink) = newcirc(rt, chan).await;
@@ -1374,11 +1563,11 @@ mod test {
             // Read the begindir cell.
             let (_id, chmsg) = rx.next().await.unwrap().into_circid_and_msg();
             let rmsg = match chmsg {
-                ChanMsg::Relay(r) => RelayCell::decode(r.into_relay_body()).unwrap(),
+                AnyChanMsg::Relay(r) => AnyRelayCell::decode(r.into_relay_body()).unwrap(),
                 _ => panic!(),
             };
             let (streamid, rmsg) = rmsg.into_streamid_and_msg();
-            assert!(matches!(rmsg, RelayMsg::Begin(_)));
+            assert!(matches!(rmsg, AnyRelayMsg::Begin(_)));
             // Reply with a connected cell...
             let connected = relaymsg::Connected::new_empty().into();
             sink.send(rmsg_to_ccmsg(streamid, connected)).await.unwrap();
@@ -1391,12 +1580,12 @@ mod test {
                 assert_eq!(id, 128.into());
 
                 let rmsg = match chmsg {
-                    ChanMsg::Relay(r) => RelayCell::decode(r.into_relay_body()).unwrap(),
+                    AnyChanMsg::Relay(r) => AnyRelayCell::decode(r.into_relay_body()).unwrap(),
                     _ => panic!(),
                 };
                 let (streamid2, rmsg) = rmsg.into_streamid_and_msg();
                 assert_eq!(streamid2, streamid);
-                if let RelayMsg::Data(dat) = rmsg {
+                if let AnyRelayMsg::Data(dat) = rmsg {
                     cells_received += 1;
                     bytes_received += dat.as_ref().len();
                 } else {

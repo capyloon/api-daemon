@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-dirclient"
-version = "0.6.1"
+version = "0.7.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -49,51 +49,56 @@ hex = "0.4"
 http = "0.2"
 httparse = "1.2"
 httpdate = "1.0"
-itertools = "0.10.1"
-memchr = "2"
+itertools = "0.11.0"
+memchr = "2.5"
 thiserror = "1"
-tracing = "0.1.18"
+tracing = "0.1.36"
 
 [dependencies.async-compression]
-version = "0.3.14"
+version = "0.4.0"
 features = [
     "futures-io",
     "zlib",
 ]
 
 [dependencies.tor-circmgr]
-version = "0.7.1"
+version = "0.9.1"
 path = "../tor-circmgr"
 
 [dependencies.tor-error]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-error"
 
+[dependencies.tor-hscrypto]
+version = "0.3.0"
+path = "../tor-hscrypto"
+optional = true
+
 [dependencies.tor-linkspec]
-version = "0.6.0"
+version = "0.8.1"
 path = "../tor-linkspec"
 
 [dependencies.tor-llcrypto]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-llcrypto"
 
 [dependencies.tor-netdoc]
-version = "0.6.1"
+version = "0.8.1"
 path = "../tor-netdoc"
 
 [dependencies.tor-proto]
-version = "0.8.1"
+version = "0.11.1"
 path = "../tor-proto"
 
 [dependencies.tor-rtcompat]
-version = "0.8.1"
+version = "0.9.1"
 path = "../tor-rtcompat"
 
 [dev-dependencies]
 futures-await-test = "0.3.0"
 
 [dev-dependencies.tor-rtcompat]
-version = "0.8.1"
+version = "0.9.1"
 path = "../tor-rtcompat"
 features = [
     "tokio",
@@ -101,14 +106,31 @@ features = [
 ]
 
 [dev-dependencies.tor-rtmock]
-version = "0.7.0"
+version = "0.8.1"
 path = "../tor-rtmock"
 
 [features]
+__is_experimental = []
 default = [
     "xz",
     "zstd",
 ]
+experimental = []
+full = [
+    "hs-client",
+    "xz",
+    "zstd",
+    "routerdesc",
+    "tor-circmgr/full",
+    "tor-error/full",
+    "tor-hscrypto?/full",
+    "tor-linkspec/full",
+    "tor-llcrypto/full",
+    "tor-netdoc/full",
+    "tor-proto/full",
+    "tor-rtcompat/full",
+]
+hs-client = ["tor-hscrypto"]
 routerdesc = []
 xz = ["async-compression/xz"]
 zstd = ["async-compression/zstd"]

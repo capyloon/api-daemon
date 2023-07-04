@@ -15,13 +15,13 @@ use tor_config::{impl_standard_builder, ConfigBuildError};
 use tor_linkspec::RelayId;
 use tor_linkspec::TransportId;
 use tor_linkspec::{ChanTarget, ChannelMethod, HasChanMethod};
-use tor_linkspec::{HasAddrs, HasRelayIds, PtTargetAddr, RelayIdRef, RelayIdType};
+use tor_linkspec::{HasAddrs, HasRelayIds, RelayIdRef, RelayIdType};
 use tor_llcrypto::pk::{ed25519::Ed25519Identity, rsa::RsaIdentity};
 
 use tor_linkspec::BridgeAddr;
 
 #[cfg(feature = "pt-client")]
-use tor_linkspec::PtTarget;
+use tor_linkspec::{PtTarget, PtTargetAddr};
 
 mod err;
 pub use err::BridgeParseError;
@@ -30,6 +30,17 @@ pub use err::BridgeParseError;
 ///
 /// This object represents a bridge as configured by the user or by software
 /// running on the user's behalf.
+///
+/// # Pieces of a bridge configuration.
+///
+/// A bridge configuration contains:
+///   * Optionally, the name of a pluggable transport (q.v.) to use.
+///   * Zero or more addresses at which to contact the bridge.
+///     These can either be regular IP addresses, hostnames, or arbitrary strings
+///     to be interpreted by the pluggable transport.
+///   * One or more cryptographic [identities](tor_linkspec::RelayId) for the bridge.
+///   * Zero or more optional "key=value" string parameters to pass to the pluggable
+///     transport when contacting to this bridge.
 ///
 /// # String representation
 ///
@@ -236,6 +247,7 @@ impl BridgeConfigBuilder {
                         "Specified `settings` for a direct bridge connection",
                     ));
                 }
+                #[allow(clippy::unnecessary_filter_map)] // for consistency
                 let addrs = addrs.iter().filter_map(|ba| {
                     #[allow(clippy::redundant_pattern_matching)] // for consistency
                     if let Some(sa) = ba.as_socketaddr() {

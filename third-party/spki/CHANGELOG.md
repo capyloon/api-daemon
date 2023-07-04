@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.7.2 (2023-05-04)
+
+### Added
+- `AlgorithmIdentifierWithOid` trait ([#986])
+- `SignatureBitStringEncoding` trait ([#1047])
+
+### Changed
+-  Bump `hex-literal` to v0.4.1 ([#999])
+
+[#986]: https://github.com/RustCrypto/formats/pull/986
+[#999]: https://github.com/RustCrypto/formats/pull/999
+[#1047]: https://github.com/RustCrypto/formats/pull/1047
+
+
+## 0.7.1 (2023-04-04)
+### Added
+- `AssociatedAlgorithmIdentifier` trait ([#962], [#966])
+- `DynAssociatedAlgorithmIdentifier` trait ([#962])
+- `SignatureAlgorithmIdentifier` trait ([#967])
+- `DynSignatureAlgorithmIdentifier` trait ([#967])
+
+### Changed
+- Bump `der` dependency to v0.7.2 ([#979])
+
+[#962]: https://github.com/RustCrypto/formats/pull/962
+[#966]: https://github.com/RustCrypto/formats/pull/966
+[#967]: https://github.com/RustCrypto/formats/pull/967
+[#979]: https://github.com/RustCrypto/formats/pull/979
+
+## 0.7.0 (2023-02-26)
+### Changed
+- Make `AlgorithmIdentifier` generic around `Params` ([#769])
+- Use blanket impls for `Decode*` traits ([#785])
+- Make `SubjectPublicKeyInfo` own the public key ([#790])
+- Rename `to_owned` method ([#835])
+- Bump `der` dependency to v0.7 ([#899])
+
+[#769]: https://github.com/RustCrypto/formats/pull/769
+[#785]: https://github.com/RustCrypto/formats/pull/785
+[#790]: https://github.com/RustCrypto/formats/pull/790
+[#835]: https://github.com/RustCrypto/formats/pull/835
+[#899]: https://github.com/RustCrypto/formats/pull/899
+
 ## 0.6.0 (2022-05-08)
 ### Added
 - `AlgorithmIdentifier::oids()` helper function ([#443])

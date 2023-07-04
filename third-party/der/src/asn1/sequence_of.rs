@@ -30,7 +30,7 @@ impl<T, const N: usize> SequenceOf<T, N> {
 
     /// Add an element to this [`SequenceOf`].
     pub fn add(&mut self, element: T) -> Result<()> {
-        self.inner.add(element)
+        self.inner.push(element)
     }
 
     /// Get an element of this [`SequenceOf`].
@@ -88,7 +88,7 @@ where
             .fold(Ok(Length::ZERO), |len, elem| len + elem.encoded_len()?)
     }
 
-    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+    fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
         for elem in self.iter() {
             elem.encode(writer)?;
         }
@@ -155,7 +155,7 @@ where
             .fold(Ok(Length::ZERO), |len, elem| len + elem.encoded_len()?)
     }
 
-    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+    fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
         for elem in self {
             elem.encode(writer)?;
         }
@@ -178,7 +178,6 @@ where
 }
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl<'a, T> DecodeValue<'a> for Vec<T>
 where
     T: Decode<'a>,
@@ -197,7 +196,6 @@ where
 }
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl<T> EncodeValue for Vec<T>
 where
     T: Encode,
@@ -207,7 +205,7 @@ where
             .fold(Ok(Length::ZERO), |len, elem| len + elem.encoded_len()?)
     }
 
-    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+    fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
         for elem in self {
             elem.encode(writer)?;
         }
@@ -217,13 +215,11 @@ where
 }
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl<T> FixedTag for Vec<T> {
     const TAG: Tag = Tag::Sequence;
 }
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl<T> ValueOrd for Vec<T>
 where
     T: DerOrd,

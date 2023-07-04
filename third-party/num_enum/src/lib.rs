@@ -27,6 +27,30 @@ pub trait TryFromPrimitive: Sized {
     fn try_from_primitive(number: Self::Primitive) -> Result<Self, TryFromPrimitiveError<Self>>;
 }
 
+pub trait UnsafeFromPrimitive: Sized {
+    type Primitive: Copy + Eq;
+
+    /// Transmutes into an enum from its primitive.
+    ///
+    /// # Safety
+    ///
+    /// - `number` must represent a valid discriminant of `Self`.
+    #[deprecated(
+        since = "0.6.0",
+        note = "Prefer to use `unchecked_transmute_from`, `from_unchecked` will be removed in a future release."
+    )]
+    unsafe fn from_unchecked(number: Self::Primitive) -> Self {
+        Self::unchecked_transmute_from(number)
+    }
+
+    /// Transmutes into an enum from its primitive.
+    ///
+    /// # Safety
+    ///
+    /// - `number` must represent a valid discriminant of `Self`.
+    unsafe fn unchecked_transmute_from(number: Self::Primitive) -> Self;
+}
+
 pub struct TryFromPrimitiveError<Enum: TryFromPrimitive> {
     pub number: Enum::Primitive,
 }
@@ -65,3 +89,13 @@ impl<Enum: TryFromPrimitive> fmt::Display for TryFromPrimitiveError<Enum> {
 
 #[cfg(feature = "std")]
 impl<Enum: TryFromPrimitive> ::std::error::Error for TryFromPrimitiveError<Enum> {}
+
+// This trait exists to try to give a more clear error message when someone attempts to derive both FromPrimitive and TryFromPrimitive.
+// This isn't allowed because both end up creating a `TryFrom<primitive>` implementation.
+// TryFromPrimitive explicitly implements TryFrom<primitive> with Error=TryFromPrimitiveError, which conflicts with:
+// FromPrimitive explicitly implements From<primitive> which has a blanket implementation of TryFrom<primitive> with Error=Infallible.
+//
+// This is a private implementation detail of the num_enum crate which should not be depended on externally.
+// It is subject to change in any release regardless of semver.
+#[doc(hidden)]
+pub trait CannotDeriveBothFromPrimitiveAndTryFromPrimitive {}

@@ -48,9 +48,8 @@ mod choice {
             }
         }
 
-        const UTC_TIMESTAMP_DER: &'static [u8] =
-            &hex!("17 0d 39 31 30 35 30 36 32 33 34 35 34 30 5a");
-        const GENERAL_TIMESTAMP_DER: &'static [u8] =
+        const UTC_TIMESTAMP_DER: &[u8] = &hex!("17 0d 39 31 30 35 30 36 32 33 34 35 34 30 5a");
+        const GENERAL_TIMESTAMP_DER: &[u8] =
             &hex!("18 0f 31 39 39 31 30 35 30 36 32 33 34 35 34 30 5a");
 
         #[test]
@@ -116,8 +115,8 @@ mod choice {
             }
         }
 
-        const BITSTRING_DER: &'static [u8] = &hex!("80 04 00 01 02 03");
-        const TIME_DER: &'static [u8] = &hex!("81 0f 31 39 39 31 30 35 30 36 32 33 34 35 34 30 5a");
+        const BITSTRING_DER: &[u8] = &hex!("80 04 00 01 02 03");
+        const TIME_DER: &[u8] = &hex!("81 0f 31 39 39 31 30 35 30 36 32 33 34 35 34 30 5a");
 
         #[test]
         fn decode() {
@@ -201,6 +200,7 @@ mod enumerated {
 /// Custom derive test cases for the `Sequence` macro.
 #[cfg(feature = "oid")]
 mod sequence {
+    use core::marker::PhantomData;
     use der::{
         asn1::{AnyRef, ObjectIdentifier, SetOf},
         Decode, Encode, Sequence, ValueOrd,
@@ -267,6 +267,9 @@ mod sequence {
             tag_mode = "IMPLICIT"
         )]
         pub only_contains_attribute_certs: bool,
+
+        /// Test handling of PhantomData.
+        pub phantom: PhantomData<()>,
     }
 
     // Extension as defined in [RFC 5280 Section 4.1.2.9].
@@ -432,8 +435,7 @@ mod sequence {
 
     #[test]
     fn decode() {
-        let algorithm_identifier =
-            AlgorithmIdentifier::from_der(&ALGORITHM_IDENTIFIER_DER).unwrap();
+        let algorithm_identifier = AlgorithmIdentifier::from_der(ALGORITHM_IDENTIFIER_DER).unwrap();
 
         assert_eq!(ID_EC_PUBLIC_KEY_OID, algorithm_identifier.algorithm);
         assert_eq!(
@@ -453,7 +455,7 @@ mod sequence {
 
         assert_eq!(
             ALGORITHM_IDENTIFIER_DER,
-            algorithm_identifier.to_vec().unwrap()
+            algorithm_identifier.to_der().unwrap()
         );
     }
 }

@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-llcrypto"
-version = "0.4.1"
+version = "0.5.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -38,13 +38,13 @@ rustdoc-args = [
 ]
 
 [dependencies]
-arrayref = "0.3"
 base64ct = "1.5.1"
 curve25519-dalek = "3.2"
+derive_more = "0.99.3"
 digest = "0.10.0"
 hex = "0.4"
 rand_core = "0.6.2"
-rsa = "0.8.0"
+rsa = "0.9.0"
 serde = "1.0.103"
 sha1 = "0.10.0"
 sha2 = "0.10.0"
@@ -53,7 +53,6 @@ signature = "1"
 simple_asn1 = "0.6"
 subtle = "2"
 thiserror = "1"
-x25519-dalek = "2.0.0-pre.1"
 zeroize = "1"
 
 [dependencies.aes]
@@ -78,38 +77,62 @@ version = "0.5.1"
 package = "rand_core"
 
 [dependencies.openssl]
-version = "0.10.30"
+version = "0.10.48"
 optional = true
 
 [dependencies.safelog]
-version = "0.2.1"
+version = "0.3.2"
 path = "../safelog"
 
 [dependencies.typenum]
 version = "1.15.0"
 optional = true
 
+[dependencies.x25519-dalek]
+version = "=2.0.0-pre.1"
+
 [dev-dependencies]
 cipher = "0.4.1"
-hex-literal = "0.3"
+hex-literal = "0.4"
 rand = "0.8"
 serde_test = "1.0.124"
 
 [dev-dependencies.tor-basic-utils]
-version = "0.5.0"
+version = "0.7.1"
 path = "../tor-basic-utils"
 
 [features]
+__is_experimental = []
+__is_nonadditive = []
+cvt-x25519 = []
 default = []
-hsv3-client = []
-hsv3-service = []
-relay = []
+experimental = [
+    "relay",
+    "hsv3-client",
+    "hsv3-service",
+    "keymgr",
+]
+full = ["safelog/full"]
+hsv3-client = ["__is_experimental"]
+hsv3-service = ["__is_experimental"]
+keymgr = [
+    "cvt-x25519",
+    "__is_experimental",
+]
+relay = [
+    "cvt-x25519",
+    "__is_experimental",
+]
 with-openssl = [
     "openssl",
     "typenum",
     "cipher",
+    "__is_nonadditive",
 ]
-with-sha1-asm = ["sha1/asm"]
+with-sha1-asm = [
+    "sha1/asm",
+    "__is_nonadditive",
+]
 
 [target.wasm32-unknown-unknown.dependencies.getrandom]
 version = "0.2.3"

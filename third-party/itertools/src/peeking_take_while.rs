@@ -16,7 +16,18 @@ pub trait PeekingNext : Iterator {
     /// if `accept` returns true, return it as the next element,
     /// else None.
     fn peeking_next<F>(&mut self, accept: F) -> Option<Self::Item>
-        where F: FnOnce(&Self::Item) -> bool;
+        where Self: Sized,
+              F: FnOnce(&Self::Item) -> bool;
+}
+
+impl<'a, I> PeekingNext for &'a mut I
+    where I: PeekingNext,
+{
+    fn peeking_next<F>(&mut self, accept: F) -> Option<Self::Item>
+        where F: FnOnce(&Self::Item) -> bool
+    {
+        (*self).peeking_next(accept)
+    }
 }
 
 impl<I> PeekingNext for Peekable<I>
@@ -112,6 +123,18 @@ impl<'a, I, F> Iterator for PeekingTakeWhile<'a, I, F>
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (0, self.iter.size_hint().1)
+    }
+}
+
+impl<'a, I, F> PeekingNext for PeekingTakeWhile<'a, I, F>
+    where I: PeekingNext,
+          F: FnMut(&I::Item) -> bool,
+{
+    fn peeking_next<G>(&mut self, g: G) -> Option<Self::Item>
+        where G: FnOnce(&Self::Item) -> bool,
+    {
+        let f = &mut self.f;
+        self.iter.peeking_next(|r| f(r) && g(r))
     }
 }
 

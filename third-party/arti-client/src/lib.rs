@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -57,7 +59,7 @@ pub use tor_error::{ErrorKind, HasKind};
 pub use tor_proto::stream::{DataReader, DataStream, DataWriter};
 
 mod err;
-pub use err::Error;
+pub use err::{Error, ErrorHint};
 
 #[cfg(feature = "error_detail")]
 pub use err::ErrorDetail;

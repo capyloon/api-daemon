@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-persist"
-version = "0.6.1"
+version = "0.7.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -41,10 +41,10 @@ derive_more = "0.99.3"
 sanitize-filename = "0.4.0"
 serde_json = "1.0.50"
 thiserror = "1"
-tracing = "0.1.18"
+tracing = "0.1.36"
 
 [dependencies.fs-mistrust]
-version = "0.6.0"
+version = "0.7.1"
 path = "../fs-mistrust"
 features = ["walkdir"]
 
@@ -53,14 +53,20 @@ version = "1.0.103"
 features = ["derive"]
 
 [dependencies.tor-error]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-error"
 
 [dev-dependencies]
 tempfile = "3"
 
 [features]
-testing = []
+__is_experimental = []
+experimental = ["testing"]
+full = [
+    "fs-mistrust/full",
+    "tor-error/full",
+]
+testing = ["__is_experimental"]
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies.fslock]
 version = "0.2.0"

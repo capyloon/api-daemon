@@ -1,5 +1,22 @@
 //! Code to handle incoming cells on a circuit.
+//!
+//! ## On message validation
+//!
+//! There are three steps for validating an incoming message on a stream:
+//!
+//! 1. Is the message contextually appropriate? (e.g., no more than one
+//!    `CONNECTED` message per stream.) This is handled by calling
+//!    [`CmdChecker::check_msg`](crate::stream::CmdChecker::check_msg).
+//! 2. Does the message comply with flow-control rules? (e.g., no more data than
+//!    we've gotten SENDMEs for.) For open streams, the stream itself handles
+//!    this; for half-closed streams, the reactor handles it using the
+//!    `halfstream` module.
+//! 3. Does the message have an acceptable command type, and is the message
+//!    well-formed? For open streams, the streams themselves handle this check.
+//!    For half-closed streams, the reactor handles it by calling
+//!    `consume_checked_msg()`.
 use super::streammap::{ShouldSendEnd, StreamEnt};
+use super::MutableState;
 use crate::circuit::celltypes::{ClientCircChanMsg, CreateResponse};
 use crate::circuit::unique_id::UniqId;
 use crate::circuit::{
@@ -9,21 +26,22 @@ use crate::crypto::cell::{
     ClientLayer, CryptInit, HopNum, InboundClientCrypt, InboundClientLayer, OutboundClientCrypt,
     OutboundClientLayer, RelayCellBody, Tor1RelayCrypto,
 };
+use crate::stream::{AnyCmdChecker, StreamStatus};
 use crate::util::err::{ChannelClosed, ReactorError};
 use crate::{Error, Result};
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use tor_cell::chancell::msg::{ChanMsg, Relay};
-use tor_cell::relaycell::msg::{End, RelayMsg, Sendme};
-use tor_cell::relaycell::{RelayCell, RelayCmd, StreamId};
+use tor_cell::chancell::msg::{AnyChanMsg, Relay};
+use tor_cell::relaycell::msg::{AnyRelayMsg, End, Sendme};
+use tor_cell::relaycell::{AnyRelayCell, RelayCmd, StreamId, UnparsedRelayCell};
 
 use futures::channel::{mpsc, oneshot};
 use futures::Sink;
 use futures::Stream;
 use tor_error::internal;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use crate::channel::Channel;
@@ -34,9 +52,9 @@ use crate::circuit::sendme::StreamSendWindow;
 use crate::crypto::handshake::ntor::{NtorClient, NtorPublicKey};
 use crate::crypto::handshake::{ClientHandshake, KeyGenerator};
 use safelog::sensitive as sv;
-use tor_cell::chancell;
-use tor_cell::chancell::{ChanCell, CircId};
-use tor_linkspec::{LinkSpec, OwnedChanTarget, RelayIds};
+use tor_cell::chancell::{self, BoxedCellBody, ChanMsg};
+use tor_cell::chancell::{AnyChanCell, CircId};
+use tor_linkspec::{EncodedLinkSpec, OwnedChanTarget, RelayIds};
 use tor_llcrypto::pk;
 use tracing::{debug, trace, warn};
 
@@ -70,7 +88,8 @@ pub(super) enum CircuitHandshake {
 }
 
 /// A message telling the reactor to do something.
-#[derive(Debug)]
+#[derive(educe::Educe)]
+#[educe(Debug)]
 pub(super) enum CtrlMsg {
     /// Create the first hop of this circuit.
     Create {
@@ -78,9 +97,6 @@ pub(super) enum CtrlMsg {
         recv_created: oneshot::Receiver<CreateResponse>,
         /// The handshake type to use for the first hop.
         handshake: CircuitHandshake,
-        /// Whether the hop supports authenticated SENDME cells.
-        /// (And therefore, whether we should require them.)
-        require_sendme_auth: RequireSendmeAuth,
         /// Other parameters relevant for circuit creation.
         params: CircParameters,
         /// Oneshot channel to notify on completion.
@@ -95,11 +111,26 @@ pub(super) enum CtrlMsg {
         /// The handshake type to use for this hop.
         public_key: NtorPublicKey,
         /// Information about how to connect to the relay we're extending to.
-        linkspecs: Vec<LinkSpec>,
-        /// Whether the hop supports authenticated SENDME cells.
-        /// (And therefore, whether we should require them.)
-        require_sendme_auth: RequireSendmeAuth,
+        linkspecs: Vec<EncodedLinkSpec>,
         /// Other parameters relevant for circuit extension.
+        params: CircParameters,
+        /// Oneshot channel to notify on completion.
+        done: ReactorResultChannel<()>,
+    },
+    /// Extend the circuit by one hop, in response to an out-of-band handshake.
+    ///
+    /// (This is used for onion services, where the negotiation takes place in
+    /// INTRODUCE and RENDEZVOUS messages.)
+    #[cfg(feature = "hs-common")]
+    ExtendVirtual {
+        /// The cryptographic algorithms and keys to use when communicating with
+        /// the newly added hop.
+        #[educe(Debug(ignore))]
+        cell_crypto: (
+            Box<dyn OutboundClientLayer + Send>,
+            Box<dyn InboundClientLayer + Send>,
+        ),
+        /// A set of parameters used to configure this hop.
         params: CircParameters,
         /// Oneshot channel to notify on completion.
         done: ReactorResultChannel<()>,
@@ -111,18 +142,34 @@ pub(super) enum CtrlMsg {
         /// The hop number to begin the stream with.
         hop_num: HopNum,
         /// The message to send.
-        message: RelayMsg,
+        message: AnyRelayMsg,
         /// A channel to send messages on this stream down.
         ///
         /// This sender shouldn't ever block, because we use congestion control and only send
         /// SENDME cells once we've read enough out of the other end. If it *does* block, we
         /// can assume someone is trying to send us more cells than they should, and abort
         /// the stream.
-        sender: mpsc::Sender<RelayMsg>,
+        sender: mpsc::Sender<UnparsedRelayCell>,
         /// A channel to receive messages to send on this stream from.
-        rx: mpsc::Receiver<RelayMsg>,
+        rx: mpsc::Receiver<AnyRelayMsg>,
         /// Oneshot channel to notify on completion, with the allocated stream ID.
         done: ReactorResultChannel<StreamId>,
+        /// A `CmdChecker` to keep track of which message types are acceptable.
+        cmd_checker: AnyCmdChecker,
+    },
+    /// Send a given control message on this circuit, and install a control-message handler to
+    /// receive responses.
+    // TODO hs naming.
+    #[cfg(feature = "send-control-msg")]
+    SendMsgAndInstallHandler {
+        /// The message to send
+        msg: AnyRelayCell,
+        /// A message handler to install.
+        #[educe(Debug(ignore))]
+        handler: Box<dyn MetaCellHandler + Send + 'static>,
+        /// A sender that we use to tell the caller that the message was sent
+        /// and the handler installed.
+        sender: oneshot::Sender<Result<()>>,
     },
     /// Send a SENDME cell (used to ask for more data to be sent) on the given stream.
     SendSendme {
@@ -136,7 +183,6 @@ pub(super) enum CtrlMsg {
     /// (tests only) Add a hop to the list of hops on this circuit, with dummy cryptography.
     #[cfg(test)]
     AddFakeHop {
-        supports_flowctrl_1: bool,
         fwd_lasthop: bool,
         rev_lasthop: bool,
         params: CircParameters,
@@ -153,7 +199,7 @@ pub(super) enum CtrlMsg {
     SendRelayCell {
         hop: HopNum,
         early: bool,
-        cell: RelayCell,
+        cell: AnyRelayCell,
     },
 }
 /// Represents the reactor's view of a single hop.
@@ -166,9 +212,6 @@ pub(super) struct CircHop {
     map: streammap::StreamMap,
     /// Window used to say how many cells we can receive.
     recvwindow: sendme::CircRecvWindow,
-    /// If true, this hop is using an older link protocol and we
-    /// shouldn't expect good authenticated SENDMEs from it.
-    auth_sendme_required: RequireSendmeAuth,
     /// Window used to say how many cells we can send.
     sendwindow: sendme::CircSendWindow,
     /// Buffer for messages we can't send to this hop yet due to congestion control.
@@ -182,43 +225,7 @@ pub(super) struct CircHop {
     ///
     /// NOTE: Control messages could potentially add unboundedly to this, although that's
     ///       not likely to happen (and isn't triggereable from the network, either).
-    outbound: VecDeque<(bool, RelayCell)>,
-}
-
-/// Enumeration to determine whether we require circuit-level SENDME cells to be
-/// authenticated.
-///
-/// (This is an enumeration rather than a boolean to prevent accidental sense
-/// inversion.)
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) enum RequireSendmeAuth {
-    /// Sendme authentication is expected from this hop, and therefore is
-    /// required.
-    Yes,
-    /// Sendme authentication is not expected from this hop, and therefore not
-    /// required.
-    No,
-}
-
-impl RequireSendmeAuth {
-    /// Create an appropriate [`RequireSendmeAuth`] for a given set of relay
-    /// subprotocol versions.
-    //
-    // TODO(nickm): At some point in the future, once there are no 0.3.5 relays
-    // on the Tor network, we can safely require authenticated SENDMEs from all
-    // relays.
-    //
-    // At that point, if we have a relay implementation in Rust, it should look
-    // at the network parameter `SendmeAcceptMinVersion` when deciding whether
-    // to require authenticated SENDMEs.
-    pub(super) fn from_protocols(protocols: &tor_protover::Protocols) -> Self {
-        if protocols.supports_known_subver(tor_protover::ProtoKind::FlowCtrl, 1) {
-            // The relay supports FlowCtrl=1, and therefore will authenticate.
-            RequireSendmeAuth::Yes
-        } else {
-            RequireSendmeAuth::No
-        }
-    }
+    outbound: VecDeque<(bool, AnyRelayCell)>,
 }
 
 /// An indicator on what we should do when we receive a cell for a circuit.
@@ -232,11 +239,10 @@ enum CellStatus {
 
 impl CircHop {
     /// Create a new hop.
-    pub(super) fn new(auth_sendme_required: RequireSendmeAuth, initial_window: u16) -> Self {
+    pub(super) fn new(initial_window: u16) -> Self {
         CircHop {
             map: streammap::StreamMap::new(),
             recvwindow: sendme::CircRecvWindow::new(1000),
-            auth_sendme_required,
             sendwindow: sendme::CircSendWindow::new(initial_window),
             outbound: VecDeque::new(),
         }
@@ -260,7 +266,35 @@ pub(super) trait MetaCellHandler: Send {
     /// Called when the message we were waiting for arrives.
     ///
     /// Gets a copy of the `Reactor` in order to do anything it likes there.
-    fn finish(&mut self, msg: RelayMsg, reactor: &mut Reactor) -> Result<()>;
+    ///
+    /// If this function returns an error, the reactor will shut down.
+    fn handle_msg(
+        &mut self,
+        msg: UnparsedRelayCell,
+        reactor: &mut Reactor,
+    ) -> Result<MetaCellDisposition>;
+}
+
+/// A possible successful outcome of giving a message to a [`MsgHandler`](super::msghandler::MsgHandler).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "send-control-msg", visibility::make(pub))]
+#[non_exhaustive]
+pub(super) enum MetaCellDisposition {
+    /// The message was consumed; the handler should remain installed.
+    #[cfg(feature = "send-control-msg")]
+    Consumed,
+    /// The message was consumed; the handler should be uninstalled.
+    //
+    // TODO since there are no "install handler" and "uninstall handler" calls,
+    // only `send_control_message` which implicitly installs on entry and uninstalls
+    // on exit, this should be renamed to `ConversationFinished` or something.
+    UninstallHandler,
+    /// The message was consumed; the circuit should be closed.
+    #[cfg(feature = "send-control-msg")]
+    CloseCirc,
+    // TODO: Eventually we might want the ability to have multiple handlers
+    // installed, and to let them say "not for me, maybe for somebody else?".
+    // But right now we don't need that.
 }
 
 /// An object that can extend a circuit by one hop, using the `MetaCellHandler` trait.
@@ -277,15 +311,14 @@ where
     peer_id: OwnedChanTarget,
     /// Handshake state.
     state: Option<H::StateType>,
-    /// Whether the hop supports authenticated SENDME cells.
-    /// (And therefore, whether we require them.)
-    require_sendme_auth: RequireSendmeAuth,
     /// Parameters used for this extension.
     params: CircParameters,
     /// An identifier for logging about this reactor's circuit.
     unique_id: UniqId,
     /// The hop we're expecting the EXTENDED2 cell to come back from.
     expected_hop: HopNum,
+    /// A oneshot channel that we should inform when we are done with this extend operation.
+    operation_finished: Option<oneshot::Sender<Result<()>>>,
     /// `PhantomData` used to make the other type parameters required for a circuit extension
     /// part of the `struct`, instead of having them be provided during a function call.
     ///
@@ -316,85 +349,75 @@ where
         peer_id: OwnedChanTarget,
         handshake_id: u16,
         key: &H::KeyType,
-        linkspecs: Vec<LinkSpec>,
-        require_sendme_auth: RequireSendmeAuth,
+        linkspecs: Vec<EncodedLinkSpec>,
         params: CircParameters,
         reactor: &mut Reactor,
+        done: ReactorResultChannel<()>,
     ) -> Result<Self> {
-        let mut rng = rand::thread_rng();
-        let unique_id = reactor.unique_id;
+        match (|| {
+            let mut rng = rand::thread_rng();
+            let unique_id = reactor.unique_id;
 
-        use tor_cell::relaycell::msg::{Body, Extend2};
-        // Perform the first part of the cryptographic handshake
-        let (state, msg) = H::client1(&mut rng, key)?;
+            use tor_cell::relaycell::msg::Extend2;
+            // Perform the first part of the cryptographic handshake
+            let (state, msg) = H::client1(&mut rng, key)?;
 
-        let n_hops = reactor.crypto_out.n_layers();
-        let hop = ((n_hops - 1) as u8).into();
+            let n_hops = reactor.crypto_out.n_layers();
+            let hop = ((n_hops - 1) as u8).into();
 
-        debug!(
-            "{}: Extending circuit to hop {} with {:?}",
-            unique_id,
-            n_hops + 1,
-            linkspecs
-        );
+            debug!(
+                "{}: Extending circuit to hop {} with {:?}",
+                unique_id,
+                n_hops + 1,
+                linkspecs
+            );
 
-        let extend_msg = Extend2::new(linkspecs, handshake_id, msg);
-        let cell = RelayCell::new(0.into(), extend_msg.into_message());
+            let extend_msg = Extend2::new(linkspecs, handshake_id, msg);
+            let cell = AnyRelayCell::new(0.into(), extend_msg.into());
 
-        // Send the message to the last hop...
-        reactor.send_relay_cell(
-            cx, hop, true, // use a RELAY_EARLY cell
-            cell,
-        )?;
-        trace!("{}: waiting for EXTENDED2 cell", unique_id);
-        // ... and now we wait for a response.
+            // Send the message to the last hop...
+            reactor.send_relay_cell(
+                cx, hop, true, // use a RELAY_EARLY cell
+                cell,
+            )?;
+            trace!("{}: waiting for EXTENDED2 cell", unique_id);
+            // ... and now we wait for a response.
 
-        Ok(Self {
-            peer_id,
-            state: Some(state),
-            require_sendme_auth,
-            params,
-            unique_id,
-            expected_hop: hop,
-            phantom: Default::default(),
-        })
-    }
-}
-
-impl<H, L, FWD, REV> MetaCellHandler for CircuitExtender<H, L, FWD, REV>
-where
-    H: ClientHandshake,
-    H::StateType: Send,
-    H::KeyGen: KeyGenerator,
-    L: CryptInit + ClientLayer<FWD, REV> + Send,
-    FWD: OutboundClientLayer + 'static + Send,
-    REV: InboundClientLayer + 'static + Send,
-{
-    fn expected_hop(&self) -> HopNum {
-        self.expected_hop
-    }
-    fn finish(&mut self, msg: RelayMsg, reactor: &mut Reactor) -> Result<()> {
-        // Did we get the right response?
-        if msg.cmd() != RelayCmd::EXTENDED2 {
-            return Err(Error::CircProto(format!(
-                "wanted EXTENDED2; got {}",
-                msg.cmd(),
-            )));
-        }
-
-        // ???? Do we need to shutdown the circuit for the remaining error
-        // ???? cases in this function?
-
-        let msg = match msg {
-            RelayMsg::Extended2(e) => e,
-            _ => {
-                return Err(Error::from(internal!(
-                    "Message body {:?} didn't match cmd {:?}",
-                    msg,
-                    msg.cmd()
-                )))
+            Ok::<CircuitExtender<_, _, _, _>, Error>(Self {
+                peer_id,
+                state: Some(state),
+                params,
+                unique_id,
+                expected_hop: hop,
+                operation_finished: None,
+                phantom: Default::default(),
+            })
+        })() {
+            Ok(mut result) => {
+                result.operation_finished = Some(done);
+                Ok(result)
             }
-        };
+            Err(e) => {
+                // It's okay if the receiver went away.
+                let _ = done.send(Err(e.clone()));
+                Err(e)
+            }
+        }
+    }
+
+    /// Perform the work of extending the circuit another hop.
+    ///
+    /// This is a separate function to simplify the error-handling work of handle_msg().
+    fn extend_circuit(
+        &mut self,
+        msg: UnparsedRelayCell,
+        reactor: &mut Reactor,
+    ) -> Result<MetaCellDisposition> {
+        let msg = msg
+            .decode::<tor_cell::relaycell::msg::Extended2>()
+            .map_err(|e| Error::from_bytes_err(e, "extended2 message"))?
+            .into_msg();
+
         let relay_handshake = msg.into_body();
 
         trace!(
@@ -416,13 +439,43 @@ where
         // If we get here, it succeeded.  Add a new hop to the circuit.
         let (layer_fwd, layer_back) = layer.split();
         reactor.add_hop(
-            self.peer_id.clone(),
-            self.require_sendme_auth,
+            path::HopDetail::Relay(self.peer_id.clone()),
             Box::new(layer_fwd),
             Box::new(layer_back),
             &self.params,
         );
-        Ok(())
+        Ok(MetaCellDisposition::UninstallHandler)
+    }
+}
+
+impl<H, L, FWD, REV> MetaCellHandler for CircuitExtender<H, L, FWD, REV>
+where
+    H: ClientHandshake,
+    H::StateType: Send,
+    H::KeyGen: KeyGenerator,
+    L: CryptInit + ClientLayer<FWD, REV> + Send,
+    FWD: OutboundClientLayer + 'static + Send,
+    REV: InboundClientLayer + 'static + Send,
+{
+    fn expected_hop(&self) -> HopNum {
+        self.expected_hop
+    }
+    fn handle_msg(
+        &mut self,
+        msg: UnparsedRelayCell,
+        reactor: &mut Reactor,
+    ) -> Result<MetaCellDisposition> {
+        let status = self.extend_circuit(msg, reactor);
+
+        if let Some(done) = self.operation_finished.take() {
+            // ignore it if the receiving channel went away.
+            let _ = done.send(status.as_ref().map(|_| ()).map_err(Clone::clone));
+            status
+        } else {
+            Err(Error::from(internal!(
+                "Passed two messages to an CircuitExtender!"
+            )))
+        }
     }
 }
 
@@ -433,7 +486,7 @@ where
 #[must_use = "If you don't call run() on a reactor, the circuit won't work."]
 pub struct Reactor {
     /// Receiver for control messages for this reactor, sent by `ClientCirc` objects.
-    pub(super) control: mpsc::UnboundedReceiver<CtrlMsg>,
+    control: mpsc::UnboundedReceiver<CtrlMsg>,
     /// Buffer for cells we can't send out the channel yet due to it being full.
     ///
     /// We try and dequeue off this first before doing anything else, ensuring that
@@ -442,32 +495,72 @@ pub struct Reactor {
     ///
     /// NOTE: Control messages could potentially add unboundedly to this, although that's
     ///       not likely to happen (and isn't triggereable from the network, either).
-    pub(super) outbound: VecDeque<ChanCell>,
+    outbound: VecDeque<AnyChanCell>,
     /// The channel this circuit is using to send cells through.
-    pub(super) channel: Channel,
+    channel: Channel,
     /// Input stream, on which we receive ChanMsg objects from this circuit's
     /// channel.
     // TODO: could use a SPSC channel here instead.
-    pub(super) input: mpsc::Receiver<ClientCircChanMsg>,
+    input: mpsc::Receiver<ClientCircChanMsg>,
     /// The cryptographic state for this circuit for inbound cells.
     /// This object is divided into multiple layers, each of which is
     /// shared with one hop of the circuit.
-    pub(super) crypto_in: InboundClientCrypt,
+    crypto_in: InboundClientCrypt,
     /// The cryptographic state for this circuit for outbound cells.
-    pub(super) crypto_out: OutboundClientCrypt,
+    crypto_out: OutboundClientCrypt,
     /// List of hops state objects used by the reactor
-    pub(super) hops: Vec<CircHop>,
-    /// Shared atomic for the number of hops this circuit has.
-    pub(super) path: Arc<path::Path>,
+    hops: Vec<CircHop>,
+    /// Mutable information about this circuit, shared with
+    /// [`ClientCirc`](super::ClientCirc).
+    mutable: Arc<Mutex<MutableState>>,
     /// An identifier for logging about this reactor's circuit.
-    pub(super) unique_id: UniqId,
+    unique_id: UniqId,
     /// This circuit's identifier on the upstream channel.
-    pub(super) channel_id: CircId,
+    channel_id: CircId,
     /// A handler for a meta cell, together with a result channel to notify on completion.
-    pub(super) meta_handler: Option<(Box<dyn MetaCellHandler>, ReactorResultChannel<()>)>,
+    meta_handler: Option<Box<dyn MetaCellHandler>>,
 }
 
 impl Reactor {
+    /// Create a new circuit reactor.
+    ///
+    /// The reactor will send outbound messages on `channel`, receive incoming
+    /// messages on `input`, and identify this circuit by the channel-local
+    /// [`CircId`] provided.
+    ///
+    /// The internal unique identifier for this circuit will be `unique_id`.
+    pub(super) fn new(
+        channel: Channel,
+        channel_id: CircId,
+        unique_id: UniqId,
+        input: mpsc::Receiver<ClientCircChanMsg>,
+    ) -> (
+        Self,
+        mpsc::UnboundedSender<CtrlMsg>,
+        Arc<Mutex<MutableState>>,
+    ) {
+        let crypto_out = OutboundClientCrypt::new();
+        let (control_tx, control_rx) = mpsc::unbounded();
+        let path = Arc::new(path::Path::default());
+        let mutable = Arc::new(Mutex::new(MutableState { path }));
+
+        let reactor = Reactor {
+            control: control_rx,
+            outbound: Default::default(),
+            channel,
+            input,
+            crypto_in: InboundClientCrypt::new(),
+            hops: vec![],
+            unique_id,
+            channel_id,
+            crypto_out,
+            meta_handler: None,
+            mutable: mutable.clone(),
+        };
+
+        (reactor, control_tx, mutable)
+    }
+
     /// Launch the reactor, and run until the circuit closes or we
     /// encounter an error.
     ///
@@ -602,7 +695,7 @@ impl Reactor {
                                     match Pin::new(rx).poll_next(cx) {
                                         Poll::Ready(Some(m)) => {
                                             stream_relaycells
-                                                .push((hop_num, RelayCell::new(*id, m)));
+                                                .push((hop_num, AnyRelayCell::new(*id, m)));
                                         }
                                         Poll::Ready(None) => {
                                             // Stream receiver was dropped; close the stream.
@@ -647,7 +740,6 @@ impl Reactor {
         if let Some(CtrlMsg::Create {
             recv_created,
             handshake,
-            require_sendme_auth,
             params,
             done,
         }) = create_message
@@ -660,14 +752,8 @@ impl Reactor {
                     public_key,
                     ed_identity,
                 } => {
-                    self.create_firsthop_ntor(
-                        recv_created,
-                        ed_identity,
-                        public_key,
-                        require_sendme_auth,
-                        &params,
-                    )
-                    .await
+                    self.create_firsthop_ntor(recv_created, ed_identity, public_key, &params)
+                        .await
                 }
             };
             let _ = done.send(ret); // don't care if sender goes away
@@ -693,7 +779,6 @@ impl Reactor {
         recvcreated: oneshot::Receiver<CreateResponse>,
         wrap: &W,
         key: &H::KeyType,
-        require_sendme_auth: RequireSendmeAuth,
         params: &CircParameters,
     ) -> Result<()>
     where
@@ -737,8 +822,7 @@ impl Reactor {
         let peer_id = self.channel.target().clone();
 
         self.add_hop(
-            peer_id,
-            require_sendme_auth,
+            path::HopDetail::Relay(peer_id),
             Box::new(layer_fwd),
             Box::new(layer_back),
             params,
@@ -763,7 +847,6 @@ impl Reactor {
             recvcreated,
             &wrap,
             &(),
-            RequireSendmeAuth::No,
             params,
         )
         .await
@@ -778,7 +861,6 @@ impl Reactor {
         recvcreated: oneshot::Receiver<CreateResponse>,
         ed_identity: pk::ed25519::Ed25519Identity,
         pubkey: NtorPublicKey,
-        require_sendme_auth: RequireSendmeAuth,
         params: &CircParameters,
     ) -> Result<()> {
         // Exit now if we have an Ed25519 or RSA identity mismatch.
@@ -796,7 +878,6 @@ impl Reactor {
             recvcreated,
             &wrap,
             &pubkey,
-            require_sendme_auth,
             params,
         )
         .await
@@ -805,30 +886,44 @@ impl Reactor {
     /// Add a hop to the end of this circuit.
     fn add_hop(
         &mut self,
-        peer_id: OwnedChanTarget,
-        require_sendme_auth: RequireSendmeAuth,
+        peer_id: path::HopDetail,
         fwd: Box<dyn OutboundClientLayer + 'static + Send>,
         rev: Box<dyn InboundClientLayer + 'static + Send>,
         params: &CircParameters,
     ) {
-        let hop = crate::circuit::reactor::CircHop::new(
-            require_sendme_auth,
-            params.initial_send_window(),
-        );
+        let hop = crate::circuit::reactor::CircHop::new(params.initial_send_window());
         self.hops.push(hop);
         self.crypto_in.add_layer(rev);
         self.crypto_out.add_layer(fwd);
-        self.path.push_hop(peer_id);
+        let mut mutable = self.mutable.lock().expect("poisoned lock");
+        Arc::make_mut(&mut mutable.path).push_hop(peer_id);
     }
 
     /// Handle a RELAY cell on this circuit with stream ID 0.
-    fn handle_meta_cell(&mut self, hopnum: HopNum, msg: RelayMsg) -> Result<CellStatus> {
+    fn handle_meta_cell(&mut self, hopnum: HopNum, msg: UnparsedRelayCell) -> Result<CellStatus> {
         // SENDME cells and TRUNCATED get handled internally by the circuit.
-        if let RelayMsg::Sendme(s) = msg {
-            return self.handle_sendme(hopnum, s);
+
+        // TODO: This pattern (Check command, try to decode, map error) occurs
+        // several times, and would be good to extract simplify. Such
+        // simplification is obstructed by a couple of factors: First, that
+        // there is not currently a good way to get the RelayCmd from _type_ of
+        // a RelayMsg.  Second, that decode() [correctly] consumes the
+        // UnparsedRelayMsg.  I tried a macro-based approach, and didn't care
+        // for it. -nickm
+        if msg.cmd() == RelayCmd::SENDME {
+            let sendme = msg
+                .decode::<Sendme>()
+                .map_err(|e| Error::from_bytes_err(e, "sendme message"))?
+                .into_msg();
+
+            return self.handle_sendme(hopnum, sendme);
         }
-        if let RelayMsg::Truncated(t) = msg {
-            let reason = t.reason();
+        if msg.cmd() == RelayCmd::TRUNCATED {
+            let truncated = msg
+                .decode::<tor_cell::relaycell::msg::Truncated>()
+                .map_err(|e| Error::from_bytes_err(e, "truncated message"))?
+                .into_msg();
+            let reason = truncated.reason();
             debug!(
                 "{}: Truncated from hop {}. Reason: {} [{}]",
                 self.unique_id,
@@ -848,21 +943,30 @@ impl Reactor {
         // TODO: that means that service-introduction circuits will need
         // a different implementation, but that should be okay. We'll work
         // something out.
-        if let Some((mut handler, done)) = self.meta_handler.take() {
+        if let Some(mut handler) = self.meta_handler.take() {
             if handler.expected_hop() == hopnum {
                 // Somebody was waiting for a message -- maybe this message
-                let ret = handler.finish(msg, self);
+                let ret = handler.handle_msg(msg, self);
                 trace!(
                     "{}: meta handler completed with result: {:?}",
                     self.unique_id,
                     ret
                 );
-                let _ = done.send(ret); // don't care if sender goes away
-                Ok(CellStatus::Continue)
+                match ret {
+                    #[cfg(feature = "send-control-msg")]
+                    Ok(MetaCellDisposition::Consumed) => {
+                        self.meta_handler = Some(handler);
+                        Ok(CellStatus::Continue)
+                    }
+                    Ok(MetaCellDisposition::UninstallHandler) => Ok(CellStatus::Continue),
+                    #[cfg(feature = "send-control-msg")]
+                    Ok(MetaCellDisposition::CloseCirc) => Ok(CellStatus::CleanShutdown),
+                    Err(e) => Err(e),
+                }
             } else {
                 // Somebody wanted a message from a different hop!  Put this
                 // one back.
-                self.meta_handler = Some((handler, done));
+                self.meta_handler = Some(handler);
                 Err(Error::CircProto(format!(
                     "Unexpected {} cell from hop {} on client circuit",
                     msg.cmd(),
@@ -896,11 +1000,9 @@ impl Reactor {
                 }
             }
             None => {
-                if hop.auth_sendme_required == RequireSendmeAuth::Yes {
-                    return Err(Error::CircProto("missing tag on circuit sendme".into()));
-                } else {
-                    None
-                }
+                // Versions of Tor <=0.3.5 would omit a SENDME tag in this case;
+                // but we don't support those any longer.
+                return Err(Error::CircProto("missing tag on circuit sendme".into()));
             }
         };
         hop.sendwindow.put(auth)?;
@@ -918,8 +1020,8 @@ impl Reactor {
     /// check whether the channel is ready to receive messages (`self.channel.poll_ready`), and
     /// ideally use this to implement backpressure (such that you do not read from other sources
     /// that would send here while you know you're unable to forward the messages on).
-    fn send_msg_direct(&mut self, cx: &mut Context<'_>, msg: ChanMsg) -> Result<()> {
-        let cell = ChanCell::new(self.channel_id, msg);
+    fn send_msg_direct(&mut self, cx: &mut Context<'_>, msg: AnyChanMsg) -> Result<()> {
+        let cell = AnyChanCell::new(self.channel_id, msg);
         // NOTE(eta): We need to check whether the outbound queue is empty before trying to send:
         //            if we just checked whether the channel was ready, it'd be possible for
         //            cells to be sent out of order, since it could transition from not ready to
@@ -950,7 +1052,7 @@ impl Reactor {
     }
 
     /// Wrapper around `send_msg_direct` that uses `futures::future::poll_fn` to get a `Context`.
-    async fn send_msg(&mut self, msg: ChanMsg) -> Result<()> {
+    async fn send_msg(&mut self, msg: AnyChanMsg) -> Result<()> {
         // HACK(eta): technically the closure passed to `poll_fn` is a `FnMut` closure, since it
         //            can be polled multiple times.
         //            We're going to return Ready immediately since we're only using `poll_fn` to
@@ -974,9 +1076,9 @@ impl Reactor {
         cx: &mut Context<'_>,
         hop: HopNum,
         early: bool,
-        cell: RelayCell,
+        cell: AnyRelayCell,
     ) -> Result<()> {
-        let c_t_w = sendme::cell_counts_towards_windows(&cell);
+        let c_t_w = sendme::cmd_counts_towards_windows(cell.cmd());
         let stream_id = cell.stream_id();
         // Check whether the hop send window is empty, if this cell counts towards windows.
         // NOTE(eta): It is imperative this happens *before* calling encrypt() below, otherwise
@@ -1005,11 +1107,11 @@ impl Reactor {
         let tag = self.crypto_out.encrypt(&mut body, hop)?;
         // NOTE(eta): Now that we've encrypted the cell, we *must* either send it or abort
         //            the whole circuit (e.g. by returning an error).
-        let msg = chancell::msg::Relay::from_raw(body.into());
+        let msg = chancell::msg::Relay::from(BoxedCellBody::from(body));
         let msg = if early {
-            ChanMsg::RelayEarly(msg)
+            AnyChanMsg::RelayEarly(msg.into())
         } else {
-            ChanMsg::Relay(msg)
+            AnyChanMsg::Relay(msg)
         };
         // If the cell counted towards our sendme window, decrement
         // that window, and maybe remember the authentication tag.
@@ -1041,13 +1143,9 @@ impl Reactor {
 
     /// Try to install a given meta-cell handler to receive any unusual cells on
     /// this circuit, along with a result channel to notify on completion.
-    fn set_meta_handler(
-        &mut self,
-        handler: Box<dyn MetaCellHandler>,
-        done: ReactorResultChannel<()>,
-    ) -> Result<()> {
+    fn set_meta_handler(&mut self, handler: Box<dyn MetaCellHandler>) -> Result<()> {
         if self.meta_handler.is_none() {
-            self.meta_handler = Some((handler, done));
+            self.meta_handler = Some(handler);
             Ok(())
         } else {
             Err(Error::from(internal!(
@@ -1068,27 +1166,36 @@ impl Reactor {
                 peer_id,
                 public_key,
                 linkspecs,
-                require_sendme_auth,
                 params,
                 done,
             } => {
-                match CircuitExtender::<NtorClient, Tor1RelayCrypto, _, _>::begin(
+                let extender = CircuitExtender::<NtorClient, Tor1RelayCrypto, _, _>::begin(
                     cx,
                     peer_id,
                     0x02,
                     &public_key,
                     linkspecs,
-                    require_sendme_auth,
                     params,
                     self,
-                ) {
-                    Ok(e) => {
-                        self.set_meta_handler(Box::new(e), done)?;
-                    }
-                    Err(e) => {
-                        let _ = done.send(Err(e));
-                    }
-                };
+                    done,
+                )?;
+                self.set_meta_handler(Box::new(extender))?;
+            }
+            #[cfg(feature = "hs-common")]
+            #[allow(unreachable_code)]
+            CtrlMsg::ExtendVirtual {
+                cell_crypto,
+                params,
+                done,
+            } => {
+                let (outbound, inbound) = cell_crypto;
+
+                // TODO HS: Perhaps this should describe the onion service, or
+                // describe why the virtual hop was added, or something?
+                let peer_id = path::HopDetail::Virtual;
+
+                self.add_hop(peer_id, outbound, inbound, &params);
+                let _ = done.send(Ok(()));
             }
             CtrlMsg::BeginStream {
                 hop_num,
@@ -1096,31 +1203,38 @@ impl Reactor {
                 sender,
                 rx,
                 done,
+                cmd_checker,
             } => {
-                let ret = self.begin_stream(cx, hop_num, message, sender, rx);
+                let ret = self.begin_stream(cx, hop_num, message, sender, rx, cmd_checker);
                 let _ = done.send(ret); // don't care if sender goes away
             }
             CtrlMsg::SendSendme { stream_id, hop_num } => {
                 let sendme = Sendme::new_empty();
-                let cell = RelayCell::new(stream_id, sendme.into());
+                let cell = AnyRelayCell::new(stream_id, sendme.into());
                 self.send_relay_cell(cx, hop_num, false, cell)?;
+            }
+            #[cfg(feature = "send-control-msg")]
+            CtrlMsg::SendMsgAndInstallHandler {
+                msg,
+                handler,
+                sender,
+            } => {
+                let outcome: Result<()> = (|| {
+                    self.send_relay_cell(cx, handler.expected_hop(), false, msg)?;
+                    self.set_meta_handler(handler)?;
+                    Ok(())
+                })();
+                let _ = sender.send(outcome.clone()); // don't care if receiver goes away.
+                outcome?;
             }
             #[cfg(test)]
             CtrlMsg::AddFakeHop {
-                supports_flowctrl_1,
                 fwd_lasthop,
                 rev_lasthop,
                 params,
                 done,
             } => {
                 use crate::circuit::test::DummyCrypto;
-
-                // This kinds of conversion is okay for testing, but just for testing.
-                let require_sendme_auth = if supports_flowctrl_1 {
-                    RequireSendmeAuth::Yes
-                } else {
-                    RequireSendmeAuth::No
-                };
 
                 let dummy_peer_id = OwnedChanTarget::builder()
                     .ed_identity([4; 32].into())
@@ -1130,7 +1244,7 @@ impl Reactor {
 
                 let fwd = Box::new(DummyCrypto::new(fwd_lasthop));
                 let rev = Box::new(DummyCrypto::new(rev_lasthop));
-                self.add_hop(dummy_peer_id, require_sendme_auth, fwd, rev, &params);
+                self.add_hop(path::HopDetail::Relay(dummy_peer_id), fwd, rev, &params);
                 let _ = done.send(Ok(()));
             }
             #[cfg(test)]
@@ -1158,16 +1272,17 @@ impl Reactor {
         &mut self,
         cx: &mut Context<'_>,
         hopnum: HopNum,
-        message: RelayMsg,
-        sender: mpsc::Sender<RelayMsg>,
-        rx: mpsc::Receiver<RelayMsg>,
+        message: AnyRelayMsg,
+        sender: mpsc::Sender<UnparsedRelayCell>,
+        rx: mpsc::Receiver<AnyRelayMsg>,
+        cmd_checker: AnyCmdChecker,
     ) -> Result<StreamId> {
         let hop = self
             .hop_mut(hopnum)
             .ok_or_else(|| Error::from(internal!("No such hop {:?}", hopnum)))?;
         let send_window = StreamSendWindow::new(SEND_WINDOW_INIT);
-        let r = hop.map.add_ent(sender, rx, send_window)?;
-        let cell = RelayCell::new(r, message);
+        let r = hop.map.add_ent(sender, rx, send_window, cmd_checker)?;
+        let cell = AnyRelayCell::new(r, message);
         self.send_relay_cell(cx, hopnum, false, cell)?;
         Ok(r)
     }
@@ -1195,7 +1310,7 @@ impl Reactor {
         // TODO: I am about 80% sure that we only send an END cell if
         // we didn't already get an END cell.  But I should double-check!
         if should_send_end == ShouldSendEnd::Send {
-            let end_cell = RelayCell::new(id, End::new_misc().into());
+            let end_cell = AnyRelayCell::new(id, End::new_misc().into());
             self.send_relay_cell(cx, hopnum, false, end_cell)?;
         }
         Ok(())
@@ -1241,9 +1356,8 @@ impl Reactor {
             tag_copy.copy_from_slice(tag);
             tag_copy
         };
-        // Decode the cell.
-        let msg =
-            RelayCell::decode(body.into()).map_err(|e| Error::from_bytes_err(e, "relay cell"))?;
+        // Put the cell into a format where we can make sense of it.
+        let msg = UnparsedRelayCell::from_body(body.into());
 
         let c_t_w = sendme::cell_counts_towards_windows(&msg);
 
@@ -1264,7 +1378,7 @@ impl Reactor {
             // every increase that parameter to a higher number, this will
             // become incorrect.  (Higher numbers are not currently defined.)
             let sendme = Sendme::new_tag(tag);
-            let cell = RelayCell::new(0.into(), sendme.into());
+            let cell = AnyRelayCell::new(0.into(), sendme.into());
             self.send_relay_cell(cx, hopnum, false, cell)?;
             self.hop_mut(hopnum)
                 .ok_or_else(|| {
@@ -1277,12 +1391,11 @@ impl Reactor {
                 .put();
         }
 
-        // Break the message apart into its streamID and message.
-        let (streamid, msg) = msg.into_streamid_and_msg();
-
         // If this cell wants/refuses to have a Stream ID, does it
         // have/not have one?
-        if !msg.cmd().accepts_streamid_val(streamid) {
+        let cmd = msg.cmd();
+        let streamid = msg.stream_id();
+        if !cmd.accepts_streamid_val(streamid) {
             return Err(Error::CircProto(format!(
                 "Invalid stream ID {} for relay command {}",
                 sv(streamid),
@@ -1304,12 +1417,16 @@ impl Reactor {
                 sink,
                 send_window,
                 dropped,
-                ref mut received_connected,
+                cmd_checker,
                 ..
             }) => {
                 // The stream for this message exists, and is open.
 
-                if let RelayMsg::Sendme(_) = msg {
+                if msg.cmd() == RelayCmd::SENDME {
+                    let _sendme = msg
+                        .decode::<Sendme>()
+                        .map_err(|e| Error::from_bytes_err(e, "Sendme message on stream"))?
+                        .into_msg();
                     // We need to handle sendmes here, not in the stream's
                     // recv() method, or else we'd never notice them if the
                     // stream isn't reading.
@@ -1317,19 +1434,8 @@ impl Reactor {
                     return Ok(CellStatus::Continue);
                 }
 
-                if matches!(msg, RelayMsg::Connected(_)) {
-                    // Remember that we've received a Connected cell, and can't get another,
-                    // even if we become a HalfStream.  (This rule is enforced separately at
-                    // DataStreamReader.)
-                    *received_connected = true;
-                }
+                let message_closes_stream = cmd_checker.check_msg(&msg)? == StreamStatus::Closed;
 
-                // Remember whether this was an end cell: if so we should
-                // close the stream.
-                let is_end_cell = matches!(msg, RelayMsg::End(_));
-
-                // TODO: Add a wrapper type here to reject cells that should
-                // never go to a client, like BEGIN.
                 if let Err(e) = sink.try_send(msg) {
                     if e.is_full() {
                         // If we get here, we either have a logic bug (!), or an attacker
@@ -1347,21 +1453,20 @@ impl Reactor {
                         *dropped += 1;
                     }
                 }
-                if is_end_cell {
-                    hop.map.end_received(streamid)?;
+                if message_closes_stream {
+                    hop.map.ending_msg_received(streamid)?;
                 }
             }
             Some(StreamEnt::EndSent(halfstream)) => {
                 // We sent an end but maybe the other side hasn't heard.
 
-                if matches!(msg, RelayMsg::End(_)) {
-                    hop.map.end_received(streamid)?;
-                } else {
-                    halfstream.handle_msg(&msg)?;
+                match halfstream.handle_msg(msg)? {
+                    StreamStatus::Open => {}
+                    StreamStatus::Closed => hop.map.ending_msg_received(streamid)?,
                 }
             }
             _ => {
-                // No stream wants this message.
+                // No stream wants this message, or ever did.
                 return Err(Error::CircProto(
                     "Cell received on nonexistent stream!?".into(),
                 ));

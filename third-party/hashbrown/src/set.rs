@@ -5,10 +5,9 @@ use alloc::borrow::ToOwned;
 use core::fmt;
 use core::hash::{BuildHasher, Hash};
 use core::iter::{Chain, FromIterator, FusedIterator};
-use core::mem;
 use core::ops::{BitAnd, BitOr, BitXor, Sub};
 
-use super::map::{self, ConsumeAllOnDrop, DefaultHashBuilder, DrainFilterInner, HashMap, Keys};
+use super::map::{self, DefaultHashBuilder, ExtractIfInner, HashMap, Keys};
 use crate::raw::{Allocator, Global};
 
 // Future Optimization (FIXME!)
@@ -380,8 +379,9 @@ impl<T, S, A: Allocator + Clone> HashSet<T, S, A> {
     /// In other words, move all elements `e` such that `f(&e)` returns `true` out
     /// into another iterator.
     ///
-    /// When the returned DrainedFilter is dropped, any remaining elements that satisfy
-    /// the predicate are dropped from the set.
+    /// If the returned `ExtractIf` is not exhausted, e.g. because it is dropped without iterating
+    /// or the iteration short-circuits, then the remaining elements will be retained.
+    /// Use [`retain()`] with a negated predicate if you do not need the returned iterator.
     ///
     /// # Examples
     ///
@@ -389,7 +389,7 @@ impl<T, S, A: Allocator + Clone> HashSet<T, S, A> {
     /// use hashbrown::HashSet;
     ///
     /// let mut set: HashSet<i32> = (0..8).collect();
-    /// let drained: HashSet<i32> = set.drain_filter(|v| v % 2 == 0).collect();
+    /// let drained: HashSet<i32> = set.extract_if(|v| v % 2 == 0).collect();
     ///
     /// let mut evens = drained.into_iter().collect::<Vec<_>>();
     /// let mut odds = set.into_iter().collect::<Vec<_>>();
@@ -400,13 +400,13 @@ impl<T, S, A: Allocator + Clone> HashSet<T, S, A> {
     /// assert_eq!(odds, vec![1, 3, 5, 7]);
     /// ```
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn drain_filter<F>(&mut self, f: F) -> DrainFilter<'_, T, F, A>
+    pub fn extract_if<F>(&mut self, f: F) -> ExtractIf<'_, T, F, A>
     where
         F: FnMut(&T) -> bool,
     {
-        DrainFilter {
+        ExtractIf {
             f,
-            inner: DrainFilterInner {
+            inner: ExtractIfInner {
                 iter: unsafe { self.map.table.iter() },
                 table: &mut self.map.table,
             },
@@ -1221,6 +1221,28 @@ where
             None => None,
         }
     }
+}
+
+impl<T, S, A: Allocator + Clone> HashSet<T, S, A> {
+    /// Returns a reference to the [`RawTable`] used underneath [`HashSet`].
+    /// This function is only available if the `raw` feature of the crate is enabled.
+    ///
+    /// # Note
+    ///
+    /// Calling this function is safe, but using the raw hash table API may require
+    /// unsafe functions or blocks.
+    ///
+    /// `RawTable` API gives the lowest level of control under the set that can be useful
+    /// for extending the HashSet's API, but may lead to *[undefined behavior]*.
+    ///
+    /// [`HashSet`]: struct.HashSet.html
+    /// [`RawTable`]: crate::raw::RawTable
+    /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+    #[cfg(feature = "raw")]
+    #[cfg_attr(feature = "inline-more", inline)]
+    pub fn raw_table(&self) -> &RawTable<(T, ()), A> {
+        self.map.raw_table()
+    }
 
     /// Returns a mutable reference to the [`RawTable`] used underneath [`HashSet`].
     /// This function is only available if the `raw` feature of the crate is enabled.
@@ -1238,8 +1260,8 @@ where
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     #[cfg(feature = "raw")]
     #[cfg_attr(feature = "inline-more", inline)]
-    pub fn raw_table(&mut self) -> &mut RawTable<(T, ()), A> {
-        self.map.raw_table()
+    pub fn raw_table_mut(&mut self) -> &mut RawTable<(T, ()), A> {
+        self.map.raw_table_mut()
     }
 }
 
@@ -1547,17 +1569,18 @@ pub struct Drain<'a, K, A: Allocator + Clone = Global> {
 
 /// A draining iterator over entries of a `HashSet` which don't satisfy the predicate `f`.
 ///
-/// This `struct` is created by the [`drain_filter`] method on [`HashSet`]. See its
+/// This `struct` is created by the [`extract_if`] method on [`HashSet`]. See its
 /// documentation for more.
 ///
-/// [`drain_filter`]: struct.HashSet.html#method.drain_filter
+/// [`extract_if`]: struct.HashSet.html#method.extract_if
 /// [`HashSet`]: struct.HashSet.html
-pub struct DrainFilter<'a, K, F, A: Allocator + Clone = Global>
+#[must_use = "Iterators are lazy unless consumed"]
+pub struct ExtractIf<'a, K, F, A: Allocator + Clone = Global>
 where
     F: FnMut(&K) -> bool,
 {
     f: F,
-    inner: DrainFilterInner<'a, K, (), A>,
+    inner: ExtractIfInner<'a, K, (), A>,
 }
 
 /// A lazy iterator producing elements in the intersection of `HashSet`s.
@@ -1748,21 +1771,7 @@ impl<K: fmt::Debug, A: Allocator + Clone> fmt::Debug for Drain<'_, K, A> {
     }
 }
 
-impl<'a, K, F, A: Allocator + Clone> Drop for DrainFilter<'a, K, F, A>
-where
-    F: FnMut(&K) -> bool,
-{
-    #[cfg_attr(feature = "inline-more", inline)]
-    fn drop(&mut self) {
-        while let Some(item) = self.next() {
-            let guard = ConsumeAllOnDrop(self);
-            drop(item);
-            mem::forget(guard);
-        }
-    }
-}
-
-impl<K, F, A: Allocator + Clone> Iterator for DrainFilter<'_, K, F, A>
+impl<K, F, A: Allocator + Clone> Iterator for ExtractIf<'_, K, F, A>
 where
     F: FnMut(&K) -> bool,
 {
@@ -1781,10 +1790,7 @@ where
     }
 }
 
-impl<K, F, A: Allocator + Clone> FusedIterator for DrainFilter<'_, K, F, A> where
-    F: FnMut(&K) -> bool
-{
-}
+impl<K, F, A: Allocator + Clone> FusedIterator for ExtractIf<'_, K, F, A> where F: FnMut(&K) -> bool {}
 
 impl<T, S, A: Allocator + Clone> Clone for Intersection<'_, T, S, A> {
     #[cfg_attr(feature = "inline-more", inline)]
@@ -2712,10 +2718,10 @@ mod test_set {
         set.insert(1);
         set.insert(2);
 
-        let set_str = format!("{:?}", set);
+        let set_str = format!("{set:?}");
 
         assert!(set_str == "{1, 2}" || set_str == "{2, 1}");
-        assert_eq!(format!("{:?}", empty), "{}");
+        assert_eq!(format!("{empty:?}"), "{}");
     }
 
     #[test]
@@ -2790,6 +2796,7 @@ mod test_set {
     }
 
     #[test]
+    #[allow(clippy::needless_borrow)]
     fn test_extend_ref() {
         let mut a = HashSet::new();
         a.insert(1);
@@ -2829,10 +2836,10 @@ mod test_set {
     }
 
     #[test]
-    fn test_drain_filter() {
+    fn test_extract_if() {
         {
             let mut set: HashSet<i32> = (0..8).collect();
-            let drained = set.drain_filter(|&k| k % 2 == 0);
+            let drained = set.extract_if(|&k| k % 2 == 0);
             let mut out = drained.collect::<Vec<_>>();
             out.sort_unstable();
             assert_eq!(vec![0, 2, 4, 6], out);
@@ -2840,7 +2847,7 @@ mod test_set {
         }
         {
             let mut set: HashSet<i32> = (0..8).collect();
-            drop(set.drain_filter(|&k| k % 2 == 0));
+            set.extract_if(|&k| k % 2 == 0).for_each(drop);
             assert_eq!(set.len(), 4, "Removes non-matching items on drop");
         }
     }
@@ -2885,5 +2892,12 @@ mod test_set {
             set.remove(&(i - 100));
             set.insert(i);
         }
+    }
+
+    #[test]
+    fn collect() {
+        // At the time of writing, this hits the ZST case in from_base_index
+        // (and without the `map`, it does not).
+        let mut _set: HashSet<_> = (0..3).map(|_| ()).collect();
     }
 }

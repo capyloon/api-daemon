@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.20.1 (May 2, 2023)
+
+- Add `Clone` impl for `NestedMeta` [#230](https://github.com/TedDriggs/darling/pull/230)
+
+## v0.20.0 (April 27, 2023)
+
+- Bump syn to version 2, courtesy of @jonasbb [#227](https://github.com/TedDriggs/darling/issues/227)
+
+### Breaking Changes
+
+- Replace all occurrences of syn::NestedMeta with darling::ast::NestedMeta.
+
+- Replacement for the deprecated AttributeArgs:
+
+```rust
+// Before
+
+parse_macro_input!(args as AttributeArgs);
+
+// After
+
+match NestedMeta::parse_meta_list(args) {
+    Ok(v) => v,
+    Err(e) => { 
+      return TokenStream::from(Error::from(e).write_errors()); 
+    }
+};
+```
+
+- In GenericParamExt, `LifetimeDef` is now `LifetimeParam`.
+- In GenericParamExt, `as_lifetime_def` is renamed to `as_lifetime_param`.
+- Flag and SpannedValue no longer implement `syn::spanned::Spanned`.
+- The MSRV (minimum supported Rust version) is now 1.56, because of syn.
+
+### Deprecation Warnings
+
+In previous versions of `darling`, arbitrary expressions were passed in attributes by wrapping them in quotation marks.
+v0.20.0 preserves this behavior for `syn::Expr`, but as a result a field expecting a `syn::Expr` cannot accept a string literal - it will incorrectly attempt to parse the contents. If this is an issue for you, please add a comment to [#229](https://github.com/TedDriggs/darling/issues/229).
+
+## v0.14.4 (March 9, 2023)
+
+- Add support for child diagnostics when `diagnostics` feature enabled [#224](https://github.com/TedDriggs/darling/issues/224)
+
+## v0.14.3 (February 3, 2023)
+
+- Re-export `syn` from `darling` to avoid requiring that consuming crates have a `syn` dependency.
+- Change `<SpannedValue<T> as FromMeta>` impl to more precisely capture the _value_ span, as opposed to the span of the entire item.
+- Add `darling::util::{AsShape, Shape, ShapeSet}` to improve "shape" validation for structs and variants. [#222](https://github.com/TedDriggs/issues/222)
+
+## v0.14.2 (October 26, 2022)
+
+- Derived impls of `FromMeta` will now error on literals, rather than silently ignoring them. [#193](https://github.com/TedDriggs/darling/pull/193)
+- Don't include property paths in compile errors when spans are available. [#203](https://github.com/TedDriggs/darling/pull/203)
+
 ## v0.14.1 (April 28, 2022)
 
 - Fix a bug where using a trait that accepts `#[darling(attributes(...))]` without specifying any attributes would emit code that did not compile. [#183](https://github.com/TedDriggs/darling/issues/183)

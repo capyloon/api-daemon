@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_intrusive::sync::SemaphoreReleaser;
+use crate::sync::AsyncSemaphoreReleaser;
 
 use crate::connection::Connection;
 use crate::database::Database;
@@ -73,6 +73,18 @@ impl<DB: Database> AsMut<DB::Connection> for PoolConnection<DB> {
 }
 
 impl<DB: Database> PoolConnection<DB> {
+    /// Close this connection, allowing the pool to open a replacement.
+    ///
+    /// Equivalent to calling [`.detach()`] then [`.close()`], but the connection permit is retained
+    /// for the duration so that the pool may not exceed `max_connections`.
+    ///
+    /// [`.detach()`]: PoolConnection::detach
+    /// [`.close()`]: Connection::close
+    pub async fn close(mut self) -> Result<(), Error> {
+        let floating = self.take_live().float(self.pool.clone());
+        floating.inner.raw.close().await
+    }
+
     /// Detach this connection from the pool, allowing it to open a replacement.
     ///
     /// Note that if your application uses a single shared pool, this
@@ -105,7 +117,8 @@ impl<DB: Database> PoolConnection<DB> {
     /// Test the connection to make sure it is still live before returning it to the pool.
     ///
     /// This effectively runs the drop handler eagerly instead of spawning a task to do it.
-    pub(crate) fn return_to_pool(&mut self) -> impl Future<Output = ()> + Send + 'static {
+    #[doc(hidden)]
+    pub fn return_to_pool(&mut self) -> impl Future<Output = ()> + Send + 'static {
         // float the connection in the pool before we move into the task
         // in case the returned `Future` isn't executed, like if it's spawned into a dying runtime
         // https://github.com/launchbadge/sqlx/issues/1396
@@ -129,18 +142,31 @@ impl<DB: Database> PoolConnection<DB> {
     }
 }
 
+impl<'c, DB: Database> crate::acquire::Acquire<'c> for &'c mut PoolConnection<DB> {
+    type Database = DB;
+
+    type Connection = &'c mut <DB as Database>::Connection;
+
+    #[inline]
+    fn acquire(self) -> futures_core::future::BoxFuture<'c, Result<Self::Connection, Error>> {
+        Box::pin(futures_util::future::ok(&mut **self))
+    }
+
+    #[inline]
+    fn begin(
+        self,
+    ) -> futures_core::future::BoxFuture<'c, Result<crate::transaction::Transaction<'c, DB>, Error>>
+    {
+        crate::transaction::Transaction::begin(&mut **self)
+    }
+}
+
 /// Returns the connection to the [`Pool`][crate::pool::Pool] it was checked-out from.
 impl<DB: Database> Drop for PoolConnection<DB> {
     fn drop(&mut self) {
         // We still need to spawn a task to maintain `min_connections`.
         if self.live.is_some() || self.pool.options.min_connections > 0 {
-            #[cfg(not(feature = "_rt-async-std"))]
-            if let Ok(handle) = sqlx_rt::Handle::try_current() {
-                handle.spawn(self.return_to_pool());
-            }
-
-            #[cfg(feature = "_rt-async-std")]
-            sqlx_rt::spawn(self.return_to_pool());
+            crate::rt::spawn(self.return_to_pool());
         }
     }
 }
@@ -221,8 +247,8 @@ impl<DB: Database> Floating<DB, Live<DB>> {
                     self.close().await;
                     return false;
                 }
-                Err(e) => {
-                    log::warn!("error from after_release: {}", e);
+                Err(error) => {
+                    tracing::warn!(%error, "error from `after_release`");
                     // Connection is broken, don't try to gracefully close as
                     // something weird might happen.
                     self.close_hard().await;
@@ -238,10 +264,10 @@ impl<DB: Database> Floating<DB, Live<DB>> {
         // returned to the pool; also of course, if it was dropped due to an error
         // this is simply a band-aid as SQLx-next connections should be able
         // to recover from cancellations
-        if let Err(e) = self.raw.ping().await {
-            log::warn!(
-                "error occurred while testing the connection on-release: {}",
-                e
+        if let Err(error) = self.raw.ping().await {
+            tracing::warn!(
+                %error,
+                "error occurred while testing the connection on-release",
             );
 
             // Connection is broken, don't try to gracefully close.
@@ -288,7 +314,7 @@ impl<DB: Database> Floating<DB, Idle<DB>> {
     pub fn from_idle(
         idle: Idle<DB>,
         pool: Arc<PoolInner<DB>>,
-        permit: SemaphoreReleaser<'_>,
+        permit: AsyncSemaphoreReleaser<'_>,
     ) -> Self {
         Self {
             inner: idle,
@@ -308,8 +334,8 @@ impl<DB: Database> Floating<DB, Idle<DB>> {
     }
 
     pub async fn close(self) -> DecrementSizeGuard<DB> {
-        if let Err(e) = self.inner.live.raw.close().await {
-            log::debug!("error occurred while closing the pool connection: {}", e);
+        if let Err(error) = self.inner.live.raw.close().await {
+            tracing::debug!(%error, "error occurred while closing the pool connection");
         }
         self.guard
     }

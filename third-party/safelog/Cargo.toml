@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "safelog"
-version = "0.2.1"
+version = "0.3.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -51,8 +51,9 @@ features = ["derive"]
 optional = true
 
 [dev-dependencies]
-serial_test = "1.0.0"
+serial_test = "2.0.0"
 static_assertions = "1"
 
 [features]
 default = []
+full = []

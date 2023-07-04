@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-netdoc"
-version = "0.6.1"
+version = "0.8.1"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -37,23 +37,44 @@ rustdoc-args = [
 ]
 
 [dependencies]
-bitflags = "1"
+bitflags = "2"
 derive_more = "0.99.3"
 digest = "0.10.0"
 educe = "0.4.6"
 hex = "0.4"
 humantime = "2"
+itertools = "0.11.0"
 once_cell = "1"
 serde = "1.0.103"
-serde_with = "2.0.1"
+serde_with = "3.0.0"
 signature = "1"
+smallvec = "1.10"
+subtle = "2"
 thiserror = "1"
 tinystr = "0.7.0"
 weak-table = "0.3.0"
+zeroize = "1"
+
+[dependencies.amplify]
+version = "4"
+features = ["derive"]
+default-features = false
 
 [dependencies.base64ct]
 version = "1.5.1"
 features = ["alloc"]
+
+[dependencies.cipher]
+version = "0.4.1"
+features = ["zeroize"]
+
+[dependencies.derive_builder]
+version = "0.11.2"
+package = "derive_builder_fork_arti"
+
+[dependencies.hex-literal]
+version = "0.4"
+optional = true
 
 [dependencies.phf]
 version = "0.11.1"
@@ -71,39 +92,48 @@ features = [
     "macros",
 ]
 
+[dependencies.tor-basic-utils]
+version = "0.7.1"
+path = "../tor-basic-utils"
+
 [dependencies.tor-bytes]
-version = "0.6.1"
+version = "0.7.2"
 path = "../tor-bytes"
 
 [dependencies.tor-cert]
-version = "0.6.1"
+version = "0.7.2"
 path = "../tor-cert"
 
 [dependencies.tor-checkable]
-version = "0.4.0"
+version = "0.5.1"
 path = "../tor-checkable"
 
 [dependencies.tor-error]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-error"
 
 [dependencies.tor-hscrypto]
-version = "0.1.0"
+version = "0.3.0"
 path = "../tor-hscrypto"
 optional = true
 
 [dependencies.tor-linkspec]
-version = "0.6.0"
+version = "0.8.1"
 path = "../tor-linkspec"
 optional = true
 
 [dependencies.tor-llcrypto]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-llcrypto"
 
 [dependencies.tor-protover]
-version = "0.4.0"
+version = "0.5.1"
 path = "../tor-protover"
+
+[dependencies.tor-units]
+version = "0.6.1"
+path = "../tor-units"
+optional = true
 
 [dependencies.visibility]
 version = "0.0.1"
@@ -114,36 +144,78 @@ version = "0.0.1"
 optional = true
 
 [dev-dependencies]
-hex-literal = "0.3"
-itertools = "0.10.1"
+anyhow = "1.0.23"
+hex-literal = "0.4"
+itertools = "0.11.0"
 serde_json = "1.0.50"
 
+[dev-dependencies.tor-basic-utils]
+version = "0.7.1"
+path = "../tor-basic-utils"
+
 [features]
-build_docs = ["rand"]
+__is_experimental = []
+build_docs = [
+    "rand",
+    "__is_experimental",
+]
 dangerous-expose-struct-fields = [
     "visible",
     "visibility",
+    "__is_experimental",
 ]
 default = []
 experimental = [
     "build_docs",
     "experimental-api",
-    "onion-client",
-    "onion-service",
+    "hs-dir",
+    "hs-service",
+    "hsdesc-inner-docs",
+    "dangerous-expose-struct-fields",
 ]
-experimental-api = []
+experimental-api = [
+    "testing",
+    "__is_experimental",
+]
 full = [
+    "hs-client",
     "routerdesc",
     "ns_consensus",
+    "tor-basic-utils/full",
+    "tor-bytes/full",
+    "tor-cert/full",
+    "tor-checkable/full",
+    "tor-error/full",
+    "tor-hscrypto?/full",
+    "tor-linkspec?/full",
+    "tor-llcrypto/full",
+    "tor-protover/full",
+    "tor-units?/full",
 ]
-ns_consensus = []
-onion-client = ["onion-common"]
-onion-common = [
+hs-client = ["hs-common"]
+hs-common = [
+    "rand",
     "tor-hscrypto",
     "tor-linkspec",
+    "tor-units",
 ]
-onion-service = [
-    "onion-common",
-    "rand",
+hs-dir = [
+    "hs-common",
+    "__is_experimental",
 ]
+hs-service = [
+    "hs-common",
+    "tor-cert/encode",
+    "__is_experimental",
+]
+hsdesc-inner-docs = [
+    "visibility",
+    "__is_experimental",
+]
+ns_consensus = []
 routerdesc = []
+testing = [
+    "hex-literal",
+    "hsdesc-inner-docs",
+    "visibility",
+]

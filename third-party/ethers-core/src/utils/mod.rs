@@ -36,15 +36,13 @@ pub use rlp;
 /// Re-export hex
 pub use hex;
 
-use crate::types::{Address, Bytes, ParseI256Error, H256, I256, U256, U64};
-use elliptic_curve::sec1::ToEncodedPoint;
+use crate::types::{Address, Bytes, ParseI256Error, H256, I256, U256};
 use ethabi::ethereum_types::FromDecStrErr;
-use k256::{ecdsa::SigningKey, PublicKey as K256PublicKey};
+use k256::ecdsa::SigningKey;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
     fmt,
-    str::FromStr,
 };
 use thiserror::Error;
 
@@ -53,11 +51,9 @@ const OVERFLOW_I256_UNITS: usize = 77;
 /// U256 overflows for numbers wider than 78 units.
 const OVERFLOW_U256_UNITS: usize = 78;
 
-/// Re-export of serde-json
+// Re-export serde-json for macro usage
 #[doc(hidden)]
-pub mod __serde_json {
-    pub use serde_json::*;
-}
+pub use serde_json as __serde_json;
 
 #[derive(Error, Debug)]
 pub enum ConversionError {
@@ -75,6 +71,10 @@ pub enum ConversionError {
     ParseOverflow,
     #[error(transparent)]
     ParseI256Error(#[from] ParseI256Error),
+    #[error("Invalid address checksum")]
+    InvalidAddressChecksum,
+    #[error(transparent)]
+    FromHexError(<Address as std::str::FromStr>::Err),
 }
 
 /// 1 Ether = 1e18 Wei == 0x0de0b6b3a7640000 Wei
@@ -141,8 +141,15 @@ construct_format_units_from! {
 /// in ether (instead of wei)
 ///
 /// Divides the input by 1e18
-pub fn format_ether<T: Into<U256>>(amount: T) -> U256 {
-    amount.into() / WEI_IN_ETHER
+/// ```
+/// use ethers_core::{types::U256, utils::format_ether};
+///
+/// let eth = format_ether(1395633240123456000_u128).unwrap();
+/// assert_eq!(eth.parse::<f64>().unwrap(), 1.395633240123456);
+/// ```
+pub fn format_ether<T: Into<ParseUnits>>(amount: T) -> String {
+    // format_units returns Err only if units >= 77. Hense, we can safely unwrap here
+    format_units(amount, "ether").unwrap()
 }
 
 /// Divides the provided amount with 10^{units} provided.
@@ -385,7 +392,7 @@ pub fn get_create2_address_from_hash(
 
 /// Converts a K256 SigningKey to an Ethereum Address
 pub fn secret_key_to_address(secret_key: &SigningKey) -> Address {
-    let public_key = K256PublicKey::from(&secret_key.verifying_key());
+    let public_key = secret_key.verifying_key();
     let public_key = public_key.to_encoded_point(/* compress = */ false);
     let public_key = public_key.as_bytes();
     debug_assert_eq!(public_key[0], 0x04);
@@ -423,6 +430,22 @@ pub fn to_checksum(addr: &Address, chain_id: Option<u8>) -> String {
         });
         encoded
     })
+}
+
+/// Parses an [EIP-1191](https://eips.ethereum.org/EIPS/eip-1191) checksum address.
+///
+/// Returns `Ok(address)` if the checksummed address is valid, `Err()` otherwise.
+/// If `chain_id` is `None`, falls back to [EIP-55](https://eips.ethereum.org/EIPS/eip-55) address checksum method
+pub fn parse_checksummed(addr: &str, chain_id: Option<u8>) -> Result<Address, ConversionError> {
+    let addr = addr.strip_prefix("0x").unwrap_or(addr);
+    let address: Address = addr.parse().map_err(ConversionError::FromHexError)?;
+    let checksum_addr = to_checksum(&address, chain_id);
+
+    if checksum_addr.strip_prefix("0x").unwrap_or(&checksum_addr) == addr {
+        Ok(address)
+    } else {
+        Err(ConversionError::InvalidAddressChecksum)
+    }
 }
 
 /// Returns a bytes32 string representation of text. If the length of text exceeds 32 bytes,
@@ -510,62 +533,6 @@ where
     }
 }
 
-/// Deserializes the input into a U256, accepting both 0x-prefixed hex and decimal strings with
-/// arbitrary precision, defined by serde_json's [`Number`](serde_json::Number).
-pub fn from_int_or_hex<'de, D>(deserializer: D) -> Result<U256, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum IntOrHex {
-        Int(serde_json::Number),
-        Hex(String),
-    }
-
-    match IntOrHex::deserialize(deserializer)? {
-        IntOrHex::Hex(s) => U256::from_str(s.as_str()).map_err(serde::de::Error::custom),
-        IntOrHex::Int(n) => U256::from_dec_str(&n.to_string()).map_err(serde::de::Error::custom),
-    }
-}
-
-/// Deserializes the input into a U64, accepting both 0x-prefixed hex and decimal strings with
-/// arbitrary precision, defined by serde_json's [`Number`](serde_json::Number).
-pub fn from_u64_or_hex<'de, D>(deserializer: D) -> Result<U64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum IntOrHex {
-        Int(serde_json::Number),
-        Hex(String),
-    }
-
-    match IntOrHex::deserialize(deserializer)? {
-        IntOrHex::Hex(s) => U64::from_str(s.as_str()).map_err(serde::de::Error::custom),
-        IntOrHex::Int(n) => U64::from_dec_str(&n.to_string()).map_err(serde::de::Error::custom),
-    }
-}
-
-/// Deserializes the input into an `Option<U256>`, using [`from_int_or_hex`] to deserialize the
-/// inner value.
-pub fn from_int_or_hex_opt<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Ok(Some(from_int_or_hex(deserializer)?))
-}
-
-/// Deserializes the input into an `Option<u64>`, using [`from_u64_or_hex`] to deserialize the
-/// inner value.
-pub fn from_u64_or_hex_opt<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Ok(Some(from_u64_or_hex(deserializer)?.as_u64()))
-}
-
 fn estimate_priority_fee(rewards: Vec<Vec<U256>>) -> U256 {
     let mut rewards: Vec<U256> =
         rewards.iter().map(|r| r[0]).filter(|r| *r > U256::zero()).collect();
@@ -647,11 +614,70 @@ pub(crate) fn unused_ports<const N: usize>() -> [u16; N] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::serde_helpers::deserialize_stringified_numeric;
     use hex_literal::hex;
 
     #[test]
     fn wei_in_ether() {
         assert_eq!(WEI_IN_ETHER.as_u64(), 1e18 as u64);
+    }
+
+    #[test]
+    fn test_format_ether_unsigned() {
+        let eth = format_ether(WEI_IN_ETHER);
+        assert_eq!(eth.parse::<f64>().unwrap() as u64, 1);
+
+        let eth = format_ether(1395633240123456000_u128);
+        assert_eq!(eth.parse::<f64>().unwrap(), 1.395633240123456);
+
+        let eth = format_ether(U256::from_dec_str("1395633240123456000").unwrap());
+        assert_eq!(eth.parse::<f64>().unwrap(), 1.395633240123456);
+
+        let eth = format_ether(U256::from_dec_str("1395633240123456789").unwrap());
+        assert_eq!(eth, "1.395633240123456789");
+
+        let eth = format_ether(U256::from_dec_str("1005633240123456789").unwrap());
+        assert_eq!(eth, "1.005633240123456789");
+
+        let eth = format_ether(u16::MAX);
+        assert_eq!(eth, "0.000000000000065535");
+
+        // Note: This covers usize on 32 bit systems.
+        let eth = format_ether(u32::MAX);
+        assert_eq!(eth, "0.000000004294967295");
+
+        // Note: This covers usize on 64 bit systems.
+        let eth = format_ether(u64::MAX);
+        assert_eq!(eth, "18.446744073709551615");
+    }
+
+    #[test]
+    fn test_format_ether_signed() {
+        let eth = format_ether(I256::from_dec_str("-1395633240123456000").unwrap());
+        assert_eq!(eth.parse::<f64>().unwrap(), -1.395633240123456);
+
+        let eth = format_ether(I256::from_dec_str("-1395633240123456789").unwrap());
+        assert_eq!(eth, "-1.395633240123456789");
+
+        let eth = format_ether(I256::from_dec_str("1005633240123456789").unwrap());
+        assert_eq!(eth, "1.005633240123456789");
+
+        let eth = format_ether(i8::MIN);
+        assert_eq!(eth, "-0.000000000000000128");
+
+        let eth = format_ether(i8::MAX);
+        assert_eq!(eth, "0.000000000000000127");
+
+        let eth = format_ether(i16::MIN);
+        assert_eq!(eth, "-0.000000000000032768");
+
+        // Note: This covers isize on 32 bit systems.
+        let eth = format_ether(i32::MIN);
+        assert_eq!(eth, "-0.000000002147483648");
+
+        // Note: This covers isize on 64 bit systems.
+        let eth = format_ether(i64::MIN);
+        assert_eq!(eth, "-9.223372036854775808");
     }
 
     #[test]
@@ -952,6 +978,53 @@ mod tests {
     }
 
     #[test]
+    fn checksummed_parse() {
+        let cases = vec![
+            // mainnet
+            // wrong case
+            (None, "0x27b1fdb04752bbc536007a920d24acb045561c26", true),
+            (None, "0x27B1fdb04752bbc536007a920d24acb045561c26", false),
+            // no checksummed
+            (None, "0x52908400098527886e0f7030069857d2e4169ee7", false),
+            // without 0x
+            (None, "0x42712D45473476b98452f434e72461577D686318", true),
+            (None, "42712D45473476b98452f434e72461577D686318", true),
+            // invalid address string
+            (None, "0x52908400098527886E0F7030069857D2E4169EE7", true),
+            (None, "0x52908400098527886E0F7030069857D2E4169EEX", false),
+            (None, "0x52908400098527886E0F7030069857D2E4169EE70", false),
+            // mistyped address
+            (None, "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", true),
+            (None, "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAe1", false),
+            // rsk mainnet
+            // wrong case
+            (Some(30), "0x27b1FdB04752BBc536007A920D24ACB045561c26", true),
+            (Some(30), "0x27b1FdB04752BBc536007A920D24ACB045561C26", false),
+            // without 0x
+            (Some(30), "0x3599689E6292B81B2D85451025146515070129Bb", true),
+            (Some(30), "3599689E6292B81B2D85451025146515070129Bb", true),
+            // invalid address string
+            (Some(30), "0x42712D45473476B98452f434E72461577d686318", true),
+            (Some(30), "0x42712D45473476B98452f434E72461577d686318Z", false),
+            // mistyped address
+            (Some(30), "0x52908400098527886E0F7030069857D2E4169ee7", true),
+            (Some(30), "0x52908400098527886E0F7030069857D2E4169ee9", false),
+        ]; // mainnet
+
+        for (chain_id, addr, expected) in cases {
+            let result = parse_checksummed(addr, chain_id);
+            assert_eq!(
+                result.is_ok(),
+                expected,
+                "chain_id: {:?} addr: {:?} error: {:?}",
+                chain_id,
+                addr,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
     fn contract_address() {
         // http://ethereum.stackexchange.com/questions/760/how-is-the-address-of-an-ethereum-contract-computed
         let from = "6ac7ea33f8831ea9dcc53393aaa88b25a785dbf0".parse::<Address>().unwrap();
@@ -1107,5 +1180,35 @@ mod tests {
         let overflow = U256::from(u32::MAX) + 1;
         let rewards_overflow: Vec<Vec<U256>> = vec![vec![overflow], vec![overflow]];
         assert_eq!(estimate_priority_fee(rewards_overflow), overflow);
+    }
+
+    #[test]
+    fn int_or_hex_combinations() {
+        // make sure we can deserialize all combinations of int and hex
+        // including large numbers that would overflow u64
+        //
+        // format: (string, expected value)
+        let cases = vec![
+            // hex strings
+            ("\"0x0\"", U256::from(0)),
+            ("\"0x1\"", U256::from(1)),
+            ("\"0x10\"", U256::from(16)),
+            ("\"0x100000000000000000000000000000000000000000000000000\"", U256::from_dec_str("1606938044258990275541962092341162602522202993782792835301376").unwrap()),
+            // small num, both num and str form
+            ("10", U256::from(10)),
+            ("\"10\"", U256::from(10)),
+            // max u256, in both num and str form
+            ("115792089237316195423570985008687907853269984665640564039457584007913129639935", U256::from_dec_str("115792089237316195423570985008687907853269984665640564039457584007913129639935").unwrap()),
+            ("\"115792089237316195423570985008687907853269984665640564039457584007913129639935\"", U256::from_dec_str("115792089237316195423570985008687907853269984665640564039457584007913129639935").unwrap())
+        ];
+
+        #[derive(Deserialize)]
+        struct TestUint(#[serde(deserialize_with = "deserialize_stringified_numeric")] U256);
+
+        for (string, expected) in cases {
+            println!("testing {}", string);
+            let test: TestUint = serde_json::from_str(string).unwrap();
+            assert_eq!(test.0, expected);
+        }
     }
 }

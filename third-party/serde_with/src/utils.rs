@@ -9,6 +9,22 @@ pub(crate) fn size_hint_cautious(hint: Option<usize>) -> usize {
     core::cmp::min(hint.unwrap_or(0), 4096)
 }
 
+/// Re-Implementation of `serde::private::de::size_hint::from_bounds`
+#[cfg(feature = "alloc")]
+#[inline]
+pub fn size_hint_from_bounds<I>(iter: &I) -> Option<usize>
+where
+    I: Iterator,
+{
+    fn _size_hint_from_bounds(bounds: (usize, Option<usize>)) -> Option<usize> {
+        match bounds {
+            (lower, Some(upper)) if lower == upper => Some(upper),
+            _ => None,
+        }
+    }
+    _size_hint_from_bounds(iter.size_hint())
+}
+
 pub(crate) const NANOS_PER_SEC: u32 = 1_000_000_000;
 // pub(crate) const NANOS_PER_MILLI: u32 = 1_000_000;
 // pub(crate) const NANOS_PER_MICRO: u32 = 1_000;
@@ -145,6 +161,10 @@ where
     //
     // TODO could be simplified with nightly maybe_uninit_uninit_array feature
     // https://doc.rust-lang.org/nightly/std/mem/union.MaybeUninit.html#method.uninit_array
+
+    // Clippy is broken and has a false positive here
+    // https://github.com/rust-lang/rust-clippy/issues/10551
+    #[allow(clippy::uninit_assumed_init)]
     let mut arr: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
 
     // Dropping a `MaybeUninit` does nothing. Thus using raw pointer

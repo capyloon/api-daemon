@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -428,7 +430,7 @@ impl<T> IntegerMinutes<T> {
     ///
     /// Use only in contexts where it's no longer possible to
     /// use the Rust type system to ensure secs vs ms vs us correctness.
-    pub fn as_days(self) -> T {
+    pub fn as_minutes(self) -> T {
         self.value
     }
 

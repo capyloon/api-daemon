@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-bytes"
-version = "0.6.1"
+version = "0.7.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -41,7 +41,6 @@ rustdoc-args = [
 ]
 
 [dependencies]
-arrayref = "0.3"
 bytes = "1"
 educe = "0.4.6"
 generic-array = "0.14.3"
@@ -57,15 +56,21 @@ features = [
 ]
 
 [dependencies.tor-error]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-error"
 
 [dependencies.tor-llcrypto]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-llcrypto"
 
 [dev-dependencies]
-hex-literal = "0.3"
+hex-literal = "0.4"
+
+[features]
+full = [
+    "tor-error/full",
+    "tor-llcrypto/full",
+]
 
 [target.wasm32-unknown-unknown.dependencies.getrandom]
 version = "0.2.3"

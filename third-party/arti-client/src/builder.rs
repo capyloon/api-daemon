@@ -13,7 +13,7 @@ use tor_rtcompat::Runtime;
 /// feature is enabled.
 #[allow(unreachable_pub)]
 #[cfg_attr(docsrs, doc(cfg(feature = "experimental-api")))]
-pub trait DirProviderBuilder<R: Runtime> {
+pub trait DirProviderBuilder<R: Runtime>: Send + Sync {
     fn build(
         &self,
         runtime: R,
@@ -147,7 +147,7 @@ impl<R: Runtime> TorClientBuilder<R> {
 
         TorClient::create_inner(
             self.runtime,
-            self.config,
+            &self.config,
             self.bootstrap_behavior,
             self.dirmgr_builder.as_ref(),
             dirmgr_extensions,
@@ -160,5 +160,19 @@ impl<R: Runtime> TorClientBuilder<R> {
         let r = self.create_unbootstrapped()?;
         r.bootstrap().await?;
         Ok(r)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use tor_rtcompat::PreferredRuntime;
+
+    use super::*;
+
+    fn must_be_send_and_sync<S: Send + Sync>() {}
+
+    #[test]
+    fn builder_is_send() {
+        must_be_send_and_sync::<TorClientBuilder<PreferredRuntime>>();
     }
 }

@@ -8,22 +8,21 @@
 )]
 
 use crate::{
-    str_slice::StrSlice, ByteSlice, DecodeValue, EncodeValue, FixedTag, Header, Length, Reader,
-    Result, Tag, Writer,
+    BytesRef, DecodeValue, EncodeValue, FixedTag, Header, Length, Reader, Result, StrRef, Tag,
+    Writer,
 };
 
 use super::integer::uint::strip_leading_zeroes;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "real")))]
 impl<'a> DecodeValue<'a> for f64 {
     fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
-        let bytes = ByteSlice::decode_value(reader, header)?.as_slice();
+        let bytes = BytesRef::decode_value(reader, header)?.as_slice();
 
         if header.length == Length::ZERO {
             Ok(0.0)
         } else if is_nth_bit_one::<7>(bytes) {
             // Binary encoding from section 8.5.7 applies
-            let sign: u64 = if is_nth_bit_one::<6>(bytes) { 1 } else { 0 };
+            let sign: u64 = u64::from(is_nth_bit_one::<6>(bytes));
 
             // Section 8.5.7.2: Check the base -- the DER specs say that only base 2 should be supported in DER
             let base = mnth_bits_to_u8::<5, 4>(bytes);
@@ -74,7 +73,7 @@ impl<'a> DecodeValue<'a> for f64 {
                 _ => Err(Tag::Real.value_error()),
             }
         } else {
-            let astr = StrSlice::from_bytes(&bytes[1..])?;
+            let astr = StrRef::from_bytes(&bytes[1..])?;
             match astr.inner.parse::<f64>() {
                 Ok(val) => Ok(val),
                 // Real related error: encoding not supported or malformed
@@ -84,7 +83,6 @@ impl<'a> DecodeValue<'a> for f64 {
     }
 }
 
-#[cfg_attr(docsrs, doc(cfg(feature = "real")))]
 impl EncodeValue for f64 {
     fn value_len(&self) -> Result<Length> {
         if self.is_sign_positive() && (*self) < f64::MIN_POSITIVE {
@@ -120,7 +118,7 @@ impl EncodeValue for f64 {
         }
     }
 
-    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+    fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
         // Check if special value
         // Encode zero first, if it's zero
         // Special value from section 8.5.9 if non zero
@@ -194,7 +192,6 @@ impl EncodeValue for f64 {
     }
 }
 
-#[cfg_attr(docsrs, doc(cfg(feature = "real")))]
 impl FixedTag for f64 {
     const TAG: Tag = Tag::Real;
 }
@@ -204,7 +201,7 @@ impl FixedTag for f64 {
 pub(crate) fn is_nth_bit_one<const N: usize>(bytes: &[u8]) -> bool {
     if N < 8 {
         bytes
-            .get(0)
+            .first()
             .map(|byte| byte & (1 << N) != 0)
             .unwrap_or(false)
     } else {

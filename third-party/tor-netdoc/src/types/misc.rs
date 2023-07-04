@@ -9,7 +9,7 @@ pub(crate) use b16impl::*;
 pub(crate) use b64impl::*;
 pub(crate) use curve25519impl::*;
 pub(crate) use ed25519impl::*;
-#[cfg(feature = "routerdesc")]
+#[cfg(any(feature = "routerdesc", feature = "hs-common"))]
 pub(crate) use edcert::*;
 pub(crate) use fingerprint::*;
 pub(crate) use rsa::*;
@@ -35,7 +35,7 @@ pub(crate) trait FromBytes: Sized {
 
 /// Types for decoding base64-encoded values.
 mod b64impl {
-    use crate::{Error, ParseErrorKind as EK, Pos, Result};
+    use crate::{Error, NetdocErrorKind as EK, Pos, Result};
     use base64ct::{Base64, Base64Unpadded, Encoding};
     use std::ops::RangeBounds;
 
@@ -94,7 +94,7 @@ mod b64impl {
 
 /// Types for decoding hex-encoded values.
 mod b16impl {
-    use crate::{Error, ParseErrorKind as EK, Pos, Result};
+    use crate::{Error, NetdocErrorKind as EK, Pos, Result};
 
     /// A byte array encoded in hexadecimal.
     pub(crate) struct B16(Vec<u8>);
@@ -131,7 +131,7 @@ mod b16impl {
 /// Types for decoding curve25519 keys
 mod curve25519impl {
     use super::B64;
-    use crate::{Error, ParseErrorKind as EK, Pos, Result};
+    use crate::{Error, NetdocErrorKind as EK, Pos, Result};
     use tor_llcrypto::pk::curve25519::PublicKey;
 
     /// A Curve25519 public key, encoded in base64 with optional padding
@@ -162,7 +162,7 @@ mod curve25519impl {
 /// Types for decoding ed25519 keys
 mod ed25519impl {
     use super::B64;
-    use crate::{Error, ParseErrorKind as EK, Pos, Result};
+    use crate::{Error, NetdocErrorKind as EK, Pos, Result};
     use tor_llcrypto::pk::ed25519::Ed25519Identity;
 
     /// An alleged ed25519 public key, encoded in base64 with optional
@@ -198,7 +198,7 @@ mod ed25519impl {
 
 /// Types for decoding times and dates
 mod timeimpl {
-    use crate::{Error, ParseErrorKind as EK, Pos, Result};
+    use crate::{Error, NetdocErrorKind as EK, Pos, Result};
     use std::time::SystemTime;
     use time::{format_description::FormatItem, macros::format_description, PrimitiveDateTime};
 
@@ -256,7 +256,7 @@ mod timeimpl {
 
 /// Types for decoding RSA keys
 mod rsa {
-    use crate::{ParseErrorKind as EK, Pos, Result};
+    use crate::{NetdocErrorKind as EK, Pos, Result};
     use std::ops::RangeBounds;
     use tor_llcrypto::pk::rsa::PublicKey;
 
@@ -308,10 +308,11 @@ mod rsa {
 }
 
 /// Types for decoding Ed25519 certificates
-#[cfg(feature = "routerdesc")]
+#[cfg(any(feature = "routerdesc", feature = "hs-common"))]
 mod edcert {
-    use crate::{ParseErrorKind as EK, Pos, Result};
+    use crate::{NetdocErrorKind as EK, Pos, Result};
     use tor_cert::{CertType, Ed25519Cert, KeyUnknownCert};
+    #[cfg(feature = "routerdesc")]
     use tor_llcrypto::pk::ed25519;
 
     /// An ed25519 certificate as parsed from a directory object, with
@@ -347,6 +348,7 @@ mod edcert {
             Ok(self)
         }
         /// Give an error if this certificate's subject_key is not `pk`
+        #[cfg(feature = "routerdesc")]
         pub(crate) fn check_subject_key_is(self, pk: &ed25519::Ed25519Identity) -> Result<Self> {
             if self.0.peek_subject_key().as_ed25519() != Some(pk) {
                 return Err(EK::BadObjectVal
@@ -364,7 +366,7 @@ mod edcert {
 
 /// Types for decoding RSA fingerprints
 mod fingerprint {
-    use crate::{Error, ParseErrorKind as EK, Pos, Result};
+    use crate::{Error, NetdocErrorKind as EK, Pos, Result};
     use tor_llcrypto::pk::rsa::RsaIdentity;
 
     /// A hex-encoded fingerprint with spaces in it.
@@ -436,7 +438,7 @@ mod fingerprint {
 
 /// A type for relay nicknames
 mod nickname {
-    use crate::{Error, ParseErrorKind as EK, Pos, Result};
+    use crate::{Error, NetdocErrorKind as EK, Pos, Result};
     use tinystr::TinyAsciiStr;
 
     /// This is a strange limit, but it comes from Tor.

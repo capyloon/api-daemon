@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-checkable"
-version = "0.4.1"
+version = "0.5.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -46,12 +46,14 @@ signature = "1"
 thiserror = "1"
 
 [dependencies.tor-llcrypto]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-llcrypto"
 
 [dev-dependencies]
 humantime = "2"
 
 [features]
+__is_experimental = []
 experimental = ["experimental-api"]
-experimental-api = []
+experimental-api = ["__is_experimental"]
+full = ["tor-llcrypto/full"]

@@ -1,12 +1,12 @@
 //! Slice reader.
 
-use crate::{ByteSlice, Decode, Error, ErrorKind, Header, Length, Reader, Result, Tag};
+use crate::{BytesRef, Decode, Error, ErrorKind, Header, Length, Reader, Result, Tag};
 
 /// [`Reader`] which consumes an input byte slice.
 #[derive(Clone, Debug)]
 pub struct SliceReader<'a> {
     /// Byte slice being decoded.
-    bytes: ByteSlice<'a>,
+    bytes: BytesRef<'a>,
 
     /// Did the decoding operation fail?
     failed: bool,
@@ -19,7 +19,7 @@ impl<'a> SliceReader<'a> {
     /// Create a new slice reader for the given byte slice.
     pub fn new(bytes: &'a [u8]) -> Result<Self> {
         Ok(Self {
-            bytes: ByteSlice::new(bytes)?,
+            bytes: BytesRef::new(bytes)?,
             failed: false,
             position: Length::ZERO,
         })
@@ -64,7 +64,7 @@ impl<'a> Reader<'a> for SliceReader<'a> {
     fn peek_byte(&self) -> Option<u8> {
         self.remaining()
             .ok()
-            .and_then(|bytes| bytes.get(0).cloned())
+            .and_then(|bytes| bytes.first().cloned())
     }
 
     fn peek_header(&self) -> Result<Header> {

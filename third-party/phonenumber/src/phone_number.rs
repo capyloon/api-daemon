@@ -221,6 +221,14 @@ impl PhoneNumber {
     pub fn is_valid_with(&self, database: &Database) -> bool {
         validator::is_valid_with(database, self)
     }
+
+    /// Determine the [`Type`] of the phone number.
+    pub fn number_type(&self, database: &Database) -> Type {
+        match self.metadata(database) {
+            Some(metadata) => validator::number_type(metadata, &self.national.value.to_string()),
+            None => Type::Unknown,
+        }
+    }
 }
 
 impl<'a> Country<'a> {
@@ -229,7 +237,7 @@ impl<'a> Country<'a> {
     }
 
     pub fn id(&self) -> Option<country::Id> {
-        self.0.metadata(&DATABASE).map(|m| m.id().parse().unwrap())
+        self.0.metadata(&DATABASE).and_then(|m| m.id().parse().ok())
     }
 }
 
@@ -243,45 +251,89 @@ impl<'a> Deref for Country<'a> {
 
 #[cfg(test)]
 mod test {
-    use crate::country;
-    use crate::parser;
+    use crate::country::{self, *};
+    use crate::metadata::DATABASE;
+    use crate::Type;
+    use crate::{parser, Mode, PhoneNumber};
+    use anyhow::Context;
+    use rstest::rstest;
+    use rstest_reuse::{self, *};
 
-    #[test]
-    fn country_id() {
-        assert_eq!(
-            country::AU,
-            parser::parse(None, "+61406823897")
-                .unwrap()
-                .country()
-                .id()
-                .unwrap()
-        );
+    fn parsed(number: &str) -> PhoneNumber {
+        parser::parse(None, number)
+            .with_context(|| format!("parsing {number}"))
+            .unwrap()
+    }
 
-        assert_eq!(
-            country::ES,
-            parser::parse(None, "+34666777888")
-                .unwrap()
-                .country()
-                .id()
-                .unwrap()
-        );
+    #[template]
+    #[rstest]
+    #[case(parsed("+80012340000"), None, Type::TollFree)]
+    #[case(parsed("+61406823897"), Some(AU), Type::Mobile)]
+    #[case(parsed("+611900123456"), Some(AU), Type::PremiumRate)]
+    #[case(parsed("+32474091150"), Some(BE), Type::Mobile)]
+    #[case(parsed("+34666777888"), Some(ES), Type::Mobile)]
+    #[case(parsed("+34612345678"), Some(ES), Type::Mobile)]
+    #[case(parsed("+441212345678"), Some(GB), Type::FixedLine)]
+    #[case(parsed("+13459492311"), Some(KY), Type::FixedLine)]
+    #[case(parsed("+16137827274"), Some(CA), Type::FixedLineOrMobile)]
+    #[case(parsed("+1 520 878 2491"), Some(US), Type::FixedLineOrMobile)]
+    #[case(parsed("+1-520-878-2491"), Some(US), Type::FixedLineOrMobile)]
+    // Case for issues
+    // https://github.com/whisperfish/rust-phonenumber/issues/46 and
+    // https://github.com/whisperfish/rust-phonenumber/issues/47
+    // #[case(parsed("+1 520-878-2491"), US)]
+    fn phone_numbers(
+        #[case] number: PhoneNumber,
+        #[case] country: Option<country::Id>,
+        #[case] r#type: Type,
+    ) {
+    }
 
-        assert_eq!(
-            country::KY,
-            parser::parse(None, "+13459492311")
-                .unwrap()
-                .country()
-                .id()
-                .unwrap()
-        );
+    #[apply(phone_numbers)]
+    fn country_id(
+        #[case] number: PhoneNumber,
+        #[case] country: Option<country::Id>,
+        #[case] _type: Type,
+    ) -> anyhow::Result<()> {
+        assert_eq!(country, number.country().id());
 
-        assert_eq!(
-            country::CA,
-            parser::parse(None, "+16137827274")
-                .unwrap()
-                .country()
-                .id()
-                .unwrap()
-        );
+        Ok(())
+    }
+
+    #[apply(phone_numbers)]
+    #[ignore]
+    // Format-parse roundtrip
+    fn round_trip_parsing(
+        #[case] number: PhoneNumber,
+        #[case] country: Option<country::Id>,
+        #[case] _type: Type,
+        #[values(Mode::International, Mode::E164, Mode::Rfc3966, Mode::National)] mode: Mode,
+    ) -> anyhow::Result<()> {
+        let country_hint = if mode == Mode::National {
+            country
+        } else {
+            None
+        };
+
+        let formatted = number.format().mode(mode).to_string();
+        let parsed = parser::parse(country_hint, &formatted).with_context(|| {
+            format!("parsing {number} after formatting in {mode:?} mode as {formatted}")
+        })?;
+
+        // impl Eq for PhoneNumber does not consider differently parsed phone numbers to be equal.
+        // E.g., parsing 047409110 with BE country hint is the same phone number as +32474091150,
+        // but Eq considers them different.
+        assert_eq!(number, parsed);
+
+        Ok(())
+    }
+
+    #[apply(phone_numbers)]
+    fn number_type(
+        #[case] number: PhoneNumber,
+        #[case] _country: Option<country::Id>,
+        #[case] r#type: Type,
+    ) {
+        assert_eq!(r#type, number.number_type(&DATABASE));
     }
 }

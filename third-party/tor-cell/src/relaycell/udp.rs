@@ -98,7 +98,7 @@ impl Readable for Address {
                 }
                 T_IPV4 => Self::Ipv4(r.extract()?),
                 T_IPV6 => Self::Ipv6(r.extract()?),
-                _ => return Err(Error::BadMessage("Invalid address type")),
+                _ => return Err(Error::InvalidMessage("Invalid address type".into())),
             })
         })
     }
@@ -133,10 +133,10 @@ impl FromStr for Address {
             Ok(Self::Ipv6(ipv6))
         } else {
             if s.len() > MAX_HOSTNAME_LEN {
-                return Err(Error::BadMessage("Hostname too long"));
+                return Err(Error::InvalidMessage("Hostname too long".into()));
             }
             if s.contains('\0') {
-                return Err(Error::BadMessage("Nul byte not permitted"));
+                return Err(Error::InvalidMessage("Nul byte not permitted".into()));
             }
 
             let mut addr = s.to_string();
@@ -188,10 +188,6 @@ impl ConnectUdp {
 }
 
 impl msg::Body for ConnectUdp {
-    fn into_message(self) -> msg::RelayMsg {
-        msg::RelayMsg::ConnectUdp(self)
-    }
-
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let flags = r.take_u32()?;
         let addr = r.extract()?;
@@ -202,7 +198,7 @@ impl msg::Body for ConnectUdp {
         })
     }
 
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u32(self.flags.bits());
         w.write(&self.addr)?;
         Ok(())
@@ -230,18 +226,14 @@ impl ConnectedUdp {
 }
 
 impl msg::Body for ConnectedUdp {
-    fn into_message(self) -> msg::RelayMsg {
-        msg::RelayMsg::ConnectedUdp(self)
-    }
-
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let our_address: AddressPort = r.extract()?;
         if our_address.addr.is_hostname() {
-            return Err(Error::BadMessage("Our address is a Hostname"));
+            return Err(Error::InvalidMessage("Our address is a Hostname".into()));
         }
         let their_address: AddressPort = r.extract()?;
         if their_address.addr.is_hostname() {
-            return Err(Error::BadMessage("Their address is a Hostname"));
+            return Err(Error::InvalidMessage("Their address is a Hostname".into()));
         }
 
         Ok(Self {
@@ -250,7 +242,7 @@ impl msg::Body for ConnectedUdp {
         })
     }
 
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write(&self.our_address)?;
         w.write(&self.their_address)?;
         Ok(())
@@ -305,18 +297,14 @@ impl AsRef<[u8]> for Datagram {
 }
 
 impl msg::Body for Datagram {
-    fn into_message(self) -> msg::RelayMsg {
-        msg::RelayMsg::Datagram(self)
-    }
-
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Datagram {
             body: r.take(r.remaining())?.into(),
         })
     }
 
-    fn encode_onto(mut self, w: &mut Vec<u8>) -> EncodeResult<()> {
-        w.append(&mut self.body);
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
+        w.write_all(&self.body);
         Ok(())
     }
 }

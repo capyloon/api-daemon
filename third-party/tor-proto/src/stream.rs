@@ -9,19 +9,28 @@
 //!
 //! There is no fairness, rate-limiting, or flow control.
 
+mod cmdcheck;
+#[cfg(feature = "stream-ctrl")]
+mod ctrl;
 mod data;
-#[cfg(feature = "onion-service")]
+#[cfg(feature = "hs-service")]
 mod incoming;
 mod params;
 mod raw;
 mod resolve;
 
+pub(crate) use cmdcheck::{AnyCmdChecker, CmdChecker, StreamStatus};
 pub use data::{DataReader, DataStream, DataWriter};
-#[cfg(feature = "onion-service")]
-#[cfg_attr(docsrs, doc(cfg(feature = "onion-service")))]
+#[cfg(feature = "hs-service")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hs-service")))]
 pub use incoming::{IncomingStream, IncomingStreamRequest};
 pub use params::StreamParameters;
 pub use raw::StreamReader;
 pub use resolve::ResolveStream;
+pub(crate) use {data::DataCmdChecker, resolve::ResolveCmdChecker};
 
 pub use tor_cell::relaycell::msg::IpVersionPreference;
+
+#[cfg(feature = "stream-ctrl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "stream-ctrl")))]
+pub use {ctrl::ClientStreamCtrl, data::DataStreamCtrl};

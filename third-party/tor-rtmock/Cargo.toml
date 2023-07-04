@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-rtmock"
-version = "0.7.1"
+version = "0.8.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -39,15 +39,15 @@ rustdoc-args = [
 ]
 
 [dependencies]
-async-trait = "0.1.2"
+async-trait = "0.1.54"
 futures = "0.3.14"
 humantime = "2"
 pin-project = "1"
 thiserror = "1"
-tracing = "0.1.18"
+tracing = "0.1.36"
 
 [dependencies.tor-rtcompat]
-version = "0.8.1"
+version = "0.9.1"
 path = "../tor-rtcompat"
 
 [dev-dependencies]
@@ -55,13 +55,16 @@ futures-await-test = "0.3.0"
 rand = "0.8"
 
 [dev-dependencies.tor-basic-utils]
-version = "0.5.0"
+version = "0.7.1"
 path = "../tor-basic-utils"
 
 [dev-dependencies.tor-rtcompat]
-version = "0.8.1"
+version = "0.9.1"
 path = "../tor-rtcompat"
 features = [
     "tokio",
     "native-tls",
 ]
+
+[features]
+full = ["tor-rtcompat/full"]

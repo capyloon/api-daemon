@@ -3,30 +3,38 @@
 # When uploading crates to the registry Cargo will automatically
 # "normalize" Cargo.toml files for maximal compatibility
 # with all versions of Cargo and also rewrite `path` dependencies
-# to registry (e.g., crates.io) dependencies
+# to registry (e.g., crates.io) dependencies.
 #
-# If you believe there's an error in this file please file an
-# issue against the rust-lang/cargo repository. If you're
-# editing this file be aware that the upstream Cargo.toml
-# will likely look very different (and much more reasonable)
+# If you are reading this file be aware that the original Cargo.toml
+# will likely look very different (and much more reasonable).
+# See Cargo.toml.orig for the original contents.
 
 [package]
 edition = "2018"
+rust-version = "1.36.0"
 name = "itertools"
-version = "0.10.5"
+version = "0.11.0"
 authors = ["bluss"]
 exclude = ["/bors.toml"]
 description = "Extra iterator adaptors, iterator methods, free functions, and macros."
 documentation = "https://docs.rs/itertools/"
 readme = "README.md"
-keywords = ["iterator", "data-structure", "zip", "product", "group-by"]
-categories = ["algorithms", "rust-patterns"]
-license = "MIT/Apache-2.0"
+keywords = [
+    "iterator",
+    "data-structure",
+    "zip",
+    "product",
+    "group-by",
+]
+categories = [
+    "algorithms",
+    "rust-patterns",
+]
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-itertools/itertools"
-[package.metadata.release]
-no-dev-version = true
+
 [profile.bench]
-debug = true
+debug = 2
 
 [lib]
 test = false
@@ -63,11 +71,13 @@ harness = false
 [[bench]]
 name = "powerset"
 harness = false
+
 [dependencies.either]
 version = "1.0"
 default-features = false
+
 [dev-dependencies.criterion]
-version = "=0"
+version = "0.4.0"
 
 [dev-dependencies.paste]
 version = "1.0.0"
@@ -77,7 +87,7 @@ version = "0.2"
 
 [dev-dependencies.quickcheck]
 version = "0.9"
-default-features = false
+default_features = false
 
 [dev-dependencies.rand]
 version = "0.7"
@@ -85,4 +95,7 @@ version = "0.7"
 [features]
 default = ["use_std"]
 use_alloc = []
-use_std = ["use_alloc", "either/use_std"]
+use_std = [
+    "use_alloc",
+    "either/use_std",
+]

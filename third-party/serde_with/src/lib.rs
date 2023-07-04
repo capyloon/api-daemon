@@ -26,7 +26,7 @@
 #![doc(test(attr(warn(rust_2018_idioms))))]
 // Not needed for 2018 edition and conflicts with `rust_2018_idioms`
 #![doc(test(no_crate_inject))]
-#![doc(html_root_url = "https://docs.rs/serde_with/2.2.0")]
+#![doc(html_root_url = "https://docs.rs/serde_with/3.0.0/")]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(
     // clippy is broken and shows wrong warnings
@@ -83,6 +83,11 @@
 //!
 //! Annotate your struct or enum to enable the custom de/serializer.
 //! The `#[serde_as]` attribute must be placed *before* the `#[derive]`.
+//!
+//! The `as` is analogous to the `with` attribute of serde.
+//! You mirror the type structure of the field you want to de/serialize.
+//! You can specify converters for the inner types of a field, e.g., `Vec<DisplayFromStr>`.
+//! The default de/serialization behavior can be restored by using `_` as a placeholder, e.g., `BTreeMap<_, DisplayFromStr>`.
 //!
 //! ## `DisplayFromStr`
 //!
@@ -210,10 +215,10 @@
 //! # #[cfg(all(feature = "macros", feature = "hex"))]
 //! # use {
 //! #     serde::{Deserialize, Serialize},
-//! #     serde_with::{serde_as, DisplayFromStr, DurationSeconds, hex::Hex},
-//! #     std::time::Duration,
-//! #     std::collections::BTreeMap,
+//! #     serde_with::{serde_as, DisplayFromStr, DurationSeconds, hex::Hex, Map},
 //! # };
+//! use std::time::Duration;
+//!
 //! # #[cfg(all(feature = "macros", feature = "hex"))]
 //! #[serde_as]
 //! # #[derive(Debug, Eq, PartialEq)]
@@ -228,7 +233,7 @@
 //!         // We can treat a Vec like a map with duplicates.
 //!         // JSON only allows string keys, so convert i32 to strings
 //!         // The bytes will be hex encoded
-//!         #[serde_as(as = "BTreeMap<DisplayFromStr, Hex>")]
+//!         #[serde_as(as = "Map<DisplayFromStr, Hex>")]
 //!         bytes: Vec<(i32, Vec<u8>)>,
 //!     }
 //! }
@@ -276,14 +281,14 @@
 //! # }
 //! ```
 //!
-//! [`DisplayFromStr`]: https://docs.rs/serde_with/2.2.0/serde_with/struct.DisplayFromStr.html
-//! [`with_prefix!`]: https://docs.rs/serde_with/2.2.0/serde_with/macro.with_prefix.html
-//! [feature flags]: https://docs.rs/serde_with/2.2.0/serde_with/guide/feature_flags/index.html
-//! [skip_serializing_none]: https://docs.rs/serde_with/2.2.0/serde_with/attr.skip_serializing_none.html
-//! [StringWithSeparator]: https://docs.rs/serde_with/2.2.0/serde_with/struct.StringWithSeparator.html
-//! [user guide]: https://docs.rs/serde_with/2.2.0/serde_with/guide/index.html
+//! [`DisplayFromStr`]: https://docs.rs/serde_with/3.0.0/serde_with/struct.DisplayFromStr.html
+//! [`with_prefix!`]: https://docs.rs/serde_with/3.0.0/serde_with/macro.with_prefix.html
+//! [feature flags]: https://docs.rs/serde_with/3.0.0/serde_with/guide/feature_flags/index.html
+//! [skip_serializing_none]: https://docs.rs/serde_with/3.0.0/serde_with/attr.skip_serializing_none.html
+//! [StringWithSeparator]: https://docs.rs/serde_with/3.0.0/serde_with/struct.StringWithSeparator.html
+//! [user guide]: https://docs.rs/serde_with/3.0.0/serde_with/guide/index.html
 //! [with-annotation]: https://serde.rs/field-attrs.html#with
-//! [as-annotation]: https://docs.rs/serde_with/2.2.0/serde_with/guide/serde_as/index.html
+//! [as-annotation]: https://docs.rs/serde_with/3.0.0/serde_with/guide/serde_as/index.html
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -322,6 +327,8 @@ pub mod hex;
 #[cfg(feature = "json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
 pub mod json;
+#[cfg(feature = "alloc")]
+mod key_value_map;
 pub mod rust;
 pub mod ser;
 #[cfg(feature = "std")]
@@ -379,6 +386,8 @@ pub(crate) mod prelude {
 
     pub(crate) use crate::utils::duration::{DurationSigned, Sign};
     pub use crate::{de::*, ser::*, *};
+    #[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
+    pub use alloc::sync::{Arc, Weak as ArcWeak};
     #[cfg(feature = "alloc")]
     pub use alloc::{
         borrow::{Cow, ToOwned},
@@ -386,7 +395,6 @@ pub(crate) mod prelude {
         collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque},
         rc::{Rc, Weak as RcWeak},
         string::{String, ToString},
-        sync::{Arc, Weak as ArcWeak},
         vec::Vec,
     };
     pub use core::{
@@ -401,9 +409,17 @@ pub(crate) mod prelude {
         time::Duration,
     };
     pub use serde::{
-        de::{Error as DeError, *},
+        de::{
+            Deserialize, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess,
+            Error as DeError, Expected, IgnoredAny, IntoDeserializer, MapAccess, SeqAccess,
+            Unexpected, VariantAccess, Visitor,
+        },
         forward_to_deserialize_any,
-        ser::{Error as SerError, *},
+        ser::{
+            Error as SerError, Impossible, Serialize, SerializeMap, SerializeSeq, SerializeStruct,
+            SerializeStructVariant, SerializeTuple, SerializeTupleStruct, SerializeTupleVariant,
+            Serializer,
+        },
     };
     #[cfg(feature = "std")]
     pub use std::{
@@ -424,7 +440,9 @@ pub mod __private__ {
 #[cfg(feature = "alloc")]
 #[doc(inline)]
 pub use crate::enum_map::EnumMap;
-// use crate::prelude::*;
+#[cfg(feature = "alloc")]
+#[doc(inline)]
+pub use crate::key_value_map::KeyValueMap;
 #[doc(inline)]
 pub use crate::{de::DeserializeAs, ser::SerializeAs};
 use core::marker::PhantomData;
@@ -477,7 +495,7 @@ pub use serde_with_macros::*;
 /// # }
 /// ```
 ///
-/// [serde_as]: https://docs.rs/serde_with/2.2.0/serde_with/attr.serde_as.html
+/// [serde_as]: https://docs.rs/serde_with/3.0.0/serde_with/attr.serde_as.html
 pub struct As<T: ?Sized>(PhantomData<T>);
 
 /// Adapter to convert from `serde_as` to the serde traits.
@@ -783,14 +801,17 @@ pub struct BytesOrString;
 /// This type also supports [`chrono::Duration`] with the `chrono_0_4`-[feature flag].
 /// This type also supports [`time::Duration`][::time_0_3::Duration] with the `time_0_3`-[feature flag].
 ///
-/// | Duration Type         | Converter                 | Available `FORMAT`s    |
-/// | --------------------- | ------------------------- | ---------------------- |
-/// | `std::time::Duration` | `DurationSeconds`         | `u64`, `f64`, `String` |
-/// | `std::time::Duration` | `DurationSecondsWithFrac` | `f64`, `String`        |
-/// | `chrono::Duration`    | `DurationSeconds`         | `i64`, `f64`, `String` |
-/// | `chrono::Duration`    | `DurationSecondsWithFrac` | `f64`, `String`        |
-/// | `time::Duration`      | `DurationSeconds`         | `i64`, `f64`, `String` |
-/// | `time::Duration`      | `DurationSecondsWithFrac` | `f64`, `String`        |
+/// This table lists the available `FORMAT`s for the different duration types.
+/// The `FORMAT` specifier defaults to `u64`/`f64`.
+///
+/// | Duration Type         | Converter                 | Available `FORMAT`s      |
+/// | --------------------- | ------------------------- | ------------------------ |
+/// | `std::time::Duration` | `DurationSeconds`         | *`u64`*, `f64`, `String` |
+/// | `std::time::Duration` | `DurationSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::Duration`    | `DurationSeconds`         | `i64`, `f64`, `String`   |
+/// | `chrono::Duration`    | `DurationSecondsWithFrac` | *`f64`*, `String`        |
+/// | `time::Duration`      | `DurationSeconds`         | `i64`, `f64`, `String`   |
+/// | `time::Duration`      | `DurationSecondsWithFrac` | *`f64`*, `String`        |
 ///
 /// # Examples
 ///
@@ -905,7 +926,7 @@ pub struct BytesOrString;
 /// ```
 ///
 /// [`chrono::Duration`]: ::chrono_0_4::Duration
-/// [feature flag]: https://docs.rs/serde_with/2.2.0/serde_with/guide/feature_flags/index.html
+/// [feature flag]: https://docs.rs/serde_with/3.0.0/serde_with/guide/feature_flags/index.html
 pub struct DurationSeconds<
     FORMAT: formats::Format = u64,
     STRICTNESS: formats::Strictness = formats::Strict,
@@ -925,14 +946,17 @@ pub struct DurationSeconds<
 /// This type also supports [`chrono::Duration`] with the `chrono`-[feature flag].
 /// This type also supports [`time::Duration`][::time_0_3::Duration] with the `time_0_3`-[feature flag].
 ///
-/// | Duration Type         | Converter                 | Available `FORMAT`s    |
-/// | --------------------- | ------------------------- | ---------------------- |
-/// | `std::time::Duration` | `DurationSeconds`         | `u64`, `f64`, `String` |
-/// | `std::time::Duration` | `DurationSecondsWithFrac` | `f64`, `String`        |
-/// | `chrono::Duration`    | `DurationSeconds`         | `i64`, `f64`, `String` |
-/// | `chrono::Duration`    | `DurationSecondsWithFrac` | `f64`, `String`        |
-/// | `time::Duration`      | `DurationSeconds`         | `i64`, `f64`, `String` |
-/// | `time::Duration`      | `DurationSecondsWithFrac` | `f64`, `String`        |
+/// This table lists the available `FORMAT`s for the different duration types.
+/// The `FORMAT` specifier defaults to `u64`/`f64`.
+///
+/// | Duration Type         | Converter                 | Available `FORMAT`s      |
+/// | --------------------- | ------------------------- | ------------------------ |
+/// | `std::time::Duration` | `DurationSeconds`         | *`u64`*, `f64`, `String` |
+/// | `std::time::Duration` | `DurationSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::Duration`    | `DurationSeconds`         | `i64`, `f64`, `String`   |
+/// | `chrono::Duration`    | `DurationSecondsWithFrac` | *`f64`*, `String`        |
+/// | `time::Duration`      | `DurationSeconds`         | `i64`, `f64`, `String`   |
+/// | `time::Duration`      | `DurationSecondsWithFrac` | *`f64`*, `String`        |
 ///
 /// # Examples
 ///
@@ -1033,7 +1057,7 @@ pub struct DurationSeconds<
 /// ```
 ///
 /// [`chrono::Duration`]: ::chrono_0_4::Duration
-/// [feature flag]: https://docs.rs/serde_with/2.2.0/serde_with/guide/feature_flags/index.html
+/// [feature flag]: https://docs.rs/serde_with/3.0.0/serde_with/guide/feature_flags/index.html
 pub struct DurationSecondsWithFrac<
     FORMAT: formats::Format = f64,
     STRICTNESS: formats::Strictness = formats::Strict,
@@ -1101,18 +1125,23 @@ pub struct DurationNanoSecondsWithFrac<
 /// This type also supports [`chrono::DateTime`] with the `chrono_0_4`-[feature flag].
 /// This type also supports [`time::OffsetDateTime`][::time_0_3::OffsetDateTime] and [`time::PrimitiveDateTime`][::time_0_3::PrimitiveDateTime] with the `time_0_3`-[feature flag].
 ///
-/// | Timestamp Type            | Converter                  | Available `FORMAT`s    |
-/// | ------------------------- | -------------------------- | ---------------------- |
-/// | `std::time::SystemTime`   | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `std::time::SystemTime`   | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `chrono::DateTime<Utc>`   | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `chrono::DateTime<Utc>`   | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `chrono::DateTime<Local>` | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `chrono::DateTime<Local>` | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `time::OffsetDateTime`    | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `time::OffsetDateTime`    | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `time::PrimitiveDateTime` | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `time::PrimitiveDateTime` | `TimestampSecondsWithFrac` | `f64`, `String`        |
+/// This table lists the available `FORMAT`s for the different timestamp types.
+/// The `FORMAT` specifier defaults to `i64` or `f64`.
+///
+/// | Timestamp Type            | Converter                  | Available `FORMAT`s      |
+/// | ------------------------- | -------------------------- | ------------------------ |
+/// | `std::time::SystemTime`   | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `std::time::SystemTime`   | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::DateTime<Utc>`   | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `chrono::DateTime<Utc>`   | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::DateTime<Local>` | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `chrono::DateTime<Local>` | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::NaiveDateTime`   | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `chrono::NaiveDateTime`   | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `time::OffsetDateTime`    | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `time::OffsetDateTime`    | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `time::PrimitiveDateTime` | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `time::PrimitiveDateTime` | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
 ///
 /// # Examples
 ///
@@ -1229,7 +1258,7 @@ pub struct DurationNanoSecondsWithFrac<
 /// [`SystemTime`]: std::time::SystemTime
 /// [`chrono::DateTime<Local>`]: ::chrono_0_4::DateTime
 /// [`chrono::DateTime<Utc>`]: ::chrono_0_4::DateTime
-/// [feature flag]: https://docs.rs/serde_with/2.2.0/serde_with/guide/feature_flags/index.html
+/// [feature flag]: https://docs.rs/serde_with/3.0.0/serde_with/guide/feature_flags/index.html
 pub struct TimestampSeconds<
     FORMAT: formats::Format = i64,
     STRICTNESS: formats::Strictness = formats::Strict,
@@ -1249,20 +1278,23 @@ pub struct TimestampSeconds<
 /// This type also supports [`chrono::DateTime`] and [`chrono::NaiveDateTime`][NaiveDateTime] with the `chrono`-[feature flag].
 /// This type also supports [`time::OffsetDateTime`][::time_0_3::OffsetDateTime] and [`time::PrimitiveDateTime`][::time_0_3::PrimitiveDateTime] with the `time_0_3`-[feature flag].
 ///
-/// | Timestamp Type            | Converter                  | Available `FORMAT`s    |
-/// | ------------------------- | -------------------------- | ---------------------- |
-/// | `std::time::SystemTime`   | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `std::time::SystemTime`   | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `chrono::DateTime<Utc>`   | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `chrono::DateTime<Utc>`   | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `chrono::DateTime<Local>` | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `chrono::DateTime<Local>` | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `chrono::NaiveDateTime`   | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `chrono::NaiveDateTime`   | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `time::OffsetDateTime`    | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `time::OffsetDateTime`    | `TimestampSecondsWithFrac` | `f64`, `String`        |
-/// | `time::PrimitiveDateTime` | `TimestampSeconds`         | `i64`, `f64`, `String` |
-/// | `time::PrimitiveDateTime` | `TimestampSecondsWithFrac` | `f64`, `String`        |
+/// This table lists the available `FORMAT`s for the different timestamp types.
+/// The `FORMAT` specifier defaults to `i64` or `f64`.
+///
+/// | Timestamp Type            | Converter                  | Available `FORMAT`s      |
+/// | ------------------------- | -------------------------- | ------------------------ |
+/// | `std::time::SystemTime`   | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `std::time::SystemTime`   | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::DateTime<Utc>`   | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `chrono::DateTime<Utc>`   | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::DateTime<Local>` | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `chrono::DateTime<Local>` | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `chrono::NaiveDateTime`   | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `chrono::NaiveDateTime`   | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `time::OffsetDateTime`    | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `time::OffsetDateTime`    | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
+/// | `time::PrimitiveDateTime` | `TimestampSeconds`         | *`i64`*, `f64`, `String` |
+/// | `time::PrimitiveDateTime` | `TimestampSecondsWithFrac` | *`f64`*, `String`        |
 ///
 /// # Examples
 ///
@@ -1367,7 +1399,7 @@ pub struct TimestampSeconds<
 /// [`chrono::DateTime<Local>`]: ::chrono_0_4::DateTime
 /// [`chrono::DateTime<Utc>`]: ::chrono_0_4::DateTime
 /// [NaiveDateTime]: ::chrono_0_4::NaiveDateTime
-/// [feature flag]: https://docs.rs/serde_with/2.2.0/serde_with/guide/feature_flags/index.html
+/// [feature flag]: https://docs.rs/serde_with/3.0.0/serde_with/guide/feature_flags/index.html
 pub struct TimestampSecondsWithFrac<
     FORMAT: formats::Format = f64,
     STRICTNESS: formats::Strictness = formats::Strict,
@@ -2094,9 +2126,6 @@ pub struct StringWithSeparator<Sep, T>(PhantomData<(Sep, T)>);
 /// However, sometimes this is not possible due to type constraints, e.g., if the type implements neither [`Hash`] nor [`Ord`].
 /// Another use case is deserializing a map with duplicate keys.
 ///
-/// The implementation is generic using the [`FromIterator`] and [`IntoIterator`] traits.
-/// Therefore, all of [`Vec`], [`VecDeque`](std::collections::VecDeque), and [`LinkedList`](std::collections::LinkedList) and anything which implements those are supported.
-///
 /// # Examples
 ///
 /// `Wrapper` does not implement [`Hash`] nor [`Ord`], thus prohibiting the use [`HashMap`] or [`BTreeMap`].
@@ -2191,3 +2220,120 @@ pub struct Map<K, V>(PhantomData<(K, V)>);
 /// # }
 /// ```
 pub struct Seq<V>(PhantomData<V>);
+
+/// Ensure no duplicate keys exist in a map.
+///
+/// By default serde has a last-value-wins implementation, if duplicate keys for a map exist.
+/// Sometimes it is desirable to know when such an event happens, as the first value is overwritten
+/// and it can indicate an error in the serialized data.
+///
+/// This helper returns an error if two identical keys exist in a map.
+///
+/// The implementation supports both the [`HashMap`] and the [`BTreeMap`] from the standard library.
+///
+/// [`HashMap`]: std::collections::HashMap
+/// [`BTreeMap`]: std::collections::HashMap
+///
+/// # Example
+///
+/// ```rust
+/// # #[cfg(feature = "macros")] {
+/// # use serde::Deserialize;
+/// # use std::collections::HashMap;
+/// # use serde_with::{serde_as, MapPreventDuplicates};
+/// #
+/// #[serde_as]
+/// # #[derive(Debug, Eq, PartialEq)]
+/// #[derive(Deserialize)]
+/// struct Doc {
+///     #[serde_as(as = "MapPreventDuplicates<_, _>")]
+///     map: HashMap<usize, usize>,
+/// }
+///
+/// // Maps are serialized normally,
+/// let s = r#"{"map": {"1": 1, "2": 2, "3": 3}}"#;
+/// let mut v = Doc {
+///     map: HashMap::new(),
+/// };
+/// v.map.insert(1, 1);
+/// v.map.insert(2, 2);
+/// v.map.insert(3, 3);
+/// assert_eq!(v, serde_json::from_str(s).unwrap());
+///
+/// // but create an error if duplicate keys, like the `1`, exist.
+/// let s = r#"{"map": {"1": 1, "2": 2, "1": 3}}"#;
+/// let res: Result<Doc, _> = serde_json::from_str(s);
+/// assert!(res.is_err());
+/// # }
+/// ```
+#[cfg(feature = "alloc")]
+pub struct MapPreventDuplicates<K, V>(PhantomData<(K, V)>);
+
+/// Ensure that the last value is taken, if duplicate values exist
+///
+/// By default serde has a first-value-wins implementation, if duplicate keys for a set exist.
+/// Sometimes the opposite strategy is desired. This helper implements a first-value-wins strategy.
+///
+/// The implementation supports both the [`HashSet`] and the [`BTreeSet`] from the standard library.
+///
+/// [`HashSet`]: std::collections::HashSet
+/// [`BTreeSet`]: std::collections::HashSet
+#[cfg(feature = "alloc")]
+pub struct MapFirstKeyWins<K, V>(PhantomData<(K, V)>);
+
+/// Ensure no duplicate values exist in a set.
+///
+/// By default serde has a last-value-wins implementation, if duplicate values for a set exist.
+/// Sometimes it is desirable to know when such an event happens, as the first value is overwritten
+/// and it can indicate an error in the serialized data.
+///
+/// This helper returns an error if two identical values exist in a set.
+///
+/// The implementation supports both the [`HashSet`] and the [`BTreeSet`] from the standard library.
+///
+/// [`HashSet`]: std::collections::HashSet
+/// [`BTreeSet`]: std::collections::HashSet
+///
+/// # Example
+///
+/// ```rust
+/// # #[cfg(feature = "macros")] {
+/// # use std::collections::HashSet;
+/// # use serde::Deserialize;
+/// # use serde_with::{serde_as, SetPreventDuplicates};
+/// #
+/// #[serde_as]
+/// # #[derive(Debug, Eq, PartialEq)]
+/// #[derive(Deserialize)]
+/// struct Doc {
+///     #[serde_as(as = "SetPreventDuplicates<_>")]
+///     set: HashSet<usize>,
+/// }
+///
+/// // Sets are serialized normally,
+/// let s = r#"{"set": [1, 2, 3, 4]}"#;
+/// let v = Doc {
+///     set: HashSet::from_iter(vec![1, 2, 3, 4]),
+/// };
+/// assert_eq!(v, serde_json::from_str(s).unwrap());
+///
+/// // but create an error if duplicate values, like the `1`, exist.
+/// let s = r#"{"set": [1, 2, 3, 4, 1]}"#;
+/// let res: Result<Doc, _> = serde_json::from_str(s);
+/// assert!(res.is_err());
+/// # }
+/// ```
+#[cfg(feature = "alloc")]
+pub struct SetPreventDuplicates<T>(PhantomData<T>);
+
+/// Ensure that the last value is taken, if duplicate values exist
+///
+/// By default serde has a first-value-wins implementation, if duplicate keys for a set exist.
+/// Sometimes the opposite strategy is desired. This helper implements a first-value-wins strategy.
+///
+/// The implementation supports both the [`HashSet`] and the [`BTreeSet`] from the standard library.
+///
+/// [`HashSet`]: std::collections::HashSet
+/// [`BTreeSet`]: std::collections::HashSet
+#[cfg(feature = "alloc")]
+pub struct SetLastValueWins<T>(PhantomData<T>);

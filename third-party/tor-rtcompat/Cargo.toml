@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-rtcompat"
-version = "0.8.1"
+version = "0.9.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -38,7 +38,7 @@ rustdoc-args = [
 ]
 
 [dependencies]
-async-trait = "0.1.2"
+async-trait = "0.1.54"
 educe = "0.4.6"
 futures = "0.3.14"
 pin-project = "1"
@@ -49,11 +49,11 @@ version = "1.4.1"
 optional = true
 
 [dependencies.async-native-tls]
-version = "0.4.0"
+version = "0.5.0"
 optional = true
 
 [dependencies.async-rustls]
-version = "0.3.0"
+version = "0.4.0"
 optional = true
 
 [dependencies.async-std-crate]
@@ -63,7 +63,7 @@ package = "async-std"
 
 [dependencies.async_executors]
 version = "0.6.0"
-default_features = false
+default-features = false
 
 [dependencies.native-tls-crate]
 version = "0.2"
@@ -71,7 +71,7 @@ optional = true
 package = "native-tls"
 
 [dependencies.rustls-crate]
-version = "0.20.7"
+version = "0.21.1"
 features = ["dangerous_configuration"]
 optional = true
 package = "rustls"
@@ -102,6 +102,7 @@ version = "0.2"
 package = "native-tls"
 
 [features]
+__is_nonadditive = []
 async-std = [
     "async-std-crate",
     "async-io",
@@ -121,8 +122,12 @@ rustls = [
     "rustls-crate",
     "async-rustls",
     "x509-signature",
+    "__is_nonadditive",
 ]
-static = ["native-tls-crate?/vendored"]
+static = [
+    "native-tls-crate?/vendored",
+    "__is_nonadditive",
+]
 tokio = [
     "tokio-crate",
     "tokio-util",

@@ -1,4 +1,4 @@
-//! A crate for parsing integers directly form ASCII (`[u8]`) without encoding them into utf8
+//! A crate for parsing integers directly from ASCII (`[u8]`) without encoding them into utf8
 //! first. The name is inspired by the famous C function.
 //!
 //! Using `str::from_utf8` and `str::parse`
@@ -19,12 +19,13 @@
 //!     }
 //! }
 //! ```
+#![cfg_attr(not(std), no_std)]
 
 use num_traits::{
     ops::checked::{CheckedAdd, CheckedMul},
     Bounded, CheckedSub, One, Signed, Zero,
 };
-use std::{
+use core::{
     cmp::{max, min},
     ops::{AddAssign, DivAssign, MulAssign, SubAssign},
 };

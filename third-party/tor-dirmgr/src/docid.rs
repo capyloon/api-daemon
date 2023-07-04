@@ -1,7 +1,7 @@
 //! Declare a general purpose "document ID type" for tracking which
 //! documents we want and which we have.
 
-use std::{borrow::Borrow, collections::HashMap};
+use std::collections::HashMap;
 use tracing::trace;
 
 use crate::storage::Store;
@@ -271,11 +271,10 @@ where
 {
     let mut result = HashMap::new();
     for item in collection.into_iter() {
-        let b = item.borrow();
-        let tp = b.doctype();
+        let tp = item.doctype();
         result
             .entry(tp)
-            .or_insert_with(|| DocQuery::empty_from_docid(b))
+            .or_insert_with(|| DocQuery::empty_from_docid(&item))
             .push(item);
     }
     result
@@ -367,7 +366,7 @@ mod test {
 
         // Construct a big query.
         let mut rng = testing_rng();
-        let ids: HashSet<MdDigest> = (0..3400).into_iter().map(|_| rng.gen()).collect();
+        let ids: HashSet<MdDigest> = (0..3400).map(|_| rng.gen()).collect();
 
         // Test microdescs.
         let split = DocQuery::Microdesc(ids.clone().into_iter().collect()).split_for_download();
@@ -387,7 +386,7 @@ mod test {
         // Test routerdescs.
         #[cfg(feature = "routerdesc")]
         {
-            let ids: HashSet<RdDigest> = (0..1001).into_iter().map(|_| rng.gen()).collect();
+            let ids: HashSet<RdDigest> = (0..1001).map(|_| rng.gen()).collect();
             let split =
                 DocQuery::RouterDesc(ids.clone().into_iter().collect()).split_for_download();
             assert_eq!(split.len(), 3);
@@ -406,7 +405,6 @@ mod test {
 
         // Test authcerts.
         let ids: HashSet<AuthCertKeyIds> = (0..2500)
-            .into_iter()
             .map(|_| {
                 let id_fingerprint = rng.gen::<[u8; 20]>().into();
                 let sk_fingerprint = rng.gen::<[u8; 20]>().into();

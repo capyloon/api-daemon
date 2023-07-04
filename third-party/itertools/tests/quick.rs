@@ -830,6 +830,31 @@ quickcheck! {
 }
 
 quickcheck! {
+    fn merge_join_by_ordering_vs_bool(a: Vec<u8>, b: Vec<u8>) -> bool {
+        use either::Either;
+        use itertools::free::merge_join_by;
+        let mut has_equal = false;
+        let it_ord = merge_join_by(a.clone(), b.clone(), Ord::cmp).flat_map(|v| match v {
+            EitherOrBoth::Both(l, r) => {
+                has_equal = true;
+                vec![Either::Left(l), Either::Right(r)]
+            }
+            EitherOrBoth::Left(l) => vec![Either::Left(l)],
+            EitherOrBoth::Right(r) => vec![Either::Right(r)],
+        });
+        let it_bool = merge_join_by(a, b, PartialOrd::le);
+        itertools::equal(it_ord, it_bool) || has_equal
+    }
+    fn merge_join_by_bool_unwrapped_is_merge_by(a: Vec<u8>, b: Vec<u8>) -> bool {
+        use either::Either;
+        use itertools::free::merge_join_by;
+        let it = a.clone().into_iter().merge_by(b.clone(), PartialOrd::ge);
+        let it_join = merge_join_by(a, b, PartialOrd::ge).map(Either::into_inner);
+        itertools::equal(it, it_join)
+    }
+}
+
+quickcheck! {
     fn size_tee(a: Vec<u8>) -> bool {
         let (mut t1, mut t2) = a.iter().tee();
         t1.next();
@@ -994,6 +1019,17 @@ quickcheck! {
 }
 
 quickcheck! {
+    fn chunk_clone_equal(a: Vec<u8>, size: u8) -> () {
+        let mut size = size;
+        if size == 0 {
+            size += 1;
+        }
+        let it = a.chunks(size as usize);
+        itertools::assert_equal(it.clone(), it);
+    }
+}
+
+quickcheck! {
     fn equal_chunks_lazy(a: Vec<u8>, size: u8) -> bool {
         let mut size = size;
         if size == 0 {
@@ -1010,7 +1046,71 @@ quickcheck! {
     }
 }
 
+// tuple iterators
 quickcheck! {
+    fn equal_circular_tuple_windows_1(a: Vec<u8>) -> bool {
+        let x = a.iter().map(|e| (e,) );
+        let y = a.iter().circular_tuple_windows::<(_,)>();
+        itertools::assert_equal(x,y);
+        true
+    }
+
+    fn equal_circular_tuple_windows_2(a: Vec<u8>) -> bool {
+        let x = (0..a.len()).map(|start_idx| (
+            &a[start_idx],
+            &a[(start_idx + 1) % a.len()],
+        ));
+        let y = a.iter().circular_tuple_windows::<(_, _)>();
+        itertools::assert_equal(x,y);
+        true
+    }
+
+    fn equal_circular_tuple_windows_3(a: Vec<u8>) -> bool {
+        let x = (0..a.len()).map(|start_idx| (
+            &a[start_idx],
+            &a[(start_idx + 1) % a.len()],
+            &a[(start_idx + 2) % a.len()],
+        ));
+        let y = a.iter().circular_tuple_windows::<(_, _, _)>();
+        itertools::assert_equal(x,y);
+        true
+    }
+
+    fn equal_circular_tuple_windows_4(a: Vec<u8>) -> bool {
+        let x = (0..a.len()).map(|start_idx| (
+            &a[start_idx],
+            &a[(start_idx + 1) % a.len()],
+            &a[(start_idx + 2) % a.len()],
+            &a[(start_idx + 3) % a.len()],
+        ));
+        let y = a.iter().circular_tuple_windows::<(_, _, _, _)>();
+        itertools::assert_equal(x,y);
+        true
+    }
+
+    fn equal_cloned_circular_tuple_windows(a: Vec<u8>) -> bool {
+        let x = a.iter().circular_tuple_windows::<(_, _, _, _)>();
+        let y = x.clone();
+        itertools::assert_equal(x,y);
+        true
+    }
+
+    fn equal_cloned_circular_tuple_windows_noninitial(a: Vec<u8>) -> bool {
+        let mut x = a.iter().circular_tuple_windows::<(_, _, _, _)>();
+        let _ = x.next();
+        let y = x.clone();
+        itertools::assert_equal(x,y);
+        true
+    }
+
+    fn equal_cloned_circular_tuple_windows_complete(a: Vec<u8>) -> bool {
+        let mut x = a.iter().circular_tuple_windows::<(_, _, _, _)>();
+        for _ in x.by_ref() {}
+        let y = x.clone();
+        itertools::assert_equal(x,y);
+        true
+    }
+
     fn equal_tuple_windows_1(a: Vec<u8>) -> bool {
         let x = a.windows(1).map(|s| (&s[0], ));
         let y = a.iter().tuple_windows::<(_,)>();

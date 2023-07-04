@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-cert"
-version = "0.6.1"
+version = "0.7.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -43,7 +43,7 @@ signature = "1"
 thiserror = "1"
 
 [dependencies.caret]
-version = "0.3.0"
+version = "0.4.1"
 path = "../caret"
 
 [dependencies.derive_builder]
@@ -52,24 +52,34 @@ optional = true
 package = "derive_builder_fork_arti"
 
 [dependencies.tor-bytes]
-version = "0.6.1"
+version = "0.7.2"
 path = "../tor-bytes"
 
 [dependencies.tor-checkable]
-version = "0.4.0"
+version = "0.5.1"
 path = "../tor-checkable"
 
 [dependencies.tor-llcrypto]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-llcrypto"
 
 [dev-dependencies]
 base64ct = "1.5.1"
-hex-literal = "0.3"
+hex-literal = "0.4"
 humantime = "2"
 rand = "0.8"
 
 [features]
+__is_experimental = []
 default = []
-encode = ["derive_builder"]
+encode = [
+    "derive_builder",
+    "__is_experimental",
+]
 experimental = ["encode"]
+full = [
+    "caret/full",
+    "tor-bytes/full",
+    "tor-checkable/full",
+    "tor-llcrypto/full",
+]

@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -42,9 +44,9 @@ use std::collections::BinaryHeap;
 use std::fmt;
 use std::mem;
 
-pub mod futures;
 pub mod iter;
 pub mod n_key_set;
+pub mod rangebounds;
 pub mod retry;
 pub mod test_rng;
 
@@ -77,6 +79,27 @@ pub fn skip_fmt<T>(_: &T, f: &mut fmt::Formatter) -> fmt::Result {
     }
     inner(f)
 }
+
+// ----------------------------------------------------------------------
+
+/// Extension trait to provide `.strip_suffix_ignore_ascii_case()` etc.
+// Using `.as_ref()` as a supertrait lets us make the method a provided one.
+pub trait StrExt: AsRef<str> {
+    /// Like `str.strip_suffix()` but ASCII-case-insensitive
+    fn strip_suffix_ignore_ascii_case(&self, suffix: &str) -> Option<&str> {
+        let whole = self.as_ref();
+        let suffix_start = whole.len().checked_sub(suffix.len())?;
+        whole[suffix_start..]
+            .eq_ignore_ascii_case(suffix)
+            .then(|| &whole[..suffix_start])
+    }
+
+    /// Like `str.ends_with()` but ASCII-case-insensitive
+    fn ends_with_ignore_ascii_case(&self, suffix: &str) -> bool {
+        self.strip_suffix_ignore_ascii_case(suffix).is_some()
+    }
+}
+impl StrExt for str {}
 
 // ----------------------------------------------------------------------
 
@@ -238,6 +261,88 @@ macro_rules! macro_first_nonempty {
 
 // ----------------------------------------------------------------------
 
+/// Define `Debug` to print as hex
+///
+/// # Usage
+///
+/// ```ignore
+/// impl_debug_hex! { $type }
+/// impl_debug_hex! { $type . $field_accessor }
+/// impl_debug_hex! { $type , $accessor_fn }
+/// ```
+///
+/// By default, this expects `$type` to implement `AsRef<[u8]>`.
+///
+/// Or, you can supply a series of tokens `$field_accessor`,
+/// which will be used like this: `self.$field_accessor.as_ref()`
+/// to get a `&[u8]`.
+///
+/// Or, you can supply `$accessor: fn(&$type) -> &[u8]`.
+///
+/// # Examples
+///
+/// ```
+/// use tor_basic_utils::impl_debug_hex;
+/// #[derive(Default)]
+/// struct FourBytes([u8; 4]);
+/// impl AsRef<[u8]> for FourBytes { fn as_ref(&self) -> &[u8] { &self.0 } }
+/// impl_debug_hex! { FourBytes }
+///
+/// assert_eq!(
+///     format!("{:?}", FourBytes::default()),
+///     "FourBytes(00000000)",
+/// );
+/// ```
+///
+/// ```
+/// use tor_basic_utils::impl_debug_hex;
+/// #[derive(Default)]
+/// struct FourBytes([u8; 4]);
+/// impl_debug_hex! { FourBytes .0 }
+///
+/// assert_eq!(
+///     format!("{:?}", FourBytes::default()),
+///     "FourBytes(00000000)",
+/// );
+/// ```
+///
+/// ```
+/// use tor_basic_utils::impl_debug_hex;
+/// struct FourBytes([u8; 4]);
+/// impl_debug_hex! { FourBytes, |self_| &self_.0 }
+///
+/// assert_eq!(
+///     format!("{:?}", FourBytes([1,2,3,4])),
+///     "FourBytes(01020304)",
+/// )
+/// ```
+#[macro_export]
+macro_rules! impl_debug_hex {
+    { $type:ty $(,)? } => {
+        $crate::impl_debug_hex! { $type, |self_| <$type as AsRef<[u8]>>::as_ref(&self_) }
+    };
+    { $type:ident . $($accessor:tt)+ } => {
+        $crate::impl_debug_hex! { $type, |self_| self_ . $($accessor)* .as_ref() }
+    };
+    { $type:ty, $obtain:expr $(,)? } => {
+        impl std::fmt::Debug for $type {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                use std::fmt::Write;
+                let obtain: fn(&$type) -> &[u8] = $obtain;
+                let bytes: &[u8] = obtain(self);
+                write!(f, "{}(", stringify!($type))?;
+                for b in bytes {
+                    write!(f, "{:02x}", b)?;
+                }
+                write!(f, ")")?;
+                Ok(())
+            }
+        }
+    };
+}
+
+// ----------------------------------------------------------------------
+
 /// Helper for defining a struct which can be (de)serialized several ways, including "natively"
 ///
 /// Ideally we would have
@@ -324,3 +429,31 @@ macro_rules! derive_serde_raw { {
         $($body)*
     }
 } }
+
+// ----------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
+    use super::*;
+
+    #[test]
+    fn test_strip_suffix_ignore_ascii_case() {
+        assert_eq!(
+            "hi there".strip_suffix_ignore_ascii_case("THERE"),
+            Some("hi ")
+        );
+        assert_eq!("hi here".strip_suffix_ignore_ascii_case("THERE"), None);
+        assert_eq!("THERE".strip_suffix_ignore_ascii_case("there"), Some(""));
+        assert_eq!("hi".strip_suffix_ignore_ascii_case("THERE"), None);
+    }
+}
