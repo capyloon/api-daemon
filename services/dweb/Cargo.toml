@@ -31,7 +31,7 @@ sqlite-utils = {path = "../../support/sqlite-utils"}
 thiserror = "1.0" 
 tokio = "1" 
 tokio-util = "0.7" 
-ucan = "0.1" 
+ucan = "0.4" 
 ucan-key-support = "0.1" 
 url = "2.2" 
 uuid = {version = "1.1", features = ["v4"]} 

@@ -4,6 +4,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.13.2 (2023-04-15)
+### Changed
+- Enable `pem` feature by default ([#832])
+
+### Fixed
+- Have `serde` feature enable `primeorder/serde` ([#851])
+
+[#832]: https://github.com/RustCrypto/elliptic-curves/pull/832
+[#851]: https://github.com/RustCrypto/elliptic-curves/pull/851
+
+## 0.13.1 (2023-04-10)
+### Changed
+- Bump `primeorder` to v0.13.1 ([#819])
+
+### Fixed
+- Correct product definition for empty iterators ([#802])
+
+[#802]: https://github.com/RustCrypto/elliptic-curves/pull/802
+[#819]: https://github.com/RustCrypto/elliptic-curves/pull/819
+
+## 0.13.0 (2023-03-03)
+### Added
+- `PrimeField` constants/tests ([#730], [#737], [#738])
+- `const fn` inversions for all field elements ([#736])
+
+### Changed
+- `FieldBytesEncoding` trait impls ([#732])
+- Update `hash2curve` implementations to new API ([#735])
+- Impl `Invert` trait for `Scalar` types ([#741])
+- Bump `ecdsa` dependency to v0.16 ([#770])
+- Bump `elliptic-curve` dependency to v0.13 ([#770])
+- Bump `primeorder` dependency to v0.13 ([#777])
+
+### Fixed
+- Point compactabtility check ([#772])
+
+[#730]: https://github.com/RustCrypto/elliptic-curves/pull/730
+[#732]: https://github.com/RustCrypto/elliptic-curves/pull/732
+[#735]: https://github.com/RustCrypto/elliptic-curves/pull/735
+[#736]: https://github.com/RustCrypto/elliptic-curves/pull/736
+[#737]: https://github.com/RustCrypto/elliptic-curves/pull/737
+[#738]: https://github.com/RustCrypto/elliptic-curves/pull/738
+[#741]: https://github.com/RustCrypto/elliptic-curves/pull/741
+[#770]: https://github.com/RustCrypto/elliptic-curves/pull/770
+[#772]: https://github.com/RustCrypto/elliptic-curves/pull/772
+[#777]: https://github.com/RustCrypto/elliptic-curves/pull/777
+
+## 0.12.0 (2023-01-16)
+### Added
+- 32-bit scalar backend ([#636])
+- `alloc` feature ([#670])
+- Constructors for `Scalar` from `u128` ([#709])
+
+### Changed
+- Use generic curve arithmetic implementation from `primeorder` crate ([#631], [#716])
+- Use `U256` as the inner type for `FieldElement` ([#634])
+- Update P-256 VOPRF test vectors ([#693])
+- Use weak feature activation; MSRV 1.60 ([#701])
+- Bump `ecdsa` dependency to v0.15 ([#713])
+
+[#631]: https://github.com/RustCrypto/elliptic-curves/pull/631
+[#634]: https://github.com/RustCrypto/elliptic-curves/pull/634
+[#636]: https://github.com/RustCrypto/elliptic-curves/pull/636
+[#670]: https://github.com/RustCrypto/elliptic-curves/pull/670
+[#693]: https://github.com/RustCrypto/elliptic-curves/pull/693
+[#701]: https://github.com/RustCrypto/elliptic-curves/pull/701
+[#709]: https://github.com/RustCrypto/elliptic-curves/pull/709
+[#713]: https://github.com/RustCrypto/elliptic-curves/pull/713
+[#716]: https://github.com/RustCrypto/elliptic-curves/pull/716
+
 ## 0.11.1 (2022-06-12)
 ### Added
 - Re-export low-level `diffie_hellman` function ([#556])

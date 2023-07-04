@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "ucan"
-version = "0.1.0"
+version = "0.4.0"
 description = "Implement UCAN-based authorization with conciseness and ease!"
 homepage = "https://github.com/cdata/rs-ucan"
 documentation = "https://docs.rs/ucan"
@@ -24,14 +24,13 @@ keywords = [
     "pki",
 ]
 categories = [
-    "authorization",
+    "authentication",
     "cryptography",
     "encoding",
     "web-programming",
 ]
 license = "Apache-2.0"
 repository = "https://github.com/cdata/rs-ucan/"
-resolver = "1"
 
 [dependencies.anyhow]
 version = "1.0"
@@ -39,40 +38,34 @@ version = "1.0"
 [dependencies.async-recursion]
 version = "1.0"
 
-[dependencies.async-std]
-version = "1.0"
-
 [dependencies.async-trait]
 version = "0.1"
 
 [dependencies.base64]
-version = "0.13"
+version = "0.21"
 
 [dependencies.bs58]
-version = "0.4"
+version = "0.5"
 
 [dependencies.cid]
-version = "0.9"
+version = "0.10"
 
 [dependencies.futures]
 version = "0.3"
 
 [dependencies.instant]
 version = "0.1"
-features = [
-    "wasm-bindgen",
-    "stdweb",
-]
+features = ["wasm-bindgen"]
 
 [dependencies.libipld-core]
-version = "0.15"
+version = "0.16"
 features = [
     "serde-codec",
     "serde",
 ]
 
 [dependencies.libipld-json]
-version = "0.15"
+version = "0.16"
 
 [dependencies.log]
 version = "0.4"
@@ -91,22 +84,13 @@ version = "1.0"
 version = "0.24"
 
 [dependencies.strum_macros]
-version = "0.24"
+version = "0.25"
 
 [dependencies.unsigned-varint]
 version = "0.7"
 
 [dependencies.url]
 version = "2.0"
-
-[dev-dependencies.did-key]
-version = "0.2"
-
-[dev-dependencies.serde_ipld_dagcbor]
-version = "0.2"
-
-[dev-dependencies.wasm-bindgen-test]
-version = "0.3"
 
 [features]
 default = []

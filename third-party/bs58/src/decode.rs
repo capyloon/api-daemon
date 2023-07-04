@@ -3,10 +3,10 @@
 use core::fmt;
 
 #[cfg(feature = "alloc")]
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use crate::Check;
-#[cfg(feature = "check")]
+#[cfg(any(feature = "check", feature = "cb58"))]
 use crate::CHECKSUM_LEN;
 
 use crate::Alphabet;
@@ -49,8 +49,7 @@ pub enum Error {
         index: usize,
     },
 
-    #[cfg(feature = "check")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "check")))]
+    #[cfg(any(feature = "check", feature = "cb58"))]
     /// The checksum did not match the payload bytes
     InvalidChecksum {
         ///The given checksum
@@ -59,8 +58,7 @@ pub enum Error {
         expected_checksum: [u8; CHECKSUM_LEN],
     },
 
-    #[cfg(feature = "check")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "check")))]
+    #[cfg(any(feature = "check", feature = "cb58"))]
     /// The version did not match the payload bytes
     InvalidVersion {
         ///The given version
@@ -69,10 +67,130 @@ pub enum Error {
         expected_ver: u8,
     },
 
-    #[cfg(feature = "check")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "check")))]
+    #[cfg(any(feature = "check", feature = "cb58"))]
     ///Not enough bytes to have both a checksum and a payload (less than to CHECKSUM_LEN)
     NoChecksum,
+}
+
+/// Represents a buffer that can be decoded into. See [`DecodeBuilder::onto`] and the provided
+/// implementations for more details.
+pub trait DecodeTarget {
+    /// Decodes into this buffer, provides the maximum length for implementations that wish to
+    /// preallocate space, along with a function that will write bytes into the buffer and return
+    /// the length written to it.
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize>;
+}
+
+impl<T: DecodeTarget + ?Sized> DecodeTarget for &mut T {
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        T::decode_with(self, max_len, f)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl DecodeTarget for Vec<u8> {
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        let original = self.len();
+        self.resize(original + max_len, 0);
+        let len = f(&mut self[original..])?;
+        self.truncate(original + len);
+        Ok(len)
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<A: smallvec::Array<Item = u8>> DecodeTarget for smallvec::SmallVec<A> {
+    /// Decodes data into a [`smallvec::SmallVec`].
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        let original = self.len();
+        self.resize(original + max_len, 0);
+        let len = f(&mut self[original..])?;
+        self.truncate(original + len);
+        Ok(len)
+    }
+}
+
+#[cfg(feature = "tinyvec")]
+impl<A: tinyvec::Array<Item = u8>> DecodeTarget for tinyvec::ArrayVec<A> {
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        let _ = max_len;
+        let original = self.len();
+        let len = f(self.grab_spare_slice_mut())?;
+        self.set_len(original + len);
+        Ok(len)
+    }
+}
+
+#[cfg(feature = "tinyvec")]
+impl DecodeTarget for tinyvec::SliceVec<'_, u8> {
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        let _ = max_len;
+        let original = self.len();
+        let len = f(self.grab_spare_slice_mut())?;
+        self.set_len(original + len);
+        Ok(len)
+    }
+}
+
+#[cfg(all(feature = "tinyvec", feature = "alloc"))]
+impl<A: tinyvec::Array<Item = u8>> DecodeTarget for tinyvec::TinyVec<A> {
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        let original = self.len();
+        self.resize(original + max_len, 0);
+        let len = f(&mut self[original..])?;
+        self.truncate(original + len);
+        Ok(len)
+    }
+}
+
+impl DecodeTarget for [u8] {
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        let _ = max_len;
+        f(&mut *self)
+    }
+}
+
+impl<const N: usize> DecodeTarget for [u8; N] {
+    fn decode_with(
+        &mut self,
+        max_len: usize,
+        f: impl for<'a> FnOnce(&'a mut [u8]) -> Result<usize>,
+    ) -> Result<usize> {
+        let _ = max_len;
+        f(&mut *self)
+    }
 }
 
 impl<'a, I: AsRef<[u8]>> DecodeBuilder<'a, I> {
@@ -130,9 +248,32 @@ impl<'a, I: AsRef<[u8]>> DecodeBuilder<'a, I> {
     /// # Ok::<(), bs58::decode::Error>(())
     /// ```
     #[cfg(feature = "check")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "check")))]
     pub fn with_check(self, expected_ver: Option<u8>) -> DecodeBuilder<'a, I> {
         let check = Check::Enabled(expected_ver);
+        DecodeBuilder { check, ..self }
+    }
+
+    /// Expect and check checksum using the [CB58][] algorithm when
+    /// decoding.
+    ///
+    /// Optional parameter for version byte. If provided, the version byte will
+    /// be used in verification.
+    ///
+    /// [CB58]: https://support.avax.network/en/articles/4587395-what-is-cb58
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!(
+    ///     vec![0x2d, 0x31],
+    ///     bs58::decode("PWHVMzdR")
+    ///         .as_cb58(None)
+    ///         .into_vec()?);
+    /// # Ok::<(), bs58::decode::Error>(())
+    /// ```
+    #[cfg(feature = "cb58")]
+    pub fn as_cb58(self, expected_ver: Option<u8>) -> DecodeBuilder<'a, I> {
+        let check = Check::CB58(expected_ver);
         DecodeBuilder { check, ..self }
     }
 
@@ -151,43 +292,58 @@ impl<'a, I: AsRef<[u8]>> DecodeBuilder<'a, I> {
     /// ```
     ///
     #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
     pub fn into_vec(self) -> Result<Vec<u8>> {
-        let mut output = vec![0; self.input.as_ref().len()];
-        self.into(&mut output).map(|len| {
-            output.truncate(len);
-            output
-        })
+        let mut output = Vec::new();
+        self.onto(&mut output)?;
+        Ok(output)
     }
 
     /// Decode into the given buffer.
     ///
-    /// Returns the length written into the buffer, the rest of the bytes in
-    /// the buffer will be untouched.
+    /// Returns the length written into the buffer.
+    ///
+    /// If the buffer is resizeable it will be extended and the new data will be written to the end
+    /// of it.
+    ///
+    /// If the buffer is not resizeable bytes will be written from the beginning and bytes after
+    /// the final encoded byte will not be touched.
     ///
     /// See the documentation for [`bs58::decode`](crate::decode()) for an
     /// explanation of the errors that may occur.
     ///
     /// # Examples
     ///
+    /// ## `Vec<u8>`
+    ///
     /// ```rust
-    /// let mut output = [0xFF; 10];
-    /// assert_eq!(8, bs58::decode("he11owor1d").into(&mut output)?);
-    /// assert_eq!(
-    ///     [0x04, 0x30, 0x5e, 0x2b, 0x24, 0x73, 0xf0, 0x58, 0xFF, 0xFF],
-    ///     output);
+    /// let mut output = b"hello ".to_vec();
+    /// assert_eq!(5, bs58::decode("EUYUqQf").onto(&mut output)?);
+    /// assert_eq!(b"hello world", output.as_slice());
     /// # Ok::<(), bs58::decode::Error>(())
     /// ```
-    pub fn into<O: AsMut<[u8]>>(self, mut output: O) -> Result<usize> {
+    ///
+    /// ## `&mut [u8]`
+    ///
+    /// ```rust
+    /// let mut output = b"hello ".to_owned();
+    /// assert_eq!(5, bs58::decode("EUYUqQf").onto(&mut output)?);
+    /// assert_eq!(b"world ", output.as_ref());
+    /// # Ok::<(), bs58::decode::Error>(())
+    /// ```
+    pub fn onto(self, mut output: impl DecodeTarget) -> Result<usize> {
+        let max_decoded_len = self.input.as_ref().len();
         match self.check {
-            Check::Disabled => decode_into(self.input.as_ref(), output.as_mut(), &self.alpha),
+            Check::Disabled => output.decode_with(max_decoded_len, |output| {
+                decode_into(self.input.as_ref(), output, self.alpha)
+            }),
             #[cfg(feature = "check")]
-            Check::Enabled(expected_ver) => decode_check_into(
-                self.input.as_ref(),
-                output.as_mut(),
-                &self.alpha,
-                expected_ver,
-            ),
+            Check::Enabled(expected_ver) => output.decode_with(max_decoded_len, |output| {
+                decode_check_into(self.input.as_ref(), output, self.alpha, expected_ver)
+            }),
+            #[cfg(feature = "cb58")]
+            Check::CB58(expected_ver) => output.decode_with(max_decoded_len, |output| {
+                decode_cb58_into(self.input.as_ref(), output, self.alpha, expected_ver)
+            }),
         }
     }
 }
@@ -251,7 +407,7 @@ fn decode_check_into(
     let expected_checksum = &output[checksum_index..decoded_len];
 
     let first_hash = Sha256::digest(&output[0..checksum_index]);
-    let second_hash = Sha256::digest(&first_hash);
+    let second_hash = Sha256::digest(first_hash);
     let (checksum, _) = second_hash.split_at(CHECKSUM_LEN);
 
     if checksum == expected_checksum {
@@ -269,9 +425,54 @@ fn decode_check_into(
         }
     } else {
         let mut a: [u8; CHECKSUM_LEN] = Default::default();
-        a.copy_from_slice(&checksum[..]);
+        a.copy_from_slice(checksum);
         let mut b: [u8; CHECKSUM_LEN] = Default::default();
-        b.copy_from_slice(&expected_checksum[..]);
+        b.copy_from_slice(expected_checksum);
+        Err(Error::InvalidChecksum {
+            checksum: a,
+            expected_checksum: b,
+        })
+    }
+}
+
+#[cfg(feature = "cb58")]
+fn decode_cb58_into(
+    input: &[u8],
+    output: &mut [u8],
+    alpha: &Alphabet,
+    expected_ver: Option<u8>,
+) -> Result<usize> {
+    use sha2::{Digest, Sha256};
+
+    let decoded_len = decode_into(input, output, alpha)?;
+    if decoded_len < CHECKSUM_LEN {
+        return Err(Error::NoChecksum);
+    }
+    let checksum_index = decoded_len - CHECKSUM_LEN;
+
+    let expected_checksum = &output[checksum_index..decoded_len];
+
+    let hash = Sha256::digest(&output[0..checksum_index]);
+    let (_, checksum) = hash.split_at(hash.len() - CHECKSUM_LEN);
+
+    if checksum == expected_checksum {
+        if let Some(ver) = expected_ver {
+            if output[0] == ver {
+                Ok(checksum_index)
+            } else {
+                Err(Error::InvalidVersion {
+                    ver: output[0],
+                    expected_ver: ver,
+                })
+            }
+        } else {
+            Ok(checksum_index)
+        }
+    } else {
+        let mut a: [u8; CHECKSUM_LEN] = Default::default();
+        a.copy_from_slice(checksum);
+        let mut b: [u8; CHECKSUM_LEN] = Default::default();
+        b.copy_from_slice(expected_checksum);
         Err(Error::InvalidChecksum {
             checksum: a,
             expected_checksum: b,
@@ -280,7 +481,6 @@ fn decode_check_into(
 }
 
 #[cfg(feature = "std")]
-#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl std::error::Error for Error {}
 
 impl fmt::Display for Error {
@@ -300,7 +500,7 @@ impl fmt::Display for Error {
                 "provided string contained non-ascii character starting at byte {}",
                 index
             ),
-            #[cfg(feature = "check")]
+            #[cfg(any(feature = "check", feature = "cb58"))]
             Error::InvalidChecksum {
                 checksum,
                 expected_checksum,
@@ -309,13 +509,13 @@ impl fmt::Display for Error {
                 "invalid checksum, calculated checksum: '{:?}', expected checksum: {:?}",
                 checksum, expected_checksum
             ),
-            #[cfg(feature = "check")]
+            #[cfg(any(feature = "check", feature = "cb58"))]
             Error::InvalidVersion { ver, expected_ver } => write!(
                 f,
                 "invalid version, payload version: '{:?}', expected version: {:?}",
                 ver, expected_ver
             ),
-            #[cfg(feature = "check")]
+            #[cfg(any(feature = "check", feature = "cb58"))]
             Error::NoChecksum => write!(f, "provided string is too small to contain a checksum"),
         }
     }

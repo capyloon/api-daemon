@@ -1,20 +1,18 @@
+use std::collections::BTreeMap;
+
 use crate::{
-    capability::{
-        proof::ProofDelegationSemantics, Action, Capability, CapabilityIpld, CapabilitySemantics,
-        Scope,
-    },
+    capability::{proof::ProofDelegationSemantics, Capability, CapabilitySemantics},
     crypto::KeyMaterial,
     serde::Base64Encode,
     time::now,
-    ucan::{Ucan, UcanHeader, UcanPayload, UCAN_VERSION},
+    ucan::{FactsMap, Ucan, UcanHeader, UcanPayload, UCAN_VERSION},
 };
 use anyhow::{anyhow, Result};
-use cid::Cid;
+use base64::Engine;
+use cid::multihash::Code;
 use log::warn;
 use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
-use std::convert::TryFrom;
 
 /// A signable is a UCAN that has all the state it needs in order to be signed,
 /// but has not yet been signed.
@@ -28,12 +26,12 @@ where
     pub issuer: &'a K,
     pub audience: String,
 
-    pub capabilities: Vec<CapabilityIpld>,
+    pub capabilities: Vec<Capability>,
 
-    pub expiration: u64,
+    pub expiration: Option<u64>,
     pub not_before: Option<u64>,
 
-    pub facts: Vec<Value>,
+    pub facts: FactsMap,
     pub proofs: Vec<String>,
     pub add_nonce: bool,
 }
@@ -47,29 +45,41 @@ where
         UcanHeader {
             alg: self.issuer.get_jwt_algorithm_name(),
             typ: "JWT".into(),
-            ucv: UCAN_VERSION.into(),
         }
     }
 
     /// The payload field components of the UCAN JWT
     pub async fn ucan_payload(&self) -> Result<UcanPayload> {
         let nonce = match self.add_nonce {
-            true => Some(base64::encode_config(
-                rand::thread_rng().gen::<[u8; 32]>(),
-                base64::URL_SAFE_NO_PAD,
-            )),
+            true => Some(
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .encode(rand::thread_rng().gen::<[u8; 32]>()),
+            ),
             false => None,
         };
 
+        let facts = if self.facts.is_empty() {
+            None
+        } else {
+            Some(self.facts.clone())
+        };
+
+        let proofs = if self.proofs.is_empty() {
+            None
+        } else {
+            Some(self.proofs.clone())
+        };
+
         Ok(UcanPayload {
+            ucv: UCAN_VERSION.into(),
             aud: self.audience.clone(),
             iss: self.issuer.get_did().await?,
             exp: self.expiration,
             nbf: self.not_before,
             nnc: nonce,
-            att: self.capabilities.clone(),
-            fct: self.facts.clone(),
-            prf: self.proofs.clone(),
+            cap: self.capabilities.clone().try_into()?,
+            fct: facts,
+            prf: proofs,
         })
     }
 
@@ -103,13 +113,13 @@ where
     issuer: Option<&'a K>,
     audience: Option<String>,
 
-    capabilities: Vec<CapabilityIpld>,
+    capabilities: Vec<Capability>,
 
     lifetime: Option<u64>,
     expiration: Option<u64>,
     not_before: Option<u64>,
 
-    facts: Vec<Value>,
+    facts: FactsMap,
     proofs: Vec<String>,
     add_nonce: bool,
 }
@@ -137,7 +147,7 @@ where
             expiration: None,
             not_before: None,
 
-            facts: Vec::new(),
+            facts: BTreeMap::new(),
             proofs: Vec::new(),
             add_nonce: false,
         }
@@ -186,9 +196,11 @@ where
     }
 
     /// Add a fact or proof of knowledge to this UCAN.
-    pub fn with_fact<T: Serialize + DeserializeOwned>(mut self, fact: T) -> Self {
+    pub fn with_fact<T: Serialize + DeserializeOwned>(mut self, key: &str, fact: T) -> Self {
         match serde_json::to_value(fact) {
-            Ok(value) => self.facts.push(value),
+            Ok(value) => {
+                self.facts.insert(key.to_owned(), value);
+            }
             Err(error) => warn!("Could not add fact to UCAN: {}", error),
         }
         self
@@ -203,8 +215,10 @@ where
     /// Includes a UCAN in the list of proofs for the UCAN to be built.
     /// Note that the proof's audience must match this UCAN's issuer
     /// or else the proof chain will be invalidated!
-    pub fn witnessed_by(mut self, authority: &Ucan) -> Self {
-        match Cid::try_from(authority) {
+    /// The proof is encoded into a [Cid], hashed via the [UcanBuilder::default_hasher()]
+    /// algorithm, unless one is provided.
+    pub fn witnessed_by(mut self, authority: &Ucan, hasher: Option<Code>) -> Self {
+        match authority.to_cid(hasher.unwrap_or_else(|| UcanBuilder::<K>::default_hasher())) {
             Ok(proof) => self.proofs.push(proof.to_string()),
             Err(error) => warn!("Failed to add authority to proofs: {}", error),
         }
@@ -214,29 +228,44 @@ where
 
     /// Claim a capability by inheritance (from an authorizing proof) or
     /// implicitly by ownership of the resource by this UCAN's issuer
-    pub fn claiming_capability<S, A>(mut self, capability: &Capability<S, A>) -> Self
+    pub fn claiming_capability<C>(mut self, capability: C) -> Self
     where
-        S: Scope,
-        A: Action,
+        C: Into<Capability>,
     {
-        self.capabilities.push(CapabilityIpld::from(capability));
+        self.capabilities.push(capability.into());
+        self
+    }
+
+    /// Claim capabilities by inheritance (from an authorizing proof) or
+    /// implicitly by ownership of the resource by this UCAN's issuer
+    pub fn claiming_capabilities<C>(mut self, capabilities: &[C]) -> Self
+    where
+        C: Into<Capability> + Clone,
+    {
+        let caps: Vec<Capability> = capabilities
+            .iter()
+            .map(|c| <C as Into<Capability>>::into(c.to_owned()))
+            .collect();
+        self.capabilities.extend(caps);
         self
     }
 
     /// Delegate all capabilities from a given proof to the audience of the UCAN
-    /// you're building
-    pub fn delegating_from(mut self, authority: &Ucan) -> Self {
-        match Cid::try_from(authority) {
+    /// you're building.
+    /// The proof is encoded into a [Cid], hashed via the [UcanBuilder::default_hasher()]
+    /// algorithm, unless one is provided.
+    pub fn delegating_from(mut self, authority: &Ucan, hasher: Option<Code>) -> Self {
+        match authority.to_cid(hasher.unwrap_or_else(|| UcanBuilder::<K>::default_hasher())) {
             Ok(proof) => {
                 self.proofs.push(proof.to_string());
                 let proof_index = self.proofs.len() - 1;
                 let proof_delegation = ProofDelegationSemantics {};
                 let capability =
-                    proof_delegation.parse(&format!("prf:{proof_index}"), "ucan/DELEGATE");
+                    proof_delegation.parse(&format!("prf:{proof_index}"), "ucan/DELEGATE", None);
 
                 match capability {
                     Some(capability) => {
-                        self.capabilities.push(CapabilityIpld::from(&capability));
+                        self.capabilities.push(Capability::from(&capability));
                     }
                     None => warn!("Could not produce delegation capability"),
                 }
@@ -245,6 +274,11 @@ where
         };
 
         self
+    }
+
+    /// Returns the default hasher ([Code::Blake3_256]) used for [Cid] encodings.
+    pub fn default_hasher() -> Code {
+        Code::Blake3_256
     }
 
     fn implied_expiration(&self) -> Option<u64> {
@@ -258,19 +292,16 @@ where
     pub fn build(self) -> Result<Signable<'a, K>> {
         match &self.issuer {
             Some(issuer) => match &self.audience {
-                Some(audience) => match self.implied_expiration() {
-                    Some(expiration) => Ok(Signable {
-                        issuer,
-                        audience: audience.clone(),
-                        not_before: self.not_before,
-                        expiration,
-                        facts: self.facts.clone(),
-                        capabilities: self.capabilities.clone(),
-                        proofs: self.proofs.clone(),
-                        add_nonce: self.add_nonce,
-                    }),
-                    None => Err(anyhow!("Ambiguous lifetime")),
-                },
+                Some(audience) => Ok(Signable {
+                    issuer,
+                    audience: audience.clone(),
+                    not_before: self.not_before,
+                    expiration: self.implied_expiration(),
+                    facts: self.facts.clone(),
+                    capabilities: self.capabilities.clone(),
+                    proofs: self.proofs.clone(),
+                    add_nonce: self.add_nonce,
+                }),
                 None => Err(anyhow!("Missing audience")),
             },
             None => Err(anyhow!("Missing issuer")),

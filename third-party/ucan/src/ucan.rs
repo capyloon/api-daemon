@@ -1,10 +1,11 @@
 use crate::{
-    capability::CapabilityIpld,
+    capability::Capabilities,
     crypto::did::DidParser,
     serde::{Base64Encode, DagJson},
     time::now,
 };
 use anyhow::{anyhow, Result};
+use base64::Engine;
 use cid::{
     multihash::{Code, MultihashDigest},
     Cid,
@@ -12,32 +13,36 @@ use cid::{
 use libipld_core::{codec::Codec, raw::RawCodec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{convert::TryFrom, str::FromStr};
+use std::{collections::BTreeMap, convert::TryFrom, str::FromStr};
 
-pub const UCAN_VERSION: &str = "0.9.0-canary";
+pub const UCAN_VERSION: &str = "0.10.0-canary";
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+pub type FactsMap = BTreeMap<String, Value>;
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UcanHeader {
     pub alg: String,
     pub typ: String,
-    pub ucv: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UcanPayload {
+    pub ucv: String,
     pub iss: String,
     pub aud: String,
-    pub exp: u64,
+    pub exp: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nbf: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nnc: Option<String>,
-    pub att: Vec<CapabilityIpld>,
-    pub fct: Vec<Value>,
-    pub prf: Vec<String>,
+    pub cap: Capabilities,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fct: Option<FactsMap>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prf: Option<Vec<String>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Ucan {
     header: UcanHeader,
     payload: UcanPayload,
@@ -61,8 +66,12 @@ impl Ucan {
     }
 
     /// Validate the UCAN's signature and timestamps
-    pub async fn validate<'a>(&self, did_parser: &mut DidParser) -> Result<()> {
-        if self.is_expired() {
+    pub async fn validate<'a>(
+        &self,
+        now_time: Option<u64>,
+        did_parser: &mut DidParser,
+    ) -> Result<()> {
+        if self.is_expired(now_time) {
             return Err(anyhow!("Expired"));
         }
 
@@ -84,14 +93,19 @@ impl Ucan {
     pub fn encode(&self) -> Result<String> {
         let header = self.header.jwt_base64_encode()?;
         let payload = self.payload.jwt_base64_encode()?;
-        let signature = base64::encode_config(self.signature.as_slice(), base64::URL_SAFE_NO_PAD);
+        let signature =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(self.signature.as_slice());
 
         Ok(format!("{header}.{payload}.{signature}"))
     }
 
     /// Returns true if the UCAN has past its expiration date
-    pub fn is_expired(&self) -> bool {
-        self.payload.exp < now()
+    pub fn is_expired(&self, now_time: Option<u64>) -> bool {
+        if let Some(exp) = self.payload.exp {
+            exp < now_time.unwrap_or_else(now)
+        } else {
+            false
+        }
     }
 
     /// Raw bytes of signed data for this UCAN
@@ -125,7 +139,11 @@ impl Ucan {
 
     /// Returns true if this UCAN expires no earlier than the other
     pub fn lifetime_ends_after(&self, other: &Ucan) -> bool {
-        self.payload.exp >= other.payload.exp
+        match (self.payload.exp, other.payload.exp) {
+            (Some(exp), Some(other_exp)) => exp >= other_exp,
+            (Some(_), None) => false,
+            (None, _) => true,
+        }
     }
 
     /// Returns true if this UCAN's lifetime fully encompasses the other
@@ -145,11 +163,11 @@ impl Ucan {
         &self.payload.aud
     }
 
-    pub fn proofs(&self) -> &Vec<String> {
+    pub fn proofs(&self) -> &Option<Vec<String>> {
         &self.payload.prf
     }
 
-    pub fn expires_at(&self) -> &u64 {
+    pub fn expires_at(&self) -> &Option<u64> {
         &self.payload.exp
     }
 
@@ -161,36 +179,28 @@ impl Ucan {
         &self.payload.nnc
     }
 
-    pub fn attenuation(&self) -> &Vec<CapabilityIpld> {
-        &self.payload.att
+    #[deprecated(since = "0.4.0", note = "use `capabilities()`")]
+    pub fn attenuation(&self) -> &Capabilities {
+        self.capabilities()
     }
 
-    pub fn facts(&self) -> &Vec<Value> {
+    pub fn capabilities(&self) -> &Capabilities {
+        &self.payload.cap
+    }
+
+    pub fn facts(&self) -> &Option<FactsMap> {
         &self.payload.fct
     }
 
     pub fn version(&self) -> &str {
-        &self.header.ucv
+        &self.payload.ucv
     }
-}
 
-impl TryFrom<&Ucan> for Cid {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Ucan) -> Result<Self, Self::Error> {
-        let codec = RawCodec::default();
-        let token = value.encode()?;
+    pub fn to_cid(&self, hasher: Code) -> Result<Cid> {
+        let codec = RawCodec;
+        let token = self.encode()?;
         let encoded = codec.encode(token.as_bytes())?;
-
-        Ok(Cid::new_v1(codec.into(), Code::Blake2b256.digest(&encoded)))
-    }
-}
-
-impl TryFrom<Ucan> for Cid {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Ucan) -> Result<Self, Self::Error> {
-        Cid::try_from(&value)
+        Ok(Cid::new_v1(codec.into(), hasher.digest(&encoded)))
     }
 }
 
@@ -226,7 +236,9 @@ impl FromStr for Ucan {
             .ok_or_else(|| anyhow!("Could not parse signed data from token string"))?;
 
         let mut parts = ucan_token.split('.').map(|str| {
-            base64::decode_config(str, base64::URL_SAFE_NO_PAD).map_err(|error| anyhow!(error))
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(str)
+                .map_err(|error| anyhow!(error))
         });
 
         let header = parts

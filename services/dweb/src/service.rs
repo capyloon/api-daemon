@@ -22,7 +22,7 @@ use std::rc::Rc;
 use std::time::SystemTime;
 use tokio::runtime::Handle;
 use ucan::builder::UcanBuilder;
-use ucan::capability::{Action, Capability as UCapability, Resource, Scope, With};
+use ucan::capability::{Capability as UCapability, Scope};
 use ucan::ucan::Ucan;
 use url::Url as StdUrl;
 
@@ -227,15 +227,13 @@ impl From<String> for ActionString {
     }
 }
 
-impl Action for ActionString {}
 
-fn as_ucan_capability(capability: Capability) -> UCapability<UrlScope, ActionString> where
+fn as_ucan_capability(capability: Capability) -> UCapability
 {
     UCapability::new(
-        With::Resource {
-            kind: Resource::Scoped(UrlScope(capability.scope)),
-        },
-        ActionString(capability.action),
+        capability.scope.to_string(),
+        ActionString(capability.action).to_string(),
+        serde_json::Value::Null,
     )
 }
 

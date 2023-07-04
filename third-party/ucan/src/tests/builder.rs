@@ -1,10 +1,18 @@
+use std::collections::BTreeMap;
+
 use crate::{
     builder::UcanBuilder,
-    capability::{CapabilityIpld, CapabilitySemantics},
-    tests::fixtures::{EmailSemantics, Identities, WNFSSemantics},
+    capability::{Capabilities, Capability, CapabilitySemantics},
+    chain::ProofChain,
+    crypto::did::DidParser,
+    store::UcanJwtStore,
+    tests::fixtures::{
+        Blake2bMemoryStore, EmailSemantics, Identities, WNFSSemantics, SUPPORTED_KEYS,
+    },
     time::now,
 };
-use cid::Cid;
+use cid::multihash::Code;
+use did_key::PatchedKeyPair;
 use serde_json::json;
 
 #[cfg(target_arch = "wasm32")]
@@ -31,11 +39,11 @@ async fn it_builds_with_a_simple_example() {
     let wnfs_semantics = WNFSSemantics {};
 
     let cap_1 = email_semantics
-        .parse("mailto:alice@gmail.com", "email/send")
+        .parse("mailto:alice@gmail.com", "email/send", None)
         .unwrap();
 
     let cap_2 = wnfs_semantics
-        .parse("wnfs://alice.fission.name/public", "wnfs/super_user")
+        .parse("wnfs://alice.fission.name/public", "wnfs/super_user", None)
         .unwrap();
 
     let expiration = now() + 30;
@@ -46,8 +54,8 @@ async fn it_builds_with_a_simple_example() {
         .for_audience(identities.bob_did.as_str())
         .with_expiration(expiration)
         .not_before(not_before)
-        .with_fact(fact_1.clone())
-        .with_fact(fact_2.clone())
+        .with_fact("abc/challenge", fact_1.clone())
+        .with_fact("def/challenge", fact_2.clone())
         .claiming_capability(&cap_1)
         .claiming_capability(&cap_2)
         .with_nonce()
@@ -58,15 +66,22 @@ async fn it_builds_with_a_simple_example() {
 
     assert_eq!(ucan.issuer(), identities.alice_did);
     assert_eq!(ucan.audience(), identities.bob_did);
-    assert_eq!(ucan.expires_at(), &expiration);
+    assert!(ucan.expires_at().is_some());
+    assert_eq!(ucan.expires_at().unwrap(), expiration);
     assert!(ucan.not_before().is_some());
     assert_eq!(ucan.not_before().unwrap(), not_before);
-    assert_eq!(ucan.facts(), &vec![fact_1, fact_2]);
+    assert_eq!(
+        ucan.facts(),
+        &Some(BTreeMap::from([
+            (String::from("abc/challenge"), fact_1),
+            (String::from("def/challenge"), fact_2),
+        ]))
+    );
 
     let expected_attenuations =
-        Vec::from([CapabilityIpld::from(&cap_1), CapabilityIpld::from(&cap_2)]);
+        Capabilities::try_from(vec![Capability::from(&cap_1), Capability::from(&cap_2)]).unwrap();
 
-    assert_eq!(ucan.attenuation(), &expected_attenuations);
+    assert_eq!(ucan.capabilities(), &expected_attenuations);
     assert!(ucan.nonce().is_some());
 }
 
@@ -85,7 +100,7 @@ async fn it_builds_with_lifetime_in_seconds() {
         .await
         .unwrap();
 
-    assert!(*ucan.expires_at() > (now() + 290));
+    assert!(ucan.expires_at().unwrap() > (now() + 290));
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
@@ -94,7 +109,7 @@ async fn it_prevents_duplicate_proofs() {
     let wnfs_semantics = WNFSSemantics {};
 
     let parent_cap = wnfs_semantics
-        .parse("wnfs://alice.fission.name/public", "wnfs/super_user")
+        .parse("wnfs://alice.fission.name/public", "wnfs/super_user", None)
         .unwrap();
 
     let identities = Identities::new().await;
@@ -110,18 +125,22 @@ async fn it_prevents_duplicate_proofs() {
         .unwrap();
 
     let attenuated_cap_1 = wnfs_semantics
-        .parse("wnfs://alice.fission.name/public/Apps", "wnfs/create")
+        .parse("wnfs://alice.fission.name/public/Apps", "wnfs/create", None)
         .unwrap();
 
     let attenuated_cap_2 = wnfs_semantics
-        .parse("wnfs://alice.fission.name/public/Domains", "wnfs/create")
+        .parse(
+            "wnfs://alice.fission.name/public/Domains",
+            "wnfs/create",
+            None,
+        )
         .unwrap();
 
     let next_ucan = UcanBuilder::default()
         .issued_by(&identities.bob_key)
         .for_audience(identities.mallory_did.as_str())
         .with_lifetime(30)
-        .witnessed_by(&ucan)
+        .witnessed_by(&ucan, None)
         .claiming_capability(&attenuated_cap_1)
         .claiming_capability(&attenuated_cap_2)
         .build()
@@ -132,6 +151,55 @@ async fn it_prevents_duplicate_proofs() {
 
     assert_eq!(
         next_ucan.proofs(),
-        &vec![Cid::try_from(ucan).unwrap().to_string()]
+        &Some(vec![ucan
+            .to_cid(UcanBuilder::<PatchedKeyPair>::default_hasher())
+            .unwrap()
+            .to_string()])
     )
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+pub async fn it_can_use_custom_hasher() {
+    let identities = Identities::new().await;
+    let mut did_parser = DidParser::new(SUPPORTED_KEYS);
+
+    let leaf_ucan = UcanBuilder::default()
+        .issued_by(&identities.alice_key)
+        .for_audience(identities.bob_did.as_str())
+        .with_lifetime(60)
+        .build()
+        .unwrap()
+        .sign()
+        .await
+        .unwrap();
+
+    let delegated_token = UcanBuilder::default()
+        .issued_by(&identities.alice_key)
+        .issued_by(&identities.bob_key)
+        .for_audience(identities.mallory_did.as_str())
+        .with_lifetime(50)
+        .witnessed_by(&leaf_ucan, Some(Code::Blake2b256))
+        .build()
+        .unwrap()
+        .sign()
+        .await
+        .unwrap();
+
+    let mut store = Blake2bMemoryStore::default();
+
+    store
+        .write_token(&leaf_ucan.encode().unwrap())
+        .await
+        .unwrap();
+
+    let _ = store
+        .write_token(&delegated_token.encode().unwrap())
+        .await
+        .unwrap();
+
+    let valid_chain =
+        ProofChain::from_ucan(delegated_token, Some(now()), &mut did_parser, &store).await;
+
+    assert!(valid_chain.is_ok());
 }

@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
 use rsa::{
-    pkcs1::{der::Encode, DecodeRsaPublicKey, EncodeRsaPublicKey},
-    PaddingScheme, PublicKey, RsaPrivateKey, RsaPublicKey,
+    pkcs1::{DecodeRsaPublicKey, EncodeRsaPublicKey},
+    Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey,
 };
 
 use sha2::{Digest, Sha256};
@@ -12,10 +12,9 @@ use ucan::crypto::{JwtSignatureAlgorithm, KeyMaterial};
 pub use ucan::crypto::did::RSA_MAGIC_BYTES;
 
 pub fn bytes_to_rsa_key(bytes: Vec<u8>) -> Result<Box<dyn KeyMaterial>> {
-    // NOTE: DID bytes are PKCS1, but we are using PKCS8, so do the conversion here..
     println!("Trying to parse RSA key...");
-    let public_key = rsa::pkcs1::RsaPublicKey::try_from(bytes.as_slice())?;
-    let public_key = RsaPublicKey::from_pkcs1_der(&public_key.to_vec()?)?;
+    // NOTE: DID bytes are PKCS1, but we store RSA keys as PKCS8
+    let public_key = RsaPublicKey::from_pkcs1_der(&bytes)?;
 
     Ok(Box::new(RsaKeyMaterial(public_key, None)))
 }
@@ -49,10 +48,8 @@ impl KeyMaterial for RsaKeyMaterial {
 
         match &self.1 {
             Some(private_key) => {
-                let signature = private_key.sign(
-                    PaddingScheme::new_pkcs1v15_sign::<Sha256>(),
-                    hashed.as_ref(),
-                )?;
+                let padding = Pkcs1v15Sign::new::<Sha256>();
+                let signature = private_key.sign(padding, hashed.as_ref())?;
                 info!("SIGNED!");
                 Ok(signature)
             }
@@ -64,13 +61,10 @@ impl KeyMaterial for RsaKeyMaterial {
         let mut hasher = Sha256::new();
         hasher.update(payload);
         let hashed = hasher.finalize();
+        let padding = Pkcs1v15Sign::new::<Sha256>();
 
         self.0
-            .verify(
-                PaddingScheme::new_pkcs1v15_sign::<Sha256>(),
-                hashed.as_ref(),
-                signature,
-            )
+            .verify(padding, hashed.as_ref(), signature)
             .map_err(|error| anyhow!(error))
     }
 }

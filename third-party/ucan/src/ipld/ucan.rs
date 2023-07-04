@@ -1,16 +1,15 @@
 use crate::{
-    capability::CapabilityIpld,
+    capability::Capabilities,
     crypto::JwtSignatureAlgorithm,
     ipld::{Principle, Signature},
     serde::Base64Encode,
-    ucan::{Ucan, UcanHeader, UcanPayload, UCAN_VERSION},
+    ucan::{FactsMap, Ucan, UcanHeader, UcanPayload, UCAN_VERSION},
 };
 use cid::Cid;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{convert::TryFrom, str::FromStr};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UcanIpld {
     pub v: String,
 
@@ -18,10 +17,10 @@ pub struct UcanIpld {
     pub aud: Principle,
     pub s: Signature,
 
-    pub att: Vec<CapabilityIpld>,
-    pub prf: Vec<Cid>,
-    pub exp: u64,
-    pub fct: Vec<Value>,
+    pub cap: Capabilities,
+    pub prf: Option<Vec<Cid>>,
+    pub exp: Option<u64>,
+    pub fct: Option<FactsMap>,
 
     pub nnc: Option<String>,
     pub nbf: Option<u64>,
@@ -31,10 +30,19 @@ impl TryFrom<&Ucan> for UcanIpld {
     type Error = anyhow::Error;
 
     fn try_from(ucan: &Ucan) -> Result<Self, Self::Error> {
-        let mut prf = Vec::new();
-        for cid_string in ucan.proofs() {
-            prf.push(Cid::try_from(cid_string.as_str())?);
-        }
+        let prf = if let Some(proofs) = ucan.proofs() {
+            let mut prf = Vec::new();
+            for cid_string in proofs {
+                prf.push(Cid::try_from(cid_string.as_str())?);
+            }
+            if prf.is_empty() {
+                None
+            } else {
+                Some(prf)
+            }
+        } else {
+            None
+        };
 
         Ok(UcanIpld {
             v: ucan.version().to_string(),
@@ -44,7 +52,7 @@ impl TryFrom<&Ucan> for UcanIpld {
                 JwtSignatureAlgorithm::from_str(ucan.algorithm())?,
                 ucan.signature(),
             ))?,
-            att: ucan.attenuation().clone(),
+            cap: ucan.capabilities().clone(),
             prf,
             exp: *ucan.expires_at(),
             fct: ucan.facts().clone(),
@@ -63,18 +71,21 @@ impl TryFrom<&UcanIpld> for Ucan {
         let header = UcanHeader {
             alg: algorithm.to_string(),
             typ: "JWT".into(),
-            ucv: UCAN_VERSION.into(),
         };
 
         let payload = UcanPayload {
+            ucv: UCAN_VERSION.into(),
             iss: value.iss.to_string(),
             aud: value.aud.to_string(),
             exp: value.exp,
             nbf: value.nbf,
             nnc: value.nnc.clone(),
-            att: value.att.clone(),
+            cap: value.cap.clone(),
             fct: value.fct.clone(),
-            prf: value.prf.iter().map(|cid| cid.to_string()).collect(),
+            prf: value
+                .prf
+                .clone()
+                .map(|prf| prf.iter().map(|cid| cid.to_string()).collect()),
         };
 
         let signed_data = format!(
@@ -119,10 +130,13 @@ mod tests {
         let other_builder = scaffold_ucan_builder(&identities).await.unwrap();
 
         let canon_jwt = canon_builder
-            .with_fact(json!({
-                "baz": true,
-                "foo": "bar"
-            }))
+            .with_fact(
+                "abc/challenge",
+                json!({
+                    "baz": true,
+                    "foo": "bar"
+                }),
+            )
             .build()
             .unwrap()
             .sign()
@@ -132,10 +146,13 @@ mod tests {
             .unwrap();
 
         let other_jwt = other_builder
-            .with_fact(json!({
-                "foo": "bar",
-                "baz": true
-            }))
+            .with_fact(
+                "abc/challenge",
+                json!({
+                    "foo": "bar",
+                    "baz": true
+                }),
+            )
             .build()
             .unwrap()
             .sign()
@@ -154,10 +171,13 @@ mod tests {
         let builder = scaffold_ucan_builder(&identities).await.unwrap();
 
         let jwt = builder
-            .with_fact(json!({
-                "baz": true,
-                "foo": "bar"
-            }))
+            .with_fact(
+                "abc/challenge",
+                json!({
+                    "baz": true,
+                    "foo": "bar"
+                }),
+            )
             .with_nonce()
             .build()
             .unwrap()
