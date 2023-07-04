@@ -55,20 +55,44 @@ and examples.
 Functional features:
 
  * `tilde` (on by default): support for tilde expansion (home directory).
- * `path` (in `full`): support for operations on `Path`s.
+ * `path` (in `full`): support for operations on `Path`s.  (MSRV: 1.51)
 
 Metafeatures:
 
- * `full`: all non-experimental, non-hazardous functionality.
+ * `full`: all reasonable (non-experimental, non-hazardous) functionality.
+   (Currently equivalent to `full-msrv-1.51`.)
  * `base-0` (on by default): basic functionality.
    You must enable this feature.
+ * `full-msrv-1.51`: all reasonable functionality compatible with Rust 1.51.
+   (currently: `base-0`, `tilde`, `paths`).
+ * `full-msrv-1.31`: all reasonable functionality compatible with Rust 1.31.
+   (currently: `base-0`, `tilde`).
 
 At the time of writing there is no experimental or hazardous functionality;
-if we introduce any it will be feature gated and not enabled by default nor part of `full`.
+if we introduce any it will be feature gated and not enabled by default nor part of `full*`.
 Requiring `base-0` allows us to split existing functionality into a new optional feature,
 without a semver break.
+We will try to avoid MSRV increases for existing functionality;
+increasing the MSRV for `full` will be minor version bump.
 
 ## Changelog
+
+### Version 3.1.0 - 2023-03-24
+
+Added:
+
+* cargo features `full-msrv-1.31` and `full-msrv-1.51`
+
+Fixed:
+
+* Explicitly declared MSRV 1.51 for `paths` feature.
+* Fixed build (without `paths` feature) with MSRV (1.31)
+
+Improved:
+
+* MSRV tested.
+* Update to `dirs` 5.  (Allow use of dirs 4 too, since it's fine.)
+* Update `Cargo.lock.exaple`
 
 ### Version 3.0.0 - 2022-12-01
 

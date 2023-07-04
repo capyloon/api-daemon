@@ -391,7 +391,12 @@ where
                 s.find('$').unwrap_or(s.len())
             }
             let mut lookup = |var_name: &Wstr| {
-                var_name.as_str().and_then(|v| context(v).transpose()).transpose()
+                let var_name = match var_name.as_str() {
+                    Some(var_name) => var_name,
+                    // No non-UTF-8 variables can exist
+                    None => return Ok(None),
+                };
+                context(var_name)
             };
 
             let mut next_chars = input_str[1..].chars_approx();

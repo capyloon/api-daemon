@@ -143,6 +143,9 @@ pub(crate) trait WstrExt: where for <'s> &'s Self: WstrRefExt {
 
     /// Convert to an `OString`, as used for error reporting etc.
     fn to_ostring(&self) -> OString;
+
+    /// Like `str::strip_prefix`, but available on our str MSRV 1.31
+    fn strip_prefix(&self, c: char) -> Option<&Self>;
 }
 
 /// Method on the reference [`&Wstr`](Wstr)

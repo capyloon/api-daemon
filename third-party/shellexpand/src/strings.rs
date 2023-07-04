@@ -4,7 +4,7 @@ use std::str::Chars;
 
 #[path="wtraits.rs"]
 pub mod wtraits;
-use wtraits::*;
+use self::wtraits::*;
 
 #[path="funcs.rs"]
 pub mod funcs;
@@ -29,6 +29,13 @@ impl WstrExt for str {
     fn as_str(&self) -> Option<&str> { Some(self) }
     fn len(&self) -> usize { str::len(self) }
     fn to_ostring(&self) -> String { self.to_owned() }
+    fn strip_prefix(&self, c: char) -> Option<&Self> {
+        if self.starts_with(c) {
+            Some(&self[c.len_utf8()..])
+        } else {
+            None
+        }
+    }
 }
 
 impl<'s> WstrRefExt for &'s str {
