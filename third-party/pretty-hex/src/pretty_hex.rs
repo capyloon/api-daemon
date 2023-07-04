@@ -60,6 +60,8 @@ pub struct HexConfig {
     pub group: usize,
     /// Source bytes per chunk (word). 0 for single word.
     pub chunk: usize,
+    /// Maximum bytes to print.
+    pub max_bytes: usize,
 }
 
 /// Default configuration with `title`, `ascii`, 16 source bytes `width` grouped to 4 separate
@@ -72,6 +74,7 @@ impl Default for HexConfig {
             width: 16,
             group: 4,
             chunk: 1,
+            max_bytes: usize::MAX,
         }
     }
 }
@@ -109,21 +112,26 @@ const NON_ASCII: char = '.';
 /// Write hex dump in specified format.
 pub fn hex_write<T, W>(writer: &mut W, source: &T, cfg: HexConfig) -> fmt::Result
 where
-    T: AsRef<[u8]>,
+    T: AsRef<[u8]> + ?Sized,
     W: fmt::Write,
 {
+    let mut source = source.as_ref();
     if cfg.title {
-        writeln!(writer, "Length: {0} (0x{0:x}) bytes", source.as_ref().len())?;
+        writeln!(writer, "Length: {0} (0x{0:x}) bytes", source.len())?;
     }
 
-    if source.as_ref().is_empty() {
+    if source.is_empty() {
         return Ok(());
     }
 
-    let lines = source.as_ref().chunks(if cfg.width > 0 {
+    let omitted = source.len().checked_sub(cfg.max_bytes);
+    if omitted.is_some() {
+        source = &source[..cfg.max_bytes];
+    }
+    let lines = source.chunks(if cfg.width > 0 {
         cfg.width
     } else {
-        source.as_ref().len()
+        source.len()
     });
     let lines_len = lines.len();
     for (i, row) in lines.enumerate() {
@@ -150,20 +158,23 @@ where
             writeln!(writer)?;
         }
     }
+    if let Some(o) = omitted {
+        write!(writer, "\n...{0} (0x{0:x}) bytes not shown...", o)?;
+    }
     Ok(())
 }
 
 /// Reference wrapper for use in arguments formatting.
-pub struct Hex<'a, T: 'a>(&'a T, HexConfig);
+pub struct Hex<'a, T: 'a + ?Sized>(&'a T, HexConfig);
 
-impl<'a, T: 'a + AsRef<[u8]>> fmt::Display for Hex<'a, T> {
+impl<'a, T: 'a + AsRef<[u8]> + ?Sized> fmt::Display for Hex<'a, T> {
     /// Formats the value by `simple_hex_write` using the given formatter.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         hex_write(f, self.0, self.1.to_simple())
     }
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> fmt::Debug for Hex<'a, T> {
+impl<'a, T: 'a + AsRef<[u8]> + ?Sized> fmt::Debug for Hex<'a, T> {
     /// Formats the value by `pretty_hex_write` using the given formatter.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         hex_write(f, self.0, self.1)
@@ -171,7 +182,7 @@ impl<'a, T: 'a + AsRef<[u8]>> fmt::Debug for Hex<'a, T> {
 }
 
 /// Allows generates hex dumps to a formatter.
-pub trait PrettyHex: Sized {
+pub trait PrettyHex {
     /// Wrap self reference for use in `std::fmt::Display` and `std::fmt::Debug`
     /// formatting as hex dumps.
     fn hex_dump(&self) -> Hex<Self>;
@@ -183,7 +194,7 @@ pub trait PrettyHex: Sized {
 
 impl<T> PrettyHex for T
 where
-    T: AsRef<[u8]>,
+    T: AsRef<[u8]> + ?Sized,
 {
     fn hex_dump(&self) -> Hex<Self> {
         Hex(self, HexConfig::default())

@@ -2798,7 +2798,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-tungstenite 0.19.0",
+ "tokio-tungstenite",
  "tracing",
  "tracing-futures",
  "url",
@@ -5371,9 +5371,9 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
 name = "pretty-hex"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5c99d529f0d30937f6f4b8a86d988047327bb88d04d2c4afc356de74722131"
+checksum = "c6fa0831dd7cc608c38a5e323422a0077678fa5744aa2be4ad91c4ece8eec8d5"
 
 [[package]]
 name = "prettytable-rs"
@@ -7484,18 +7484,6 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54319c93411147bced34cb5609a80e0a8e44c5999c93903a81cd866630ec0bfd"
-dependencies = [
- "futures-util",
- "log",
- "tokio",
- "tungstenite 0.18.0",
-]
-
-[[package]]
-name = "tokio-tungstenite"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec509ac96e9a0c43427c74f003127d953a265737636129424288d27cb5c4b12c"
@@ -7505,7 +7493,7 @@ dependencies = [
  "rustls 0.21.2",
  "tokio",
  "tokio-rustls 0.24.1",
- "tungstenite 0.19.0",
+ "tungstenite",
  "webpki-roots 0.23.1",
 ]
 
@@ -8327,25 +8315,6 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "tungstenite"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30ee6ab729cd4cf0fd55218530c4522ed30b7b6081752839b68fcec8d0960788"
-dependencies = [
- "base64 0.13.1",
- "byteorder",
- "bytes",
- "http",
- "httparse",
- "log",
- "rand 0.8.5",
- "sha1 0.10.5",
- "thiserror",
- "url",
- "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15fba1a6d6bb030745759a9a2a588bfe8490fc8b4751a277db3a0be1c9ebbf67"
@@ -9141,7 +9110,7 @@ dependencies = [
 [[package]]
 name = "wspty"
 version = "0.1.2"
-source = "git+https://github.com/capyloon/wspty.git#33f4401b39d6303ca9e6dfdfcaf0aa82a9609a0f"
+source = "git+https://github.com/capyloon/wspty.git#59424bea9a1a9f458c266e85cc73eec47bc58ba4"
 dependencies = [
  "anyhow",
  "bytes",
@@ -9155,8 +9124,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tokio-tungstenite 0.18.0",
- "tungstenite 0.18.0",
+ "tokio-tungstenite",
+ "tungstenite",
 ]
 
 [[package]]

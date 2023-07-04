@@ -12,7 +12,7 @@
 
 [package]
 name = "pretty-hex"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Andrei Volnin <wolandr@gmail.com>"]
 description = "Pretty hex dump of bytes slice in the common style."
 homepage = "https://github.com/wolandr/pretty-hex"
