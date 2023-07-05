@@ -1,4 +1,4 @@
-use crate::capability::{Ability, CapabilitySemantics, Scope};
+use crate::capability::{Action, CapabilitySemantics, Scope};
 use anyhow::{anyhow, Result};
 use url::Url;
 
@@ -36,7 +36,7 @@ pub enum EmailAction {
     Send,
 }
 
-impl Ability for EmailAction {}
+impl Action for EmailAction {}
 
 impl ToString for EmailAction {
     fn to_string(&self) -> String {

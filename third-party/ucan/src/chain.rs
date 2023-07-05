@@ -1,7 +1,7 @@
 use crate::{
     capability::{
         proof::{ProofDelegationSemantics, ProofSelection},
-        Ability, CapabilitySemantics, CapabilityView, Resource, ResourceUri, Scope,
+        Action, Capability, CapabilityIterator, CapabilitySemantics, Resource, Scope, With,
     },
     crypto::did::DidParser,
     store::UcanJwtStore,
@@ -15,17 +15,17 @@ use std::{collections::BTreeSet, fmt::Debug};
 const PROOF_DELEGATION_SEMANTICS: ProofDelegationSemantics = ProofDelegationSemantics {};
 
 #[derive(Eq, PartialEq)]
-pub struct CapabilityInfo<S: Scope, A: Ability> {
+pub struct CapabilityInfo<S: Scope, A: Action> {
     pub originators: BTreeSet<String>,
     pub not_before: Option<u64>,
-    pub expires_at: Option<u64>,
-    pub capability: CapabilityView<S, A>,
+    pub expires_at: u64,
+    pub capability: Capability<S, A>,
 }
 
 impl<S, A> Debug for CapabilityInfo<S, A>
 where
     S: Scope,
-    A: Ability,
+    A: Action,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CapabilityInfo")
@@ -51,45 +51,37 @@ impl ProofChain {
     #[cfg_attr(not(target_arch = "wasm32"), async_recursion)]
     pub async fn from_ucan<S>(
         ucan: Ucan,
-        now_time: Option<u64>,
         did_parser: &mut DidParser,
         store: &S,
     ) -> Result<ProofChain>
     where
         S: UcanJwtStore,
     {
-        ucan.validate(now_time, did_parser).await?;
+        ucan.validate(did_parser).await?;
 
         let mut proofs: Vec<ProofChain> = Vec::new();
 
-        if let Some(ucan_proofs) = ucan.proofs() {
-            for cid_string in ucan_proofs.iter() {
-                let cid = Cid::try_from(cid_string.as_str())?;
-                let ucan_token = store.require_token(&cid).await?;
-                let proof_chain =
-                    Self::try_from_token_string(&ucan_token, now_time, did_parser, store).await?;
-                proof_chain.validate_link_to(&ucan)?;
-                proofs.push(proof_chain);
-            }
+        for cid_string in ucan.proofs().iter() {
+            let cid = Cid::try_from(cid_string.as_str())?;
+            let ucan_token = store.require_token(&cid).await?;
+            let proof_chain = Self::try_from_token_string(&ucan_token, did_parser, store).await?;
+            proof_chain.validate_link_to(&ucan)?;
+            proofs.push(proof_chain);
         }
 
         let mut redelegations = BTreeSet::<usize>::new();
 
-        for capability in ucan
-            .capabilities()
-            .iter()
-            .filter_map(|cap| PROOF_DELEGATION_SEMANTICS.parse_capability(&cap))
-        {
-            match capability.resource() {
-                Resource::Resource {
-                    kind: ResourceUri::Scoped(ProofSelection::All),
+        for capability in CapabilityIterator::new(&ucan, &PROOF_DELEGATION_SEMANTICS) {
+            match capability.with() {
+                With::Resource {
+                    kind: Resource::Scoped(ProofSelection::All),
                 } => {
                     for index in 0..proofs.len() {
                         redelegations.insert(index);
                     }
                 }
-                Resource::Resource {
-                    kind: ResourceUri::Scoped(ProofSelection::Index(index)),
+                With::Resource {
+                    kind: Resource::Scoped(ProofSelection::Index(index)),
                 } => {
                     if *index < proofs.len() {
                         redelegations.insert(*index);
@@ -113,28 +105,16 @@ impl ProofChain {
 
     /// Instantiate a [ProofChain] from a [Cid], given a [UcanJwtStore] and [DidParser]
     /// The [Cid] must resolve to a JWT token string
-    pub async fn from_cid<S>(
-        cid: &Cid,
-        now_time: Option<u64>,
-        did_parser: &mut DidParser,
-        store: &S,
-    ) -> Result<ProofChain>
+    pub async fn from_cid<S>(cid: &Cid, did_parser: &mut DidParser, store: &S) -> Result<ProofChain>
     where
         S: UcanJwtStore,
     {
-        Self::try_from_token_string(
-            &store.require_token(cid).await?,
-            now_time,
-            did_parser,
-            store,
-        )
-        .await
+        Self::try_from_token_string(&store.require_token(cid).await?, did_parser, store).await
     }
 
     /// Instantiate a [ProofChain] from a JWT token string, given a [UcanJwtStore] and [DidParser]
     pub async fn try_from_token_string<'a, S>(
         ucan_token_string: &str,
-        now_time: Option<u64>,
         did_parser: &mut DidParser,
         store: &S,
     ) -> Result<ProofChain>
@@ -142,7 +122,7 @@ impl ProofChain {
         S: UcanJwtStore,
     {
         let ucan = Ucan::try_from(ucan_token_string)?;
-        Self::from_ucan(ucan, now_time, did_parser, store).await
+        Self::from_ucan(ucan, did_parser, store).await
     }
 
     fn validate_link_to(&self, ucan: &Ucan) -> Result<()> {
@@ -177,7 +157,7 @@ impl ProofChain {
     where
         Semantics: CapabilitySemantics<S, A>,
         S: Scope,
-        A: Ability,
+        A: Action,
     {
         // Get the set of inherited attenuations (excluding redelegations)
         // before further attenuating by own lifetime and capabilities:
@@ -215,11 +195,7 @@ impl ProofChain {
             })
             .collect();
 
-        let self_capabilities_iter = self
-            .ucan
-            .capabilities()
-            .iter()
-            .map_while(|data| semantics.parse_capability(&data));
+        let self_capabilities_iter = CapabilityIterator::new(&self.ucan, semantics);
 
         // Get the claimed attenuations of this ucan, cross-checking ancestral
         // attenuations to discover the originating authority

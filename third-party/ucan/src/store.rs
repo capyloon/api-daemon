@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use async_std::sync::Mutex;
 use async_trait::async_trait;
 use cid::{
     multihash::{Code, MultihashDigest},
@@ -9,11 +10,7 @@ use libipld_core::{
     ipld::Ipld,
     raw::RawCodec,
 };
-use std::{
-    collections::HashMap,
-    io::Cursor,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, io::Cursor, sync::Arc};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub trait UcanStoreConditionalSend: Send {}
@@ -70,7 +67,7 @@ pub trait UcanJwtStore: UcanStore<RawCodec> {
     }
 
     async fn read_token(&self, cid: &Cid) -> Result<Option<String>> {
-        let codec = RawCodec;
+        let codec = RawCodec::default();
 
         if cid.codec() != u64::from(codec) {
             return Err(anyhow!(
@@ -105,8 +102,8 @@ pub struct MemoryStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl UcanStore<RawCodec> for MemoryStore {
     async fn read<T: Decode<RawCodec>>(&self, cid: &Cid) -> Result<Option<T>> {
-        let codec = RawCodec;
-        let dags = self.dags.lock().map_err(|_| anyhow!("poisoned mutex!"))?;
+        let codec = RawCodec::default();
+        let dags = self.dags.lock().await;
 
         Ok(match dags.get(cid) {
             Some(bytes) => Some(T::decode(codec, &mut Cursor::new(bytes))?),
@@ -118,11 +115,11 @@ impl UcanStore<RawCodec> for MemoryStore {
         &mut self,
         token: T,
     ) -> Result<Cid> {
-        let codec = RawCodec;
+        let codec = RawCodec::default();
         let block = codec.encode(&token)?;
-        let cid = Cid::new_v1(codec.into(), Code::Blake3_256.digest(&block));
+        let cid = Cid::new_v1(codec.into(), Code::Blake2b256.digest(&block));
 
-        let mut dags = self.dags.lock().map_err(|_| anyhow!("poisoned mutex!"))?;
+        let mut dags = self.dags.lock().await;
         dags.insert(cid, block);
 
         Ok(cid)

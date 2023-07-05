@@ -1,4 +1,4 @@
-# [RustCrypto]: NIST P-256 (secp256r1) elliptic curve
+# RustCrypto: NIST P-256 (secp256r1) elliptic curve
 
 [![crate][crate-image]][crate-link]
 [![Docs][docs-image]][docs-link]
@@ -34,9 +34,10 @@ USE AT YOUR OWN RISK!
 
 ## About NIST P-256
 
-NIST P-256 is a Weierstrass curve specified in [SP 800-186]:
-Recommendations for Discrete Logarithm-based Cryptography:
-Elliptic Curve Domain Parameters.
+NIST P-256 is a Weierstrass curve specified in FIPS 186-4: Digital Signature
+Standard (DSS):
+
+<https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf>
 
 Also known as prime256v1 (ANSI X9.62) and secp256r1 (SECG), it's included in
 the US National Security Agency's "Suite B" and is widely used in protocols
@@ -44,7 +45,7 @@ like TLS and the associated X.509 PKI.
 
 ## Minimum Supported Rust Version
 
-Rust **1.65** or higher.
+Rust **1.57** or higher.
 
 Minimum supported Rust version can be changed in the future, but it will be
 done with a minor version bump.
@@ -78,14 +79,12 @@ dual licensed as above, without any additional terms or conditions.
 [build-image]: https://github.com/RustCrypto/elliptic-curves/actions/workflows/p256.yml/badge.svg
 [build-link]: https://github.com/RustCrypto/elliptic-curves/actions/workflows/p256.yml
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.65+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.57+-blue.svg
 [chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
 [chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/260040-elliptic-curves
 
 [//]: # (general links)
 
-[RustCrypto]: https://github.com/rustcrypto/
 [`elliptic-curve`]: https://github.com/RustCrypto/traits/tree/master/elliptic-curve
 [ECDH]: https://en.wikipedia.org/wiki/Elliptic-curve_Diffie-Hellman
 [ECDSA]: https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm
-[SP 800-186]: https://csrc.nist.gov/publications/detail/sp/800-186/final

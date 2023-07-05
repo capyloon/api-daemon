@@ -15,10 +15,10 @@ where
 pub async fn scaffold_ucan_builder(identities: &Identities) -> Result<UcanBuilder<PatchedKeyPair>> {
     let email_semantics = EmailSemantics {};
     let send_email_as_bob = email_semantics
-        .parse("mailto:bob@email.com".into(), "email/send".into(), None)
+        .parse("mailto:bob@email.com".into(), "email/send".into())
         .unwrap();
     let send_email_as_alice = email_semantics
-        .parse("mailto:alice@email.com".into(), "email/send".into(), None)
+        .parse("mailto:alice@email.com".into(), "email/send".into())
         .unwrap();
 
     let leaf_ucan_alice = UcanBuilder::default()
@@ -47,8 +47,8 @@ pub async fn scaffold_ucan_builder(identities: &Identities) -> Result<UcanBuilde
         .issued_by(&identities.mallory_key)
         .for_audience(identities.alice_did.as_str())
         .with_expiration(1664232146010)
-        .witnessed_by(&leaf_ucan_alice, None)
-        .witnessed_by(&leaf_ucan_bob, None)
+        .witnessed_by(&leaf_ucan_alice)
+        .witnessed_by(&leaf_ucan_bob)
         .claiming_capability(&send_email_as_alice)
         .claiming_capability(&send_email_as_bob);
 

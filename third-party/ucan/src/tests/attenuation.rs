@@ -1,14 +1,13 @@
 use super::fixtures::{EmailSemantics, Identities, SUPPORTED_KEYS};
 use crate::{
     builder::UcanBuilder,
-    capability::{Capability, CapabilitySemantics},
+    capability::CapabilitySemantics,
     chain::{CapabilityInfo, ProofChain},
     crypto::did::DidParser,
     store::{MemoryStore, UcanJwtStore},
 };
 use std::collections::BTreeSet;
 
-use serde_json::json;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
@@ -23,7 +22,7 @@ pub async fn it_works_with_a_simple_example() {
 
     let email_semantics = EmailSemantics {};
     let send_email_as_alice = email_semantics
-        .parse("mailto:alice@email.com", "email/send", None)
+        .parse("mailto:alice@email.com", "email/send")
         .unwrap();
 
     let leaf_ucan = UcanBuilder::default()
@@ -41,7 +40,7 @@ pub async fn it_works_with_a_simple_example() {
         .issued_by(&identities.bob_key)
         .for_audience(identities.mallory_did.as_str())
         .with_lifetime(50)
-        .witnessed_by(&leaf_ucan, None)
+        .witnessed_by(&leaf_ucan)
         .claiming_capability(&send_email_as_alice)
         .build()
         .unwrap()
@@ -58,7 +57,7 @@ pub async fn it_works_with_a_simple_example() {
         .unwrap();
 
     let chain =
-        ProofChain::try_from_token_string(attenuated_token.as_str(), None, &mut did_parser, &store)
+        ProofChain::try_from_token_string(attenuated_token.as_str(), &mut did_parser, &store)
             .await
             .unwrap();
 
@@ -69,10 +68,10 @@ pub async fn it_works_with_a_simple_example() {
     let info = capability_infos.get(0).unwrap();
 
     assert_eq!(
-        info.capability.resource().to_string().as_str(),
+        info.capability.with().to_string().as_str(),
         "mailto:alice@email.com",
     );
-    assert_eq!(info.capability.ability().to_string().as_str(), "email/send");
+    assert_eq!(info.capability.can().to_string().as_str(), "email/send");
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
@@ -83,7 +82,7 @@ pub async fn it_reports_the_first_issuer_in_the_chain_as_originator() {
 
     let email_semantics = EmailSemantics {};
     let send_email_as_bob = email_semantics
-        .parse("mailto:bob@email.com".into(), "email/send".into(), None)
+        .parse("mailto:bob@email.com".into(), "email/send".into())
         .unwrap();
 
     let leaf_ucan = UcanBuilder::default()
@@ -100,7 +99,7 @@ pub async fn it_reports_the_first_issuer_in_the_chain_as_originator() {
         .issued_by(&identities.bob_key)
         .for_audience(identities.mallory_did.as_str())
         .with_lifetime(50)
-        .witnessed_by(&leaf_ucan, None)
+        .witnessed_by(&leaf_ucan)
         .claiming_capability(&send_email_as_bob)
         .build()
         .unwrap()
@@ -116,11 +115,10 @@ pub async fn it_reports_the_first_issuer_in_the_chain_as_originator() {
         .await
         .unwrap();
 
-    let capability_infos =
-        ProofChain::try_from_token_string(&ucan_token, None, &mut did_parser, &store)
-            .await
-            .unwrap()
-            .reduce_capabilities(&email_semantics);
+    let capability_infos = ProofChain::try_from_token_string(&ucan_token, &mut did_parser, &store)
+        .await
+        .unwrap()
+        .reduce_capabilities(&email_semantics);
 
     assert_eq!(capability_infos.len(), 1);
 
@@ -141,10 +139,10 @@ pub async fn it_finds_the_right_proof_chain_for_the_originator() {
 
     let email_semantics = EmailSemantics {};
     let send_email_as_bob = email_semantics
-        .parse("mailto:bob@email.com".into(), "email/send".into(), None)
+        .parse("mailto:bob@email.com".into(), "email/send".into())
         .unwrap();
     let send_email_as_alice = email_semantics
-        .parse("mailto:alice@email.com".into(), "email/send".into(), None)
+        .parse("mailto:alice@email.com".into(), "email/send".into())
         .unwrap();
 
     let leaf_ucan_alice = UcanBuilder::default()
@@ -173,8 +171,8 @@ pub async fn it_finds_the_right_proof_chain_for_the_originator() {
         .issued_by(&identities.mallory_key)
         .for_audience(identities.alice_did.as_str())
         .with_lifetime(50)
-        .witnessed_by(&leaf_ucan_alice, None)
-        .witnessed_by(&leaf_ucan_bob, None)
+        .witnessed_by(&leaf_ucan_alice)
+        .witnessed_by(&leaf_ucan_bob)
         .claiming_capability(&send_email_as_alice)
         .claiming_capability(&send_email_as_bob)
         .build()
@@ -195,7 +193,7 @@ pub async fn it_finds_the_right_proof_chain_for_the_originator() {
         .await
         .unwrap();
 
-    let proof_chain = ProofChain::try_from_token_string(&ucan_token, None, &mut did_parser, &store)
+    let proof_chain = ProofChain::try_from_token_string(&ucan_token, &mut did_parser, &store)
         .await
         .unwrap();
     let capability_infos = proof_chain.reduce_capabilities(&email_semantics);
@@ -234,7 +232,7 @@ pub async fn it_reports_all_chain_options() {
 
     let email_semantics = EmailSemantics {};
     let send_email_as_alice = email_semantics
-        .parse("mailto:alice@email.com".into(), "email/send".into(), None)
+        .parse("mailto:alice@email.com".into(), "email/send".into())
         .unwrap();
 
     let leaf_ucan_alice = UcanBuilder::default()
@@ -263,8 +261,8 @@ pub async fn it_reports_all_chain_options() {
         .issued_by(&identities.mallory_key)
         .for_audience(identities.alice_did.as_str())
         .with_lifetime(50)
-        .witnessed_by(&leaf_ucan_alice, None)
-        .witnessed_by(&leaf_ucan_bob, None)
+        .witnessed_by(&leaf_ucan_alice)
+        .witnessed_by(&leaf_ucan_bob)
         .claiming_capability(&send_email_as_alice)
         .build()
         .unwrap()
@@ -284,7 +282,7 @@ pub async fn it_reports_all_chain_options() {
         .await
         .unwrap();
 
-    let proof_chain = ProofChain::try_from_token_string(&ucan_token, None, &mut did_parser, &store)
+    let proof_chain = ProofChain::try_from_token_string(&ucan_token, &mut did_parser, &store)
         .await
         .unwrap();
     let capability_infos = proof_chain.reduce_capabilities(&email_semantics);
@@ -302,146 +300,4 @@ pub async fn it_reports_all_chain_options() {
             expires_at: ucan.expires_at().clone()
         }
     );
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
-#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-pub async fn it_validates_caveats() -> anyhow::Result<()> {
-    let resource = "mailto:alice@email.com";
-    let ability = "email/send";
-
-    let no_caveat = Capability::from((resource, ability, &json!({})));
-    let x_caveat = Capability::from((resource, ability, &json!({ "x": true })));
-    let y_caveat = Capability::from((resource, ability, &json!({ "y": true })));
-    let z_caveat = Capability::from((resource, ability, &json!({ "z": true })));
-    let yz_caveat = Capability::from((resource, ability, &json!({ "y": true, "z": true })));
-
-    let valid = [
-        (vec![&no_caveat], vec![&no_caveat]),
-        (vec![&x_caveat], vec![&x_caveat]),
-        (vec![&no_caveat], vec![&x_caveat]),
-        (vec![&x_caveat, &y_caveat], vec![&x_caveat]),
-        (vec![&x_caveat, &y_caveat], vec![&x_caveat, &yz_caveat]),
-    ];
-
-    let invalid = [
-        (vec![&x_caveat], vec![&no_caveat]),
-        (vec![&x_caveat], vec![&y_caveat]),
-        (
-            vec![&x_caveat, &y_caveat],
-            vec![&x_caveat, &y_caveat, &z_caveat],
-        ),
-    ];
-
-    for (proof_capabilities, delegated_capabilities) in valid {
-        let is_successful =
-            test_capabilities_delegation(&proof_capabilities, &delegated_capabilities).await?;
-        assert!(
-            is_successful,
-            "{} enables {}",
-            render_caveats(&proof_capabilities),
-            render_caveats(&delegated_capabilities)
-        );
-    }
-
-    for (proof_capabilities, delegated_capabilities) in invalid {
-        let is_successful =
-            test_capabilities_delegation(&proof_capabilities, &delegated_capabilities).await?;
-        assert!(
-            !is_successful,
-            "{} disallows {}",
-            render_caveats(&proof_capabilities),
-            render_caveats(&delegated_capabilities)
-        );
-    }
-
-    fn render_caveats(capabilities: &Vec<&Capability>) -> String {
-        format!(
-            "{:?}",
-            capabilities
-                .iter()
-                .map(|cap| cap.caveat.to_string())
-                .collect::<Vec<String>>()
-        )
-    }
-
-    async fn test_capabilities_delegation(
-        proof_capabilities: &Vec<&Capability>,
-        delegated_capabilities: &Vec<&Capability>,
-    ) -> anyhow::Result<bool> {
-        let identities = Identities::new().await;
-        let mut did_parser = DidParser::new(SUPPORTED_KEYS);
-        let email_semantics = EmailSemantics {};
-        let mut store = MemoryStore::default();
-        let proof_capabilities = proof_capabilities
-            .to_owned()
-            .into_iter()
-            .map(|cap| cap.to_owned())
-            .collect::<Vec<Capability>>();
-        let delegated_capabilities = delegated_capabilities
-            .to_owned()
-            .into_iter()
-            .map(|cap| cap.to_owned())
-            .collect::<Vec<Capability>>();
-
-        let proof_ucan = UcanBuilder::default()
-            .issued_by(&identities.alice_key)
-            .for_audience(identities.mallory_did.as_str())
-            .with_lifetime(60)
-            .claiming_capabilities(&proof_capabilities)
-            .build()?
-            .sign()
-            .await?;
-
-        let ucan = UcanBuilder::default()
-            .issued_by(&identities.mallory_key)
-            .for_audience(identities.alice_did.as_str())
-            .with_lifetime(50)
-            .witnessed_by(&proof_ucan, None)
-            .claiming_capabilities(&delegated_capabilities)
-            .build()?
-            .sign()
-            .await?;
-        store.write_token(&proof_ucan.encode().unwrap()).await?;
-        store.write_token(&ucan.encode().unwrap()).await?;
-
-        let proof_chain = ProofChain::from_ucan(ucan, None, &mut did_parser, &store).await?;
-
-        Ok(enables_capabilities(
-            &proof_chain,
-            &email_semantics,
-            &identities.alice_did,
-            &delegated_capabilities,
-        ))
-    }
-
-    /// Checks proof chain returning true if all desired capabilities are enabled.
-    fn enables_capabilities(
-        proof_chain: &ProofChain,
-        semantics: &EmailSemantics,
-        originator: &String,
-        desired_capabilities: &Vec<Capability>,
-    ) -> bool {
-        let capability_infos = proof_chain.reduce_capabilities(semantics);
-
-        for desired_capability in desired_capabilities {
-            let mut has_capability = false;
-            for info in &capability_infos {
-                if info.originators.contains(originator)
-                    && info
-                        .capability
-                        .enables(&semantics.parse_capability(desired_capability).unwrap())
-                {
-                    has_capability = true;
-                    break;
-                }
-            }
-            if !has_capability {
-                return false;
-            }
-        }
-        true
-    }
-
-    Ok(())
 }

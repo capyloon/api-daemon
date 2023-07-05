@@ -1,4 +1,4 @@
-use crate::capability::{Ability, CapabilitySemantics, Scope};
+use crate::capability::{Action, CapabilitySemantics, Scope};
 use anyhow::{anyhow, Result};
 use url::Url;
 
@@ -11,7 +11,7 @@ pub enum WNFSCapLevel {
     SuperUser,
 }
 
-impl Ability for WNFSCapLevel {}
+impl Action for WNFSCapLevel {}
 
 impl TryFrom<String> for WNFSCapLevel {
     type Error = anyhow::Error;

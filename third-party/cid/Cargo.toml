@@ -10,10 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-rust-version = "1.60"
+edition = "2018"
 name = "cid"
-version = "0.10.1"
+version = "0.9.0"
 authors = ["Friedel Ziegelmayer <dignifiedquire@gmail.com>"]
 description = "CID in rust"
 homepage = "https://github.com/multiformats/rust-cid"
@@ -41,7 +40,7 @@ optional = true
 default-features = false
 
 [dependencies.multihash]
-version = "0.18.0"
+version = "0.17.0"
 default-features = false
 
 [dependencies.parity-scale-codec]
@@ -86,7 +85,6 @@ arb = [
     "quickcheck",
     "rand",
     "multihash/arb",
-    "multihash/multihash-impl",
     "multihash/sha2",
     "arbitrary",
 ]
@@ -109,5 +107,4 @@ std = [
     "unsigned-varint/std",
     "alloc",
     "multibase/std",
-    "serde/std",
 ]

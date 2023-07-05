@@ -1,4 +1,4 @@
-use super::{Ability, CapabilitySemantics, Scope};
+use super::{Action, CapabilitySemantics, Scope};
 use anyhow::{anyhow, Result};
 use url::Url;
 
@@ -7,7 +7,7 @@ pub enum ProofAction {
     Delegate,
 }
 
-impl Ability for ProofAction {}
+impl Action for ProofAction {}
 
 impl TryFrom<String> for ProofAction {
     type Error = anyhow::Error;

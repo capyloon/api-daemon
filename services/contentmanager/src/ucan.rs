@@ -42,10 +42,10 @@ impl UcanCapabilities {
         let mut superuser = false;
         let mut capabilities = vec![];
 
-        for value in ucan.capabilities().iter() {
+        for value in ucan.attenuation() {
             let att = Att {
-                with: value.resource.clone(),
-                can: value.ability.clone(),
+                with: value.with.clone(),
+                can: value.can.clone(),
             };
 
             if att.is_superuser() {

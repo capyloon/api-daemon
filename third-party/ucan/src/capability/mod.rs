@@ -1,9 +1,7 @@
 pub mod proof;
 
-mod caveats;
-mod data;
+mod iterator;
 mod semantics;
 
-pub use caveats::*;
-pub use data::*;
+pub use iterator::*;
 pub use semantics::*;

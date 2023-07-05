@@ -1,5 +1,4 @@
 use anyhow::Result;
-use base64::Engine;
 use libipld_core::{
     codec::{Decode, Encode},
     ipld::Ipld,
@@ -39,7 +38,10 @@ impl<T> DagJson for T where T: Serialize + DeserializeOwned {}
 /// Helper trait to encode structs as base64 as part of creating a JWT
 pub trait Base64Encode: DagJson {
     fn jwt_base64_encode(&self) -> Result<String> {
-        Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(self.to_dag_json()?))
+        Ok(base64::encode_config(
+            self.to_dag_json()?,
+            base64::URL_SAFE_NO_PAD,
+        ))
     }
 }
 

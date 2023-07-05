@@ -11,7 +11,7 @@
 //! This crate offers the [`builder::UcanBuilder`] abstraction to generate
 //! signed UCAN tokens.
 //!
-//! To generate a signed token, you need to provide a  [`crypto::KeyMaterial`]
+//! To generate a signed token, you need to provide a [`crypto::SigningKey`]
 //! implementation. For more information on providing a signing key, see the
 //! [`crypto`] module documentation.
 //!
@@ -43,7 +43,7 @@
 //! ```rust
 //! use ucan::{
 //!   chain::{ProofChain, CapabilityInfo},
-//!   capability::{CapabilitySemantics, Scope, Ability},
+//!   capability::{CapabilitySemantics, Scope, Action},
 //!   crypto::did::{DidParser, KeyConstructorSlice},
 //!   store::UcanJwtStore
 //! };
@@ -56,12 +56,12 @@
 //!     where
 //!         Semantics: CapabilitySemantics<S, A>,
 //!         S: Scope,
-//!         A: Ability,
+//!         A: Action,
 //!         Store: UcanJwtStore
 //! {
 //!     let mut did_parser = DidParser::new(SUPPORTED_KEY_TYPES);
 //!
-//!     Ok(ProofChain::try_from_token_string(ucan_token, None, &mut did_parser, store).await?
+//!     Ok(ProofChain::try_from_token_string(ucan_token, &mut did_parser, store).await?
 //!         .reduce_capabilities(semantics))
 //! }
 //! ```

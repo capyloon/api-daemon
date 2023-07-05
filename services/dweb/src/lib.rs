@@ -63,7 +63,7 @@ pub async fn validate_ucan_token(token: &str) -> Result<Ucan, ()> {
     let ucan = Ucan::from_str(token).map_err(|_| ())?;
     // Parse the token, check time bounds and signature.
     let mut parser = DidParser::new(SUPPORTED_UCAN_KEYS);
-    ucan.validate(None, &mut parser).await.map_err(|_| ())?;
+    ucan.validate(&mut parser).await.map_err(|_| ())?;
     // Check that the issuer is a known one.
     let dweb_state = crate::service::DWebServiceImpl::shared_state();
     let state = dweb_state.lock();

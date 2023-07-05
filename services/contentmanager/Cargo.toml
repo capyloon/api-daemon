@@ -18,7 +18,7 @@ serde = "1.0"
 serde_json = "1.0"
 thiserror = "1.0"
 tokio = "1"
-ucan = "0.4"
+ucan = "0.1"
 uuid = {version = "1.1", features = ["v4"]}
 
 [build-dependencies]

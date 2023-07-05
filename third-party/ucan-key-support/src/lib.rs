@@ -5,5 +5,4 @@ extern crate log;
 pub mod web_crypto;
 
 pub mod ed25519;
-pub mod p256;
 pub mod rsa;
