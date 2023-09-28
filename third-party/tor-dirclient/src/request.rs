@@ -9,6 +9,9 @@ use tor_netdoc::doc::netstatus::ConsensusFlavor;
 use tor_netdoc::doc::routerdesc::RdDigest;
 use tor_proto::circuit::ClientCirc;
 
+#[cfg(feature = "hs-client")]
+use tor_hscrypto::pk::HsBlindId;
+
 /// Alias for a result with a `RequestError`.
 type Result<T> = std::result::Result<T, crate::err::RequestError>;
 
@@ -373,15 +376,30 @@ impl FromIterator<MdDigest> for MicrodescRequest {
 }
 
 /// A request for one, many or all router descriptors.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[cfg(feature = "routerdesc")]
 pub struct RouterDescRequest {
+    /// The descriptors to request.
+    requested_descriptors: RequestedDescs,
+}
+
+/// Tracks the different router descriptor types.
+#[derive(Debug, Clone)]
+#[cfg(feature = "routerdesc")]
+enum RequestedDescs {
     /// If this is set, we just ask for all the descriptors.
-    // TODO: maybe this should be an enum, or maybe this case should
-    // be a different type.
-    all_descriptors: bool,
+    AllDescriptors,
     /// A list of digests to download.
-    digests: Vec<RdDigest>,
+    Digests(Vec<RdDigest>),
+}
+
+#[cfg(feature = "routerdesc")]
+impl Default for RouterDescRequest {
+    fn default() -> Self {
+        RouterDescRequest {
+            requested_descriptors: RequestedDescs::Digests(Vec::new()),
+        }
+    }
 }
 
 #[cfg(feature = "routerdesc")]
@@ -389,24 +407,12 @@ impl RouterDescRequest {
     /// Construct a request for all router descriptors.
     pub fn all() -> Self {
         RouterDescRequest {
-            all_descriptors: true,
-            digests: Vec::new(),
+            requested_descriptors: RequestedDescs::AllDescriptors,
         }
     }
     /// Construct a new empty request.
     pub fn new() -> Self {
         RouterDescRequest::default()
-    }
-    /// Add `d` to the list of digests we want to request.
-    pub fn push(&mut self, d: RdDigest) {
-        if !self.all_descriptors {
-            self.digests.push(d);
-        }
-    }
-
-    /// Return an iterator over the descriptor digests that we're asking for.
-    pub fn digests(&self) -> impl Iterator<Item = &RdDigest> {
-        self.digests.iter()
     }
 }
 
@@ -415,14 +421,18 @@ impl Requestable for RouterDescRequest {
     fn make_request(&self) -> Result<http::Request<()>> {
         let mut uri = "/tor/server/".to_string();
 
-        if self.all_descriptors {
-            uri.push_str("all");
-        } else {
-            uri.push_str("d/");
-            let ids = digest_list_stringify(&self.digests, hex::encode, "+")
-                .ok_or(RequestError::EmptyRequest)?;
-            uri.push_str(&ids);
+        match self.requested_descriptors {
+            RequestedDescs::Digests(ref digests) => {
+                uri.push_str("d/");
+                let ids = digest_list_stringify(digests, hex::encode, "+")
+                    .ok_or(RequestError::EmptyRequest)?;
+                uri.push_str(&ids);
+            }
+            RequestedDescs::AllDescriptors => {
+                uri.push_str("all");
+            }
         }
+
         uri.push_str(".z");
 
         let req = http::Request::builder().method("GET").uri(uri);
@@ -432,15 +442,17 @@ impl Requestable for RouterDescRequest {
     }
 
     fn partial_docs_ok(&self) -> bool {
-        self.digests.len() > 1 || self.all_descriptors
+        match self.requested_descriptors {
+            RequestedDescs::Digests(ref digests) => digests.len() > 1,
+            RequestedDescs::AllDescriptors => true,
+        }
     }
 
     fn max_response_len(&self) -> usize {
         // TODO: Pick a more principled number; I just made these up.
-        if self.all_descriptors {
-            64 * 1024 * 1024 // big but not impossible
-        } else {
-            self.digests.len().saturating_mul(8 * 1024)
+        match self.requested_descriptors {
+            RequestedDescs::Digests(ref digests) => digests.len().saturating_mul(8 * 1024),
+            RequestedDescs::AllDescriptors => 64 * 1024 * 1024, // big but not impossible
         }
     }
 }
@@ -448,11 +460,11 @@ impl Requestable for RouterDescRequest {
 #[cfg(feature = "routerdesc")]
 impl FromIterator<RdDigest> for RouterDescRequest {
     fn from_iter<I: IntoIterator<Item = RdDigest>>(iter: I) -> Self {
-        let mut req = Self::new();
-        for i in iter {
-            req.push(i);
+        let digests = iter.into_iter().collect();
+
+        RouterDescRequest {
+            requested_descriptors: RequestedDescs::Digests(digests),
         }
-        req
     }
 }
 
@@ -485,6 +497,57 @@ impl Requestable for RoutersOwnDescRequest {
     }
 }
 
+/// A request to download a hidden service descriptor
+///
+/// rend-spec-v3 2.2.6
+#[derive(Debug, Clone)]
+#[cfg(feature = "hs-client")]
+pub struct HsDescDownloadRequest {
+    /// What hidden service?
+    hsid: HsBlindId,
+    /// What's the largest acceptable response length?
+    max_len: usize,
+}
+
+#[cfg(feature = "hs-client")]
+impl HsDescDownloadRequest {
+    /// Construct a request for a single onion service descriptor by its
+    /// blinded ID.
+    pub fn new(hsid: HsBlindId) -> Self {
+        /// Default maximum length to use when we have no other information.
+        const DEFAULT_HSDESC_MAX_LEN: usize = 50_000;
+        HsDescDownloadRequest {
+            hsid,
+            max_len: DEFAULT_HSDESC_MAX_LEN,
+        }
+    }
+
+    /// Set the maximum acceptable response length.
+    pub fn set_max_len(&mut self, max_len: usize) {
+        self.max_len = max_len;
+    }
+}
+
+#[cfg(feature = "hs-client")]
+impl Requestable for HsDescDownloadRequest {
+    fn make_request(&self) -> Result<http::Request<()>> {
+        let hsid = Base64Unpadded::encode_string(self.hsid.as_ref());
+        // We hardcode version 3 here; if we ever have a v4 onion service
+        // descriptor, it will need a different kind of Request.
+        let uri = format!("/tor/hs/3/{}", hsid);
+        let req = http::Request::builder().method("GET").uri(uri);
+        let req = add_common_headers(req);
+        Ok(req.body(())?)
+    }
+
+    fn partial_docs_ok(&self) -> bool {
+        false
+    }
+
+    fn max_response_len(&self) -> usize {
+        self.max_len
+    }
+}
 /// List the encodings we accept
 fn encodings() -> String {
     #[allow(unused_mut)]
@@ -651,9 +714,14 @@ mod test {
         let d2 = b"of writing in hex...";
 
         let mut req = RouterDescRequest::default();
-        req.push(*d1);
+
+        if let RequestedDescs::Digests(ref mut digests) = req.requested_descriptors {
+            digests.push(*d1);
+        }
         assert!(!req.partial_docs_ok());
-        req.push(*d2);
+        if let RequestedDescs::Digests(ref mut digests) = req.requested_descriptors {
+            digests.push(*d2);
+        }
         assert!(req.partial_docs_ok());
         assert_eq!(req.max_response_len(), 16 << 10);
 
@@ -664,10 +732,34 @@ mod test {
 
         // Try it with FromIterator, and use some accessors.
         let req2: RouterDescRequest = vec![*d1, *d2].into_iter().collect();
-        let ds: Vec<_> = req2.digests().collect();
+        let ds: Vec<_> = match req2.requested_descriptors {
+            RequestedDescs::Digests(ref digests) => digests.iter().collect(),
+            RequestedDescs::AllDescriptors => Vec::new(),
+        };
         assert_eq!(ds, vec![d1, d2]);
         let req2 = crate::util::encode_request(&req2.make_request()?);
         assert_eq!(req, req2);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "hs-client")]
+    fn test_hs_desc_download_request() -> Result<()> {
+        use tor_llcrypto::pk::ed25519::Ed25519Identity;
+        let hsid = [1, 2, 3, 4].iter().cycle().take(32).cloned().collect_vec();
+        let hsid = Ed25519Identity::new(hsid[..].try_into().unwrap());
+        let hsid = HsBlindId::from(hsid);
+        let req = HsDescDownloadRequest::new(hsid);
+        assert!(!req.partial_docs_ok());
+        assert_eq!(req.max_response_len(), 50 * 1000);
+
+        let req = crate::util::encode_request(&req.make_request()?);
+
+        assert_eq!(
+            req,
+            format!("GET /tor/hs/3/AQIDBAECAwQBAgMEAQIDBAECAwQBAgMEAQIDBAECAwQ HTTP/1.0\r\naccept-encoding: {}\r\n\r\n", encodings())
+        );
+
         Ok(())
     }
 }

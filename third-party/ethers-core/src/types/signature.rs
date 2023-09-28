@@ -7,8 +7,8 @@ use elliptic_curve::{consts::U32, sec1::ToEncodedPoint};
 use generic_array::GenericArray;
 use k256::{
     ecdsa::{
-        recoverable::{Id as RecoveryId, Signature as RecoverableSignature},
-        Error as K256SignatureError, Signature as K256Signature,
+        Error as K256SignatureError, RecoveryId, Signature as RecoverableSignature,
+        Signature as K256Signature, VerifyingKey,
     },
     PublicKey as K256PublicKey,
 };
@@ -69,22 +69,6 @@ impl fmt::Display for Signature {
     }
 }
 
-#[cfg(feature = "eip712")]
-impl Signature {
-    /// Recovers the ethereum address which was used to sign a given EIP712
-    /// typed data payload.
-    ///
-    /// Recovery signature data uses 'Electrum' notation, this means the `v`
-    /// value is expected to be either `27` or `28`.
-    pub fn recover_typed_data<T>(&self, payload: T) -> Result<Address, SignatureError>
-    where
-        T: super::transaction::eip712::Eip712,
-    {
-        let encoded = payload.encode_eip712().map_err(|_| SignatureError::RecoveryError)?;
-        self.recover(encoded)
-    }
-}
-
 impl Signature {
     /// Verifies that signature on `message` was produced by `address`
     pub fn verify<M, A>(&self, message: M, address: A) -> Result<(), SignatureError>
@@ -115,9 +99,12 @@ impl Signature {
             RecoveryMessage::Hash(hash) => hash,
         };
 
-        let (recoverable_sig, _recovery_id) = self.as_signature()?;
-        let verify_key = recoverable_sig
-            .recover_verifying_key_from_digest_bytes(message_hash.as_ref().into())?;
+        let (recoverable_sig, recovery_id) = self.as_signature()?;
+        let verify_key = VerifyingKey::recover_from_prehash(
+            message_hash.as_ref(),
+            &recoverable_sig,
+            recovery_id,
+        )?;
 
         let public_key = K256PublicKey::from(&verify_key);
         let public_key = public_key.to_encoded_point(/* compress = */ false);
@@ -125,6 +112,19 @@ impl Signature {
         debug_assert_eq!(public_key[0], 0x04);
         let hash = crate::utils::keccak256(&public_key[1..]);
         Ok(Address::from_slice(&hash[12..]))
+    }
+
+    /// Recovers the ethereum address which was used to sign a given EIP712
+    /// typed data payload.
+    ///
+    /// Recovery signature data uses 'Electrum' notation, this means the `v`
+    /// value is expected to be either `27` or `28`.
+    pub fn recover_typed_data<T>(&self, payload: T) -> Result<Address, SignatureError>
+    where
+        T: super::transaction::eip712::Eip712,
+    {
+        let encoded = payload.encode_eip712().map_err(|_| SignatureError::RecoveryError)?;
+        self.recover(encoded)
     }
 
     /// Retrieves the recovery signature.
@@ -137,8 +137,7 @@ impl Signature {
             self.s.to_big_endian(&mut s_bytes);
             let gar: &GenericArray<u8, U32> = GenericArray::from_slice(&r_bytes);
             let gas: &GenericArray<u8, U32> = GenericArray::from_slice(&s_bytes);
-            let sig = K256Signature::from_scalars(*gar, *gas)?;
-            RecoverableSignature::new(&sig, recovery_id)?
+            K256Signature::from_scalars(*gar, *gas)?
         };
 
         Ok((signature, recovery_id))
@@ -147,7 +146,7 @@ impl Signature {
     /// Retrieve the recovery ID.
     pub fn recovery_id(&self) -> Result<RecoveryId, SignatureError> {
         let standard_v = normalize_recovery_id(self.v);
-        Ok(RecoveryId::new(standard_v)?)
+        Ok(RecoveryId::from_byte(standard_v).expect("normalized recovery id always valid"))
     }
 
     /// Copies and serializes `self` into a new `Vec` with the recovery id included

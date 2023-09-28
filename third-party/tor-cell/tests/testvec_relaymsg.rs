@@ -7,15 +7,16 @@ use tor_bytes::Error as BytesError;
 /// Except where noted, these were taken by instrumenting Tor
 /// 0.4.5.0-alpha-dev to dump all of its cells to the logs, and
 /// running in a chutney network with "test-network-all".
-use tor_cell::relaycell::{msg, RelayCmd};
+use tor_cell::relaycell::{msg, RelayCmd, RelayMsg};
+use tor_linkspec::LinkSpec;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use hex_literal::hex;
 
-#[cfg(feature = "onion-service")]
-use tor_cell::relaycell::onion_service;
+#[cfg(feature = "hs")]
+use tor_cell::relaycell::hs;
 #[cfg(feature = "experimental-udp")]
 use tor_cell::relaycell::udp;
 
@@ -28,15 +29,15 @@ fn unhex(s: &str) -> Vec<u8> {
     hex::decode(s).unwrap()
 }
 
-fn decode(cmd: RelayCmd, body: &[u8]) -> Result<msg::RelayMsg, BytesError> {
+fn decode(cmd: RelayCmd, body: &[u8]) -> Result<msg::AnyRelayMsg, BytesError> {
     let mut r = tor_bytes::Reader::from_slice(body);
-    msg::RelayMsg::decode_from_reader(cmd, &mut r)
+    msg::AnyRelayMsg::decode_from_reader(cmd, &mut r)
 }
 
 /// Assert that, when treated as a cell of type `cmd`, the hexadecimal
 /// body `s` decodes into the message `msg`, and then re-encodes into
 /// `s2`.
-fn msg_noncanonical(cmd: RelayCmd, s: &str, s2: &str, msg: &msg::RelayMsg) {
+fn msg_noncanonical(cmd: RelayCmd, s: &str, s2: &str, msg: &msg::AnyRelayMsg) {
     assert_eq!(msg.cmd(), cmd);
     let body = unhex(s);
     let body2 = unhex(s2);
@@ -60,7 +61,7 @@ fn msg_noncanonical(cmd: RelayCmd, s: &str, s2: &str, msg: &msg::RelayMsg) {
 /// Assert that, when treated as a cell of type `cmd`, the hexadecimal
 /// body `s` decodes into the message `msg`, and then re-encodes into
 /// `s`.
-fn msg(cmd: RelayCmd, s: &str, msg: &msg::RelayMsg) {
+fn msg(cmd: RelayCmd, s: &str, msg: &msg::AnyRelayMsg) {
     msg_noncanonical(cmd, s, s, msg);
 }
 
@@ -101,14 +102,14 @@ fn test_begin() {
     msg_error(
         cmd,
         "5b3a3a5d21", // [::]!
-        BytesError::BadMessage("missing port in begin cell"),
+        BytesError::InvalidMessage("missing port in begin cell".into()),
     );
 
     // hand-generated failure case: not ascii.
     msg_error(
         cmd,
         "746f7270726f6a656374e284a22e6f72673a34343300", // torproject™.org:443
-        BytesError::BadMessage("target address in begin cell not ascii"),
+        BytesError::InvalidMessage("target address in begin cell not ascii".into()),
     );
 
     // failure on construction: bad address.
@@ -123,7 +124,7 @@ fn test_begindir() {
     let cmd = RelayCmd::BEGIN_DIR;
     assert_eq!(Into::<u8>::into(cmd), 13_u8);
 
-    msg(cmd, "", &msg::RelayMsg::BeginDir);
+    msg(cmd, "", &msg::AnyRelayMsg::BeginDir(Default::default()));
 }
 
 #[test]
@@ -151,7 +152,7 @@ fn test_connected() {
     msg_error(
         cmd,
         "00000000 07 20010db8 00000000 00000000 00001122 00000E10",
-        BytesError::BadMessage("Invalid address type in CONNECTED cell"),
+        BytesError::InvalidMessage("Invalid address type in CONNECTED cell".into()),
     );
 }
 
@@ -160,7 +161,7 @@ fn test_drop() {
     let cmd = RelayCmd::DROP;
     assert_eq!(Into::<u8>::into(cmd), 10_u8);
 
-    msg(cmd, "", &msg::RelayMsg::Drop);
+    msg(cmd, "", &msg::AnyRelayMsg::Drop(Default::default()));
 }
 
 #[test]
@@ -217,7 +218,10 @@ fn test_extend2() {
             .unwrap();
     let addr = "127.0.0.1:5000".parse::<SocketAddr>().unwrap();
 
-    let ls = vec![addr.into(), rsa.into()];
+    let ls = vec![
+        LinkSpec::from(addr).encode().unwrap(),
+        LinkSpec::from(rsa).encode().unwrap(),
+    ];
     msg(
         cmd,
         body,
@@ -225,7 +229,7 @@ fn test_extend2() {
     );
 
     let message = decode(cmd, &unhex(body)[..]).unwrap();
-    if let msg::RelayMsg::Extend2(message) = message {
+    if let msg::AnyRelayMsg::Extend2(message) = message {
         assert_eq!(message.handshake_type(), 2);
         assert_eq!(message.handshake(), &handshake[..]);
     } else {
@@ -385,7 +389,7 @@ fn test_resolved() {
         &unhex("06 10 12340000000000000000000000005678 00000080")[..],
     )
     .unwrap();
-    if let msg::RelayMsg::Resolved(res) = message {
+    if let msg::AnyRelayMsg::Resolved(res) = message {
         assert_eq!(
             res.into_answers(),
             vec![(msg::ResolvedVal::Ip("1234::5678".parse().unwrap()), 128_u32)]
@@ -418,7 +422,7 @@ fn test_resolved() {
     msg_error(
         cmd,
         "04 03 010203 00000001",
-        BytesError::BadMessage("Wrong length for RESOLVED answer"),
+        BytesError::InvalidMessage("Wrong length for RESOLVED answer".into()),
     );
 }
 
@@ -443,7 +447,7 @@ fn test_truncate() {
     let cmd = RelayCmd::TRUNCATE;
     assert_eq!(Into::<u8>::into(cmd), 8_u8);
 
-    msg(cmd, "", &msg::RelayMsg::Truncate);
+    msg(cmd, "", &msg::AnyRelayMsg::Truncate(Default::default()));
 }
 
 #[test]
@@ -564,7 +568,7 @@ fn test_connect_udp() {
     msg_error(
         cmd,
         "00000000 07 04 01020304",
-        BytesError::BadMessage("Invalid address type"),
+        BytesError::InvalidMessage("Invalid address type".into()),
     );
 
     // A zero length address with and without hostname payload.
@@ -608,18 +612,18 @@ fn test_connected_udp() {
         cmd,
         "01 04 01020304 0050
          04 04 05060708 0050",
-        BytesError::BadMessage("Our address is a Hostname"),
+        BytesError::InvalidMessage("Our address is a Hostname".into()),
     );
     // Invalid their_address
     msg_error(
         cmd,
         "04 04 01020304 0050
          01 04 05060708 0050",
-        BytesError::BadMessage("Their address is a Hostname"),
+        BytesError::InvalidMessage("Their address is a Hostname".into()),
     );
 }
 
-#[cfg(feature = "onion-service")]
+#[cfg(feature = "hs")]
 #[test]
 fn test_establish_rendezvous() {
     let cmd = RelayCmd::ESTABLISH_RENDEZVOUS;
@@ -631,7 +635,7 @@ fn test_establish_rendezvous() {
         cmd,
         // 20 ones
         "0101010101010101010101010101010101010101",
-        &onion_service::EstablishRendezvous::new(cookie).into(),
+        &hs::EstablishRendezvous::new(cookie.into()).into(),
     );
 
     // Extra bytes are ignored
@@ -655,80 +659,119 @@ fn test_establish_rendezvous() {
     );
 }
 
-#[cfg(feature = "onion-service")]
+#[cfg(feature = "hs")]
 #[test]
 fn test_establish_intro() {
-    use tor_cell::relaycell::{
-        msg::RelayMsg,
-        onion_service::{AuthKeyType, EstIntroExtDoS, EstablishIntro},
-    };
+    use tor_cell::relaycell::hs::{est_intro::*, UnrecognizedExt};
 
     let cmd = RelayCmd::ESTABLISH_INTRO;
-    let auth_key_type = AuthKeyType::ED25519_SHA3_256;
-    let auth_key = vec![0, 1, 2, 3];
-    let extension_dos = EstIntroExtDoS::new(Some(1_i32), Some(2_i32))
-        .expect("invalid EST_INTRO_DOS_EXT parameter(s)");
+    let auth_key = [0x33; 32].into();
+    let extension_dos =
+        DosParams::new(Some(1_i32), Some(2_i32)).expect("invalid EST_INTRO_DOS_EXT parameter(s)");
     let handshake_auth = [1; 32];
-    let sig = vec![0, 1, 2, 3];
+    let sig = [0x15; 64]
+        .try_into()
+        .expect("those bytes aren't a signature");
     assert_eq!(Into::<u8>::into(cmd), 32);
 
     // Establish intro with one recognised extension
-    let mut es_intro = EstablishIntro::new(auth_key_type, auth_key, handshake_auth, sig);
-    es_intro.set_extension_dos(extension_dos);
+    let mut body = EstablishIntroDetails::new(auth_key);
+    body.set_extension_dos(extension_dos);
+    let es_intro = EstablishIntro::from_parts_for_test(body, handshake_auth.into(), sig);
     msg(
         cmd,
-        "02 0004 00010203
+        "02 0020 3333333333333333333333333333333333333333333333333333333333333333
          01 01 13 02 01 0000000000000001 02 0000000000000002
          0101010101010101010101010101010101010101010101010101010101010101
-         0004 00010203",
+         0040 1515151515151515151515151515151515151515151515151515151515151515
+              1515151515151515151515151515151515151515151515151515151515151515",
         &es_intro.into(),
     );
 
     // Establish intro with no extension
-    let auth_key = vec![0, 1, 2, 3];
-    let sig = vec![0, 1, 2, 3];
+    let body = EstablishIntroDetails::new(auth_key);
+    let es_intro = EstablishIntro::from_parts_for_test(body, handshake_auth.into(), sig);
     msg(
         cmd,
-        "02 0004 00010203
+        "02 0020 3333333333333333333333333333333333333333333333333333333333333333
          00
          0101010101010101010101010101010101010101010101010101010101010101
-         0004 00010203",
-        &EstablishIntro::new(auth_key_type, auth_key, handshake_auth, sig).into(),
+         0040 1515151515151515151515151515151515151515151515151515151515151515
+              1515151515151515151515151515151515151515151515151515151515151515",
+        &es_intro.into(),
     );
-
     // Establish intro with one recognised extension
     // and one unknown extension
-    let auth_key = vec![0, 1, 2, 3];
-    let sig = vec![0, 1, 2, 3];
-    let extension_dos = EstIntroExtDoS::new(Some(1_i32), Some(2_i32))
-        .expect("invalid EST_INTRO_DOS_EXT parameter(s)");
-
-    let body = "02 0004 00010203
+    let extension_dos =
+        DosParams::new(Some(1_i32), Some(2_i32)).expect("invalid EST_INTRO_DOS_EXT parameter(s)");
+    let extension_unrecognized = UnrecognizedExt::new(2.into(), vec![0]);
+    let mut body = EstablishIntroDetails::new(auth_key);
+    body.set_extension_dos(extension_dos);
+    body.set_extension_other(extension_unrecognized);
+    let es_intro = EstablishIntro::from_parts_for_test(body, handshake_auth.into(), sig);
+    msg(
+        cmd,
+        "02 0020 3333333333333333333333333333333333333333333333333333333333333333
          02 01 13 02 01 0000000000000001 02 0000000000000002 02 01 00
          0101010101010101010101010101010101010101010101010101010101010101
-         0004 00010203";
-    let actual_msg = decode(cmd, &unhex(body)[..]).unwrap();
-    let mut actual_bytes = vec![];
-    let mut expect_bytes = vec![];
-    actual_msg
-        .encode_onto(&mut actual_bytes)
-        .expect("Encode msg onto byte vector");
-    let mut es_intro = EstablishIntro::new(auth_key_type, auth_key, handshake_auth, sig);
-    es_intro.set_extension_dos(extension_dos);
-    let expected_msg: RelayMsg = es_intro.into();
-    expected_msg
-        .encode_onto(&mut expect_bytes)
-        .expect("Encode msg onto byte vector");
-    assert_eq!(actual_bytes, expect_bytes);
+         0040 1515151515151515151515151515151515151515151515151515151515151515
+              1515151515151515151515151515151515151515151515151515151515151515",
+        &es_intro.into(),
+    );
 }
 
-#[cfg(feature = "onion-service")]
+#[cfg(feature = "hs")]
+#[test]
+fn establish_intro_roundtrip() {
+    use tor_bytes::Reader;
+    use tor_cell::relaycell::hs::est_intro::*;
+    let mut rng = testing_rng().rng_compat();
+
+    // Now, generate an ESTABLISH_INTRO message and make sure it validates.
+    use tor_llcrypto::{pk::ed25519, util::rand_compat::RngCompatExt};
+    let keypair = ed25519::Keypair::generate(&mut rng);
+    let body = EstablishIntroDetails::new(keypair.public.into());
+    let mac_key = b"Amaryllidaceae Allium cepa var. proliferum";
+    let signed = body
+        .clone()
+        .sign_and_encode(&keypair, &mac_key[..])
+        .unwrap();
+
+    let mut r = Reader::from_slice(&signed[..]);
+    let parsed = EstablishIntro::decode_from_reader(RelayCmd::ESTABLISH_INTRO, &mut r).unwrap();
+    let parsed_body = parsed.clone().check_and_unwrap(&mac_key[..]).unwrap();
+    assert_eq!(format!("{:?}", parsed_body), format!("{:?}", body));
+
+    // But it won't validate if we have the wrong MAC key.
+    let check_error = parsed.check_and_unwrap(&mac_key[..3]);
+    assert!(check_error.is_err());
+}
+
+#[cfg(feature = "hs")]
+#[test]
+fn establish_intro_canned() {
+    use tor_bytes::Reader;
+    use tor_cell::relaycell::hs::est_intro::*;
+
+    // This message was generated by the C tor implementation, in a Chutney network.
+    let message = unhex(
+        "02 0020 75BC879BF697A9B12E1E10596FEF041127FECD11FDD80706AEAE35812EA74328
+         00
+         A3DF998D6749A9323035AD23DAA7F8607E4F87473A975E50A42DEC9C0E565C48
+         0040
+         5A7F5E53D55B307B5F7866AE14508DDA3412E2B3E4805176C25413CEDF204F7F
+         53EAECADC0844472AA7BEC3BDCBA0A65F1FCDEF397B399F534F46E535B0E6301",
+    );
+    let mac_key = unhex("250CCAF964B17B621A58CD82DF5DAFD060BA5F28");
+    let mut r = Reader::from_slice(&message[..]);
+    let parsed = EstablishIntro::decode_from_reader(RelayCmd::ESTABLISH_INTRO, &mut r).unwrap();
+    let _parsed_body = parsed.check_and_unwrap(&mac_key[..]).unwrap();
+}
+
+#[cfg(feature = "hs")]
 #[test]
 fn test_introduce() {
-    use tor_cell::relaycell::{
-        msg::RelayMsg,
-        onion_service::{AuthKeyType, Introduce1},
-    };
+    use tor_cell::relaycell::hs::{AuthKeyType, Introduce1};
 
     // Testing with Introduce1 only should be sufficient as long as
     // Introduce1 and Introduce2 share the same inner body
@@ -746,7 +789,7 @@ fn test_introduce() {
          02 0004 00010203
          00
          01090804",
-        &intro1.clone().into(),
+        &intro1.into(),
     );
 
     // Introduce1 with unknown extensions
@@ -755,16 +798,11 @@ fn test_introduce() {
          02 01 01 00 02 01 00
          01090804";
     let actual_msg = decode(cmd, &unhex(body)[..]).unwrap();
-    let mut actual_bytes = vec![];
-    let mut expect_bytes = vec![];
+    let mut actual_bytes = Vec::new();
     actual_msg
         .encode_onto(&mut actual_bytes)
         .expect("Encode msg onto byte vector");
-    let expected_msg: RelayMsg = intro1.into();
-    expected_msg
-        .encode_onto(&mut expect_bytes)
-        .expect("Encode msg onto byte vector");
-    assert_eq!(actual_bytes, expect_bytes);
+    assert_eq!(actual_bytes, unhex(body));
 
     // Introduce1 with legacy key id
     msg_error(
@@ -773,9 +811,104 @@ fn test_introduce() {
          02 0004 00010203
          00
          01090804",
-        BytesError::BadMessage("legacy key id in Introduce1."),
+        BytesError::InvalidMessage("legacy key id in Introduce1.".into()),
     );
 }
 // TODO: need to add tests for:
 //    - unrecognized
 //    - data
+
+#[cfg(feature = "hs")]
+#[test]
+fn test_rendezvous() {
+    use tor_cell::relaycell::hs::{Rendezvous1, Rendezvous2};
+    use tor_hscrypto::RendCookie;
+
+    let cmd1 = RelayCmd::RENDEZVOUS1;
+    let cmd2 = RelayCmd::RENDEZVOUS2;
+
+    let cookie = RendCookie::from([0; 20]);
+    // Introduce1 with no extension
+    let rend1 = Rendezvous1::new(cookie, hex!("123456"));
+    msg(
+        cmd1,
+        "0000000000000000000000000000000000000000
+         123456",
+        &rend1.clone().into(),
+    );
+
+    let rend2: Rendezvous2 = rend1.into();
+    msg(cmd2, "123456", &rend2.into());
+}
+
+#[cfg(feature = "hs")]
+#[test]
+fn test_introduce_ack() {
+    use tor_cell::relaycell::hs::{IntroduceAck, IntroduceAckStatus};
+
+    let cmd = RelayCmd::INTRODUCE_ACK;
+    let status = IntroduceAckStatus::SUCCESS;
+    let introduce_ack = IntroduceAck::new(status);
+    msg(cmd, "0000 00", &introduce_ack.into())
+}
+
+#[cfg(feature = "hs")]
+#[test]
+fn test_intro_established() {
+    use tor_cell::relaycell::hs::IntroEstablished;
+
+    let cmd = RelayCmd::INTRO_ESTABLISHED;
+    let intro_est = IntroEstablished::new();
+    msg(cmd, "00", &intro_est.into())
+}
+
+#[cfg(feature = "hs")]
+#[test]
+fn testvec_intro_payload() {
+    use tor_bytes::{Reader, Writer};
+    use tor_cell::relaycell::hs::intro_payload::*;
+    use tor_linkspec::{EncodedLinkSpec, LinkSpecType};
+
+    let cookie = hex!("1EFFEACE9BE629B357ADA359071A7912DB828A5B").into();
+    let onion_key = OnionKey::NtorOnionKey(
+        hex!("7D73D007977A08CD1ABAD50F6B836C718700D687E000728C357ABC7CE3C8334D")
+            .try_into()
+            .unwrap(),
+    );
+    let link_specifiers = vec![
+        EncodedLinkSpec::new(LinkSpecType::ORPORT_V4, hex!("7F000001138A")),
+        EncodedLinkSpec::new(
+            LinkSpecType::RSAID,
+            hex!("E48664DBCCEF9650B5D0E7B60E6DE9BCED2FB91E"),
+        ),
+        EncodedLinkSpec::new(
+            LinkSpecType::ED25519ID,
+            hex!("3FF84AA4B21453D20106BD4EDDA919386BF67D541CAA78F38BE6A08C2B3D0C4F"),
+        ),
+    ];
+    let expected = IntroduceHandshakePayload::new(cookie, onion_key, link_specifiers);
+
+    // Taken from a modified Tor client on a chutney network.
+    let encoded = hex!(
+        "1EFFEACE9BE629B357ADA359071A7912DB828A5B
+         00
+         01 0020 7D73D007977A08CD1ABAD50F6B836C718700D687E000728C357ABC7CE3C8334D
+         03 00 06 7F000001138A
+            02 14 E48664DBCCEF9650B5D0E7B60E6DE9BCED2FB91E
+            03 20 3FF84AA4B21453D20106BD4EDDA919386BF67D541CAA78F38BE6A08C2B3D0C4F
+         000000000000000000000000"
+    );
+
+    let padding_len = {
+        let mut r = Reader::from_slice(&encoded[..]);
+        let got: IntroduceHandshakePayload = r.extract().unwrap();
+        assert_eq!(format!("{got:?}"), format!("{expected:?}"));
+        r.remaining()
+    };
+
+    let mut v = Vec::new();
+    v.write(&expected).unwrap();
+    // There is padding so we can't do "eq" directly.
+    assert_eq!(&v[..], &encoded[..v.len()]);
+    assert_eq!(v.len(), encoded.len() - padding_len);
+}

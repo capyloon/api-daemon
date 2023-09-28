@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.7.5 (2023-04-24)
+### Fixed
+- Import failure ([#1021])
+
+[#1021]: https://github.com/RustCrypto/formats/pull/1021
+
+## 0.7.4 (2023-04-21)
+### Changed
+- Have `alloc` feature only weakly activate `pkcs8?/alloc` ([#1013])
+- Have `pem` feature only weakly activate `pkcs8?/pem` ([#1013])
+
+[#1013]: https://github.com/RustCrypto/formats/pull/1013
+
+## 0.7.3 (2023-04-18)
+### Added
+- Provide functions to construct `RsaPss` and `RsaOaepParams` ([#1010])
+
+### Changed
+- Use `NULL` parameters for SHA `AlgorithmIdentifier`s ([#1010])
+
+[#1010]: https://github.com/RustCrypto/formats/pull/1010
+
+## 0.7.2 (2023-04-04)
+### Added
+- `RsaPssParams::SALT_LEN_DEFAULT` ([#953])
+
+[#953]: https://github.com/RustCrypto/formats/pull/953
+
+## 0.7.1 (2023-03-05)
+### Fixed
+- `DecodeRsaPublicKey` blanket impl ([#916])
+
+[#916]: https://github.com/RustCrypto/formats/pull/916
+
+## 0.7.0 (2023-02-26) [YANKED]
+### Changed
+- Make PSS/OAEP params use generic `AlgorithmIdentifier` ([#799])
+- Bump `der` dependency to v0.7 ([#899])
+- Bump `spki` dependency to v0.7 ([#900])
+- Bump `pkcs8` to v0.10 ([#902])
+
+[#799]: https://github.com/RustCrypto/formats/pull/799
+[#899]: https://github.com/RustCrypto/formats/pull/899
+[#900]: https://github.com/RustCrypto/formats/pull/900
+[#902]: https://github.com/RustCrypto/formats/pull/902
+
+## 0.6.0 (Skipped)
+- Skipped to synchronize version number with `der` and `spki`
+
+## 0.5.0 (Skipped)
+- Skipped to synchronize version number with `der` and `spki`
+
 ## 0.4.1 (2022-10-10)
 ### Added
 - `RsaPssParams` support ([#698])

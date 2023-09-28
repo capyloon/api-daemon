@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -51,7 +53,7 @@ use std::sync::Arc;
 /// Wrapper type for Results returned from this crate.
 type Result<T> = std::result::Result<T, crate::Error>;
 
-pub use err::Error;
+pub use err::{Error, ErrorSource};
 #[cfg(not(target_arch = "wasm32"))]
 pub use fs::FsStateMgr;
 pub use handle::{DynStorageHandle, StorageHandle};

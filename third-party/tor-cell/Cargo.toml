@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-cell"
-version = "0.8.0"
+version = "0.12.0"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -41,60 +41,80 @@ rustdoc-args = [
 ]
 
 [dependencies]
-arrayref = "0.3"
-bitflags = "1"
+bitflags = "2"
 bytes = "1"
+derive_more = "0.99.3"
 educe = "0.4.6"
+paste = "1"
 rand = "0.8"
 thiserror = "1"
 
 [dependencies.caret]
-version = "0.3.0"
+version = "0.4.1"
 path = "../caret"
 
 [dependencies.tor-basic-utils]
-version = "0.5.0"
+version = "0.7.1"
 path = "../tor-basic-utils"
 
 [dependencies.tor-bytes]
-version = "0.6.1"
+version = "0.7.2"
 path = "../tor-bytes"
 
 [dependencies.tor-cert]
-version = "0.6.1"
+version = "0.7.2"
 path = "../tor-cert"
 
 [dependencies.tor-error]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-error"
 
 [dependencies.tor-hscrypto]
-version = "0.1.0"
+version = "0.3.0"
 path = "../tor-hscrypto"
 optional = true
 
 [dependencies.tor-linkspec]
-version = "0.6.0"
+version = "0.8.1"
 path = "../tor-linkspec"
 
 [dependencies.tor-llcrypto]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-llcrypto"
 
 [dependencies.tor-units]
-version = "0.4.1"
+version = "0.6.1"
 path = "../tor-units"
 
 [dev-dependencies]
 hex = "0.4"
-hex-literal = "0.3"
+hex-literal = "0.4"
 
 [features]
+__is_experimental = []
 default = []
 experimental = [
     "experimental-udp",
-    "onion-service",
+    "hs",
+    "testing",
 ]
-experimental-udp = []
-onion-service = ["tor-hscrypto"]
-testing = ["experimental-udp"]
+experimental-udp = ["__is_experimental"]
+full = [
+    "caret/full",
+    "tor-basic-utils/full",
+    "tor-bytes/full",
+    "tor-cert/full",
+    "tor-error/full",
+    "tor-hscrypto?/full",
+    "tor-linkspec/full",
+    "tor-llcrypto/full",
+    "tor-units/full",
+]
+hs = [
+    "tor-hscrypto",
+    "__is_experimental",
+]
+testing = [
+    "experimental-udp",
+    "__is_experimental",
+]

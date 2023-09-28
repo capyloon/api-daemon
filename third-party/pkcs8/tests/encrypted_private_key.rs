@@ -183,7 +183,7 @@ fn encrypt_ed25519_der_encpriv_aes256_pbkdf2_sha256() {
 #[test]
 fn encrypt_ed25519_der_encpriv_aes256_scrypt() {
     let scrypt_params = pkcs5::pbes2::Parameters::scrypt_aes256cbc(
-        Default::default(),
+        pkcs5::scrypt::Params::new(15, 8, 1, 32).unwrap(),
         &hex!("E6211E2348AD69E0"),
         &hex!("9BD0A6251F2254F9FD5963887C27CF01"),
     )
@@ -203,7 +203,7 @@ fn encode_ed25519_encpriv_aes256_pbkdf2_sha256_der() {
     let pk = EncryptedPrivateKeyInfo::try_from(ED25519_DER_AES256_PBKDF2_SHA256_EXAMPLE).unwrap();
     assert_eq!(
         ED25519_DER_AES256_PBKDF2_SHA256_EXAMPLE,
-        &pk.to_vec().unwrap()
+        &pk.to_der().unwrap()
     );
 }
 

@@ -29,7 +29,7 @@ use retry_error::RetryError;
 use tor_basic_utils::retry::RetryDelay;
 use tor_chanmgr::ChannelUsage;
 use tor_config::MutCfg;
-use tor_error::{internal, AbsRetryTime, HasRetryTime};
+use tor_error::{internal, AbsRetryTime, ErrorReport, HasRetryTime};
 use tor_rtcompat::{Runtime, SleepProviderExt};
 
 use async_trait::async_trait;
@@ -146,7 +146,7 @@ pub(crate) fn abstract_spec_find_supported<'a, 'b, S: AbstractSpec, C: AbstractC
 ///
 /// From this module's point of view, circuits are simply objects
 /// with unique identities, and a possible closed-state.
-pub(crate) trait AbstractCirc: Clone + Debug {
+pub(crate) trait AbstractCirc: Debug {
     /// Type for a unique identifier for circuits.
     type Id: Clone + Debug + Hash + Eq + Send + Sync;
     /// Return the unique identifier for this circuit.
@@ -233,7 +233,7 @@ pub(crate) trait AbstractCircBuilder: Send + Sync {
     /// that was originally passed to `plan_circuit`.  It _must_ also
     /// contain the spec that was originally returned by
     /// `plan_circuit`.
-    async fn build_circuit(&self, plan: Self::Plan) -> Result<(Self::Spec, Self::Circ)>;
+    async fn build_circuit(&self, plan: Self::Plan) -> Result<(Self::Spec, Arc<Self::Circ>)>;
 
     /// Return a "parallelism factor" with which circuits should be
     /// constructed for a given purpose.
@@ -312,7 +312,7 @@ pub(crate) struct OpenEntry<S, C> {
     /// Current AbstractCircSpec for this circuit's permitted usages.
     spec: S,
     /// The circuit under management.
-    circ: C,
+    circ: Arc<C>,
     /// When does this circuit expire?
     ///
     /// (Note that expired circuits are removed from the manager,
@@ -323,7 +323,7 @@ pub(crate) struct OpenEntry<S, C> {
 
 impl<S: AbstractSpec, C: AbstractCirc> OpenEntry<S, C> {
     /// Make a new OpenEntry for a given circuit and spec.
-    fn new(spec: S, circ: C, expiration: ExpirationInfo) -> Self {
+    fn new(spec: S, circ: Arc<C>, expiration: ExpirationInfo) -> Self {
         OpenEntry {
             spec,
             circ,
@@ -490,7 +490,7 @@ struct CircList<B: AbstractCircBuilder> {
     /// open circuits.
     ///
     /// A circuit is added here from [`AbstractCircMgr::do_launch`] when we find
-    /// that it completes successfully, and has not been cancelled.  
+    /// that it completes successfully, and has not been cancelled.
     /// When we decide that such a circuit should no longer be handed out for
     /// any new requests, we "retire" the circuit by removing it from this map.
     #[allow(clippy::type_complexity)]
@@ -515,7 +515,7 @@ struct CircList<B: AbstractCircBuilder> {
     /// decide that a circuit needs to be launched.
     ///
     /// Later, in [`AbstractCircMgr::do_launch`], once the circuit has finished
-    /// (or failed), we remove the entry (by pointer identity).  
+    /// (or failed), we remove the entry (by pointer identity).
     /// If we cannot find the entry, we conclude that the request has been
     /// _cancelled_, and so we discard any circuit that was created.
     pending_circs: PtrWeakHashSet<Weak<PendingEntry<B>>>,
@@ -744,7 +744,7 @@ pub(crate) struct AbstractCircMgr<B: AbstractCircBuilder, R: Runtime> {
 /// An action to take in order to satisfy a request for a circuit.
 enum Action<B: AbstractCircBuilder> {
     /// We found an open circuit: return immediately.
-    Open(B::Circ),
+    Open(Arc<B::Circ>),
     /// We found one or more pending circuits: wait until one succeeds,
     /// or all fail.
     Wait(FuturesUnordered<Shared<oneshot::Receiver<PendResult<B>>>>),
@@ -795,7 +795,7 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         self: &Arc<Self>,
         usage: &<B::Spec as AbstractSpec>::Usage,
         dir: DirInfo<'_>,
-    ) -> Result<(B::Circ, CircProvenance)> {
+    ) -> Result<(Arc<B::Circ>, CircProvenance)> {
         /// Return CEIL(a/b).
         ///
         /// Requires that a+b is less than usize::MAX.
@@ -862,12 +862,13 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                     match outcome {
                         Ok(Ok(circ)) => return Ok(circ),
                         Ok(Err(e)) => {
-                            info!("Circuit attempt {} failed.", attempt_num);
+                            debug!("Circuit attempt {} failed.", attempt_num);
                             Error::RequestFailed(e)
                         }
                         Err(_) => {
                             // We ran out of "remaining" time; there is nothing
                             // more to be done.
+                            warn!("All circuit attempts failed due to timeout");
                             retry_err.push(Error::RequestTimeout);
                             break;
                         }
@@ -875,9 +876,10 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                 }
                 Err(e) => {
                     // We couldn't pick the action!
-                    info!(
+                    debug!(
                         "Couldn't pick action for circuit attempt {}: {}",
-                        attempt_num, &e
+                        attempt_num,
+                        e.report(),
                     );
                     e
                 }
@@ -902,6 +904,7 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
             *count += 1;
             // If we have reached our limit of this kind of problem, we're done.
             if *count >= count_limit {
+                warn!("Reached circuit build retry limit, exiting...");
                 break;
             }
 
@@ -917,6 +920,7 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
             }
         }
 
+        warn!("Request failed");
         Err(Error::RequestFailed(retry_err))
     }
 
@@ -1023,7 +1027,7 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         self: Arc<Self>,
         act: Action<B>,
         usage: &<B::Spec as AbstractSpec>::Usage,
-    ) -> std::result::Result<(B::Circ, CircProvenance), RetryError<Box<Error>>> {
+    ) -> std::result::Result<(Arc<B::Circ>, CircProvenance), RetryError<Box<Error>>> {
         /// Store the error `err` into `retry_err`, as appropriate.
         fn record_error(
             retry_err: &mut RetryError<Box<Error>>,
@@ -1143,17 +1147,17 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                                 };
                                 if src == streams::Source::Left {
                                     info!(
-                                        "{} suggested we use {:?}, but restrictions failed: {:?}",
+                                        "{} suggested we use {:?}, but restrictions failed: {}",
                                         describe_source(building, src),
                                         id,
-                                        &e
+                                        e.report(),
                                     );
                                 } else {
                                     debug!(
-                                        "{} suggested we use {:?}, but restrictions failed: {:?}",
+                                        "{} suggested we use {:?}, but restrictions failed: {}",
                                         describe_source(building, src),
                                         id,
-                                        &e
+                                        e.report(),
                                     );
                                 }
                                 record_error(&mut retry_error, src, building, e);
@@ -1176,7 +1180,7 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
                 }
             }
 
-            info!(
+            debug!(
                 "While waiting on circuit: {:?} from {}",
                 id,
                 describe_source(building, src)
@@ -1366,13 +1370,31 @@ impl<B: AbstractCircBuilder + 'static, R: Runtime> AbstractCircMgr<B, R> {
         }
     }
 
+    /// Plan and launch a new circuit to a given target, bypassing our managed
+    /// pool of circuits.
+    ///
+    /// This method will always return a new circuit, and never return a circuit
+    /// that this CircMgr gives out for anything else.
+    ///
+    /// The new circuit will participate in the guard and timeout apparatus as
+    /// appropriate, no retry attempt will be made if the circuit fails.
+    #[cfg(feature = "hs-common")]
+    pub(crate) async fn launch_unmanaged(
+        &self,
+        usage: &<B::Spec as AbstractSpec>::Usage,
+        dir: DirInfo<'_>,
+    ) -> Result<(<B as AbstractCircBuilder>::Spec, Arc<B::Circ>)> {
+        let (_, plan) = self.plan_by_usage(dir, usage)?;
+        self.builder.build_circuit(plan.plan).await
+    }
+
     /// Remove the circuit with a given `id` from this manager.
     ///
     /// After this function is called, that circuit will no longer be handed
     /// out to any future requests.
     ///
     /// Return None if we have no circuit with the given ID.
-    pub(crate) fn take_circ(&self, id: &<B::Circ as AbstractCirc>::Id) -> Option<B::Circ> {
+    pub(crate) fn take_circ(&self, id: &<B::Circ as AbstractCirc>::Id) -> Option<Arc<B::Circ>> {
         let mut list = self.circs.lock().expect("poisoned lock");
         list.take_open(id).map(|e| e.circ)
     }
@@ -1501,7 +1523,7 @@ fn spawn_expiration_task<B, R>(
             };
             cm.expire_circ(&circ_id, exp_inst);
         }) {
-            warn!("Unable to launch expiration task: {}", e);
+            warn!("Unable to launch expiration task: {}", e.report());
         }
     }
 }
@@ -1684,14 +1706,14 @@ mod test {
             Ok((plan, spec.clone()))
         }
 
-        async fn build_circuit(&self, plan: FakePlan) -> Result<(FakeSpec, FakeCirc)> {
+        async fn build_circuit(&self, plan: FakePlan) -> Result<(FakeSpec, Arc<FakeCirc>)> {
             let op = plan.op;
             let sl = self.runtime.sleep(FAKE_CIRC_DELAY);
             self.runtime.allow_one_advance(FAKE_CIRC_DELAY);
             sl.await;
             match op {
-                FakeOp::Succeed => Ok((plan.spec, FakeCirc { id: FakeId::next() })),
-                FakeOp::WrongSpec(s) => Ok((s, FakeCirc { id: FakeId::next() })),
+                FakeOp::Succeed => Ok((plan.spec, Arc::new(FakeCirc { id: FakeId::next() }))),
+                FakeOp::WrongSpec(s) => Ok((s, Arc::new(FakeCirc { id: FakeId::next() }))),
                 FakeOp::Fail => Err(Error::CircTimeout),
                 FakeOp::Delay(d) => {
                     let sl = self.runtime.sleep(d);
@@ -2221,7 +2243,7 @@ mod test {
     #[test]
     fn test_find_supported() {
         let (ep_none, ep_web, ep_full) = get_exit_policies();
-        let fake_circ = FakeCirc { id: FakeId::next() };
+        let fake_circ = Arc::new(FakeCirc { id: FakeId::next() });
         let expiration = ExpirationInfo::Unused {
             use_before: Instant::now() + Duration::from_secs(60 * 60),
         };

@@ -74,7 +74,6 @@ use futures_core::FusedFuture;
 use futures_util::FutureExt;
 use std::fmt;
 use std::future::Future;
-use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -84,15 +83,17 @@ use std::time::{Duration, Instant};
 mod executor;
 
 #[macro_use]
-mod maybe;
+pub mod maybe;
 
 mod connection;
 mod inner;
 mod options;
 
 pub use self::connection::PoolConnection;
-pub(crate) use self::maybe::MaybePoolConnection;
 pub use self::options::{PoolConnectionMetadata, PoolOptions};
+
+#[doc(hidden)]
+pub use self::maybe::MaybePoolConnection;
 
 /// An asynchronous pool of SQLx database connections.
 ///
@@ -140,6 +141,27 @@ pub use self::options::{PoolConnectionMetadata, PoolOptions};
 /// * [SqlitePool][crate::sqlite::SqlitePool] (SQLite)
 ///
 /// [web::Data]: https://docs.rs/actix-web/3/actix_web/web/struct.Data.html
+///
+/// ### Note: Drop Behavior
+/// Due to a lack of async `Drop`, dropping the last `Pool` handle may not immediately clean
+/// up connections by itself. The connections will be dropped locally, which is sufficient for
+/// SQLite, but for client/server databases like MySQL and Postgres, that only closes the
+/// client side of the connection. The server will not know the connection is closed until
+/// potentially much later: this is usually dictated by the TCP keepalive timeout in the server
+/// settings.
+///
+/// Because the connection may not be cleaned up immediately on the server side, you may run
+/// into errors regarding connection limits if you are creating and dropping many pools in short
+/// order.
+///
+/// We recommend calling [`.close().await`] to gracefully close the pool and its connections
+/// when you are done using it. This will also wake any tasks that are waiting on an `.acquire()`
+/// call, so for long-lived applications it's a good idea to call `.close()` during shutdown.
+///
+/// If you're writing tests, consider using `#[sqlx::test]` which handles the lifetime of
+/// the pool for you.
+///
+/// [`.close().await`]: Pool::close
 ///
 /// ### Why Use a Pool?
 ///

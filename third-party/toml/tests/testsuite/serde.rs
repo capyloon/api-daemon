@@ -613,6 +613,28 @@ fn newtypes2() {
     }
 }
 
+#[test]
+fn newtype_variant() {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Struct {
+        field: Enum,
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    enum Enum {
+        Variant(u8),
+    }
+
+    equivalent! {
+        Struct { field: Enum::Variant(21) },
+        map! {
+            field: map! {
+                Variant: Value::Integer(21)
+            }
+        },
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 struct CanBeEmpty {
     a: Option<String>,
@@ -946,6 +968,20 @@ fn integer_min() {
 }
 
 #[test]
+fn integer_too_big() {
+    #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+    struct Foo {
+        a_b: u64,
+    }
+
+    let native = Foo { a_b: u64::MAX };
+    let err = Table::try_from(native.clone()).unwrap_err();
+    snapbox::assert_eq("u64 value was too large", err.to_string());
+    let err = toml::to_string(&native).unwrap_err();
+    snapbox::assert_eq("out-of-range value for u64 type", err.to_string());
+}
+
+#[test]
 fn integer_max() {
     #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
     struct Foo {
@@ -1049,4 +1085,12 @@ fn serialize_datetime_issue_333() {
     })
     .unwrap();
     assert_eq!(toml, "date = 2022-01-01\n");
+}
+
+#[test]
+fn datetime_offset_issue_496() {
+    let original = "value = 1911-01-01T10:11:12-00:36\n";
+    let toml = original.parse::<toml::Table>().unwrap();
+    let output = toml.to_string();
+    snapbox::assert_eq(original, output);
 }

@@ -12,258 +12,106 @@ use std::fmt::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use tor_bytes::{EncodeError, EncodeResult, Error, Result};
 use tor_bytes::{Readable, Reader, Writeable, Writer};
-use tor_linkspec::LinkSpec;
+use tor_linkspec::EncodedLinkSpec;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 
 use bitflags::bitflags;
 
-#[cfg(feature = "onion-service")]
-use super::onion_service;
+#[cfg(feature = "hs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hs")))]
+pub use super::hs::{
+    est_intro::EstablishIntro, EstablishRendezvous, IntroEstablished, Introduce1, Introduce2,
+    IntroduceAck, Rendezvous1, Rendezvous2, RendezvousEstablished,
+};
 #[cfg(feature = "experimental-udp")]
-use super::udp;
+#[cfg_attr(docsrs, doc(cfg(feature = "experimental-udp")))]
+pub use super::udp::{ConnectUdp, ConnectedUdp, Datagram};
 
+crate::restrict::restricted_msg! {
 /// A single parsed relay message, sent or received along a circuit
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum RelayMsg {
+@omit_from "avoid_conflict_with_a_blanket_implementation"
+pub enum AnyRelayMsg : RelayMsg {
     /// Create a stream
-    Begin(Begin),
+    Begin,
     /// Send data on a stream
-    Data(Data),
+    Data,
     /// Close a stream
-    End(End),
+    End,
     /// Successful response to a Begin message
-    Connected(Connected),
+    Connected,
     /// For flow control
-    Sendme(Sendme),
+    Sendme,
     /// Extend a circuit to a new hop (deprecated)
-    Extend(Extend),
+    Extend,
     /// Successful response to an Extend message (deprecated)
-    Extended(Extended),
+    Extended,
     /// Extend a circuit to a new hop
-    Extend2(Extend2),
+    Extend2,
     /// Successful response to an Extend2 message
-    Extended2(Extended2),
+    Extended2,
     /// Partially close a circuit
     Truncate,
     /// Tell the client that a circuit has been partially closed
-    Truncated(Truncated),
+    Truncated,
     /// Used for padding
     Drop,
     /// Launch a DNS request
-    Resolve(Resolve),
+    Resolve,
     /// Response to a Resolve message
-    Resolved(Resolved),
+    Resolved,
     /// Start a directory stream
     BeginDir,
     /// Start a UDP stream.
-    #[cfg(feature = "experimental-udp")]
-    ConnectUdp(udp::ConnectUdp),
+    [feature = "experimental-udp"]
+    ConnectUdp,
     /// Successful response to a ConnectUdp message
-    #[cfg(feature = "experimental-udp")]
-    ConnectedUdp(udp::ConnectedUdp),
+    [feature = "experimental-udp"]
+    ConnectedUdp,
     /// UDP stream data
-    #[cfg(feature = "experimental-udp")]
-    Datagram(udp::Datagram),
-
+    [feature = "experimental-udp"]
+    Datagram,
     /// Establish Introduction
-    #[cfg(feature = "onion-service")]
-    EstablishIntro(onion_service::EstablishIntro),
+    [feature = "hs"]
+    EstablishIntro,
     /// Establish Rendezvous
-    #[cfg(feature = "onion-service")]
-    EstablishRendezvous(onion_service::EstablishRendezvous),
+    [feature = "hs"]
+    EstablishRendezvous,
     /// Introduce1 (client to introduction point)
-    #[cfg(feature = "onion-service")]
-    Introduce1(onion_service::Introduce1),
+    [feature = "hs"]
+    Introduce1,
     /// Introduce2 (introduction point to service)
-    #[cfg(feature = "onion-service")]
-    Introduce2(onion_service::Introduce2),
+    [feature = "hs"]
+    Introduce2,
     /// Rendezvous1 (service to rendezvous point)
-    #[cfg(feature = "onion-service")]
-    Rendezvous1(onion_service::Rendezvous1),
+    [feature = "hs"]
+    Rendezvous1,
     /// Rendezvous2 (rendezvous point to client)
-    #[cfg(feature = "onion-service")]
-    Rendezvous2(onion_service::Rendezvous2),
+    [feature = "hs"]
+    Rendezvous2,
     /// Acknowledgement for EstablishIntro.
-    #[cfg(feature = "onion-service")]
-    IntroEstablished(onion_service::IntroEstablished),
-    /// Acknowledgment for EstalishRendezvous.
-    #[cfg(feature = "onion-service")]
-    RendEstablished,
+    [feature = "hs"]
+    IntroEstablished,
+    /// Acknowledgment for EstablishRendezvous.
+    [feature = "hs"]
+    RendezvousEstablished,
     /// Acknowledgement for Introduce1.
-    #[cfg(feature = "onion-service")]
-    IntroduceAck(onion_service::IntroduceAck),
+    [feature = "hs"]
+    IntroduceAck,
 
+    _ =>
     /// An unrecognized command.
-    Unrecognized(Unrecognized),
+    Unrecognized,
+    }
 }
 
 /// Internal: traits in common different cell bodies.
 pub trait Body: Sized {
-    /// Convert this type into a RelayMsg, wrapped appropriate.
-    fn into_message(self) -> RelayMsg;
     /// Decode a relay cell body from a provided reader.
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self>;
-    /// Encode the body of this cell into the end of a vec.
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()>;
-}
-
-impl<B: Body> From<B> for RelayMsg {
-    fn from(b: B) -> RelayMsg {
-        b.into_message()
-    }
-}
-
-impl RelayMsg {
-    /// Return the stream command associated with this message.
-    pub fn cmd(&self) -> RelayCmd {
-        use RelayMsg::*;
-        match self {
-            Begin(_) => RelayCmd::BEGIN,
-            Data(_) => RelayCmd::DATA,
-            End(_) => RelayCmd::END,
-            Connected(_) => RelayCmd::CONNECTED,
-            Sendme(_) => RelayCmd::SENDME,
-            Extend(_) => RelayCmd::EXTEND,
-            Extended(_) => RelayCmd::EXTENDED,
-            Extend2(_) => RelayCmd::EXTEND2,
-            Extended2(_) => RelayCmd::EXTENDED2,
-            Truncate => RelayCmd::TRUNCATE,
-            Truncated(_) => RelayCmd::TRUNCATED,
-            Drop => RelayCmd::DROP,
-            Resolve(_) => RelayCmd::RESOLVE,
-            Resolved(_) => RelayCmd::RESOLVED,
-            BeginDir => RelayCmd::BEGIN_DIR,
-            #[cfg(feature = "experimental-udp")]
-            ConnectUdp(_) => RelayCmd::CONNECT_UDP,
-            #[cfg(feature = "experimental-udp")]
-            ConnectedUdp(_) => RelayCmd::CONNECTED_UDP,
-            #[cfg(feature = "experimental-udp")]
-            Datagram(_) => RelayCmd::DATAGRAM,
-            #[cfg(feature = "onion-service")]
-            EstablishIntro(_) => RelayCmd::ESTABLISH_INTRO,
-            #[cfg(feature = "onion-service")]
-            EstablishRendezvous(_) => RelayCmd::ESTABLISH_RENDEZVOUS,
-            #[cfg(feature = "onion-service")]
-            Introduce1(_) => RelayCmd::INTRODUCE1,
-            #[cfg(feature = "onion-service")]
-            Introduce2(_) => RelayCmd::INTRODUCE2,
-            #[cfg(feature = "onion-service")]
-            Rendezvous1(_) => RelayCmd::RENDEZVOUS1,
-            #[cfg(feature = "onion-service")]
-            Rendezvous2(_) => RelayCmd::RENDEZVOUS2,
-            #[cfg(feature = "onion-service")]
-            IntroEstablished(_) => RelayCmd::INTRO_ESTABLISHED,
-            #[cfg(feature = "onion-service")]
-            RendEstablished => RelayCmd::RENDEZVOUS_ESTABLISHED,
-            #[cfg(feature = "onion-service")]
-            IntroduceAck(_) => RelayCmd::INTRODUCE_ACK,
-
-            Unrecognized(u) => u.cmd(),
-        }
-    }
-    /// Extract the body of this message from `r`
-    pub fn decode_from_reader(c: RelayCmd, r: &mut Reader<'_>) -> Result<Self> {
-        Ok(match c {
-            RelayCmd::BEGIN => RelayMsg::Begin(Begin::decode_from_reader(r)?),
-            RelayCmd::DATA => RelayMsg::Data(Data::decode_from_reader(r)?),
-            RelayCmd::END => RelayMsg::End(End::decode_from_reader(r)?),
-            RelayCmd::CONNECTED => RelayMsg::Connected(Connected::decode_from_reader(r)?),
-            RelayCmd::SENDME => RelayMsg::Sendme(Sendme::decode_from_reader(r)?),
-            RelayCmd::EXTEND => RelayMsg::Extend(Extend::decode_from_reader(r)?),
-            RelayCmd::EXTENDED => RelayMsg::Extended(Extended::decode_from_reader(r)?),
-            RelayCmd::EXTEND2 => RelayMsg::Extend2(Extend2::decode_from_reader(r)?),
-            RelayCmd::EXTENDED2 => RelayMsg::Extended2(Extended2::decode_from_reader(r)?),
-            RelayCmd::TRUNCATE => RelayMsg::Truncate,
-            RelayCmd::TRUNCATED => RelayMsg::Truncated(Truncated::decode_from_reader(r)?),
-            RelayCmd::DROP => RelayMsg::Drop,
-            RelayCmd::RESOLVE => RelayMsg::Resolve(Resolve::decode_from_reader(r)?),
-            RelayCmd::RESOLVED => RelayMsg::Resolved(Resolved::decode_from_reader(r)?),
-            RelayCmd::BEGIN_DIR => RelayMsg::BeginDir,
-            #[cfg(feature = "experimental-udp")]
-            RelayCmd::CONNECT_UDP => RelayMsg::ConnectUdp(udp::ConnectUdp::decode_from_reader(r)?),
-            #[cfg(feature = "experimental-udp")]
-            RelayCmd::CONNECTED_UDP => {
-                RelayMsg::ConnectedUdp(udp::ConnectedUdp::decode_from_reader(r)?)
-            }
-            #[cfg(feature = "experimental-udp")]
-            RelayCmd::DATAGRAM => RelayMsg::Datagram(udp::Datagram::decode_from_reader(r)?),
-            #[cfg(feature = "onion-service")]
-            RelayCmd::ESTABLISH_INTRO => {
-                RelayMsg::EstablishIntro(onion_service::EstablishIntro::decode_from_reader(r)?)
-            }
-            #[cfg(feature = "onion-service")]
-            RelayCmd::ESTABLISH_RENDEZVOUS => RelayMsg::EstablishRendezvous(
-                onion_service::EstablishRendezvous::decode_from_reader(r)?,
-            ),
-            #[cfg(feature = "onion-service")]
-            RelayCmd::INTRODUCE1 => {
-                RelayMsg::Introduce1(onion_service::Introduce1::decode_from_reader(r)?)
-            }
-
-            // TODO hs
-            // #[cfg(feature = "onion-service")]
-            // RelayCmd::RENDEZVOUS1 => todo!(),
-            // #[cfg(feature = "onion-service")]
-            // RelayCmd::RENDEZVOUS2 => todo!(),
-            // #[cfg(feature = "onion-service")]
-            // RelayCmd::INTRO_ESTABLISHED => todo!(),
-            // #[cfg(feature = "onion-service")]
-            // RelayCmd::RENDEZVOUS_ESTABLISHED => todo!(),
-            // #[cfg(feature = "onion-service")]
-            // RelayCmd::INTRODUCE_ACK => todo!(),
-            _ => RelayMsg::Unrecognized(Unrecognized::decode_with_cmd(c, r)?),
-        })
-    }
-
-    /// Encode the body of this message, not including command or length
-    #[allow(clippy::missing_panics_doc)] // TODO hs
-    pub fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
-        use RelayMsg::*;
-        match self {
-            Begin(b) => b.encode_onto(w),
-            Data(b) => b.encode_onto(w),
-            End(b) => b.encode_onto(w),
-            Connected(b) => b.encode_onto(w),
-            Sendme(b) => b.encode_onto(w),
-            Extend(b) => b.encode_onto(w),
-            Extended(b) => b.encode_onto(w),
-            Extend2(b) => b.encode_onto(w),
-            Extended2(b) => b.encode_onto(w),
-            Truncate => Ok(()),
-            Truncated(b) => b.encode_onto(w),
-            Drop => Ok(()),
-            Resolve(b) => b.encode_onto(w),
-            Resolved(b) => b.encode_onto(w),
-            BeginDir => Ok(()),
-            #[cfg(feature = "experimental-udp")]
-            ConnectUdp(b) => b.encode_onto(w),
-            #[cfg(feature = "experimental-udp")]
-            ConnectedUdp(b) => b.encode_onto(w),
-            #[cfg(feature = "experimental-udp")]
-            Datagram(b) => b.encode_onto(w),
-            #[cfg(feature = "onion-service")]
-            EstablishIntro(b) => b.encode_onto(w),
-            #[cfg(feature = "onion-service")]
-            EstablishRendezvous(b) => b.encode_onto(w),
-            #[cfg(feature = "onion-service")]
-            Introduce1(b) => b.encode_onto(w),
-            #[cfg(feature = "onion-service")]
-            Introduce2(b) => b.encode_onto(w),
-            #[cfg(feature = "onion-service")]
-            Rendezvous1(_) => todo!(), // TODO hs
-            #[cfg(feature = "onion-service")]
-            Rendezvous2(_) => todo!(), // TODO hs
-            #[cfg(feature = "onion-service")]
-            IntroEstablished(_) => todo!(), // TODO hs
-            #[cfg(feature = "onion-service")]
-            RendEstablished => todo!(), // TODO hs
-            #[cfg(feature = "onion-service")]
-            IntroduceAck(_) => todo!(), // TODO hs
-
-            Unrecognized(b) => b.encode_onto(w),
-        }
-    }
+    /// Encode the body of this cell into the end of a writer.
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()>;
 }
 
 bitflags! {
@@ -271,6 +119,7 @@ bitflags! {
     ///
     /// For historical reasons, these flags are constructed so that 0
     /// is a reasonable default for all of them.
+    #[derive(Clone, Copy, Debug)]
     pub struct BeginFlags : u32 {
         /// The client would accept a connection to an IPv6 address.
         const IPV6_OKAY = (1<<0);
@@ -354,9 +203,6 @@ impl Begin {
 }
 
 impl Body for Begin {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Begin(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let addr = {
             if r.peek(1)? == b"[" {
@@ -365,7 +211,7 @@ impl Body for Begin {
                 let a = r.take_until(b']')?;
                 let colon = r.take_u8()?;
                 if colon != b':' {
-                    return Err(Error::BadMessage("missing port in begin cell"));
+                    return Err(Error::InvalidMessage("missing port in begin cell".into()));
                 }
                 a
             } else {
@@ -377,15 +223,17 @@ impl Body for Begin {
         let flags = if r.remaining() >= 4 { r.take_u32()? } else { 0 };
 
         if !addr.is_ascii() {
-            return Err(Error::BadMessage("target address in begin cell not ascii"));
+            return Err(Error::InvalidMessage(
+                "target address in begin cell not ascii".into(),
+            ));
         }
 
         let port = std::str::from_utf8(port)
-            .map_err(|_| Error::BadMessage("port in begin cell not utf8"))?;
+            .map_err(|_| Error::InvalidMessage("port in begin cell not utf8".into()))?;
 
         let port = port
             .parse()
-            .map_err(|_| Error::BadMessage("port in begin cell not a valid port"))?;
+            .map_err(|_| Error::InvalidMessage("port in begin cell not a valid port".into()))?;
 
         Ok(Begin {
             addr: addr.into(),
@@ -393,7 +241,7 @@ impl Body for Begin {
             flags: flags.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         if self.addr.contains(&b':') {
             w.write_u8(b'[');
             w.write_all(&self.addr[..]);
@@ -421,6 +269,11 @@ impl Body for Begin {
 #[derive(Debug, Clone)]
 pub struct Data {
     /// Contents of the cell, to be sent on a specific stream
+    //
+    // TODO: There's a good case to be made that this should be a BoxedCellBody
+    // instead, to avoid allocations and copies.  But first probably we should
+    // figure out how proposal 340 will work with this.  Possibly, we will wind
+    // up using `bytes` or something.
     body: Vec<u8>,
 }
 impl Data {
@@ -469,16 +322,13 @@ impl AsRef<[u8]> for Data {
 }
 
 impl Body for Data {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Data(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Data {
             body: r.take(r.remaining())?.into(),
         })
     }
-    fn encode_onto(mut self, w: &mut Vec<u8>) -> EncodeResult<()> {
-        w.append(&mut self.body);
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
+        w.write_all(&self.body);
         Ok(())
     }
 }
@@ -582,9 +432,6 @@ impl End {
     }
 }
 impl Body for End {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::End(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         if r.remaining() == 0 {
             return Ok(End {
@@ -615,7 +462,7 @@ impl Body for End {
             Ok(End { reason, addr: None })
         }
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u8(self.reason.into());
         if let (EndReason::EXITPOLICY, Some((addr, ttl))) = (self.reason, self.addr) {
             match addr {
@@ -673,9 +520,6 @@ impl Connected {
     }
 }
 impl Body for Connected {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Connected(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         if r.remaining() == 0 {
             return Ok(Connected { addr: None });
@@ -683,7 +527,9 @@ impl Body for Connected {
         let ipv4 = r.take_u32()?;
         let addr = if ipv4 == 0 {
             if r.take_u8()? != 6 {
-                return Err(Error::BadMessage("Invalid address type in CONNECTED cell"));
+                return Err(Error::InvalidMessage(
+                    "Invalid address type in CONNECTED cell".into(),
+                ));
             }
             IpAddr::V6(r.extract()?)
         } else {
@@ -695,7 +541,7 @@ impl Body for Connected {
             addr: Some((addr, ttl)),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         if let Some((addr, ttl)) = self.addr {
             match addr {
                 IpAddr::V4(v4) => w.write(&v4)?,
@@ -752,9 +598,6 @@ impl Sendme {
     }
 }
 impl Body for Sendme {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Sendme(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let digest = if r.remaining() == 0 {
             None
@@ -767,23 +610,23 @@ impl Body for Sendme {
                     Some(r.take(dlen as usize)?.into())
                 }
                 _ => {
-                    return Err(Error::BadMessage("Unrecognized SENDME version."));
+                    return Err(Error::InvalidMessage("Unrecognized SENDME version.".into()));
                 }
             }
         };
         Ok(Sendme { digest })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         match self.digest {
             None => (),
-            Some(mut x) => {
+            Some(x) => {
                 w.write_u8(1);
                 let bodylen: u16 = x
                     .len()
                     .try_into()
                     .map_err(|_| EncodeError::BadLengthValue)?;
                 w.write_u16(bodylen);
-                w.append(&mut x);
+                w.write_all(&x);
             }
         }
         Ok(())
@@ -817,9 +660,6 @@ impl Extend {
     }
 }
 impl Body for Extend {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Extend(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let addr = r.extract()?;
         let port = r.take_u16()?;
@@ -832,7 +672,7 @@ impl Body for Extend {
             rsaid,
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write(&self.addr)?;
         w.write_u16(self.port);
         w.write_all(&self.handshake[..]);
@@ -858,15 +698,12 @@ impl Extended {
     }
 }
 impl Body for Extended {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Extended(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let handshake = r.take(TAP_S_HANDSHAKE_LEN)?.into();
         Ok(Extended { handshake })
     }
-    fn encode_onto(mut self, w: &mut Vec<u8>) -> EncodeResult<()> {
-        w.append(&mut self.handshake);
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
+        w.write_all(&self.handshake);
         Ok(())
     }
 }
@@ -892,7 +729,7 @@ pub struct Extend2 {
     /// These link specifiers describe where to find the target relay
     /// that the recipient should extend to.  They include things like
     /// IP addresses and identity keys.
-    linkspec: Vec<LinkSpec>,
+    linkspec: Vec<EncodedLinkSpec>,
     /// Type of handshake to be sent in a CREATE2 cell
     handshake_type: u16,
     /// Body of the handshake to be sent in a CREATE2 cell
@@ -900,9 +737,7 @@ pub struct Extend2 {
 }
 impl Extend2 {
     /// Create a new Extend2 cell.
-    pub fn new(mut linkspec: Vec<LinkSpec>, handshake_type: u16, handshake: Vec<u8>) -> Self {
-        LinkSpec::sort_by_type(linkspec.as_mut());
-
+    pub fn new(linkspec: Vec<EncodedLinkSpec>, handshake_type: u16, handshake: Vec<u8>) -> Self {
         Extend2 {
             linkspec,
             handshake_type,
@@ -922,9 +757,6 @@ impl Extend2 {
 }
 
 impl Body for Extend2 {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Extend2(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let n = r.take_u8()?;
         let linkspec = r.extract_n(n as usize)?;
@@ -937,7 +769,7 @@ impl Body for Extend2 {
             handshake,
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         let n_linkspecs: u8 = self
             .linkspec
             .len()
@@ -981,9 +813,6 @@ impl Extended2 {
     }
 }
 impl Body for Extended2 {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Extended2(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let hlen = r.take_u16()?;
         let handshake = r.take(hlen as usize)?;
@@ -991,7 +820,7 @@ impl Body for Extended2 {
             handshake: handshake.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         let handshake_len: u16 = self
             .handshake
             .len()
@@ -1026,15 +855,12 @@ impl Truncated {
     }
 }
 impl Body for Truncated {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Truncated(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Truncated {
             reason: r.take_u8()?.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_u8(self.reason.into());
         Ok(())
     }
@@ -1082,16 +908,13 @@ impl Resolve {
     }
 }
 impl Body for Resolve {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Resolve(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let query = r.take_until(0)?;
         Ok(Resolve {
             query: query.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_all(&self.query[..]);
         w.write_u8(0);
         Ok(())
@@ -1140,7 +963,9 @@ impl Readable for ResolvedVal {
         let len = r.take_u8()? as usize;
         if let Some(expected_len) = res_len(tp) {
             if len != expected_len {
-                return Err(Error::BadMessage("Wrong length for RESOLVED answer"));
+                return Err(Error::InvalidMessage(
+                    "Wrong length for RESOLVED answer".into(),
+                ));
             }
         }
         Ok(match tp {
@@ -1251,9 +1076,6 @@ impl Resolved {
     }
 }
 impl Body for Resolved {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Resolved(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         let mut answers = Vec::new();
         while r.remaining() > 0 {
@@ -1263,7 +1085,7 @@ impl Body for Resolved {
         }
         Ok(Resolved { answers })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         for (rv, ttl) in &self.answers {
             w.write(rv)?;
             w.write_u32(*ttl);
@@ -1306,17 +1128,113 @@ impl Unrecognized {
 }
 
 impl Body for Unrecognized {
-    fn into_message(self) -> RelayMsg {
-        RelayMsg::Unrecognized(self)
-    }
     fn decode_from_reader(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Unrecognized {
             cmd: 0.into(),
             body: r.take(r.remaining())?.into(),
         })
     }
-    fn encode_onto(self, w: &mut Vec<u8>) -> EncodeResult<()> {
+    fn encode_onto<W: Writer + ?Sized>(self, w: &mut W) -> EncodeResult<()> {
         w.write_all(&self.body[..]);
         Ok(())
     }
 }
+
+/// Declare a message type for a message with an empty body.
+macro_rules! empty_body {
+   {
+       $(#[$meta:meta])*
+       pub struct $name:ident {}
+   } => {
+       $(#[$meta])*
+       #[derive(Clone,Debug,Default)]
+       #[non_exhaustive]
+       pub struct $name {}
+       impl $crate::relaycell::msg::Body for $name {
+           fn decode_from_reader(_r: &mut Reader<'_>) -> Result<Self> {
+               Ok(Self::default())
+           }
+           fn encode_onto<W: Writer + ?Sized>(self, _w: &mut W) -> EncodeResult<()> {
+               Ok(())
+           }
+       }
+   }
+}
+pub(crate) use empty_body;
+
+empty_body! {
+    /// A padding message, which is always ignored.
+    pub struct Drop {}
+}
+empty_body! {
+    /// Tells a circuit to close all downstream hops on the circuit.
+    pub struct Truncate {}
+}
+empty_body! {
+    /// Opens a new stream on a directory cache.
+    pub struct BeginDir {}
+}
+
+/// Helper: declare a RelayMsg implementation for a message type that has a
+/// fixed command.
+//
+// TODO: It might be better to merge Body with RelayMsg, but that is complex,
+// since their needs are _slightly_ different.
+//
+// TODO: If we *do* make the change above, then perhaps we should also implement
+// our restricted enums in terms of this, so that there is only one instance of
+// [<$body:snake:upper>]
+macro_rules! msg_impl_relaymsg {
+    ($($body:ident),* $(,)?) =>
+    {paste::paste!{
+       $(impl crate::relaycell::RelayMsg for $body {
+            fn cmd(&self) -> crate::relaycell::RelayCmd { crate::relaycell::RelayCmd::[< $body:snake:upper >] }
+            fn encode_onto<W: tor_bytes::Writer + ?Sized>(self, w: &mut W) -> tor_bytes::EncodeResult<()> {
+                crate::relaycell::msg::Body::encode_onto(self, w)
+            }
+            fn decode_from_reader(cmd: RelayCmd, r: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
+                if cmd != crate::relaycell::RelayCmd::[< $body:snake:upper >] {
+                    return Err(tor_bytes::Error::InvalidMessage(
+                        format!("Expected {} command; got {cmd}", stringify!([< $body:snake:upper >])).into()
+                    ));
+                }
+                crate::relaycell::msg::Body::decode_from_reader(r)
+            }
+        }
+
+        impl TryFrom<AnyRelayMsg> for $body {
+            type Error = crate::Error;
+            fn try_from(msg: AnyRelayMsg) -> crate::Result<$body> {
+                use crate::relaycell::RelayMsg;
+                match msg {
+                    AnyRelayMsg::$body(b) => Ok(b),
+                    _ => Err(crate::Error::CircProto(format!("Expected {}; got {}" ,
+                                                     stringify!([<$body:snake:upper>]),
+                                                     msg.cmd())) ),
+                }
+            }
+        }
+        )*
+    }}
+}
+
+msg_impl_relaymsg!(
+    Begin, Data, End, Connected, Sendme, Extend, Extended, Extend2, Extended2, Truncate, Truncated,
+    Drop, Resolve, Resolved, BeginDir,
+);
+
+#[cfg(feature = "experimental-udp")]
+msg_impl_relaymsg!(ConnectUdp, ConnectedUdp, Datagram);
+
+#[cfg(feature = "hs")]
+msg_impl_relaymsg!(
+    EstablishIntro,
+    EstablishRendezvous,
+    Introduce1,
+    Introduce2,
+    Rendezvous1,
+    Rendezvous2,
+    IntroEstablished,
+    RendezvousEstablished,
+    IntroduceAck,
+);

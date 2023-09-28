@@ -13,66 +13,22 @@
 //! It is the caller's responsibility to call `.item()` in the right order,
 //! with the right keywords and arguments.
 
-#![allow(unused_variables)] // TODO hs
-#![allow(unused_imports)] // TODO hs
-#![allow(dead_code)] // TODO hs
-#![allow(clippy::missing_docs_in_private_items)] // TODO hs
-#![allow(clippy::needless_pass_by_value)] // TODO hs
-
-use std::fmt::{self, Display, Write};
-use std::marker::PhantomData;
-use std::ops::Deref;
+use std::fmt::{Display, Write};
 use std::time::SystemTime;
 
 use base64ct::{Base64, Encoding};
 use humantime::format_rfc3339;
+use rand::{CryptoRng, RngCore};
 use tor_bytes::EncodeError;
-use tor_error::{internal, into_internal, Bug};
+use tor_error::{internal, Bug};
 
 use crate::parse::keyword::Keyword;
 use crate::parse::tokenize::tag_keywords_ok;
 
-/// Network document text according to dir-spec.txt s1.2 and maybe s1.3
+/// Encoder, representing a partially-built document.
 ///
-/// Contains just the text, but marked with the type of the builder
-/// for clarity in function signatures etc.
-//
-// TODO hs: Is this type carrying its weight, or should we just replace it with String ?
-pub struct NetdocText<Builder> {
-    /// The actual document
-    text: String,
-    /// Marker.  Variance: this somehow came from a T (not that we expect this to matter)
-    kind: PhantomData<Builder>,
-}
-
-impl<B> Deref for NetdocText<B> {
-    type Target = str;
-    fn deref(&self) -> &str {
-        &self.text
-    }
-}
-
-/// Encoder, representing a partially-built document
-///
-/// # Example
-///
-/// # TODO hs, actually fix and test this example
-/// ```rust,ignore
-/// use OnionServiceKeyword as K;
-///
-/// let mut document = NetDocEncoder::new();
-/// let beginning = document.marker();
-/// document.item(K::HsDescriptor).arg(3);
-/// document.item(K::DescriptorLifetime).arg(&self.lifetime);
-/// document.item(K::DescriptorSigningKeyCert).object("ED25519 CERT", &self.cert[..]);
-/// document.item(K::RevisionCounter).arg(&self.counter);
-/// document.item(K::Superencrypted).object("MESSAGE", inner_text);
-/// let end = document.marker();
-/// let signature = key.sign(document.slice(beginning, end));
-/// document.item(K::Signature).arg(B64(signature));
-///
-/// let text = document.finish()?;
-/// ```
+/// For example usage, see the tests in this module, or a descriptor building
+/// function in tor-netdoc (such as `hsdesc::build::inner::HsDescInner::build_sign`).
 #[derive(Debug, Clone)]
 pub(crate) struct NetdocEncoder {
     /// The being-built document, with everything accumulated so far
@@ -182,6 +138,7 @@ impl NetdocEncoder {
     /// In particular, `s` should end with a newline.
     /// No checks are performed.
     /// Incorrect use might lead to malformed documents, or later errors.
+    #[allow(dead_code)] // TODO: We should remove this if it never used.
     pub(crate) fn push_raw_string(&mut self, s: &dyn Display) {
         self.raw(s);
     }
@@ -198,9 +155,6 @@ impl NetdocEncoder {
     /// Obtain the text of a section of the document
     ///
     /// Useful for making a signature.
-    //
-    // Q. Should this return `&str` or `NetdocText<'self>` ?
-    // (`NetdocText would have to then contain `Cow`, which is fine.)
     pub(crate) fn slice(&self, begin: Cursor, end: Cursor) -> Result<&str, Bug> {
         self.built
             .as_ref()
@@ -210,12 +164,8 @@ impl NetdocEncoder {
     }
 
     /// Build the document into textual form
-    pub(crate) fn finish(self) -> Result<NetdocText<Self>, Bug> {
-        let text = self.built?;
-        Ok(NetdocText {
-            text,
-            kind: PhantomData,
-        })
+    pub(crate) fn finish(self) -> Result<String, Bug> {
+        self.built
     }
 }
 
@@ -228,6 +178,12 @@ impl ItemArgument for str {
         }
         out.args_raw_nonempty(&self);
         Ok(())
+    }
+}
+
+impl ItemArgument for String {
+    fn write_onto(&self, out: &mut ItemEncoder<'_>) -> Result<(), Bug> {
+        ItemArgument::write_onto(&self.as_str(), out)
     }
 }
 
@@ -301,6 +257,7 @@ impl<'n> ItemEncoder<'n> {
     /// separated by (single) spaces.
     /// This is not (properly) checked.
     /// Incorrect use might lead to malformed documents, or later errors.
+    #[allow(unused)] // TODO: We should eventually remove this if nothing starts to use it.
     pub(crate) fn args_raw_string(mut self, args: &dyn Display) -> Self {
         let args = args.to_string();
         if !args.is_empty() {
@@ -363,6 +320,12 @@ impl Drop for ItemEncoder<'_> {
     }
 }
 
+/// A trait for building and signing netdocs.
+pub trait NetdocBuilder {
+    /// Build the document into textual form.
+    fn build_sign<R: RngCore + CryptoRng>(self, rng: &mut R) -> Result<String, EncodeError>;
+}
+
 #[cfg(test)]
 mod test {
     // @@ begin test lint list maintained by maint/add_warning @@
@@ -423,9 +386,9 @@ qiBHRBGbtkF/Re5pb438HC/CGyuujp43oZ3CUYosJOfY/X+sD0aVAgMBAAE";
             .object("SIGNATURE", []);
 
         let doc = encode.finish().unwrap();
-        eprintln!("{}", &*doc);
+        eprintln!("{}", doc);
         assert_eq!(
-            &*doc,
+            doc,
             r"dir-key-certificate-version 3
 fingerprint 9367f9781da8eabbf96b691175f0e701b43c602e
 dir-key-published 2020-04-18 08:36:57

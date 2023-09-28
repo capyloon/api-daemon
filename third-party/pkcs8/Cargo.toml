@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.57"
+rust-version = "1.65"
 name = "pkcs8"
-version = "0.9.0"
+version = "0.10.2"
 authors = ["RustCrypto Developers"]
 description = """
 Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #8:
@@ -36,7 +36,6 @@ categories = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/pkcs8"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -46,11 +45,11 @@ rustdoc-args = [
 ]
 
 [dependencies.der]
-version = "0.6"
+version = "0.7"
 features = ["oid"]
 
 [dependencies.pkcs5]
-version = "0.5"
+version = "0.7"
 optional = true
 
 [dependencies.rand_core]
@@ -59,7 +58,7 @@ optional = true
 default-features = false
 
 [dependencies.spki]
-version = "0.6"
+version = "0.7.1"
 
 [dependencies.subtle]
 version = "2"
@@ -98,9 +97,9 @@ pem = [
     "der/pem",
     "spki/pem",
 ]
-sha1 = [
+sha1-insecure = [
     "encryption",
-    "pkcs5/sha1",
+    "pkcs5/sha1-insecure",
 ]
 std = [
     "alloc",

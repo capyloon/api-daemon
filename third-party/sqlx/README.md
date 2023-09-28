@@ -9,7 +9,10 @@
 
 <div align="center">
   <!-- Github Actions -->
-  <img src="https://img.shields.io/github/workflow/status/launchbadge/sqlx/SQLx?style=flat-square" alt="actions status" />
+  <a href="https://github.com/launchbadge/sqlx/actions/workflows/sqlx.yml?query=branch%3Amain">
+    <img src="https://img.shields.io/github/actions/workflow/status/launchbadge/sqlx/sqlx.yml?branch=main&style=flat-square"
+      alt="actions status" />
+  </a>
   <!-- Version -->
   <a href="https://crates.io/crates/sqlx">
     <img src="https://img.shields.io/crates/v/sqlx.svg?style=flat-square"
@@ -94,13 +97,13 @@ with C, those interactions are `unsafe`.
 
 -   Built-in connection pooling with `sqlx::Pool`.
 
--   Row streaming. Data is read asynchronously from the database and decoded on-demand.
+-   Row streaming. Data is read asynchronously from the database and decoded on demand.
 
 -   Automatic statement preparation and caching. When using the high-level query API (`sqlx::query`), statements are
-    prepared and cached per-connection.
+    prepared and cached per connection.
 
 -   Simple (unprepared) query execution including fetching results into the same `Row` types used by
-    the high-level API. Supports batch execution and returning results from all statements.
+    the high-level API. Supports batch execution and returns results from all statements.
 
 -   Transport Layer Security (TLS) where supported ([MySQL] and [PostgreSQL]).
 
@@ -112,7 +115,10 @@ with C, those interactions are `unsafe`.
 
 ## Install
 
-SQLx is compatible with the [`async-std`], [`tokio`] and [`actix`] runtimes; and, the [`native-tls`] and [`rustls`] TLS backends. When adding the dependency, you must chose a runtime feature that is `runtime` + `tls`.
+SQLx is compatible with the [`async-std`], [`tokio`], and [`actix`] runtimes; and, the [`native-tls`] and [`rustls`] TLS backends. When adding the dependency, you must choose a runtime feature that is `runtime` + `tls`.
+
+NOTE: these examples are for the coming 0.7 release, which is currently in an alpha cycle.
+For the last stable release, 0.6.2, see [the previous version of this document](https://github.com/launchbadge/sqlx/blob/v0.6.2/README.md).
 
 [`async-std`]: https://github.com/async-rs/async-std
 [`tokio`]: https://github.com/tokio-rs/tokio
@@ -123,27 +129,48 @@ SQLx is compatible with the [`async-std`], [`tokio`] and [`actix`] runtimes; and
 ```toml
 # Cargo.toml
 [dependencies]
-# tokio + rustls
-sqlx = { version = "0.6", features = [ "runtime-tokio-rustls" ] }
-# async-std + native-tls
-sqlx = { version = "0.6", features = [ "runtime-async-std-native-tls" ] }
-```
+# PICK ONE OF THE FOLLOWING:
 
-<small><small>The runtime and TLS backend not being separate feature sets to select is a workaround for a [Cargo issue](https://github.com/rust-lang/cargo/issues/3494).</small></small>
+# tokio (no TLS)
+sqlx = { version = "0.7", features = [ "runtime-tokio" ] }
+# tokio + native-tls
+sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-native" ] }
+# tokio + rustls
+sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-rustls" ] }
+
+# async-std (no TLS)
+sqlx = { version = "0.7", features = [ "runtime-async-std" ] }
+# async-std + native-tls
+sqlx = { version = "0.7", features = [ "runtime-async-std", "tls-native" ] }
+# async-std + rustls
+sqlx = { version = "0.7", features = [ "runtime-async-std", "tls-rustls" ] }
+```
 
 #### Cargo Feature Flags
 
--   `runtime-async-std-native-tls`: Use the `async-std` runtime and `native-tls` TLS backend.
+For backward-compatibility reasons, the runtime and TLS features can either be chosen together as a single feature,
+or separately.
 
--   `runtime-async-std-rustls`: Use the `async-std` runtime and `rustls` TLS backend.
+For forward compatibility, you should use the separate runtime and TLS features as the combination features may
+be removed in the future.
 
--   `runtime-tokio-native-tls`: Use the `tokio` runtime and `native-tls` TLS backend.
+-   `runtime-async-std`: Use the `async-std` runtime without enabling a TLS backend.
 
--   `runtime-tokio-rustls`: Use the `tokio` runtime and `rustls` TLS backend.
+-   `runtime-async-std-native-tls`: Use the `async-std` runtime and `native-tls` TLS backend (SOFT-DEPRECATED).
 
--   `runtime-actix-native-tls`: Use the `actix` runtime and `native-tls` TLS backend.
+-   `runtime-async-std-rustls`: Use the `async-std` runtime and `rustls` TLS backend (SOFT-DEPRECATED).
 
--   `runtime-actix-rustls`: Use the `actix` runtime and `rustls` TLS backend.
+-   `runtime-tokio`: Use the `tokio` runtime without enabling a TLS backend.
+
+-   `runtime-tokio-native-tls`: Use the `tokio` runtime and `native-tls` TLS backend (SOFT-DEPRECATED).
+
+-   `runtime-tokio-rustls`: Use the `tokio` runtime and `rustls` TLS backend (SOFT-DEPRECATED).
+
+    - Actix-web is fully compatible with Tokio and so a separate runtime feature is no longer needed.
+
+-   `tls-native`: Use the `native-tls` TLS backend (OpenSSL on *nix, SChannel on Windows, Secure Transport on macOS).
+
+-   `tls-rustls`: Use the `rustls` TLS backend (cross-platform backend, only supports TLS 1.2 and 1.3).
 
 -   `postgres`: Add support for the Postgres database server.
 
@@ -155,7 +182,7 @@ sqlx = { version = "0.6", features = [ "runtime-async-std-native-tls" ] }
 
 -   `any`: Add support for the `Any` database driver, which can proxy to a database driver at runtime.
 
--   `macros`: Add support for the `query*!` macros, which allow compile-time checked queries.
+-   `macros`: Add support for the `query*!` macros, which allows compile-time checked queries.
 
 -   `migrate`: Add support for the migration management and `migrate!` macro, which allow compile-time embedded migrations.
 
@@ -167,8 +194,6 @@ sqlx = { version = "0.6", features = [ "runtime-async-std-native-tls" ] }
 
 -   `bstr`: Add support for `bstr::BString`.
 
--   `git2`: Add support for `git2::Oid`.
-
 -   `bigdecimal`: Add support for `NUMERIC` using the `bigdecimal` crate.
 
 -   `decimal`: Add support for `NUMERIC` using the `rust_decimal` crate.
@@ -177,10 +202,7 @@ sqlx = { version = "0.6", features = [ "runtime-async-std-native-tls" ] }
 
 -   `json`: Add support for `JSON` and `JSONB` (in postgres) using the `serde_json` crate.
 
--   `tls`: Add support for TLS connections.
-
--   `offline`: Enables building the macros in offline mode when a live database is not available (such as CI). 
-    -   Requires `sqlx-cli` installed to use. See [sqlx-cli/README.md][readme-offline].
+-   Offline mode is now always enabled. See [sqlx-cli/README.md][readme-offline].
 
 [readme-offline]: sqlx-cli/README.md#enable-building-in-offline-mode-with-query
 
@@ -188,7 +210,7 @@ sqlx = { version = "0.6", features = [ "runtime-async-std-native-tls" ] }
 
 SQLx supports **compile-time checked queries**. It does not, however, do this by providing a Rust
 API or DSL (domain-specific language) for building queries. Instead, it provides macros that take
-regular SQL as an input and ensure that it is valid for your database. The way this works is that
+regular SQL as input and ensure that it is valid for your database. The way this works is that
 SQLx connects to your development DB at compile time to have the database itself verify (and return
 some info on) your SQL queries. This has some potentially surprising implications:
 
@@ -208,21 +230,8 @@ See the `examples/` folder for more in-depth usage.
 
 ### Quickstart
 
-```toml
-[dependencies]
-# PICK ONE:
-# Async-std:
-sqlx = { version = "0.6", features = [  "runtime-async-std-native-tls", "postgres" ] }
-async-std = { version = "1", features = [ "attributes" ] }
-
-# Tokio:
-sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls" , "postgres" ] }
-tokio = { version = "1", features = ["full"] }
-
-# Actix-web:
-sqlx = { version = "0.6", features = [ "runtime-actix-native-tls" , "postgres" ] }
-actix-web = "4"
-```
+NOTE: these examples are for the coming 0.7.0 release, which is currently in an alpha cycle.
+For the last stable release, 0.6.2, see [the previous version of this document](https://github.com/launchbadge/sqlx/blob/v0.6.2/README.md).
 
 ```rust
 use sqlx::postgres::PgPoolOptions;
@@ -262,7 +271,7 @@ use sqlx::Connection;
 let conn = SqliteConnection::connect("sqlite::memory:").await?;
 ```
 
-Generally, you will want to instead create a connection pool (`sqlx::Pool`) in order for your application to
+Generally, you will want to instead create a connection pool (`sqlx::Pool`) for the application to
 regulate how many server-side connections it's using.
 
 ```rust
@@ -273,10 +282,10 @@ let pool = MySqlPool::connect("mysql://user:pass@host/database").await?;
 
 In SQL, queries can be separated into prepared (parameterized) or unprepared (simple). Prepared queries have their
 query plan _cached_, use a binary mode of communication (lower bandwidth and faster decoding), and utilize parameters
-to avoid SQL injection. Unprepared queries are simple and intended only for use case where a prepared statement
+to avoid SQL injection. Unprepared queries are simple and intended only for use where a prepared statement
 will not work, such as various database commands (e.g., `PRAGMA` or `SET` or `BEGIN`).
 
-SQLx supports all operations with both types of queries. In SQLx, a `&str` is treated as an unprepared query
+SQLx supports all operations with both types of queries. In SQLx, a `&str` is treated as an unprepared query,
 and a `Query` or `QueryAs` struct is treated as a prepared query.
 
 ```rust
@@ -285,7 +294,7 @@ conn.execute("BEGIN").await?; // unprepared, simple query
 conn.execute(sqlx::query("DELETE FROM table")).await?; // prepared, cached query
 ```
 
-We should prefer to use the high level, `query` interface whenever possible. To make this easier, there are finalizers
+We should prefer to use the high-level `query` interface whenever possible. To make this easier, there are finalizers
 on the type to avoid the need to wrap with an executor.
 
 ```rust
@@ -316,7 +325,7 @@ while let Some(row) = rows.try_next().await? {
 }
 ```
 
-To assist with mapping the row into a domain type, there are two idioms that may be used:
+To assist with mapping the row into a domain type, one of two idioms may be used:
 
 ```rust
 let mut stream = sqlx::query("SELECT * FROM users")
@@ -413,7 +422,7 @@ modifications (to the database-accessing parts of the code) are done, you can en
 to cache the results of the SQL query analysis using the `sqlx` command-line tool. See
 [sqlx-cli/README.md](./sqlx-cli/README.md#enable-building-in-offline-mode-with-query).
 
-Compile time verified queries do quite a bit of work at compile time. Incremental actions like
+Compile-time verified queries do quite a bit of work at compile time. Incremental actions like
 `cargo check` and `cargo build` can be significantly faster when using an optimized build by
 putting the following in your `Cargo.toml` (More information in the
 [Profiles section](https://doc.rust-lang.org/cargo/reference/profiles.html) of The Cargo Book)
@@ -446,6 +455,6 @@ at your option.
 
 ## Contribution
 
-Unless you explicitly state otherwise, any contribution intentionally submitted
+Unless you explicitly state otherwise, any Contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.

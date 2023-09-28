@@ -1,7 +1,6 @@
 //! ASN.1 `UTCTime` support.
 
 use crate::{
-    asn1::AnyRef,
     datetime::{self, DateTime},
     ord::OrdIsValueOrd,
     DecodeValue, EncodeValue, Error, ErrorKind, FixedTag, Header, Length, Reader, Result, Tag,
@@ -11,9 +10,6 @@ use core::time::Duration;
 
 #[cfg(feature = "std")]
 use std::time::SystemTime;
-
-/// Maximum year that can be represented as a `UTCTime`.
-pub const MAX_YEAR: u16 = 2049;
 
 /// ASN.1 `UTCTime` type.
 ///
@@ -29,6 +25,9 @@ pub const MAX_YEAR: u16 = 2049;
 /// >   interpreted as `19YY`; and
 /// > - Where `YY` is less than 50, the year SHALL be interpreted as `20YY`.
 ///
+/// Note: Due to common operations working on `UNIX_EPOCH` [`UtcTime`]s are
+/// only supported for the years 1970-2049.
+///
 /// [1]: https://tools.ietf.org/html/rfc5280#section-4.1.2.5.1
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct UtcTime(DateTime);
@@ -37,9 +36,12 @@ impl UtcTime {
     /// Length of an RFC 5280-flavored ASN.1 DER-encoded [`UtcTime`].
     pub const LENGTH: usize = 13;
 
+    /// Maximum year that can be represented as a `UTCTime`.
+    pub const MAX_YEAR: u16 = 2049;
+
     /// Create a [`UtcTime`] from a [`DateTime`].
     pub fn from_date_time(datetime: DateTime) -> Result<Self> {
-        if datetime.year() <= MAX_YEAR {
+        if datetime.year() <= UtcTime::MAX_YEAR {
             Ok(Self(datetime))
         } else {
             Err(Self::TAG.value_error())
@@ -64,7 +66,6 @@ impl UtcTime {
 
     /// Instantiate from [`SystemTime`].
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn from_system_time(time: SystemTime) -> Result<Self> {
         DateTime::try_from(time)
             .map_err(|_| Self::TAG.value_error())?
@@ -73,11 +74,12 @@ impl UtcTime {
 
     /// Convert to [`SystemTime`].
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn to_system_time(&self) -> SystemTime {
         self.0.to_system_time()
     }
 }
+
+impl_any_conversions!(UtcTime);
 
 impl<'a> DecodeValue<'a> for UtcTime {
     fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
@@ -120,7 +122,7 @@ impl EncodeValue for UtcTime {
         Self::LENGTH.try_into()
     }
 
-    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
+    fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
         let year = match self.0.year() {
             y @ 1950..=1999 => y.checked_sub(1900),
             y @ 2000..=2049 => y.checked_sub(2000),
@@ -180,18 +182,43 @@ impl TryFrom<&DateTime> for UtcTime {
 }
 
 #[cfg(feature = "std")]
-#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl From<UtcTime> for SystemTime {
     fn from(utc_time: UtcTime) -> SystemTime {
         utc_time.to_system_time()
     }
 }
 
-impl TryFrom<AnyRef<'_>> for UtcTime {
-    type Error = Error;
+// Implement by hand because the derive would create invalid values.
+// Use the conversion from DateTime to create a valid value.
+// The DateTime type has a way bigger range of valid years than UtcTime,
+// so the DateTime year is mapped into a valid range to throw away less inputs.
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for UtcTime {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        const MIN_YEAR: u16 = 1970;
+        const VALID_YEAR_COUNT: u16 = UtcTime::MAX_YEAR - MIN_YEAR + 1;
+        const AVERAGE_SECONDS_IN_YEAR: u64 = 31_556_952;
 
-    fn try_from(any: AnyRef<'_>) -> Result<UtcTime> {
-        any.decode_into()
+        let datetime = DateTime::arbitrary(u)?;
+        let year = datetime.year();
+        let duration = datetime.unix_duration();
+
+        // Clamp the year into a valid range to not throw away too much input
+        let valid_year = (year.saturating_sub(MIN_YEAR))
+            .rem_euclid(VALID_YEAR_COUNT)
+            .saturating_add(MIN_YEAR);
+        let year_to_remove = year.saturating_sub(valid_year);
+        let valid_duration = duration
+            - Duration::from_secs(
+                u64::from(year_to_remove).saturating_mul(AVERAGE_SECONDS_IN_YEAR),
+            );
+
+        Self::from_date_time(DateTime::from_unix_duration(valid_duration).expect("supported range"))
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+
+    fn size_hint(depth: usize) -> (usize, Option<usize>) {
+        DateTime::size_hint(depth)
     }
 }
 

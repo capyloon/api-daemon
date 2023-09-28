@@ -1,8 +1,10 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use std::fs::File;
+use std::mem::ManuallyDrop;
 use std::os::raw::c_void;
-use std::os::windows::io::RawHandle;
+use std::os::windows::io::{FromRawHandle, RawHandle};
 use std::{io, mem, ptr};
 
 type BOOL = i32;
@@ -82,22 +84,6 @@ pub struct FILETIME {
     pub dwHighDateTime: DWORD,
 }
 
-#[repr(C)]
-struct BY_HANDLE_FILE_INFORMATION {
-    dwFileAttributes: DWORD,
-    ftCreationTime: FILETIME,
-    ftLastAccessTime: FILETIME,
-    ftLastWriteTime: FILETIME,
-    dwVolumeSerialNumber: DWORD,
-    nFileSizeHigh: DWORD,
-    nFileSizeLow: DWORD,
-    nNumberOfLinks: DWORD,
-    nFileIndexHigh: DWORD,
-    nFileIndexLow: DWORD,
-}
-
-type LPBY_HANDLE_FILE_INFORMATION = *mut BY_HANDLE_FILE_INFORMATION;
-
 extern "system" {
     fn GetCurrentProcess() -> HANDLE;
 
@@ -124,11 +110,6 @@ extern "system" {
 
     fn FlushFileBuffers(hFile: HANDLE) -> BOOL;
 
-    fn GetFileInformationByHandle(
-        hFile: HANDLE,
-        lpFileInformation: LPBY_HANDLE_FILE_INFORMATION,
-    ) -> BOOL;
-
     fn FlushViewOfFile(lpBaseAddress: LPCVOID, dwNumberOfBytesToFlush: SIZE_T) -> BOOL;
 
     fn UnmapViewOfFile(lpBaseAddress: LPCVOID) -> BOOL;
@@ -151,9 +132,12 @@ extern "system" {
     fn GetSystemInfo(lpSystemInfo: LPSYSTEM_INFO);
 }
 
-/// Returns a fixed pointer that is valid for `slice::from_raw_parts::<u8>` with `len == 0`.
+/// Returns a fixed aligned pointer that is valid for `slice::from_raw_parts::<u8>` with `len == 0`.
+///
+/// This aligns the pointer to `allocation_granularity()` or 1 if unknown.
 fn empty_slice_ptr() -> *mut c_void {
-    std::ptr::NonNull::<u8>::dangling().cast().as_ptr()
+    let align = allocation_granularity().max(1);
+    unsafe { mem::transmute(align) }
 }
 
 pub struct MmapInner {
@@ -359,7 +343,7 @@ impl MmapInner {
         Ok(inner)
     }
 
-    pub fn map_anon(len: usize, _stack: bool) -> io::Result<MmapInner> {
+    pub fn map_anon(len: usize, _stack: bool, _populate: bool) -> io::Result<MmapInner> {
         // Ensure a non-zero length for the underlying mapping
         let mapped_len = len.max(1);
         unsafe {
@@ -526,16 +510,10 @@ fn allocation_granularity() -> usize {
 }
 
 pub fn file_len(handle: RawHandle) -> io::Result<u64> {
-    let info = unsafe {
-        let mut info = mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-
-        let ok = GetFileInformationByHandle(handle, info.as_mut_ptr());
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        info.assume_init()
-    };
-
-    Ok((info.nFileSizeHigh as u64) << 32 | info.nFileSizeLow as u64)
+    // SAFETY: We must not close the passed-in fd by dropping the File we create,
+    // we ensure this by immediately wrapping it in a ManuallyDrop.
+    unsafe {
+        let file = ManuallyDrop::new(File::from_raw_handle(handle));
+        Ok(file.metadata()?.len())
+    }
 }

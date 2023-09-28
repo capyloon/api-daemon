@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [3.0.0] - 2023-05-01
+
+This breaking release should not impact most users.
+It only affects custom character sets used for base64 of which there are no instances of on GitHub.
+
+### Changed
+
+* Upgrade base64 to v0.21 (#543)
+    Thanks to @jeff-hiner for submitting the PR.
+
+    Remove support for custom character sets.
+    This is technically a breaking change.
+    A code search on GitHub revealed no instances of anyone using that, and `serde_with` ships with many predefined character sets.
+    The removal means that future base64 upgrade will no longer be breaking changes.
+
+## [2.3.3] - 2023-04-27
+
+### Changed
+
+* Update `syn` to v2 and `darling` to v0.20 (#578)
+    Update proc-macro dependencies.
+    This change should have no impact on users, but now uses the same dependency as `serde_derive`.
+
+## [2.3.2] - 2023-04-05
+
+### Changed
+
+* Improve the error message when deserializing `OneOrMany` or `PickFirst` fails.
+    It now includes the original error message for each of the individual variants.
+    This is possible by dropping untagged enums as the internal implementations, since they will likely never support this, as these old PRs show [serde#2376](https://github.com/serde-rs/serde/pull/2376) and [serde#1544](https://github.com/serde-rs/serde/pull/1544).
+
+    The new errors look like:
+
+    ```text
+    OneOrMany could not deserialize any variant:
+      One: invalid type: map, expected u32
+      Many: invalid type: map, expected a sequence
+    ```
+
+    ```text
+    PickFirst could not deserialize any variant:
+      First: invalid type: string "Abc", expected u32
+      Second: invalid digit found in string
+    ```
+
+### Fixed
+
+* Specify the correct minimum serde version as dependency. (#588)
+    Thanks to @nox for submitting a PR.
+
+## [2.3.1] - 2023-03-10
+
+### Fixed
+
+* Undo the changes to the trait bound for `Seq`. (#570, #571)
+    The new implementation caused issues with serialization formats that require the sequence length beforehand.
+    It also caused problems, that certain attributes which worked before no longer worked, due to mismatching number of references.
+
+    Thanks to  @stefunctional for reporting and for @stephaneyfx for providing a test case.
+
+## [2.3.0] - 2023-03-09
+
+### Added
+
+* Add `serde_as` compatible versions for the existing duplicate key and value handling. (#534)
+    The new types `MapPreventDuplicates`, `MapFirstKeyWins`, `SetPreventDuplicates`, and `SetLastValueWins` can replace the existing modules `maps_duplicate_key_is_error`, `maps_first_key_wins`, `sets_duplicate_value_is_error`, and `sets_last_value_wins`.
+* Added a new `KeyValueMap` type using the map key as a struct field. (#341)
+    This conversion is useful for maps, where an ID value is the map key, but the ID should become part of a single struct.
+    The conversion allows this, by using a special field named `$key$`.
+
+    This conversion is possible for structs and maps, using the `$key$` field.
+    Tuples, tuple structs, and sequences are supported by turning the first value into the map key.
+
+    Each of the `SimpleStruct`s
+
+    ```rust
+    // Somewhere there is a collection:
+    // #[serde_as(as = "KeyValueMap<_>")]
+    // Vec<SimpleStruct>,
+
+    #[derive(Serialize, Deserialize)]
+    struct SimpleStruct {
+        b: bool,
+        // The field named `$key$` will become the map key
+        #[serde(rename = "$key$")]
+        id: String,
+        i: i32,
+    }
+    ```
+
+    will turn into a JSON snippet like this.
+
+    ```json
+    "id-0000": {
+      "b": false,
+      "i": 123
+    },
+    ```
+
+### Changed
+
+* Relax the trait bounds of `Seq` to allow for more custom types. (#565)
+    This extends the support beyond tuples.
+
+### Fixed
+
+* `EnumMap` passes the `human_readable` status of the `Serializer` to more places.
+* Support `alloc` on targets without `target_has_atomic = "ptr"`. (#560)
+    Thanks to @vembacher for reporting and fixing the issue.
+
 ## [2.2.0] - 2023-01-09
 
 ### Added

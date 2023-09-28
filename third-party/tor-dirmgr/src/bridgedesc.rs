@@ -26,7 +26,7 @@ use tor_basic_utils::BinaryHeapExt as _;
 use tor_checkable::{SelfSigned, Timebound};
 use tor_circmgr::CircMgr;
 use tor_error::{internal, ErrorKind, HasKind};
-use tor_error::{AbsRetryTime, HasRetryTime, RetryTime};
+use tor_error::{AbsRetryTime, ErrorReport, HasRetryTime, RetryTime};
 use tor_guardmgr::bridge::{BridgeConfig, BridgeDesc};
 use tor_guardmgr::bridge::{BridgeDescError, BridgeDescEvent, BridgeDescList, BridgeDescProvider};
 use tor_netdoc::doc::routerdesc::RouterDesc;
@@ -62,11 +62,11 @@ pub enum Dormancy {
     /// but they may continue until they complete (or fail).
     // TODO async task cancellation: actually cancel these in this case
     ///
-    /// So a dormant BridgeDescManager may still continue to
+    /// So a dormant BridgeDescMgr may still continue to
     /// change the return value from [`bridges()`](BridgeDescProvider::bridges)
     /// and continue to report [`BridgeDescEvent`]s.
     ///
-    /// When the BridgeDescManager is dormant,
+    /// When the BridgeDescMgr is dormant,
     /// `bridges()` may return stale descriptors
     /// (that is, descriptors which ought to have been refetched and may no longer be valid),
     /// or stale errors
@@ -1015,7 +1015,7 @@ impl<R: Runtime, M: Mockable<R>> Manager<R, M> {
                 error!(
                     r#"bridge descriptor cache lookup failed, for "{}": {}"#,
                     sensitive(bridge),
-                    tor_error::Report(&err)
+                    err.report(),
                 );
                 None
             });
@@ -1114,7 +1114,7 @@ impl<R: Runtime, M: Mockable<R>> Manager<R, M> {
         .unwrap_or_else(|err: crate::Error| {
             error!(
                 "failed to cache downloaded bridge descriptor: {}",
-                tor_error::Report(err),
+                err.report(),
             );
         });
 

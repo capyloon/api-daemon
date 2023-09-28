@@ -7,6 +7,22 @@ and this library adheres to Rust's notion of
 
 ## [Unreleased]
 
+## [0.13.0] - 2022-12-06
+### Changed
+- Bumped `ff` to `0.13`
+
+## [0.12.1] - 2022-10-13
+### Added
+- `group::{WnafBase, WnafScalar}` structs for caching precomputations of both
+  bases and scalars, for improved many-base many-scalar multiplication
+  performance.
+- `impl memuse::DynamicUsage for group::{Wnaf WnafBase, WnafScalar}`, behind the
+  new `wnaf-memuse` feature flag, to enable the heap usage of these types to be
+  measured at runtime.
+
+### Changed
+- Removed temporary allocations from `Wnaf` internals for improved performance.
+
 ## [0.12.0] - 2022-05-04
 ### Changed
 - MSRV is now 1.56.0.

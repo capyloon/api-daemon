@@ -1,6 +1,6 @@
 //! Convenience implementation of a TimeBound object.
 
-use std::ops::{Bound, RangeBounds};
+use std::ops::{Bound, Deref, RangeBounds};
 use std::time;
 
 /// A TimeBound object that is valid for a specified range of time.
@@ -26,6 +26,8 @@ use std::time;
 ///            Err(TimeValidityError::Expired(one_hour)));
 ///
 /// ```
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct TimerangeBound<T> {
     /// The underlying object, which we only want to expose if it is
     /// currently timely.
@@ -79,6 +81,23 @@ impl<T> TimerangeBound<T> {
         let start = self.start.map(|t| t - d);
         Self { start, ..self }
     }
+    /// Consume this [`TimerangeBound`], and return a new one with the same
+    /// bounds, applying `f` to its protected value.
+    ///
+    /// The caller must ensure that `f` does not make any assumptions about the
+    /// timeliness of the protected value, or leak any of its contents in
+    /// an inappropriate way.
+    #[must_use]
+    pub fn dangerously_map<F, U>(self, f: F) -> TimerangeBound<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        TimerangeBound {
+            obj: f(self.obj),
+            start: self.start,
+            end: self.end,
+        }
+    }
 
     /// Consume this TimeRangeBound, and return its underlying time bounds and
     /// object.
@@ -86,13 +105,9 @@ impl<T> TimerangeBound<T> {
     /// The caller takes responsibility for making sure that the bounds are
     /// actually checked.
     pub fn dangerously_into_parts(self) -> (T, (Bound<time::SystemTime>, Bound<time::SystemTime>)) {
-        (
-            self.obj,
-            (
-                self.start.map(Bound::Included).unwrap_or(Bound::Unbounded),
-                self.end.map(Bound::Included).unwrap_or(Bound::Unbounded),
-            ),
-        )
+        let bounds = self.bounds();
+
+        (self.obj, bounds)
     }
 
     /// Return a reference to the inner object of this TimeRangeBound, without
@@ -103,6 +118,47 @@ impl<T> TimerangeBound<T> {
     /// the bounds are (eventually) checked.
     pub fn dangerously_peek(&self) -> &T {
         &self.obj
+    }
+
+    /// Return a `TimerangeBound` containing a reference
+    ///
+    /// This can be useful to call methods like `.check_valid_at`
+    /// without consuming the inner `T`.
+    pub fn as_ref(&self) -> TimerangeBound<&T> {
+        TimerangeBound {
+            obj: &self.obj,
+            start: self.start,
+            end: self.end,
+        }
+    }
+
+    /// Return a `TimerangeBound` containing a reference to `T`'s `Deref`
+    pub fn as_deref(&self) -> TimerangeBound<&T::Target>
+    where
+        T: Deref,
+    {
+        self.as_ref().dangerously_map(|t| &**t)
+    }
+
+    /// Return the underlying time bounds of this object.
+    pub fn bounds(&self) -> (Bound<time::SystemTime>, Bound<time::SystemTime>) {
+        (self.start_bound().cloned(), self.end_bound().cloned())
+    }
+}
+
+impl<T> RangeBounds<time::SystemTime> for TimerangeBound<T> {
+    fn start_bound(&self) -> Bound<&time::SystemTime> {
+        self.start
+            .as_ref()
+            .map(Bound::Included)
+            .unwrap_or(Bound::Unbounded)
+    }
+
+    fn end_bound(&self) -> Bound<&time::SystemTime> {
+        self.end
+            .as_ref()
+            .map(Bound::Included)
+            .unwrap_or(Bound::Unbounded)
     }
 }
 
@@ -199,11 +255,14 @@ mod test {
 
     #[test]
     fn test_checking() {
-        let one_day = Duration::new(86400, 0);
-        let de = SystemTime::UNIX_EPOCH + one_day * 7580;
-        let cz_sk = SystemTime::UNIX_EPOCH + one_day * 8401;
-        let eu = SystemTime::UNIX_EPOCH + one_day * 8705;
-        let za = SystemTime::UNIX_EPOCH + one_day * 8882;
+        // West and East Germany reunified
+        let de = humantime::parse_rfc3339("1990-10-03T00:00:00Z").unwrap();
+        // Czechoslovakia separates into Czech Republic (Bohemia) & Slovakia
+        let cz_sk = humantime::parse_rfc3339("1993-01-01T00:00:00Z").unwrap();
+        // European Union created
+        let eu = humantime::parse_rfc3339("1993-11-01T00:00:00Z").unwrap();
+        // South Africa holds first free and fair elections
+        let za = humantime::parse_rfc3339("1994-04-27T00:00:00Z").unwrap();
 
         // check_valid_at
         let tr = TimerangeBound::new("Hello world", cz_sk..eu);
@@ -231,7 +290,6 @@ mod test {
         assert!(tr.check_valid_at_opt(None).is_err());
     }
 
-    #[cfg(feature = "experimental-api")]
     #[test]
     fn test_dangerous() {
         let t1 = SystemTime::now();
@@ -244,5 +302,31 @@ mod test {
         assert_eq!(a, "cups of coffee");
         assert_eq!(b.0, Bound::Included(t1));
         assert_eq!(b.1, Bound::Included(t2));
+    }
+
+    #[test]
+    fn test_map() {
+        let t1 = SystemTime::now();
+        let min = Duration::from_secs(60);
+
+        let tb = TimerangeBound::new(17_u32, t1..t1 + 5 * min);
+        let tb = tb.dangerously_map(|v| v * v);
+        assert!(tb.is_valid_at(&(t1 + 1 * min)).is_ok());
+        assert!(tb.is_valid_at(&(t1 + 10 * min)).is_err());
+
+        let val = tb.check_valid_at(&(t1 + 1 * min)).unwrap();
+        assert_eq!(val, 289);
+    }
+
+    #[test]
+    fn test_as_ref() {
+        let t1 = SystemTime::now();
+        let min = Duration::from_secs(60);
+
+        let tb1: TimerangeBound<String> = TimerangeBound::new("hi".into(), t1..t1 + 5 * min);
+        let tb2: TimerangeBound<&String> = tb1.as_ref();
+        let tb3: TimerangeBound<&str> = tb1.as_deref();
+        assert_eq!(tb1, tb2.dangerously_map(|s| s.clone()));
+        assert_eq!(tb1, tb3.dangerously_map(|s| s.to_owned()));
     }
 }

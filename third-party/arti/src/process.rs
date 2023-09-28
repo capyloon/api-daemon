@@ -1,5 +1,6 @@
 //! Code to adjust process-related parameters.
 
+use tor_error::ErrorReport;
 use tracing::error;
 
 use crate::ArtiConfig;
@@ -16,7 +17,7 @@ use crate::ArtiConfig;
 pub(crate) fn use_max_file_limit(config: &ArtiConfig) {
     match rlimit::increase_nofile_limit(config.system.max_files) {
         Ok(n) => tracing::debug!("Increased process file limit to {}", n),
-        Err(e) => tracing::warn!("Error while increasing file limit: {}", e),
+        Err(e) => tracing::warn!("Error while increasing file limit: {}", e.report()),
     }
 }
 
@@ -43,7 +44,7 @@ pub(crate) fn enable_process_hardening() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    secmem_proc::harden_process_std_err().context("Problem while hardening process")?;
+    secmem_proc::harden_process().context("Problem while hardening process")?;
 
     Ok(())
 }
@@ -76,20 +77,21 @@ fn running_as_root() -> bool {
 /// signal.
 ///
 /// Note that the signal-handling backend can coalesce signals; this is normal.
+#[cfg(target_family = "unix")]
 pub(crate) fn sighup_stream() -> crate::Result<impl futures::Stream<Item = ()>> {
     cfg_if::cfg_if! {
-        if #[cfg(all(feature="tokio", target_family = "unix"))] {
+        if #[cfg(feature="tokio")] {
             use tokio_crate::signal::unix as s;
             let mut signal = s::signal(s::SignalKind::hangup())?;
             Ok(futures::stream::poll_fn(move |ctx| signal.poll_recv(ctx)))
-        } else if #[cfg(all(feature="async-std", target_family = "unix"))] {
+        } else if #[cfg(feature="async-std")] {
             use signal_hook_async_std as s;
             use signal_hook::consts::signal;
             use futures::stream::StreamExt as _;
             let signal = s::Signals::new(&[signal::SIGHUP])?;
             Ok(signal.map(|_| ()))
         } else {
-            // Not unix or no backend, so we won't ever get a SIGHUP.
+            // Not backend, so we won't ever get a SIGHUP.
             Ok(futures::stream::pending())
         }
     }

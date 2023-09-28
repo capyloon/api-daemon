@@ -42,6 +42,7 @@ impl WstrExt for RawOsStr {
     fn as_str(&self) -> Option<&str> { self.to_str() }
     fn len(&self) -> usize { self.raw_len() }
     fn to_ostring(&self) -> OsString { self.to_os_str().into_owned() }
+    fn strip_prefix(&self, c: char) -> Option<&Self> { self.strip_prefix(c) }
 }
 
 impl<'s> WstrRefExt for &'s RawOsStr {

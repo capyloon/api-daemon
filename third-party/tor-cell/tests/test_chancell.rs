@@ -3,7 +3,8 @@
 // Reminder: you can think of a cell as an message plus a circuitid.
 #![allow(clippy::uninlined_format_args)]
 
-use tor_cell::chancell::{codec, msg, ChanCell, ChanCmd, CircId};
+use tor_cell::chancell::msg::AnyChanMsg;
+use tor_cell::chancell::{codec, msg, AnyChanCell, ChanCmd, ChanMsg, CircId};
 use tor_cell::Error;
 
 use bytes::BytesMut;
@@ -21,17 +22,17 @@ fn decode(body: &str, pad_body: bool) -> Vec<u8> {
     body
 }
 
-fn cell(body: &str, msg: msg::ChanMsg, id: CircId, pad_body: bool) {
+fn cell(body: &str, msg: msg::AnyChanMsg, id: CircId, pad_body: bool) {
     let body = decode(body, pad_body);
 
-    let cell = ChanCell::new(id, msg);
+    let cell = AnyChanCell::new(id, msg);
     let mut codec = codec::ChannelCodec::new(4);
 
     let decoded = {
         let mut bm = BytesMut::new();
         bm.extend_from_slice(&body[..]);
         bm.extend_from_slice(&b"next thing"[..]);
-        let decoded = codec.decode_cell(&mut bm).unwrap();
+        let decoded = codec.decode_cell::<AnyChanMsg>(&mut bm).unwrap();
         assert_eq!(bm.len(), 10);
         decoded.unwrap()
     };
@@ -40,7 +41,7 @@ fn cell(body: &str, msg: msg::ChanMsg, id: CircId, pad_body: bool) {
         let mut bm = BytesMut::new();
         bm.extend_from_slice(&body[..]);
         // no extra bytes this time.
-        let decoded = codec.decode_cell(&mut bm).unwrap();
+        let decoded = codec.decode_cell::<AnyChanMsg>(&mut bm).unwrap();
         assert_eq!(bm.len(), 0);
         decoded.unwrap()
     };
@@ -57,11 +58,11 @@ fn cell(body: &str, msg: msg::ChanMsg, id: CircId, pad_body: bool) {
     assert_eq!(encoded1, body);
 }
 
-fn fcell(body: &str, msg: msg::ChanMsg, id: CircId) {
+fn fcell(body: &str, msg: msg::AnyChanMsg, id: CircId) {
     cell(body, msg, id, true);
 }
 
-fn vcell(body: &str, msg: msg::ChanMsg, id: CircId) {
+fn vcell(body: &str, msg: msg::AnyChanMsg, id: CircId) {
     cell(body, msg, id, false);
 }
 
@@ -90,7 +91,7 @@ fn test_simple_cells() {
         let mut bm = BytesMut::new();
         bm.extend_from_slice(&m);
         codec::ChannelCodec::new(4)
-            .decode_cell(&mut bm)
+            .decode_cell::<AnyChanMsg>(&mut bm)
             .unwrap()
             .unwrap()
     };
@@ -109,7 +110,7 @@ fn short_cell(body: &str) {
     let mut bm = BytesMut::new();
     bm.extend_from_slice(&body[..]);
     let len_orig = bm.len();
-    let d = codec.decode_cell(&mut bm);
+    let d = codec.decode_cell::<AnyChanMsg>(&mut bm);
     assert!(d.unwrap().is_none()); // "Ok(None)" means truncated.
     assert_eq!(bm.len(), len_orig);
 }
@@ -141,7 +142,7 @@ fn bad_cell(body: &str, err: Error, pad_body: bool) {
         let mut bm = BytesMut::new();
         bm.extend_from_slice(&body[..]);
         bm.extend_from_slice(&b"next thing"[..]);
-        codec.decode_cell(&mut bm).err().unwrap()
+        codec.decode_cell::<AnyChanMsg>(&mut bm).err().unwrap()
     };
 
     assert_eq!(format!("{:?}", decoded), format!("{:?}", err));
@@ -180,6 +181,6 @@ fn versions() {
     assert_eq!(v.best_shared_link_protocol(&[4, 5]), Some(5));
 
     // Try converting into a ChanCell.
-    let cc: ChanCell = v.into();
+    let cc: AnyChanCell = v.into();
     assert_eq!(cc.circid(), 0.into());
 }

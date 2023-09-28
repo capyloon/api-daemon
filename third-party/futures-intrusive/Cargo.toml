@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "futures-intrusive"
-version = "0.4.2"
+version = "0.5.0"
 authors = ["Matthias Einwag <matthias.einwag@live.com>"]
 description = """
 Futures based on intrusive data structures - for std and no-std environments.
@@ -52,7 +52,7 @@ default-features = false
 version = "0.4.1"
 
 [dependencies.parking_lot]
-version = "0.11.0"
+version = "0.12.0"
 optional = true
 
 [dev-dependencies.async-std]

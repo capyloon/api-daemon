@@ -15,7 +15,7 @@ use crate::parse::parser::Section;
 use crate::types::misc::*;
 use crate::types::version::TorVersion;
 use crate::util::intern::InternCache;
-use crate::{Error, ParseErrorKind as EK, Result};
+use crate::{Error, NetdocErrorKind as EK, Result};
 use std::sync::Arc;
 use std::{net, time};
 
@@ -154,6 +154,18 @@ macro_rules! implement_accessors {
             /// Return true if this routerstatus is listed with the Guard flag.
             pub fn is_flagged_guard(&self) -> bool {
                 self.rs.flags.contains(RelayFlags::GUARD)
+            }
+            /// Return true if this routerstatus is listed with the HSDir flag.
+            pub fn is_flagged_hsdir(&self) -> bool {
+                self.rs.flags.contains(RelayFlags::HSDIR)
+            }
+            /// Return true if this routerstatus is listed with the MiddleOnly flag.
+            ///
+            /// Note that this flag is only used by authorities as part of
+            /// the voting process; clients do not and should not act
+            /// based on whether it is set.
+            pub fn is_flagged_middle_only(&self) -> bool {
+                self.rs.flags.contains(RelayFlags::MIDDLE_ONLY)
             }
         }
     };

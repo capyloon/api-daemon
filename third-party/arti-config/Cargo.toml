@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "arti-config"
-version = "0.5.1"
+version = "0.6.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -36,3 +36,8 @@ rustdoc-args = [
     "--cfg",
     "docsrs",
 ]
+
+[dependencies]
+
+[features]
+full = []

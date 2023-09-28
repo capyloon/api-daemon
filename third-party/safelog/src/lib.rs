@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -253,6 +255,7 @@ impl<'a, T: Redactable + ?Sized> Redactable for &'a T {
     PartialEq(bound),
     PartialOrd(bound)
 )]
+#[derive(derive_more::From)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Redacted<T: Redactable>(T);
@@ -266,6 +269,19 @@ impl<T: Redactable> Redacted<T> {
     /// Consume this wrapper and return its inner value.
     pub fn unwrap(self) -> T {
         self.0
+    }
+
+    /// Converts `&Redacted<T>` to `Redacted<&T>`
+    pub fn as_ref(&self) -> Redacted<&T> {
+        Redacted(&self.0)
+    }
+
+    /// Return a reference to the inner value
+    //
+    // This isn't `AsRef` or `as_ref` because we don't want to offer "de-redaction"
+    // via what is usually a semantically-neutral interface.
+    pub fn as_inner(&self) -> &T {
+        &self.0
     }
 }
 

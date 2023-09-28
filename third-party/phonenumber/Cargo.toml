@@ -35,7 +35,7 @@ repository = "https://github.com/whisperfish/rust-phonenumber"
 bincode = "1.3"
 either = "1.8"
 fnv = "1.0"
-itertools = "0.10"
+itertools = ">=0.10, <=0.11"
 lazy_static = "1.4"
 nom = "7.1"
 quick-xml = "0.28"
@@ -45,8 +45,15 @@ serde = "1.0"
 serde_derive = "1.0"
 thiserror = "1.0"
 
+[dependencies.strum]
+version = "0.24"
+features = ["derive"]
+
 [dev-dependencies]
+anyhow = "1"
 doc-comment = "0.3"
+rstest = "0.17"
+rstest_reuse = "0.5"
 
 [build-dependencies]
 bincode = "1.3"

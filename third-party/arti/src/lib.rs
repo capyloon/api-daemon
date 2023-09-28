@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -67,6 +69,9 @@ mod reload_cfg;
 #[cfg(not(feature = "experimental-api"))]
 mod socks;
 
+#[cfg(feature = "rpc")]
+mod rpc;
+
 use std::ffi::OsString;
 use std::fmt::Write;
 
@@ -93,8 +98,13 @@ type PinnedFuture<T> = std::pin::Pin<Box<dyn futures::Future<Output = T>>>;
 /// Create a runtime for Arti to use.
 fn create_runtime() -> std::io::Result<impl Runtime> {
     cfg_if::cfg_if! {
-        if #[cfg(all(feature="tokio", feature="native-tls"))] {
-        use tor_rtcompat::tokio::TokioNativeTlsRuntime as ChosenRuntime;
+        if #[cfg(feature="rpc")] {
+            // TODO RPC: Because of
+            // https://gitlab.torproject.org/tpo/core/arti/-/issues/837 , we can
+            // currently define our RPC methods on TorClient<PreferredRuntime>.
+            use tor_rtcompat::PreferredRuntime as ChosenRuntime;
+        } else if #[cfg(all(feature="tokio", feature="native-tls"))] {
+            use tor_rtcompat::tokio::TokioNativeTlsRuntime as ChosenRuntime;
         } else if #[cfg(all(feature="tokio", feature="rustls"))] {
             use tor_rtcompat::tokio::TokioRustlsRuntime as ChosenRuntime;
         } else if #[cfg(all(feature="async-std", feature="native-tls"))] {
@@ -116,9 +126,9 @@ fn list_enabled_features() -> &'static [&'static str] {
     &[
         #[cfg(feature = "journald")]
         "journald",
-        #[cfg(feature = "static-sqlite")]
+        #[cfg(any(feature = "static-sqlite", feature = "static"))]
         "static-sqlite",
-        #[cfg(feature = "static-native-tls")]
+        #[cfg(any(feature = "static-native-tls", feature = "static"))]
         "static-native-tls",
     ]
 }
@@ -142,18 +152,64 @@ async fn run<R: Runtime>(
     // for bootstrap to complete, rather than getting errors.
     use arti_client::BootstrapBehavior::OnDemand;
     use futures::FutureExt;
+
+    #[cfg(feature = "rpc")]
+    let rpc_path = {
+        if let Some(path) = &arti_config.rpc().rpc_listen {
+            let path = path.path()?;
+            let parent = path
+                .parent()
+                .ok_or(anyhow::anyhow!("No parent directory for rpc_listen path?"))?;
+            client_config
+                .fs_mistrust()
+                .verifier()
+                .make_secure_dir(parent)?;
+            // It's just a unix thing; if we leave this sitting around, binding to it won't
+            // work right.  There is probably a better solution.
+            if path.exists() {
+                std::fs::remove_file(&path)?;
+            }
+
+            Some(path)
+        } else {
+            None
+        }
+    };
+
     let client_builder = TorClient::with_runtime(runtime.clone())
         .config(client_config)
         .bootstrap_behavior(OnDemand);
     let client = client_builder.create_unbootstrapped()?;
     reload_cfg::watch_for_config_changes(config_sources, arti_config, client.clone())?;
 
+    #[cfg(all(feature = "rpc", feature = "tokio"))]
+    let rpc_mgr = {
+        // TODO RPC This code doesn't really belong here; it's just an example.
+        if let Some(listen_path) = rpc_path {
+            // TODO Conceivably this listener belongs on a renamed "proxy" list.
+            Some(rpc::launch_rpc_listener(
+                &runtime,
+                listen_path,
+                client.clone(),
+            )?)
+        } else {
+            None
+        }
+    };
+
     let mut proxy: Vec<PinnedFuture<(Result<()>, &str)>> = Vec::new();
     if socks_port != 0 {
         let runtime = runtime.clone();
         let client = client.isolated_client();
         proxy.push(Box::pin(async move {
-            let res = socks::run_socks_proxy(runtime, client, socks_port).await;
+            let res = socks::run_socks_proxy(
+                runtime,
+                client,
+                socks_port,
+                #[cfg(all(feature = "rpc", feature = "tokio"))]
+                rpc_mgr,
+            )
+            .await;
             (res, "SOCKS")
         }));
     }
@@ -465,9 +521,16 @@ where
 pub fn main() {
     match main_main(std::env::args_os()) {
         Ok(()) => {}
-        Err(e) => match e.downcast_ref::<clap::Error>() {
-            Some(clap_err) => clap_err.exit(),
-            None => with_safe_logging_suppressed(|| tor_error::report_and_exit(e)),
-        },
+        Err(e) => {
+            if let Some(arti_err) = e.downcast_ref::<arti_client::Error>() {
+                if let Some(hint) = arti_err.hint() {
+                    info!("{}", hint);
+                }
+            }
+            match e.downcast_ref::<clap::Error>() {
+                Some(clap_err) => clap_err.exit(),
+                None => with_safe_logging_suppressed(|| tor_error::report_and_exit(e)),
+            }
+        }
     }
 }

@@ -6,7 +6,7 @@ use der::{Decode, Encode, FixedTag, Reader, Tag, Writer};
 /// Version identifier for PKCS#8 documents.
 ///
 /// (RFC 5958 designates `0` and `1` as the only valid versions for PKCS#8 documents)
-#[derive(Clone, Debug, Copy, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum Version {
     /// Denotes PKCS#8 v1: no public key field.
     V1 = 0,
@@ -36,7 +36,7 @@ impl Encode for Version {
         der::Length::from(1u8).for_tlv()
     }
 
-    fn encode(&self, writer: &mut dyn Writer) -> der::Result<()> {
+    fn encode(&self, writer: &mut impl Writer) -> der::Result<()> {
         u8::from(*self).encode(writer)
     }
 }

@@ -14,6 +14,10 @@ This is an alternative to [serde's with-annotation][with-annotation], which adds
 The main downside is that it work with fewer types than [with-annotations][with-annotation].
 However, all types from the Rust Standard Library should be supported in all combinations and any missing entry is a bug.
 
+You mirror the type structure of the field you want to de/serialize.
+You can specify converters for the inner types of a field, e.g., `Vec<DisplayFromStr>`.
+The default de/serialization behavior can be restored by using `_` as a placeholder, e.g., `BTreeMap<_, DisplayFromStr>`.
+
 The `serde_as` scheme is based on two new traits: [`SerializeAs`] and [`DeserializeAs`].  
 [Check out the detailed page about `serde_as` and the available features.](crate::guide::serde_as)
 
@@ -21,8 +25,7 @@ The `serde_as` scheme is based on two new traits: [`SerializeAs`] and [`Deserial
 
 ```rust
 # use serde::{Deserialize, Serialize};
-# use serde_with::{serde_as, DisplayFromStr};
-# use std::collections::HashMap;
+# use serde_with::{serde_as, DisplayFromStr, Map};
 # use std::net::Ipv4Addr;
 #
 #[serde_as]
@@ -34,7 +37,7 @@ struct Data {
     address: Ipv4Addr,
     // Treat the Vec like a map with duplicates
     // Convert u32 into a String and keep the String the same type
-    #[serde_as(as = "HashMap<DisplayFromStr, _>")]
+    #[serde_as(as = "Map<DisplayFromStr, _>")]
     vec_as_map: Vec<(u32, String)>,
 }
 

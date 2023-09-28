@@ -210,8 +210,6 @@ pub enum RetryClientError {
     /// (De)Serialization error
     #[error(transparent)]
     SerdeJson(serde_json::Error),
-    /// TimerError (wasm only)
-    TimerError,
 }
 
 impl crate::RpcError for RetryClientError {
@@ -244,7 +242,6 @@ impl From<RetryClientError> for ProviderError {
             RetryClientError::ProviderError(err) => err,
             RetryClientError::TimeoutError => ProviderError::JsonRpcClientError(Box::new(src)),
             RetryClientError::SerdeJson(err) => err.into(),
-            RetryClientError::TimerError => ProviderError::JsonRpcClientError(Box::new(src)),
         }
     }
 }
@@ -338,9 +335,7 @@ where
                 trace!("retrying and backing off for {:?}", next_backoff);
 
                 #[cfg(target_arch = "wasm32")]
-                wasm_timer::Delay::new(next_backoff)
-                    .await
-                    .map_err(|_| RetryClientError::TimerError)?;
+                futures_timer::Delay::new(next_backoff).await;
 
                 #[cfg(not(target_arch = "wasm32"))]
                 tokio::time::sleep(next_backoff).await;
@@ -566,7 +561,7 @@ mod tests {
         let err: JsonRpcError = serde_json::from_str(s).unwrap();
         let err = ClientError::JsonRpcError(err);
 
-        let should_retry = HttpRateLimitRetryPolicy::default().should_retry(&err);
+        let should_retry = HttpRateLimitRetryPolicy.should_retry(&err);
         assert!(should_retry);
     }
 
@@ -579,7 +574,7 @@ mod tests {
             text: s.to_string(),
         };
 
-        let should_retry = HttpRateLimitRetryPolicy::default().should_retry(&err);
+        let should_retry = HttpRateLimitRetryPolicy.should_retry(&err);
         assert!(should_retry);
     }
 }

@@ -1,11 +1,13 @@
 use crate::database::{Database, HasStatementCache};
 use crate::error::Error;
+
 use crate::transaction::Transaction;
 use futures_core::future::BoxFuture;
 use log::LevelFilter;
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::Duration;
+use url::Url;
 
 /// Represents a single database connection.
 pub trait Connection: Send {
@@ -15,9 +17,20 @@ pub trait Connection: Send {
 
     /// Explicitly close this database connection.
     ///
-    /// This method is **not required** for safe and consistent operation. However, it is
-    /// recommended to call it instead of letting a connection `drop` as the database backend
-    /// will be faster at cleaning up resources.
+    /// This notifies the database server that the connection is closing so that it can
+    /// free up any server-side resources in use.
+    ///
+    /// While connections can simply be dropped to clean up local resources,
+    /// the `Drop` handler itself cannot notify the server that the connection is being closed
+    /// because that may require I/O to send a termination message. That can result in a delay
+    /// before the server learns that the connection is gone, usually from a TCP keepalive timeout.
+    ///
+    /// Creating and dropping many connections in short order without calling `.close()` may
+    /// lead to errors from the database server because those senescent connections will still
+    /// count against any connection limit or quota that is configured.
+    ///
+    /// Therefore it is recommended to call `.close()` on a connection when you are done using it
+    /// and to `.await` the result to ensure the termination message is sent.
     fn close(self) -> BoxFuture<'static, Result<(), Error>>;
 
     /// Immediately close the connection without sending a graceful shutdown.
@@ -44,15 +57,12 @@ pub trait Connection: Send {
     /// # Example
     ///
     /// ```rust
-    /// use sqlx_core::connection::Connection;
-    /// use sqlx_core::error::Error;
-    /// use sqlx_core::executor::Executor;
-    /// use sqlx_core::postgres::{PgConnection, PgRow};
-    /// use sqlx_core::query::query;
+    /// use sqlx::postgres::{PgConnection, PgRow};
+    /// use sqlx::Connection;
     ///
-    /// # pub async fn _f(conn: &mut PgConnection) -> Result<Vec<PgRow>, Error> {
-    /// conn.transaction(|conn|Box::pin(async move {
-    ///     query("select * from ..").fetch_all(conn).await
+    /// # pub async fn _f(conn: &mut PgConnection) -> sqlx::Result<Vec<PgRow>> {
+    /// conn.transaction(|txn| Box::pin(async move {
+    ///     sqlx::query("select * from ..").fetch_all(&mut **txn).await
     /// })).await
     /// # }
     /// ```
@@ -102,6 +112,20 @@ pub trait Connection: Send {
         Box::pin(async move { Ok(()) })
     }
 
+    /// Restore any buffers in the connection to their default capacity, if possible.
+    ///
+    /// Sending a large query or receiving a resultset with many columns can cause the connection
+    /// to allocate additional buffer space to fit the data which is retained afterwards in
+    /// case it's needed again. This can give the outward appearance of a memory leak, but is
+    /// in fact the intended behavior.
+    ///
+    /// Calling this method tells the connection to release that excess memory if it can,
+    /// though be aware that calling this too often can cause unnecessary thrashing or
+    /// fragmentation in the global allocator. If there's still data in the connection buffers
+    /// (unlikely if the last query was run to completion) then it may need to be moved to
+    /// allow the buffers to shrink.
+    fn shrink_buffers(&mut self);
+
     #[doc(hidden)]
     fn flush(&mut self) -> BoxFuture<'_, Result<(), Error>>;
 
@@ -132,16 +156,17 @@ pub trait Connection: Send {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct LogSettings {
-    pub(crate) statements_level: LevelFilter,
-    pub(crate) slow_statements_level: LevelFilter,
-    pub(crate) slow_statements_duration: Duration,
+#[non_exhaustive]
+pub struct LogSettings {
+    pub statements_level: LevelFilter,
+    pub slow_statements_level: LevelFilter,
+    pub slow_statements_duration: Duration,
 }
 
 impl Default for LogSettings {
     fn default() -> Self {
         LogSettings {
-            statements_level: LevelFilter::Info,
+            statements_level: LevelFilter::Debug,
             slow_statements_level: LevelFilter::Warn,
             slow_statements_duration: Duration::from_secs(1),
         }
@@ -149,10 +174,10 @@ impl Default for LogSettings {
 }
 
 impl LogSettings {
-    pub(crate) fn log_statements(&mut self, level: LevelFilter) {
+    pub fn log_statements(&mut self, level: LevelFilter) {
         self.statements_level = level;
     }
-    pub(crate) fn log_slow_statements(&mut self, level: LevelFilter, duration: Duration) {
+    pub fn log_slow_statements(&mut self, level: LevelFilter, duration: Duration) {
         self.slow_statements_level = level;
         self.slow_statements_duration = duration;
     }
@@ -161,20 +186,23 @@ impl LogSettings {
 pub trait ConnectOptions: 'static + Send + Sync + FromStr<Err = Error> + Debug + Clone {
     type Connection: Connection + ?Sized;
 
+    /// Parse the `ConnectOptions` from a URL.
+    fn from_url(url: &Url) -> Result<Self, Error>;
+
     /// Establish a new database connection with the options specified by `self`.
     fn connect(&self) -> BoxFuture<'_, Result<Self::Connection, Error>>
     where
         Self::Connection: Sized;
 
     /// Log executed statements with the specified `level`
-    fn log_statements(&mut self, level: LevelFilter) -> &mut Self;
+    fn log_statements(self, level: LevelFilter) -> Self;
 
     /// Log executed statements with a duration above the specified `duration`
     /// at the specified `level`.
-    fn log_slow_statements(&mut self, level: LevelFilter, duration: Duration) -> &mut Self;
+    fn log_slow_statements(self, level: LevelFilter, duration: Duration) -> Self;
 
     /// Entirely disables statement logging (both slow and regular).
-    fn disable_statement_logging(&mut self) -> &mut Self {
+    fn disable_statement_logging(self) -> Self {
         self.log_statements(LevelFilter::Off)
             .log_slow_statements(LevelFilter::Off, Duration::default())
     }

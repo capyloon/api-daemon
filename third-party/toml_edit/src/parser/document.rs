@@ -1,13 +1,13 @@
 use std::cell::RefCell;
 
-use nom8::bytes::any;
-use nom8::bytes::one_of;
-use nom8::combinator::cut;
-use nom8::combinator::eof;
-use nom8::combinator::opt;
-use nom8::combinator::peek;
-use nom8::error::FromExternalError;
-use nom8::multi::many0_count;
+use winnow::combinator::cut_err;
+use winnow::combinator::eof;
+use winnow::combinator::opt;
+use winnow::combinator::peek;
+use winnow::combinator::repeat;
+use winnow::error::FromExternalError;
+use winnow::token::any;
+use winnow::token::one_of;
 
 use crate::document::Document;
 use crate::key::Key;
@@ -38,27 +38,28 @@ pub(crate) fn document(input: Input<'_>) -> IResult<Input<'_>, Document, ParserE
         // Remove BOM if present
         opt(b"\xEF\xBB\xBF"),
         parse_ws(state_ref),
-        many0_count((
+        repeat(0.., (
             dispatch! {peek(any);
-                crate::parser::trivia::COMMENT_START_SYMBOL => cut(parse_comment(state_ref)),
-                crate::parser::table::STD_TABLE_OPEN => cut(table(state_ref)),
+                crate::parser::trivia::COMMENT_START_SYMBOL => cut_err(parse_comment(state_ref)),
+                crate::parser::table::STD_TABLE_OPEN => cut_err(table(state_ref)),
                 crate::parser::trivia::LF |
                 crate::parser::trivia::CR => parse_newline(state_ref),
-                _ => cut(keyval(state_ref)),
+                _ => cut_err(keyval(state_ref)),
             },
             parse_ws(state_ref),
-        )),
+        ))
+        .map(|()| ()),
         eof,
     )
-        .parse(input)?;
+        .parse_next(input)?;
     state
         .into_inner()
         .into_document()
         .map(|document| (i, document))
         .map_err(|err| {
-            nom8::Err::Error(ParserError::from_external_error(
+            winnow::error::ErrMode::Backtrack(ParserError::from_external_error(
                 i,
-                nom8::error::ErrorKind::MapRes,
+                winnow::error::ErrorKind::Verify,
                 err,
             ))
         })
@@ -73,7 +74,7 @@ pub(crate) fn parse_comment<'s, 'i>(
             .map(|span| {
                 state.borrow_mut().on_comment(span);
             })
-            .parse(i)
+            .parse_next(i)
     }
 }
 
@@ -83,7 +84,7 @@ pub(crate) fn parse_ws<'s, 'i>(
     move |i| {
         ws.span()
             .map(|span| state.borrow_mut().on_ws(span))
-            .parse(i)
+            .parse_next(i)
     }
 }
 
@@ -94,7 +95,7 @@ pub(crate) fn parse_newline<'s, 'i>(
         newline
             .span()
             .map(|span| state.borrow_mut().on_ws(span))
-            .parse(i)
+            .parse_next(i)
     }
 }
 
@@ -103,8 +104,8 @@ pub(crate) fn keyval<'s, 'i>(
 ) -> impl FnMut(Input<'i>) -> IResult<Input<'i>, (), ParserError<'i>> + 's {
     move |i| {
         parse_keyval
-            .map_res(|(p, kv)| state.borrow_mut().on_keyval(p, kv))
-            .parse(i)
+            .try_map(|(p, kv)| state.borrow_mut().on_keyval(p, kv))
+            .parse_next(i)
     }
 }
 
@@ -114,7 +115,7 @@ pub(crate) fn parse_keyval(
 ) -> IResult<Input<'_>, (Vec<Key>, TableKeyValue), ParserError<'_>> {
     (
         key,
-        cut((
+        cut_err((
             one_of(KEYVAL_SEP)
                 .context(Context::Expected(ParserValue::CharLiteral('.')))
                 .context(Context::Expected(ParserValue::CharLiteral('='))),
@@ -127,7 +128,7 @@ pub(crate) fn parse_keyval(
             ),
         )),
     )
-        .map_res::<_, _, std::str::Utf8Error>(|(key, (_, v))| {
+        .try_map::<_, _, std::str::Utf8Error>(|(key, (_, v))| {
             let mut path = key;
             let key = path.pop().expect("grammar ensures at least 1");
 
@@ -143,5 +144,5 @@ pub(crate) fn parse_keyval(
                 },
             ))
         })
-        .parse(input)
+        .parse_next(input)
 }

@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "retry-error"
-version = "0.3.1"
+version = "0.4.2"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -38,5 +38,10 @@ rustdoc-args = [
     "docsrs",
 ]
 
+[dependencies]
+
 [dev-dependencies]
 anyhow = "1.0.23"
+
+[features]
+full = []

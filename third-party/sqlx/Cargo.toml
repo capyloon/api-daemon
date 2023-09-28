@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "sqlx"
-version = "0.6.2"
+version = "0.7.0"
 authors = [
     "Ryan Leckey <leckey.ryan@gmail.com>",
     "Austin Bonander <austin.bonander@gmail.com>",
@@ -22,24 +22,13 @@ authors = [
 description = "🧰 The Rust SQL Toolkit. An async, pure Rust SQL crate featuring compile-time checked queries without a DSL. Supports PostgreSQL, MySQL, and SQLite."
 documentation = "https://docs.rs/sqlx"
 readme = "README.md"
-keywords = [
-    "database",
-    "async",
-    "postgres",
-    "mysql",
-    "sqlite",
-]
-categories = [
-    "database",
-    "asynchronous",
-]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/launchbadge/sqlx"
 
 [package.metadata.docs.rs]
 features = [
-    "all",
-    "runtime-tokio-native-tls",
+    "all-databases",
+    "_unstable-all-types",
 ]
 rustdoc-args = [
     "--cfg",
@@ -96,7 +85,12 @@ required-features = [
 ]
 
 [[test]]
-name = "sqlcipher"
+name = "sqlite-error"
+path = "tests/sqlite/error.rs"
+required-features = ["sqlite"]
+
+[[test]]
+name = "sqlite-sqlcipher"
 path = "tests/sqlite/sqlcipher.rs"
 required-features = ["sqlite"]
 
@@ -140,6 +134,11 @@ required-features = [
     "mysql",
     "macros",
 ]
+
+[[test]]
+name = "mysql-error"
+path = "tests/mysql/error.rs"
+required-features = ["mysql"]
 
 [[test]]
 name = "mysql-test-attr"
@@ -191,6 +190,11 @@ required-features = [
 ]
 
 [[test]]
+name = "postgres-error"
+path = "tests/postgres/error.rs"
+required-features = ["postgres"]
+
+[[test]]
 name = "postgres-test-attr"
 path = "tests/postgres/test-attr.rs"
 required-features = [
@@ -208,71 +212,80 @@ required-features = [
     "migrate",
 ]
 
-[[test]]
-name = "mssql"
-path = "tests/mssql/mssql.rs"
-required-features = ["mssql"]
-
-[[test]]
-name = "mssql-types"
-path = "tests/mssql/types.rs"
-required-features = ["mssql"]
-
-[[test]]
-name = "mssql-describe"
-path = "tests/mssql/describe.rs"
-required-features = ["mssql"]
-
-[[test]]
-name = "mssql-macros"
-path = "tests/mssql/macros.rs"
-required-features = [
-    "mssql",
-    "macros",
-]
+[[bench]]
+name = "sqlite-describe"
+path = "benches/sqlite/describe.rs"
+harness = false
+required-features = ["sqlite"]
 
 [dependencies.sqlx-core]
-version = "0.6.2"
-path = "sqlx-core"
-default-features = false
+version = "=0.7.0"
+features = [
+    "offline",
+    "migrate",
+]
 
 [dependencies.sqlx-macros]
-version = "0.6.2"
-path = "sqlx-macros"
+version = "=0.7.0"
 optional = true
-default-features = false
 
-[dev-dependencies]
-anyhow = "1.0.52"
-dotenvy = "0.15.0"
-env_logger = "0.9.0"
-futures = "0.3.19"
-hex = "0.4.3"
-paste = "1.0.6"
-rand = "0.8.4"
-rand_xoshiro = "0.6.0"
-serde_json = "1.0.73"
-tempdir = "0.3.7"
-trybuild = "1.0.53"
-url = "2.2.2"
+[dependencies.sqlx-mysql]
+version = "=0.7.0"
+optional = true
+
+[dependencies.sqlx-postgres]
+version = "=0.7.0"
+optional = true
+
+[dependencies.sqlx-sqlite]
+version = "=0.7.0"
+optional = true
+
+[dev-dependencies.anyhow]
+version = "1.0.52"
 
 [dev-dependencies.async-std]
 version = "1.10.0"
 features = ["attributes"]
 
+[dev-dependencies.criterion]
+version = "0.4"
+features = ["async_tokio"]
+
+[dev-dependencies.dotenvy]
+version = "0.15.0"
+
+[dev-dependencies.env_logger]
+version = "0.9.0"
+
+[dev-dependencies.futures]
+version = "0.3.19"
+
+[dev-dependencies.hex]
+version = "0.4.3"
+
 [dev-dependencies.libsqlite3-sys]
-version = "0.25"
+version = "0.26"
 features = ["bundled-sqlcipher"]
+
+[dev-dependencies.paste]
+version = "1.0.6"
+
+[dev-dependencies.rand]
+version = "0.8.4"
+
+[dev-dependencies.rand_xoshiro]
+version = "0.6.0"
 
 [dev-dependencies.serde]
 version = "1.0.132"
 features = ["derive"]
 
-[dev-dependencies.sqlx-rt]
-path = "./sqlx-rt"
+[dev-dependencies.serde_json]
+version = "1.0.73"
 
-[dev-dependencies.sqlx-test]
-path = "./sqlx-test"
+[dev-dependencies.tempdir]
+version = "0.3.7"
 
 [dev-dependencies.time_]
 version = "0.3.2"
@@ -282,24 +295,18 @@ package = "time"
 version = "1.15.0"
 features = ["full"]
 
+[dev-dependencies.trybuild]
+version = "1.0.53"
+
+[dev-dependencies.url]
+version = "2.2.2"
+
 [features]
 _rt-async-std = []
 _rt-tokio = []
-all = [
-    "tls",
-    "all-databases",
-    "all-types",
-]
-all-databases = [
-    "mysql",
-    "sqlite",
-    "postgres",
-    "mssql",
-    "any",
-]
-all-types = [
+_unstable-all-types = [
     "bigdecimal",
-    "decimal",
+    "rust_decimal",
     "json",
     "time",
     "chrono",
@@ -307,120 +314,132 @@ all-types = [
     "mac_address",
     "uuid",
     "bit-vec",
-    "bstr",
-    "git2",
 ]
-any = ["sqlx-core/any"]
+all-databases = [
+    "mysql",
+    "sqlite",
+    "postgres",
+    "any",
+]
+any = [
+    "sqlx-core/any",
+    "sqlx-mysql?/any",
+    "sqlx-postgres?/any",
+    "sqlx-sqlite?/any",
+]
 bigdecimal = [
     "sqlx-core/bigdecimal",
-    "sqlx-macros/bigdecimal",
+    "sqlx-macros?/bigdecimal",
+    "sqlx-mysql?/bigdecimal",
+    "sqlx-postgres?/bigdecimal",
 ]
 bit-vec = [
     "sqlx-core/bit-vec",
-    "sqlx-macros/bit-vec",
+    "sqlx-macros?/bit-vec",
+    "sqlx-postgres?/bit-vec",
 ]
-bstr = ["sqlx-core/bstr"]
 chrono = [
     "sqlx-core/chrono",
-    "sqlx-macros/chrono",
-]
-decimal = [
-    "sqlx-core/decimal",
-    "sqlx-macros/decimal",
+    "sqlx-macros?/chrono",
+    "sqlx-mysql?/chrono",
+    "sqlx-postgres?/chrono",
+    "sqlx-sqlite?/chrono",
 ]
 default = [
+    "any",
     "macros",
     "migrate",
+    "json",
 ]
-git2 = ["sqlx-core/git2"]
 ipnetwork = [
     "sqlx-core/ipnetwork",
-    "sqlx-macros/ipnetwork",
+    "sqlx-macros?/ipnetwork",
+    "sqlx-postgres?/ipnetwork",
 ]
 json = [
-    "sqlx-core/json",
-    "sqlx-macros/json",
+    "sqlx-macros?/json",
+    "sqlx-mysql?/json",
+    "sqlx-postgres?/json",
+    "sqlx-sqlite?/json",
 ]
 mac_address = [
     "sqlx-core/mac_address",
-    "sqlx-macros/mac_address",
+    "sqlx-macros?/mac_address",
+    "sqlx-postgres?/mac_address",
 ]
 macros = ["sqlx-macros"]
 migrate = [
-    "sqlx-macros/migrate",
     "sqlx-core/migrate",
-]
-mssql = [
-    "sqlx-core/mssql",
-    "sqlx-macros/mssql",
+    "sqlx-macros?/migrate",
+    "sqlx-mysql?/migrate",
+    "sqlx-postgres?/migrate",
+    "sqlx-sqlite?/migrate",
 ]
 mysql = [
-    "sqlx-core/mysql",
-    "sqlx-macros/mysql",
-]
-offline = [
-    "sqlx-macros/offline",
-    "sqlx-core/offline",
+    "sqlx-mysql",
+    "sqlx-macros?/mysql",
 ]
 postgres = [
-    "sqlx-core/postgres",
-    "sqlx-macros/postgres",
+    "sqlx-postgres",
+    "sqlx-macros?/postgres",
 ]
-runtime-actix = []
-runtime-actix-native-tls = ["runtime-tokio-native-tls"]
-runtime-actix-rustls = ["runtime-tokio-rustls"]
-runtime-async-std = []
-runtime-async-std-native-tls = [
-    "sqlx-core/runtime-async-std-native-tls",
-    "sqlx-macros/runtime-async-std-native-tls",
+regexp = ["sqlx-sqlite?/regexp"]
+runtime-async-std = [
     "_rt-async-std",
+    "sqlx-core/_rt-async-std",
+    "sqlx-macros/_rt-async-std",
+]
+runtime-async-std-native-tls = [
+    "runtime-async-std",
+    "tls-native-tls",
 ]
 runtime-async-std-rustls = [
-    "sqlx-core/runtime-async-std-rustls",
-    "sqlx-macros/runtime-async-std-rustls",
-    "_rt-async-std",
+    "runtime-async-std",
+    "tls-rustls",
 ]
-runtime-tokio = []
-runtime-tokio-native-tls = [
-    "sqlx-core/runtime-tokio-native-tls",
-    "sqlx-macros/runtime-tokio-native-tls",
+runtime-tokio = [
     "_rt-tokio",
+    "sqlx-core/_rt-tokio",
+    "sqlx-macros/_rt-tokio",
+]
+runtime-tokio-native-tls = [
+    "runtime-tokio",
+    "tls-native-tls",
 ]
 runtime-tokio-rustls = [
-    "sqlx-core/runtime-tokio-rustls",
-    "sqlx-macros/runtime-tokio-rustls",
-    "_rt-tokio",
+    "runtime-tokio",
+    "tls-rustls",
+]
+rust_decimal = [
+    "sqlx-core/rust_decimal",
+    "sqlx-macros?/rust_decimal",
+    "sqlx-mysql?/rust_decimal",
+    "sqlx-postgres?/rust_decimal",
 ]
 sqlite = [
-    "sqlx-core/sqlite",
-    "sqlx-macros/sqlite",
+    "sqlx-sqlite",
+    "sqlx-macros?/sqlite",
 ]
 time = [
     "sqlx-core/time",
-    "sqlx-macros/time",
+    "sqlx-macros?/time",
+    "sqlx-mysql?/time",
+    "sqlx-postgres?/time",
+    "sqlx-sqlite?/time",
 ]
-tls = []
+tls-native-tls = [
+    "sqlx-core/_tls-native-tls",
+    "sqlx-macros/_tls-native-tls",
+]
+tls-none = []
+tls-rustls = [
+    "sqlx-core/_tls-rustls",
+    "sqlx-macros/_tls-rustls",
+]
 uuid = [
     "sqlx-core/uuid",
-    "sqlx-macros/uuid",
-]
-
-[workspace]
-members = [
-    ".",
-    "sqlx-core",
-    "sqlx-rt",
-    "sqlx-macros",
-    "sqlx-test",
-    "sqlx-cli",
-    "sqlx-bench",
-    "examples/mysql/todos",
-    "examples/postgres/axum-social-with-tests",
-    "examples/postgres/files",
-    "examples/postgres/json",
-    "examples/postgres/listen",
-    "examples/postgres/todos",
-    "examples/postgres/mockable-todos",
-    "examples/postgres/transaction",
-    "examples/sqlite/todos",
+    "sqlx-macros?/uuid",
+    "sqlx-mysql?/uuid",
+    "sqlx-postgres?/uuid",
+    "sqlx-sqlite?/uuid",
 ]

@@ -43,6 +43,11 @@ Check the [feature flags][] section for information about all available features
 Annotate your struct or enum to enable the custom de/serializer.
 The `#[serde_as]` attribute must be placed *before* the `#[derive]`.
 
+The `as` is analogous to the `with` attribute of serde.
+You mirror the type structure of the field you want to de/serialize.
+You can specify converters for the inner types of a field, e.g., `Vec<DisplayFromStr>`.
+The default de/serialization behavior can be restored by using `_` as a placeholder, e.g., `BTreeMap<_, DisplayFromStr>`.
+
 ### `DisplayFromStr`
 
 [![Rustexplorer](https://img.shields.io/badge/Try%20on-rustexplorer-lightgrey?logo=rust&logoColor=orange)](https://www.rustexplorer.com/b/py7ida)
@@ -130,6 +135,8 @@ This example is mainly supposed to highlight the flexibility of the `serde_as`-a
 More details about `serde_as` can be found in the [user guide].
 
 ```rust
+use std::time::Duration;
+
 #[serde_as]
 #[derive(Deserialize, Serialize)]
 enum Foo {
@@ -142,7 +149,7 @@ enum Foo {
         // We can treat a Vec like a map with duplicates.
         // JSON only allows string keys, so convert i32 to strings
         // The bytes will be hex encoded
-        #[serde_as(as = "BTreeMap<DisplayFromStr, Hex>")]
+        #[serde_as(as = "Map<DisplayFromStr, Hex>")]
         bytes: Vec<(i32, Vec<u8>)>,
     }
 }
@@ -176,14 +183,14 @@ Foo::Bytes {
 }
 ```
 
-[`DisplayFromStr`]: https://docs.rs/serde_with/2.2.0/serde_with/struct.DisplayFromStr.html
-[`with_prefix!`]: https://docs.rs/serde_with/2.2.0/serde_with/macro.with_prefix.html
-[feature flags]: https://docs.rs/serde_with/2.2.0/serde_with/guide/feature_flags/index.html
-[skip_serializing_none]: https://docs.rs/serde_with/2.2.0/serde_with/attr.skip_serializing_none.html
-[StringWithSeparator]: https://docs.rs/serde_with/2.2.0/serde_with/struct.StringWithSeparator.html
-[user guide]: https://docs.rs/serde_with/2.2.0/serde_with/guide/index.html
+[`DisplayFromStr`]: https://docs.rs/serde_with/3.0.0/serde_with/struct.DisplayFromStr.html
+[`with_prefix!`]: https://docs.rs/serde_with/3.0.0/serde_with/macro.with_prefix.html
+[feature flags]: https://docs.rs/serde_with/3.0.0/serde_with/guide/feature_flags/index.html
+[skip_serializing_none]: https://docs.rs/serde_with/3.0.0/serde_with/attr.skip_serializing_none.html
+[StringWithSeparator]: https://docs.rs/serde_with/3.0.0/serde_with/struct.StringWithSeparator.html
+[user guide]: https://docs.rs/serde_with/3.0.0/serde_with/guide/index.html
 [with-annotation]: https://serde.rs/field-attrs.html#with
-[as-annotation]: https://docs.rs/serde_with/2.2.0/serde_with/guide/serde_as/index.html
+[as-annotation]: https://docs.rs/serde_with/3.0.0/serde_with/guide/serde_as/index.html
 
 ## License
 

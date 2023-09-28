@@ -32,6 +32,7 @@ use thiserror::Error;
 
 use curve25519_dalek::scalar::Scalar;
 pub use ed25519_dalek::{ExpandedSecretKey, Keypair, PublicKey, SecretKey, Signature};
+pub use pk::ed25519::ExpandedKeypair;
 
 /// Convert a curve25519 public key (with sign bit) to an ed25519
 /// public key, for use in ntor key cross-certification.
@@ -73,14 +74,10 @@ pub fn convert_curve25519_to_ed25519_public(
 ///
 /// This panic should be impossible unless there are implementation
 /// bugs.
-///
-/// # Availability
-///
-/// This function is only available when the `relay` feature is enabled.
-#[cfg(any(test, feature = "relay"))]
+#[cfg(any(test, feature = "cvt-x25519"))]
 pub fn convert_curve25519_to_ed25519_private(
     privkey: &pk::curve25519::StaticSecret,
-) -> Option<(pk::ed25519::ExpandedSecretKey, u8)> {
+) -> Option<(pk::ed25519::ExpandedKeypair, u8)> {
     use crate::d::Sha512;
     use zeroize::Zeroizing;
 
@@ -93,18 +90,87 @@ pub fn convert_curve25519_to_ed25519_private(
     bytes[0..32].clone_from_slice(&privkey.to_bytes());
     bytes[32..64].clone_from_slice(&h[0..32]);
 
-    let result = pk::ed25519::ExpandedSecretKey::from_bytes(&bytes[..]).ok()?;
-    let pubkey: pk::ed25519::PublicKey = (&result).into();
-    let signbit = pubkey.as_bytes()[31] >> 7;
+    let secret = pk::ed25519::ExpandedSecretKey::from_bytes(&bytes[..]).ok()?;
+    let public: pk::ed25519::PublicKey = (&secret).into();
+    let signbit = public.as_bytes()[31] >> 7;
 
     #[cfg(debug_assertions)]
     {
         let curve_pubkey1 = pk::curve25519::PublicKey::from(privkey);
         let ed_pubkey1 = convert_curve25519_to_ed25519_public(&curve_pubkey1, signbit)?;
-        assert_eq!(ed_pubkey1, pubkey);
+        assert_eq!(ed_pubkey1, public);
     }
 
-    Some((result, signbit))
+    Some((pk::ed25519::ExpandedKeypair { public, secret }, signbit))
+}
+
+/// Convert an ed25519 private key to a curve25519 private key.
+///
+/// This creates a curve25519 key as described in section-5.1.5 of RFC8032: the bytes of the secret
+/// part of `keypair` are hashed using SHA-512, and the result is clamped (the first 3 bits of the
+/// first byte are cleared, the highest bit of the last byte is cleared, the second highest bit of
+/// the last byte is set).
+///
+/// Note: Using the same keypair for multiple purposes (such as key-exchange and signing) is
+/// considered bad practice. Don't use this function unless you know what you're doing.
+/// See [On using the same key pair for Ed25519 and an X25519 based
+/// KEM](https://eprint.iacr.org/2021/509.pdf).
+///
+/// This function is needed by the `ArtiNativeKeystore` from `tor-keymgr` to convert ed25519
+/// private keys to x25519. This is because `ArtiNativeKeystore` stores x25519 private keys as
+/// ssh-ed25519 OpenSSH keys. Other similar use cases are also valid.
+///
+/// It's important to note that converting a private key from ed25519 -> curve25519 -> ed25519 will
+/// yield an [`ExpandedKeypair`](pk::ed25519::ExpandedKeypair) that is _not_ identical to the
+/// expanded version of the original [`Keypair`](pk::ed25519::Keypair): the lower halves (the keys) of
+/// the expanded key pairs will be the same, but their upper halves (the nonces) will be different.
+///
+/// # Panics
+///
+/// If the `debug_assertions` feature is enabled, this function will double-check that the key it
+/// is about to return is clamped.
+///
+/// This panic should be impossible unless we have upgraded x25519-dalek without auditing this
+/// function.
+#[cfg(any(test, feature = "cvt-x25519"))]
+pub fn convert_ed25519_to_curve25519_private(
+    keypair: &pk::ed25519::Keypair,
+) -> pk::curve25519::StaticSecret {
+    use crate::d::Sha512;
+    use zeroize::Zeroize as _;
+
+    // Generate the key according to section-5.1.5 of rfc8032
+    let h = Sha512::digest(keypair.secret.to_bytes());
+
+    let mut bytes = [0_u8; 32];
+    bytes.clone_from_slice(&h[0..32]);
+
+    // StaticSecret::from handles the clamping
+    let secret = pk::curve25519::StaticSecret::from(bytes);
+    bytes.zeroize();
+
+    // TODO #808: Review this function after upgrading to the latest x25519-dalek.
+    //
+    // This function was written with x25519-dalek version =2.0.0-rc.2 in mind, where
+    // StaticSecret::from returns a clamped value. However, in the latest version of x25519-dalek,
+    // StaticSecret::from does _not_ do any clamping (the clamping is still done during
+    // scalar-point multiplication though). This might not be an issue, but we should double-check
+    // this is OK.
+    //
+    // The debug_assertions can be removed when #808 is closed.
+    #[cfg(debug_assertions)]
+    {
+        // Ensure StaticSecret::from actually handled the clamping.
+        // This will panic if we bump x25519-dalek without updating this code.
+        let bytes = secret.to_bytes();
+
+        // Clamping should clear the last 3 bits of the first byte.
+        assert_eq!(bytes[0] & 0b111, 0);
+        // Clamping should clear the highest bit and set the second highest bit of the last byte.
+        assert_eq!(bytes[31] & 0b11000000, 0b01000000);
+    }
+
+    secret
 }
 
 /// An error occurred during a key-blinding operation.
@@ -126,29 +192,31 @@ impl From<ed25519_dalek::SignatureError> for BlindingError {
     }
 }
 
-/// Helper: clamp a blinding parameter and use it to compute a blinding factor.
+/// Helper: clamp a blinding factor and use it to compute a blinding factor.
+///
+/// Described in part of rend-spec-v3 A.2.
 ///
 /// This is a common step for public-key and private-key blinding.
 #[cfg(any(feature = "hsv3-client", feature = "hsv3-service"))]
-fn blinding_factor(mut param: [u8; 32]) -> Scalar {
-    // Clamp the blinding parameter
-    param[0] &= 248;
-    param[31] &= 63;
-    param[31] |= 64;
+fn clamp_blinding_factor(mut h: [u8; 32]) -> Scalar {
+    h[0] &= 248;
+    h[31] &= 63;
+    h[31] |= 64;
 
     // Transform it into a scalar so that we can do scalar mult.
-    Scalar::from_bytes_mod_order(param)
+    Scalar::from_bytes_mod_order(h)
 }
 
-/// Blind the ed25519 public key `pk` using the blinding parameter
-/// `param`, and return the blinded public key.
+/// Blind the ed25519 public key `pk` using the blinding factor
+/// `h`, and return the blinded public key.
 ///
 /// This algorithm is described in `rend-spec-v3.txt`, section A.2.
 /// In the terminology of that section, the value `pk` corresponds to
-/// `A`, and the value `param` corresponds to `h`.
+/// `A`, and
+/// `h` is the value `h = H(...)`, before clamping.
 ///
-/// Note that the approach used to clamp `param` to a scalar means
-/// that different possible values for `param` may yield the same
+/// Note that the approach used to clamp `h` to a scalar means
+/// that different possible values for `h` may yield the same
 /// output for a given `pk`.  This and other limitations make this
 /// function unsuitable for use outside the context of
 /// `rend-spec-v3.txt` without careful analysis.
@@ -162,10 +230,10 @@ fn blinding_factor(mut param: [u8; 32]) -> Scalar {
 ///
 /// This function is only available when the `hsv3-client` feature is enabled.
 #[cfg(feature = "hsv3-client")]
-pub fn blind_pubkey(pk: &PublicKey, param: [u8; 32]) -> Result<PublicKey, BlindingError> {
+pub fn blind_pubkey(pk: &PublicKey, h: [u8; 32]) -> Result<PublicKey, BlindingError> {
     use curve25519_dalek::edwards::CompressedEdwardsY;
 
-    let blinding_factor = blinding_factor(param);
+    let blinding_factor = clamp_blinding_factor(h);
 
     // Convert the public key to a point on the curve
     let pubkey_point = CompressedEdwardsY(pk.to_bytes())
@@ -178,13 +246,14 @@ pub fn blind_pubkey(pk: &PublicKey, param: [u8; 32]) -> Result<PublicKey, Blindi
     Ok(PublicKey::from_bytes(&blinded_pubkey_point.0)?)
 }
 
-/// Blind the ed25519 secret key `sk` using the blinding parameter `param`, and
+/// Blind the ed25519 secret key `sk` using the blinding factor `h`, and
 /// return the blinded secret key.
 ///
 /// This algorithm is described in `rend-spec-v3.txt`, section A.2.
+/// `h` is the value `h = H(...)`, before clamping.
 ///
-/// Note that the approach used to clamp `param` to a scalar means that
-/// different possible values for `param` may yield the same output for a given
+/// Note that the approach used to clamp `h` to a scalar means that
+/// different possible values for `h` may yield the same output for a given
 /// `pk`.  This and other limitations make this function unsuitable for use
 /// outside the context of `rend-spec-v3.txt` without careful analysis.
 ///
@@ -201,19 +270,18 @@ pub fn blind_pubkey(pk: &PublicKey, param: [u8; 32]) -> Result<PublicKey, Blindi
 ///
 /// The secret keys produced by this will _not_ produce the correct public keys
 /// if you call "PublicKey::from_bytes()" on them.  To find the correct
-/// corresponding blinded public key, first convert `sk` to a public key, and
-/// then call [`blind_pubkey`] on that.
+/// corresponding blinded public key,
+/// call [`blind_pubkey`] on `keypair.public`.
 ///
 /// This unfortunate behavior occurs because `PublicKey::from` code always does
 /// the ceremonial x25519 bit-twiddling on its scalar inputs, whereas in this
 /// case a modular reduction would be the correct operation. (The input is known
 /// to be a scalar!)
 #[cfg(feature = "hsv3-service")]
-pub fn blind_seckey(
-    sk: &ExpandedSecretKey,
-    param: [u8; 32],
-) -> Result<ExpandedSecretKey, BlindingError> {
-    use arrayref::{array_mut_ref, array_ref};
+pub fn blind_keypair(
+    keypair: &ExpandedKeypair,
+    h: [u8; 32],
+) -> Result<ExpandedKeypair, BlindingError> {
     use zeroize::Zeroizing;
 
     /// Fixed string specified in rend-spec-v3.txt, used for blinding the
@@ -221,12 +289,16 @@ pub fn blind_seckey(
     /// implementations consistent.)
     const RH_BLIND_STRING: &[u8] = b"Derive temporary signing key hash input";
 
-    let blinding_factor = blinding_factor(param);
-    let secret_key_bytes = Zeroizing::new(sk.to_bytes());
+    let blinding_factor = clamp_blinding_factor(h);
+    let secret_key_bytes = Zeroizing::new(keypair.secret.to_bytes());
     let mut blinded_key_bytes = Zeroizing::new([0_u8; 64]);
 
     {
-        let secret_key = Scalar::from_bits(*array_ref!(secret_key_bytes, 0, 32));
+        let secret_key = Scalar::from_bits(
+            secret_key_bytes[0..32]
+                .try_into()
+                .expect("32-byte array not 32 bytes long!?"),
+        );
         let blinded_key = secret_key * blinding_factor;
         blinded_key_bytes[0..32].copy_from_slice(blinded_key.as_bytes());
     }
@@ -236,11 +308,21 @@ pub fn blind_seckey(
         h.update(RH_BLIND_STRING);
         h.update(&secret_key_bytes[32..]);
         let mut d = Zeroizing::new([0_u8; 64]);
-        h.finalize_into(array_mut_ref!(d, 0, 64).into());
+        h.finalize_into(
+            d.as_mut()
+                .try_into()
+                .expect("64-byte array not 64 bytes long!?"),
+        );
         blinded_key_bytes[32..64].copy_from_slice(&d[0..32]);
     }
 
-    ExpandedSecretKey::from_bytes(&blinded_key_bytes[..]).map_err(|_| BlindingError::BlindingFailed)
+    // We cannot derive our blinded public key from `secret`; we must instead
+    // re-blind `public`. (See "Limitations" above for an explanation.)
+    let public = blind_pubkey(&keypair.public, h)?;
+
+    let secret = ExpandedSecretKey::from_bytes(&blinded_key_bytes[..])
+        .map_err(|_| BlindingError::BlindingFailed)?;
+    Ok(ExpandedKeypair { secret, public })
 }
 
 #[cfg(test)]
@@ -260,7 +342,9 @@ mod tests {
         let curve_sk = curve25519::StaticSecret::new(rng);
         let curve_pk = curve25519::PublicKey::from(&curve_sk);
 
-        let (ed_sk, signbit) = convert_curve25519_to_ed25519_private(&curve_sk).unwrap();
+        let (ed_kp, signbit) = convert_curve25519_to_ed25519_private(&curve_sk).unwrap();
+        let ed_sk = ed_kp.secret;
+        let ed_pk0 = ed_kp.public;
         let ed_pk1: ed25519::PublicKey = (&ed_sk).into();
         let ed_pk2 = convert_curve25519_to_ed25519_public(&curve_pk, signbit).unwrap();
 
@@ -269,7 +353,42 @@ mod tests {
         assert!(ed_pk1.verify(&msg[..], &sig1).is_ok());
         assert!(ed_pk2.verify(&msg[..], &sig1).is_ok());
 
+        assert_eq!(ed_pk1, ed_pk0);
         assert_eq!(ed_pk1, ed_pk2);
+    }
+
+    #[test]
+    fn ed_to_curve_compatible() {
+        use crate::pk::{curve25519, ed25519};
+        use crate::util::rand_compat::RngCompatExt;
+        use signature::Verifier;
+        use tor_basic_utils::test_rng::testing_rng;
+
+        let mut rng = testing_rng().rng_compat();
+        let ed_kp = ed25519::Keypair::generate(&mut rng);
+        let ed_sk1 = ExpandedSecretKey::from(&ed_kp.secret);
+        let ed_pk1 = ed25519::PublicKey::from(&ed_sk1);
+
+        let curve_sk = convert_ed25519_to_curve25519_private(&ed_kp);
+        let curve_pk = curve25519::PublicKey::from(&curve_sk);
+
+        let (ed_kp2, signbit) = convert_curve25519_to_ed25519_private(&curve_sk).unwrap();
+        let ed_pk2 = convert_curve25519_to_ed25519_public(&curve_pk, signbit).unwrap();
+        let ed_sk2 = ed_kp2.secret;
+
+        assert_eq!(ed_pk1, ed_pk2);
+        // Make sure the 2 secret keys are the same.
+        // Note: we only look at the first 32 bytes of the (expanded) key because the last 32 bytes
+        // represent the "domain-separation nonce".
+        assert_eq!(ed_sk1.to_bytes()[..32], ed_sk2.to_bytes()[..32]);
+
+        let msg = b"tis the gift to be simple";
+
+        for sk in &[ed_sk1, ed_sk2] {
+            let sig = sk.sign(&msg[..], &ed_pk1);
+            assert!(ed_pk1.verify(&msg[..], &sig).is_ok());
+            assert!(ed_pk2.verify(&msg[..], &sig).is_ok());
+        }
     }
 
     #[test]
@@ -364,14 +483,22 @@ mod tests {
                 &esk.to_bytes()[..],
                 &hex::decode(expanded_seckeys[i]).unwrap()
             );
+            let public = (&esk).into();
+            let kp_in = ExpandedKeypair {
+                secret: esk,
+                public,
+            };
 
             let pk = PublicKey::from_bytes(&hex::decode(pubkeys[i]).unwrap()).unwrap();
             assert_eq!(pk, PublicKey::from(&sk));
 
             let param = hex::decode(params[i]).unwrap().try_into().unwrap();
             // Blind the secret key, and make sure that the result is expected.
-            let blinded_sk = blind_seckey(&esk, param).unwrap();
-            assert_eq!(hex::encode(blinded_sk.to_bytes()), blinded_seckeys[i]);
+            let blinded_kp = blind_keypair(&kp_in, param).unwrap();
+            assert_eq!(
+                hex::encode(blinded_kp.secret.to_bytes()),
+                blinded_seckeys[i]
+            );
 
             let blinded_pk = blind_pubkey(&pk, param).unwrap();
 
@@ -380,23 +507,46 @@ mod tests {
 
             // Make sure that signature made with blinded sk is validated by
             // blinded pk.
-            let sig = blinded_sk.sign(b"hello world", &blinded_pk);
+            let sig = blinded_kp.sign(b"hello world");
             blinded_pk.verify(b"hello world", &sig).unwrap();
 
             if false {
                 // This test does not pass: see "limitations" section in documentation for blind_seckey.
                 assert_eq!(
                     blinded_pk.to_bytes(),
-                    PublicKey::from(&blinded_sk).to_bytes()
+                    PublicKey::from(&blinded_kp.secret).to_bytes()
                 );
             } else {
-                let blinded_sk_bytes = blinded_sk.to_bytes();
+                let blinded_sk_bytes = blinded_kp.secret.to_bytes();
                 let blinded_sk_scalar =
-                    Scalar::from_bits(*arrayref::array_ref!(blinded_sk_bytes, 0, 32));
+                    Scalar::from_bits(blinded_sk_bytes[0..32].try_into().unwrap());
                 let pk2 = blinded_sk_scalar * curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
                 let pk2 = pk2.compress();
                 assert_eq!(pk2.as_bytes(), blinded_pk.as_bytes());
             }
+        }
+    }
+
+    // TODO #808: Remove this test after upgrading to the latest x25519-dalek. The only purpose
+    #[test]
+    fn static_secret_clamping() {
+        let mut secret = [1_u8; 32];
+
+        const LAST_BYTE: &[u8] = &[0b10111111, 0b10000000];
+
+        for last_byte in LAST_BYTE {
+            // Clamping should clear the last 3 bits of the first byte.
+            secret[0] = 0b111;
+            // Clamping should clear the highest bit and set the second highest bit of the last byte.
+            secret[31] = *last_byte;
+
+            let static_secret = crate::pk::curve25519::StaticSecret::from(secret);
+            let secret = static_secret.to_bytes();
+
+            assert_eq!(secret[0] & 0b111, 0);
+            assert_eq!(secret[31] & 0b11000000, 0b01000000);
+            // The last 6 bits should be unchanged
+            assert_eq!(secret[31] & 0b00111111, last_byte & 0b00111111);
         }
     }
 }

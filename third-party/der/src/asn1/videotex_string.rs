@@ -1,10 +1,7 @@
 //! ASN.1 `VideotexString` support.
 
-use crate::{
-    asn1::AnyRef, ord::OrdIsValueOrd, ByteSlice, DecodeValue, EncodeValue, Error, FixedTag, Header,
-    Length, Reader, Result, StrSlice, Tag, Writer,
-};
-use core::{fmt, ops::Deref, str};
+use crate::{asn1::AnyRef, FixedTag, Result, StrRef, Tag};
+use core::{fmt, ops::Deref};
 
 /// ASN.1 `VideotexString` type.
 ///
@@ -23,7 +20,7 @@ use core::{fmt, ops::Deref, str};
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub struct VideotexStringRef<'a> {
     /// Inner value
-    inner: StrSlice<'a>,
+    inner: StrRef<'a>,
 }
 
 impl<'a> VideotexStringRef<'a> {
@@ -40,45 +37,19 @@ impl<'a> VideotexStringRef<'a> {
             return Err(Self::TAG.value_error());
         }
 
-        StrSlice::from_bytes(input)
+        StrRef::from_bytes(input)
             .map(|inner| Self { inner })
             .map_err(|_| Self::TAG.value_error())
     }
 }
 
+impl_string_type!(VideotexStringRef<'a>, 'a);
+
 impl<'a> Deref for VideotexStringRef<'a> {
-    type Target = StrSlice<'a>;
+    type Target = StrRef<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl AsRef<str> for VideotexStringRef<'_> {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl AsRef<[u8]> for VideotexStringRef<'_> {
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
-impl<'a> DecodeValue<'a> for VideotexStringRef<'a> {
-    fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
-        Self::new(ByteSlice::decode_value(reader, header)?.as_slice())
-    }
-}
-
-impl<'a> EncodeValue for VideotexStringRef<'a> {
-    fn value_len(&self) -> Result<Length> {
-        self.inner.value_len()
-    }
-
-    fn encode_value(&self, writer: &mut dyn Writer) -> Result<()> {
-        self.inner.encode_value(writer)
     }
 }
 
@@ -86,19 +57,9 @@ impl FixedTag for VideotexStringRef<'_> {
     const TAG: Tag = Tag::VideotexString;
 }
 
-impl OrdIsValueOrd for VideotexStringRef<'_> {}
-
 impl<'a> From<&VideotexStringRef<'a>> for VideotexStringRef<'a> {
     fn from(value: &VideotexStringRef<'a>) -> VideotexStringRef<'a> {
         *value
-    }
-}
-
-impl<'a> TryFrom<AnyRef<'a>> for VideotexStringRef<'a> {
-    type Error = Error;
-
-    fn try_from(any: AnyRef<'a>) -> Result<VideotexStringRef<'a>> {
-        any.decode_into()
     }
 }
 
@@ -111,12 +72,6 @@ impl<'a> From<VideotexStringRef<'a>> for AnyRef<'a> {
 impl<'a> From<VideotexStringRef<'a>> for &'a [u8] {
     fn from(printable_string: VideotexStringRef<'a>) -> &'a [u8] {
         printable_string.as_bytes()
-    }
-}
-
-impl<'a> fmt::Display for VideotexStringRef<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 

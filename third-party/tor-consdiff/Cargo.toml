@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-consdiff"
-version = "0.4.1"
+version = "0.5.3"
 authors = [
     "The Tor Project, Inc.",
     "Nick Mathewson <nickm@torproject.org>",
@@ -46,9 +46,12 @@ hex = "0.4"
 thiserror = "1"
 
 [dependencies.tor-llcrypto]
-version = "0.4.1"
+version = "0.5.2"
 path = "../tor-llcrypto"
 
 [features]
+__is_experimental = []
 default = []
-slow-diff-apply = []
+experimental = ["slow-diff-apply"]
+full = ["tor-llcrypto/full"]
+slow-diff-apply = ["__is_experimental"]

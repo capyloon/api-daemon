@@ -2,7 +2,9 @@
 #![allow(clippy::uninlined_format_args)]
 
 use tor_bytes::Error;
-use tor_cell::relaycell::{msg, msg::RelayMsg, RelayCell, RelayCmd, StreamId};
+use tor_cell::relaycell::{
+    msg, msg::AnyRelayMsg, AnyRelayCell, RelayCmd, RelayMsg, StreamId, UnparsedRelayCell,
+};
 
 #[cfg(feature = "experimental-udp")]
 use std::{
@@ -34,7 +36,7 @@ impl rand::RngCore for BadRng {
 // I won't tell if you don't.
 impl rand::CryptoRng for BadRng {}
 
-fn decode(body: &str) -> [u8; CELL_BODY_LEN] {
+fn decode(body: &str) -> Box<[u8; CELL_BODY_LEN]> {
     let mut body = body.to_string();
     body.retain(|c| !c.is_whitespace());
     let mut body = hex::decode(body).unwrap();
@@ -42,18 +44,28 @@ fn decode(body: &str) -> [u8; CELL_BODY_LEN] {
 
     let mut result = [0; CELL_BODY_LEN];
     result.copy_from_slice(&body[..]);
-    result
+    Box::new(result)
 }
 
-fn cell(body: &str, id: StreamId, msg: RelayMsg) {
+fn cell(body: &str, id: StreamId, msg: AnyRelayMsg) {
     let body = decode(body);
     let mut bad_rng = BadRng;
 
-    let expected = RelayCell::new(id, msg);
+    let expected = AnyRelayCell::new(id, msg);
 
-    let decoded = RelayCell::decode(body).unwrap();
+    let decoded = AnyRelayCell::decode(body.clone()).unwrap();
+
+    let decoded_from_partial = UnparsedRelayCell::from_body(body)
+        .decode::<AnyRelayMsg>()
+        .unwrap();
+    assert_eq!(decoded_from_partial.stream_id(), decoded.stream_id());
+    assert_eq!(decoded_from_partial.cmd(), decoded.cmd());
 
     assert_eq!(format!("{:?}", expected), format!("{:?}", decoded));
+    assert_eq!(
+        format!("{:?}", expected),
+        format!("{:?}", decoded_from_partial)
+    );
 
     let encoded1 = decoded.encode(&mut bad_rng).unwrap();
     let encoded2 = expected.encode(&mut bad_rng).unwrap();
@@ -90,13 +102,15 @@ fn test_cells() {
     // length too big: 0x1f3 is one byte too many.
     let m = decode("02 0000 9999 12345678 01f3 6e6565642d746f2d6b6e6f77 00000000");
     assert_eq!(
-        RelayCell::decode(m).err(),
-        Some(Error::BadMessage("Insufficient data in relay cell"))
+        AnyRelayCell::decode(m).err(),
+        Some(Error::InvalidMessage(
+            "Insufficient data in relay cell".into()
+        ))
     );
 
     // check accessors.
     let m = decode("02 0000 9999 12345678 01f2 6e6565642d746f2d6b6e6f77 00000000");
-    let c = RelayCell::decode(m).unwrap();
+    let c = AnyRelayCell::decode(m).unwrap();
     assert_eq!(c.cmd(), RelayCmd::from(2));
     assert_eq!(c.msg().cmd(), RelayCmd::from(2));
     let (s, _) = c.into_streamid_and_msg();
@@ -173,7 +187,10 @@ fn test_address() {
     let hostname = "a".repeat(256);
     let addr = Address::from_str(hostname.as_str());
     assert!(addr.is_err());
-    assert_eq!(addr.err(), Some(Error::BadMessage("Hostname too long")));
+    assert_eq!(
+        addr.err(),
+        Some(Error::InvalidMessage("Hostname too long".into()))
+    );
 
     // Some Unicode emojis (go Gen-Z!).
     let hostname = "👍️👍️👍️";
@@ -187,6 +204,6 @@ fn test_address() {
     assert!(addr.is_err());
     assert_eq!(
         addr.err(),
-        Some(Error::BadMessage("Nul byte not permitted"))
+        Some(Error::InvalidMessage("Nul byte not permitted".into()))
     );
 }

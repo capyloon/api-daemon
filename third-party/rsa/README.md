@@ -1,20 +1,18 @@
-# RSA
+# [RustCrypto]: RSA
 
 [![crates.io][crate-image]][crate-link]
 [![Documentation][doc-image]][doc-link]
 [![Build Status][build-image]][build-link]
-![minimum rustc 1.57][msrv-image]
-[![Project Chat][chat-image]][chat-link]
 [![dependency status][deps-image]][deps-link]
+![MSRV][msrv-image]
+[![Project Chat][chat-image]][chat-link]
 
 A portable RSA implementation in pure Rust.
-
-⚠️ **WARNING:** This crate has been audited by a 3rd party, but a full blog post with the results and the updates made since the audit has not been officially released yet. See [#60](https://github.com/RustCrypto/RSA/issues/60) for more information.
 
 ## Example
 
 ```rust
-use rsa::{PublicKey, RsaPrivateKey, RsaPublicKey, PaddingScheme};
+use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 
 let mut rng = rand::thread_rng();
 let bits = 2048;
@@ -23,11 +21,11 @@ let pub_key = RsaPublicKey::from(&priv_key);
 
 // Encrypt
 let data = b"hello world";
-let enc_data = pub_key.encrypt(&mut rng, PaddingScheme::new_pkcs1v15_encrypt(), &data[..]).expect("failed to encrypt");
+let enc_data = pub_key.encrypt(&mut rng, Pkcs1v15Encrypt, &data[..]).expect("failed to encrypt");
 assert_ne!(&data[..], &enc_data[..]);
 
 // Decrypt
-let dec_data = priv_key.decrypt(PaddingScheme::new_pkcs1v15_encrypt(), &enc_data).expect("failed to decrypt");
+let dec_data = priv_key.decrypt(Pkcs1v15Encrypt, &enc_data).expect("failed to decrypt");
 assert_eq!(&data[..], &dec_data[..]);
 ```
 
@@ -67,12 +65,18 @@ There will be three phases before `1.0` 🚢 can be released.
     - [ ] Fuzz testing
     - [ ] Security Audits
 
+## Security Notes
+
+This crate has received one [security audit by Include Security][audit], with
+only one minor finding which has since been addressed.
+
+See the [open security issues] on our issue tracker for other known problems.
 
 ## Minimum Supported Rust Version (MSRV)
 
-All crates in this repository support Rust 1.57 or higher. In future
-minimally supported version of Rust can be changed, but it will be done with
-a minor version bump.
+All crates in this repository support Rust 1.65 or higher.
+
+In the future MSRV can be changed, but it will be done with a minor version bump.
 
 ## License
 
@@ -91,14 +95,20 @@ dual licensed as above, without any additional terms or conditions.
 
 [//]: # (badges)
 
-[crate-image]: https://img.shields.io/crates/v/rsa.svg
+[crate-image]: https://buildstats.info/crate/rsa
 [crate-link]: https://crates.io/crates/rsa
 [doc-image]: https://docs.rs/rsa/badge.svg
 [doc-link]: https://docs.rs/rsa
 [build-image]: https://github.com/rustcrypto/RSA/workflows/CI/badge.svg
 [build-link]: https://github.com/RustCrypto/RSA/actions?query=workflow%3ACI+branch%3Amaster
-[msrv-image]: https://img.shields.io/badge/rustc-1.57+-blue.svg
+[msrv-image]: https://img.shields.io/badge/rustc-1.65+-blue.svg
 [chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
 [chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/260047-RSA
 [deps-image]: https://deps.rs/repo/github/RustCrypto/RSA/status.svg
 [deps-link]: https://deps.rs/repo/github/RustCrypto/RSA
+
+[//]: # (links)
+
+[RustCrypto]: https://github.com/RustCrypto/
+[audit]: https://www.opentech.fund/results/security-safety-audits/deltachat/
+[open security issues]: https://github.com/RustCrypto/RSA/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity

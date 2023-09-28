@@ -13,10 +13,13 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use tor_chanmgr::{ChanMgr, ChanProvenance, ChannelUsage};
+use tor_error::ErrorReport;
 use tor_guardmgr::GuardStatus;
 use tor_linkspec::{ChanTarget, IntoOwnedChanTarget, OwnedChanTarget, OwnedCircTarget};
+use tor_netdir::params::NetParameters;
 use tor_proto::circuit::{CircParameters, ClientCirc, PendingClientCirc};
 use tor_rtcompat::{Runtime, SleepProviderExt};
+use tracing::warn;
 
 mod guardstatus;
 
@@ -43,7 +46,7 @@ pub(crate) trait Buildable: Sized {
         ct: &OwnedChanTarget,
         params: &CircParameters,
         usage: ChannelUsage,
-    ) -> Result<Self>;
+    ) -> Result<Arc<Self>>;
 
     /// Launch a new circuit through a given relay, given a circuit target
     /// `ct` specifying that relay.
@@ -54,7 +57,7 @@ pub(crate) trait Buildable: Sized {
         ct: &OwnedCircTarget,
         params: &CircParameters,
         usage: ChannelUsage,
-    ) -> Result<Self>;
+    ) -> Result<Arc<Self>>;
 
     /// Extend this circuit-like object by one hop, to the location described
     /// in `ct`.
@@ -122,7 +125,7 @@ impl Buildable for ClientCirc {
         ct: &OwnedChanTarget,
         params: &CircParameters,
         usage: ChannelUsage,
-    ) -> Result<Self> {
+    ) -> Result<Arc<Self>> {
         let circ = create_common(chanmgr, rt, ct, guard_status, usage).await?;
         circ.create_firsthop_fast(params)
             .await
@@ -139,7 +142,7 @@ impl Buildable for ClientCirc {
         ct: &OwnedCircTarget,
         params: &CircParameters,
         usage: ChannelUsage,
-    ) -> Result<Self> {
+    ) -> Result<Arc<Self>> {
         let circ = create_common(chanmgr, rt, ct, guard_status, usage).await?;
         circ.create_firsthop_ntor(ct, params.clone())
             .await
@@ -214,7 +217,7 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
         n_hops_built: Arc<AtomicU32>,
         guard_status: Arc<GuardStatusHandle>,
         usage: ChannelUsage,
-    ) -> Result<C> {
+    ) -> Result<Arc<C>> {
         match path {
             OwnedPath::ChannelOnly(target) => {
                 // If we fail now, it's the guard's fault.
@@ -276,7 +279,7 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
         params: &CircParameters,
         guard_status: Arc<GuardStatusHandle>,
         usage: ChannelUsage,
-    ) -> Result<C> {
+    ) -> Result<Arc<C>> {
         let action = Action::BuildCircuit { length: path.len() };
         let (timeout, abandon_timeout) = self.timeouts.timeouts(&action);
         let start_time = self.runtime.now();
@@ -313,6 +316,11 @@ impl<R: Runtime, C: Buildable + Sync + Send + 'static> Builder<R, C> {
     /// Return a reference to this Builder runtime.
     pub(crate) fn runtime(&self) -> &R {
         &self.runtime
+    }
+
+    /// Return a reference to this Builder's timeout estimator.
+    pub(crate) fn estimator(&self) -> &timeouts::Estimator {
+        &self.timeouts
     }
 }
 
@@ -414,7 +422,7 @@ impl<R: Runtime> CircuitBuilder<R> {
         params: &CircParameters,
         guard_status: Arc<GuardStatusHandle>,
         usage: ChannelUsage,
-    ) -> Result<ClientCirc> {
+    ) -> Result<Arc<ClientCirc>> {
         self.builder
             .build_owned(path, params, guard_status, usage)
             .await
@@ -431,7 +439,7 @@ impl<R: Runtime> CircuitBuilder<R> {
         path: &TorPath<'_>,
         params: &CircParameters,
         usage: ChannelUsage,
-    ) -> Result<ClientCirc> {
+    ) -> Result<Arc<ClientCirc>> {
         let owned = path.try_into()?;
         self.build_owned(owned, params, Arc::new(None.into()), usage)
             .await
@@ -451,6 +459,21 @@ impl<R: Runtime> CircuitBuilder<R> {
     pub(crate) fn runtime(&self) -> &R {
         self.builder.runtime()
     }
+
+    /// Return a reference to this builder's timeout estimator.
+    pub(crate) fn estimator(&self) -> &timeouts::Estimator {
+        self.builder.estimator()
+    }
+}
+
+/// Extract a [`CircParameters`] from the [`NetParameters`] from a consensus.
+pub fn circparameters_from_netparameters(inp: &NetParameters) -> CircParameters {
+    let mut p = CircParameters::default();
+    if let Err(e) = p.set_initial_send_window(inp.circuit_window.get() as u16) {
+        warn!("Invalid parameter in directory: {}", e.report());
+    }
+    p.set_extend_by_ed25519_id(inp.extend_by_ed25519_id.into());
+    p
 }
 
 /// Helper function: spawn a future as a background task, and run it with
@@ -698,7 +721,7 @@ mod test {
             ct: &OwnedChanTarget,
             _: &CircParameters,
             _usage: ChannelUsage,
-        ) -> Result<Self> {
+        ) -> Result<Arc<Self>> {
             let (d1, d2) = timeouts_from_chantarget(ct);
             rt.sleep(d1).await;
             if !d2.is_zero() {
@@ -709,7 +732,7 @@ mod test {
                 hops: vec![RelayIds::from_relay_ids(ct)],
                 onehop: true,
             };
-            Ok(Mutex::new(c))
+            Ok(Arc::new(Mutex::new(c)))
         }
         async fn create<RT: Runtime>(
             _: &ChanMgr<RT>,
@@ -718,7 +741,7 @@ mod test {
             ct: &OwnedCircTarget,
             _: &CircParameters,
             _usage: ChannelUsage,
-        ) -> Result<Self> {
+        ) -> Result<Arc<Self>> {
             let (d1, d2) = timeouts_from_chantarget(ct);
             rt.sleep(d1).await;
             if !d2.is_zero() {
@@ -729,7 +752,7 @@ mod test {
                 hops: vec![RelayIds::from_relay_ids(ct)],
                 onehop: false,
             };
-            Ok(Mutex::new(c))
+            Ok(Arc::new(Mutex::new(c)))
         }
         async fn extend<RT: Runtime>(
             &self,

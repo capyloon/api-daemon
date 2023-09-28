@@ -1,13 +1,15 @@
 //! ASN.1 `NULL` support.
 
 use crate::{
-    asn1::AnyRef, ord::OrdIsValueOrd, ByteSlice, DecodeValue, EncodeValue, Error, ErrorKind,
+    asn1::AnyRef, ord::OrdIsValueOrd, BytesRef, DecodeValue, EncodeValue, Error, ErrorKind,
     FixedTag, Header, Length, Reader, Result, Tag, Writer,
 };
 
 /// ASN.1 `NULL` type.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Null;
+
+impl_any_conversions!(Null);
 
 impl<'a> DecodeValue<'a> for Null {
     fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
@@ -24,7 +26,7 @@ impl EncodeValue for Null {
         Ok(Length::ZERO)
     }
 
-    fn encode_value(&self, _writer: &mut dyn Writer) -> Result<()> {
+    fn encode_value(&self, _writer: &mut impl Writer) -> Result<()> {
         Ok(())
     }
 }
@@ -37,15 +39,7 @@ impl OrdIsValueOrd for Null {}
 
 impl<'a> From<Null> for AnyRef<'a> {
     fn from(_: Null) -> AnyRef<'a> {
-        AnyRef::from_tag_and_value(Tag::Null, ByteSlice::default())
-    }
-}
-
-impl TryFrom<AnyRef<'_>> for Null {
-    type Error = Error;
-
-    fn try_from(any: AnyRef<'_>) -> Result<Null> {
-        any.decode_into()
+        AnyRef::from_tag_and_value(Tag::Null, BytesRef::default())
     }
 }
 
@@ -75,7 +69,7 @@ impl EncodeValue for () {
         Ok(Length::ZERO)
     }
 
-    fn encode_value(&self, _writer: &mut dyn Writer) -> Result<()> {
+    fn encode_value(&self, _writer: &mut impl Writer) -> Result<()> {
         Ok(())
     }
 }

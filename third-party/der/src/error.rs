@@ -174,7 +174,6 @@ pub enum ErrorKind {
 
     /// File not found error.
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     FileNotFound,
 
     /// Message is incomplete and does not contain all of the expected data.
@@ -194,8 +193,10 @@ pub enum ErrorKind {
 
     /// I/O errors.
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     Io(std::io::ErrorKind),
+
+    /// Indefinite length disallowed.
+    IndefiniteLength,
 
     /// Incorrect length for a given field.
     Length {
@@ -221,11 +222,13 @@ pub enum ErrorKind {
     /// to determine which OID(s) are causing the error (and then potentially
     /// contribute upstream support for algorithms they care about).
     #[cfg(feature = "oid")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "oid")))]
     OidUnknown {
         /// OID value that was unrecognized by a parser for a DER-based format.
         oid: ObjectIdentifier,
     },
+
+    /// `SET` cannot contain duplicates.
+    SetDuplicate,
 
     /// `SET` ordering error: items not in canonical order.
     SetOrdering,
@@ -238,12 +241,10 @@ pub enum ErrorKind {
 
     /// PEM encoding errors.
     #[cfg(feature = "pem")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
     Pem(pem::Error),
 
     /// Permission denied reading file.
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     PermissionDenied,
 
     /// Reader does not support the requested operation.
@@ -321,6 +322,7 @@ impl fmt::Display for ErrorKind {
             ),
             #[cfg(feature = "std")]
             ErrorKind::Io(err) => write!(f, "I/O error: {:?}", err),
+            ErrorKind::IndefiniteLength => write!(f, "indefinite length disallowed"),
             ErrorKind::Length { tag } => write!(f, "incorrect length for {}", tag),
             ErrorKind::Noncanonical { tag } => {
                 write!(f, "ASN.1 {} not canonically encoded as DER", tag)
@@ -330,6 +332,7 @@ impl fmt::Display for ErrorKind {
             ErrorKind::OidUnknown { oid } => {
                 write!(f, "unknown/unsupported OID: {}", oid)
             }
+            ErrorKind::SetDuplicate => write!(f, "SET OF contains duplicate"),
             ErrorKind::SetOrdering => write!(f, "SET OF ordering error"),
             ErrorKind::Overflow => write!(f, "integer overflow"),
             ErrorKind::Overlength => write!(f, "ASN.1 DER message is too long"),

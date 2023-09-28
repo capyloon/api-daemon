@@ -75,7 +75,10 @@ use safelog::sensitive as sv;
 use std::pin::Pin;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
-use tor_cell::chancell::{msg, msg::PaddingNegotiate, ChanCell, CircId};
+use tor_cell::chancell::msg::AnyChanMsg;
+use tor_cell::chancell::{msg, msg::PaddingNegotiate, AnyChanCell, CircId};
+use tor_cell::chancell::{ChanCell, ChanMsg};
+use tor_cell::restricted_msg;
 use tor_error::internal;
 use tor_linkspec::{HasRelayIds, OwnedChanTarget};
 use tor_rtcompat::SleepProvider;
@@ -113,26 +116,75 @@ use crate::channel::unique_id::CircUniqIdContext;
 pub(crate) use codec::CodecError;
 pub use handshake::{OutboundClientHandshake, UnverifiedChannel, VerifiedChannel};
 
+restricted_msg! {
+    /// A channel message that we allow to be sent from a server to a client on
+    /// an open channel.
+    ///
+    /// (An Open channel here is one on which we have received a NETINFO cell.)
+    ///
+    /// Note that an unexpected message type will _not_ be ignored: instead, it
+    /// will cause the channel to shut down.
+    #[derive(Clone, Debug)]
+    pub(crate) enum OpenChanMsgS2C : ChanMsg {
+        Padding,
+        Vpadding,
+        // Not Create*, since we are not a relay.
+        // Not Created, since we never send CREATE.
+        CreatedFast,
+        Created2,
+        Relay,
+        // Not RelayEarly, since we are a client.
+        Destroy,
+        // Not PaddingNegotiate, since we are not a relay.
+        // Not Versions, Certs, AuthChallenge, Authenticate: they are for handshakes.
+        // Not Authorize: it is reserved, but unused.
+    }
+}
+
+/// A channel cell that we allot to be sent on an open channel from
+/// a server to a client.
+pub(crate) type OpenChanCellS2C = ChanCell<OpenChanMsgS2C>;
+
 /// Type alias: A Sink and Stream that transforms a TLS connection into
 /// a cell-based communication mechanism.
-type CellFrame<T> = futures_codec::Framed<T, crate::channel::codec::ChannelCodec>;
+type CellFrame<T> =
+    futures_codec::Framed<T, crate::channel::codec::ChannelCodec<OpenChanMsgS2C, AnyChanMsg>>;
 
 /// An open client channel, ready to send and receive Tor cells.
 ///
 /// A channel is a direct connection to a Tor relay, implemented using TLS.
 ///
-/// This struct is a frontend that can be used to send cells (using the `Sink<ChanCell>`
-/// impl and otherwise control the channel.  The main state is in the Reactor object.
-/// `Channel` is cheap to clone.
+/// This struct is a frontend that can be used to send cells (using the
+/// `Sink<ChanCell>` impl and otherwise control the channel.  The main state is
+/// in the Reactor object. `Channel` is cheap to clone.
 ///
-/// (Users need a mutable reference because of the types in `Sink`, and ultimately because
-/// `cell_tx: mpsc::Sender` doesn't work without mut.
+/// (Users need a mutable reference because of the types in `Sink`, and
+/// ultimately because `cell_tx: mpsc::Sender` doesn't work without mut.
+///
+/// # Channel life cycle
+///
+/// Channels can be created directly here through the [`ChannelBuilder`] API.
+/// For a higher-level API (with better support for TLS, pluggable transports,
+/// and channel reuse) see the `tor-chanmgr` crate.
+///
+/// After a channel is created, it will persist until it is closed in one of
+/// four ways:
+///    1. A remote error occurs.
+///    2. The other side of the channel closes the channel.
+///    3. Someone calls [`Channel::terminate`] on the channel.
+///    4. The last reference to the `Channel` is dropped. (Note that every circuit
+///       on a `Channel` keeps a reference to it, which will in turn keep the
+///       channel from closing until all those circuits have gone away.)
+///
+/// Note that in cases 1-3, the [`Channel`] object itself will still exist: it
+/// will just be unusable for most purposes.  Most operations on it will fail
+/// with an error.
 #[derive(Clone, Debug)]
 pub struct Channel {
     /// A channel used to send control messages to the Reactor.
     control: mpsc::UnboundedSender<CtrlMsg>,
     /// A channel used to send cells to the Reactor.
-    cell_tx: mpsc::Sender<ChanCell>,
+    cell_tx: mpsc::Sender<AnyChanCell>,
     /// Information shared with the reactor
     details: Arc<ChannelDetails>,
 }
@@ -226,7 +278,7 @@ enum PaddingControlState {
 
 use PaddingControlState as PCS;
 
-impl Sink<ChanCell> for Channel {
+impl Sink<AnyChanCell> for Channel {
     type Error = Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
@@ -236,16 +288,16 @@ impl Sink<ChanCell> for Channel {
             .map_err(|_| ChannelClosed.into())
     }
 
-    fn start_send(self: Pin<&mut Self>, cell: ChanCell) -> Result<()> {
+    fn start_send(self: Pin<&mut Self>, cell: AnyChanCell) -> Result<()> {
         let this = self.get_mut();
         if this.details.closed.load(Ordering::SeqCst) {
             return Err(ChannelClosed.into());
         }
         this.check_cell(&cell)?;
         {
-            use msg::ChanMsg::*;
+            use msg::AnyChanMsg::*;
             match cell.msg() {
-                Relay(_) | Padding(_) | VPadding(_) => {} // too frequent to log.
+                Relay(_) | Padding(_) | Vpadding(_) => {} // too frequent to log.
                 _ => trace!(
                     "{}: Sending {} for {}",
                     this.details.unique_id,
@@ -521,8 +573,8 @@ impl Channel {
 
     /// Check whether a cell type is permissible to be _sent_ on an
     /// open client channel.
-    fn check_cell(&self, cell: &ChanCell) -> Result<()> {
-        use msg::ChanMsg::*;
+    fn check_cell(&self, cell: &AnyChanCell) -> Result<()> {
+        use msg::AnyChanMsg::*;
         let msg = cell.msg();
         match msg {
             Created(_) | Created2(_) | CreatedFast(_) => Err(Error::from(internal!(
@@ -548,7 +600,7 @@ impl Channel {
     }
 
     /// Transmit a single cell on a channel.
-    pub async fn send_cell(&mut self, cell: ChanCell) -> Result<()> {
+    pub async fn send_cell(&mut self, cell: AnyChanCell) -> Result<()> {
         self.send(cell).await?;
 
         Ok(())
@@ -705,7 +757,7 @@ pub(crate) mod test {
     use super::*;
     use crate::channel::codec::test::MsgBuf;
     pub(crate) use crate::channel::reactor::test::new_reactor;
-    use tor_cell::chancell::{msg, ChanCell};
+    use tor_cell::chancell::{msg, AnyChanCell};
     use tor_rtcompat::PreferredRuntime;
 
     /// Make a new fake reactor-less channel.  For testing only, obviously.
@@ -723,18 +775,18 @@ pub(crate) mod test {
             use std::error::Error;
             let chan = fake_channel(fake_channel_details());
 
-            let cell = ChanCell::new(7.into(), msg::Created2::new(&b"hihi"[..]).into());
+            let cell = AnyChanCell::new(7.into(), msg::Created2::new(&b"hihi"[..]).into());
             let e = chan.check_cell(&cell);
             assert!(e.is_err());
             assert!(format!("{}", e.unwrap_err().source().unwrap())
                 .contains("Can't send CREATED2 cell on client channel"));
-            let cell = ChanCell::new(0.into(), msg::Certs::new_empty().into());
+            let cell = AnyChanCell::new(0.into(), msg::Certs::new_empty().into());
             let e = chan.check_cell(&cell);
             assert!(e.is_err());
             assert!(format!("{}", e.unwrap_err().source().unwrap())
                 .contains("Can't send CERTS cell after handshake is done"));
 
-            let cell = ChanCell::new(5.into(), msg::Create2::new(2, &b"abc"[..]).into());
+            let cell = AnyChanCell::new(5.into(), msg::Create2::new(2, &b"abc"[..]).into());
             let e = chan.check_cell(&cell);
             assert!(e.is_ok());
             // FIXME(eta): more difficult to test that sending works now that it has to go via reactor

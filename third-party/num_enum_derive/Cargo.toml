@@ -10,9 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56.0"
 name = "num_enum_derive"
-version = "0.5.11"
+version = "0.6.1"
 authors = [
     "Daniel Wagner-Hall <dawagner@gmail.com>",
     "Daniel Henry-Mantilla <daniel.henry.mantilla@gmail.com>",
@@ -24,6 +25,7 @@ keywords = []
 categories = []
 license = "BSD-3-Clause OR MIT OR Apache-2.0"
 repository = "https://github.com/illicitonion/num_enum"
+resolver = "1"
 
 [package.metadata.docs.rs]
 features = ["external_doc"]
@@ -42,7 +44,7 @@ version = "1"
 version = "1"
 
 [dependencies.syn]
-version = "1.0.15"
+version = "2"
 features = ["parsing"]
 
 [features]

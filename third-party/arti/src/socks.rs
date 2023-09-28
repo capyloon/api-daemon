@@ -10,9 +10,14 @@ use futures::task::SpawnExt;
 use safelog::sensitive;
 use std::io::Result as IoResult;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+#[cfg(feature = "rpc")]
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use arti_client::{ErrorKind, HasKind, StreamPrefs, TorClient};
+use tor_error::ErrorReport;
+#[cfg(feature = "rpc")]
+use tor_rpcbase as rpc;
 use tor_rtcompat::{Runtime, TcpListener};
 use tor_socksproto::{SocksAddr, SocksAuth, SocksCmd, SocksRequest};
 
@@ -71,7 +76,7 @@ fn stream_preference(req: &SocksRequest, addr: &str) -> StreamPrefs {
 /// the connection, the source IpAddr of the client, and the
 /// authentication string provided by the client).
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SocksIsolationKey(usize, IpAddr, SocksAuth);
+struct SocksIsolationKey(ConnIsolation, SocksAuth);
 
 impl arti_client::isolation::IsolationHelper for SocksIsolationKey {
     fn compatible_same_type(&self, other: &Self) -> bool {
@@ -87,6 +92,138 @@ impl arti_client::isolation::IsolationHelper for SocksIsolationKey {
     }
 }
 
+/// The meaning of a SOCKS authentication field, according to our conventions.
+enum AuthInterpretation {
+    /// Assign this stream to a client determined by given RPC session, and
+    /// register its existence with that session.
+    #[cfg(feature = "rpc")]
+    AssignStreamToRpcSession {
+        /// The RPC session-like object to use in determining our client.
+        session: rpc::ObjectId,
+        /// An identifier to assign to this stream.
+        ///
+        /// TODO RPC: We need to figure out the semantics for this, and
+        /// implement them.
+        stream_id: String,
+    },
+
+    /// Isolate this stream from other streams that do not have the same
+    /// SocksAuth value.
+    IsolateStream(SocksAuth),
+}
+
+/// Given the authentication object from a socks connection, determine what it's telling
+/// us to do.
+///
+/// (In no case is it actually SOCKS authentication: it can either be a message
+/// to the stream isolation system or the RPC system.)
+fn interpret_socks_auth(auth: &SocksAuth) -> Result<AuthInterpretation> {
+    // TODO RPC: This whole function and the way that it parses SOCKS
+    // authentication is a placeholder (because we need to put _something_ here
+    // for now).  We could probably come up with a much better design, and
+    // should.
+    //
+    // TODO RPC: In our final design we should probably figure out way to
+    // migrate away from the current "anything goes" approach to stream
+    // isolation without breaking all the existing apps that think they can use
+    // an arbitrary byte-string as their isolation token.
+
+    /// A constant which, when it appears as a username, indicates that the
+    /// stream is to be assigned to an Arti RPC session.
+    const RPC_SESSION_CONST: &[u8] = b"<arti-rpc-session>";
+
+    use AuthInterpretation::*;
+    #[allow(unused_variables)] // TODO RPC remove
+    match auth {
+        SocksAuth::Username(user, pass) if user == RPC_SESSION_CONST => {
+            cfg_if::cfg_if! {
+                if #[cfg(feature="rpc")] {
+                    let pass =
+                        std::str::from_utf8(pass).context("rpc-session info must be utf-8")?;
+                    let (session, stream_id) =
+                        pass.split_once(':').context("Did not find stream id")?;
+                    Ok(AssignStreamToRpcSession {
+                        session: session.to_owned().into(),
+                        stream_id: stream_id.to_owned(),
+                    })
+                } else {
+                    Err(anyhow!("Not built with support for RPC"))
+                }
+            }
+        }
+        other_auth => Ok(IsolateStream(other_auth.clone())),
+    }
+}
+
+/// Information used to implement a SOCKS connection.
+struct SocksConnContext<R: Runtime> {
+    /// A TorClient to use (by default) to anonymize requests.
+    tor_client: TorClient<R>,
+    /// If present, an RpcMgr to use when for attaching requests to RPC
+    /// sessions.
+    #[cfg(feature = "rpc")]
+    rpc_mgr: Option<Arc<arti_rpcserver::RpcMgr>>,
+}
+
+/// Type alias for the isolation information associated with a given SOCKS
+/// connection _before_ SOCKS is negotiated.
+///
+/// Currently this is an index for which listener accepted the connection, plus
+/// the address of the client that connected to the Socks port.
+type ConnIsolation = (usize, IpAddr);
+
+impl<R: Runtime> SocksConnContext<R> {
+    /// Interpret a SOCKS request and our input information to determine which
+    /// TorClient object and StreamPrefs we should use.
+    ///
+    /// TODO RPC: This API is horrible and needs revision; once it gets it, we
+    /// should document it much better.
+    fn get_prefs_and_session(
+        &self,
+        request: &SocksRequest,
+        target_addr: &str,
+        conn_isolation: ConnIsolation,
+    ) -> Result<(StreamPrefs, TorClient<R>)> {
+        use AuthInterpretation as AI;
+
+        // Determine whether we want to ask for IPv4/IPv6 addresses.
+        let mut prefs = stream_preference(request, target_addr);
+
+        let tor_client = match interpret_socks_auth(request.auth())? {
+            #[cfg(feature = "rpc")]
+            AI::AssignStreamToRpcSession { session, stream_id } => {
+                if let Some(mgr) = &self.rpc_mgr {
+                    let session = mgr
+                        .lookup_object(&session)
+                        .context("no such session found")?;
+                    // TODO RPC: At this point we need to extract a TorClient
+                    // (or something we can use like one!) from the `Arc<dyn
+                    // Object> we have.  We also need to extract something that
+                    // we can use to register the DataStreamCtrl object once we
+                    // have one.
+                    let _ = session;
+                    let _ = stream_id;
+
+                    // TODO RPC: This is a placeholder; remove it!
+                    self.tor_client.clone()
+                } else {
+                    return Err(anyhow!("no rpc manager found!?"));
+                }
+            }
+            AI::IsolateStream(auth) => {
+                // Use the source address, SOCKS authentication, and listener ID
+                // to determine the stream's isolation properties.  (Our current
+                // rule is that two streams may only share a circuit if they have
+                // the same values for all of these properties.)
+                prefs.set_isolation(SocksIsolationKey(conn_isolation, auth));
+                self.tor_client.clone()
+            }
+        };
+
+        Ok((prefs, tor_client))
+    }
+}
+
 /// Given a just-received TCP connection `S` on a SOCKS port, handle the
 /// SOCKS handshake and relay the connection over the Tor network.
 ///
@@ -95,9 +232,9 @@ impl arti_client::isolation::IsolationHelper for SocksIsolationKey {
 /// id and the source address for the socks request.
 async fn handle_socks_conn<R, S>(
     runtime: R,
-    tor_client: TorClient<R>,
+    context: SocksConnContext<R>,
     socks_stream: S,
-    isolation_info: (usize, IpAddr),
+    isolation_info: ConnIsolation,
 ) -> Result<()>
 where
     R: Runtime,
@@ -116,6 +253,16 @@ where
     let mut inbuf = [0_u8; 1024];
     let mut n_read = 0;
     let request = loop {
+        if n_read == inbuf.len() {
+            // We would like to read more of this SOCKS request, but there is no
+            // more space in the buffer.  If we try to keep reading into an
+            // empty buffer, we'll just read nothing, try to parse it, and learn
+            // that we still wish we had more to read.
+            //
+            // In theory we might want to resize the buffer.  Right now, though,
+            // we just reject handshakes that don't fit into 1k.
+            return Err(anyhow!("Socks handshake did not fit in 1KiB buffer"));
+        }
         // Read some more stuff.
         n_read += socks_r
             .read(&mut inbuf[n_read..])
@@ -172,16 +319,7 @@ where
         port
     );
 
-    // Use the source address, SOCKS authentication, and listener ID
-    // to determine the stream's isolation properties.  (Our current
-    // rule is that two streams may only share a circuit if they have
-    // the same values for all of these properties.)
-    let auth = request.auth().clone();
-    let (source_address, ip) = isolation_info;
-
-    // Determine whether we want to ask for IPv4/IPv6 addresses.
-    let mut prefs = stream_preference(&request, &addr);
-    prefs.set_isolation(SocksIsolationKey(source_address, ip, auth));
+    let (prefs, tor_client) = context.get_prefs_and_session(&request, &addr, isolation_info)?;
 
     match request.command() {
         SocksCmd::CONNECT => {
@@ -321,14 +459,50 @@ async fn reply_error<W>(
 where
     W: AsyncWrite + Unpin,
 {
+    use {tor_socksproto::SocksStatus as S, ErrorKind as EK};
+
+    // TODO: Currently we _always_ try to return extended SOCKS return values
+    // for onion service failures from proposal 304 when they are appropriate.
+    // But according to prop 304, this is something we should only do when it's
+    // requested, for compatibility with SOCKS implementations that can't handle
+    // unexpected REP codes.
+    //
+    // I suggest we make these extended error codes "always-on" for now, and
+    // later add a feature to disable them if it's needed. -nickm
+
+    // TODO: Perhaps we should map the extended SOCKS return values for onion
+    // service failures unconditionally, even if we haven't compiled in onion
+    // service client support.  We can make that change after the relevant
+    // ErrorKinds are no longer `experimental-api` in `tor-error`.
+
     // We need to send an error. See what kind it is.
-    let reply = match error {
-        ErrorKind::RemoteNetworkTimeout => {
-            request.reply(tor_socksproto::SocksStatus::TTL_EXPIRED, None)
-        }
-        _ => request.reply(tor_socksproto::SocksStatus::GENERAL_FAILURE, None),
-    }
-    .context("Encoding socks reply")?;
+    let status = match error {
+        EK::RemoteNetworkFailed => S::TTL_EXPIRED,
+
+        #[cfg(feature = "onion-service-client")]
+        EK::OnionServiceNotFound => S::HS_DESC_NOT_FOUND,
+        #[cfg(feature = "onion-service-client")]
+        EK::OnionServiceAddressInvalid => S::HS_BAD_ADDRESS,
+        #[cfg(feature = "onion-service-client")]
+        EK::OnionServiceMissingClientAuth => S::HS_MISSING_CLIENT_AUTH,
+        #[cfg(feature = "onion-service-client")]
+        EK::OnionServiceWrongClientAuth => S::HS_WRONG_CLIENT_AUTH,
+
+        // NOTE: This is not a perfect correspondence from these ErrorKinds to
+        // the errors we're returning here. In the longer run, we'll want to
+        // encourage other ways to indicate failure to clients.  Those ways might
+        // include encouraging HTTP CONNECT, or the RPC system, both of which
+        // would give us more robust ways to report different kinds of failure.
+        #[cfg(feature = "onion-service-client")]
+        EK::OnionServiceNotRunning
+        | EK::OnionServiceConnectionFailed
+        | EK::OnionServiceProtocolViolation => S::HS_INTRO_FAILED,
+
+        _ => S::GENERAL_FAILURE,
+    };
+    let reply = request
+        .reply(status, None)
+        .context("Encoding socks reply")?;
     // if writing back the error fail, still return the original error
     let _ = write_all_and_close(writer, &reply[..]).await;
 
@@ -426,6 +600,9 @@ pub(crate) async fn run_socks_proxy<R: Runtime>(
     runtime: R,
     tor_client: TorClient<R>,
     socks_port: u16,
+    // TODO RPC: This is not a good way to make an API conditional. We MUST
+    // refactor this before the RPC feature becomes non-experimental.
+    #[cfg(feature = "rpc")] rpc_mgr: Option<Arc<arti_rpcserver::RpcMgr>>,
 ) -> Result<()> {
     let mut listeners = Vec::new();
 
@@ -442,7 +619,7 @@ pub(crate) async fn run_socks_proxy<R: Runtime>(
                 info!("Listening on {:?}.", addr);
                 listeners.push(listener);
             }
-            Err(e) => warn!("Can't listen on {}: {}", addr, e),
+            Err(e) => warn!("Can't listen on {}: {}", addr, e.report()),
         }
     }
     // We weren't able to bind any ports: There's nothing to do.
@@ -472,18 +649,22 @@ pub(crate) async fn run_socks_proxy<R: Runtime>(
                 if accept_err_is_fatal(&err) {
                     return Err(err).context("Failed to receive incoming stream on SOCKS port");
                 } else {
-                    warn!("Incoming stream failed: {}", err);
+                    warn!("Incoming stream failed: {}", err.report());
                     continue;
                 }
             }
         };
-        let client_ref = tor_client.clone();
+        let socks_context = SocksConnContext {
+            tor_client: tor_client.clone(),
+            #[cfg(feature = "rpc")]
+            rpc_mgr: rpc_mgr.clone(),
+        };
         let runtime_copy = runtime.clone();
         runtime.spawn(async move {
             let res =
-                handle_socks_conn(runtime_copy, client_ref, stream, (sock_id, addr.ip())).await;
+                handle_socks_conn(runtime_copy, socks_context, stream, (sock_id, addr.ip())).await;
             if let Err(e) = res {
-                warn!("connection exited with error: {}", e);
+                warn!("connection exited with error: {}", tor_error::Report(e));
             }
         })?;
     }

@@ -13,12 +13,13 @@ _Cross-platform filesystem notification library for Rust._
 [alert-after]!)
 
 - [API Documentation][docs]
-- [Debouncer Documentation][debouncer]
+- [Mini Debouncer Documentation][debouncer-mini]
+- [Full Debouncer Documentation][debouncer-full]
 - [Examples][examples]
 - [Crate page][crate]
 - [Changelog][changelog]
 - [Upgrading from v4](UPGRADING_V4_TO_V5.md)
-- Earliest supported Rust version: **1.56**
+- Earliest supported Rust version: **1.60**
 - **incomplete [Guides and in-depth docs][wiki]**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],
@@ -62,7 +63,8 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
-[debouncer]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini
+[debouncer-full]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-full
+[debouncer-mini]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini
 [Félix Saparelli]: https://passcod.name
 [alacritty]: https://github.com/jwilm/alacritty
 [alert-after]: https://github.com/frewsxcv/alert-after
@@ -76,7 +78,7 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
-[docs]: https://docs.rs/notify/5.1.0/notify/
+[docs]: https://docs.rs/notify/6.0.1/notify/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch

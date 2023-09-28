@@ -119,6 +119,12 @@ pub trait HasRelayIds {
         }
         std::cmp::Ordering::Equal
     }
+
+    /// Return a reference to this object suitable for formatting its
+    /// [`HasRelayIds`] members.
+    fn display_relay_ids(&self) -> DisplayRelayIds<'_, Self> {
+        DisplayRelayIds { inner: self }
+    }
 }
 
 impl<T: HasRelayIdsLegacy> HasRelayIds for T {
@@ -127,6 +133,47 @@ impl<T: HasRelayIdsLegacy> HasRelayIds for T {
             RelayIdType::Rsa => Some(self.rsa_identity().into()),
             RelayIdType::Ed25519 => Some(self.ed_identity().into()),
         }
+    }
+}
+
+/// A helper type used to format the [`RelayId`](crate::RelayId)s in a
+/// [`HasRelayIds`].
+#[derive(Clone)]
+pub struct DisplayRelayIds<'a, T: HasRelayIds + ?Sized> {
+    /// The HasRelayIds that we're displaying.
+    inner: &'a T,
+}
+// Redactable must implement Debug.
+impl<'a, T: HasRelayIds + ?Sized> fmt::Debug for DisplayRelayIds<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DisplayRelayIds").finish_non_exhaustive()
+    }
+}
+
+impl<'a, T: HasRelayIds + ?Sized> DisplayRelayIds<'a, T> {
+    /// Helper: output `self` in a possibly redacted way.
+    fn fmt_impl(&self, f: &mut fmt::Formatter<'_>, redact: bool) -> fmt::Result {
+        let mut iter = self.inner.identities();
+        if let Some(ident) = iter.next() {
+            write!(f, "{}", ident.maybe_redacted(redact))?;
+        }
+        if redact {
+            return Ok(());
+        }
+        for ident in iter {
+            write!(f, " {}", ident.maybe_redacted(redact))?;
+        }
+        Ok(())
+    }
+}
+impl<'a, T: HasRelayIds + ?Sized> fmt::Display for DisplayRelayIds<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_impl(f, false)
+    }
+}
+impl<'a, T: HasRelayIds + ?Sized> Redactable for DisplayRelayIds<'a, T> {
+    fn display_redacted(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_impl(f, true)
     }
 }
 
@@ -218,17 +265,28 @@ pub trait ChanTarget: HasRelayIds + HasAddrs + HasChanMethod {
 /// Anything that implements 'CircTarget' can be used as the
 /// identity of a relay for the purposes of extending a circuit.
 pub trait CircTarget: ChanTarget {
-    /// Return a new vector of link specifiers for this relay.
+    /// Return a new vector of encoded link specifiers for this relay.
+    ///
+    /// Note that, outside of this method, nothing in Arti should be re-ordering
+    /// the the link specifiers returned by this method.  It is this method's
+    /// responsibility to return them in the correct order.
+    ///
+    /// The default implementation for this method builds a list of link
+    /// specifiers from this object's identities and IP addresses, and sorts
+    /// them into the order specified in tor-spec to avoid implementation
+    /// fingerprinting attacks.
+    //
     // TODO: This is a questionable API. I'd rather return an iterator
     // of link specifiers, but that's not so easy to do, since it seems
     // doing so correctly would require default associated types.
-    fn linkspecs(&self) -> Vec<crate::LinkSpec> {
+    fn linkspecs(&self) -> tor_bytes::EncodeResult<Vec<crate::EncodedLinkSpec>> {
         let mut result: Vec<_> = self.identities().map(|id| id.to_owned().into()).collect();
         #[allow(irrefutable_let_patterns)]
         if let ChannelMethod::Direct(addrs) = self.chan_method() {
             result.extend(addrs.into_iter().map(crate::LinkSpec::from));
         }
-        result
+        crate::LinkSpec::sort_by_type(&mut result[..]);
+        result.into_iter().map(|ls| ls.encode()).collect()
     }
     /// Return the ntor onion key for this relay
     fn ntor_onion_key(&self) -> &pk::curve25519::PublicKey;
@@ -269,12 +327,8 @@ impl<'a, T: ChanTarget> DisplayChanTarget<'a, T> {
             }
         }
 
-        for ident in self.inner.identities() {
-            write!(f, " {}", ident.maybe_redacted(redact))?;
-            if redact {
-                break;
-            }
-        }
+        write!(f, " ")?;
+        self.inner.display_relay_ids().fmt_impl(f, redact)?;
 
         write!(f, "]")
     }
@@ -286,11 +340,11 @@ impl<'a, T: ChanTarget> fmt::Display for DisplayChanTarget<'a, T> {
     }
 }
 
-impl<'a, T: ChanTarget + std::fmt::Debug> safelog::Redactable for DisplayChanTarget<'a, T> {
-    fn display_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a, T: ChanTarget + fmt::Debug> safelog::Redactable for DisplayChanTarget<'a, T> {
+    fn display_redacted(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.fmt_impl(f, true)
     }
-    fn debug_redacted(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn debug_redacted(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ChanTarget({:?})", self.redacted().to_string())
     }
 }
@@ -371,20 +425,19 @@ mod test {
     #[test]
     fn test_linkspecs() {
         let ex = example();
-        let specs = ex.linkspecs();
+        let specs = ex
+            .linkspecs()
+            .unwrap()
+            .into_iter()
+            .map(|ls| ls.parse())
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
         assert_eq!(4, specs.len());
 
         use crate::ls::LinkSpec;
         assert_eq!(
             specs[0],
-            LinkSpec::Ed25519Id(
-                pk::ed25519::PublicKey::from_bytes(&hex!(
-                    "fc51cd8e6218a1a38da47ed00230f058
-                     0816ed13ba3303ac5deb911548908025"
-                ))
-                .unwrap()
-                .into()
-            )
+            LinkSpec::OrPort("127.0.0.1".parse::<IpAddr>().unwrap(), 99)
         );
         assert_eq!(
             specs[1],
@@ -395,7 +448,14 @@ mod test {
         );
         assert_eq!(
             specs[2],
-            LinkSpec::OrPort("127.0.0.1".parse::<IpAddr>().unwrap(), 99)
+            LinkSpec::Ed25519Id(
+                pk::ed25519::PublicKey::from_bytes(&hex!(
+                    "fc51cd8e6218a1a38da47ed00230f058
+                     0816ed13ba3303ac5deb911548908025"
+                ))
+                .unwrap()
+                .into()
+            )
         );
         assert_eq!(
             specs[3],

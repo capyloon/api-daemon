@@ -12,8 +12,7 @@
 [package]
 edition = "2018"
 name = "webpki-roots"
-version = "0.22.6"
-authors = ["Joseph Birr-Pixton <jpixton@gmail.com>"]
+version = "0.23.1"
 description = "Mozilla's CA root certificates for use with webpki"
 homepage = "https://github.com/rustls/webpki-roots"
 readme = "README.md"
@@ -21,4 +20,5 @@ license = "MPL-2.0"
 repository = "https://github.com/rustls/webpki-roots"
 
 [dependencies.webpki]
-version = "0.22.0"
+version = "0.100.0"
+package = "rustls-webpki"

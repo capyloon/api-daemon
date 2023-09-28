@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "tor-error"
-version = "0.4.1"
+version = "0.5.2"
 authors = ["Ian Jackson <iwj@torproject.org>"]
 description = "Provides the unified type-erased error type returned by many (esp. high-level) Tor APIs."
 homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
@@ -44,10 +44,21 @@ version = "0.3.39"
 optional = true
 
 [dependencies.strum]
-version = "0.24"
+version = "0.25"
 features = ["derive"]
 
 [dev-dependencies]
 
 [features]
+__is_experimental = []
 default = ["backtrace"]
+experimental = [
+    "experimental-api",
+    "rpc",
+]
+experimental-api = [
+    "rpc",
+    "__is_experimental",
+]
+full = ["backtrace"]
+rpc = ["__is_experimental"]

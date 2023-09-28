@@ -448,9 +448,9 @@ impl Guard {
         if self.reachable != r {
             // High-level logs, if change is interesting to user.
             match (self.reachable, r) {
-                (_, R::Reachable) => info!("We have found that {} is usable.", self),
+                (_, R::Reachable) => info!("We have found that guard {} is usable.", self),
                 (R::Untried | R::Reachable, R::Unreachable) => warn!(
-                    "Could not connect to {}. We'll retry later, and let you know if it succeeds.",
+                    "Could not connect to guard {}. We'll retry later, and let you know if it succeeds.",
                     self
                 ),
                 (_, _) => {} // not interesting.
@@ -1205,7 +1205,7 @@ mod test {
         use tor_netdir::testnet;
         let netdir = testnet::construct_netdir().unwrap_if_sufficient().unwrap();
         // Same as above but omit [22]
-        let netdir2 = testnet::construct_custom_netdir(|idx, mut node| {
+        let netdir2 = testnet::construct_custom_netdir(|idx, node| {
             if idx == 22 {
                 node.omit_rs = true;
             }
@@ -1214,7 +1214,7 @@ mod test {
         .unwrap_if_sufficient()
         .unwrap();
         // Same as above but omit [22] as well as MD for [23].
-        let netdir3 = testnet::construct_custom_netdir(|idx, mut node| {
+        let netdir3 = testnet::construct_custom_netdir(|idx, node| {
             if idx == 22 {
                 node.omit_rs = true;
             } else if idx == 23 {

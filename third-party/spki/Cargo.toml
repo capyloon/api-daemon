@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.57"
+rust-version = "1.65"
 name = "spki"
-version = "0.6.0"
+version = "0.7.2"
 authors = ["RustCrypto Developers"]
 description = """
 X.509 Subject Public Key Info (RFC5280) describing public keys as well as their
@@ -32,7 +32,6 @@ categories = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/RustCrypto/formats/tree/master/spki"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -41,13 +40,18 @@ rustdoc-args = [
     "docsrs",
 ]
 
+[dependencies.arbitrary]
+version = "1.2"
+features = ["derive"]
+optional = true
+
 [dependencies.base64ct]
 version = "1"
 optional = true
 default-features = false
 
 [dependencies.der]
-version = "0.6"
+version = "0.7.2"
 features = ["oid"]
 
 [dependencies.sha2]
@@ -56,16 +60,22 @@ optional = true
 default-features = false
 
 [dev-dependencies.hex-literal]
-version = "0.3"
+version = "0.4"
 
 [dev-dependencies.tempfile]
 version = "3"
 
 [features]
 alloc = [
-    "base64ct/alloc",
+    "base64ct?/alloc",
     "der/alloc",
 ]
+arbitrary = [
+    "std",
+    "dep:arbitrary",
+    "der/arbitrary",
+]
+base64 = ["dep:base64ct"]
 fingerprint = ["sha2"]
 pem = [
     "alloc",

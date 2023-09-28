@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "group"
-version = "0.12.0"
+version = "0.13.0"
 authors = ["Sean Bowe <ewillbefull@gmail.com>", "Jack Grigg <jack@z.cash>"]
 description = "Elliptic curve group traits and utilities"
 homepage = "https://github.com/zkcrypto/group"
@@ -21,14 +21,13 @@ readme = "README.md"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/zkcrypto/group"
 resolver = "2"
-[dependencies.byteorder]
-version = "1"
-optional = true
+[dependencies.ff]
+version = "0.13"
 default-features = false
 
-[dependencies.ff]
-version = "0.12"
-default-features = false
+[dependencies.memuse]
+version = "0.2"
+optional = true
 
 [dependencies.rand]
 version = "0.8"
@@ -48,8 +47,9 @@ version = "2.2.1"
 default-features = false
 
 [features]
-alloc = ["byteorder"]
+alloc = []
 default = ["alloc"]
 tests = ["alloc", "rand", "rand_xorshift"]
+wnaf-memuse = ["alloc", "memuse"]
 [badges.maintenance]
 status = "actively-developed"

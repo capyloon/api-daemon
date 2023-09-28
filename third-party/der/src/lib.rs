@@ -1,5 +1,5 @@
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc = include_str!("../README.md")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/RustCrypto/media/6ee8e381/logo.svg",
@@ -15,6 +15,7 @@
     clippy::checked_conversions,
     clippy::implicit_saturating_sub,
     clippy::integer_arithmetic,
+    clippy::mod_module_files,
     clippy::panic,
     clippy::panic_in_result_fn,
     clippy::unwrap_used,
@@ -56,7 +57,7 @@
 //! - [`VideotexStringRef`]: ASN.1 `VideotexString`.
 //! - [`SequenceOf`]: ASN.1 `SEQUENCE OF`.
 //! - [`SetOf`], [`SetOfVec`]: ASN.1 `SET OF`.
-//! - [`UIntRef`]: ASN.1 unsigned `INTEGER` with raw access to encoded bytes.
+//! - [`UintRef`]: ASN.1 unsigned `INTEGER` with raw access to encoded bytes.
 //! - [`UtcTime`]: ASN.1 `UTCTime`.
 //! - [`Utf8StringRef`]: ASN.1 `UTF8String`.
 //!
@@ -139,32 +140,19 @@
 //!     }
 //! }
 //!
-//! impl<'a> Sequence<'a> for AlgorithmIdentifier<'a> {
-//!     // The `Sequence::fields` method is used for encoding and functions as
-//!     // a visitor for all of the fields in a message.
-//!     //
-//!     // To implement it, you must define a slice containing `Encode`
-//!     // trait objects, then pass it to the provided `field_encoder`
-//!     // function, which is implemented by the `der` crate and handles
-//!     // message serialization.
-//!     //
-//!     // Trait objects are used because they allow for slices containing
-//!     // heterogeneous field types, and a callback is used to allow for the
-//!     // construction of temporary field encoder types. The latter means
-//!     // that the fields of your Rust struct don't necessarily need to
-//!     // impl the `Encode` trait, but if they don't you must construct
-//!     // a temporary wrapper value which does.
-//!     //
-//!     // Types which impl the `Sequence` trait receive blanket impls of both
-//!     // the `Encode` and `Tagged` traits (where the latter is impl'd as
-//!     // `Tagged::TAG = der::Tag::Sequence`.
-//!     fn fields<F, T>(&self, field_encoder: F) -> der::Result<T>
-//!     where
-//!         F: FnOnce(&[&dyn Encode]) -> der::Result<T>,
-//!     {
-//!         field_encoder(&[&self.algorithm, &self.parameters])
+//! impl<'a> ::der::EncodeValue for AlgorithmIdentifier<'a> {
+//!     fn value_len(&self) -> ::der::Result<::der::Length> {
+//!         self.algorithm.encoded_len()? + self.parameters.encoded_len()?
+//!     }
+//!
+//!     fn encode_value(&self, writer: &mut impl ::der::Writer) -> ::der::Result<()> {
+//!         self.algorithm.encode(writer)?;
+//!         self.parameters.encode(writer)?;
+//!         Ok(())
 //!     }
 //! }
+//!
+//! impl<'a> Sequence<'a> for AlgorithmIdentifier<'a> {}
 //!
 //! // Example parameters value: OID for the NIST P-256 elliptic curve.
 //! let parameters = "1.2.840.10045.3.1.7".parse::<ObjectIdentifier>().unwrap();
@@ -182,7 +170,7 @@
 //! // If you would prefer to avoid allocations, you can create a byte array
 //! // as backing storage instead, pass that to `der::Encoder::new`, and then
 //! // encode the `parameters` value using `encoder.encode(parameters)`.
-//! let der_encoded_parameters = parameters.to_vec().unwrap();
+//! let der_encoded_parameters = parameters.to_der().unwrap();
 //!
 //! let algorithm_identifier = AlgorithmIdentifier {
 //!     // OID for `id-ecPublicKey`, if you're curious
@@ -201,7 +189,7 @@
 //! // reference to it, then encode the message using
 //! // `encoder.encode(algorithm_identifier)`, then finally `encoder.finish()`
 //! // to obtain a byte slice containing the encoded message.
-//! let der_encoded_algorithm_identifier = algorithm_identifier.to_vec().unwrap();
+//! let der_encoded_algorithm_identifier = algorithm_identifier.to_der().unwrap();
 //!
 //! // Deserialize the `AlgorithmIdentifier` we just serialized from ASN.1 DER
 //! // using `der::Decode::from_bytes`.
@@ -255,7 +243,7 @@
 //! };
 //!
 //! // Encode
-//! let der_encoded_algorithm_identifier = algorithm_identifier.to_vec().unwrap();
+//! let der_encoded_algorithm_identifier = algorithm_identifier.to_der().unwrap();
 //!
 //! // Decode
 //! let decoded_algorithm_identifier = AlgorithmIdentifier::from_der(
@@ -328,7 +316,7 @@
 //! [`SequenceOf`]: asn1::SequenceOf
 //! [`SetOf`]: asn1::SetOf
 //! [`SetOfVec`]: asn1::SetOfVec
-//! [`UIntRef`]: asn1::UIntRef
+//! [`UintRef`]: asn1::UintRef
 //! [`UtcTime`]: asn1::UtcTime
 //! [`Utf8StringRef`]: asn1::Utf8StringRef
 
@@ -340,9 +328,10 @@ extern crate alloc;
 extern crate std;
 
 pub mod asn1;
+pub mod referenced;
 
 pub(crate) mod arrayvec;
-mod byte_slice;
+mod bytes_ref;
 mod datetime;
 mod decode;
 mod encode;
@@ -352,12 +341,16 @@ mod header;
 mod length;
 mod ord;
 mod reader;
-mod str_slice;
+mod str_ref;
 mod tag;
 mod writer;
 
 #[cfg(feature = "alloc")]
+mod bytes_owned;
+#[cfg(feature = "alloc")]
 mod document;
+#[cfg(feature = "alloc")]
+mod str_owned;
 
 pub use crate::{
     asn1::{AnyRef, Choice, Sequence},
@@ -367,37 +360,35 @@ pub use crate::{
     encode_ref::{EncodeRef, EncodeValueRef},
     error::{Error, ErrorKind, Result},
     header::Header,
-    length::Length,
+    length::{IndefiniteLength, Length},
     ord::{DerOrd, ValueOrd},
-    reader::{slice::SliceReader, Reader},
+    reader::{nested::NestedReader, slice::SliceReader, Reader},
     tag::{Class, FixedTag, Tag, TagMode, TagNumber, Tagged},
     writer::{slice::SliceWriter, Writer},
 };
 
 #[cfg(feature = "alloc")]
-pub use crate::document::Document;
+pub use crate::{asn1::Any, document::Document};
 
 #[cfg(feature = "bigint")]
-#[cfg_attr(docsrs, doc(cfg(feature = "bigint")))]
 pub use crypto_bigint as bigint;
 
 #[cfg(feature = "derive")]
-#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use der_derive::{Choice, Enumerated, Sequence, ValueOrd};
 
+#[cfg(feature = "flagset")]
+pub use flagset;
+
 #[cfg(feature = "oid")]
-#[cfg_attr(docsrs, doc(cfg(feature = "oid")))]
 pub use const_oid as oid;
 
 #[cfg(feature = "pem")]
-#[cfg_attr(docsrs, doc(cfg(feature = "pem")))]
 pub use {
     crate::{decode::DecodePem, encode::EncodePem, reader::pem::PemReader, writer::pem::PemWriter},
     pem_rfc7468 as pem,
 };
 
 #[cfg(feature = "time")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time")))]
 pub use time;
 
 #[cfg(feature = "zeroize")]
@@ -406,4 +397,6 @@ pub use zeroize;
 #[cfg(all(feature = "alloc", feature = "zeroize"))]
 pub use crate::document::SecretDocument;
 
-pub(crate) use crate::{arrayvec::ArrayVec, byte_slice::ByteSlice, str_slice::StrSlice};
+pub(crate) use crate::{arrayvec::ArrayVec, bytes_ref::BytesRef, str_ref::StrRef};
+#[cfg(feature = "alloc")]
+pub(crate) use crate::{bytes_owned::BytesOwned, str_owned::StrOwned};

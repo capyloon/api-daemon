@@ -25,6 +25,8 @@
 #![warn(clippy::needless_borrow)]
 #![warn(clippy::needless_pass_by_value)]
 #![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
 #![warn(clippy::rc_buffer)]
 #![deny(clippy::ref_option_ref)]
 #![warn(clippy::semicolon_if_nothing_returned)]
@@ -205,6 +207,38 @@ pub enum ErrorKind {
     #[display(fmt = "cache access problem")]
     CacheAccessFailed,
 
+    /// The keystore has been corrupted
+    ///
+    /// This could be because of a bug in the Tor code, or because something else has been messing
+    /// with the data.
+    ///
+    /// Note that this kind of error only applies to problems in your `keystore_dir`:
+    /// problems with your cache or persistent state are another kind.
+    #[display(fmt = "corrupted data in keystore")]
+    KeystoreCorrupted,
+
+    /// IO error accessing keystore
+    ///
+    /// For example, the disk might be full, or there may be a permissions problem.
+    /// The source is typically an [`std::io::Error`].
+    ///
+    /// Note that this kind of error only applies to problems in your `keystore_dir`:
+    /// problems with your cache or persistent state are another kind.
+    #[display(fmt = "could not access keystore")]
+    KeystoreAccessFailed,
+
+    /// We encountered a problem with filesystem permissions within the keystore.
+    ///
+    /// This is likeliest to be caused by permissions on a file or directory
+    /// being too permissive; the next likeliest cause is that we were unable to
+    /// check the permissions on the file or directory, or on one of its
+    /// ancestors.
+    #[cfg(feature = "experimental-api")]
+    // TODO HSS: KeystoreFsPermissions
+    // See https://gitlab.torproject.org/tpo/core/arti/-/merge_requests/1315#note_2916498
+    #[display(fmt = "problem with keystore filesystem permissions")]
+    KeystoreFsPermissions,
+
     /// Tor client's Rust async reactor is shutting down.
     ///
     /// This likely indicates that the reactor has encountered a fatal error, or
@@ -224,10 +258,15 @@ pub enum ErrorKind {
     /// something.
     ///
     /// This error can happen if the host you're trying to connect to isn't
-    /// responding to traffic. It can also happen if an exit is overloaded, and
+    /// responding to traffic.
+    /// It can also happen if an exit, or hidden service, is overloaded, and
     /// unable to answer your replies in a timely manner.
     ///
-    /// In either case, trying later, or on a different circuit, might help.  
+    /// And it might simply mean that the Tor network itself
+    /// (including possibly relays, or hidden service introduction or rendezvous points)
+    /// is not working properly
+    ///
+    /// In either case, trying later, or on a different circuit, might help.
     //
     // TODO: Say that this is distinct from the case where the exit _tells you_
     // that there is a timeout.
@@ -338,13 +377,6 @@ pub enum ErrorKind {
     #[display(fmt = "problem with network or connection")]
     LocalNetworkError,
 
-    /// A problem occurred with a protocol to a local (not anonymized) party.
-    ///
-    /// This is likely a protocol-specific problem, such as bad authentication
-    /// over SOCKS.
-    #[display(fmt = "local authentication refused.")]
-    LocalProtocolFailed,
-
     /// A problem occurred when launching or communicating with an external
     /// process running on this computer.
     #[display(fmt = "an externally launched plug-in tool failed")]
@@ -454,6 +486,68 @@ pub enum ErrorKind {
     #[display(fmt = "remote hostname not found")]
     RemoteHostNotFound,
 
+    /// The target hidden service (`.onion` service) was not found in the directory
+    ///
+    /// We successfully connected to at least one directory server,
+    /// but it didn't have a record of the hidden service.
+    ///
+    /// This probably means that the hidden service is not running, or does not exist.
+    /// (It might mean that the directory servers are faulty,
+    /// and that the hidden service was unable to publish its descriptor.)
+    #[display(fmt = "Onion Service not found")]
+    OnionServiceNotFound,
+
+    /// The target hidden service (`.onion` service) seems to be down
+    ///
+    /// We successfully obtained a hidden service descriptor for the service,
+    /// so we know it is supposed to exist,
+    /// but we weren't able to communicate with it via any of its
+    /// introduction points.
+    ///
+    /// This probably means that the hidden service is not running.
+    /// (It might mean that the introduction point relays are faulty.)
+    #[display(fmt = "Onion Service not running")]
+    OnionServiceNotRunning,
+
+    /// Protocol trouble involving the target hidden service (`.onion` service)
+    ///
+    /// Something unexpected happened when trying to connect to the selected hidden service.
+    /// It seems to have been due to the hidden service violating the Tor protocols somehow.
+    #[display(fmt = "Onion Service protocol failed (apparently due to service behaviour)")]
+    OnionServiceProtocolViolation,
+
+    /// The target hidden service (`.onion` service) is running but we couldn't connect to it,
+    /// and we aren't sure whose fault that is
+    ///
+    /// This might be due to malfunction on the part of the service,
+    /// or a relay being used as an introduction point or relay,
+    /// or failure of the underlying Tor network.
+    #[display(fmt = "Onion Service not reachable (due to service, or Tor network, behaviour)")]
+    OnionServiceConnectionFailed,
+
+    /// We tried to connect to an onion service without authentication,
+    /// but it apparently requires authentication.
+    #[display(fmt = "Onion service required authentication, but none was provided.")]
+    OnionServiceMissingClientAuth,
+
+    /// We tried to connect to an onion service that requires authentication, and
+    /// ours is wrong.
+    ///
+    /// This likely means that we need to use a different key for talking to
+    /// this onion service, or that it has revoked our permissions to reach it.
+    #[display(
+        fmt = "Onion service required authentication, but provided authentication was incorrect."
+    )]
+    OnionServiceWrongClientAuth,
+
+    /// We tried to parse a `.onion` address, and found that it was not valid.
+    ///
+    /// This likely means that it was corrupted somewhere along its way from its
+    /// origin to our API surface.  It may be the wrong length, have invalid
+    /// characters, have an invalid version number, or have an invalid checksum.
+    #[display(fmt = ".onion address was invalid.")]
+    OnionServiceAddressInvalid,
+
     /// An resolve operation finished with an error.
     ///
     /// Contrary to [`RemoteHostNotFound`](ErrorKind::RemoteHostNotFound),
@@ -476,8 +570,8 @@ pub enum ErrorKind {
     /// protocol violation by the peer;
     /// peer refusing to provide service;
     /// etc.
-    #[display(fmt = "remote protocol failed")]
-    RemoteProtocolFailed,
+    #[display(fmt = "remote protocol violation")]
+    RemoteProtocolViolation,
 
     /// An operation failed, and the relay in question reported that it's too
     /// busy to answer our request.
@@ -550,6 +644,8 @@ pub enum ErrorKind {
     // TODO: in the future, errors of this type should distinguish between
     // cases where this happens because of a user restriction and cases where it
     // happens because of a severely broken directory.
+    //
+    // The latter should be classified as TorDirectoryBroken.
     #[display(fmt = "could not construct a path")]
     NoPath,
 
@@ -564,6 +660,20 @@ pub enum ErrorKind {
     #[display(fmt = "no exit available for path")]
     NoExit,
 
+    /// The Tor consensus directory is broken or unsuitable
+    ///
+    /// This could occur when running very old software
+    /// against the current Tor network,
+    /// so that the newer network is incompatible.
+    ///
+    /// It might also mean a catastrophic failure of the Tor network,
+    /// or that a deficient test network is in use.
+    ///
+    /// Currently some instances of this kind of problem
+    /// are reported as `NoPath` or `NoExit`.
+    #[display(fmt = "Tor network consensus directory is not usable")]
+    TorDirectoryUnusable,
+
     /// An operation failed because of _possible_ clock skew.
     ///
     /// The broken clock may be ours, or it may belong to another party on the
@@ -571,6 +681,29 @@ pub enum ErrorKind {
     /// caching documents for far too long, or something like that.
     #[display(fmt = "possible clock skew detected")]
     ClockSkew,
+
+    /// An RPC operation failed because a request could not be parsed or was
+    /// otherwise invalid.
+    #[display(fmt = "invalid RPC request")]
+    #[cfg(feature = "rpc")]
+    RpcInvalidRequest,
+
+    /// An RPC operation failed because a method type could not be found,
+    /// or is not available on a given object.
+    #[display(fmt = "RPC method not found")]
+    #[cfg(feature = "rpc")]
+    RpcMethodNotFound,
+
+    /// An RPC operation failed because the method type's parameters were not
+    /// correct for it.
+    #[display(fmt = "RPC invalid parameters")]
+    #[cfg(feature = "rpc")]
+    RpcInvalidMethodParameters,
+
+    /// An RPC operation failed because a given object could not be found.
+    #[display(fmt = "RPC object not found")]
+    #[cfg(feature = "rpc")]
+    RpcObjectNotFound,
 
     /// Internal error (bug) in Arti.
     ///

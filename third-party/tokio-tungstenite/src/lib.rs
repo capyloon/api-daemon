@@ -328,7 +328,7 @@ where
     fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
         match (*self).with_context(None, |s| s.write_message(item)) {
             Ok(()) => Ok(()),
-            Err(::tungstenite::Error::Io(err)) if err.kind() == std::io::ErrorKind::WouldBlock => {
+            Err(WsError::Io(err)) if err.kind() == std::io::ErrorKind::WouldBlock => {
                 // the message was accepted and queued
                 // isn't an error.
                 Ok(())
@@ -341,7 +341,13 @@ where
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        (*self).with_context(Some((ContextWaker::Write, cx)), |s| cvt(s.write_pending()))
+        (*self).with_context(Some((ContextWaker::Write, cx)), |s| cvt(s.write_pending())).map(|r| {
+            // WebSocket connection has just been closed. Flushing completed, not an error.
+            match r {
+                Err(WsError::ConnectionClosed) => Ok(()),
+                other => other,
+            }
+        })
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -354,8 +360,8 @@ where
 
         match res {
             Ok(()) => Poll::Ready(Ok(())),
-            Err(::tungstenite::Error::ConnectionClosed) => Poll::Ready(Ok(())),
-            Err(::tungstenite::Error::Io(err)) if err.kind() == std::io::ErrorKind::WouldBlock => {
+            Err(WsError::ConnectionClosed) => Poll::Ready(Ok(())),
+            Err(WsError::Io(err)) if err.kind() == std::io::ErrorKind::WouldBlock => {
                 trace!("WouldBlock");
                 self.closing = true;
                 Poll::Pending
@@ -373,6 +379,9 @@ where
 #[inline]
 fn domain(request: &tungstenite::handshake::client::Request) -> Result<String, WsError> {
     match request.uri().host() {
+        // rustls expects IPv6 addresses without the surrounding [] brackets
+        #[cfg(feature = "__rustls-tls")]
+        Some(d) if d.starts_with('[') && d.ends_with(']') => Ok(d[1..d.len() - 1].to_string()),
         Some(d) => Ok(d.to_string()),
         None => Err(WsError::Url(tungstenite::error::UrlError::NoHostName)),
     }

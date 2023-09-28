@@ -11,8 +11,9 @@
 
 [package]
 edition = "2018"
+rust-version = "1.63"
 name = "tokio-tungstenite"
-version = "0.18.0"
+version = "0.19.0"
 authors = [
     "Daniel Abramov <dabramov@snapview.de>",
     "Alexey Galakhov <agalakhov@snapview.de>",
@@ -26,7 +27,7 @@ include = [
 ]
 description = "Tokio binding for Tungstenite, the Lightweight stream-based WebSocket implementation"
 homepage = "https://github.com/snapview/tokio-tungstenite"
-documentation = "https://docs.rs/tokio-tungstenite/0.18.0"
+documentation = "https://docs.rs/tokio-tungstenite/0.19.0"
 readme = "README.md"
 keywords = [
     "websocket",
@@ -73,11 +74,15 @@ name = "server"
 required-features = ["handshake"]
 
 [[example]]
+name = "server-headers"
+required-features = ["handshake"]
+
+[[example]]
 name = "interval-server"
 required-features = ["handshake"]
 
 [dependencies.futures-util]
-version = "0.3"
+version = "0.3.28"
 features = [
     "sink",
     "std",
@@ -85,19 +90,19 @@ features = [
 default-features = false
 
 [dependencies.log]
-version = "0.4"
+version = "0.4.17"
 
 [dependencies.native-tls-crate]
-version = "0.2.7"
+version = "0.2.11"
 optional = true
 package = "native-tls"
 
 [dependencies.rustls]
-version = "0.20.0"
+version = "0.21.0"
 optional = true
 
 [dependencies.rustls-native-certs]
-version = "0.6.1"
+version = "0.6.2"
 optional = true
 
 [dependencies.tokio]
@@ -106,33 +111,29 @@ features = ["io-util"]
 default-features = false
 
 [dependencies.tokio-native-tls]
-version = "0.3.0"
+version = "0.3.1"
 optional = true
 
 [dependencies.tokio-rustls]
-version = "0.23.0"
+version = "0.24.0"
 optional = true
 
 [dependencies.tungstenite]
-version = "0.18.0"
+version = "0.19.0"
 default-features = false
 
-[dependencies.webpki]
-version = "0.22.0"
-optional = true
-
 [dependencies.webpki-roots]
-version = "0.22.1"
+version = "0.23.0"
 optional = true
 
 [dev-dependencies.env_logger]
-version = "0.9"
+version = "0.10.0"
 
 [dev-dependencies.futures-channel]
-version = "0.3"
+version = "0.3.28"
 
 [dev-dependencies.hyper]
-version = "0.14"
+version = "0.14.25"
 features = [
     "http1",
     "server",
@@ -141,7 +142,7 @@ features = [
 default-features = false
 
 [dev-dependencies.tokio]
-version = "1.0.0"
+version = "1.27.0"
 features = [
     "io-std",
     "macros",
@@ -152,7 +153,7 @@ features = [
 default-features = false
 
 [dev-dependencies.url]
-version = "2.0.0"
+version = "2.3.1"
 
 [features]
 __rustls-tls = [
@@ -160,7 +161,6 @@ __rustls-tls = [
     "tokio-rustls",
     "stream",
     "tungstenite/__rustls-tls",
-    "webpki",
     "handshake",
 ]
 connect = [

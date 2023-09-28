@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.57"
 name = "const-oid"
-version = "0.9.1"
+version = "0.9.3"
 authors = ["RustCrypto Developers"]
 description = """
 Const-friendly implementation of the ISO/IEC Object Identifier (OID) standard
@@ -44,6 +44,11 @@ rustdoc-args = [
     "--cfg",
     "docsrs",
 ]
+
+[dependencies.arbitrary]
+version = "1.2"
+features = ["derive"]
+optional = true
 
 [dev-dependencies.hex-literal]
 version = "0.3"

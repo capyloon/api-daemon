@@ -27,11 +27,11 @@ impl Fts {
     ) -> TransactionResult<'c> {
         if let Some(v) = variant {
             sqlx::query!("DELETE FROM fts WHERE id = ? and variant = ?", id, v)
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
         } else {
             sqlx::query!("DELETE FROM fts WHERE id = ?", id)
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
         }
 
@@ -54,7 +54,7 @@ impl Fts {
             variant,
             content
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
         Ok(tx)
@@ -81,7 +81,7 @@ impl Fts {
                         ORDER BY frecency DESC LIMIT 100"#,
                 )
                 .bind(&search)
-                .fetch_all(&mut tx)
+                .fetch_all(&mut *tx)
                 .await?,
                 Some(ref tag) => sqlx::query_as(
                     r#"SELECT resources.id, frecency(resources.scorer) AS frecency FROM resources
@@ -93,7 +93,7 @@ impl Fts {
                 )
                 .bind(tag)
                 .bind(&search)
-                .fetch_all(&mut tx)
+                .fetch_all(&mut *tx)
                 .await?,
             };
 

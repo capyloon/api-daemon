@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60"
 name = "serde_with_macros"
-version = "2.2.0"
+version = "3.0.0"
 authors = ["Jonas Bushart"]
 include = [
     "src/**/*",
@@ -39,11 +39,32 @@ repository = "https://github.com/jonasbb/serde_with/"
 [package.metadata.docs.rs]
 all-features = true
 
+[package.metadata.release]
+tag = false
+
+[[package.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
+replace = """
+[Unreleased]
+
+## [{{version}}] - {{date}}"""
+search = '\[Unreleased\]'
+
+[[package.metadata.release.pre-release-replacements]]
+file = "src/lib.rs"
+replace = "https://docs.rs/serde_with/{{version}}/"
+search = 'https://docs\.rs/serde_with/[\d.]+/'
+
+[[package.metadata.release.pre-release-replacements]]
+file = "src/lib.rs"
+replace = "https://docs.rs/serde_with_macros/{{version}}/"
+search = 'https://docs\.rs/serde_with_macros/[\d.]+/'
+
 [lib]
 proc-macro = true
 
 [dependencies.darling]
-version = "0.14.0"
+version = "0.20.0"
 
 [dependencies.proc-macro2]
 version = "1.0.1"
@@ -52,7 +73,7 @@ version = "1.0.1"
 version = "1.0.0"
 
 [dependencies.syn]
-version = "1.0.3"
+version = "2.0.0"
 features = [
     "full",
     "parsing",
@@ -68,14 +89,14 @@ version = "1.0.0"
 version = "1.0.0"
 
 [dev-dependencies.serde]
-version = "1.0.75"
+version = "1.0.157"
 features = ["derive"]
 
 [dev-dependencies.serde_json]
 version = "1.0.25"
 
 [dev-dependencies.trybuild]
-version = "1.0.14"
+version = "1.0.80"
 
 [dev-dependencies.version-sync]
 version = "0.9.1"

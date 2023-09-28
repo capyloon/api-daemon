@@ -343,7 +343,7 @@ impl<C: AbstractChannelFactory> MgrState<C> {
             .inner
             .lock()
             .map_err(|_| internal!("poisoned channel manager"))?;
-        let mut inner = &mut *inner;
+        let inner = &mut *inner;
 
         if let Some(new_config) = new_config {
             inner.config = new_config.clone();
@@ -481,10 +481,10 @@ fn padding_parameters(
     };
 
     padding_parameters_builder(reduced, netdir)
-        .unwrap_or_else(|e| {
+        .unwrap_or_else(|e: &str| {
             info!(
                 "consensus channel padding parameters wrong, using defaults: {}",
-                &e
+                &e,
             );
             Some(PaddingParametersBuilder::default())
         })
@@ -554,7 +554,7 @@ mod test {
     }
 
     #[derive(Clone, Debug, Default)]
-    struct FakeChannelFactory;
+    struct FakeChannelFactory {}
     #[async_trait]
     impl AbstractChannelFactory for FakeChannelFactory {
         type Channel = FakeChannel;

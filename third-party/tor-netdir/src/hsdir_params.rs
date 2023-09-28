@@ -19,20 +19,24 @@
 //!
 //! This module could conceivably be part of `tor-netdoc`, but it seems better
 //! to make it part of `tor-netdir`: this is where we put our complexity.
+///
+/// (Here in Arti we use the word "ring" in types and variable names only
+/// to refer to the actual actual reified ring, not to HSDir parameters, or
+/// or other aspects of the HSDir ring structure.)
 use std::time::{Duration, SystemTime};
 
-use crate::{params::NetParameters, Error, Result};
+use crate::{params::NetParameters, Error, HsDirs, Result};
 use time::{OffsetDateTime, UtcOffset};
 use tor_hscrypto::time::TimePeriod;
-use tor_netdoc::doc::netstatus::{Lifetime, MdConsensus, SharedRandVal};
+use tor_netdoc::doc::netstatus::{MdConsensus, SharedRandVal};
 
 /// Parameters for generating and using an HsDir ring.
 ///
 /// These parameters are derived from the shared random values and time
 /// parameters in the consensus, and are used to determine the
 /// position of each HsDir within the ring.
-#[derive(Clone, Debug)]
-pub(crate) struct HsRingParams {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct HsDirParams {
     /// The time period for this ring.  It's used to ensure that blinded onion
     /// keys rotate in a _predictable_ way over time.
     pub(crate) time_period: TimePeriod,
@@ -57,8 +61,8 @@ const VOTING_PERIODS_IN_SRV_ROUND: u32 = 24;
 /// One day.
 const ONE_DAY: Duration = Duration::new(86400, 0);
 
-impl HsRingParams {
-    /// Compute the `HsRingParams` for the current time period, according to a given
+impl HsDirParams {
+    /// Compute the `HsDirParams` for the current time period, according to a given
     /// consensus.
     ///
     /// rend-spec-v3 section 2.2.1 et seq
@@ -73,40 +77,60 @@ impl HsRingParams {
     ///
     /// (This function's return type is a bit cumbersome; these parameters are
     /// bundled together because it is efficient to compute them all at once.)
+    ///
+    /// Note that this function will only return an error if something is
+    /// _extremely_ wrong with the provided consensus: for other error cases, it
+    /// returns a "disaster fallback".
     pub(crate) fn compute(
         consensus: &MdConsensus,
         params: &NetParameters,
-    ) -> Result<(HsRingParams, Vec<HsRingParams>)> {
-        let srvs = extract_srvs(consensus)?;
+    ) -> Result<HsDirs<HsDirParams>> {
+        let srvs = extract_srvs(consensus);
         let tp_length: Duration = params.hsdir_timeperiod_length.try_into().map_err(|_| {
+            // Note that this error should be impossible:
+            // The type of hsdir_timeperiod_length() is IntegerMinutes<BoundedInt32<30, 14400>>...
+            // It should be at most 10 days, which _definitely_ fits into a Duration.
             Error::InvalidConsensus(
                 "Minutes in hsdir timeperiod could not be converted to a Duration",
             )
         })?;
-        let offset = voting_period(consensus.lifetime())? * VOTING_PERIODS_IN_OFFSET;
+        let offset = consensus.lifetime().voting_period() * VOTING_PERIODS_IN_OFFSET;
         let cur_period = TimePeriod::new(tp_length, consensus.lifetime().valid_after(), offset)
-            .ok_or(Error::InvalidConsensus(
-                "Consensus valid-after did not fall in a time period",
-            ))?;
+            .map_err(|_| {
+                // This error should be nearly impossible too:
+                // - It can occur if the time period length is not an integer
+                //   number of minutes--but we took it from an IntegerMinutes,
+                //   so that's unlikely.
+                // - It can occur if the time period length or the offset is
+                //   greater than can be represented in u32 seconds.
+                // - It can occur if the valid_after time is so far from the
+                //   epoch that we can't represent the distance as a Duration.
+                Error::InvalidConsensus("Consensus valid-after did not fall in a time period")
+            })?;
 
-        let main_ring = find_params_for_time(&srvs[..], cur_period)?
+        let current = find_params_for_time(&srvs[..], cur_period)?
             .unwrap_or_else(|| disaster_params(cur_period));
 
         // When computing secondary rings, we don't try so many fallback operations:
         // if they aren't available, they aren't available.
-        let other_rings = [cur_period.prev(), cur_period.next()]
+        #[cfg(feature = "hs-service")]
+        let secondary = [cur_period.prev(), cur_period.next()]
             .iter()
             .flatten()
             .flat_map(|period| find_params_for_time(&srvs[..], *period).ok().flatten())
             .collect();
 
-        Ok((main_ring, other_rings))
+        Ok(HsDirs {
+            current,
+            #[cfg(feature = "hs-service")]
+            secondary,
+        })
     }
 }
 
 /// Compute ring parameters using a Disaster SRV for this period.
-fn disaster_params(period: TimePeriod) -> HsRingParams {
-    HsRingParams {
+fn disaster_params(period: TimePeriod) -> HsDirParams {
+    HsDirParams {
         time_period: period,
         shared_rand: disaster_srv(period),
     }
@@ -120,7 +144,7 @@ fn disaster_srv(period: TimePeriod) -> SharedRandVal {
     use digest::Digest;
     let mut d = tor_llcrypto::d::Sha3_256::new();
     d.update(b"shared-random-disaster");
-    d.update((period.length_in_sec() / 60).to_be_bytes());
+    d.update(u64::from(period.length().as_minutes()).to_be_bytes());
     d.update(period.interval_num().to_be_bytes());
 
     let v: [u8; 32] = d.finalize().into();
@@ -131,17 +155,19 @@ fn disaster_srv(period: TimePeriod) -> SharedRandVal {
 /// recent.
 type SrvInfo = (SharedRandVal, std::ops::Range<SystemTime>);
 
-/// Given a list of SrvInfo, return an HsRingParames instance for a given time
+/// Given a list of SrvInfo, return an HsRingParams instance for a given time
 /// period, if possible.
-fn find_params_for_time(info: &[SrvInfo], period: TimePeriod) -> Result<Option<HsRingParams>> {
+fn find_params_for_time(info: &[SrvInfo], period: TimePeriod) -> Result<Option<HsDirParams>> {
     let start = period
         .range()
-        .ok_or(Error::InvalidConsensus(
-            "HsDir time period in consensus could not be represented as a SystemTime range.",
-        ))?
+        .map_err(|_| {
+            Error::InvalidConsensus(
+                "HsDir time period in consensus could not be represented as a SystemTime range.",
+            )
+        })?
         .start;
 
-    Ok(find_srv_for_time(info, start).map(|srv| HsRingParams {
+    Ok(find_srv_for_time(info, start).map(|srv| HsDirParams {
         time_period: period,
         shared_rand: srv,
     }))
@@ -157,10 +183,10 @@ fn find_srv_for_time(info: &[SrvInfo], when: SystemTime) -> Option<SharedRandVal
 
 /// Return every SRV from a consensus, along with a duration over which it is
 /// most recent SRV.
-fn extract_srvs(consensus: &MdConsensus) -> Result<Vec<SrvInfo>> {
+fn extract_srvs(consensus: &MdConsensus) -> Vec<SrvInfo> {
     let mut v = Vec::new();
     let consensus_ts = consensus.lifetime().valid_after();
-    let srv_interval = srv_interval(consensus)?;
+    let srv_interval = srv_interval(consensus);
 
     if let Some(cur) = consensus.shared_rand_cur() {
         let ts_begin = cur
@@ -177,11 +203,11 @@ fn extract_srvs(consensus: &MdConsensus) -> Result<Vec<SrvInfo>> {
         v.push((*prev.value(), ts_begin..ts_end));
     }
 
-    Ok(v)
+    v
 }
 
 /// Return the length of time for which a single SRV value is valid.
-fn srv_interval(consensus: &MdConsensus) -> Result<Duration> {
+fn srv_interval(consensus: &MdConsensus) -> Duration {
     // What we _want_ to do, ideally, is is to learn the duration from the
     // difference between the declared time for the previous value and the
     // declared time for the current one.
@@ -190,7 +216,7 @@ fn srv_interval(consensus: &MdConsensus) -> Result<Duration> {
     if let (Some(cur), Some(prev)) = (consensus.shared_rand_cur(), consensus.shared_rand_prev()) {
         if let (Some(cur_ts), Some(prev_ts)) = (cur.timestamp(), prev.timestamp()) {
             if let Ok(d) = cur_ts.duration_since(prev_ts) {
-                return Ok(d);
+                return d;
             }
         }
     }
@@ -198,20 +224,12 @@ fn srv_interval(consensus: &MdConsensus) -> Result<Duration> {
     // But if one of those values is missing, or if it has no timestamp, we have
     // to fall back to admitting that we know the schedule for the voting
     // algorithm.
-    voting_period(consensus.lifetime()).map(|d| d * VOTING_PERIODS_IN_SRV_ROUND)
+    consensus.lifetime().voting_period() * VOTING_PERIODS_IN_SRV_ROUND
 }
 
 /// Return the length of the voting period in the consensus.
 ///
 /// (The "voting period" is the length of time between between one consensus and the next.)
-fn voting_period(lifetime: &Lifetime) -> Result<Duration> {
-    // TODO hs: consider moving this function to be a method of Lifetime.
-    let valid_after = lifetime.valid_after();
-    let fresh_until = lifetime.fresh_until();
-    fresh_until
-        .duration_since(valid_after)
-        .map_err(|_| Error::InvalidConsensus("Mis-formed lifetime"))
-}
 
 /// Return a time at the start of the UTC day containing `t`.
 fn start_of_day_containing(t: SystemTime) -> SystemTime {
@@ -235,7 +253,7 @@ mod test {
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
-    use tor_netdoc::doc::netstatus::{ConsensusBuilder, MdConsensusRouterStatus};
+    use tor_netdoc::doc::netstatus::{ConsensusBuilder, Lifetime, MdConsensusRouterStatus};
 
     /// Helper: parse an rfc3339 time.
     ///
@@ -298,7 +316,7 @@ mod test {
 
     #[test]
     fn vote_period() {
-        assert_eq!(voting_period(&example_lifetime()).unwrap(), d("1 hour"));
+        assert_eq!(example_lifetime().voting_period(), d("1 hour"));
 
         let lt2 = Lifetime::new(
             t("1985-10-25T07:00:00Z"),
@@ -307,14 +325,14 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(voting_period(&lt2).unwrap(), d("22 min"));
+        assert_eq!(lt2.voting_period(), d("22 min"));
     }
 
     #[test]
     fn srv_period() {
         // In a basic consensus with no SRV timestamps, we'll assume 24 voting periods.
         let consensus = example_consensus_builder().testing_consensus().unwrap();
-        assert_eq!(srv_interval(&consensus).unwrap(), d("1 day"));
+        assert_eq!(srv_interval(&consensus), d("1 day"));
 
         // If there are timestamps, we look at the difference between them.
         let consensus = example_consensus_builder()
@@ -322,7 +340,7 @@ mod test {
             .shared_rand_cur(7, SRV2.into(), Some(t("1985-10-25T06:00:05Z")))
             .testing_consensus()
             .unwrap();
-        assert_eq!(srv_interval(&consensus).unwrap(), d("6 hours 5 sec"));
+        assert_eq!(srv_interval(&consensus), d("6 hours 5 sec"));
 
         // Note that if the timestamps are in reversed order, we fall back to 24 hours.
         let consensus = example_consensus_builder()
@@ -330,13 +348,13 @@ mod test {
             .shared_rand_prev(7, SRV2.into(), Some(t("1985-10-25T06:00:05Z")))
             .testing_consensus()
             .unwrap();
-        assert_eq!(srv_interval(&consensus).unwrap(), d("1 day"));
+        assert_eq!(srv_interval(&consensus), d("1 day"));
     }
 
     #[test]
     fn srvs_extract_and_find() {
         let consensus = example_consensus_builder().testing_consensus().unwrap();
-        let srvs = extract_srvs(&consensus).unwrap();
+        let srvs = extract_srvs(&consensus);
         assert_eq!(
             srvs,
             vec![
@@ -361,7 +379,7 @@ mod test {
             .shared_rand_cur(7, SRV2.into(), Some(t("1985-10-25T06:00:05Z")))
             .testing_consensus()
             .unwrap();
-        let srvs = extract_srvs(&consensus).unwrap();
+        let srvs = extract_srvs(&consensus);
         assert_eq!(
             srvs,
             vec![
@@ -406,7 +424,7 @@ mod test {
         use digest::Digest;
         use tor_llcrypto::d::Sha3_256;
         let period = TimePeriod::new(d("1 day"), t("1970-01-02T17:33:00Z"), d("12 hours")).unwrap();
-        assert_eq!(period.length_in_sec(), 86400);
+        assert_eq!(period.length().as_minutes(), 86400 / 60);
         assert_eq!(period.interval_num(), 1);
 
         let dsrv = disaster_srv(period);
@@ -421,20 +439,21 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "hs-service")]
     fn ring_params_simple() {
         // Compute ring parameters in a legacy environment, where the time
         // period and the SRV lifetime are one day long, and they are offset by
         // 12 hours.
         let consensus = example_consensus_builder().testing_consensus().unwrap();
         let netparams = NetParameters::from_map(consensus.params());
-        let (cur, secondary) = HsRingParams::compute(&consensus, &netparams).unwrap();
+        let HsDirs { current, secondary } = HsDirParams::compute(&consensus, &netparams).unwrap();
 
         assert_eq!(
-            cur.time_period,
+            current.time_period,
             TimePeriod::new(d("1 day"), t("1985-10-25T07:00:00Z"), d("12 hours")).unwrap()
         );
         // We use the "previous" SRV since the start of this time period was 12:00 on the 24th.
-        assert_eq!(cur.shared_rand.as_ref(), &SRV1);
+        assert_eq!(current.shared_rand.as_ref(), &SRV1);
 
         // Our secondary SRV will be the one that starts when we move into the
         // next time period.
@@ -447,6 +466,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "hs-service")]
     fn ring_params_tricky() {
         // In this case we give the SRVs timestamps and we choose an odd hsdir_interval.
         let consensus = example_consensus_builder()
@@ -456,13 +476,13 @@ mod test {
             .testing_consensus()
             .unwrap();
         let netparams = NetParameters::from_map(consensus.params());
-        let (cur, secondary) = HsRingParams::compute(&consensus, &netparams).unwrap();
+        let HsDirs { current, secondary } = HsDirParams::compute(&consensus, &netparams).unwrap();
 
         assert_eq!(
-            cur.time_period,
+            current.time_period,
             TimePeriod::new(d("2 hours"), t("1985-10-25T07:00:00Z"), d("12 hours")).unwrap()
         );
-        assert_eq!(cur.shared_rand.as_ref(), &SRV2);
+        assert_eq!(current.shared_rand.as_ref(), &SRV2);
 
         assert_eq!(secondary.len(), 2);
         assert_eq!(

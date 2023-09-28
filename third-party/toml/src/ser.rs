@@ -59,6 +59,9 @@ where
 /// "pretty" output. See `Serializer::pretty` for more details.
 ///
 /// To serialize TOML values, instead of documents, see [`ValueSerializer`].
+///
+/// For greater customization, instead serialize to a
+/// [`toml_edit::Document`](https://docs.rs/toml_edit/latest/toml_edit/struct.Document.html).
 #[cfg(feature = "display")]
 pub fn to_string_pretty<T: ?Sized>(value: &T) -> Result<String, Error>
 where
@@ -156,55 +159,13 @@ impl<'d> Serializer<'d> {
     }
 
     /// Apply a default "pretty" policy to the document
+    ///
+    /// For greater customization, instead serialize to a
+    /// [`toml_edit::Document`](https://docs.rs/toml_edit/latest/toml_edit/struct.Document.html).
     pub fn pretty(dst: &'d mut String) -> Self {
         let mut ser = Serializer::new(dst);
         ser.settings.multiline_array = true;
         ser
-    }
-
-    #[doc(hidden)]
-    #[deprecated(
-        since = "0.6.0",
-        note = "string behavior is now automatic; for greater control deserialize to `toml_edit::Document` and use `toml_edit::visit_mut::VisitorMut`"
-    )]
-    pub fn pretty_string(&mut self, _value: bool) -> &mut Self {
-        self
-    }
-
-    #[doc(hidden)]
-    #[deprecated(
-        since = "0.6.0",
-        note = "string behavior is now automatic; for greater control deserialize to `toml_edit::Document` and use `toml_edit::visit_mut::VisitorMut`"
-    )]
-    pub fn pretty_string_literal(&mut self, _value: bool) -> &mut Self {
-        self
-    }
-
-    #[doc(hidden)]
-    #[deprecated(
-        since = "0.6.0",
-        note = "this is bundled in with `pretty`; for greater control deserialize to `toml_edit::Document` and use `toml_edit::visit_mut::VisitorMut`"
-    )]
-    pub fn pretty_array(&mut self, _value: bool) -> &mut Self {
-        self
-    }
-
-    #[doc(hidden)]
-    #[deprecated(
-        since = "0.6.0",
-        note = "this is bundled in with `pretty`; for greater control deserialize to `toml_edit::Document` and use `toml_edit::visit_mut::VisitorMut`"
-    )]
-    pub fn pretty_array_indent(&mut self, _value: usize) -> &mut Self {
-        self
-    }
-
-    #[doc(hidden)]
-    #[deprecated(
-        since = "0.6.0",
-        note = "this is bundled in with `pretty`; for greater control deserialize to `toml_edit::Document` and use `toml_edit::visit_mut::VisitorMut`"
-    )]
-    pub fn pretty_array_trailing_comma(&mut self, _value: bool) -> &mut Self {
-        self
     }
 }
 
@@ -1123,25 +1084,4 @@ mod internal {
 
         Ok(())
     }
-}
-
-#[doc(hidden)]
-#[deprecated(
-    since = "0.6.0",
-    note = "`tables_last` is no longer needed; things just work"
-)]
-pub fn tables_last<'a, I, K, V, S>(data: &'a I, serializer: S) -> Result<S::Ok, S::Error>
-where
-    &'a I: IntoIterator<Item = (K, V)>,
-    K: serde::ser::Serialize,
-    V: serde::ser::Serialize,
-    S: serde::ser::Serializer,
-{
-    use serde::ser::SerializeMap;
-
-    let mut map = serializer.serialize_map(None)?;
-    for (k, v) in data {
-        map.serialize_entry(&k, &v)?;
-    }
-    map.end()
 }

@@ -91,7 +91,7 @@
 //! [Cow]: std::borrow::Cow
 
 mod strings;
-pub use strings::funcs::*;
+pub use self::strings::funcs::*;
 
 #[cfg(feature = "path")]
 pub mod path;
